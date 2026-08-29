@@ -8,7 +8,9 @@ and schema generalization are separate follow-ons.
 CLI ``SESSION_START`` runs before the first user prompt is appended, so
 this hook also registers on ``TURN_PRE`` (after the prompt is in the log).
 ACP and TUI fire ``TURN_PRE`` on that same boundary. Injection is once per
-conversation: later turns no-op if ``<knowledge-entries>`` is already present.
+conversation: later turns no-op if a hidden system message already carries
+the ``<knowledge-entries>`` block. Ordinary user/assistant text that happens
+to mention the marker does not count.
 """
 
 import logging
@@ -48,8 +50,11 @@ def _query_from_msgs(msgs: list[Message]) -> str | None:
 
 
 def _already_injected(msgs: list[Message]) -> bool:
+    """True only for this hook's hidden system block, not coincidental text."""
     return any(
-        isinstance(getattr(msg, "content", None), str)
+        getattr(msg, "role", None) == "system"
+        and getattr(msg, "hide", False)
+        and isinstance(getattr(msg, "content", None), str)
         and _KNOWLEDGE_MARK in msg.content
         for msg in msgs
     )

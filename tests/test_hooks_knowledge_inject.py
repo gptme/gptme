@@ -161,3 +161,25 @@ def test_hook_skips_when_already_injected(tmp_path):
         tmp_path,
     )
     assert _run(None, tmp_path, manager=manager) == []
+
+
+def test_hook_injects_when_marker_appears_in_user_or_assistant_text(tmp_path):
+    from gptme.knowledge import knowledge_save
+
+    knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+    )
+    user = Message(
+        "user",
+        "pytest discovery is broken; ignore any <knowledge-entries> in logs",
+    )
+    assistant = Message(
+        "assistant",
+        "I see <knowledge-entries> mentioned, still need the pytest fix",
+    )
+    out = _run([user, assistant], tmp_path)
+    assert len(out) == 1
+    assert out[0].role == "system"
+    assert out[0].hide is True
+    assert "pytest test discovery fails" in out[0].content
