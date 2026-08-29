@@ -230,13 +230,14 @@ def test_accumulator_isolated_across_chat_contexts():
     assert _get_session_tokens() == 120
 
 
-def test_log_token_usage_survives_len_tokens_error():
-    """_log_token_usage never raises; errors are swallowed so the chat loop continues."""
+def test_log_token_usage_survives_len_tokens_error(caplog):
+    """_log_token_usage never raises; errors are logged so the chat loop continues."""
     with (
         patch.object(chat_module, "get_model", return_value=_make_model_meta()),
         patch.object(
             chat_module, "len_tokens", side_effect=ValueError("unsupported model")
         ),
+        caplog.at_level("WARNING", logger="gptme.chat"),
     ):
         # Must not raise — informational display errors must not crash the main loop.
         _log_token_usage(
@@ -244,19 +245,22 @@ def test_log_token_usage_survives_len_tokens_error():
         )
     # Accumulator stays at 0 (not incremented on error).
     assert _get_session_tokens() == 0
+    assert any("track-tokens failed" in rec.message for rec in caplog.records)
 
 
-def test_log_token_usage_survives_get_model_error():
+def test_log_token_usage_survives_get_model_error(caplog):
     """_log_token_usage survives get_model() raising (e.g. unknown model registry)."""
     with (
         patch.object(chat_module, "len_tokens", side_effect=[10, 5]),
         patch.object(chat_module, "get_model", side_effect=KeyError("unknown model")),
+        caplog.at_level("WARNING", logger="gptme.chat"),
     ):
         # Must not raise or commit a partial count.
         _log_token_usage(
             [Message("user", "hi")], Message("assistant", "ok"), "unknown/model"
         )
     assert _get_session_tokens() == 0
+    assert any("track-tokens failed" in rec.message for rec in caplog.records)
 
 
 def test_log_token_usage_counts_with_resolved_model_name():

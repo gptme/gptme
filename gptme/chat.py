@@ -102,9 +102,10 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
             file=sys.stderr,
             flush=True,
         )
-    except Exception:
+    except Exception as e:
         # Informational only — never crash the main chat loop over token display.
-        pass
+        # KeyboardInterrupt/SystemExit are BaseException and still propagate.
+        logger.warning("track-tokens failed: %s", e)
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
