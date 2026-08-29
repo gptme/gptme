@@ -2413,13 +2413,13 @@ def test_show_prompt_stats_log_workspace_resolves_manifest_from_conversation_log
     )
 
 
-def test_tools_manifest_alias_log_workspace_resolves_manifest_from_logdir_workspace(
+def test_tools_manifest_alias_log_workspace_new_session_resolves_manifest_from_cwd(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """--tools aliases under @log resolve manifest from logdir/workspace, not cwd.
+    """Brand-new --tools aliases under @log resolve the manifest from cwd.
 
-    For @log sessions, workspace_path = logdir/workspace, which in resumed sessions is a
-    symlink to the original project. manifest_workspace must follow workspace_path.
+    logdir/workspace is empty scratch for a new @log session, so alias lookup
+    must use cwd — the same fallback as --tool-manifest.
     """
     fake_config = SimpleNamespace(
         chat=SimpleNamespace(
@@ -2469,9 +2469,95 @@ def test_tools_manifest_alias_log_workspace_resolves_manifest_from_logdir_worksp
 
     assert result.exit_code == 0
     assert captured["tool_allowlist"] == "code_review"
-    # manifest_workspace = workspace_path = logdir/workspace (not cwd)
-    assert captured["manifest_workspace"].name == "workspace"
+    assert captured["manifest_workspace"] == Path.cwd(), (
+        f"Expected new @log --tools alias to resolve the manifest from cwd, "
+        f"got {captured['manifest_workspace']}"
+    )
+    # Session workspace is still logdir/workspace; only manifest lookup uses cwd.
     assert str(captured["workspace"]).endswith("workspace")
+
+
+def test_tools_manifest_alias_log_workspace_resume_resolves_manifest_from_logdir_workspace(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Resumed --tools aliases under @log resolve the manifest from logdir/workspace.
+
+    In resumed sessions that directory is a symlink to the original project.
+    Using cwd broke alias resolution when the user resumed from a different directory.
+    """
+    conversation_name = f"manifest-alias-log-resume-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    conversation_ws = conversation_dir / "workspace"
+    conversation_ws.mkdir()
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{conversation_ws.resolve()}"\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=conversation_ws,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_setup_config_from_cli(**kwargs):
+        captured.update(kwargs)
+        return fake_config
+
+    monkeypatch.setattr(
+        "gptme.config.setup_config_from_cli", fake_setup_config_from_cli
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            "@log",
+            "--tools",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["tool_allowlist"] == "code_review"
+    assert captured["manifest_workspace"] == conversation_ws, (
+        f"Expected resumed @log --tools alias to resolve the manifest from "
+        f"{conversation_ws}, got {captured['manifest_workspace']}"
+    )
+    assert captured["manifest_workspace"] != Path.cwd(), (
+        f"Resumed @log --tools alias must not resolve from cwd; "
+        f"got {captured['manifest_workspace']}"
+    )
 
 
 def test_tool_manifest_unavailable_tool_falls_back_gracefully(
