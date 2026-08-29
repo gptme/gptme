@@ -49,6 +49,7 @@ def _run(initial_msgs, logdir: Path, manager=None):
 
 
 def test_hook_yields_hidden_system_message_for_matching_query(tmp_path):
+    from gptme.hooks.knowledge_inject import _INJECT_SENTINEL
     from gptme.knowledge import knowledge_save
 
     knowledge_save(
@@ -67,6 +68,7 @@ def test_hook_yields_hidden_system_message_for_matching_query(tmp_path):
     msg = out[0]
     assert msg.role == "system"
     assert msg.hide is True
+    assert msg.content.lstrip().startswith(_INJECT_SENTINEL)
     assert "<knowledge-entries>" in msg.content
     assert "pytest test discovery fails" in msg.content
     assert "prefix test function with test_" in msg.content
@@ -145,6 +147,7 @@ def test_hook_reads_user_prompt_from_manager_log(tmp_path):
 
 
 def test_hook_skips_when_already_injected(tmp_path):
+    from gptme.hooks.knowledge_inject import _INJECT_SENTINEL
     from gptme.knowledge import knowledge_save
 
     knowledge_save(
@@ -153,7 +156,7 @@ def test_hook_skips_when_already_injected(tmp_path):
     )
     prior = Message(
         "system",
-        "<knowledge-entries>\nalready injected\n</knowledge-entries>\n",
+        f"{_INJECT_SENTINEL}\n<knowledge-entries>\nalready injected\n</knowledge-entries>\n",
         hide=True,
     )
     manager = _FakeManager(
@@ -182,4 +185,32 @@ def test_hook_injects_when_marker_appears_in_user_or_assistant_text(tmp_path):
     assert len(out) == 1
     assert out[0].role == "system"
     assert out[0].hide is True
+    assert "pytest test discovery fails" in out[0].content
+
+
+def test_hook_injects_when_unrelated_hidden_system_quotes_marker(tmp_path):
+    """Replay/other hooks may persist a hidden system message quoting the tag."""
+    from gptme.hooks.knowledge_inject import _INJECT_SENTINEL
+    from gptme.knowledge import knowledge_save
+
+    knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+    )
+    quoted = Message(
+        "system",
+        "session replay quoting <knowledge-entries> from prior content",
+        hide=True,
+    )
+    mid_sentinel = Message(
+        "system",
+        f"notes mention {_INJECT_SENTINEL} but this is not an injection",
+        hide=True,
+    )
+    out = _run(
+        [quoted, mid_sentinel, Message("user", "pytest discovery is broken in CI")],
+        tmp_path,
+    )
+    assert len(out) == 1
+    assert out[0].content.lstrip().startswith(_INJECT_SENTINEL)
     assert "pytest test discovery fails" in out[0].content

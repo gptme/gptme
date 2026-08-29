@@ -8,9 +8,10 @@ and schema generalization are separate follow-ons.
 CLI ``SESSION_START`` runs before the first user prompt is appended, so
 this hook also registers on ``TURN_PRE`` (after the prompt is in the log).
 ACP and TUI fire ``TURN_PRE`` on that same boundary. Injection is once per
-conversation: later turns no-op if a hidden system message already carries
-the ``<knowledge-entries>`` block. Ordinary user/assistant text that happens
-to mention the marker does not count.
+conversation: later turns no-op if a hidden system message already starts
+with this hook's sentinel. Coincidental ``<knowledge-entries>`` text — in
+user/assistant content or in unrelated hidden system messages — does not
+count.
 """
 
 import logging
@@ -24,7 +25,10 @@ from ..message import Message
 
 logger = logging.getLogger(__name__)
 
-_KNOWLEDGE_MARK = "<knowledge-entries>"
+# Prefix of this hook's hidden system message. Dedup requires the content to
+# *start* with this sentinel so a quoted ``<knowledge-entries>`` tag in some
+# other hidden system message cannot suppress injection.
+_INJECT_SENTINEL = "<!-- gptme-knowledge-inject -->"
 
 
 def _messages_from_context(
@@ -50,14 +54,22 @@ def _query_from_msgs(msgs: list[Message]) -> str | None:
 
 
 def _already_injected(msgs: list[Message]) -> bool:
-    """True only for this hook's hidden system block, not coincidental text."""
-    return any(
-        getattr(msg, "role", None) == "system"
-        and getattr(msg, "hide", False)
-        and isinstance(getattr(msg, "content", None), str)
-        and _KNOWLEDGE_MARK in msg.content
-        for msg in msgs
-    )
+    """True only for this hook's own hidden system block.
+
+    Requires ``role=system``, ``hide=True``, and content that starts with
+    ``_INJECT_SENTINEL``. Substring matches on ``<knowledge-entries>`` are
+    not enough: replayed or unrelated hidden system messages can quote that
+    tag without this hook having injected anything.
+    """
+    for msg in msgs:
+        if getattr(msg, "role", None) != "system":
+            continue
+        if not getattr(msg, "hide", False):
+            continue
+        content = getattr(msg, "content", None)
+        if isinstance(content, str) and content.lstrip().startswith(_INJECT_SENTINEL):
+            return True
+    return False
 
 
 def inject_session_knowledge(
@@ -94,7 +106,7 @@ def inject_session_knowledge(
             logdir,
             workspace,
         )
-        yield Message("system", body, hide=True)
+        yield Message("system", f"{_INJECT_SENTINEL}\n{body}", hide=True)
     except Exception:
         logger.debug("knowledge session inject skipped", exc_info=True)
         return
