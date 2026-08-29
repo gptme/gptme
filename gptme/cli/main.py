@@ -1067,17 +1067,51 @@ def main(
         entries = manifest_allowlist.removeprefix("+").split(",")
         return {entry.strip() for entry in entries if entry.strip()}
 
+    def _expanded_tool_names(names: list[str]) -> list[str]:
+        """Expand a lone builtin preset into its concrete tool names.
+
+        ``init_tools`` expands presets internally, but availability probes and
+        fallback filters operate on literal names. A lone ``read-only``
+        allowlist would otherwise be treated as a missing tool named
+        ``read-only``.
+        """
+        from ..tools import expand_tool_allowlist_presets
+
+        if not names:
+            return names
+        try:
+            expanded = expand_tool_allowlist_presets(names)
+        except ValueError:
+            return names
+        return expanded if expanded is not None else names
+
     def _unavailable_manifest_tools(manifest_allowlist: str | None) -> set[str]:
         """Return manifest tools that discovery reports as unavailable."""
         from ..tools import get_available_tools, matching_allowlist_tools
 
         available = get_available_tools()
         unavailable: set[str] = set()
-        for tool_name in _manifest_tool_names(manifest_allowlist):
+        for tool_name in _expanded_tool_names(
+            list(_manifest_tool_names(manifest_allowlist))
+        ):
             matched = matching_allowlist_tools(tool_name, available)
             if not matched or not any(tool.is_available for tool in matched):
                 unavailable.add(tool_name)
         return unavailable
+
+    def _fallback_tools_excluding_unavailable(
+        config_tools: list[str] | None, manifest_allowlist: str | None
+    ) -> list[str]:
+        """Drop unavailable manifest entries, expanding presets first.
+
+        The config-setup fallback (``_manifest_fallback_allowlist``) already
+        expands presets. The ``init_tools`` fallback must do the same so a
+        lone ``builtin_tools: ["read-only"]`` manifest keeps the preset's
+        available members instead of treating the preset name as a missing tool.
+        """
+        current = _expanded_tool_names(list(config_tools or []))
+        unavailable = _unavailable_manifest_tools(manifest_allowlist)
+        return [tool for tool in current if tool not in unavailable]
 
     def _manifest_fallback_allowlist(
         manifest_allowlist: str | None, pre_manifest_allowlist: str | None
@@ -1521,11 +1555,9 @@ def main(
                             " skipping for prompt stats.",
                             tool_name,
                         )
-                    fallback_stats_tools = [
-                        tool
-                        for tool in (config.chat.tools or [])
-                        if tool not in unavailable
-                    ]
+                    fallback_stats_tools = _fallback_tools_excluding_unavailable(
+                        config.chat.tools, stats_tool_allowlist_str
+                    )
                     try:
                         tools = init_tools(fallback_stats_tools)
                         config.chat.tools = fallback_stats_tools
@@ -1749,7 +1781,9 @@ def main(
             and not setup_fallback_ran
         ):
             # Remove only unavailable manifest tools, keeping working MCP tools
-            # and any curated built-ins in the session.
+            # and any curated built-ins in the session. Expand presets first so
+            # a lone ``read-only`` allowlist is filtered as ``read``, not as a
+            # missing tool named ``read-only``.
             unavailable_manifest_tools = _unavailable_manifest_tools(tool_allowlist_str)
             for tool_name in unavailable_manifest_tools:
                 logger.warning(
@@ -1757,11 +1791,9 @@ def main(
                     " skipping for this session.",
                     tool_name,
                 )
-            fallback_tools = [
-                tool
-                for tool in (config.chat.tools or [])
-                if tool not in unavailable_manifest_tools
-            ]
+            fallback_tools = _fallback_tools_excluding_unavailable(
+                config.chat.tools, tool_allowlist_str
+            )
             try:
                 tools = init_tools(fallback_tools)
                 # Keep config in sync so chat() → init() → init_tools() uses

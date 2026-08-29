@@ -2090,6 +2090,77 @@ def test_tool_manifest_lone_preset_preserves_exclusive_boundary(
     assert seen["tool_allowlist"] == "read-only"
 
 
+def test_tool_manifest_lone_preset_init_fallback_keeps_available_preset_tools(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """init_tools fallback expands a lone preset instead of dropping it.
+
+    apply_tool_manifest returns the unexpanded ``read-only`` name so the
+    exclusive boundary is preserved. If init_tools then raises, the fallback
+    must expand that preset and keep its available members — not treat
+    ``read-only`` as a missing tool and start with an empty allowlist.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":[],"builtin_tools":["read-only"]}\n',
+        encoding="utf-8",
+    )
+    fake_chat = SimpleNamespace(
+        agent_config=None,
+        tools=["read-only"],
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        no_confirm=True,
+        agent=None,
+        gear=None,
+        save=lambda: None,
+    )
+    fake_config = SimpleNamespace(chat=fake_chat, project=None)
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(list(tools or []))
+        if tools and "read-only" in tools:
+            raise ToolAllowlistError("Tool 'read-only' not found")
+        return list(tools or [])
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [SimpleNamespace(name="read", is_available=True)],
+    )
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(init_calls) == 2
+    assert init_calls[0] == ["read-only"]
+    assert init_calls[1] == ["read"]
+    assert fake_config.chat.tools == ["read"]
+
+
 def test_tool_manifest_log_workspace_new_session_resolves_manifest_from_cwd(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
