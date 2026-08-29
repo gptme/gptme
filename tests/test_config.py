@@ -2491,6 +2491,24 @@ def test_resolve_manifest_aliases_passes_through_dotted_mcp_name(tmp_path: Path)
     )
 
 
+def test_resolve_manifest_aliases_preset_plus_mcp_alias_and_direct_mcp(
+    tmp_path: Path,
+):
+    """A preset may combine with an MCP-only alias and a direct MCP tool."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("read-only,research,github.search_code", tmp_path)
+        == "read-only,search.query,github.search_code"
+    )
+
+
 def test_resolve_manifest_aliases_does_not_shadow_tool_file_path(tmp_path: Path):
     """A custom tool file path is never resolved as a workspace manifest alias."""
     tool_file = tmp_path / "review.py"
@@ -3002,6 +3020,33 @@ def test_additive_builtin_tools_preset_alias_setup_succeeds(tmp_path: Path):
     assert "read-only" not in config.chat.tools
     assert "read" in config.chat.tools
     assert "analysis.run" in config.chat.tools
+
+
+def test_empty_saved_tools_do_not_inherit_env_preset(tmp_path: Path, monkeypatch):
+    """A resumed empty tools list is explicit, not an unset fallback to env.
+
+    Truthiness treated ``tools = []`` as missing, so GPTME_TOOL_ALLOWLIST=read-only
+    made configured_base_is_preset True and non-interactive mode skipped
+    injecting ``complete``.
+    """
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "config.toml").touch()
+    resumed_config = ChatConfig(_logdir=logdir, tools=[])
+
+    monkeypatch.setattr(ChatConfig, "from_logdir", lambda _logdir: resumed_config)
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=logdir,
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "complete" in config.chat.tools
+    assert config.chat.tools != ["read-only"]
+    assert "read-only" not in config.chat.tools
 
 
 def test_additive_preset_alias_on_configured_preset_keeps_noninteractive_boundary(

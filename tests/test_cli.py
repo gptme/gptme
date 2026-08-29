@@ -3706,6 +3706,63 @@ def test_tools_unavailable_builtin_is_not_shadowed_by_manifest(
     assert setup_calls == ["read"]
 
 
+def test_tools_unavailable_preset_is_not_shadowed_by_manifest(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback must not treat a preset name as a workspace manifest alias.
+
+    If a built-in is unavailable, the fallback loop used to miss TOOL_PRESETS
+    and resolve ``--tools read-only`` through a same-named workspace record,
+    replacing the exclusive boundary with whatever MCP tools the manifest
+    listed.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read-only","builtin_tools":["shell"],'
+        '"tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'read' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [SimpleNamespace(name="read", is_available=False)],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "read-only",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert isinstance(result.exception, ToolAllowlistError)
+    assert str(result.exception) == "Tool 'read' is unavailable"
+    assert setup_calls == ["read-only"]
+    assert all(
+        call is None or "evil.exec" not in call and "shell" not in call.split(",")
+        for call in setup_calls
+    )
+
+
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "  " should also be caught at parse time, same as empty string.
     result = runner.invoke(

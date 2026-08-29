@@ -191,7 +191,15 @@ def _resolve_manifest_aliases(
 
     presets = [tool for tool in non_alias_tools if tool in TOOL_PRESETS]
     if presets:
-        if additive or len(non_alias_tools) != 1:
+        # Direct MCP names are additive and sit outside the preset's builtin
+        # boundary, same as MCP-only aliases. Count only leftover built-ins
+        # when deciding whether the exclusive preset can coexist.
+        extra_builtins = [
+            tool
+            for tool in non_alias_tools
+            if tool not in TOOL_PRESETS and not _is_mcp_tool_name(tool)
+        ]
+        if additive or extra_builtins:
             preset_list = ", ".join(presets)
             raise ValueError(
                 f"Tool preset(s) {preset_list} cannot be combined with other tools"
@@ -203,7 +211,8 @@ def _resolve_manifest_aliases(
         # would silently add 'complete' to the allowlist (F2 security fix).
         # Expansion to concrete tools happens later in get_toolchain() via
         # expand_tool_allowlist_presets(), same as the non-MCP path.
-        return ",".join([presets[0], *manifest_aliases])
+        direct_mcp = [tool for tool in non_alias_tools if _is_mcp_tool_name(tool)]
+        return ",".join([presets[0], *manifest_aliases, *direct_mcp])
 
     return "+" + ",".join([*manifest_aliases, *non_alias_tools])
 
@@ -543,8 +552,9 @@ def setup_config_from_cli(
                     resolved_tool_allowlist.append(tool)
         else:
             resolved_tool_allowlist = list(gear_tool_allowlist)
-    elif existing_chat_config and existing_chat_config.tools:
-        # When resuming, use saved conversation tools unless CLI override provided
+    elif existing_chat_config and existing_chat_config.tools is not None:
+        # When resuming, use saved conversation tools unless CLI override provided.
+        # An empty list is an explicit "no tools" choice, not an unset value.
         resolved_tool_allowlist = existing_chat_config.tools
     elif tools_env := config.get_env("TOOL_ALLOWLIST"):
         # Fall back to env/config for new conversations or when no saved tools
@@ -583,7 +593,7 @@ def setup_config_from_cli(
     )
     configured_base_tools = (
         existing_chat_config.tools
-        if existing_chat_config and existing_chat_config.tools
+        if existing_chat_config and existing_chat_config.tools is not None
         else (
             [tool.strip() for tool in tools_env.split(",") if tool.strip()]
             if (tools_env := config.get_env("TOOL_ALLOWLIST"))

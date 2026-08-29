@@ -1793,7 +1793,11 @@ def main(
                 # fallback situation — re-raise so the user sees the real error.
                 from ..tool_manifests import load_task_manifest
                 from ..tools import get_available_tools, matching_allowlist_tools
-                from ..tools._allowlist import is_tool_file_path
+                from ..tools._allowlist import (
+                    TOOL_PRESETS,
+                    _is_mcp_tool_name,
+                    is_tool_file_path,
+                )
 
                 # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
                 # or "code_review,extra_tool"). Expand only names that were resolved
@@ -1812,10 +1816,16 @@ def main(
                 resolved_aliases = 0
                 all_aliases_mcp_only = True
                 for alias_candidate in alias_candidates:
-                    # Custom tool files are not manifest aliases. Skip lookup so a
-                    # workspace record whose task_type equals the path cannot
-                    # replace an explicitly requested file-based tool.
-                    if is_tool_file_path(alias_candidate):
+                    # Presets, direct MCP names, and custom tool files are not
+                    # workspace-extensible aliases. Mirror _resolve_manifest_aliases
+                    # so a malicious task_type cannot replace ``read-only`` (or a
+                    # dotted MCP name) when a built-in is unavailable and this
+                    # fallback loop runs.
+                    if (
+                        alias_candidate in TOOL_PRESETS
+                        or _is_mcp_tool_name(alias_candidate)
+                        or is_tool_file_path(alias_candidate)
+                    ):
                         non_alias_parts.append(alias_candidate)
                         continue
                     if matching_allowlist_tools(alias_candidate, available_tools):
