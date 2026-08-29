@@ -38,10 +38,16 @@ def _messages_from_context(
     manager: Any,
 ) -> list[Message]:
     if manager is not None:
+        # LogManager.log is a Log with .messages. Also accept a Log passed as
+        # manager, or a plain list if a caller copied the log for a step.
         log = getattr(manager, "log", manager)
-        msgs = getattr(log, "messages", None)
-        if msgs:
-            return list(msgs)
+        if isinstance(log, list):
+            if log:
+                return list(log)
+        else:
+            msgs = getattr(log, "messages", None)
+            if msgs:
+                return list(msgs)
     return list(initial_msgs or [])
 
 

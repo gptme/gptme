@@ -146,6 +146,47 @@ def test_hook_reads_user_prompt_from_manager_log(tmp_path):
     assert "pytest test discovery fails" in out[0].content
 
 
+def test_hook_reads_user_prompt_from_real_log(tmp_path):
+    """Production shape: LogManager.log is a Log with .messages."""
+    from gptme.knowledge import knowledge_save
+    from gptme.logmanager import Log
+
+    knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+    )
+
+    class _Mgr:
+        def __init__(self):
+            self.log = Log([Message("user", "pytest discovery is broken in CI")])
+            self.logdir = tmp_path
+            self.workspace = None
+
+    out = _run([], tmp_path, manager=_Mgr())
+    assert len(out) == 1
+    assert "pytest test discovery fails" in out[0].content
+
+
+def test_hook_reads_user_prompt_from_list_log(tmp_path):
+    """ACP's step loop copies log.log into a list; accept that shape too."""
+    from gptme.knowledge import knowledge_save
+
+    knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+    )
+
+    class _Mgr:
+        def __init__(self):
+            self.log = [Message("user", "pytest discovery is broken in CI")]
+            self.logdir = tmp_path
+            self.workspace = None
+
+    out = _run([], tmp_path, manager=_Mgr())
+    assert len(out) == 1
+    assert "pytest test discovery fails" in out[0].content
+
+
 def test_hook_skips_when_already_injected(tmp_path):
     from gptme.hooks.knowledge_inject import _INJECT_SENTINEL
     from gptme.knowledge import knowledge_save
