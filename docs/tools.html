@@ -726,19 +726,20 @@ These programs are available, among others:
 
 <span class="gu">### When to use the shell</span>
 
-Use the shell when you need to inspect the workspace, search or examine files,
-check git state, or run existing commands and tests. Prefer the shell over
-answering from memory when the repo can tell you the answer directly.
+Use the shell to inspect the workspace, search files, check git state, or run
+existing commands and tests. Prefer the repo over answering from memory.
 
 <span class="gu">### Background Jobs</span>
 
-For long-running commands (dev servers, builds, etc.), use background jobs:
-<span class="k">-</span><span class="w"> </span><span class="sb">`bg &lt;command&gt;`</span> - Start command in background, returns job ID
-<span class="k">-</span><span class="w"> </span><span class="sb">`jobs`</span> - List all background jobs with status
-<span class="k">-</span><span class="w"> </span><span class="sb">`output &lt;id&gt;`</span> - Show accumulated output from a job
-<span class="k">-</span><span class="w"> </span><span class="sb">`kill &lt;id&gt;`</span> - Terminate a background job
+For long-running commands (dev servers, builds):
+<span class="k">-</span><span class="w"> </span><span class="sb">`bg &lt;command&gt;`</span> - start, returns job ID
+<span class="k">-</span><span class="w"> </span><span class="sb">`jobs`</span> - list jobs
+<span class="k">-</span><span class="w"> </span><span class="sb">`output &lt;id&gt;`</span> - accumulated output
+<span class="k">-</span><span class="w"> </span><span class="sb">`output &lt;id&gt; --new`</span> - unread output only; poll while waiting for a log line
+<span class="k">-</span><span class="w"> </span><span class="sb">`wait &lt;id&gt; [timeout]`</span> - wait for completion; timeout leaves the job running
+<span class="k">-</span><span class="w"> </span><span class="sb">`kill &lt;id&gt;`</span> - terminate
 
-This prevents blocking on commands like <span class="sb">`npm run dev`</span> that run indefinitely.
+Avoids blocking on commands like <span class="sb">`npm run dev`</span> that run indefinitely.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -903,6 +904,7 @@ Scaffolding project in ./fancy-project...
 > Use these commands to manage it:
 > - `jobs` - List all background jobs
 > - `output 1` - Show output from job #1
+> - `wait 1 60s` - Wait up to 60 seconds for job #1
 > - `kill 1` - Terminate job #1</pre>
   </td>
 </tr>
