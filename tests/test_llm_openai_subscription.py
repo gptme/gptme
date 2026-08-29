@@ -644,6 +644,28 @@ def test_codex_session_id_differs_across_models_in_same_conversation():
     assert model_a != model_b
 
 
+def test_codex_session_id_same_for_equivalent_default_and_explicit_medium():
+    """Default effort and explicit :medium are the same Codex request.
+
+    Hashing the raw model spelling would split cache affinity between
+    gpt-5.6-sol and gpt-5.6-sol:medium even though both become
+    (model=gpt-5.6-sol, effort=medium). :high must still differ.
+    """
+    token = current_conversation_id.set("conv-stable-a")
+    try:
+        default = llm_openai_subscription._codex_session_id("gpt-5.6-sol")
+        explicit_medium = llm_openai_subscription._codex_session_id(
+            "gpt-5.6-sol:medium"
+        )
+        high = llm_openai_subscription._codex_session_id("gpt-5.6-sol:high")
+    finally:
+        current_conversation_id.reset(token)
+
+    assert default == explicit_medium
+    assert default != high
+    UUID(default)
+
+
 def test_codex_session_id_uses_telemetry_conversation_when_server_unset():
     set_conversation_context(conversation_id="cli-logdir-name")
     try:
