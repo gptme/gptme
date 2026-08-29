@@ -279,7 +279,7 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
 # (browser, embeddings, context fetchers). Interactive recovery only kicks in
 # when the exception was tagged at the actual provider call inside `reply()`,
 # after those hooks have already run. See https://github.com/gptme/gptme/issues/3668
-_PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx"})
+_PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx", "requests"})
 _LLM_REPLY_ORIGIN_ATTR = "_gptme_from_llm_reply"
 
 
@@ -295,8 +295,10 @@ def mark_llm_reply_origin(exc: BaseException) -> None:
 def is_provider_error(e: BaseException) -> bool:
     """Whether an exception is a recoverable LLM provider/transport failure.
 
-    Requires the ``_gptme_from_llm_reply`` tag so untagged openai/anthropic/httpx
+    Requires the ``_gptme_from_llm_reply`` tag so untagged openai/anthropic/httpx/requests
     errors from tools or hooks still propagate. See gptme/gptme#3668.
+    ``requests`` covers openai-subscription (and similar HTTP backends) which do
+    not raise SDK types.
     """
     if not getattr(e, _LLM_REPLY_ORIGIN_ATTR, False):
         return False

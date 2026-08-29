@@ -545,9 +545,13 @@ def _should_prompt_for_input(log: Log) -> bool:
     for msg in reversed(log):
         if msg.role in ("assistant", "user"):
             break
-        if msg.role == "system" and (
-            msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
-            or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+        if (
+            msg.role == "system"
+            and not msg.call_id
+            and (
+                msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
+                or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+            )
         ):
             has_recent_return_to_prompt = True
             break

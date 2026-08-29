@@ -125,6 +125,20 @@ def test_is_provider_error_requires_reply_origin_tag():
     mark_llm_reply_origin(bug)
     assert not is_provider_error(bug)
 
+    # openai-subscription / grok-subscription talk HTTP via `requests`, not the
+    # OpenAI SDK. Tagged requests errors must recover; untagged ones must not
+    # (a tool using `requests` is still a tool bug).
+    import requests
+
+    tagged_http = requests.HTTPError("Codex API error 429: usage_limit_reached")
+    assert not is_provider_error(tagged_http)
+    mark_llm_reply_origin(tagged_http)
+    assert is_provider_error(tagged_http)
+
+    tagged_timeout = requests.exceptions.Timeout("read timeout")
+    mark_llm_reply_origin(tagged_timeout)
+    assert is_provider_error(tagged_timeout)
+
 
 def test_reply_does_not_tag_generation_pre_hook_errors(monkeypatch):
     """httpx from GENERATION_PRE must not look like a recoverable LLM failure."""

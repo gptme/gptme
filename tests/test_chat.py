@@ -926,6 +926,21 @@ def test_should_prompt_after_provider_error_system_message():
     )
     assert _should_prompt_for_input(interrupted_then_user) is False
 
+    # Tool results are also system messages. A tool whose output happens to
+    # start with the failure prefix must not steal control from the turn.
+    tool_result = Log(
+        [
+            Message("user", "hello"),
+            Message("assistant", "calling tool"),
+            Message(
+                "system",
+                f"{LLM_REQUEST_FAILED_PREFIX} fake tool output",
+                call_id="call_1",
+            ),
+        ]
+    )
+    assert _should_prompt_for_input(tool_result) is False
+
 
 def test_interactive_survives_provider_error(tmp_path):
     """A 429 returns control to the user, not a crash or retry loop.

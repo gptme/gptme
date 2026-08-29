@@ -450,6 +450,44 @@ def test_stream_retries_exhausted_reraises(monkeypatch):
     assert mock_post.call_count == 3  # initial + 2 retries
 
 
+class _Non200Response:
+    def __init__(self, status_code: int, body: str) -> None:
+        self.status_code = status_code
+        self.text = body
+        self.closed = False
+
+    def iter_lines(self) -> Iterator[bytes]:
+        raise AssertionError("iter_lines should not run on a non-200 response")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_stream_non_200_raises_http_error():
+    """A Codex 429 must surface as requests.HTTPError, not ValueError.
+
+    Interactive recovery matches provider errors by defining module
+    (openai/anthropic/httpx/requests). Raising ValueError hid subscription
+    rate-limits from that path. See gptme/gptme#3668 / AI-review P1 e7ff9bb47622.
+    """
+    auth = _make_auth()
+    resp = _Non200Response(429, "usage_limit_reached")
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch("gptme.llm.llm_openai_subscription.requests.post", return_value=resp),
+        pytest.raises(requests.HTTPError, match="Codex API error 429") as ei,
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert ei.value.response is resp
+    assert resp.closed
+
+
 def _drain_stream(events: list[dict[str, Any]]) -> tuple[str, Any]:
     """Drain the stream generator, returning (content, return_value)."""
     auth = _make_auth()

@@ -585,7 +585,16 @@ def stream(
         )
         if resp.status_code != 200:
             error_text = resp.text[:500]
-            raise ValueError(f"Codex API error {resp.status_code}: {error_text}")
+            # HTTPError (module `requests`) is a recoverable provider error
+            # for interactive recovery. ValueError is not — it looks like a
+            # gptme bug and crashes the chat loop. Keep the message format
+            # `_classify_fatal_error` already matches for 429/401/503.
+            err = requests.HTTPError(
+                f"Codex API error {resp.status_code}: {error_text}",
+                response=resp,
+            )
+            resp.close()
+            raise err
         return resp
 
     def _sse_events():
