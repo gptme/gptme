@@ -277,3 +277,24 @@ def test_log_token_usage_counts_with_resolved_model_name():
     assert mock_len.call_args_list[0].args[1] == "openai/gpt-4o"
     assert mock_len.call_args_list[1].args[1] == "openai/gpt-4o"
     assert _get_session_tokens() == 15
+
+
+def test_log_token_usage_before_chat_when_accumulator_unset(capsys):
+    """Architect logs before chat() starts, when the ContextVar is still None."""
+    meta = _make_model_meta(context=10_000)
+    chat_module._session_tokens.set(None)
+
+    with (
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[80, 20]),
+    ):
+        _log_token_usage(
+            [Message("system", "plan"), Message("user", "do the thing")],
+            Message("assistant", "step 1 then step 2"),
+            "mock/gpt-mock",
+        )
+
+    err = capsys.readouterr().err
+    assert "[track-tokens]" in err
+    assert "session total: 100" in err
+    assert _get_session_tokens() == 100
