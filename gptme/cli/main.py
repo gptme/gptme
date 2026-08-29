@@ -1113,7 +1113,7 @@ def main(
 
     # Everything below is an actual chat session: import the heavy parts of
     # gptme now, after the cheap early-exit paths (--help/--version/dispatch).
-    from ..chat import chat
+    from ..chat import _log_token_usage, chat
     from ..config import ensure_workspace_dir, get_config, setup_config_from_cli
     from ..init import init_logging
     from ..llm import get_provider_from_model, is_custom_provider
@@ -1610,6 +1610,12 @@ def main(
             tools=None,  # architect has no tools (planning only)
             workspace=workspace_path,
         )
+        # Architect calls llm_reply outside chat()/step(), so the per-step
+        # track-tokens hook never sees this turn. Log it here when enabled.
+        # chat() then resets the accumulator for the editor session — the
+        # planning context is a different window/model, not editor occupancy.
+        if get_config().get_env_bool("GPTME_TRACK_TOKENS"):
+            _log_token_usage(architect_msgs, architect_response, _arch_model)
 
         plan_text = architect_response.content.strip()
         logger.info("Architect plan generated (%d chars)", len(plan_text))
