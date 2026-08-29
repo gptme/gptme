@@ -752,10 +752,12 @@ ship no static registry entries at all, so there is nothing to stamp; they get
 the same <code class="docutils literal notranslate"><span class="pre">tool</span></code> default applied at resolution time instead, including on
 dynamic-fetch fallbacks.</p>
 </li>
-<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on 56 entries: the Claude Opus/Sonnet
+<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on 51 entries: the Claude Opus/Sonnet
 4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5
-families, all bundled Gemini models (and the OpenRouter Gemini 3.5 Flash
-alias), xAI Grok (including <code class="docutils literal notranslate"><span class="pre">grok-subscription</span></code>), Groq’s
+families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
+lite and experimental Gemini variants are excluded via
+<code class="docutils literal notranslate"><span class="pre">PARALLEL_TOOL_CALL_EXCEPTIONS</span></code>), xAI Grok (excluding the older
+<code class="docutils literal notranslate"><span class="pre">grok-2-vision-1212</span></code>; including <code class="docutils literal notranslate"><span class="pre">grok-subscription</span></code>), Groq’s
 <code class="docutils literal notranslate"><span class="pre">llama-3.3-70b-versatile</span></code>, DeepSeek chat/reasoner, and the OpenRouter
 DeepSeek V4 aliases. Deliberate omissions are meaningful: Claude Haiku 4.5
 carries an explicit comment that it does <em>not</em> emit multiple tool calls per
