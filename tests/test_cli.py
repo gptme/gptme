@@ -2028,14 +2028,76 @@ def test_tool_manifest_wires_allowlist_into_config(
     assert seen["tool_allowlist"] == "+github.search_code,time.get_current_time"
 
 
-def test_tool_manifest_log_workspace_resolves_manifest_from_logdir_workspace(
+def test_tool_manifest_lone_preset_preserves_exclusive_boundary(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """--workspace @log resolves manifests from logdir/workspace, not cwd.
+    """A builtin_tools-only preset stays unexpanded so non-interactive mode
+    does not auto-append 'complete' (the same exclusive-boundary behaviour as
+    ``--tools read-only``).
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":[],"builtin_tools":["read-only"]}\n',
+        encoding="utf-8",
+    )
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read-only"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    seen: dict[str, Any] = {}
 
-    Using cwd broke manifest resolution when the user resumed from a different
-    directory (cwd != project root). workspace_path = logdir/workspace is correct
-    because in resumed sessions it is a symlink to the original project directory.
+    def fake_setup_config_from_cli(**kwargs):
+        seen.update(kwargs)
+        return fake_config
+
+    monkeypatch.setattr(
+        "gptme.config.setup_config_from_cli", fake_setup_config_from_cli
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tool-manifest",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen["tool_allowlist"] == "read-only"
+
+
+def test_tool_manifest_log_workspace_new_session_resolves_manifest_from_cwd(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A brand-new --workspace @log session resolves manifests from cwd.
+
+    logdir/workspace is a freshly created empty scratch directory, so looking
+    there would miss the user's project manifest. The stats path already falls
+    back to cwd when no conversation logdir exists; the main path must match.
     """
     from gptme.tool_manifests import TaskToolManifest
 
@@ -2092,19 +2154,100 @@ def test_tool_manifest_log_workspace_resolves_manifest_from_logdir_workspace(
     )
 
     assert result.exit_code == 0
-    # manifest_workspace must be logdir/workspace (name == "workspace"), not cwd.
-    # Using cwd broke manifest resolution when a user resumed from a different
-    # directory. workspace_path = logdir/workspace is correct because in resumed
-    # sessions it is a symlink to the original project directory.
     assert captured_workspace, "load_task_manifest was never called"
-    assert captured_workspace[-1].name == "workspace", (
-        f"Expected manifest resolved from logdir/workspace, got {captured_workspace[-1]}"
+    assert captured_workspace[-1] == Path.cwd(), (
+        f"Expected new @log session to resolve the manifest from cwd, "
+        f"got {captured_workspace[-1]}"
     )
-    # Negative check: must not be the cwd — even if cwd happens to be named
-    # "workspace" the above assertion alone would not distinguish logdir/workspace
-    # from cwd.
+
+
+def test_tool_manifest_log_workspace_resume_resolves_manifest_from_logdir_workspace(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Resumed --workspace @log sessions resolve manifests from logdir/workspace.
+
+    In resumed sessions that directory is a symlink to the original project.
+    Using cwd broke resolution when the user resumed from a different directory.
+    """
+    from gptme.tool_manifests import TaskToolManifest
+
+    captured_workspace: list[Path] = []
+
+    def fake_load_task_manifest(task_type, workspace, manifest_path=None):
+        captured_workspace.append(workspace)
+        return TaskToolManifest(
+            task_type=task_type,
+            tool_names=("github.search_code",),
+            path=workspace / "state" / "task-manifests.jsonl",
+        )
+
+    conversation_name = f"manifest-log-resume-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    conversation_ws = conversation_dir / "workspace"
+    conversation_ws.mkdir()
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{conversation_ws.resolve()}"\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=conversation_ws,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest", fake_load_task_manifest
+    )
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            "@log",
+            "--tool-manifest",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured_workspace, "load_task_manifest was never called"
+    assert captured_workspace[-1] == conversation_ws, (
+        f"Expected resumed @log session to resolve the manifest from "
+        f"{conversation_ws}, got {captured_workspace[-1]}"
+    )
     assert captured_workspace[-1] != Path.cwd(), (
-        f"Manifest workspace must not be cwd; got {captured_workspace[-1]}"
+        f"Resumed @log manifest workspace must not be cwd; got {captured_workspace[-1]}"
     )
 
 

@@ -1190,6 +1190,7 @@ def main(
         )
         if manifest.builtin_tools:
             from ..tools import expand_tool_allowlist_presets
+            from ..tools._allowlist import TOOL_PRESETS
 
             # Explicit allowlist: built-in tools + MCP tools (no additive prefix).
             # Expand a named preset before adding MCP tools because presets are
@@ -1201,6 +1202,15 @@ def main(
             except ValueError as e:
                 raise click.UsageError(str(e)) from e
             assert builtin_tools is not None
+            # A lone preset with no MCP tools must stay unexpanded so
+            # setup_config_from_cli still treats it as an exclusive boundary
+            # (non-interactive mode must not auto-append 'complete').
+            if (
+                not manifest.tool_names
+                and len(manifest.builtin_tools) == 1
+                and manifest.builtin_tools[0] in TOOL_PRESETS
+            ):
+                return manifest.builtin_tools[0]
             return ",".join((*builtin_tools, *manifest.tool_names))
         # Additive prefix: MCP tools are ADDED to the full default built-in set
         # (a bare list would drop read/shell/save/etc. — the '+' preserves them)
@@ -1626,15 +1636,33 @@ def main(
         workspace_path = logdir / "workspace"
         assert workspace_path  # mypy not smart enough to see its not None
         ensure_workspace_dir(workspace_path)
+        # Resumed @log sessions: logdir/workspace is the original project
+        # (often a symlink); cwd may be unrelated, so resolve the manifest
+        # there. Brand-new @log sessions: that directory is an empty scratch
+        # folder, so load the user's project manifest from cwd — matching the
+        # stats path's fallback when conversation_logdir is None.
+        from ..tool_manifests import DEFAULT_TOOL_MANIFEST_PATH, TOOL_MANIFEST_PATH_ENV
+
+        env_manifest = os.environ.get(TOOL_MANIFEST_PATH_ENV)
+        manifest_rel = (
+            Path(env_manifest) if env_manifest else DEFAULT_TOOL_MANIFEST_PATH
+        )
+        workspace_manifest = (
+            manifest_rel
+            if manifest_rel.is_absolute()
+            else workspace_path / manifest_rel
+        )
+        if (
+            logdir_preexisting
+            or workspace_path.is_symlink()
+            or workspace_manifest.exists()
+        ):
+            manifest_workspace = workspace_path
+        else:
+            manifest_workspace = Path.cwd()
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
-
-    # Setup complete configuration from CLI arguments and workspace
-    # Use workspace_path directly for manifest resolution. For --workspace @log,
-    # workspace_path = logdir/workspace, which in resumed sessions is a symlink to
-    # the original project. Using Path.cwd() broke manifest resolution when the user
-    # resumed from a different directory (cwd != project root).
-    manifest_workspace = workspace_path
+        manifest_workspace = workspace_path
     pre_manifest_allowlist = (
         tool_allowlist_str  # save before apply_tool_manifest overwrites
     )
