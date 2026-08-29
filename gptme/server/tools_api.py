@@ -326,6 +326,8 @@ def query_tools():
         }
     """
     body = flask.request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return flask.jsonify({"error": "Request body must be a JSON object"}), 400
     try:
         query = ToolQueryRequest(**body)
     except ValidationError as e:

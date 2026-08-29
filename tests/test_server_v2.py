@@ -1241,6 +1241,24 @@ def test_v2_steer_external_session_missing_message(
     assert response2.status_code == 400
 
 
+@pytest.mark.parametrize("body", [[1, 2, 3], "just-a-string", 42, True])
+def test_v2_steer_external_session_non_dict_body_returns_400(client: FlaskClient, body):
+    """A non-dict JSON body must 400, not 500.
+
+    Regression: ``body.get("message")`` raised ``AttributeError`` on a
+    non-mapping body, which surfaced as a Flask 500.
+    """
+    response = client.post(
+        "/api/v2/external-sessions/abc123/steer",
+        data=json.dumps(body),
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert data["error"] == "Request body must be a JSON object"
+
+
 def test_v2_steer_external_session_not_found(
     client: FlaskClient, fake_steerable_provider
 ):

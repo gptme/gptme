@@ -1190,6 +1190,8 @@ def api_steer_external_session(external_session_id: str):
     steer implementation (gptme-sessions steer) is not available.
     """
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return flask.jsonify({"error": "Request body must be a JSON object"}), 400
     message = (body.get("message") or "").strip()
     if not message:
         return flask.jsonify({"error": "message is required"}), 400
