@@ -45,6 +45,10 @@ def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | No
     presets = [item for item in allowlist if item in TOOL_PRESETS]
     if not presets:
         return allowlist
+    if len(presets) > 1:
+        raise ValueError(
+            f"Tool preset(s) {', '.join(presets)} cannot be combined with other tools"
+        )
     if len(allowlist) != 1:
         # MCP dotted names may accompany a preset: they are purely additive and
         # do not widen the builtin capability boundary.
