@@ -308,7 +308,9 @@ class PDFToImageConverter(Converter):
                             lossy=dest_ext in ("jpg", "jpeg"),
                         )
                 # tmpdir cleanup handles any partial page files automatically
-            logger.warning("pdftoppm failed: %s", result.stderr.decode())
+            logger.warning(
+                "pdftoppm failed: %s", result.stderr.decode(errors="replace")
+            )
             warnings.append("pdftoppm failed; falling back to ImageMagick")
 
         if avail.imagemagick:
@@ -334,7 +336,7 @@ class PDFToImageConverter(Converter):
                 success=False,
                 output_path=None,
                 converter_used="imagemagick",
-                error=result.stderr.decode()[:300],
+                error=result.stderr.decode(errors="replace")[:300],
                 warnings=warnings,
             )
 
@@ -418,7 +420,8 @@ class ImageConverter(Converter):
                     lossy=lossy,
                 )
             logger.warning(
-                "ffmpeg image convert failed: %s", result.stderr.decode()[-200:]
+                "ffmpeg image convert failed: %s",
+                result.stderr.decode(errors="replace")[-200:],
             )
 
         if avail.imagemagick:
@@ -438,7 +441,7 @@ class ImageConverter(Converter):
                 success=False,
                 output_path=None,
                 converter_used="imagemagick",
-                error=result.stderr.decode()[:300],
+                error=result.stderr.decode(errors="replace")[:300],
             )
 
         return ConversionResult(
@@ -523,7 +526,7 @@ class PDFToTextConverter(Converter):
                 success=False,
                 output_path=None,
                 converter_used="pdftotext",
-                error=result.stderr.decode()[:300],
+                error=result.stderr.decode(errors="replace")[:300],
                 warnings=warnings,
             )
 
@@ -638,7 +641,9 @@ class DocumentToTextConverter(Converter):
                             converter_used="libreoffice",
                             warnings=warnings,
                         )
-                warnings.append(f"libreoffice failed: {result.stderr.decode()[:200]}")
+                warnings.append(
+                    f"libreoffice failed: {result.stderr.decode(errors='replace')[:200]}"
+                )
 
         if (
             avail.python_docx
@@ -726,7 +731,7 @@ class VideoThumbnailConverter(Converter):
             success=False,
             output_path=None,
             converter_used="ffmpeg",
-            error=result.stderr.decode()[-300:],
+            error=result.stderr.decode(errors="replace")[-300:],
         )
 
 

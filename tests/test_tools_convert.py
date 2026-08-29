@@ -306,6 +306,40 @@ class TestPDFToImageConverter:
         assert result.error is not None
         assert "directory" in result.error.lower()
 
+    def test_non_utf8_stderr_does_not_raise(self, avail_all, tmp_path):
+        """Converter subprocess stderr with non-UTF-8 bytes must not raise UnicodeDecodeError.
+
+        Regression: a malformed PDF made the ImageMagick fallback call
+        ``result.stderr.decode()`` (strict), which crashed with an uncaught
+        ``UnicodeDecodeError`` traceback when the converter emitted a byte that
+        is not valid UTF-8. Every ``.decode()`` on converter output now uses
+        ``errors="replace"`` so the failure surfaces as a clean ConversionResult
+        instead of a raw traceback.
+        """
+        src = tmp_path / "doc.pdf"
+        src.write_bytes(b"%PDF-1.4 garbage")
+        dest = tmp_path / "out.png"
+
+        def fake_run(cmd, **kwargs):
+            if "pdftoppm" in cmd:
+                # Non-UTF-8 byte in stderr, matching real poppler output on
+                # malformed input (e.g. a stray 0xf7).
+                return MagicMock(returncode=1, stderr=b"\xf7\xf7 invalid")
+            # ImageMagick fallback: also non-UTF-8 stderr on failure
+            return MagicMock(returncode=1, stderr=b"convert: \xf7\xf7 error")
+
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            result = self.conv.convert(src, dest)
+
+        assert not result.success
+        assert result.converter_used == "imagemagick"
+        # Error decodes with replacement chars, no UnicodeDecodeError raised
+        assert result.error is not None
+        assert "\ufffd" in result.error
+
 
 # ---------------------------------------------------------------------------
 # ImageConverter
