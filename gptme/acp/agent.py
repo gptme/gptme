@@ -1177,6 +1177,17 @@ class GptmeAgent:
                 # ACP has no outer gptme loop, so reproduce that behavior here.
                 response_msgs: list[Message] = []
                 step_log = list(log.log)
+                # Same boundary as the CLI chat loop: TURN_PRE after the user
+                # prompt is in the log, before the first generation step.
+                if turn_msgs := list(trigger_hook(HookType.TURN_PRE, manager=log)):
+                    for msg in turn_msgs:
+                        step_log.append(msg)
+                        if getattr(msg, "hide", False):
+                            # Persist hidden context for the model; do not
+                            # forward it as visible ACP agent text.
+                            log.append(msg)
+                        else:
+                            response_msgs.append(msg)
                 max_steps: int | None = None
                 max_steps_str = os.environ.get("GPTME_MAX_STEPS")
                 if max_steps_str:

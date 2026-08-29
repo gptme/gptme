@@ -316,7 +316,7 @@ def format_knowledge_prompt(entries: list[KnowledgeEntry]) -> str:
         lines.append(f"   {resolution}")
         tags = [t for t in entry.get("tags", []) if isinstance(t, str) and t.strip()]
         if tags:
-            lines.append(f"   tags: {', '.join(tags)}")
+            lines.append(f"   tags: {_clip(', '.join(tags))}")
         lines.append("")
     lines.append("</knowledge-entries>")
     return "\n".join(lines).rstrip() + "\n"

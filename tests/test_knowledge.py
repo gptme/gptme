@@ -618,3 +618,16 @@ def test_format_knowledge_prompt_clips_long_fields():
     text = format_knowledge_prompt([entry])
     assert "..." in text
     assert len(text) < 800
+
+
+def test_format_knowledge_prompt_clips_long_tags():
+    from gptme.knowledge import format_knowledge_prompt, knowledge_save
+
+    entry = knowledge_save("short problem", "short resolution", tags=["x" * 400])
+    text = format_knowledge_prompt([entry])
+    tags_lines = [
+        line for line in text.splitlines() if line.strip().startswith("tags:")
+    ]
+    assert tags_lines
+    assert "..." in tags_lines[0]
+    assert len(tags_lines[0]) < 260

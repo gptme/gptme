@@ -50,7 +50,7 @@ from ..chat import step
 from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
 from ..dirs import get_pt_history_file
-from ..hooks import HookType, register_hook, unregister_hook
+from ..hooks import HookType, register_hook, trigger_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
 from ..llm.models import ModelMeta, get_default_model
@@ -1465,6 +1465,11 @@ class GptmeApp(App):
                 max_steps = int(max_steps_str)
         step_count = 0
         try:
+            # Same boundary as the CLI chat loop: TURN_PRE after the user
+            # prompt is in the log, before the first generation step.
+            if turn_msgs := trigger_hook(HookType.TURN_PRE, manager=manager):
+                for msg in turn_msgs:
+                    manager.append(msg)
             while True:
                 self.call_from_thread(self._begin_stream)
                 interrupted = False

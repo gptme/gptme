@@ -21,13 +21,28 @@ def isolated_kb(tmp_path, monkeypatch):
         dirs.get_data_dir.cache_clear()
 
 
-def _run(initial_msgs, logdir: Path):
+class _FakeLog:
+    def __init__(self, messages):
+        self.messages = messages
+
+
+class _FakeManager:
+    def __init__(self, messages, logdir: Path):
+        self.log = _FakeLog(messages)
+        self.logdir = logdir
+        self.workspace = None
+
+
+def _run(initial_msgs, logdir: Path, manager=None):
     from gptme.hooks.knowledge_inject import inject_session_knowledge
 
     return [
         item
         for item in inject_session_knowledge(
-            logdir=logdir, workspace=None, initial_msgs=initial_msgs
+            logdir=logdir,
+            workspace=None,
+            initial_msgs=initial_msgs,
+            manager=manager,
         )
         if not isinstance(item, StopPropagation)
     ]
@@ -99,11 +114,50 @@ def test_hook_swallows_unexpected_errors(tmp_path, monkeypatch):
     assert _run([Message("user", "pytest discovery is broken")], tmp_path) == []
 
 
-def test_register_adds_session_start_hook():
+def test_register_adds_session_start_and_turn_pre_hooks():
     from gptme.hooks import HookType, clear_hooks, get_hooks
     from gptme.hooks.knowledge_inject import register
 
     clear_hooks()
     register()
-    names = [hook.name for hook in get_hooks(HookType.SESSION_START)]
-    assert "knowledge_inject.session_start" in names
+    start_names = [hook.name for hook in get_hooks(HookType.SESSION_START)]
+    turn_names = [hook.name for hook in get_hooks(HookType.TURN_PRE)]
+    assert "knowledge_inject.session_start" in start_names
+    assert "knowledge_inject.turn_pre" in turn_names
+
+
+def test_hook_reads_user_prompt_from_manager_log(tmp_path):
+    from gptme.knowledge import knowledge_save
+
+    knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+        tags=["pytest"],
+    )
+    manager = _FakeManager(
+        [Message("user", "pytest discovery is broken in CI")],
+        tmp_path,
+    )
+    out = _run([], tmp_path, manager=manager)
+    assert len(out) == 1
+    assert "<knowledge-entries>" in out[0].content
+    assert "pytest test discovery fails" in out[0].content
+
+
+def test_hook_skips_when_already_injected(tmp_path):
+    from gptme.knowledge import knowledge_save
+
+    knowledge_save(
+        "pytest test discovery fails",
+        "prefix test function with test_",
+    )
+    prior = Message(
+        "system",
+        "<knowledge-entries>\nalready injected\n</knowledge-entries>\n",
+        hide=True,
+    )
+    manager = _FakeManager(
+        [Message("user", "pytest discovery is broken in CI"), prior],
+        tmp_path,
+    )
+    assert _run(None, tmp_path, manager=manager) == []
