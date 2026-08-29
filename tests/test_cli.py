@@ -3362,7 +3362,12 @@ def test_mcp_only_manifest_alias_fallback_stays_additive(
 def test_mixed_mcp_only_alias_fallback_keeps_explicit_tool(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """Dropping an unavailable MCP alias entry keeps mixed explicit tools."""
+    """Dropping an unavailable MCP alias entry keeps mixed explicit tools exact.
+
+    A mixed unprefixed list must not become additive on fallback: ``+shell``
+    would extend the default toolset and widen the allowlist past what the
+    user requested.
+    """
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
@@ -3406,7 +3411,57 @@ def test_mixed_mcp_only_alias_fallback_keeps_explicit_tool(
     )
 
     assert result.exit_code == 2, result.output
-    assert setup_calls == ["research,shell", "+shell"]
+    assert setup_calls == ["research,shell", "shell"]
+
+
+def test_mixed_mcp_only_alias_fallback_keeps_original_additive_prefix(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """An original ``+`` mixed list stays additive after unavailable alias drop."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if len(setup_calls) == 1:
+            raise ToolAllowlistError("Tool 'search.query' is unavailable")
+        raise click.UsageError("stop after fallback")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="shell", is_available=True),
+            SimpleNamespace(name="search.query", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "+research,shell",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["+research,shell", "+shell"]
 
 
 def test_tools_manifest_alias_unavailable_preset_errors_closed(

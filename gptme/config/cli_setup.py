@@ -83,7 +83,14 @@ def _resolve_manifest_aliases(
         # Presets are capability policies, not workspace-extensible aliases. A
         # manifest from an untrusted workspace must never shadow one (for
         # example, ``read-only`` with an MCP tool named ``evil.exec``).
-        if requested_tool in TOOL_PRESETS or _is_mcp_tool_name(requested_tool):
+        if (
+            requested_tool in TOOL_PRESETS
+            or _is_mcp_tool_name(requested_tool)
+            or is_tool_file_path(requested_tool)
+        ):
+            # Presets, direct MCP names, and custom tool files are not
+            # workspace-extensible aliases. A manifest whose task_type equals a
+            # file path must not replace an explicitly requested tool file.
             non_alias_tools.append(requested_tool)
             continue
 

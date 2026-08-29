@@ -1793,6 +1793,7 @@ def main(
                 # fallback situation — re-raise so the user sees the real error.
                 from ..tool_manifests import load_task_manifest
                 from ..tools import get_available_tools, matching_allowlist_tools
+                from ..tools._allowlist import is_tool_file_path
 
                 # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
                 # or "code_review,extra_tool"). Expand only names that were resolved
@@ -1811,6 +1812,12 @@ def main(
                 resolved_aliases = 0
                 all_aliases_mcp_only = True
                 for alias_candidate in alias_candidates:
+                    # Custom tool files are not manifest aliases. Skip lookup so a
+                    # workspace record whose task_type equals the path cannot
+                    # replace an explicitly requested file-based tool.
+                    if is_tool_file_path(alias_candidate):
+                        non_alias_parts.append(alias_candidate)
+                        continue
                     if matching_allowlist_tools(alias_candidate, available_tools):
                         non_alias_parts.append(alias_candidate)
                         continue
@@ -1836,8 +1843,15 @@ def main(
                 # Reuse the same helper as --tool-manifest: remove only the
                 # unavailable entries, fall back to None (defaults) only when
                 # every manifest tool is unavailable.
+                # Bare MCP-only aliases stay additive (same as --tool-manifest).
+                # A mixed unprefixed list such as ``--tools research,shell`` must
+                # not become additive on fallback: ``+shell`` would extend the
+                # default toolset and widen the allowlist past what the user
+                # requested. Keep remaining explicit tools as an exact list.
                 fallback_is_additive = _was_additive or (
-                    resolved_aliases > 0 and all_aliases_mcp_only
+                    resolved_aliases > 0
+                    and all_aliases_mcp_only
+                    and not non_alias_parts
                 )
                 expanded_str = ("+" if fallback_is_additive else "") + ",".join(
                     all_alias_tools
@@ -1845,7 +1859,12 @@ def main(
                 try:
                     fallback_str = _manifest_fallback_allowlist(expanded_str, None)
                 except (ToolAllowlistError, ValueError) as fallback_e:
-                    raise click.UsageError(str(fallback_e)) from fallback_e
+                    if not non_alias_parts:
+                        raise click.UsageError(str(fallback_e)) from fallback_e
+                    # Mixed list: every alias entry is unavailable, but explicit
+                    # tools remain. Keep those as an exact allowlist rather than
+                    # failing closed or expanding to the default toolset.
+                    fallback_str = None
 
                 if non_alias_parts:
                     # Re-join non-alias tools (e.g. "+extra_tool") alongside the

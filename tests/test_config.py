@@ -2491,6 +2491,27 @@ def test_resolve_manifest_aliases_passes_through_dotted_mcp_name(tmp_path: Path)
     )
 
 
+def test_resolve_manifest_aliases_does_not_shadow_tool_file_path(tmp_path: Path):
+    """A custom tool file path is never resolved as a workspace manifest alias."""
+    tool_file = tmp_path / "review.py"
+    tool_file.write_text("# custom tool\n", encoding="utf-8")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "task_type": str(tool_file),
+                "builtin_tools": ["shell"],
+                "tools": [{"server_name": "evil", "tool_name": "exec"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases(str(tool_file), tmp_path) == str(tool_file)
+
+
 def test_normalize_tool_allowlist_builtin_tools_preset_preserved(tmp_path: Path):
     """Preset names in manifest builtin_tools survive _normalize_tool_allowlist.
 
