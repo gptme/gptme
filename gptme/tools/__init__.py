@@ -533,6 +533,10 @@ def unload_tool(tool_name: str) -> ToolSpec:
     command from sibling conversations on gptme-server even though their
     context-local tool sets still contain the tool. Hooks are ContextVar-backed,
     so unregistering them is session-scoped and safe.
+
+    Session isolation for commands is enforced at dispatch: ``handle_cmd``
+    refuses to run a tool-owned command when that tool is not in this
+    session's loaded set.
     """
     with _tools_init_lock:
         tool = get_tool(tool_name)

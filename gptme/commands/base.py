@@ -44,6 +44,12 @@ _command_registry: dict[str, CommandHandler] = {}
 # Completer registry - maps command names to their completer functions
 _command_completers: dict[str, CommandCompleter] = {}
 
+# Optional owning tool for dynamically registered commands. Process-global:
+# sibling sessions on gptme-server share the registry. Dispatch consults the
+# session-local loaded-tool set so a disable in this session cannot run the
+# command here without yanking it from every other session.
+_command_owners: dict[str, str] = {}
+
 
 def command(
     name: str,
@@ -98,6 +104,7 @@ def register_command(
     handler: CommandHandler,
     aliases: list[str] | None = None,
     completer: CommandCompleter | None = None,
+    owner_tool: str | None = None,
 ) -> None:
     """Register a command handler dynamically (for tools).
 
@@ -107,8 +114,11 @@ def register_command(
         aliases: Optional list of command aliases
         completer: Optional function for argument completion.
                    Takes (partial_arg, previous_args) and returns list of (completion, description) tuples.
+        owner_tool: Tool that owns this command. When set, dispatch and listing
+                    require that tool to be loaded in the current session.
     """
     _command_registry[name] = handler
+    names = [name, *(aliases or [])]
     if aliases:
         for alias in aliases:
             _command_registry[alias] = handler
@@ -119,6 +129,10 @@ def register_command(
         if aliases:
             for alias in aliases:
                 _command_completers[alias] = completer
+
+    if owner_tool is not None:
+        for cmd_name in names:
+            _command_owners[cmd_name] = owner_tool
 
     logger.debug(
         f"Registered command: {name}" + (f" (aliases: {aliases})" if aliases else "")
@@ -136,6 +150,21 @@ def unregister_command(name: str) -> None:
         logger.debug(f"Unregistered command: {name}")
     if name in _command_completers:
         del _command_completers[name]
+    _command_owners.pop(name, None)
+
+
+def _command_enabled_in_session(name: str) -> bool:
+    """True if this command may run in the current session.
+
+    Unowned commands (built-ins, plugins) are always enabled. Tool-owned
+    commands require their owner to be in the session-local loaded set.
+    """
+    owner = _command_owners.get(name)
+    if owner is None:
+        return True
+    from ..tools import has_tool  # fmt: skip
+
+    return has_tool(owner)
 
 
 def get_registered_commands() -> list[str]:
@@ -150,8 +179,11 @@ def get_command_completer(name: str) -> CommandCompleter | None:
         name: Command name (without leading /)
 
     Returns:
-        Completer function or None if no completer registered
+        Completer function or None if no completer registered, or if the
+        command's owning tool is not loaded in this session.
     """
+    if not _command_enabled_in_session(name):
+        return None
     return _command_completers.get(name)
 
 
@@ -240,6 +272,18 @@ def handle_cmd(
 
     # Check if command is registered
     if name in _command_registry:
+        if not _command_enabled_in_session(name):
+            owner = _command_owners[name]
+            manager.undo(1, quiet=True)
+            msg = (
+                f"Command /{name} is unavailable because tool '{owner}' "
+                "is not enabled in this session."
+            )
+            if is_output_json():
+                _emit_json_command_output(msg)
+            else:
+                print(msg)
+            return
         handler = _command_registry[name]
         ctx = CommandContext(args=args, full_args=full_args, manager=manager)
         if is_output_json():
@@ -280,6 +324,8 @@ def get_commands_with_descriptions() -> list[tuple[str, str]]:
     seen_handlers: set[int] = set()  # Track handler object IDs to skip aliases
 
     for name in _command_registry:
+        if not _command_enabled_in_session(name):
+            continue
         handler = _command_registry[name]
         handler_id = id(handler)
         if handler_id in seen_handlers:
@@ -302,6 +348,9 @@ def get_commands_with_descriptions() -> list[tuple[str, str]]:
 
 
 def get_user_commands() -> list[str]:
-    """Returns a list of all user commands, including tool-registered commands"""
-    # Get all registered commands (includes built-in + tool-registered)
-    return [f"/{cmd}" for cmd in _command_registry]
+    """Returns user commands enabled in this session.
+
+    Includes built-ins and tool-registered commands whose owning tool is
+    loaded. Process-global registrations of disabled tools are omitted.
+    """
+    return [f"/{cmd}" for cmd in _command_registry if _command_enabled_in_session(cmd)]

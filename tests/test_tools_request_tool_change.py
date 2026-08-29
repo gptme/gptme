@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -424,6 +424,55 @@ class TestDisableTool:
             assert "disabled" in result.content
             assert not any(t.name == "side_effect_tool" for t in get_tools())
             assert "side-effect" in get_registered_commands()
+        finally:
+            unregister_command("side-effect")
+
+    def test_disable_blocks_session_local_command_dispatch(self, isolated_tools):
+        """Keeping the process-global handler must not leave /cmd executable here."""
+        from gptme.commands import (
+            get_registered_commands,
+            get_user_commands,
+            handle_cmd,
+            unregister_command,
+        )
+
+        called: list[bool] = []
+
+        def handler(_ctx):
+            called.append(True)
+            return
+            yield  # pragma: no cover — CommandHandler is a generator type
+
+        side_effect_tool = ToolSpec(
+            name="side_effect_tool",
+            desc="Registers a process-global slash command",
+            execute=lambda _code, _args, _kwargs: Message("system", "executed"),
+            commands={"side-effect": handler},
+        )
+        side_effect_tool.register_commands()
+        set_tools([*get_tools(), side_effect_tool])
+        mock_manager = MagicMock()
+        try:
+            list(handle_cmd("/side-effect", mock_manager))
+            assert called == [True]
+            assert "/side-effect" in get_user_commands()
+
+            with _patch_available([side_effect_tool, tool]):
+                result = _execute(
+                    change_type="disable_tool",
+                    tool_name="side_effect_tool",
+                    reason="Done with it",
+                    urgency="low",
+                )
+
+            assert "disabled" in result.content
+            assert not has_tool("side_effect_tool")
+            assert "side-effect" in get_registered_commands()
+
+            called.clear()
+            list(handle_cmd("/side-effect", mock_manager))
+            assert called == []
+            assert "/side-effect" not in get_user_commands()
         finally:
             unregister_command("side-effect")
 

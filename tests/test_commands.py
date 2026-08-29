@@ -19,6 +19,7 @@ import pytest
 from gptme.commands.base import (
     CommandContext,
     _command_completers,
+    _command_owners,
     _command_registry,
     command,
     execute_cmd,
@@ -42,11 +43,14 @@ def clean_registry():
     """
     saved_registry = dict(_command_registry)
     saved_completers = dict(_command_completers)
+    saved_owners = dict(_command_owners)
     yield
     _command_registry.clear()
     _command_registry.update(saved_registry)
     _command_completers.clear()
     _command_completers.update(saved_completers)
+    _command_owners.clear()
+    _command_owners.update(saved_owners)
 
 
 @pytest.fixture()
@@ -241,6 +245,21 @@ class TestDynamicRegistration:
         """Unregistering a command that doesn't exist should not raise."""
         unregister_command("nonexistent_command_xyz")
 
+    def test_register_records_owner_tool(self, clean_registry):
+        def handler(ctx):
+            yield Message("system", "owned")
+
+        register_command("ownedcmd", handler, owner_tool="side_effect_tool")
+        assert _command_owners["ownedcmd"] == "side_effect_tool"
+
+    def test_unregister_drops_owner_tool(self, clean_registry):
+        def handler(ctx):
+            pass
+
+        register_command("ownedcmd", handler, owner_tool="side_effect_tool")
+        unregister_command("ownedcmd")
+        assert "ownedcmd" not in _command_owners
+
 
 # ── Query Functions ──
 
@@ -407,6 +426,39 @@ class TestHandleCmd:
         list(handle_cmd("/testcmd arg1\narg2", mock_manager))
         assert "arg1" in captured["args"]
         assert "arg2" in captured["args"]
+
+    def test_tool_owned_command_runs_when_owner_loaded(
+        self, clean_registry, mock_manager
+    ):
+        called = []
+
+        def handler(ctx):
+            called.append(True)
+            return
+            yield  # pragma: no cover — CommandHandler is a generator type
+
+        register_command("ownedcmd", handler, owner_tool="side_effect_tool")
+        with patch("gptme.tools.has_tool", return_value=True):
+            list(handle_cmd("/ownedcmd", mock_manager))
+        assert called == [True]
+
+    def test_tool_owned_command_blocked_when_owner_unloaded(
+        self, clean_registry, mock_manager
+    ):
+        called = []
+
+        def handler(ctx):
+            called.append(True)
+            return
+            yield  # pragma: no cover — CommandHandler is a generator type
+
+        register_command("ownedcmd", handler, owner_tool="side_effect_tool")
+        with patch("gptme.tools.has_tool", return_value=False):
+            list(handle_cmd("/ownedcmd", mock_manager))
+            assert "/ownedcmd" not in get_user_commands()
+        assert called == []
+        mock_manager.undo.assert_called_once_with(1, quiet=True)
+        assert "ownedcmd" in get_registered_commands()
 
 
 # ── execute_cmd ──

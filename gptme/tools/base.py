@@ -483,7 +483,7 @@ class ToolSpec:
 
         for cmd_name, handler in self.commands.items():
             try:
-                register_command(cmd_name, handler)
+                register_command(cmd_name, handler, owner_tool=self.name)
             except Exception as e:
                 logger.warning(
                     f"Failed to register command '{cmd_name}' for tool '{self.name}': {e}"
