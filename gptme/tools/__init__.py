@@ -525,18 +525,25 @@ def set_session_allowlist(allowlist: list[str] | None) -> None:
 
 
 def unload_tool(tool_name: str) -> ToolSpec:
-    """Unload one tool and best-effort unregister its hooks and commands."""
+    """Unload one tool and best-effort unregister its session-local hooks.
+
+    Commands are *not* unregistered. The slash-command registry is
+    process-global (``gptme.commands.base._command_registry``), shared by every
+    session in this process. Dropping a command here would remove that slash
+    command from sibling conversations on gptme-server even though their
+    context-local tool sets still contain the tool. Hooks are ContextVar-backed,
+    so unregistering them is session-scoped and safe.
+    """
     with _tools_init_lock:
         tool = get_tool(tool_name)
         if tool is None:
             raise ValueError(f"Tool '{tool_name}' is not loaded")
 
-        from ..commands import unregister_command
         from ..hooks import unregister_hook
 
         # Filter by identity: get_tool() matches name *or* block_types, so a
         # block-type argument would miss a name-only filter and leave a zombie
-        # tool loaded after its hooks/commands were unregistered.
+        # tool loaded after its hooks were unregistered.
         set_tools([loaded for loaded in get_tools() if loaded is not tool])
         for hook_name in tool.hooks:
             try:
@@ -546,15 +553,6 @@ def unload_tool(tool_name: str) -> ToolSpec:
                     "Failed to unregister hook '%s.%s' while unloading tool",
                     tool.name,
                     hook_name,
-                )
-        for command_name in tool.commands:
-            try:
-                unregister_command(command_name)
-            except Exception:
-                logger.exception(
-                    "Failed to unregister command '%s' while unloading tool '%s'",
-                    command_name,
-                    tool.name,
                 )
 
         logger.info("Unloaded tool '%s' mid-conversation", tool_name)

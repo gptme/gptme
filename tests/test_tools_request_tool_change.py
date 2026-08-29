@@ -349,28 +349,25 @@ class TestDisableTool:
         assert "disabled" in result.content
         assert not any(t.name == "shell" for t in get_tools())
 
-    def test_disable_unregisters_owned_hooks_and_commands(self, isolated_tools):
+    def test_disable_unregisters_owned_hooks(self, isolated_tools):
         hook = ("session_start", cast(Any, lambda: None), 0)
         side_effect_tool = ToolSpec(
             name="side_effect_tool",
             desc="Registers session side effects",
             execute=lambda _code, _args, _kwargs: Message("system", "executed"),
             hooks={"watch": hook},
-            commands={"side-effect": lambda _args: None},
         )
         loaded_tool = ToolSpec(
             name="side_effect_tool",
             desc="Registers session side effects",
             execute=side_effect_tool.execute,
             hooks=side_effect_tool.hooks,
-            commands=side_effect_tool.commands,
         )
 
         with (
             _patch_available([side_effect_tool, tool]),
             patch("gptme.tools._init_single_tool", return_value=loaded_tool),
             patch("gptme.hooks.unregister_hook") as unregister_hook,
-            patch("gptme.commands.unregister_command") as unregister_command,
         ):
             enabled = _execute(
                 change_type="enable_tool",
@@ -388,7 +385,47 @@ class TestDisableTool:
         assert "enabled" in enabled.content
         assert "disabled" in disabled.content
         unregister_hook.assert_called_once_with("side_effect_tool.watch")
-        unregister_command.assert_called_once_with("side-effect")
+
+    def test_disable_does_not_drop_process_global_commands(self, isolated_tools):
+        """Slash commands live in a process-global registry.
+
+        Unloading a command-providing tool in this session must not yank the
+        command out from under a sibling session in the same process
+        (gptme-server multi-conversation).
+        """
+        from gptme.commands import (
+            get_registered_commands,
+            register_command,
+            unregister_command,
+        )
+
+        def handler(_ctx):
+            return
+            yield  # pragma: no cover — CommandHandler is a generator type
+
+        register_command("side-effect", handler)
+        try:
+            side_effect_tool = ToolSpec(
+                name="side_effect_tool",
+                desc="Registers a process-global slash command",
+                execute=lambda _code, _args, _kwargs: Message("system", "executed"),
+                commands={"side-effect": handler},
+            )
+            set_tools([*get_tools(), side_effect_tool])
+
+            with _patch_available([side_effect_tool, tool]):
+                result = _execute(
+                    change_type="disable_tool",
+                    tool_name="side_effect_tool",
+                    reason="Done with it",
+                    urgency="low",
+                )
+
+            assert "disabled" in result.content
+            assert not any(t.name == "side_effect_tool" for t in get_tools())
+            assert "side-effect" in get_registered_commands()
+        finally:
+            unregister_command("side-effect")
 
     def test_disable_removes_tool_if_cleanup_fails(self, isolated_tools):
         side_effect_tool = ToolSpec(
