@@ -3035,6 +3035,88 @@ def test_additive_builtin_tools_preset_alias_setup_succeeds(tmp_path: Path):
     assert "analysis.run" in config.chat.tools
 
 
+def test_resolve_manifest_aliases_dedupes_overlapping_preset(tmp_path: Path):
+    """``--tools audit,read-only`` must not rejoin the same preset twice.
+
+    audit's builtin_tools already includes ``read-only``. Concatenating the
+    leftover CLI preset produced ``read-only,analysis.run,read-only``, which
+    expand_tool_allowlist_presets rejects as two presets.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("audit,read-only", tmp_path)
+        == "read-only,analysis.run"
+    )
+
+
+def test_resolve_manifest_aliases_expands_preset_mixed_with_extra_builtin(
+    tmp_path: Path,
+):
+    """``--tools audit,shell`` expands the exclusive preset before joining."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("audit,shell", tmp_path) == "read,analysis.run,shell"
+    )
+
+
+def test_setup_config_from_cli_overlapping_preset_alias_succeeds(tmp_path: Path):
+    """Normal (non-fallback) path must accept ``--tools audit,read-only``."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="audit,read-only",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only", "analysis.run"]
+
+
+def test_setup_config_from_cli_preset_alias_with_extra_builtin(tmp_path: Path):
+    """``--tools audit,shell`` must not crash on the exclusive-preset mix."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="audit,shell",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "read-only" not in config.chat.tools
+    assert "read" in config.chat.tools
+    assert "shell" in config.chat.tools
+    assert "analysis.run" in config.chat.tools
+
+
 def test_empty_saved_tools_do_not_inherit_env_preset(tmp_path: Path, monkeypatch):
     """A resumed empty tools list is explicit, not an unset fallback to env.
 

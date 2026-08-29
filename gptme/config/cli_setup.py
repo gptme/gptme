@@ -171,15 +171,41 @@ def _resolve_manifest_aliases(
             # expand_tool_allowlist_presets then rejects the mix. Expand
             # presets to concrete tools so ``--tools +audit`` with
             # builtin_tools ["read-only"] becomes ``+read,analysis.run``.
+            #
+            # The non-additive path has the same mix problem when the user
+            # also names extra builtins (``--tools audit,shell``), and a
+            # second failure mode: ``--tools audit,read-only`` rejoins the
+            # overlapping preset twice so expand_tool_allowlist_presets
+            # treats it as two presets. Dedup, and expand only when extras
+            # would actually break the exclusive boundary. A lone alias
+            # still keeps the preset name for resume provenance.
             if additive:
                 expanded_manifest_tools = expand_tool_allowlist_presets(
                     explicit_manifest_tools
                 )
                 assert expanded_manifest_tools is not None
-                resolved = ",".join([*expanded_manifest_tools, *non_alias_tools])
+                resolved = ",".join(
+                    dict.fromkeys([*expanded_manifest_tools, *non_alias_tools])
+                )
                 return f"+{resolved}"
-            resolved = ",".join([*explicit_manifest_tools, *non_alias_tools])
-            return resolved
+            combined = list(dict.fromkeys([*explicit_manifest_tools, *non_alias_tools]))
+            extra_non_mcp = [
+                tool
+                for tool in combined
+                if tool not in TOOL_PRESETS and not _is_mcp_tool_name(tool)
+            ]
+            if extra_non_mcp and any(tool in TOOL_PRESETS for tool in combined):
+                preset_and_mcp = [
+                    tool
+                    for tool in combined
+                    if tool in TOOL_PRESETS or _is_mcp_tool_name(tool)
+                ]
+                expanded_manifest_tools = expand_tool_allowlist_presets(preset_and_mcp)
+                assert expanded_manifest_tools is not None
+                combined = list(
+                    dict.fromkeys([*expanded_manifest_tools, *extra_non_mcp])
+                )
+            return ",".join(combined)
         return tool_allowlist
     if explicit_manifest_tools:
         raise ValueError(
