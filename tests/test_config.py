@@ -3117,6 +3117,75 @@ def test_setup_config_from_cli_preset_alias_with_extra_builtin(tmp_path: Path):
     assert "analysis.run" in config.chat.tools
 
 
+def test_looks_like_builtin_typo_detects_close_misspellings():
+    from gptme.tools._allowlist import looks_like_builtin_typo
+
+    known = ["shell", "read", "ipython"]
+    assert looks_like_builtin_typo("shel", known)
+    assert looks_like_builtin_typo("red", known)
+    assert not looks_like_builtin_typo("code_review", known)
+    assert not looks_like_builtin_typo("audit", known)
+    assert not looks_like_builtin_typo("shell", known)
+
+
+def test_expand_exclusive_preset_if_mixed_expands_extra_builtins():
+    from gptme.tools._allowlist import expand_exclusive_preset_if_mixed
+
+    assert expand_exclusive_preset_if_mixed(["read-only", "shell"]) == [
+        "read",
+        "shell",
+    ]
+    assert expand_exclusive_preset_if_mixed(["read-only", "analysis.run"]) == [
+        "read-only",
+        "analysis.run",
+    ]
+    assert expand_exclusive_preset_if_mixed(["read-only", "read-only", "shell"]) == [
+        "read",
+        "shell",
+    ]
+
+
+def test_is_mcp_tool_name_is_shared_helper():
+    from gptme.config.cli_setup import _is_mcp_tool_name as setup_is_mcp
+    from gptme.tools._allowlist import _is_mcp_tool_name as allowlist_is_mcp
+
+    assert setup_is_mcp is allowlist_is_mcp
+
+
+def test_resolve_manifest_aliases_does_not_expand_builtin_typo(tmp_path: Path):
+    """A close misspelling of a builtin must not become a workspace alias."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"shel","builtin_tools":["save"],"tools":['
+        '{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("shel", tmp_path) == "shel"
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["shel"], workspace=tmp_path)
+
+
+def test_resolve_manifest_aliases_rejects_multiple_presets_with_mcp_alias(
+    tmp_path: Path, monkeypatch
+):
+    """Two exclusive presets plus an MCP-only alias must raise, not keep the first."""
+    from gptme.tools._allowlist import TOOL_PRESETS
+
+    monkeypatch.setitem(TOOL_PRESETS, "audit", ("shell",))
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        _resolve_manifest_aliases("read-only,audit,research", tmp_path)
+
+
 def test_empty_saved_tools_do_not_inherit_env_preset(tmp_path: Path, monkeypatch):
     """A resumed empty tools list is explicit, not an unset fallback to env.
 

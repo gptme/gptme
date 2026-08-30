@@ -3702,6 +3702,61 @@ def test_tools_manifest_alias_fallback_dedupes_overlapping_preset(
     assert setup_calls == ["audit,read-only", "read-only"]
 
 
+def test_tools_manifest_alias_fallback_expands_preset_mixed_with_explicit_builtin(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback must expand a surviving preset before joining extra builtins.
+
+    ``--tools audit,shell`` with builtin_tools ``["read-only"]`` plus an
+    unavailable MCP tool used to retry as ``read-only,shell``, which then
+    raises instead of degrading to ``read,shell``.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="shell", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "audit,shell",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["audit,shell", "read,shell"]
+
+
 def test_tools_manifest_alias_fallback_malformed_preset_mix_is_usage_error(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):

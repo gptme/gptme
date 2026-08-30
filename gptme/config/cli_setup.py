@@ -13,9 +13,12 @@ from ..profiles import get_profile
 from ..tools import ToolAllowlistError, get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
+    _is_mcp_tool_name,
+    expand_exclusive_preset_if_mixed,
     expand_tool_allowlist_presets,
     is_glob_allowlist_pattern,
     is_tool_file_path,
+    looks_like_builtin_typo,
     matching_allowlist_tools,
 )
 from .chat import ChatConfig
@@ -40,22 +43,6 @@ def _get_model_default_tool_format(model: str | None) -> str | None:
         return meta.default_tool_format
     except (ImportError, KeyError, ValueError, AttributeError):
         return None
-
-
-def _is_mcp_tool_name(value: str) -> bool:
-    """Return True if *value* looks like a dotted MCP tool name (``server.tool``).
-
-    MCP tool names use the ``<server>.<tool>`` convention and cannot be validated
-    against the built-in toolchain at config-setup time because MCP servers are
-    not yet initialized.  They are identified by the presence of a dot with
-    non-empty text on both sides, and by NOT matching the file-path heuristics.
-    """
-    if is_tool_file_path(value):
-        return False
-    if "/" in value:
-        return False
-    dot_idx = value.find(".")
-    return dot_idx > 0 and dot_idx < len(value) - 1
 
 
 def _tools_stay_inside_preset_boundary(
@@ -122,8 +109,19 @@ def _resolve_manifest_aliases(
             get_toolchain([requested_tool])
         except ValueError:
             # Use membership check, not message wording — wording can vary.
-            if matching_allowlist_tools(requested_tool, get_available_tools()):
+            available_tools = get_available_tools()
+            if matching_allowlist_tools(requested_tool, available_tools):
                 raise  # registered but unavailable — don't shadow with manifest
+            # A one-character typo of a known builtin (``shel`` for ``shell``)
+            # must not silently become a workspace alias. Close matches still
+            # fail as unknown tools; use --tool-manifest for the rare genuine
+            # alias that collides with a builtin spelling.
+            if looks_like_builtin_typo(
+                requested_tool,
+                [*(TOOL_PRESETS), *(tool.name for tool in available_tools)],
+            ):
+                non_alias_tools.append(requested_tool)
+                continue
             try:
                 manifest = load_task_manifest(requested_tool, workspace)
             except (OSError, ValueError):
@@ -188,24 +186,11 @@ def _resolve_manifest_aliases(
                     dict.fromkeys([*expanded_manifest_tools, *non_alias_tools])
                 )
                 return f"+{resolved}"
-            combined = list(dict.fromkeys([*explicit_manifest_tools, *non_alias_tools]))
-            extra_non_mcp = [
-                tool
-                for tool in combined
-                if tool not in TOOL_PRESETS and not _is_mcp_tool_name(tool)
-            ]
-            if extra_non_mcp and any(tool in TOOL_PRESETS for tool in combined):
-                preset_and_mcp = [
-                    tool
-                    for tool in combined
-                    if tool in TOOL_PRESETS or _is_mcp_tool_name(tool)
-                ]
-                expanded_manifest_tools = expand_tool_allowlist_presets(preset_and_mcp)
-                assert expanded_manifest_tools is not None
-                combined = list(
-                    dict.fromkeys([*expanded_manifest_tools, *extra_non_mcp])
+            return ",".join(
+                expand_exclusive_preset_if_mixed(
+                    [*explicit_manifest_tools, *non_alias_tools]
                 )
-            return ",".join(combined)
+            )
         return tool_allowlist
     if explicit_manifest_tools:
         raise ValueError(
@@ -214,6 +199,10 @@ def _resolve_manifest_aliases(
         )
 
     presets = [tool for tool in non_alias_tools if tool in TOOL_PRESETS]
+    if len(presets) > 1:
+        raise ValueError(
+            f"Tool preset(s) {', '.join(presets)} cannot be combined with other tools"
+        )
     if presets:
         # Direct MCP names are additive and sit outside the preset's builtin
         # boundary, same as MCP-only aliases. Count only leftover built-ins
@@ -325,12 +314,15 @@ def _normalize_tool_allowlist(
             # Use membership check, not message wording — wording can vary.
             if matching_allowlist_tools(item, get_available_tools()):
                 raise
-            # name is completely unknown — check manifest next
+            # name is completely unknown — check manifest next unless the name
+            # is a close misspelling of a known builtin/preset.
 
         # Check if the item is a manifest task type alias when the workspace is
         # known.  This makes ``--tools code_review`` behave identically to
         # ``--tool-manifest code_review`` for workspaces that ship a manifest.
-        if workspace is not None:
+        if workspace is not None and not looks_like_builtin_typo(
+            item, [*(TOOL_PRESETS), *(tool.name for tool in get_available_tools())]
+        ):
             from ..tool_manifests import load_task_manifest
 
             try:

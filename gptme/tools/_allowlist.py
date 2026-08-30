@@ -1,3 +1,5 @@
+import difflib
+from collections.abc import Iterable
 from fnmatch import fnmatchcase
 
 from .base import ToolSpec
@@ -71,6 +73,46 @@ def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | No
         mcp_tools = [item for item in allowlist if _is_mcp_tool_name(item)]
         return [*TOOL_PRESETS[presets[0]], *mcp_tools]
     return list(TOOL_PRESETS[presets[0]])
+
+
+def looks_like_builtin_typo(
+    name: str, known_names: Iterable[str], *, cutoff: float = 0.8
+) -> bool:
+    """Return True if *name* is a close misspelling of a known tool or preset.
+
+    Exact matches are not typos — those are handled by builtin precedence.
+    Close matches such as ``shel`` vs ``shell`` must not silently resolve as
+    workspace manifest aliases.
+    """
+    if name in TOOL_PRESETS or name in known_names:
+        return False
+    corpus = [*TOOL_PRESETS, *known_names]
+    return bool(difflib.get_close_matches(name, corpus, n=1, cutoff=cutoff))
+
+
+def expand_exclusive_preset_if_mixed(tools: list[str]) -> list[str]:
+    """Expand an exclusive preset when mixed with extra builtin names.
+
+    Presets may sit next to MCP dotted names without expanding. Extra
+    builtins force expansion so later exclusive-preset checks do not reject
+    the combined list. Duplicate preset names are collapsed first so a
+    surviving ``read-only`` joined with an explicit ``read-only`` does not
+    look like two presets.
+    """
+    tools = list(dict.fromkeys(tools))
+    extra_non_mcp = [
+        tool
+        for tool in tools
+        if tool not in TOOL_PRESETS and not _is_mcp_tool_name(tool)
+    ]
+    if extra_non_mcp and any(tool in TOOL_PRESETS for tool in tools):
+        preset_and_mcp = [
+            tool for tool in tools if tool in TOOL_PRESETS or _is_mcp_tool_name(tool)
+        ]
+        expanded = expand_tool_allowlist_presets(preset_and_mcp)
+        assert expanded is not None
+        return list(dict.fromkeys([*expanded, *extra_non_mcp]))
+    return tools
 
 
 def is_hint_pattern(pattern: str) -> bool:

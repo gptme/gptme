@@ -1796,8 +1796,10 @@ def main(
                 from ..tools._allowlist import (
                     TOOL_PRESETS,
                     _is_mcp_tool_name,
+                    expand_exclusive_preset_if_mixed,
                     is_glob_allowlist_pattern,
                     is_tool_file_path,
+                    looks_like_builtin_typo,
                 )
 
                 # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
@@ -1827,6 +1829,10 @@ def main(
                         or _is_mcp_tool_name(alias_candidate)
                         or is_tool_file_path(alias_candidate)
                         or is_glob_allowlist_pattern(alias_candidate)
+                        or looks_like_builtin_typo(
+                            alias_candidate,
+                            [*(TOOL_PRESETS), *(tool.name for tool in available_tools)],
+                        )
                     ):
                         non_alias_parts.append(alias_candidate)
                         continue
@@ -1885,7 +1891,9 @@ def main(
                     # appear in fallback_parts, and repeating it in
                     # non_alias_parts would become ``read-only,read-only``.
                     fallback_parts = [p for p in (fallback_str or "").split(",") if p]
-                    combined = list(dict.fromkeys(fallback_parts + non_alias_parts))
+                    combined = expand_exclusive_preset_if_mixed(
+                        fallback_parts + non_alias_parts
+                    )
                     tool_allowlist_str = ",".join(combined) if combined else None
                 else:
                     tool_allowlist_str = fallback_str
