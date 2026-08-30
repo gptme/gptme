@@ -624,11 +624,24 @@ def has_browser_tool():
 def _pdf_source_is_remote(url_or_path: str) -> bool:
     """Return True if *url_or_path* should be fetched over HTTP(S).
 
-    Local filesystem paths (including Windows drive letters) stay local.
-    Any other URL scheme is rejected by the shared validator before a fetch.
+    Local filesystem paths stay local, including Windows drive letters and
+    POSIX paths that happen to contain URL-like substrings (a download saved
+    as ``/tmp/https://example.com/doc.pdf``). Non-http(s) URL schemes are
+    rejected by the shared validator before a fetch.
     """
-    scheme = urlparse(url_or_path).scheme.lower()
-    if scheme in {"http", "https"} or "://" in url_or_path:
+    # Absolute or explicit-relative paths are local even if they embed "://".
+    if url_or_path.startswith(("/", "./", "../")):
+        return False
+
+    parsed = urlparse(url_or_path)
+    scheme = parsed.scheme.lower()
+    # urlparse("https:report.pdf") has scheme=https and no host: a POSIX
+    # filename, not a fetchable URL. Require a netloc before treating http(s)
+    # as remote.
+    if scheme in {"http", "https"} and parsed.netloc:
+        _validate_url_scheme(url_or_path)
+        return True
+    if "://" in url_or_path:
         _validate_url_scheme(url_or_path)
         return True
     return False
