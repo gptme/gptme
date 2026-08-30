@@ -21,6 +21,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { initConversation } from '@/stores/conversations';
 import { parseConversationImportJSON } from '@/utils/exportConversation';
 import { appRoute } from '@/utils/routes';
+import { isDemoMode } from '@/utils/connectionConfig';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -139,6 +140,7 @@ export const UnifiedSidebar: FC<Props> = ({
   const isConnected = use$(isConnected$);
   const queryClient = useQueryClient();
   const importInputRef = useRef<HTMLInputElement>(null);
+  const demoMode = isDemoMode();
 
   // Navigation state - agents/workspaces show chat sidebar content
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
@@ -352,16 +354,24 @@ export const UnifiedSidebar: FC<Props> = ({
             >
               <Filter className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={onCreateTask}
-              aria-label="Create task"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
+            {!demoMode && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={onCreateTask}
+                aria-label="Create task"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
           </div>
+
+          {demoMode && (
+            <p className="px-3 pb-2 text-xs text-muted-foreground">
+              Task creation requires a live gptme server.
+            </p>
+          )}
 
           {/* Task Filters */}
           {showFilters && (
