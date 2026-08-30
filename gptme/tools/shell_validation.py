@@ -50,6 +50,7 @@ _SENSITIVE_HOME_DIRS = (
     "~/.pypirc",
     "~/.git-credentials",
     "~/.config/gptme/config.toml",
+    "~/.config/gptme/config.local.toml",
 )
 
 # Commands that are safe to auto-approve without user confirmation

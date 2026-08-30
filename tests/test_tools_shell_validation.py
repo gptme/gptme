@@ -822,13 +822,15 @@ class TestSensitiveArgs:
         [
             "~/.git-credentials",
             "~/.config/gptme/config.toml",
+            "~/.config/gptme/config.local.toml",
         ],
     )
     def test_home_credential_leftovers_not_allowlisted(self, reader: str, path: str):
-        """Phase 4 leftovers: git-credentials and gptme config.toml.
+        """Phase 4 leftovers: git-credentials and gptme config files.
 
         #3636 covered ~/.netrc / ~/.ssh / ~/.aws / ~/.npmrc / ~/.pypirc, but
-        these two home-relative credential files were still auto-approved.
+        these home-relative credential files were still auto-approved.
+        config.local.toml is the overlay that actually holds API keys.
         """
         assert not is_allowlisted(f"{reader} {path}")
 
@@ -837,9 +839,13 @@ class TestSensitiveArgs:
         assert is_allowlisted("cat ~/.git-credentials-backup")
 
     def test_gptme_config_dir_listing_still_allowlisted(self):
-        """Only config.toml is sensitive, not the whole ~/.config/gptme dir."""
+        """Only the two config files are sensitive, not the whole ~/.config/gptme dir."""
         assert is_allowlisted("ls ~/.config/gptme")
         assert is_allowlisted("cat ~/.config/gptme/SOUL.md")
+
+    def test_gptme_config_local_sibling_still_allowlisted(self):
+        """Prefix boundary: config.local.toml.bak is not the secrets overlay."""
+        assert is_allowlisted("cat ~/.config/gptme/config.local.toml.bak")
 
     def test_ls_ssh_dir_not_allowlisted(self):
         """`ls ~/.ssh` must require confirmation — reveals key file names."""
@@ -856,6 +862,10 @@ class TestSensitiveArgs:
     def test_cat_home_var_ssh_not_allowlisted(self):
         """`cat $HOME/.ssh/id_rsa` must be blocked — $HOME is not expanded by shlex."""
         assert not is_allowlisted('cat "$HOME/.ssh/id_rsa"')
+
+    def test_cat_home_var_gptme_config_local_not_allowlisted(self):
+        """config.local.toml via $HOME must also require confirmation."""
+        assert not is_allowlisted('cat "$HOME/.config/gptme/config.local.toml"')
 
     def test_cat_brace_home_var_ssh_not_allowlisted(self):
         assert not is_allowlisted("cat ${HOME}/.ssh/id_rsa")
