@@ -10,6 +10,7 @@ allowed_entries:
   - .gitignore
   - .pre-commit-config.yaml
   - AGENTS.md
+  - DOMAIN.md
   - LICENSE
   - Makefile
   - README.md
