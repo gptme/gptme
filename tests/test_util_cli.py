@@ -636,6 +636,8 @@ def test_models_list_json_suppresses_provider_noise(mocker):
                 deprecated=False,
                 preferred_edit_format=None,
                 pricing_type="per_token",
+                default_tool_format="tool",
+                supports_strict_tools=False,
             )
         ]
 
@@ -677,6 +679,8 @@ def test_models_list_json_available_keeps_plugin_models(mocker):
                 deprecated=False,
                 preferred_edit_format=None,
                 pricing_type="per_token",
+                default_tool_format="tool",
+                supports_strict_tools=False,
             ),
             SimpleNamespace(
                 provider="unknown",
@@ -696,6 +700,8 @@ def test_models_list_json_available_keeps_plugin_models(mocker):
                 deprecated=False,
                 preferred_edit_format=None,
                 pricing_type="per_token",
+                default_tool_format="tool",
+                supports_strict_tools=False,
             ),
         ],
     )
