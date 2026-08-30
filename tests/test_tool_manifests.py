@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from gptme.tool_manifests import load_task_manifest
+from gptme.tool_manifests import get_manifest_preset_tools, load_task_manifest
 
 
 def test_load_task_manifest_returns_dotted_tool_names(tmp_path: Path):
@@ -102,6 +102,26 @@ def test_load_task_manifest_rejects_glob_metacharacters(
 
     with pytest.raises(ValueError, match="glob metacharacters"):
         load_task_manifest("research", tmp_path)
+
+
+@pytest.mark.parametrize("task_type", ["read*", "read?", "read[ab]"])
+def test_load_task_manifest_rejects_glob_in_task_type(tmp_path: Path, task_type: str):
+    """task_type is an exact name and must not capture glob-typed --tools input."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "task_type": task_type,
+                "builtin_tools": ["shell"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="glob metacharacters"):
+        load_task_manifest(task_type, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -270,3 +290,78 @@ def test_load_task_manifest_deduplicates_builtin_tools(tmp_path: Path):
     manifest = load_task_manifest("research", tmp_path)
 
     assert manifest.builtin_tools == ("read", "grep")
+
+
+# ---------------------------------------------------------------------------
+# get_manifest_preset_tools
+# ---------------------------------------------------------------------------
+
+
+def test_get_manifest_preset_tools_returns_tool_list(tmp_path: Path):
+    """Returns all tool names (builtin + MCP) when task type exists."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","shell"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    tools = get_manifest_preset_tools("code_review", tmp_path)
+
+    assert tools == ["read", "shell", "github.search_code"]
+
+
+def test_get_manifest_preset_tools_returns_none_for_missing_file(tmp_path: Path):
+    """Returns None when the manifest file does not exist."""
+    tools = get_manifest_preset_tools("research", tmp_path)
+
+    assert tools is None
+
+
+def test_get_manifest_preset_tools_returns_none_for_unreadable_file(
+    tmp_path: Path, monkeypatch
+):
+    """Returns None when reading the manifest raises an OS error."""
+
+    def raise_permission_error(*args, **kwargs):
+        raise PermissionError("manifest is unreadable")
+
+    monkeypatch.setattr(
+        "gptme.tool_manifests.load_task_manifest", raise_permission_error
+    )
+
+    assert get_manifest_preset_tools("research", tmp_path) is None
+
+
+def test_get_manifest_preset_tools_returns_none_for_unknown_task_type(tmp_path: Path):
+    """Returns None when the manifest exists but lacks the requested task type."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    tools = get_manifest_preset_tools("debugging", tmp_path)
+
+    assert tools is None
+
+
+def test_get_manifest_preset_tools_returns_mcp_tools_only_when_no_builtins(
+    tmp_path: Path,
+):
+    """When builtin_tools is absent, returns just the MCP tool names."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"},'
+        '{"server_name":"time","tool_name":"get_current_time"}]}\n',
+        encoding="utf-8",
+    )
+
+    tools = get_manifest_preset_tools("research", tmp_path)
+
+    assert tools == ["github.search_code", "time.get_current_time"]

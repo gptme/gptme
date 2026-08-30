@@ -2413,6 +2413,153 @@ def test_show_prompt_stats_log_workspace_resolves_manifest_from_conversation_log
     )
 
 
+def test_tools_manifest_alias_log_workspace_new_session_resolves_manifest_from_cwd(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Brand-new --tools aliases under @log resolve the manifest from cwd.
+
+    logdir/workspace is empty scratch for a new @log session, so alias lookup
+    must use cwd — the same fallback as --tool-manifest.
+    """
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_setup_config_from_cli(**kwargs):
+        captured.update(kwargs)
+        return fake_config
+
+    monkeypatch.setattr(
+        "gptme.config.setup_config_from_cli", fake_setup_config_from_cli
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            "@log",
+            "--tools",
+            "code_review",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 0
+    assert captured["tool_allowlist"] == "code_review"
+    assert captured["manifest_workspace"] == Path.cwd(), (
+        f"Expected new @log --tools alias to resolve the manifest from cwd, "
+        f"got {captured['manifest_workspace']}"
+    )
+    # Session workspace is still logdir/workspace; only manifest lookup uses cwd.
+    assert str(captured["workspace"]).endswith("workspace")
+
+
+def test_tools_manifest_alias_log_workspace_resume_resolves_manifest_from_logdir_workspace(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Resumed --tools aliases under @log resolve the manifest from logdir/workspace.
+
+    In resumed sessions that directory is a symlink to the original project.
+    Using cwd broke alias resolution when the user resumed from a different directory.
+    """
+    conversation_name = f"manifest-alias-log-resume-{tmp_path.name}"
+    conversation_dir = cli.get_logs_dir() / conversation_name
+    conversation_dir.mkdir(parents=True, exist_ok=True)
+    (conversation_dir / "conversation.jsonl").write_text(
+        '{"role":"user","content":"hello"}\n', encoding="utf-8"
+    )
+    conversation_ws = conversation_dir / "workspace"
+    conversation_ws.mkdir()
+    (conversation_dir / "config.toml").write_text(
+        f'[chat]\nworkspace = "{conversation_ws.resolve()}"\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=conversation_ws,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+        ),
+        project=None,
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_setup_config_from_cli(**kwargs):
+        captured.update(kwargs)
+        return fake_config
+
+    monkeypatch.setattr(
+        "gptme.config.setup_config_from_cli", fake_setup_config_from_cli
+    )
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--resume",
+            "--name",
+            conversation_name,
+            "--workspace",
+            "@log",
+            "--tools",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["tool_allowlist"] == "code_review"
+    assert captured["manifest_workspace"] == conversation_ws, (
+        f"Expected resumed @log --tools alias to resolve the manifest from "
+        f"{conversation_ws}, got {captured['manifest_workspace']}"
+    )
+    assert captured["manifest_workspace"] != Path.cwd(), (
+        f"Resumed @log --tools alias must not resolve from cwd; "
+        f"got {captured['manifest_workspace']}"
+    )
+
+
 def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
@@ -3192,6 +3339,621 @@ def test_tool_manifest_all_builtins_unavailable_errors_closed(
     )
     assert setup_calls[0] is not None and setup_calls[0] != "", (
         f"First setup call must be with the manifest allowlist string, got: {setup_calls[0]!r}"
+    )
+
+
+def test_tools_manifest_alias_all_tools_unavailable_errors_closed(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """An all-unavailable --tools manifest alias reports a clean usage error."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","tools":['
+        '{"server_name":"github","tool_name":"search_code"}],'
+        '"builtin_tools":["read","shell"]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'read' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=False),
+            SimpleNamespace(name="shell", is_available=False),
+            SimpleNamespace(name="github.search_code", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [t for t in tools if t.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "code_review",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in result.output
+    assert "All manifest tools are unavailable" in result.output
+    assert len(setup_calls) == 1
+
+
+def test_mcp_only_manifest_alias_fallback_stays_additive(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A bare MCP-only alias remains additive after availability fallback."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"},'
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="search.query", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["research", "+search.query"]
+
+
+def test_mixed_mcp_only_alias_fallback_keeps_explicit_tool(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Dropping an unavailable MCP alias entry keeps mixed explicit tools exact.
+
+    A mixed unprefixed list must not become additive on fallback: ``+shell``
+    would extend the default toolset and widen the allowlist past what the
+    user requested.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if len(setup_calls) == 1:
+            raise ToolAllowlistError("Tool 'search.query' is unavailable")
+        raise click.UsageError("stop after fallback")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="shell", is_available=True),
+            SimpleNamespace(name="search.query", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "research,shell",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["research,shell", "shell"]
+
+
+def test_mixed_mcp_only_alias_fallback_keeps_original_additive_prefix(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """An original ``+`` mixed list stays additive after unavailable alias drop."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        if len(setup_calls) == 1:
+            raise ToolAllowlistError("Tool 'search.query' is unavailable")
+        raise click.UsageError("stop after fallback")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="shell", is_available=True),
+            SimpleNamespace(name="search.query", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "+research,shell",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["+research,shell", "+shell"]
+
+
+def test_tools_manifest_alias_unavailable_preset_errors_closed(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback does not restore a preset whose concrete tools are unavailable."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'read' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=False),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "audit",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "All manifest tools are unavailable" in result.output
+    assert setup_calls == ["audit"]
+
+
+def test_tools_manifest_alias_preset_survives_unavailable_mcp_fallback(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback keeps a viable preset boundary while dropping an unavailable MCP tool."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "audit",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["audit", "read-only"]
+
+
+def test_tools_manifest_alias_fallback_dedupes_overlapping_preset(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback must not rejoin a surviving preset that the user also named.
+
+    ``--tools audit,read-only`` with ``audit`` builtin_tools ``["read-only"]``
+    plus an unavailable MCP tool used to become ``read-only,read-only``.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "audit,read-only",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["audit,read-only", "read-only"]
+
+
+def test_tools_manifest_alias_fallback_expands_preset_mixed_with_explicit_builtin(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback must expand a surviving preset before joining extra builtins.
+
+    ``--tools audit,shell`` with builtin_tools ``["read-only"]`` plus an
+    unavailable MCP tool used to retry as ``read-only,shell``, which then
+    raises instead of degrading to ``read,shell``.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="shell", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "audit,shell",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["audit,shell", "read,shell"]
+
+
+def test_tools_manifest_alias_fallback_malformed_preset_mix_is_usage_error(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback converts a preset + non-MCP builtin mix into a clean UsageError."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only","shell"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="shell", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "audit",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in result.output
+    assert "cannot be combined" in result.output
+
+
+def test_additive_preset_alias_fallback_expands_preset(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """``--tools +audit`` fallback expands the preset instead of mixing it."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'analysis.run' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [
+            SimpleNamespace(name="read", is_available=True),
+            SimpleNamespace(name="analysis.run", is_available=False),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "+audit",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert setup_calls == ["+audit", "+read"]
+
+
+def test_tools_unavailable_builtin_is_not_shadowed_by_manifest(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """The alias fallback must preserve built-in precedence from normalization."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read","tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'read' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [SimpleNamespace(name="read", is_available=False)],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "read",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert isinstance(result.exception, ToolAllowlistError)
+    assert str(result.exception) == "Tool 'read' is unavailable"
+    assert setup_calls == ["read"]
+
+
+def test_tools_unavailable_preset_is_not_shadowed_by_manifest(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Fallback must not treat a preset name as a workspace manifest alias.
+
+    If a built-in is unavailable, the fallback loop used to miss TOOL_PRESETS
+    and resolve ``--tools read-only`` through a same-named workspace record,
+    replacing the exclusive boundary with whatever MCP tools the manifest
+    listed.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read-only","builtin_tools":["shell"],'
+        '"tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    setup_calls: list[str | None] = []
+
+    def fake_setup_config(*, tool_allowlist=None, **_kwargs):
+        setup_calls.append(tool_allowlist)
+        raise ToolAllowlistError("Tool 'read' is unavailable")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **_kwargs: [SimpleNamespace(name="read", is_available=False)],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [tool for tool in tools if tool.name == name],
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "read-only",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert isinstance(result.exception, ToolAllowlistError)
+    assert str(result.exception) == "Tool 'read' is unavailable"
+    assert setup_calls == ["read-only"]
+    assert all(
+        call is None or "evil.exec" not in call and "shell" not in call.split(",")
+        for call in setup_calls
     )
 
 

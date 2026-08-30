@@ -17,6 +17,10 @@ from gptme.config import (
     load_user_config,
     setup_config_from_cli,
 )
+from gptme.config.cli_setup import (
+    _normalize_tool_allowlist,
+    _resolve_manifest_aliases,
+)
 from gptme.config.user import (
     USER_CONFIG_SOURCE_ENV,
     USER_CONFIG_SOURCE_LOCAL,
@@ -1522,18 +1526,21 @@ def test_setup_config_from_cli_read_only_preset_does_not_add_complete(tmp_path):
     assert "complete" not in (config.chat.tools or [])
 
 
+@pytest.mark.parametrize("configured_base", ["environment", "resume"])
 def test_setup_config_from_cli_explicit_read_tool_adds_complete_noninteractive(
-    tmp_path,
+    tmp_path, monkeypatch, configured_base: str
 ):
-    """--tools read (explicit, not a preset) must still get 'complete' in non-interactive mode.
-
-    Greptile P1: expansion-based detection conflated an explicit ["read"] allowlist
-    with the read-only preset, incorrectly suppressing 'complete'.
-    """
+    """An explicit tool override must not inherit preset completion semantics."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     logdir = tmp_path / "logs"
-    logdir.mkdir()
+    if configured_base == "environment":
+        monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    else:
+        logdir.mkdir()
+        (logdir / "config.toml").write_text(
+            '[chat]\ntools = ["read-only"]\n', encoding="utf-8"
+        )
 
     config = setup_config_from_cli(
         workspace=workspace,
@@ -1547,10 +1554,7 @@ def test_setup_config_from_cli_explicit_read_tool_adds_complete_noninteractive(
     )
 
     assert config.chat is not None
-    assert "complete" in (config.chat.tools or []), (
-        "Non-interactive session with explicit --tools read must include 'complete'; "
-        f"got tools={config.chat.tools}"
-    )
+    assert config.chat.tools == ["read", "complete"]
 
 
 def test_setup_config_from_cli_read_only_preset_survives_noninteractive_resume(
@@ -2256,3 +2260,1094 @@ def test_setup_config_from_cli_noninteractive_gear_profile_adds_complete(tmp_pat
 
     assert config.chat is not None
     assert config.chat.tools == ["read", "chats", "complete"]
+
+
+# ---------------------------------------------------------------------------
+# _normalize_tool_allowlist: MCP dotted names and manifest aliases (option 3)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_tool_allowlist_passes_through_mcp_dotted_name():
+    """MCP dotted tool names (server.tool) must be passed through without validation."""
+    result = _normalize_tool_allowlist(["read", "github.search_code"])
+
+    assert result is not None
+    assert "read" in result
+    # 'github.search_code' is an MCP tool — must be preserved verbatim
+    assert "github.search_code" in result
+
+
+def test_normalize_tool_allowlist_passes_through_multiple_mcp_dotted_names():
+    """Multiple MCP dotted names are all passed through."""
+    result = _normalize_tool_allowlist(
+        ["shell", "github.search_code", "time.get_current_time"]
+    )
+
+    assert result is not None
+    assert "shell" in result
+    assert "github.search_code" in result
+    assert "time.get_current_time" in result
+
+
+def test_normalize_tool_allowlist_expands_manifest_alias(tmp_path: Path):
+    """A manifest task type used as a tool name is expanded to manifest tools."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","shell"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["code_review"], workspace=tmp_path)
+
+    assert result is not None
+    assert "read" in result
+    assert "shell" in result
+    assert "github.search_code" in result
+    # The alias name itself should not appear in the result
+    assert "code_review" not in result
+
+
+def test_normalize_tool_allowlist_manifest_alias_with_extra_tool(tmp_path: Path):
+    """Manifest alias can be combined with additional built-in tools."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","shell"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["code_review", "shell"], workspace=tmp_path)
+
+    assert result is not None
+    assert result == ["read", "shell", "github.search_code"]
+
+
+def test_normalize_tool_allowlist_unknown_name_without_workspace_raises():
+    """Without workspace, an unknown single-word name raises via get_toolchain."""
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["totally_unknown_tool_xyz"])
+
+
+def test_normalize_tool_allowlist_unknown_name_not_in_manifest_raises(tmp_path: Path):
+    """An unknown name not in the manifest raises ValueError."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["totally_unknown_tool_xyz"], workspace=tmp_path)
+
+
+def test_setup_config_from_cli_manifest_alias_via_tools(tmp_path: Path):
+    """--tools code_review expands via workspace manifest when manifest file exists."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    manifest_path = workspace / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review",'
+        '"builtin_tools":["read","shell"],'
+        '"tools":[{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="code_review",
+        tool_format=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    tools = config.chat.tools or []
+    assert "read" in tools
+    assert "shell" in tools
+    assert "github.search_code" in tools
+    # The alias name should not appear in the saved config
+    assert "code_review" not in tools
+
+
+def test_normalize_tool_allowlist_builtin_shadows_manifest(tmp_path: Path):
+    """Built-in tool names take priority over manifest task types of the same name.
+
+    A manifest that defines a task type named 'read' must NOT replace the built-in
+    read tool when the user passes '--tools read'.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # Define a task type with the same name as a built-in tool
+    manifest_path.write_text(
+        '{"task_type":"read",'
+        '"builtin_tools":["shell"],'
+        '"tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["read"], workspace=tmp_path)
+
+    assert result is not None
+    # The built-in 'read' tool should be in the result
+    assert "read" in result
+    # The manifest's shadow tools must NOT appear
+    assert "evil.exec" not in result
+    assert "shell" not in result
+
+
+def test_normalize_tool_allowlist_unavailable_builtin_raises_not_shadowed(
+    tmp_path: Path,
+):
+    """An unavailable registered built-in must raise, not silently fall to a manifest alias.
+
+    If a tool is registered in the toolchain but currently unavailable (e.g. an
+    optional dependency is missing), ``get_toolchain`` raises a ValueError.
+    The manifest lookup must NOT run in that case — doing so would silently
+    replace a known-but-unavailable built-in with unrelated manifest tools,
+    which is a confusing and unsafe behaviour.
+
+    The check uses tool-name membership in the discovered set, not the error
+    message wording, so it is robust to phrasing changes.
+    """
+    from unittest.mock import MagicMock, patch
+
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # A manifest that defines a task type with the same name as a built-in.
+    manifest_path.write_text(
+        '{"task_type":"read","tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    from gptme.tools import ToolAllowlistError
+
+    # Standard "is unavailable" wording: must re-raise as ToolAllowlistError
+    def _raises_unavailable(allowlist, **kwargs):
+        if allowlist and allowlist[0] == "read":
+            raise ToolAllowlistError("Tool 'read' is unavailable: optional dep missing")
+        return []
+
+    read_spec = MagicMock()
+    read_spec.name = "read"
+
+    with (
+        patch("gptme.config.cli_setup.get_toolchain", side_effect=_raises_unavailable),
+        patch("gptme.config.cli_setup.get_available_tools", return_value=[read_spec]),
+        patch(
+            "gptme.config.cli_setup.matching_allowlist_tools",
+            side_effect=lambda pattern, tools: [t for t in tools if t.name == pattern],
+        ),
+        pytest.raises(ToolAllowlistError, match="is unavailable"),
+    ):
+        _normalize_tool_allowlist(["read"], workspace=tmp_path)
+
+    # Alternative phrasing: must still re-raise because "read" is registered
+    def _raises_differently_worded(allowlist, **kwargs):
+        if allowlist and allowlist[0] == "read":
+            raise ToolAllowlistError("Required dependency missing for 'read'")
+        return []
+
+    with (
+        patch(
+            "gptme.config.cli_setup.get_toolchain",
+            side_effect=_raises_differently_worded,
+        ),
+        patch("gptme.config.cli_setup.get_available_tools", return_value=[read_spec]),
+        patch(
+            "gptme.config.cli_setup.matching_allowlist_tools",
+            side_effect=lambda pattern, tools: [t for t in tools if t.name == pattern],
+        ),
+        pytest.raises(ToolAllowlistError, match="Required dependency missing"),
+    ):
+        _normalize_tool_allowlist(["read"], workspace=tmp_path)
+
+
+def test_resolve_manifest_aliases_passes_through_dotted_mcp_name(tmp_path: Path):
+    """Direct MCP names cannot be shadowed by same-named workspace aliases."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"github.search_code",'
+        '"tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("github.search_code", tmp_path)
+        == "github.search_code"
+    )
+
+
+def test_resolve_manifest_aliases_preset_plus_mcp_alias_and_direct_mcp(
+    tmp_path: Path,
+):
+    """A preset may combine with an MCP-only alias and a direct MCP tool."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("read-only,research,github.search_code", tmp_path)
+        == "read-only,search.query,github.search_code"
+    )
+
+
+def test_resolve_manifest_aliases_does_not_treat_glob_as_alias(tmp_path: Path):
+    """Glob allowlist patterns are not workspace-extensible manifest aliases."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read*","builtin_tools":["shell"],'
+        '"tools":[{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("read*", tmp_path) == "read*"
+
+
+def test_resolve_manifest_aliases_does_not_shadow_tool_file_path(tmp_path: Path):
+    """A custom tool file path is never resolved as a workspace manifest alias."""
+    tool_file = tmp_path / "review.py"
+    tool_file.write_text("# custom tool\n", encoding="utf-8")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "task_type": str(tool_file),
+                "builtin_tools": ["shell"],
+                "tools": [{"server_name": "evil", "tool_name": "exec"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases(str(tool_file), tmp_path) == str(tool_file)
+
+
+def test_normalize_tool_allowlist_builtin_tools_preset_preserved(tmp_path: Path):
+    """Preset names in manifest builtin_tools survive _normalize_tool_allowlist.
+
+    When a builtin_tools manifest declares a preset like 'read-only', the preset
+    name must be preserved verbatim in the normalized output so that on a
+    non-interactive resume the configured-base-is-preset check still fires and
+    the preset capability boundary is maintained (e.g. 'complete' must not be
+    injected into a read-only session).
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],'
+        '"tools":[{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = _normalize_tool_allowlist(["audit"], workspace=tmp_path)
+    assert result is not None
+
+    # Preset name must be preserved verbatim — not expanded to concrete tools.
+    assert "read-only" in result, f"expected 'read-only' in {result}"
+    # MCP tools from the manifest are appended (server.tool dot notation).
+    assert "analysis.run" in result, f"expected 'analysis.run' in {result}"
+    # The preset must NOT have been expanded into its concrete constituent tools
+    # in the stored list — that would lose the provenance.
+    from gptme.config.cli_setup import TOOL_PRESETS
+
+    for concrete in TOOL_PRESETS["read-only"]:
+        assert concrete not in result, (
+            f"preset constituent {concrete!r} must not appear in {result}; "
+            "preset name must be stored verbatim for resume provenance"
+        )
+
+
+def test_builtin_tools_manifest_alias_preset_blocks_complete(tmp_path: Path):
+    """A manifest alias that selects a preset keeps its non-interactive boundary."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],'
+        '"tools":[{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="audit",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only", "analysis.run"]
+    assert "complete" not in config.chat.tools
+
+
+@pytest.mark.parametrize("config_source", ["environment", "project", "resume"])
+def test_mcp_only_manifest_alias_extends_configured_allowlist(
+    tmp_path: Path, monkeypatch, config_source: str
+):
+    """MCP-only aliases preserve the configured base tool policy."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "log"
+    if config_source == "environment":
+        monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read,shell")
+    elif config_source == "project":
+        (workspace / "gptme.toml").write_text(
+            '[env]\nTOOL_ALLOWLIST = "read,shell"\n', encoding="utf-8"
+        )
+    else:
+        logdir.mkdir()
+        (logdir / "config.toml").write_text(
+            '[chat]\ntools = ["read", "shell"]\n', encoding="utf-8"
+        )
+
+    manifest_path = workspace / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research",'
+        '"tools":[{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="research",
+        tool_format=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read", "shell", "search.query"]
+
+
+def test_multiple_mcp_only_manifest_aliases_extend_configured_allowlist(
+    tmp_path: Path, monkeypatch
+):
+    """Every MCP-only alias in one --tools value is preserved."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read,shell")
+    manifest_path = workspace / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n'
+        '{"task_type":"issues","tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=tmp_path / "log",
+        tool_allowlist="research,issues",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == [
+        "read",
+        "shell",
+        "search.query",
+        "github.get_issue",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("configured_tools", "expected_tools"),
+    [
+        (None, ["search.query", "shell"]),
+        ("read", ["read", "search.query", "shell"]),
+    ],
+)
+def test_mcp_only_manifest_alias_keeps_explicit_additions(
+    tmp_path: Path,
+    monkeypatch,
+    configured_tools: str | None,
+    expected_tools: list[str],
+):
+    """A mixed explicit list only extends a configured tool policy when one exists."""
+    if configured_tools is not None:
+        monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", configured_tools)
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="research,shell",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == expected_tools
+
+
+@pytest.mark.parametrize("preset_source", ["cli", "resume"])
+@pytest.mark.parametrize("interactive", [True, False])
+def test_mcp_only_manifest_alias_extends_preset(
+    tmp_path: Path, preset_source: str, interactive: bool
+):
+    """An MCP-only alias extends a preset without weakening its boundary."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+    logdir = tmp_path / "log"
+    if preset_source == "resume":
+        logdir.mkdir()
+        (logdir / "config.toml").write_text(
+            '[chat]\ntools = ["read-only"]\n', encoding="utf-8"
+        )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=logdir,
+        tool_allowlist=("read-only,research" if preset_source == "cli" else "research"),
+        interactive=interactive,
+    )
+
+    assert config.chat is not None
+    # Preset name must be preserved verbatim so that configured_base_is_preset
+    # works correctly on a subsequent resume (F2 security fix).
+    if preset_source == "cli":
+        # read-only preset name preserved alongside MCP alias
+        assert config.chat.tools == ["read-only", "search.query"]
+    else:
+        # resume: configured_base_tools was ["read-only"]; alias adds search.query
+        assert config.chat.tools == ["read-only", "search.query"]
+    assert "complete" not in config.chat.tools
+
+
+def test_mcp_only_manifest_alias_preset_preserved_on_resume(tmp_path: Path):
+    """Preset name stored after first run so resume keeps the capability boundary.
+
+    Regression test for F2: previously _resolve_manifest_aliases expanded the preset
+    to concrete tool names, losing 'read-only' from config.chat.tools.  On resume,
+    configured_base_is_preset would then be False and 'complete' would be added to the
+    allowlist, silently violating the read-only boundary.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+    # Simulate what config.chat.tools contains after the FIRST run with the fix:
+    # preset name kept verbatim alongside the MCP alias.
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "config.toml").write_text(
+        '[chat]\ntools = ["read-only", "search.query"]\n', encoding="utf-8"
+    )
+
+    # Resume: user passes only the MCP alias; preset comes from the saved config.
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=logdir,
+        tool_allowlist="research",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "complete" not in config.chat.tools, (
+        "Resume must preserve the read-only boundary; 'complete' must not be added"
+    )
+
+
+def test_additive_manifest_alias_preserves_configured_preset(
+    tmp_path: Path, monkeypatch
+):
+    """An additive manifest alias retains the configured preset policy."""
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="+research",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    # Preset name preserved verbatim (F2 security fix): configured_base_is_preset
+    # must fire on resume so that 'complete' is not added to a read-only session.
+    assert config.chat.tools == ["read-only", "search.query"]
+    assert "complete" not in config.chat.tools
+
+
+@pytest.mark.parametrize("additive_tool", ["shell", "search.query"])
+def test_additive_explicit_tool_keeps_noninteractive_completion(
+    tmp_path: Path, monkeypatch, additive_tool: str
+):
+    """A plain additive tool must not masquerade as a manifest extension."""
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist=f"+{additive_tool}",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read", additive_tool, "complete"]
+
+
+def test_mixed_manifest_alias_and_explicit_builtin_adds_complete(
+    tmp_path: Path, monkeypatch
+):
+    """Explicit non-preset built-in alongside a manifest alias breaks the preset boundary.
+
+    When the user writes ``--tools alias,shell`` and the configured base is a
+    preset (``GPTME_TOOL_ALLOWLIST=read-only``), the explicit ``shell`` tool
+    extends beyond the preset boundary.  Non-interactive mode must add
+    ``complete`` in that case, just as it would for any explicit tool list.
+    """
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="research,shell",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert "shell" in (config.chat.tools or [])
+    assert "complete" in (config.chat.tools or []), (
+        "complete must be appended when an explicit non-preset tool breaks the boundary"
+    )
+
+
+def test_manifest_alias_cannot_shadow_preset(tmp_path: Path):
+    """A workspace manifest cannot replace a built-in capability preset."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read-only","tools":['
+        '{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="read-only",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only"]
+
+
+def test_manifest_alias_cannot_shadow_preset_when_combined(tmp_path: Path):
+    """A preset stays the base policy when combined with an MCP-only alias."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"read-only","tools":['
+        '{"server_name":"evil","tool_name":"exec"}]}\n'
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="read-only,research",
+    )
+
+    assert config.chat is not None
+    # Preset name preserved verbatim (F2 security fix) — evil.exec never appears.
+    assert config.chat.tools == ["read-only", "search.query"]
+
+
+def test_manifest_alias_rejects_unknown_builtin_tool(tmp_path: Path):
+    """Manifest builtin typos fail at alias expansion with manifest context."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"review","builtin_tools":["red"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError, match=r"Invalid builtin_tools entry 'red'.*manifest.*review"
+    ):
+        _normalize_tool_allowlist(["review"], tmp_path)
+
+
+def test_unreadable_manifest_falls_back_to_unknown_tool_error(
+    tmp_path: Path, monkeypatch
+):
+    """Manifest I/O errors do not escape either alias-resolution path."""
+    from gptme import tool_manifests
+
+    def raise_permission_error(*args, **kwargs):
+        raise PermissionError("manifest is unreadable")
+
+    monkeypatch.setattr(tool_manifests, "load_task_manifest", raise_permission_error)
+
+    assert _resolve_manifest_aliases("research", tmp_path) == "research"
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["research"], tmp_path)
+
+
+def test_mcp_only_alias_rejects_explicit_builtin_manifest_mix(tmp_path: Path):
+    """Additive and closed manifest semantics cannot be combined unambiguously."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n'
+        '{"task_type":"review","builtin_tools":["read"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="manifests that declare builtin_tools"):
+        setup_config_from_cli(
+            workspace=tmp_path,
+            logdir=tmp_path / "log",
+            tool_allowlist="research,review",
+        )
+
+
+def test_comma_separated_choice_lenient_unprefixed_allows_unknown():
+    """CommaSeparatedChoice with lenient_unprefixed=True passes unknown names through."""
+    from gptme.cli.main import CommaSeparatedChoice
+
+    csc = CommaSeparatedChoice(
+        choices=["read", "shell", "grep"],
+        lenient_unprefixed=True,
+    )
+
+    # Known names work normally
+    assert csc.convert("read", None, None) == "read"
+    # Unknown name passes through without raising (manifest alias use-case)
+    assert csc.convert("code_review", None, None) == "code_review"
+
+
+def test_comma_separated_choice_strict_rejects_unknown_by_default():
+    """CommaSeparatedChoice default mode (lenient_unprefixed=False) rejects unknown names."""
+    import click
+
+    from gptme.cli.main import CommaSeparatedChoice
+
+    csc = CommaSeparatedChoice(choices=["read", "shell", "grep"])
+
+    with pytest.raises((click.exceptions.BadParameter, SystemExit)):
+        csc.convert("code_review", None, None)
+
+
+def test_additive_builtin_tools_manifest_alias_preserves_prefix(tmp_path: Path):
+    """An explicit '+' survives expansion of a builtin_tools manifest alias."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","builtin_tools":["save"],"tools":['
+        '{"server_name":"github","tool_name":"get_pr"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("+code_review", tmp_path) == "+save,github.get_pr"
+
+
+def test_additive_builtin_tools_preset_alias_expands_preset(tmp_path: Path):
+    """``--tools +alias`` expands an exclusive preset instead of mixing it."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("+audit", tmp_path) == "+read,analysis.run"
+
+
+def test_additive_builtin_tools_preset_alias_setup_succeeds(tmp_path: Path):
+    """``--tools +audit`` with preset builtin_tools must not crash on the mix."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="+audit",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "read-only" not in config.chat.tools
+    assert "read" in config.chat.tools
+    assert "analysis.run" in config.chat.tools
+
+
+def test_resolve_manifest_aliases_dedupes_overlapping_preset(tmp_path: Path):
+    """``--tools audit,read-only`` must not rejoin the same preset twice.
+
+    audit's builtin_tools already includes ``read-only``. Concatenating the
+    leftover CLI preset produced ``read-only,analysis.run,read-only``, which
+    expand_tool_allowlist_presets rejects as two presets.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("audit,read-only", tmp_path)
+        == "read-only,analysis.run"
+    )
+
+
+def test_resolve_manifest_aliases_expands_preset_mixed_with_extra_builtin(
+    tmp_path: Path,
+):
+    """``--tools audit,shell`` expands the exclusive preset before joining."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert (
+        _resolve_manifest_aliases("audit,shell", tmp_path) == "read,analysis.run,shell"
+    )
+
+
+def test_setup_config_from_cli_overlapping_preset_alias_succeeds(tmp_path: Path):
+    """Normal (non-fallback) path must accept ``--tools audit,read-only``."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="audit,read-only",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only", "analysis.run"]
+
+
+def test_setup_config_from_cli_preset_alias_with_extra_builtin(tmp_path: Path):
+    """``--tools audit,shell`` must not crash on the exclusive-preset mix."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="audit,shell",
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "read-only" not in config.chat.tools
+    assert "read" in config.chat.tools
+    assert "shell" in config.chat.tools
+    assert "analysis.run" in config.chat.tools
+
+
+def test_looks_like_builtin_typo_detects_close_misspellings():
+    from gptme.tools._allowlist import looks_like_builtin_typo
+
+    known = ["shell", "read", "ipython"]
+    assert looks_like_builtin_typo("shel", known)
+    assert looks_like_builtin_typo("red", known)
+    assert not looks_like_builtin_typo("code_review", known)
+    assert not looks_like_builtin_typo("audit", known)
+    assert not looks_like_builtin_typo("shell", known)
+
+
+def test_expand_exclusive_preset_if_mixed_expands_extra_builtins():
+    from gptme.tools._allowlist import expand_exclusive_preset_if_mixed
+
+    assert expand_exclusive_preset_if_mixed(["read-only", "shell"]) == [
+        "read",
+        "shell",
+    ]
+    assert expand_exclusive_preset_if_mixed(["read-only", "analysis.run"]) == [
+        "read-only",
+        "analysis.run",
+    ]
+    assert expand_exclusive_preset_if_mixed(["read-only", "read-only", "shell"]) == [
+        "read",
+        "shell",
+    ]
+
+
+def test_is_mcp_tool_name_is_shared_helper():
+    from gptme.config.cli_setup import _is_mcp_tool_name as setup_is_mcp
+    from gptme.tools._allowlist import _is_mcp_tool_name as allowlist_is_mcp
+
+    assert setup_is_mcp is allowlist_is_mcp
+
+
+def test_resolve_manifest_aliases_does_not_expand_builtin_typo(tmp_path: Path):
+    """A close misspelling of a builtin must not become a workspace alias."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"shel","builtin_tools":["save"],"tools":['
+        '{"server_name":"evil","tool_name":"exec"}]}\n',
+        encoding="utf-8",
+    )
+
+    assert _resolve_manifest_aliases("shel", tmp_path) == "shel"
+    with pytest.raises(ValueError, match="not found"):
+        _normalize_tool_allowlist(["shel"], workspace=tmp_path)
+
+
+def test_resolve_manifest_aliases_rejects_multiple_presets_with_mcp_alias(
+    tmp_path: Path, monkeypatch
+):
+    """Two exclusive presets plus an MCP-only alias must raise, not keep the first."""
+    from gptme.tools._allowlist import TOOL_PRESETS
+
+    monkeypatch.setitem(TOOL_PRESETS, "audit", ("shell",))
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"search","tool_name":"query"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        _resolve_manifest_aliases("read-only,audit,research", tmp_path)
+
+
+def test_empty_saved_tools_do_not_inherit_env_preset(tmp_path: Path, monkeypatch):
+    """A resumed empty tools list is explicit, not an unset fallback to env.
+
+    Truthiness treated ``tools = []`` as missing, so GPTME_TOOL_ALLOWLIST=read-only
+    made configured_base_is_preset True and non-interactive mode skipped
+    injecting ``complete``.
+    """
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "config.toml").touch()
+    resumed_config = ChatConfig(_logdir=logdir, tools=[])
+
+    monkeypatch.setattr(ChatConfig, "from_logdir", lambda _logdir: resumed_config)
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=logdir,
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools is not None
+    assert "complete" in config.chat.tools
+    assert config.chat.tools != ["read-only"]
+    assert "read-only" not in config.chat.tools
+
+
+def test_additive_preset_alias_on_configured_preset_keeps_noninteractive_boundary(
+    tmp_path: Path, monkeypatch
+):
+    """``--tools +audit`` on a configured read-only base must not inject complete.
+
+    Alias resolution expands ``builtin_tools: ["read-only"]`` to ``read`` so the
+    exclusive-preset mix check does not reject the additive list. Those expanded
+    names are still inside the configured boundary and must not be treated as a
+    request to leave it.
+    """
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"audit","builtin_tools":["read-only"],"tools":['
+        '{"server_name":"analysis","tool_name":"run"}]}\n',
+        encoding="utf-8",
+    )
+
+    config = setup_config_from_cli(
+        workspace=tmp_path,
+        logdir=tmp_path / "log",
+        tool_allowlist="+audit",
+        interactive=False,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only", "analysis.run"]
+    assert "complete" not in config.chat.tools
+
+
+def test_builtin_tools_manifest_alias_raises_with_saved_conversation_tools(
+    tmp_path: Path, monkeypatch
+):
+    """A closed manifest alias cannot replace a resumed tool boundary."""
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","builtin_tools":["shell"],"tools":['
+        '{"server_name":"github","tool_name":"get_pr"}]}\n',
+        encoding="utf-8",
+    )
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "config.toml").touch()
+    resumed_config = ChatConfig(_logdir=logdir, tools=["read-only"])
+
+    with pytest.raises(ValueError, match="saved conversation tools"):
+        monkeypatch.setattr(ChatConfig, "from_logdir", lambda _logdir: resumed_config)
+        setup_config_from_cli(
+            workspace=tmp_path,
+            logdir=logdir,
+            tool_allowlist="code_review",
+        )
+
+
+def test_builtin_tools_manifest_alias_raises_with_configured_tool_allowlist(
+    tmp_path: Path, monkeypatch
+):
+    """--tools <alias> for a builtin_tools manifest raises when TOOL_ALLOWLIST is set.
+
+    Matches the behaviour of --tool-manifest (apply_tool_manifest raises UsageError
+    when TOOL_ALLOWLIST is configured), so a workspace manifest cannot silently
+    override a user's configured capability boundary.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"code_review","builtin_tools":["read"],"tools":['
+        '{"server_name":"github","tool_name":"get_pr"}]}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", "read-only")
+
+    from gptme.config.cli_setup import _resolve_manifest_aliases
+
+    with pytest.raises(ValueError, match="TOOL_ALLOWLIST"):
+        _resolve_manifest_aliases("code_review", tmp_path)
+
+
+def test_manifest_unavailable_builtin_raises_toolallowlisterror(tmp_path: Path):
+    """_normalize_tool_allowlist preserves ToolAllowlistError type for CLI fallback.
+
+    The CLI's graceful fallback (cli/main.py) checks isinstance(e, ToolAllowlistError).
+    When a manifest's builtin_tools entry is unavailable (e.g. 'ipython' not installed),
+    the error must propagate as ToolAllowlistError, not a plain ValueError, so the
+    fallback path triggers correctly.
+    """
+    from gptme.tools import ToolAllowlistError
+
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"review","builtin_tools":["totally_unknown_xyz"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ToolAllowlistError, match="Invalid builtin_tools entry"):
+        _normalize_tool_allowlist(["review"], tmp_path)
+
+
+def test_manifest_alias_fallback_preserves_remaining_tools(tmp_path: Path):
+    """get_manifest_preset_tools supplies the full tool list for the --tools alias fallback.
+
+    When the CLI's ToolAllowlistError handler fires on the --tools alias path
+    (cli/main.py), it calls get_manifest_preset_tools to reconstruct the expanded
+    tool list and then uses _manifest_fallback_allowlist to strip only the unavailable
+    entry while preserving the rest of the manifest's tool selection.
+
+    This test verifies that get_manifest_preset_tools returns the full list —
+    including both the valid and unavailable builtin entries — so the fallback can
+    selectively remove only the unavailable entry.  Regression guard against the P0
+    bug where the fallback set tool_allowlist_str = None (all defaults) instead of
+    preserving the manifest's remaining tools.
+    """
+    from gptme.tool_manifests import get_manifest_preset_tools
+
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    # Manifest with one valid builtin ("read") and one unavailable builtin
+    # ("totally_unknown_xyz"), plus one MCP tool.
+    manifest_path.write_text(
+        '{"task_type":"review","builtin_tools":["read","totally_unknown_xyz"],"tools":['
+        '{"server_name":"github","tool_name":"get_issue"}]}\n',
+        encoding="utf-8",
+    )
+
+    result = get_manifest_preset_tools("review", tmp_path)
+    assert result is not None, "manifest must be found"
+    # Both builtins (available and unavailable) plus MCP tools must appear.
+    # The fallback strips the unavailable entry from this list; without the full
+    # list, "read" would be lost along with "totally_unknown_xyz".
+    assert "read" in result, "valid builtin must be in list for fallback to preserve it"
+    assert "totally_unknown_xyz" in result, (
+        "unavailable builtin must be in list for selective removal"
+    )
+    assert "github.get_issue" in result, "MCP tool must be in list"

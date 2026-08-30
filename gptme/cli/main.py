@@ -278,6 +278,7 @@ class CommaSeparatedChoice(click.ParamType):
         extra_choices_for_prefix: dict[str, list[str] | Callable[[], list[str]]]
         | None = None,
         lenient_prefixes: list[str] | None = None,
+        lenient_unprefixed: bool = False,
         metavar: str | None = None,
     ):
         # Choices may be a zero-arg callable, resolved on first use, so that
@@ -296,6 +297,10 @@ class CommaSeparatedChoice(click.ParamType):
         # prefixed name like "+tts" must pass; it's resolved against the loaded
         # toolset later, which warns if it's genuinely missing.
         self.lenient_prefixes = set(lenient_prefixes or [])
+        # When True, unknown unprefixed names also pass through at parse time.
+        # Used for --tools so workspace manifest aliases (e.g. "code_review")
+        # reach _normalize_tool_allowlist instead of being rejected here.
+        self.lenient_unprefixed = lenient_unprefixed
         self._metavar = metavar
 
     @property
@@ -338,6 +343,14 @@ class CommaSeparatedChoice(click.ParamType):
             # Defer validation for lenient prefixes (e.g. "+tts" plugin tools)
             if matched_prefix in self.lenient_prefixes:
                 continue
+            # Defer validation for unknown unprefixed names when lenient_unprefixed
+            # is set.  Workspace manifest aliases (e.g. "code_review") are not
+            # known at parse time; they reach _normalize_tool_allowlist where the
+            # manifest is consulted and a proper error is raised if the name isn't
+            # found there either.
+            if matched_prefix is None and self.lenient_unprefixed:
+                if check not in self._choice_set:
+                    continue
             extra_choices = (
                 self._extra_choices(matched_prefix)
                 if matched_prefix is not None
@@ -669,6 +682,11 @@ Run 'gptme-util --help' for all utility commands."""
         # parse time. '-tool' exclusions and built-in hint tags stay strict so
         # typos like '-shel' or 'hint:red-only' fail before tool loading.
         lenient_prefixes=["+"],
+        # Unprefixed unknowns are also accepted so workspace manifest task-type
+        # aliases (e.g. '--tools code_review') can reach _normalize_tool_allowlist
+        # where the manifest is consulted.  Genuine typos of known built-in names
+        # will still be caught there via get_toolchain.
+        lenient_unprefixed=True,
         metavar="TOOL",
     ),
     help="Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). See 'Available tools' above for the list.",
@@ -1119,20 +1137,42 @@ def main(
         """Remove unavailable manifest tools while preserving allowlist mode."""
         if not manifest_allowlist:
             return pre_manifest_allowlist
-        from ..tools import expand_tool_allowlist_presets
+        from ..tools import ToolAllowlistError, expand_tool_allowlist_presets
+        from ..tools._allowlist import TOOL_PRESETS
 
         entries = [
             entry.strip()
             for entry in manifest_allowlist.removeprefix("+").split(",")
             if entry.strip()
         ]
-        if not manifest_allowlist.startswith("+"):
+        preset_names = [entry for entry in entries if entry in TOOL_PRESETS]
+        try:
             expanded_entries = expand_tool_allowlist_presets(entries)
-            assert expanded_entries is not None
-            entries = expanded_entries
-        concrete_allowlist = ",".join(entries)
+        except ValueError as e:
+            # A malformed builtin_tools mix (preset + non-MCP name) must
+            # surface as a clean usage error, not an unhandled traceback.
+            raise ToolAllowlistError(str(e)) from e
+        assert expanded_entries is not None
+        concrete_allowlist = ",".join(expanded_entries)
         unavailable = _unavailable_manifest_tools(concrete_allowlist)
-        remaining = [entry for entry in entries if entry not in unavailable]
+        remaining = [entry for entry in expanded_entries if entry not in unavailable]
+        # Keep preset provenance for exclusive (non-additive) fallbacks only.
+        # An additive '+' list cannot carry a preset name: it is later
+        # appended onto a concrete base and would fail the exclusive-preset
+        # combination guard.
+        if preset_names and not manifest_allowlist.startswith("+"):
+            viable_presets = [
+                preset_name
+                for preset_name in preset_names
+                if not any(tool in unavailable for tool in TOOL_PRESETS[preset_name])
+            ]
+            preset_tools = {
+                tool
+                for preset_name in preset_names
+                for tool in TOOL_PRESETS[preset_name]
+            }
+            remaining = [entry for entry in remaining if entry not in preset_tools]
+            remaining = [*viable_presets, *remaining]
         if manifest_allowlist.startswith("+"):
             return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
         # Non-additive (builtin_tools): fail closed when every entry is unavailable.
@@ -1141,8 +1181,6 @@ def main(
         # session would launch with unrestricted shell/save/patch access even though
         # the user explicitly configured a capability boundary via the manifest.
         if not remaining:
-            from ..tools import ToolAllowlistError
-
             raise ToolAllowlistError(
                 f"All manifest tools are unavailable: {', '.join(sorted(unavailable))}. "
                 "Check that the required MCP servers are running and that built-in tools "
@@ -1471,6 +1509,7 @@ def main(
                     logdir=stats_logdir,
                     model=model,
                     tool_allowlist=stats_tool_allowlist_str,
+                    manifest_workspace=manifest_workspace,
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
                     gear=selected_gear,
@@ -1491,9 +1530,9 @@ def main(
                         stats_tool_allowlist_str = _manifest_fallback_allowlist(
                             stats_tool_allowlist_str, tool_allowlist_str
                         )
-                    except ToolAllowlistError as fallback_e:
-                        # All manifest entries unavailable — fail closed rather
-                        # than silently expanding to the full default toolchain.
+                    except (ToolAllowlistError, ValueError) as fallback_e:
+                        # All manifest entries unavailable, or a malformed
+                        # preset mix — fail closed rather than traceback.
                         raise click.UsageError(str(fallback_e)) from fallback_e
                     logger.warning(
                         "Manifest %r tool unavailable during stats config setup: %s — "
@@ -1511,6 +1550,7 @@ def main(
                             logdir=stats_logdir,
                             model=model,
                             tool_allowlist=stats_tool_allowlist_str,
+                            manifest_workspace=manifest_workspace,
                             tool_format=tool_format,
                             prune_tool_output=prune_tool_output,
                             gear=selected_gear,
@@ -1710,6 +1750,7 @@ def main(
             logdir=logdir,
             model=model,
             tool_allowlist=tool_allowlist_str,
+            manifest_workspace=manifest_workspace,
             tool_format=tool_format,
             prune_tool_output=prune_tool_output,
             gear=selected_gear,
@@ -1719,27 +1760,157 @@ def main(
             agent_path=Path(agent_path) if agent_path else None,
         )
     except ValueError as e:
-        if tool_manifest_type and isinstance(e, ToolAllowlistError):
-            # Retry after removing only unavailable manifest entries. This applies
-            # to built-ins as well as MCP tools and preserves the manifest's exact or
-            # additive allowlist mode.
-            try:
-                tool_allowlist_str = _manifest_fallback_allowlist(
-                    tool_allowlist_str, pre_manifest_allowlist
+        if isinstance(e, ToolAllowlistError):
+            if tool_manifest_type:
+                # --tool-manifest path: retry after removing only unavailable manifest
+                # entries, preserving the manifest's exact or additive allowlist mode.
+                try:
+                    tool_allowlist_str = _manifest_fallback_allowlist(
+                        tool_allowlist_str, pre_manifest_allowlist
+                    )
+                except (ToolAllowlistError, ValueError) as fallback_e:
+                    # All manifest entries unavailable, or a malformed
+                    # preset mix — fail closed rather than traceback.
+                    raise click.UsageError(str(fallback_e)) from fallback_e
+                logger.warning(
+                    "Manifest %r tool unavailable during config setup: %s — "
+                    "running without unavailable manifest tools%s.",
+                    tool_manifest_type,
+                    e,
+                    f" (keeping built-ins: {tool_allowlist_str})"
+                    if tool_allowlist_str
+                    else "",
                 )
-            except ToolAllowlistError as fallback_e:
-                # All manifest entries unavailable — fail closed rather than
-                # silently expanding to the full default toolchain.
-                raise click.UsageError(str(fallback_e)) from fallback_e
-            logger.warning(
-                "Manifest %r tool unavailable during config setup: %s — "
-                "running without unavailable manifest tools%s.",
-                tool_manifest_type,
-                e,
-                f" (keeping built-ins: {tool_allowlist_str})"
-                if tool_allowlist_str
-                else "",
-            )
+            else:
+                # --tools manifest alias path: a builtin_tools entry in the alias's
+                # manifest is unavailable.  Preserve parity with --tool-manifest:
+                # strip only the unavailable entry and keep the remaining manifest
+                # tools, rather than silently collapsing to all defaults (which
+                # would violate a restrictive capability boundary in the manifest).
+                #
+                # If the allowlist contains NO manifest aliases at all (plain
+                # --tools with a normal tool name), this is not a manifest alias
+                # fallback situation — re-raise so the user sees the real error.
+                from ..tool_manifests import load_task_manifest
+                from ..tools import get_available_tools, matching_allowlist_tools
+                from ..tools._allowlist import (
+                    TOOL_PRESETS,
+                    _is_mcp_tool_name,
+                    expand_exclusive_preset_if_mixed,
+                    is_glob_allowlist_pattern,
+                    is_tool_file_path,
+                    looks_like_builtin_typo,
+                )
+
+                # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
+                # or "code_review,extra_tool"). Expand only names that were resolved
+                # as aliases during the first setup attempt. Registered built-ins must
+                # keep precedence even when unavailable; otherwise a workspace manifest
+                # could shadow an explicitly requested built-in in this fallback path.
+                all_alias_tools: list[str] = []  # tools from expanded manifest aliases
+                non_alias_parts: list[str] = []  # explicit tool names to keep as-is
+                available_tools = get_available_tools()
+                _was_additive = (tool_allowlist_str or "").startswith("+")
+                alias_candidates = [
+                    candidate.strip()
+                    for candidate in (tool_allowlist_str or "").lstrip("+").split(",")
+                    if candidate.strip()
+                ]
+                resolved_aliases = 0
+                all_aliases_mcp_only = True
+                for alias_candidate in alias_candidates:
+                    # Presets, direct MCP names, and custom tool files are not
+                    # workspace-extensible aliases. Mirror _resolve_manifest_aliases
+                    # so a malicious task_type cannot replace ``read-only`` (or a
+                    # dotted MCP name) when a built-in is unavailable and this
+                    # fallback loop runs.
+                    if (
+                        alias_candidate in TOOL_PRESETS
+                        or _is_mcp_tool_name(alias_candidate)
+                        or is_tool_file_path(alias_candidate)
+                        or is_glob_allowlist_pattern(alias_candidate)
+                        or looks_like_builtin_typo(
+                            alias_candidate,
+                            [*(TOOL_PRESETS), *(tool.name for tool in available_tools)],
+                        )
+                    ):
+                        non_alias_parts.append(alias_candidate)
+                        continue
+                    if matching_allowlist_tools(alias_candidate, available_tools):
+                        non_alias_parts.append(alias_candidate)
+                        continue
+                    try:
+                        manifest = load_task_manifest(
+                            alias_candidate, manifest_workspace
+                        )
+                    except (OSError, ValueError):
+                        non_alias_parts.append(alias_candidate)
+                        continue
+                    all_alias_tools.extend(manifest.all_tool_names)
+                    resolved_aliases += 1
+                    all_aliases_mcp_only = (
+                        all_aliases_mcp_only and not manifest.builtin_tools
+                    )
+
+                if not all_alias_tools:
+                    # No manifest aliases in the allowlist — this is a regular
+                    # --tools error (e.g. a typo or unavailable built-in tool).
+                    # Re-raise so callers see the original ToolAllowlistError.
+                    raise
+
+                # Reuse the same helper as --tool-manifest: remove only the
+                # unavailable entries, fall back to None (defaults) only when
+                # every manifest tool is unavailable.
+                # Bare MCP-only aliases stay additive (same as --tool-manifest).
+                # A mixed unprefixed list such as ``--tools research,shell`` must
+                # not become additive on fallback: ``+shell`` would extend the
+                # default toolset and widen the allowlist past what the user
+                # requested. Keep remaining explicit tools as an exact list.
+                fallback_is_additive = _was_additive or (
+                    resolved_aliases > 0
+                    and all_aliases_mcp_only
+                    and not non_alias_parts
+                )
+                expanded_str = ("+" if fallback_is_additive else "") + ",".join(
+                    all_alias_tools
+                )
+                try:
+                    fallback_str = _manifest_fallback_allowlist(expanded_str, None)
+                except (ToolAllowlistError, ValueError) as fallback_e:
+                    if not non_alias_parts:
+                        raise click.UsageError(str(fallback_e)) from fallback_e
+                    # Mixed list: every alias entry is unavailable, but explicit
+                    # tools remain. Keep those as an exact allowlist rather than
+                    # failing closed or expanding to the default toolset.
+                    fallback_str = None
+
+                if non_alias_parts:
+                    # Re-join non-alias tools (e.g. "+extra_tool") alongside the
+                    # stripped manifest tools so they are not silently lost.
+                    # Deduplicate: a surviving builtin_tools preset can already
+                    # appear in fallback_parts, and repeating it in
+                    # non_alias_parts would become ``read-only,read-only``.
+                    fallback_parts = [p for p in (fallback_str or "").split(",") if p]
+                    combined = expand_exclusive_preset_if_mixed(
+                        fallback_parts + non_alias_parts
+                    )
+                    tool_allowlist_str = ",".join(combined) if combined else None
+                else:
+                    tool_allowlist_str = fallback_str
+                # Restore additive semantics: ``--tools +alias`` must remain
+                # additive after fallback expansion so it appends to the
+                # configured TOOL_ALLOWLIST rather than replacing it.
+                if fallback_is_additive and tool_allowlist_str:
+                    tool_allowlist_str = "+" + tool_allowlist_str.removeprefix("+")
+
+                logger.warning(
+                    "Tool alias manifest entry unavailable during config setup: %s — "
+                    "%s.",
+                    e,
+                    f"running without unavailable manifest tools (keeping: {tool_allowlist_str})"
+                    if tool_allowlist_str
+                    else "falling back to default tools",
+                )
             setup_fallback_ran = True
             try:
                 config = setup_config_from_cli(
@@ -1747,6 +1918,7 @@ def main(
                     logdir=logdir,
                     model=model,
                     tool_allowlist=tool_allowlist_str,
+                    manifest_workspace=manifest_workspace,
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
                     gear=selected_gear,

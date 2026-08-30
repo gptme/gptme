@@ -10,10 +10,16 @@ from typing import TYPE_CHECKING, cast
 
 from ..gears import parse_gear, resolve_gear
 from ..profiles import get_profile
-from ..tools import get_toolchain
+from ..tools import ToolAllowlistError, get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
+    _is_mcp_tool_name,
+    expand_exclusive_preset_if_mixed,
     expand_tool_allowlist_presets,
+    is_glob_allowlist_pattern,
+    is_tool_file_path,
+    looks_like_builtin_typo,
+    matching_allowlist_tools,
 )
 from .chat import ChatConfig
 from .core import Config, get_config, set_config, set_config_from_workspace
@@ -39,17 +45,194 @@ def _get_model_default_tool_format(model: str | None) -> str | None:
         return None
 
 
-def _is_tool_file_path(value: str) -> bool:
-    return (
-        value.endswith(".py")
-        or value.startswith(("/", "./", "../", "~"))
-        or (
-            len(value) > 2 and value[1] == ":" and value[2] in "/\\"  # Windows C:\...
+def _tools_stay_inside_preset_boundary(
+    tools: list[str], base_tools: list[str] | None
+) -> bool:
+    """Return True if *tools* are MCP names or already inside *base_tools*' preset.
+
+    Additive ``--tools +alias`` may expand a manifest's ``builtin_tools: ["read-only"]``
+    into concrete names (``read``) so later exclusive-preset checks do not reject
+    the mix. Those expanded names are still inside the configured preset boundary
+    and must not be treated as a user request to leave it — otherwise
+    non-interactive mode injects ``complete``.
+    """
+    if not base_tools:
+        return False
+    presets = [item for item in base_tools if item in TOOL_PRESETS]
+    if not presets:
+        return False
+    allowed: set[str] = set(presets)
+    for preset in presets:
+        allowed.update(TOOL_PRESETS[preset])
+    return all(_is_mcp_tool_name(item) or item in allowed for item in tools if item)
+
+
+def _resolve_manifest_aliases(
+    tool_allowlist: str,
+    workspace: Path,
+    *,
+    configured_tools: list[str] | None = None,
+) -> str:
+    """Resolve manifest aliases before applying CLI allowlist precedence."""
+    if tool_allowlist.startswith("-"):
+        return tool_allowlist
+
+    from ..tool_manifests import load_task_manifest
+
+    additive = tool_allowlist.startswith("+")
+    requested_tools = [
+        tool.strip()
+        for tool in tool_allowlist.removeprefix("+").split(",")
+        if tool.strip()
+    ]
+    manifest_aliases: list[str] = []
+    explicit_manifest_tools: list[str] = []
+    non_alias_tools: list[str] = []
+    has_mcp_only_alias = False
+    for requested_tool in requested_tools:
+        # Presets are capability policies, not workspace-extensible aliases. A
+        # manifest from an untrusted workspace must never shadow one (for
+        # example, ``read-only`` with an MCP tool named ``evil.exec``).
+        if (
+            requested_tool in TOOL_PRESETS
+            or _is_mcp_tool_name(requested_tool)
+            or is_tool_file_path(requested_tool)
+            or is_glob_allowlist_pattern(requested_tool)
+        ):
+            # Presets, direct MCP names, custom tool files, and glob allowlist
+            # patterns are not workspace-extensible aliases. A malicious
+            # task_type such as ``read*`` must not capture glob-typed input.
+            non_alias_tools.append(requested_tool)
+            continue
+
+        try:
+            get_toolchain([requested_tool])
+        except ValueError:
+            # Use membership check, not message wording — wording can vary.
+            available_tools = get_available_tools()
+            if matching_allowlist_tools(requested_tool, available_tools):
+                raise  # registered but unavailable — don't shadow with manifest
+            # A one-character typo of a known builtin (``shel`` for ``shell``)
+            # must not silently become a workspace alias. Close matches still
+            # fail as unknown tools; use --tool-manifest for the rare genuine
+            # alias that collides with a builtin spelling.
+            if looks_like_builtin_typo(
+                requested_tool,
+                [*(TOOL_PRESETS), *(tool.name for tool in available_tools)],
+            ):
+                non_alias_tools.append(requested_tool)
+                continue
+            try:
+                manifest = load_task_manifest(requested_tool, workspace)
+            except (OSError, ValueError):
+                non_alias_tools.append(requested_tool)
+                continue
+            if manifest.builtin_tools:
+                explicit_manifest_tools.extend(manifest.all_tool_names)
+            else:
+                has_mcp_only_alias = True
+                manifest_aliases.extend(manifest.tool_names)
+        else:
+            non_alias_tools.append(requested_tool)
+
+    if not has_mcp_only_alias:
+        if explicit_manifest_tools:
+            # Guard: a builtin_tools manifest alias replaces the tool allowlist
+            # non-additively (same as --tool-manifest builtin_tools behaviour).
+            # Raise when a configured TOOL_ALLOWLIST exists so the alias cannot
+            # silently override a user-configured capability boundary — matching
+            # the explicit check in apply_tool_manifest() for --tool-manifest.
+            from .core import get_config
+
+            config = get_config()
+            configured_source = None
+            if config.get_env("TOOL_ALLOWLIST"):
+                configured_source = "configured TOOL_ALLOWLIST"
+            elif configured_tools is not None:
+                configured_source = "saved conversation tools"
+            if configured_source and not additive:
+                aliases = [t for t in requested_tools if t not in non_alias_tools]
+                alias_name = aliases[0] if aliases else requested_tools[0]
+                raise ValueError(
+                    f"--tools {alias_name!r} expands via a workspace manifest and "
+                    f"cannot be combined with {configured_source}. "
+                    f"Use --tool-manifest {alias_name!r} instead."
+                )
+            # Resolve the alias before non-interactive policy checks. In particular,
+            # preserving a manifest-selected preset name lets setup detect the
+            # exclusive boundary and avoid injecting the ``complete`` tool. Keep an
+            # explicit '+' additive: ``--tools +alias`` must extend rather than
+            # replace the configured/default tool policy.
+            #
+            # Additive '+' cannot carry an exclusive preset name: later
+            # processing appends those names onto a concrete base, and
+            # expand_tool_allowlist_presets then rejects the mix. Expand
+            # presets to concrete tools so ``--tools +audit`` with
+            # builtin_tools ["read-only"] becomes ``+read,analysis.run``.
+            #
+            # The non-additive path has the same mix problem when the user
+            # also names extra builtins (``--tools audit,shell``), and a
+            # second failure mode: ``--tools audit,read-only`` rejoins the
+            # overlapping preset twice so expand_tool_allowlist_presets
+            # treats it as two presets. Dedup, and expand only when extras
+            # would actually break the exclusive boundary. A lone alias
+            # still keeps the preset name for resume provenance.
+            if additive:
+                expanded_manifest_tools = expand_tool_allowlist_presets(
+                    explicit_manifest_tools
+                )
+                assert expanded_manifest_tools is not None
+                resolved = ",".join(
+                    dict.fromkeys([*expanded_manifest_tools, *non_alias_tools])
+                )
+                return f"+{resolved}"
+            return ",".join(
+                expand_exclusive_preset_if_mixed(
+                    [*explicit_manifest_tools, *non_alias_tools]
+                )
+            )
+        return tool_allowlist
+    if explicit_manifest_tools:
+        raise ValueError(
+            "MCP-only manifest aliases cannot be combined with manifests "
+            "that declare builtin_tools"
         )
-    )
+
+    presets = [tool for tool in non_alias_tools if tool in TOOL_PRESETS]
+    if len(presets) > 1:
+        raise ValueError(
+            f"Tool preset(s) {', '.join(presets)} cannot be combined with other tools"
+        )
+    if presets:
+        # Direct MCP names are additive and sit outside the preset's builtin
+        # boundary, same as MCP-only aliases. Count only leftover built-ins
+        # when deciding whether the exclusive preset can coexist.
+        extra_builtins = [
+            tool
+            for tool in non_alias_tools
+            if tool not in TOOL_PRESETS and not _is_mcp_tool_name(tool)
+        ]
+        if additive or extra_builtins:
+            preset_list = ", ".join(presets)
+            raise ValueError(
+                f"Tool preset(s) {preset_list} cannot be combined with other tools"
+            )
+        # Keep the preset NAME (not its expanded tools) so that
+        # config.chat.tools preserves provenance on save.  On resume,
+        # configured_base_is_preset checks configured_base_tools[0] against
+        # TOOL_PRESETS — if we stored expanded concrete names, that check
+        # would silently add 'complete' to the allowlist (F2 security fix).
+        # Expansion to concrete tools happens later in get_toolchain() via
+        # expand_tool_allowlist_presets(), same as the non-MCP path.
+        direct_mcp = [tool for tool in non_alias_tools if _is_mcp_tool_name(tool)]
+        return ",".join([presets[0], *manifest_aliases, *direct_mcp])
+
+    return "+" + ",".join([*manifest_aliases, *non_alias_tools])
 
 
-def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
+def _normalize_tool_allowlist(
+    allowlist: list[str] | None, workspace: Path | None = None
+) -> list[str] | None:
     """Normalize an allowlist while preserving custom tool file paths and preset names.
 
     Preset names (e.g. ``"read-only"``) are kept verbatim so that provenance is
@@ -59,15 +242,29 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
 
     ``get_toolchain()`` validates and expands named tools, but custom tool files
     are loaded later by ``init_tools()`` and must remain as file paths.
+
+    When *workspace* is provided, a single unknown item is checked against the
+    workspace manifest (``state/task-manifests.jsonl``).  If it matches a task
+    type, it is expanded to the manifest's ``builtin_tools + tool_names``
+    list — making ``--tools code_review`` an ergonomic alias for
+    ``--tool-manifest code_review``.
+
+    MCP dotted tool names (``server.tool``) are passed through as-is because
+    they cannot be validated against the built-in toolchain before MCP servers
+    are initialized.
     """
     if allowlist is None:
         return None
 
-    # If the allowlist is a single named preset, preserve it as-is so that
-    # resumed sessions can still detect it as a preset (not just a tool list
-    # that happens to match the preset's expansion).
-    if len(allowlist) == 1 and allowlist[0] in TOOL_PRESETS:
-        return list(allowlist)
+    # If the allowlist is a named preset optionally accompanied by MCP dotted
+    # tool names, preserve the preset name verbatim so that on resume
+    # configured_base_is_preset can detect it.  MCP tools are additive — they
+    # do not dilute the preset's builtin boundary — so we keep them as-is too.
+    # Expansion to concrete tool names happens at toolchain init time.
+    non_mcp_items = [t for t in allowlist if not _is_mcp_tool_name(t)]
+    mcp_items = [t for t in allowlist if _is_mcp_tool_name(t)]
+    if len(non_mcp_items) == 1 and non_mcp_items[0] in TOOL_PRESETS:
+        return [non_mcp_items[0], *mcp_items]
 
     allowlist = expand_tool_allowlist_presets(allowlist)
     assert allowlist is not None
@@ -75,7 +272,7 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
     seen: set[str] = set()
 
     for item in allowlist:
-        if _is_tool_file_path(item):
+        if is_tool_file_path(item):
             resolved = Path(item).expanduser().resolve()
             if not resolved.exists():
                 raise ValueError(f"Tool file does not exist: {item}")
@@ -89,11 +286,86 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
                 seen.add(normalized_item)
             continue
 
-        for tool in get_toolchain([item]):
-            if tool.name in seen:
+        # MCP dotted tool names (server.tool) are passed through without
+        # validation — the MCP layer resolves them at session startup time.
+        if _is_mcp_tool_name(item):
+            if item not in seen:
+                normalized.append(item)
+                seen.add(item)
+            continue
+
+        # Built-in tools always take priority over manifest aliases so that a
+        # manifest task type named "read" can never silently replace the built-in
+        # read tool.  Try get_toolchain first; only fall through to the manifest
+        # lookup when the name is not a known built-in.
+        try:
+            toolspecs = list(get_toolchain([item]))
+            for toolspec in toolspecs:
+                if toolspec.name in seen:
+                    continue
+                normalized.append(toolspec.name)
+                seen.add(toolspec.name)
+            continue
+        except ValueError:
+            # Re-raise when the tool IS registered but unavailable: the name is
+            # known to the toolchain, so the manifest must not silently shadow it.
+            # Only fall through to the manifest lookup when the name is truly not
+            # registered at all ("not found").
+            # Use membership check, not message wording — wording can vary.
+            if matching_allowlist_tools(item, get_available_tools()):
+                raise
+            # name is completely unknown — check manifest next unless the name
+            # is a close misspelling of a known builtin/preset.
+
+        # Check if the item is a manifest task type alias when the workspace is
+        # known.  This makes ``--tools code_review`` behave identically to
+        # ``--tool-manifest code_review`` for workspaces that ship a manifest.
+        if workspace is not None and not looks_like_builtin_typo(
+            item, [*(TOOL_PRESETS), *(tool.name for tool in get_available_tools())]
+        ):
+            from ..tool_manifests import load_task_manifest
+
+            try:
+                manifest = load_task_manifest(item, workspace)
+            except (OSError, ValueError):
+                manifest = None
+
+            if manifest is not None:
+                for builtin_tool_name in manifest.builtin_tools:
+                    if builtin_tool_name in TOOL_PRESETS:
+                        # Preserve preset name verbatim so that on resume the
+                        # configured-base-is-preset detection still fires,
+                        # maintaining the exclusive capability boundary
+                        # (e.g. read-only must not gain 'complete' in
+                        # non-interactive mode on subsequent invocations).
+                        if builtin_tool_name not in seen:
+                            normalized.append(builtin_tool_name)
+                            seen.add(builtin_tool_name)
+                    else:
+                        try:
+                            builtin_toolspecs = get_toolchain([builtin_tool_name])
+                        except ValueError as e:
+                            raise ToolAllowlistError(
+                                f"Invalid builtin_tools entry {builtin_tool_name!r} "
+                                f"in tool manifest for {item!r}: {e}"
+                            ) from e
+                        for toolspec in builtin_toolspecs:
+                            if toolspec.name not in seen:
+                                normalized.append(toolspec.name)
+                                seen.add(toolspec.name)
+                for manifest_tool_name in manifest.tool_names:
+                    if manifest_tool_name not in seen:
+                        normalized.append(manifest_tool_name)
+                        seen.add(manifest_tool_name)
                 continue
-            normalized.append(tool.name)
-            seen.add(tool.name)
+
+        # Not a known built-in and not a manifest alias — re-raise via get_toolchain
+        # so the caller gets the standard "Tool 'X' not found" error message.
+        for toolspec in get_toolchain([item]):
+            if toolspec.name in seen:
+                continue
+            normalized.append(toolspec.name)
+            seen.add(toolspec.name)
 
     return normalized
 
@@ -103,6 +375,7 @@ def setup_config_from_cli(
     logdir: Path,
     model: str | None = None,
     tool_allowlist: str | None = None,
+    manifest_workspace: Path | None = None,
     tool_format: "ToolFormat | None" = None,
     prune_tool_output: bool | None = None,
     gear: int | None = None,
@@ -164,9 +437,19 @@ def setup_config_from_cli(
         gear_tool_allowlist = gear_resolution.tool_allowlist
         gear_no_confirm = gear_resolution.no_confirm
 
-    # Handle tool allowlist with similar precedence
+    # Handle tool allowlist with similar precedence. The configuration workspace
+    # can differ from the workspace that owns task manifests (for ``@log``).
     resolved_tool_allowlist: list[str] | None = None
+    requested_tool_allowlist = tool_allowlist
     if tool_allowlist is not None:
+        tool_allowlist = _resolve_manifest_aliases(
+            tool_allowlist,
+            manifest_workspace or workspace,
+            configured_tools=(
+                existing_chat_config.tools if existing_chat_config else None
+            ),
+        )
+
         # Check for additive syntax (starts with '+')
         if tool_allowlist.startswith("+"):
             # Strip the '+' prefix and parse the additional tools
@@ -174,22 +457,69 @@ def setup_config_from_cli(
             additional_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
-            # Add to the configured tool policy when one exists; otherwise use
-            # the built-in defaults. Additive CLI features such as task manifests
-            # must not silently replace a project's TOOL_ALLOWLIST configuration.
+            configured_base_tools: list[str] | None = None
             if existing_chat_config and existing_chat_config.tools is not None:
-                base_tools = existing_chat_config.tools
+                configured_base_tools = existing_chat_config.tools
             elif tools_env := config.get_env("TOOL_ALLOWLIST"):
-                base_tools = [tool.strip() for tool in tools_env.split(",")]
+                configured_base_tools = [
+                    tool.strip() for tool in tools_env.split(",") if tool.strip()
+                ]
+
+            # MCP-only aliases are additive when used alone, just like
+            # ``--tool-manifest``. In a mixed, unprefixed ``--tools`` list,
+            # preserve the configured base when one exists; otherwise the list
+            # remains exact and must not silently gain every default tool.
+            mixed_manifest_alias = (
+                requested_tool_allowlist is not None
+                and not requested_tool_allowlist.startswith("+")
+                and "," in requested_tool_allowlist
+                and tool_allowlist != requested_tool_allowlist
+            )
+            if mixed_manifest_alias and configured_base_tools is None:
+                base_tools = []
+            elif configured_base_tools is not None:
+                base_tools = configured_base_tools
             else:
                 base_tools = [tool.name for tool in get_toolchain(None)]
-            # A persisted/configured preset is valid by itself but cannot be
-            # combined with additional names. Expand it before applying the
-            # additive override so ``read-only`` + ``save`` becomes the concrete
-            # allowlist ``read,save`` rather than an invalid mixed preset list.
-            resolved_tool_allowlist = expand_tool_allowlist_presets(base_tools.copy())
+            # When additional tools stay inside the configured preset (MCP names,
+            # or concrete names that are just that preset expanded), preserve
+            # the preset identifier so config.chat.tools stores
+            # ``["read-only", "search.query"]`` rather than ``["read", ...]``.
+            # The identifier is required for configured_base_is_preset on resume
+            # (F2) and to skip injecting ``complete``. For extras outside the
+            # boundary (e.g. ``+save``), expand the preset first so
+            # ``read-only`` + ``save`` becomes ``read,save``.
+            preset_in_base = any(t in TOOL_PRESETS for t in base_tools)
+            # Only preserve the preset name verbatim when the extra tools came via
+            # a manifest alias (e.g. ``+research`` → ``+search.query``, or
+            # ``+audit`` → ``+read,analysis.run`` after expanding a preset
+            # builtin_tools entry). Explicit extras typed directly (e.g.
+            # ``+search.query`` or ``+save``) must still expand the preset so
+            # non-interactive mode can add 'complete' without hitting the
+            # preset+tool combination guard.
+            alias_was_resolved = tool_allowlist != requested_tool_allowlist
+            additional_stays_inside = _tools_stay_inside_preset_boundary(
+                additional_tools, base_tools
+            )
+            if additional_stays_inside and preset_in_base and alias_was_resolved:
+                # Keep preset name verbatim; expand_tool_allowlist_presets (called
+                # at toolchain init time) will handle the expansion later. Skip
+                # concrete names that are just the expanded preset (``read`` from
+                # ``read-only``) so we never mix the identifier with its members.
+                resolved_tool_allowlist = base_tools.copy()
+                tools_to_append = [
+                    tool for tool in additional_tools if _is_mcp_tool_name(tool)
+                ]
+            else:
+                # A persisted/configured preset cannot be combined with non-MCP
+                # names; expand it first so ``read-only`` + ``save`` becomes
+                # ``read,save`` rather than an invalid mixed preset list.
+                resolved_tool_allowlist = expand_tool_allowlist_presets(
+                    base_tools.copy()
+                )
+                tools_to_append = additional_tools
             assert resolved_tool_allowlist is not None
-            for tool in additional_tools:
+            for tool in tools_to_append:
                 if tool not in resolved_tool_allowlist:
                     resolved_tool_allowlist.append(tool)
         elif tool_allowlist.startswith("-"):
@@ -238,8 +568,9 @@ def setup_config_from_cli(
                     resolved_tool_allowlist.append(tool)
         else:
             resolved_tool_allowlist = list(gear_tool_allowlist)
-    elif existing_chat_config and existing_chat_config.tools:
-        # When resuming, use saved conversation tools unless CLI override provided
+    elif existing_chat_config and existing_chat_config.tools is not None:
+        # When resuming, use saved conversation tools unless CLI override provided.
+        # An empty list is an explicit "no tools" choice, not an unset value.
         resolved_tool_allowlist = existing_chat_config.tools
     elif tools_env := config.get_env("TOOL_ALLOWLIST"):
         # Fall back to env/config for new conversations or when no saved tools
@@ -254,13 +585,76 @@ def setup_config_from_cli(
         if gear_profile and gear_profile.tools is not None and tool_allowlist is None:
             resolved_tool_allowlist = list(gear_profile.tools)
 
-    # A preset is "selected" if the allowlist is a literal preset name.
-    # Preset names are now persisted verbatim (not expanded) so that resumed
-    # sessions continue to be recognised here without ambiguity.
+    # Keep the exclusive boundary when an MCP-only manifest alias extends a
+    # preset. Alias resolution expands that combination into concrete tools, so
+    # compare the resolved CLI value with the original request before inspecting
+    # the configured base preset. An ordinary additive tool such as ``+shell``
+    # must retain non-interactive completion semantics.
+    manifest_alias_resolved = (
+        requested_tool_allowlist is not None
+        and tool_allowlist != requested_tool_allowlist
+    )
+    requested_tool_names = (
+        [tool.strip() for tool in requested_tool_allowlist.split(",")]
+        if requested_tool_allowlist is not None
+        else []
+    )
+    resolved_tool_names = (
+        [tool.strip() for tool in tool_allowlist.lstrip("+").split(",")]
+        if tool_allowlist is not None
+        else []
+    )
+    manifest_alias_selected_preset = manifest_alias_resolved and any(
+        tool in TOOL_PRESETS for tool in resolved_tool_names
+    )
+    configured_base_tools = (
+        existing_chat_config.tools
+        if existing_chat_config and existing_chat_config.tools is not None
+        else (
+            [tool.strip() for tool in tools_env.split(",") if tool.strip()]
+            if (tools_env := config.get_env("TOOL_ALLOWLIST"))
+            else None
+        )
+    )
+    configured_base_is_preset = (
+        configured_base_tools is not None
+        and len(configured_base_tools) >= 1
+        and configured_base_tools[0] in TOOL_PRESETS
+    )
     tool_preset_selected = (
-        resolved_tool_allowlist is not None
-        and len(resolved_tool_allowlist) == 1
-        and resolved_tool_allowlist[0] in TOOL_PRESETS
+        (
+            resolved_tool_allowlist is not None
+            and len(resolved_tool_allowlist) == 1
+            and resolved_tool_allowlist[0] in TOOL_PRESETS
+        )
+        or manifest_alias_selected_preset
+        or (
+            manifest_alias_resolved
+            and (
+                any(tool in TOOL_PRESETS for tool in requested_tool_names)
+                or (
+                    configured_base_is_preset
+                    # Preserve the preset boundary when alias resolution produced
+                    # extras that stay inside it: MCP names, or concrete tools
+                    # that are just the expanded preset (``+audit`` →
+                    # ``+read,analysis.run``). Explicit tools outside the
+                    # boundary (e.g. ``--tools alias,shell``) still get
+                    # 'complete' in non-interactive mode.
+                    and tool_allowlist is not None
+                    and tool_allowlist.startswith("+")
+                    and _tools_stay_inside_preset_boundary(
+                        [t.strip() for t in tool_allowlist[1:].split(",") if t.strip()],
+                        configured_base_tools,
+                    )
+                )
+            )
+        )
+        or (
+            # Resume without CLI tool override: if the loaded base starts with a
+            # preset name (stored verbatim by _normalize_tool_allowlist), honour
+            # the preset boundary so non-interactive mode doesn't inject 'complete'.
+            configured_base_is_preset and tool_allowlist is None
+        )
     )
 
     # Automatically add 'complete' tool in non-interactive mode, except for
@@ -335,7 +729,9 @@ def setup_config_from_cli(
         or tool_allowlist is not None
         or gear_tool_allowlist is not None
     ):
-        config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
+        config.chat.tools = _normalize_tool_allowlist(
+            resolved_tool_allowlist, workspace=manifest_workspace or workspace
+        )
 
     # Save and set the final config
     config.chat.save()

@@ -100,6 +100,24 @@ def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
         init_tools(allowlist=["read-only", "save"])
 
 
+def test_expand_tool_allowlist_presets_rejects_multiple_presets(monkeypatch):
+    """Exclusive presets cannot be combined even when no non-preset names remain."""
+    from gptme.tools._allowlist import TOOL_PRESETS, expand_tool_allowlist_presets
+
+    monkeypatch.setitem(TOOL_PRESETS, "audit", ("ipython",))
+    with pytest.raises(ValueError, match="cannot be combined"):
+        expand_tool_allowlist_presets(["read-only", "audit"])
+    with pytest.raises(ValueError, match="cannot be combined"):
+        expand_tool_allowlist_presets(["read-only", "audit", "search.query"])
+
+
+def test_read_only_tool_preset_rejects_python_tool_path():
+    clear_tools()
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        init_tools(allowlist=["read-only", "foo.bar.py"])
+
+
 def test_init_tools_allowlist_glob_matches_mcp_tools():
     from gptme.tools.base import ToolSpec
 

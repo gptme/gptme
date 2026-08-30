@@ -186,6 +186,11 @@ def load_task_manifest(
     task_type = task_type.strip()
     if not task_type:
         raise ValueError("Task manifest type cannot be empty")
+    if any(c in task_type for c in "*?["):
+        raise ValueError(
+            f"Invalid tool manifest task type {task_type!r}: "
+            "must not contain glob metacharacters"
+        )
 
     path = _resolve_manifest_path(workspace, manifest_path)
     if not path.exists():
@@ -271,3 +276,27 @@ def load_task_manifest(
     raise ValueError(
         f"Unknown tool manifest task type {task_type!r}. Available task types: {available}"
     )
+
+
+def get_manifest_preset_tools(
+    task_type: str, workspace: Path, manifest_path: Path | None = None
+) -> list[str] | None:
+    """Try to resolve a manifest task type to its tool list.
+
+    Returns the combined ``builtin_tools + tool_names`` from the manifest if the
+    manifest file exists and the task type is found.  Returns ``None`` when:
+
+    - The manifest file does not exist in the workspace (no ``GPTME_TOOL_MANIFEST_PATH``
+      override and no ``state/task-manifests.jsonl`` present).
+    - The task type is not found in the manifest.
+    - The manifest record is otherwise invalid.
+
+    This is the "probe" API used to resolve ``--tools <task_type>`` as a manifest
+    alias.  Callers that need a hard error on missing manifests should call
+    ``load_task_manifest()`` directly.
+    """
+    try:
+        manifest = load_task_manifest(task_type, workspace, manifest_path)
+    except (OSError, ValueError):
+        return None
+    return list(manifest.all_tool_names)
