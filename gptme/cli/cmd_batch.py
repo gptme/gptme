@@ -168,6 +168,18 @@ def _run_one_prompt(
             "error": f"timed out after {timeout:g}s",
             "returncode": None,
         }
+    except ValueError as error:
+        duration_s = time.monotonic() - start
+        return {
+            "index": index,
+            "prompt": prompt,
+            "exit_reason": "error",
+            "tokens": 0,
+            "duration_s": round(duration_s, 3),
+            "tool_calls": 0,
+            "error": str(error),
+            "returncode": None,
+        }
 
     duration_s = time.monotonic() - start
     return _summarize_child_output(

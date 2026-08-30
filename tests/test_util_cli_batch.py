@@ -124,6 +124,27 @@ def test_batch_model_rejects_empty_path_components(monkeypatch, bad_model):
     assert "Model path components cannot be empty" in result.output
 
 
+def test_run_one_prompt_reports_embedded_null_prompt():
+    record = cmd_batch._run_one_prompt(
+        index=0,
+        prompt="hello\0world",
+        model="test/model",
+        max_turns=1,
+        timeout=1,
+    )
+
+    assert record == {
+        "duration_s": pytest.approx(0, abs=0.1),
+        "error": "embedded null byte",
+        "exit_reason": "error",
+        "index": 0,
+        "prompt": "hello\0world",
+        "returncode": None,
+        "tokens": 0,
+        "tool_calls": 0,
+    }
+
+
 def test_summarize_child_output_counts_tokens_and_max_turns():
     stdout = "\n".join(
         [
