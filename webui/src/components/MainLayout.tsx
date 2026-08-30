@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { setDocumentTitle } from '@/utils/title';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
 import { chatRoute } from '@/utils/routes';
+import { isDemoMode } from '@/utils/connectionConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQuery';
 import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
@@ -61,6 +62,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     const ids = splitParam.split(',').filter(Boolean).slice(0, 2);
     return ids.length === 2 ? (ids as [string, string]) : null;
   }, [splitParam]);
+  const demoMode = isDemoMode();
   const { api, isConnected$ } = useApi();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -705,11 +707,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         {/* Headless SettingsModal mount — desktop has it inside SidebarIcons, mobile needs it here */}
         <SettingsModal />
 
-        <TaskCreationDialog
-          open={showCreateTaskDialog}
-          onOpenChange={setShowCreateTaskDialog}
-          onTaskCreated={handleCreateTask}
-        />
+        {!demoMode && (
+          <TaskCreationDialog
+            open={showCreateTaskDialog}
+            onOpenChange={setShowCreateTaskDialog}
+            onTaskCreated={handleCreateTask}
+          />
+        )}
       </div>
     );
   }
@@ -813,11 +817,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         </Memo>
       </ResizablePanelGroup>
 
-      <TaskCreationDialog
-        open={showCreateTaskDialog}
-        onOpenChange={setShowCreateTaskDialog}
-        onTaskCreated={handleCreateTask}
-      />
+      {!demoMode && (
+        <TaskCreationDialog
+          open={showCreateTaskDialog}
+          onOpenChange={setShowCreateTaskDialog}
+          onTaskCreated={handleCreateTask}
+        />
+      )}
     </div>
   );
 };

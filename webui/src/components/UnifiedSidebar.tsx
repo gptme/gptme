@@ -23,6 +23,7 @@ import { parseConversationImportJSON } from '@/utils/exportConversation';
 import { appRoute } from '@/utils/routes';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { isDemoMode } from '@/utils/connectionConfig';
 
 import type { ChangeEvent, FC } from 'react';
 import { use$ } from '@legendapp/state/react';
@@ -131,6 +132,7 @@ export const UnifiedSidebar: FC<Props> = ({
   onOpenInSplitView,
   selectedExternalId,
 }) => {
+  const demoMode = isDemoMode();
   const selectedWorkspace = use$(selectedWorkspace$);
   const selectedAgent = use$(selectedAgent$);
   const location = useLocation();
@@ -352,15 +354,17 @@ export const UnifiedSidebar: FC<Props> = ({
             >
               <Filter className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={onCreateTask}
-              aria-label="Create task"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
+            {!demoMode && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={onCreateTask}
+                aria-label="Create task"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
           </div>
 
           {/* Task Filters */}
@@ -451,7 +455,9 @@ export const UnifiedSidebar: FC<Props> = ({
                 {!tasksLoading && !tasksError && tasks.length === 0 && (
                   <div className="py-8 text-center">
                     <GitBranch className="mx-auto mb-2 h-8 w-8 text-muted-foreground opacity-50" />
-                    <p className="text-sm text-muted-foreground">No tasks yet</p>
+                    <p className="text-sm text-muted-foreground">
+                      {demoMode ? 'Task creation requires a live gptme server.' : 'No tasks yet'}
+                    </p>
                   </div>
                 )}
 
