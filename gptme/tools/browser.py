@@ -628,7 +628,10 @@ def _pdf_source_is_remote(url_or_path: str) -> bool:
     POSIX paths that happen to contain URL-like substrings (a download saved
     as ``downloads/https://example.com/doc.pdf``). A source is a URL only when
     it begins with ``{scheme}://``; a later ``://`` is just path text.
-    Non-http(s) URL schemes are rejected by the shared validator before a fetch.
+
+    POSIX collapses ``HTTP://x`` to ``HTTP:/x``, so an http(s)-shaped string
+    that already exists on disk is a local path, not a fetch. file:// and
+    gopher:// still fail the shared validator — existence does not un-ban them.
     """
     parsed = urlparse(url_or_path)
     scheme = parsed.scheme.lower()
@@ -636,6 +639,8 @@ def _pdf_source_is_remote(url_or_path: str) -> bool:
     # urlparse("downloads/https://host/doc.pdf") has no scheme: "/" is not a
     # scheme character, so the :// is inside the path.
     if not (scheme and url_or_path.lower().startswith(f"{scheme}://")):
+        return False
+    if scheme in {"http", "https"} and Path(url_or_path).exists():
         return False
     _validate_url_scheme(url_or_path)
     return True

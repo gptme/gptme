@@ -588,6 +588,22 @@ class TestPdfSourceIsRemote:
         with pytest.raises(ValueError, match="hostname"):
             _pdf_source_is_remote("https://")
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX // collapse; HTTP: is not a Windows path we can create",
+    )
+    def test_uppercase_url_shaped_relative_path_stays_local_when_it_exists(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        dest = tmp_path / "HTTP:" / "example.com"
+        dest.mkdir(parents=True)
+        (dest / "doc.pdf").write_bytes(b"%PDF-fake")
+        # POSIX: HTTP://example.com/doc.pdf == HTTP:/example.com/doc.pdf
+        assert _pdf_source_is_remote("HTTP://example.com/doc.pdf") is False
+        # Missing local file still classifies as a remote URL.
+        assert _pdf_source_is_remote("HTTP://example.com/missing.pdf") is True
+
 
 class TestPdfToImages:
     """Tests for pdf_to_images — PDF conversion to image files."""
@@ -689,6 +705,29 @@ class TestPdfToImages:
         mock_requests.get.assert_called_once_with(
             "HTTP://example.com/x.pdf", timeout=60
         )
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX // collapse; HTTP: is not a Windows path we can create",
+    )
+    @patch("gptme.tools.browser.requests")
+    @patch("gptme.tools.browser._convert_with_pdftoppm")
+    @patch("gptme.tools.browser._has_pdftoppm", return_value=True)
+    def test_uppercase_url_shaped_relative_path_is_local(
+        self, _, mock_convert, mock_requests, tmp_path, monkeypatch
+    ):
+        from gptme.tools.browser import pdf_to_images
+
+        monkeypatch.chdir(tmp_path)
+        dest = tmp_path / "HTTP:" / "example.com"
+        dest.mkdir(parents=True)
+        (dest / "doc.pdf").write_bytes(b"%PDF-fake")
+        mock_convert.return_value = []
+
+        pdf_to_images("HTTP://example.com/doc.pdf", output_dir=tmp_path)
+
+        mock_requests.get.assert_not_called()
+        mock_convert.assert_called_once()
 
     @patch("gptme.tools.browser.requests")
     @patch("gptme.tools.browser._convert_with_pdftoppm")
