@@ -9,37 +9,9 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+from ._url_safety import _MAX_INPUT_LENGTH, _validate_url_scheme
+
 logger = logging.getLogger(__name__)
-_MAX_INPUT_LENGTH = 2048
-
-
-def _validate_url_scheme(url: str) -> None:
-    """Validate that a URL is safe to pass to lynx.
-
-    Security: Prevents file:// protocol from reading local files.
-    See: https://github.com/gptme/gptme/issues/1021
-    """
-    if not url or len(url) > _MAX_INPUT_LENGTH:
-        raise ValueError(
-            f"URL must be non-empty and no longer than {_MAX_INPUT_LENGTH} characters."
-        )
-
-    try:
-        parsed = urlparse(url)
-        hostname = parsed.hostname
-    except ValueError as exc:
-        raise ValueError("Invalid URL") from exc
-
-    allowed_schemes = {"http", "https"}
-    if parsed.scheme.lower() not in allowed_schemes:
-        raise ValueError(
-            f"URL scheme '{parsed.scheme}' not allowed. "
-            f"Only {allowed_schemes} are permitted for security reasons."
-        )
-    if not hostname:
-        raise ValueError("URL must include a hostname.")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("URL must not include embedded credentials.")
 
 
 def read_url(url: str, cookies: dict | None = None) -> str:

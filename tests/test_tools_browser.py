@@ -94,6 +94,30 @@ class TestIsPdfUrl:
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/doc.pdf?v=2") is False
 
+    def test_rejects_file_scheme_before_head(self):
+        with patch("gptme.tools.browser.requests") as mock_req:
+            with pytest.raises(ValueError, match="not allowed"):
+                _is_pdf_url("file:///etc/passwd")
+            mock_req.head.assert_not_called()
+            mock_req.get.assert_not_called()
+
+    def test_rejects_gopher_scheme_before_head(self):
+        with patch("gptme.tools.browser.requests") as mock_req:
+            with pytest.raises(ValueError, match="not allowed"):
+                _is_pdf_url("gopher://example.com/x.pdf")
+            mock_req.head.assert_not_called()
+
+    def test_accepts_uppercase_http_scheme(self):
+        assert _is_pdf_url("HTTP://example.com/x.pdf") is True
+
+    def test_rejects_missing_host(self):
+        with pytest.raises(ValueError, match="hostname"):
+            _is_pdf_url("https://")
+
+    def test_rejects_embedded_credentials(self):
+        with pytest.raises(ValueError, match="credentials"):
+            _is_pdf_url("https://user:pass@example.com/x.pdf")
+
 
 class TestIsGithubRepoUrl:
     """Tests for _is_github_repo_url — detects GitHub repository root URLs."""
@@ -377,6 +401,24 @@ class TestReadPdfUrl:
 
     @patch("gptme.tools.browser.has_pypdf", True)
     @patch("gptme.tools.browser.requests")
+    def test_rejects_file_scheme_before_get(self, mock_requests):
+        from gptme.tools.browser import _read_pdf_url
+
+        with pytest.raises(ValueError, match="not allowed"):
+            _read_pdf_url("file:///tmp/x.pdf")
+        mock_requests.get.assert_not_called()
+
+    @patch("gptme.tools.browser.has_pypdf", True)
+    @patch("gptme.tools.browser.requests")
+    def test_rejects_gopher_scheme_before_get(self, mock_requests):
+        from gptme.tools.browser import _read_pdf_url
+
+        with pytest.raises(ValueError, match="not allowed"):
+            _read_pdf_url("gopher://example.com/x.pdf")
+        mock_requests.get.assert_not_called()
+
+    @patch("gptme.tools.browser.has_pypdf", True)
+    @patch("gptme.tools.browser.requests")
     def test_download_failure(self, mock_requests):
         from gptme.tools.browser import _read_pdf_url
 
@@ -589,6 +631,43 @@ class TestPdfToImages:
         pdf_to_images("https://example.com/doc.pdf", output_dir=tmp_path)
 
         mock_requests.get.assert_called_once()
+
+    @patch("gptme.tools.browser.requests")
+    @patch("gptme.tools.browser._convert_with_pdftoppm")
+    @patch("gptme.tools.browser._has_pdftoppm", return_value=True)
+    def test_downloads_uppercase_http_url(
+        self, _, mock_convert, mock_requests, tmp_path
+    ):
+        from gptme.tools.browser import pdf_to_images
+
+        mock_response = MagicMock()
+        mock_response.content = b"%PDF-fake"
+        mock_requests.get.return_value = mock_response
+        mock_convert.return_value = []
+
+        pdf_to_images("HTTP://example.com/x.pdf", output_dir=tmp_path)
+
+        mock_requests.get.assert_called_once_with(
+            "HTTP://example.com/x.pdf", timeout=60
+        )
+
+    @patch("gptme.tools.browser.requests")
+    @patch("gptme.tools.browser._has_pdftoppm", return_value=True)
+    def test_rejects_file_url(self, _, mock_requests, tmp_path):
+        from gptme.tools.browser import pdf_to_images
+
+        with pytest.raises(ValueError, match="not allowed"):
+            pdf_to_images("file:///tmp/x.pdf", output_dir=tmp_path)
+        mock_requests.get.assert_not_called()
+
+    @patch("gptme.tools.browser.requests")
+    @patch("gptme.tools.browser._has_pdftoppm", return_value=True)
+    def test_rejects_gopher_url(self, _, mock_requests, tmp_path):
+        from gptme.tools.browser import pdf_to_images
+
+        with pytest.raises(ValueError, match="not allowed"):
+            pdf_to_images("gopher://example.com/x.pdf", output_dir=tmp_path)
+        mock_requests.get.assert_not_called()
 
     @patch("gptme.tools.browser._convert_with_pdftoppm")
     @patch("gptme.tools.browser._has_pdftoppm", return_value=True)

@@ -98,6 +98,7 @@ from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 import requests
 
@@ -108,6 +109,7 @@ from ..util.gh import (
     parse_github_url,
     transform_github_url,
 )
+from ._url_safety import _validate_url_scheme
 from .base import ToolFunction, ToolSpec, ToolUse
 
 # Availability check only — pypdf itself is imported lazily in _read_pdf_url,
@@ -220,8 +222,9 @@ def pdf_to_images(
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download PDF if URL
-    if url_or_path.startswith(("http://", "https://")):
+    # Download PDF if URL. Case-insensitive http(s) only; local paths stay
+    # on disk (including Windows drive letters, which urlparse treats as a scheme).
+    if _pdf_source_is_remote(url_or_path):
         logger.info(f"Downloading PDF from: {url_or_path}")
         try:
             response = requests.get(url_or_path, timeout=60)
@@ -618,8 +621,23 @@ def has_browser_tool():
     return browser is not None
 
 
+def _pdf_source_is_remote(url_or_path: str) -> bool:
+    """Return True if *url_or_path* should be fetched over HTTP(S).
+
+    Local filesystem paths (including Windows drive letters) stay local.
+    Any other URL scheme is rejected by the shared validator before a fetch.
+    """
+    scheme = urlparse(url_or_path).scheme.lower()
+    if scheme in {"http", "https"} or "://" in url_or_path:
+        _validate_url_scheme(url_or_path)
+        return True
+    return False
+
+
 def _is_pdf_url(url: str) -> bool:
     """Check if URL points to a PDF file."""
+    _validate_url_scheme(url)
+
     # Check URL extension
     if url.lower().endswith(".pdf"):
         return True
@@ -646,6 +664,8 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
         max_pages: Maximum number of pages to read (default: 10).
                    Set to 0 to read all pages.
     """
+    _validate_url_scheme(url)
+
     if not has_pypdf:
         return "Error: PDF support requires pypdf. Install with: pip install pypdf"
 
