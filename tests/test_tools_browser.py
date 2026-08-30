@@ -577,6 +577,9 @@ class TestPdfSourceIsRemote:
     def test_windows_drive_letter_stays_local(self):
         assert _pdf_source_is_remote(r"C:\Users\file.pdf") is False
         assert _pdf_source_is_remote("C:/Users/file.pdf") is False
+        # urlparse scheme is "c" and the string starts with "c://". Still a
+        # drive letter, not a network URL.
+        assert _pdf_source_is_remote("C://temp/file.pdf") is False
 
     def test_file_and_gopher_schemes_are_rejected(self):
         with pytest.raises(ValueError, match="not allowed"):
@@ -588,21 +591,36 @@ class TestPdfSourceIsRemote:
         with pytest.raises(ValueError, match="hostname"):
             _pdf_source_is_remote("https://")
 
-    @pytest.mark.skipif(
-        sys.platform == "win32",
-        reason="POSIX // collapse; HTTP: is not a Windows path we can create",
-    )
-    def test_uppercase_url_shaped_relative_path_stays_local_when_it_exists(
+    def test_embedded_credentials_are_rejected(self):
+        with pytest.raises(ValueError, match="credentials"):
+            _pdf_source_is_remote("https://user:pass@example.com/x.pdf")
+
+    def test_http_url_stays_remote_even_if_cwd_has_scheme_dir(
         self, tmp_path, monkeypatch
     ):
+        # POSIX collapses https://x to https:/x. A CWD directory named
+        # "https:" must not skip host/credential checks or substitute a
+        # local PDF for a fetch.
         monkeypatch.chdir(tmp_path)
-        dest = tmp_path / "HTTP:" / "example.com"
+        dest = tmp_path / "https:" / "example.com"
         dest.mkdir(parents=True)
-        (dest / "doc.pdf").write_bytes(b"%PDF-fake")
-        # POSIX: HTTP://example.com/doc.pdf == HTTP:/example.com/doc.pdf
-        assert _pdf_source_is_remote("HTTP://example.com/doc.pdf") is False
-        # Missing local file still classifies as a remote URL.
-        assert _pdf_source_is_remote("HTTP://example.com/missing.pdf") is True
+        (dest / "x.pdf").write_bytes(b"%PDF-fake")
+        cred_dest = tmp_path / "https:" / "user:pass@example.com"
+        cred_dest.mkdir(parents=True)
+        (cred_dest / "x.pdf").write_bytes(b"%PDF-fake")
+        assert _pdf_source_is_remote("https://example.com/x.pdf") is True
+        with pytest.raises(ValueError, match="credentials"):
+            _pdf_source_is_remote("https://user:pass@example.com/x.pdf")
+
+    def test_posix_collapsed_single_slash_spelling_stays_local(self):
+        # Already-collapsed HTTP:/host/file is a path, not a URL (no ://).
+        assert _pdf_source_is_remote("HTTP:/example.com/doc.pdf") is False
+
+    def test_dotdot_in_http_url_stays_remote(self):
+        assert (
+            _pdf_source_is_remote("https://example.com/../../etc/ssh-report.pdf")
+            is True
+        )
 
 
 class TestPdfToImages:
@@ -706,14 +724,10 @@ class TestPdfToImages:
             "HTTP://example.com/x.pdf", timeout=60
         )
 
-    @pytest.mark.skipif(
-        sys.platform == "win32",
-        reason="POSIX // collapse; HTTP: is not a Windows path we can create",
-    )
     @patch("gptme.tools.browser.requests")
     @patch("gptme.tools.browser._convert_with_pdftoppm")
     @patch("gptme.tools.browser._has_pdftoppm", return_value=True)
-    def test_uppercase_url_shaped_relative_path_is_local(
+    def test_http_url_fetches_even_if_cwd_has_scheme_dir(
         self, _, mock_convert, mock_requests, tmp_path, monkeypatch
     ):
         from gptme.tools.browser import pdf_to_images
@@ -722,12 +736,16 @@ class TestPdfToImages:
         dest = tmp_path / "HTTP:" / "example.com"
         dest.mkdir(parents=True)
         (dest / "doc.pdf").write_bytes(b"%PDF-fake")
+        mock_response = MagicMock()
+        mock_response.content = b"%PDF-remote"
+        mock_requests.get.return_value = mock_response
         mock_convert.return_value = []
 
         pdf_to_images("HTTP://example.com/doc.pdf", output_dir=tmp_path)
 
-        mock_requests.get.assert_not_called()
-        mock_convert.assert_called_once()
+        mock_requests.get.assert_called_once_with(
+            "HTTP://example.com/doc.pdf", timeout=60
+        )
 
     @patch("gptme.tools.browser.requests")
     @patch("gptme.tools.browser._convert_with_pdftoppm")

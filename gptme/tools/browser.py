@@ -624,14 +624,18 @@ def has_browser_tool():
 def _pdf_source_is_remote(url_or_path: str) -> bool:
     """Return True if *url_or_path* should be fetched over HTTP(S).
 
-    Local filesystem paths stay local, including Windows drive letters and
-    POSIX paths that happen to contain URL-like substrings (a download saved
-    as ``downloads/https://example.com/doc.pdf``). A source is a URL only when
+    Classification is syntactic, not filesystem-dependent. Local paths stay
+    local, including Windows drive letters and POSIX paths that contain
+    URL-like substrings (a download saved as
+    ``downloads/https://example.com/doc.pdf``). A source is a URL only when
     it begins with ``{scheme}://``; a later ``://`` is just path text.
 
-    POSIX collapses ``HTTP://x`` to ``HTTP:/x``, so an http(s)-shaped string
-    that already exists on disk is a local path, not a fetch. file:// and
-    gopher:// still fail the shared validator — existence does not un-ban them.
+    An http(s) URL is always remote, even if POSIX would collapse
+    ``https://x`` to a local ``https:/x`` that happens to exist. That
+    existence shortcut let a CWD directory named ``https:`` (or ``HTTP:``)
+    skip host/credential checks and substitute a local PDF for a fetch.
+    file:// and gopher:// still fail the shared validator. Single-letter
+    schemes (``C://temp/file.pdf``) are Windows drive letters, not URLs.
     """
     parsed = urlparse(url_or_path)
     scheme = parsed.scheme.lower()
@@ -640,7 +644,9 @@ def _pdf_source_is_remote(url_or_path: str) -> bool:
     # scheme character, so the :// is inside the path.
     if not (scheme and url_or_path.lower().startswith(f"{scheme}://")):
         return False
-    if scheme in {"http", "https"} and Path(url_or_path).exists():
+    # urlparse("C://temp/file.pdf").scheme == "c" and the string starts
+    # with "c://". That is a drive letter, not a network URL.
+    if len(scheme) == 1:
         return False
     _validate_url_scheme(url_or_path)
     return True
