@@ -602,17 +602,26 @@ def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
         ToolSpec(name="save", desc="Save"),
     ]
 
+    def _warning_count() -> int:
+        return caplog.text.count("Tool allowlist excluded MCP tools")
+
     with (
         patch("gptme.tools.get_available_tools", return_value=fake_tools),
         patch.object(gptme.tools, "_warned_mcp_allowlists", set()),
         caplog.at_level("WARNING", logger="gptme.tools"),
     ):
+        # Isolate from fixture/prior-test records and duplicate log handlers.
+        # The invariant is warn-once, not "exactly one handler emitted one record".
+        caplog.clear()
         tools = get_toolchain(["save"], strict=True)
+        after_first = _warning_count()
         repeated_tools = get_toolchain(["save"], strict=True)
+        after_second = _warning_count()
 
     assert [tool.name for tool in tools] == ["save"]
     assert [tool.name for tool in repeated_tools] == ["save"]
-    assert caplog.text.count("Tool allowlist excluded MCP tools") == 1
+    assert after_first >= 1
+    assert after_second == after_first
     assert "Tool allowlist excluded MCP tools" in caplog.text
     assert "discord.read_channel" in caplog.text
     assert "discord.send_message" in caplog.text
