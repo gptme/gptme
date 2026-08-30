@@ -813,6 +813,34 @@ class TestSensitiveArgs:
     def test_cat_netrc_not_allowlisted(self):
         assert not is_allowlisted("cat ~/.netrc")
 
+    @pytest.mark.parametrize(
+        "reader",
+        ["cat", "grep token", "head", "tail"],
+    )
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "~/.git-credentials",
+            "~/.config/gptme/config.toml",
+        ],
+    )
+    def test_home_credential_leftovers_not_allowlisted(self, reader: str, path: str):
+        """Phase 4 leftovers: git-credentials and gptme config.toml.
+
+        #3636 covered ~/.netrc / ~/.ssh / ~/.aws / ~/.npmrc / ~/.pypirc, but
+        these two home-relative credential files were still auto-approved.
+        """
+        assert not is_allowlisted(f"{reader} {path}")
+
+    def test_git_credentials_sibling_still_allowlisted(self):
+        """Prefix boundary: ~/.git-credentials-backup is not the credential file."""
+        assert is_allowlisted("cat ~/.git-credentials-backup")
+
+    def test_gptme_config_dir_listing_still_allowlisted(self):
+        """Only config.toml is sensitive, not the whole ~/.config/gptme dir."""
+        assert is_allowlisted("ls ~/.config/gptme")
+        assert is_allowlisted("cat ~/.config/gptme/SOUL.md")
+
     def test_ls_ssh_dir_not_allowlisted(self):
         """`ls ~/.ssh` must require confirmation — reveals key file names."""
         assert not is_allowlisted("ls ~/.ssh")
