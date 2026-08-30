@@ -626,25 +626,19 @@ def _pdf_source_is_remote(url_or_path: str) -> bool:
 
     Local filesystem paths stay local, including Windows drive letters and
     POSIX paths that happen to contain URL-like substrings (a download saved
-    as ``/tmp/https://example.com/doc.pdf``). Non-http(s) URL schemes are
-    rejected by the shared validator before a fetch.
+    as ``downloads/https://example.com/doc.pdf``). A source is a URL only when
+    it begins with ``{scheme}://``; a later ``://`` is just path text.
+    Non-http(s) URL schemes are rejected by the shared validator before a fetch.
     """
-    # Absolute or explicit-relative paths are local even if they embed "://".
-    if url_or_path.startswith(("/", "./", "../")):
-        return False
-
     parsed = urlparse(url_or_path)
     scheme = parsed.scheme.lower()
-    # urlparse("https:report.pdf") has scheme=https and no host: a POSIX
-    # filename, not a fetchable URL. Require a netloc before treating http(s)
-    # as remote.
-    if scheme in {"http", "https"} and parsed.netloc:
-        _validate_url_scheme(url_or_path)
-        return True
-    if "://" in url_or_path:
-        _validate_url_scheme(url_or_path)
-        return True
-    return False
+    # urlparse("https:report.pdf") has scheme=https but is a filename.
+    # urlparse("downloads/https://host/doc.pdf") has no scheme: "/" is not a
+    # scheme character, so the :// is inside the path.
+    if not (scheme and url_or_path.lower().startswith(f"{scheme}://")):
+        return False
+    _validate_url_scheme(url_or_path)
+    return True
 
 
 def _is_pdf_url(url: str) -> bool:

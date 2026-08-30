@@ -568,6 +568,11 @@ class TestPdfSourceIsRemote:
         assert _pdf_source_is_remote("https:report.pdf") is False
         assert _pdf_source_is_remote("/tmp/foo://bar.pdf") is False
         assert _pdf_source_is_remote("/tmp/https://example.com/doc.pdf") is False
+        assert _pdf_source_is_remote("./https://example.com/doc.pdf") is False
+        assert _pdf_source_is_remote("../https://example.com/doc.pdf") is False
+        # Implicit-relative: :// is inside a path component, not a URL scheme.
+        assert _pdf_source_is_remote("downloads/https://example.com/doc.pdf") is False
+        assert _pdf_source_is_remote("C:/Users/https://example.com/doc.pdf") is False
 
     def test_windows_drive_letter_stays_local(self):
         assert _pdf_source_is_remote(r"C:\Users\file.pdf") is False
