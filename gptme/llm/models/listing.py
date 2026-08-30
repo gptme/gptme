@@ -42,6 +42,10 @@ def model_to_dict(model: ModelMeta) -> dict[str, Any]:
         d["deprecated"] = True
     if model.preferred_edit_format is not None:
         d["preferred_edit_format"] = model.preferred_edit_format
+    if model.default_tool_format is not None:
+        d["default_tool_format"] = model.default_tool_format
+    if model.supports_strict_tools:
+        d["supports_strict_tools"] = True
     return d
 
 

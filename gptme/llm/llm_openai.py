@@ -2101,6 +2101,7 @@ def _openai_compatible_model_to_modelmeta(
         supports_reasoning=model_data.get("supports_reasoning", False),
         price_input=0,  # pricing unknown for dynamically discovered models
         price_output=0,
+        default_tool_format="tool",  # custom providers are openai-compat
     )
 
 
@@ -2139,6 +2140,7 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         supports_reasoning=reasoning and include_reasoning,
         price_input=price_input,
         price_output=price_output,
+        default_tool_format="tool",  # openai-compat route dialect
     )
 
 

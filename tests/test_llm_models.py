@@ -612,3 +612,69 @@ class TestSupportsResponsesAPI:
     def test_gpt4o_is_not_marked_for_responses_api(self):
         model = get_model("openai/gpt-4o")
         assert model.supports_responses_api is False
+
+
+@pytest.mark.parametrize(
+    ("provider", "name"),
+    sorted((p, n) for p, models in MODELS.items() for n in models),
+)
+def test_get_model_preserves_route_dialect_fields(provider: str, name: str):
+    """get_model must preserve dialect/capability metadata for every static registry row."""
+    meta = MODELS[provider][name]  # type: ignore[index]
+    resolved = get_model(f"{provider}/{name}")
+    assert resolved.default_tool_format == meta.get("default_tool_format")
+    assert resolved.supports_strict_tools == meta.get("supports_strict_tools", False)
+    assert resolved.preferred_edit_format == meta.get("preferred_edit_format")
+    assert resolved.deprecated == meta.get("deprecated", False)
+    assert resolved.pricing_type == meta.get("pricing_type", "per_token")
+    assert resolved.supports_parallel_tool_calls == meta.get(
+        "supports_parallel_tool_calls", False
+    )
+
+
+def test_openrouter_constructor_stamps_default_tool_format():
+    """Dynamic OpenRouter listing rows must carry the openai-compat dialect."""
+    from gptme.llm.llm_openai import openrouter_model_to_modelmeta
+
+    meta = openrouter_model_to_modelmeta(
+        {
+            "id": "openrouter/anthropic/claude-3-5-sonnet",
+            "pricing": {"prompt": "0", "completion": "0"},
+            "architecture": {"input_modalities": ["text"]},
+            "supported_parameters": [],
+        }
+    )
+    assert meta.default_tool_format == "tool"
+
+
+def test_openai_compatible_constructor_stamps_default_tool_format():
+    """Dynamic openai-compat listing rows must carry the openai-compat dialect."""
+    from gptme.llm.llm_openai import _openai_compatible_model_to_modelmeta
+
+    meta = _openai_compatible_model_to_modelmeta(
+        {
+            "id": "some-model",
+            "context_length": 8192,
+            "architecture": {"input_modalities": ["text"]},
+        },
+        provider_name="custom",
+    )
+    assert meta.default_tool_format == "tool"
+
+
+def test_model_to_dict_serializes_default_tool_format():
+    """A stamped model serializes default_tool_format; unstamped omits it."""
+    from gptme.llm.models.listing import model_to_dict
+    from gptme.llm.models.types import CustomProvider
+
+    stamped = ModelMeta(
+        provider=CustomProvider("test"),
+        model="m1",
+        context=8192,
+        default_tool_format="tool",
+    )
+    d = model_to_dict(stamped)
+    assert d["default_tool_format"] == "tool"
+
+    unstamped = ModelMeta(provider=CustomProvider("test"), model="m2", context=8192)
+    assert "default_tool_format" not in model_to_dict(unstamped)
