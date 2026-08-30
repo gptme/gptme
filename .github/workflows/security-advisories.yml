@@ -70,7 +70,7 @@ jobs:
           fi
 
       - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         # Fork PRs have a read-only GITHUB_TOKEN (no security-events: write),
         # so skip SARIF upload for fork PRs to avoid a silent failure.
         if: always() && hashFiles('audit.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
