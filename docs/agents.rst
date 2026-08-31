@@ -17,12 +17,39 @@ Overview
        Persistent[🔒 Persistent<br/>Complete history<br/>Version controlled]
        Autonomous[🎯 Autonomous<br/>Long-term goals<br/>Proactive & self-directed]
        Evolving[🌱 Self-Improving<br/>Gets smarter over time<br/>Learns from experience]
+       Portable[🔁 Portable<br/>Workspace-owned identity<br/>Multiple runtimes]
 
        %% Force left-to-right layout
-       Persistent --- Autonomous --- Evolving
+       Persistent --- Autonomous --- Evolving --- Portable
 
        classDef benefits fill:#fff8e1,stroke:#f57f17,stroke-width:3px,color:#000
-       class Persistent,Autonomous,Evolving benefits
+       class Persistent,Autonomous,Evolving,Portable benefits
+
+.. _agent-runtime-portability:
+
+🔁 Runtime Portability
+^^^^^^^^^^^^^^^^^^^^^^
+
+**Your agent is the workspace, not the harness.** Identity, memory, tasks,
+lessons, journal, workflow, and audit history live in the version-controlled
+workspace. gptme is the native runtime for that workspace, but another harness
+can operate on the same durable agent state when it implements the same context
+and task-lifecycle contract.
+
+Keep four layers distinct:
+
+- **Agent workspace** — identity, memory, tasks, journal, lessons, and workflow.
+- **Harness / runtime** — the agent loop, tools, context loading, and permissions.
+- **Model / provider** — the model used for reasoning and generation.
+- **Access / billing** — API keys, local inference, managed services, or a
+  compatible subscription login.
+
+These layers are not a full Cartesian product. Each harness supports different
+models and access methods, and merely being able to read the repository is not
+the same as shipping a reliable autonomous adapter. See the
+`gptme-agent-template runtime compatibility matrix
+<https://github.com/gptme/gptme-agent-template#one-agent-multiple-runtimes>`_
+for the concrete support levels in the public template.
 
 🧠 Agent Brain
 ^^^^^^^^^^^^^^
@@ -222,7 +249,7 @@ Agents can run autonomously on a schedule using systemd (Linux) or launchd (macO
     gptme-agent stop                # Pause scheduled runs
     gptme-agent start               # Resume scheduled runs
 
-**Execution Flow:**
+**Execution Flow with gptme:**
 
 1. ``gptme`` builds context from all systems
 
