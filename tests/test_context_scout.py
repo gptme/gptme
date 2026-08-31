@@ -2,9 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
+from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
 from gptme.context.config import ContextConfig
 from gptme.context.scout import (
     _SCOUT_SENTINEL,
+    _UNTRUSTED_PREAMBLE,
     _build_file_tree,
     _get_messages_from_manager,
     _make_turn_pre_hook,
@@ -145,29 +147,55 @@ class TestScoutFiles:
         assert paths == [readme.resolve()]
 
     def test_ignores_nonexistent_paths(self, tmp_path):
+        """Advertised-set validation is reached (tree is non-empty) and misses drop."""
+        real = tmp_path / "real.py"
+        real.write_text("pass")
         with (
             patch(
                 "gptme.context.selector.file_selector.get_workspace_files"
             ) as mock_gwf,
             patch("gptme.llm.reply") as mock_reply,
         ):
-            mock_gwf.return_value = []
+            mock_gwf.return_value = [real]
             mock_reply.return_value = self._make_reply("does/not/exist.py")
             paths = scout_files("do something", tmp_path, "cheap-model")
+        mock_reply.assert_called_once()
         assert paths == []
 
     def test_rejects_path_outside_workspace(self, tmp_path):
         """Paths that escape the workspace root are silently dropped."""
+        real = tmp_path / "real.py"
+        real.write_text("pass")
         with (
             patch(
                 "gptme.context.selector.file_selector.get_workspace_files"
             ) as mock_gwf,
             patch("gptme.llm.reply") as mock_reply,
         ):
-            mock_gwf.return_value = []
+            mock_gwf.return_value = [real]
             mock_reply.return_value = self._make_reply("/etc/passwd")
             paths = scout_files("read config", tmp_path, "cheap-model")
+        mock_reply.assert_called_once()
         assert paths == []
+
+    def test_rejects_path_not_in_advertised_set(self, tmp_path):
+        """Ignored/hidden files inside the workspace are not injectable."""
+        tracked = tmp_path / "tracked.py"
+        tracked.write_text("pass")
+        secret = tmp_path / ".env"
+        secret.write_text("SECRET=1")
+        ignored = tmp_path / "secrets.txt"
+        ignored.write_text("password")
+        with (
+            patch(
+                "gptme.context.selector.file_selector.get_workspace_files"
+            ) as mock_gwf,
+            patch("gptme.llm.reply") as mock_reply,
+        ):
+            mock_gwf.return_value = [tracked]
+            mock_reply.return_value = self._make_reply(".env\nsecrets.txt\ntracked.py")
+            paths = scout_files("read credentials from env", tmp_path, "cheap-model")
+        assert paths == [tracked.resolve()]
 
     def test_empty_file_tree_returns_early(self, tmp_path):
         """If the workspace has no tracked files, skip the LLM call."""
@@ -266,22 +294,39 @@ class TestTurnPreHook:
         assert len(result) == 1
         injected = result[0]
         assert injected.role == "system"
-        assert _SCOUT_SENTINEL in injected.content
+        assert injected.content.lstrip().startswith(_SCOUT_SENTINEL)
+        assert _UNTRUSTED_PREAMBLE in injected.content
+        assert "<workspace-files>" in injected.content
+        assert "</workspace-files>" in injected.content
         assert "README.md" in injected.content
         assert "My Project" in injected.content
 
-    def test_sentinel_prevents_double_injection(self, tmp_path):
-        """If sentinel is present in recent context, scout is skipped."""
+    def test_sentinel_skips_only_within_current_turn(self, tmp_path):
+        """Sentinel after the last user message means this turn already scouted."""
         hook = _make_turn_pre_hook("cheap-model", tmp_path)
         long_msg = "do something important with the database schema code " * 3
         msgs = self._make_messages(
-            ("system", f"{_SCOUT_SENTINEL}\n**Context-scout pre-loaded files:**\n"),
             ("user", long_msg),
+            ("system", f"{_SCOUT_SENTINEL}\n{_UNTRUSTED_PREAMBLE}\n"),
         )
         with patch("gptme.context.scout.scout_files") as mock_sf:
             result = self._run_hook(hook, msgs)
         mock_sf.assert_not_called()
         assert result == []
+
+    def test_prior_turn_sentinel_does_not_suppress_new_request(self, tmp_path):
+        """A previous turn's sentinel must not skip a later qualifying request."""
+        hook = _make_turn_pre_hook("cheap-model", tmp_path)
+        long_msg = "do something important with the database schema code " * 3
+        msgs = self._make_messages(
+            ("user", long_msg),
+            ("system", f"{_SCOUT_SENTINEL}\n{_UNTRUSTED_PREAMBLE}\n"),
+            ("assistant", "done"),
+            ("user", long_msg),
+        )
+        with patch("gptme.context.scout.scout_files", return_value=[]) as mock_sf:
+            self._run_hook(hook, msgs)
+        mock_sf.assert_called_once()
 
     def test_no_user_messages_skips_scout(self, tmp_path):
         """Hook returns nothing if there are no user messages."""
@@ -291,3 +336,16 @@ class TestTurnPreHook:
             result = self._run_hook(hook, msgs)
         mock_sf.assert_not_called()
         assert result == []
+
+    def test_truncates_large_file_content(self, tmp_path):
+        """Injected content is capped so large files cannot blow the context window."""
+        big = tmp_path / "big.txt"
+        big.write_text("A" * (CONTENT_SIZE_WARN_THRESHOLD + 5000))
+        hook = _make_turn_pre_hook("cheap-model", tmp_path)
+        long_msg = "please inspect the huge log file and summarise the errors " * 3
+        msgs = self._make_messages(("user", long_msg))
+        with patch("gptme.context.scout.scout_files") as mock_sf:
+            mock_sf.return_value = [big.resolve()]
+            result = self._run_hook(hook, msgs)
+        assert len(result) == 1
+        assert result[0].content.count("A") <= CONTENT_SIZE_WARN_THRESHOLD
