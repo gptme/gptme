@@ -1231,3 +1231,101 @@ def test_context_search_conversations_top_k(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Top 5 relevant conversations" in result.output
     mock_search.assert_called_once_with("pytest", return_full=True, top_k=5)
+
+
+# ---------------------------------------------------------------------------
+# Knowledge sub-commands
+# ---------------------------------------------------------------------------
+
+
+def test_knowledge_save_search_delete_roundtrip(tmp_path, monkeypatch):
+    """save → search → delete works with the JSONL store."""
+    from unittest.mock import patch
+
+    runner = CliRunner()
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    # Stub out gptme-rag so tests run without it installed.
+    with (
+        patch("shutil.which", return_value=None),
+    ):
+        result = runner.invoke(
+            main, ["knowledge", "save", "pytest finds no tests", "add test_ prefix"]
+        )
+    assert result.exit_code == 0, result.output
+    assert "Saved knowledge entry" in result.output
+
+    with (
+        patch("shutil.which", return_value=None),
+    ):
+        result = runner.invoke(main, ["knowledge", "search", "pytest"])
+    assert result.exit_code == 0, result.output
+    assert "pytest finds no tests" in result.output
+
+    # Grab the entry id from the saved output
+    entry_id = result.output.split("[1]")[1].split()[0]
+
+    with (
+        patch("shutil.which", return_value=None),
+    ):
+        result = runner.invoke(main, ["knowledge", "delete", entry_id])
+    assert result.exit_code == 0, result.output
+    assert "Deleted entry" in result.output
+
+    # Should be empty after delete
+    with (
+        patch("shutil.which", return_value=None),
+    ):
+        result = runner.invoke(main, ["knowledge", "search", "pytest"])
+    assert result.exit_code == 0, result.output
+    assert "No matching entries" in result.output
+
+
+def test_knowledge_save_uses_popen_not_blocking_run(tmp_path, monkeypatch):
+    """knowledge save fires gptme-rag in the background (Popen), not subprocess.run.
+
+    Regression test for the 30-second blocking-wait bug: when gptme-rag is
+    installed but slow, ``gptme-util knowledge save`` must not block the CLI.
+    The fix replaces subprocess.run(timeout=30) with subprocess.Popen so the
+    process runs asynchronously.
+    """
+    from unittest.mock import MagicMock, patch
+
+    runner = CliRunner()
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    mock_proc = MagicMock()
+    with (
+        patch("shutil.which", return_value="/usr/bin/gptme-rag"),
+        patch(
+            "gptme.cli.cmd_knowledge._export_for_rag",
+            return_value=None,
+        ),
+        patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+    ):
+        result = runner.invoke(
+            main, ["knowledge", "save", "blocking rag bug", "use Popen not run"]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Saved knowledge entry" in result.output
+
+    # Popen must be called (not subprocess.run)
+    mock_popen.assert_called_once()
+    args, kwargs = mock_popen.call_args
+    assert args[0][0] == "gptme-rag", f"Expected gptme-rag as command, got {args[0]}"
+    assert args[0][1] == "index", f"Expected 'index' subcommand, got {args[0]}"
+    # Must be fire-and-forget: DEVNULL fds, no wait
+    import subprocess
+
+    assert kwargs.get("stdout") == subprocess.DEVNULL
+    assert kwargs.get("stderr") == subprocess.DEVNULL
+
+
+def test_knowledge_search_empty_query_exits_nonzero(tmp_path, monkeypatch):
+    """knowledge search with empty query must exit 1 (guarded input)."""
+    runner = CliRunner()
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    result = runner.invoke(main, ["knowledge", "search", ""])
+    assert result.exit_code != 0
+    assert "empty" in result.output.lower() or "empty" in (result.stderr or "").lower()

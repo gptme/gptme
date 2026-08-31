@@ -91,19 +91,19 @@ def knowledge_save_cmd(
         except (OSError, ValueError) as e:
             click.echo(f"Warning: gptme-rag mirror export failed: {e}", err=True)
         else:
+            # Fire-and-forget: the entry is already persisted in JSONL, so
+            # keyword search works immediately.  gptme-rag indexing is a
+            # semantic-search enhancement; blocking the CLI for it (up to
+            # the full 30 s timeout) is a poor UX trade-off.
             try:
-                subprocess.run(
+                subprocess.Popen(
                     ["gptme-rag", "index", str(kb_dir / "rag")],
-                    check=True,
-                    capture_output=True,
-                    timeout=30,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
                 )
-            except (
-                OSError,
-                subprocess.CalledProcessError,
-                subprocess.TimeoutExpired,
-            ) as e:
-                click.echo(f"Warning: gptme-rag index failed: {e}", err=True)
+            except OSError as e:
+                click.echo(f"Warning: could not start gptme-rag: {e}", err=True)
 
 
 def _export_for_rag(kb_dir: Path) -> None:
@@ -275,15 +275,18 @@ def knowledge_delete_cmd(entry_id: str):
     # "re-index failed" warning after a successful JSONL delete.
     rag_dir = _knowledge_dir() / "rag"
     if mirror_removed and shutil.which("gptme-rag") and rag_dir.is_dir():
+        # Fire-and-forget: re-indexing after delete is best-effort; the JSONL
+        # store is already consistent and keyword search will not return the
+        # deleted entry.  Don't block the CLI on the RAG index operation.
         try:
-            subprocess.run(
+            subprocess.Popen(
                 ["gptme-rag", "index", str(rag_dir)],
-                check=True,
-                capture_output=True,
-                timeout=30,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
             )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        except OSError as e:
             click.echo(
-                f"Warning: gptme-rag re-index after delete failed: {e}",
+                f"Warning: could not start gptme-rag re-index after delete: {e}",
                 err=True,
             )
