@@ -446,10 +446,18 @@ _HAS_DIR_FD = os.open in getattr(os, "supports_dir_fd", set())
 
 
 class TestSafeRead:
+    @pytest.mark.skipif(not _HAS_DIR_FD, reason="openat walk is POSIX-only")
     def test_reads_regular_file(self, tmp_path):
         f = tmp_path / "readme.txt"
         f.write_text("hello")
         assert _safe_read(f, tmp_path) == "hello"
+
+    def test_fails_closed_without_dir_fd(self, tmp_path):
+        """No dir_fd: skip the read rather than reopen the resolved pathname."""
+        f = tmp_path / "readme.txt"
+        f.write_text("hello")
+        with patch("gptme.context.scout._SUPPORTS_DIR_FD", False):
+            assert _safe_read(f, tmp_path) is None
 
     def test_rejects_final_component_symlink(self, tmp_path):
         secret = tmp_path / ".env"

@@ -242,9 +242,14 @@ def _open_under_workspace(workspace: Path, path: Path) -> int | None:
     ``O_NOFOLLOW`` on a single pathname open is not enough: it only protects
     the final component.
 
-    On platforms without ``dir_fd`` support (Windows), falls back to a
-    pathname open of the already-resolved path.
+    Platforms without ``dir_fd`` support cannot perform this walk. Fail
+    closed there rather than reopening the resolved pathname — that
+    fallback reintroduces the parent-directory symlink race.
     """
+    if not _SUPPORTS_DIR_FD:
+        logger.debug("context-scout: skipping read, dir_fd unsupported")
+        return None
+
     ws = workspace.resolve()
     try:
         rel = path.relative_to(ws)
@@ -254,22 +259,15 @@ def _open_under_workspace(workspace: Path, path: Path) -> int | None:
     if not parts or any(p in ("", ".", "..") for p in parts):
         return None
 
-    # Fail closed if the path already resolves outside (covers the static
-    # case and the Windows fallback, which cannot walk with dir_fd).
+    # Fail closed if the path already resolves outside (static escape).
     try:
-        resolved = path.resolve()
-        resolved.relative_to(ws)
+        path.resolve().relative_to(ws)
     except (OSError, ValueError):
         return None
 
     flags_nofollow = (
         os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     )
-    if not _SUPPORTS_DIR_FD:
-        try:
-            return os.open(resolved, flags_nofollow)
-        except OSError:
-            return None
 
     current_fd = -1
     try:
@@ -297,7 +295,8 @@ def _safe_read(path: Path, workspace: Path) -> str | None:
     """Read ``path`` only if it still lives inside the workspace.
 
     Opens via directory-descriptor traversal so a parent-directory symlink
-    race after scout validation cannot escape the workspace. Reads at most
+    race after scout validation cannot escape the workspace. Platforms
+    without ``dir_fd`` fail closed (no pathname fallback). Reads at most
     ``CONTENT_SIZE_WARN_THRESHOLD`` characters so large files cannot inflate
     the main model's context.
     """
