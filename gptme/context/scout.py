@@ -361,6 +361,28 @@ def _identity_of(item: Path | _AdvertisedFile) -> tuple[Path, tuple[int, int] | 
     return item, None
 
 
+def _wrap_file_payload(rel: str, content: str) -> str:
+    """Wrap file contents so embedded fences cannot close the payload.
+
+    File text is untrusted. A matching run of backticks in the file would
+    terminate a fixed-length markdown fence and let the rest of the file sit
+    at system-message authority. Choose a fence longer than any backtick run
+    in the contents, and neutralize the outer XML closer.
+    """
+    content = content.replace("</workspace-files>", "< /workspace-files>")
+    longest = 0
+    run = 0
+    for ch in content:
+        if ch == "`":
+            run += 1
+            if run > longest:
+                longest = run
+        else:
+            run = 0
+    fence = "`" * max(4, longest + 1)
+    return f"{fence}{rel}\n{content}\n{fence}"
+
+
 def _make_turn_pre_hook(scout_model: str, workspace: Path):
     """Return a TURN_PRE hook generator bound to the given scout_model."""
 
@@ -410,10 +432,7 @@ def _make_turn_pre_hook(scout_model: str, workspace: Path):
                 rel = fpath.relative_to(workspace.resolve()).as_posix()
             except ValueError:
                 continue
-            # Prevent delimiter breakout from file contents.
-            content = content.replace("</workspace-files>", "< /workspace-files>")
-            # Quadruple backticks avoid collisions with triple-backtick fences in files.
-            parts.append(f"````{rel}\n{content}\n````")
+            parts.append(_wrap_file_payload(rel, content))
             total += len(content)
         parts.append("</workspace-files>")
 
