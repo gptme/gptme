@@ -302,7 +302,8 @@ def test_cli_rag_index_oserror_is_nonfatal(monkeypatch, command):
     def fail(*args, **kwargs):
         raise PermissionError("cannot execute gptme-rag")
 
-    monkeypatch.setattr("gptme.cli.cmd_knowledge.subprocess.run", fail)
+    # Production uses fire-and-forget Popen, not subprocess.run.
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.subprocess.Popen", fail)
     runner = CliRunner()
     if command == "save":
         result = runner.invoke(main, ["knowledge", "save", "problem", "resolution"])
@@ -314,7 +315,7 @@ def test_cli_rag_index_oserror_is_nonfatal(monkeypatch, command):
         result = runner.invoke(main, ["knowledge", "delete", entry["id"]])
 
     assert result.exit_code == 0, result.output
-    assert "Warning: gptme-rag" in result.output
+    assert "could not start gptme-rag" in result.output
     assert "cannot execute gptme-rag" in result.output
 
 
@@ -406,7 +407,7 @@ def test_cli_save_skips_index_when_mirror_export_fails(monkeypatch):
     monkeypatch.setattr("gptme.cli.cmd_knowledge._export_for_rag", fail_export)
     calls = []
     monkeypatch.setattr(
-        "gptme.cli.cmd_knowledge.subprocess.run",
+        "gptme.cli.cmd_knowledge.subprocess.Popen",
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
 
@@ -507,7 +508,7 @@ def test_cli_delete_skips_reindex_when_mirror_removal_fails(monkeypatch):
     monkeypatch.setattr(type(mirror), "unlink", fail_unlink)
     calls = []
     monkeypatch.setattr(
-        "gptme.cli.cmd_knowledge.subprocess.run",
+        "gptme.cli.cmd_knowledge.subprocess.Popen",
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
 
@@ -541,7 +542,7 @@ def test_cli_delete_skips_reindex_when_rag_dir_missing(monkeypatch):
     monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
     calls = []
     monkeypatch.setattr(
-        "gptme.cli.cmd_knowledge.subprocess.run",
+        "gptme.cli.cmd_knowledge.subprocess.Popen",
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
 
