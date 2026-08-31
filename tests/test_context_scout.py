@@ -504,3 +504,34 @@ class TestSafeRead:
             result = _safe_read(target, ws)
         assert result is None
         assert swapped
+
+    @pytest.mark.skipif(not _HAS_DIR_FD, reason="openat walk is POSIX-only")
+    def test_rejects_workspace_root_symlink_race(self, tmp_path):
+        """Swap the workspace root for a symlink before the root fd is opened."""
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        target = ws / "file.py"
+        target.write_text("inside")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "file.py").write_text("LEAKED")
+        real_open = os.open
+        swapped = False
+
+        def racing_open(path, flags, *args, dir_fd=None, **kwargs):
+            nonlocal swapped
+            if not swapped and dir_fd is None:
+                ws.rename(tmp_path / "ws.bak")
+                Path(ws).symlink_to(outside)
+                swapped = True
+            fd = (
+                real_open(path, flags, *args, dir_fd=dir_fd, **kwargs)
+                if dir_fd is not None
+                else real_open(path, flags, *args, **kwargs)
+            )
+            return fd
+
+        with patch("gptme.context.scout.os.open", side_effect=racing_open):
+            result = _safe_read(target, ws)
+        assert result is None
+        assert swapped

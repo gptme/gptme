@@ -237,10 +237,12 @@ def _open_under_workspace(workspace: Path, path: Path) -> int | None:
     """Open ``path`` under ``workspace`` without following any symlink.
 
     Walks each relative component with ``openat`` + ``O_NOFOLLOW`` from a
-    pinned workspace directory fd. A parent directory swapped for a symlink
-    after validation cannot redirect the read outside the workspace.
-    ``O_NOFOLLOW`` on a single pathname open is not enough: it only protects
-    the final component.
+    pinned workspace directory fd. The workspace root is itself opened with
+    ``O_NOFOLLOW`` so a concurrent rename+symlink of the root cannot redirect
+    the walk. A parent directory swapped for a symlink after validation
+    cannot redirect the read outside the workspace. ``O_NOFOLLOW`` on a
+    single pathname open is not enough: it only protects the final
+    component.
 
     Platforms without ``dir_fd`` support cannot perform this walk. Fail
     closed there rather than reopening the resolved pathname — that
@@ -271,8 +273,15 @@ def _open_under_workspace(workspace: Path, path: Path) -> int | None:
 
     current_fd = -1
     try:
+        # Pin the workspace last-component too. Without O_NOFOLLOW a
+        # concurrent rename+symlink of the root itself would redirect the
+        # whole descendant walk outside the validated directory.
         current_fd = os.open(
-            ws, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+            ws,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
         )
         for i, part in enumerate(parts):
             flags = flags_nofollow
