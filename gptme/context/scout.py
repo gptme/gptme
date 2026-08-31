@@ -82,18 +82,30 @@ def _build_file_tree(workspace: Path, max_paths: int = 500) -> str:
 
 
 def _advertised_resolved(workspace: Path, file_tree: str) -> dict[str, Path]:
-    """Map advertised relative paths to resolved files that stay in the workspace."""
+    """Map advertised relative paths to resolved files that stay in the workspace.
+
+    Advertised entries that are symlinks are skipped. ``git ls-files`` lists the
+    symlink itself, and resolving it would approve a hidden or ignored target
+    that was deliberately omitted from the file tree.
+    """
     ws = workspace.resolve()
     advertised: dict[str, Path] = {}
     for rel in file_tree.splitlines():
         if not rel:
             continue
+        candidate = workspace / rel
         try:
-            resolved = (workspace / rel).resolve()
-            resolved.relative_to(ws)
+            if candidate.is_symlink():
+                continue
+            resolved = candidate.resolve()
+            resolved_rel = resolved.relative_to(ws).as_posix()
         except (OSError, ValueError):
             continue
-        if resolved.is_file():
+        # Reject anything whose resolved path is not the advertised name
+        # (symlink followed to a different file, including hidden/ignored targets).
+        if resolved_rel != Path(os.path.normpath(rel)).as_posix():
+            continue
+        if resolved.is_file() and not resolved.is_symlink():
             advertised[rel] = resolved
     return advertised
 
@@ -227,6 +239,8 @@ def _safe_read(path: Path, workspace: Path) -> str | None:
     """
     ws = workspace.resolve()
     try:
+        if path.is_symlink():
+            return None
         resolved = path.resolve()
         resolved.relative_to(ws)
     except (OSError, ValueError):

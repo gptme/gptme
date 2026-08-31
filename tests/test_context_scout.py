@@ -197,6 +197,52 @@ class TestScoutFiles:
             paths = scout_files("read credentials from env", tmp_path, "cheap-model")
         assert paths == [tracked.resolve()]
 
+    def test_rejects_advertised_symlink_to_hidden_file(self, tmp_path):
+        """A tracked symlink must not leak a hidden/ignored target to the scout."""
+        secret = tmp_path / ".env"
+        secret.write_text("SECRET=1")
+        link = tmp_path / "config.json"
+        link.symlink_to(secret)
+        tracked = tmp_path / "tracked.py"
+        tracked.write_text("pass")
+        with (
+            patch(
+                "gptme.context.selector.file_selector.get_workspace_files"
+            ) as mock_gwf,
+            patch("gptme.llm.reply") as mock_reply,
+        ):
+            # git ls-files lists the symlink itself, not the hidden target.
+            mock_gwf.return_value = [link, tracked]
+            mock_reply.return_value = self._make_reply("config.json\n.env\ntracked.py")
+            paths = scout_files(
+                "read the config and credentials from the workspace files",
+                tmp_path,
+                "cheap-model",
+            )
+        assert paths == [tracked.resolve()]
+        assert secret.resolve() not in paths
+        assert link not in paths
+        assert link.resolve() not in paths
+
+    def test_skips_advertised_symlink_to_tracked_file(self, tmp_path):
+        """Symlink aliases are skipped; the real advertised file can still be picked."""
+        real = tmp_path / "real.py"
+        real.write_text("pass")
+        alias = tmp_path / "alias.py"
+        alias.symlink_to(real)
+        with (
+            patch(
+                "gptme.context.selector.file_selector.get_workspace_files"
+            ) as mock_gwf,
+            patch("gptme.llm.reply") as mock_reply,
+        ):
+            mock_gwf.return_value = [real, alias]
+            mock_reply.return_value = self._make_reply("alias.py\nreal.py")
+            paths = scout_files(
+                "inspect the real module source", tmp_path, "cheap-model"
+            )
+        assert paths == [real.resolve()]
+
     def test_empty_file_tree_returns_early(self, tmp_path):
         """If the workspace has no tracked files, skip the LLM call."""
         with (
@@ -349,3 +395,17 @@ class TestTurnPreHook:
             result = self._run_hook(hook, msgs)
         assert len(result) == 1
         assert result[0].content.count("A") <= CONTENT_SIZE_WARN_THRESHOLD
+
+    def test_does_not_inject_symlink_to_hidden_file(self, tmp_path):
+        """_safe_read must not follow a symlink to hidden/ignored contents."""
+        secret = tmp_path / ".env"
+        secret.write_text("SECRET=do-not-leak")
+        link = tmp_path / "config.json"
+        link.symlink_to(secret)
+        hook = _make_turn_pre_hook("cheap-model", tmp_path)
+        long_msg = "please inspect the config json and summarise the settings " * 3
+        msgs = self._make_messages(("user", long_msg))
+        with patch("gptme.context.scout.scout_files") as mock_sf:
+            mock_sf.return_value = [link]
+            result = self._run_hook(hook, msgs)
+        assert result == []
