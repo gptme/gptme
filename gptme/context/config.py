@@ -27,6 +27,12 @@ class ContextConfig:
     # Nested selector configuration
     selector: ContextSelectorConfig = field(default_factory=ContextSelectorConfig)
 
+    # Context-scout pre-pass model (None = disabled)
+    # When set, a cheap model identifies relevant files before each user turn.
+    # Example: "openai/gpt-4.1-mini" or "anthropic/claude-haiku-4-5-20251001"
+    # See: https://github.com/gptme/gptme/issues/3652
+    scout_model: str | None = None
+
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> "ContextConfig":
         """Create config from dictionary (typically from gptme.toml).
@@ -35,6 +41,7 @@ class ContextConfig:
 
             config = ContextConfig.from_dict({
                 'enabled': True,
+                'scout_model': 'openai/gpt-4.1-mini',
                 'selector': {
                     'enabled': True,
                     'strategy': 'hybrid',
@@ -52,5 +59,6 @@ class ContextConfig:
 
         return cls(
             enabled=config_dict.get("enabled", False),
+            scout_model=config_dict.get("scout_model"),
             selector=selector,
         )
