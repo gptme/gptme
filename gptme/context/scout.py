@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import stat
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +27,9 @@ from ..constants import CONTENT_SIZE_WARN_THRESHOLD
 from ..message import Message
 
 logger = logging.getLogger(__name__)
+
+# Cached so tests can patch os.open without flipping the walk off.
+_SUPPORTS_DIR_FD = os.open in getattr(os, "supports_dir_fd", set())
 
 _SCOUT_SENTINEL = "<!-- gptme-context-scout -->"
 
@@ -229,36 +233,88 @@ def _scouted_this_turn(msgs: list[Message]) -> bool:
     return False
 
 
-def _safe_read(path: Path, workspace: Path) -> str | None:
-    """Read ``path`` only if it still resolves inside the workspace.
+def _open_under_workspace(workspace: Path, path: Path) -> int | None:
+    """Open ``path`` under ``workspace`` without following any symlink.
 
-    Re-resolves and opens with O_NOFOLLOW so a symlink swap after the scout
-    validation cannot escape the workspace. Reads at most
-    ``CONTENT_SIZE_WARN_THRESHOLD`` characters so large files cannot inflate
-    the main model's context.
+    Walks each relative component with ``openat`` + ``O_NOFOLLOW`` from a
+    pinned workspace directory fd. A parent directory swapped for a symlink
+    after validation cannot redirect the read outside the workspace.
+    ``O_NOFOLLOW`` on a single pathname open is not enough: it only protects
+    the final component.
+
+    On platforms without ``dir_fd`` support (Windows), falls back to a
+    pathname open of the already-resolved path.
     """
     ws = workspace.resolve()
     try:
-        if path.is_symlink():
-            return None
+        rel = path.relative_to(ws)
+    except ValueError:
+        return None
+    parts = rel.parts
+    if not parts or any(p in ("", ".", "..") for p in parts):
+        return None
+
+    # Fail closed if the path already resolves outside (covers the static
+    # case and the Windows fallback, which cannot walk with dir_fd).
+    try:
         resolved = path.resolve()
         resolved.relative_to(ws)
     except (OSError, ValueError):
         return None
-    if resolved != path:
-        # Advertised path was replaced (symlink swap) since selection.
-        return None
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+
+    flags_nofollow = (
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    )
+    if not _SUPPORTS_DIR_FD:
+        try:
+            return os.open(resolved, flags_nofollow)
+        except OSError:
+            return None
+
+    current_fd = -1
     try:
-        fd = os.open(resolved, flags)
+        current_fd = os.open(
+            ws, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+        )
+        for i, part in enumerate(parts):
+            flags = flags_nofollow
+            if i < len(parts) - 1:
+                flags |= os.O_DIRECTORY
+            next_fd = os.open(part, flags, dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = next_fd
+        fd = current_fd
+        current_fd = -1
+        return fd
     except OSError:
         return None
+    finally:
+        if current_fd >= 0:
+            os.close(current_fd)
+
+
+def _safe_read(path: Path, workspace: Path) -> str | None:
+    """Read ``path`` only if it still lives inside the workspace.
+
+    Opens via directory-descriptor traversal so a parent-directory symlink
+    race after scout validation cannot escape the workspace. Reads at most
+    ``CONTENT_SIZE_WARN_THRESHOLD`` characters so large files cannot inflate
+    the main model's context.
+    """
+    fd = _open_under_workspace(workspace, path)
+    if fd is None:
+        return None
     try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
         with os.fdopen(fd, "r", encoding="utf-8", errors="replace") as fh:
-            content = fh.read(CONTENT_SIZE_WARN_THRESHOLD)
+            fd = -1
+            return fh.read(CONTENT_SIZE_WARN_THRESHOLD)
     except OSError:
         return None
-    return content
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 def _make_turn_pre_hook(scout_model: str, workspace: Path):

@@ -1,6 +1,10 @@
 """Unit tests for context-scout pre-pass module."""
 
+import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
 from gptme.context.config import ContextConfig
@@ -10,6 +14,7 @@ from gptme.context.scout import (
     _build_file_tree,
     _get_messages_from_manager,
     _make_turn_pre_hook,
+    _safe_read,
     scout_files,
 )
 from gptme.message import Message
@@ -409,3 +414,85 @@ class TestTurnPreHook:
             mock_sf.return_value = [link]
             result = self._run_hook(hook, msgs)
         assert result == []
+
+    def test_does_not_inject_file_via_parent_dir_symlink(self, tmp_path):
+        """An intermediate directory symlink must not leak an outside file."""
+        ws = tmp_path / "ws"
+        sub = ws / "sub"
+        sub.mkdir(parents=True)
+        (sub / "file.py").write_text("inside")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "file.py").write_text("LEAKED")
+        sub.rename(ws / "sub.bak")
+        Path(sub).symlink_to(outside)
+        hook = _make_turn_pre_hook("cheap-model", ws)
+        long_msg = "please inspect the nested module and summarise the code " * 3
+        msgs = self._make_messages(("user", long_msg))
+        advertised = ws / "sub" / "file.py"
+        with patch("gptme.context.scout.scout_files") as mock_sf:
+            mock_sf.return_value = [advertised]
+            result = self._run_hook(hook, msgs)
+        assert result == []
+        assert _safe_read(advertised, ws) is None
+
+
+# ---------------------------------------------------------------------------
+# _safe_read path hardening
+# ---------------------------------------------------------------------------
+
+
+_HAS_DIR_FD = os.open in getattr(os, "supports_dir_fd", set())
+
+
+class TestSafeRead:
+    def test_reads_regular_file(self, tmp_path):
+        f = tmp_path / "readme.txt"
+        f.write_text("hello")
+        assert _safe_read(f, tmp_path) == "hello"
+
+    def test_rejects_final_component_symlink(self, tmp_path):
+        secret = tmp_path / ".env"
+        secret.write_text("SECRET=1")
+        link = tmp_path / "config.json"
+        link.symlink_to(secret)
+        assert _safe_read(link, tmp_path) is None
+
+    def test_rejects_outside_path(self, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        outside = tmp_path / "outside.py"
+        outside.write_text("LEAKED")
+        assert _safe_read(outside, ws) is None
+
+    @pytest.mark.skipif(not _HAS_DIR_FD, reason="openat walk is POSIX-only")
+    def test_rejects_parent_dir_symlink_race(self, tmp_path):
+        """Swap a parent directory for a symlink after the workspace fd is open."""
+        ws = tmp_path / "ws"
+        sub = ws / "sub"
+        sub.mkdir(parents=True)
+        target = sub / "file.py"
+        target.write_text("inside")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "file.py").write_text("LEAKED")
+        real_open = os.open
+        swapped = False
+
+        def racing_open(path, flags, *args, dir_fd=None, **kwargs):
+            nonlocal swapped
+            fd = (
+                real_open(path, flags, *args, dir_fd=dir_fd, **kwargs)
+                if dir_fd is not None
+                else real_open(path, flags, *args, **kwargs)
+            )
+            if not swapped and dir_fd is None:
+                sub.rename(ws / "sub.bak")
+                Path(sub).symlink_to(outside)
+                swapped = True
+            return fd
+
+        with patch("gptme.context.scout.os.open", side_effect=racing_open):
+            result = _safe_read(target, ws)
+        assert result is None
+        assert swapped
