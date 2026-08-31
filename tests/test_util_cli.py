@@ -1320,6 +1320,11 @@ def test_knowledge_save_uses_popen_not_blocking_run(tmp_path, monkeypatch):
 
     assert kwargs.get("stdout") == subprocess.DEVNULL
     assert kwargs.get("stderr") == subprocess.DEVNULL
+    # MagicMock.wait()/communicate() do not block, so without these
+    # assertions the test would still pass if production later added a
+    # proc.wait(timeout=30) and reintroduced the original bug.
+    mock_proc.wait.assert_not_called()
+    mock_proc.communicate.assert_not_called()
 
 
 def test_knowledge_search_empty_query_exits_nonzero(tmp_path, monkeypatch):
