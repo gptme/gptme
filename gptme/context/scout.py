@@ -18,7 +18,7 @@ import logging
 import os
 import stat
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -27,6 +27,15 @@ from ..constants import CONTENT_SIZE_WARN_THRESHOLD
 from ..message import Message
 
 logger = logging.getLogger(__name__)
+
+
+class _AdvertisedFile(NamedTuple):
+    """Workspace file approved before the scout call, bound to its inode."""
+
+    path: Path
+    dev: int
+    ino: int
+
 
 # Cached so tests can patch os.open without flipping the walk off.
 _SUPPORTS_DIR_FD = os.open in getattr(os, "supports_dir_fd", set())
@@ -85,15 +94,19 @@ def _build_file_tree(workspace: Path, max_paths: int = 500) -> str:
     return "\n".join(paths)
 
 
-def _advertised_resolved(workspace: Path, file_tree: str) -> dict[str, Path]:
+def _advertised_resolved(workspace: Path, file_tree: str) -> dict[str, _AdvertisedFile]:
     """Map advertised relative paths to resolved files that stay in the workspace.
 
     Advertised entries that are symlinks are skipped. ``git ls-files`` lists the
     symlink itself, and resolving it would approve a hidden or ignored target
     that was deliberately omitted from the file tree.
+
+    Each entry is bound to the ``(st_dev, st_ino)`` observed at advertisement
+    time so a later hard-link substitution of the pathname cannot swap in
+    unadvertised contents.
     """
     ws = workspace.resolve()
-    advertised: dict[str, Path] = {}
+    advertised: dict[str, _AdvertisedFile] = {}
     for rel in file_tree.splitlines():
         if not rel:
             continue
@@ -109,8 +122,12 @@ def _advertised_resolved(workspace: Path, file_tree: str) -> dict[str, Path]:
         # (symlink followed to a different file, including hidden/ignored targets).
         if resolved_rel != Path(os.path.normpath(rel)).as_posix():
             continue
-        if resolved.is_file() and not resolved.is_symlink():
-            advertised[rel] = resolved
+        try:
+            st = os.lstat(resolved)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            advertised[rel] = _AdvertisedFile(resolved, st.st_dev, st.st_ino)
     return advertised
 
 
@@ -121,9 +138,9 @@ def _normalize_scout_line(line: str) -> str:
 
 
 def _select_advertised_path(
-    line: str, workspace: Path, advertised: dict[str, Path]
-) -> Path | None:
-    """Return the advertised path for a scout line, or None if it is not a candidate.
+    line: str, workspace: Path, advertised: dict[str, _AdvertisedFile]
+) -> _AdvertisedFile | None:
+    """Return the advertised file for a scout line, or None if it is not a candidate.
 
     Containment alone is not enough: ignored and hidden files inside the workspace
     were deliberately omitted from the file tree and must not be read.
@@ -139,9 +156,9 @@ def _select_advertised_path(
         resolved = candidate.resolve()
     except OSError:
         return None
-    for path in advertised.values():
-        if path == resolved:
-            return path
+    for item in advertised.values():
+        if item.path == resolved:
+            return item
     return None
 
 
@@ -149,12 +166,12 @@ def scout_files(
     user_message: str,
     workspace: Path,
     scout_model: str,
-) -> list[Path]:
-    """Run the cheap scout model and return a list of relevant file paths.
+) -> list[_AdvertisedFile]:
+    """Run the cheap scout model and return advertised files still in the workspace.
 
     Returns an empty list on any error so callers degrade gracefully.
     Only paths advertised in the file tree (and still inside the workspace)
-    are returned.
+    are returned, each bound to the inode recorded at advertisement time.
     """
     from ..llm import reply  # fmt: skip
 
@@ -190,18 +207,18 @@ def scout_files(
     candidate_lines = [line.strip() for line in raw_text.splitlines()]
     candidate_lines = [ln for ln in candidate_lines if ln and not ln.startswith("#")]
 
-    paths: list[Path] = []
+    files: list[_AdvertisedFile] = []
     seen: set[Path] = set()
     for line in candidate_lines[:_MAX_SCOUT_FILES]:
         selected = _select_advertised_path(line, workspace, advertised)
-        if selected is None or selected in seen:
+        if selected is None or selected.path in seen:
             logger.debug("context-scout: ignoring non-candidate path: %s", line)
             continue
-        seen.add(selected)
-        paths.append(selected)
+        seen.add(selected.path)
+        files.append(selected)
 
-    logger.debug("context-scout found %d relevant file(s)", len(paths))
-    return paths
+    logger.debug("context-scout found %d relevant file(s)", len(files))
+    return files
 
 
 def _content_has_scout_sentinel(content: str) -> bool:
@@ -300,12 +317,18 @@ def _open_under_workspace(workspace: Path, path: Path) -> int | None:
             os.close(current_fd)
 
 
-def _safe_read(path: Path, workspace: Path) -> str | None:
+def _safe_read(
+    path: Path,
+    workspace: Path,
+    expected: tuple[int, int] | None = None,
+) -> str | None:
     """Read ``path`` only if it still lives inside the workspace.
 
     Opens via directory-descriptor traversal so a parent-directory symlink
     race after scout validation cannot escape the workspace. Platforms
-    without ``dir_fd`` fail closed (no pathname fallback). Reads at most
+    without ``dir_fd`` fail closed (no pathname fallback). When ``expected``
+    is the ``(st_dev, st_ino)`` captured at advertisement, a hard-link (or
+    any other) substitution of the pathname is rejected. Reads at most
     ``CONTENT_SIZE_WARN_THRESHOLD`` characters so large files cannot inflate
     the main model's context.
     """
@@ -313,7 +336,13 @@ def _safe_read(path: Path, workspace: Path) -> str | None:
     if fd is None:
         return None
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        if expected is not None and (st.st_dev, st.st_ino) != expected:
+            logger.debug(
+                "context-scout: skipping read, inode changed since advertisement"
+            )
             return None
         with os.fdopen(fd, "r", encoding="utf-8", errors="replace") as fh:
             fd = -1
@@ -323,6 +352,13 @@ def _safe_read(path: Path, workspace: Path) -> str | None:
     finally:
         if fd >= 0:
             os.close(fd)
+
+
+def _identity_of(item: Path | _AdvertisedFile) -> tuple[Path, tuple[int, int] | None]:
+    """Return ``(path, expected_inode)`` for a scout result or a test Path."""
+    if isinstance(item, _AdvertisedFile):
+        return item.path, (item.dev, item.ino)
+    return item, None
 
 
 def _make_turn_pre_hook(scout_model: str, workspace: Path):
@@ -362,8 +398,9 @@ def _make_turn_pre_hook(scout_model: str, workspace: Path):
             "<workspace-files>",
         ]
         total = 0
-        for fpath in files:
-            content = _safe_read(fpath, workspace)
+        for item in files:
+            fpath, expected = _identity_of(item)
+            content = _safe_read(fpath, workspace, expected)
             if content is None:
                 continue
             if total + len(content) > _MAX_TOTAL_CHARS:

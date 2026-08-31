@@ -11,6 +11,7 @@ from gptme.context.config import ContextConfig
 from gptme.context.scout import (
     _SCOUT_SENTINEL,
     _UNTRUSTED_PREAMBLE,
+    _AdvertisedFile,
     _build_file_tree,
     _get_messages_from_manager,
     _make_turn_pre_hook,
@@ -18,6 +19,11 @@ from gptme.context.scout import (
     scout_files,
 )
 from gptme.message import Message
+
+
+def _paths(files):
+    return [f.path if isinstance(f, _AdvertisedFile) else f for f in files]
+
 
 # ---------------------------------------------------------------------------
 # ContextConfig.scout_model
@@ -149,7 +155,9 @@ class TestScoutFiles:
             mock_reply.return_value = self._make_reply("README.md")
             paths = scout_files("fix the readme documentation", tmp_path, "cheap-model")
 
-        assert paths == [readme.resolve()]
+        assert _paths(paths) == [readme.resolve()]
+        assert paths[0].dev == readme.stat().st_dev
+        assert paths[0].ino == readme.stat().st_ino
 
     def test_ignores_nonexistent_paths(self, tmp_path):
         """Advertised-set validation is reached (tree is non-empty) and misses drop."""
@@ -200,7 +208,7 @@ class TestScoutFiles:
             mock_gwf.return_value = [tracked]
             mock_reply.return_value = self._make_reply(".env\nsecrets.txt\ntracked.py")
             paths = scout_files("read credentials from env", tmp_path, "cheap-model")
-        assert paths == [tracked.resolve()]
+        assert _paths(paths) == [tracked.resolve()]
 
     def test_rejects_advertised_symlink_to_hidden_file(self, tmp_path):
         """A tracked symlink must not leak a hidden/ignored target to the scout."""
@@ -224,10 +232,11 @@ class TestScoutFiles:
                 tmp_path,
                 "cheap-model",
             )
-        assert paths == [tracked.resolve()]
-        assert secret.resolve() not in paths
-        assert link not in paths
-        assert link.resolve() not in paths
+        got = _paths(paths)
+        assert got == [tracked.resolve()]
+        assert secret.resolve() not in got
+        assert link not in got
+        assert link.resolve() not in got
 
     def test_skips_advertised_symlink_to_tracked_file(self, tmp_path):
         """Symlink aliases are skipped; the real advertised file can still be picked."""
@@ -246,7 +255,7 @@ class TestScoutFiles:
             paths = scout_files(
                 "inspect the real module source", tmp_path, "cheap-model"
             )
-        assert paths == [real.resolve()]
+        assert _paths(paths) == [real.resolve()]
 
     def test_empty_file_tree_returns_early(self, tmp_path):
         """If the workspace has no tracked files, skip the LLM call."""
@@ -291,7 +300,7 @@ class TestScoutFiles:
                 "# relevant files:\nreal.py\n# end"
             )
             paths = scout_files("do something here", tmp_path, "cheap-model")
-        assert paths == [real_file.resolve()]
+        assert _paths(paths) == [real_file.resolve()]
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +445,28 @@ class TestTurnPreHook:
         assert result == []
         assert _safe_read(advertised, ws) is None
 
+    def test_does_not_inject_hard_linked_secret(self, tmp_path):
+        """Hard-link substitution of an advertised path must not leak ignored contents."""
+        tracked = tmp_path / "tracked.py"
+        tracked.write_text("inside")
+        st = tracked.stat()
+        secret = tmp_path / ".env"
+        secret.write_text("SECRET=do-not-leak")
+        tracked.unlink()
+        try:
+            os.link(secret, tracked)
+        except OSError as exc:
+            pytest.skip(f"hard links unsupported: {exc}")
+        hook = _make_turn_pre_hook("cheap-model", tmp_path)
+        long_msg = "please inspect the tracked module and summarise the code " * 3
+        msgs = self._make_messages(("user", long_msg))
+        with patch("gptme.context.scout.scout_files") as mock_sf:
+            mock_sf.return_value = [
+                _AdvertisedFile(tracked.resolve(), st.st_dev, st.st_ino)
+            ]
+            result = self._run_hook(hook, msgs)
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # _safe_read path hardening
@@ -535,3 +566,30 @@ class TestSafeRead:
             result = _safe_read(target, ws)
         assert result is None
         assert swapped
+
+    @pytest.mark.skipif(not _HAS_DIR_FD, reason="openat walk is POSIX-only")
+    def test_reads_when_inode_matches(self, tmp_path):
+        f = tmp_path / "readme.txt"
+        f.write_text("hello")
+        st = f.stat()
+        assert _safe_read(f, tmp_path, (st.st_dev, st.st_ino)) == "hello"
+
+    @pytest.mark.skipif(not _HAS_DIR_FD, reason="openat walk is POSIX-only")
+    def test_rejects_hard_link_substitution(self, tmp_path):
+        """Replacing an advertised file with a hard link must not leak its target."""
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        advertised = ws / "tracked.py"
+        advertised.write_text("inside")
+        st = advertised.stat()
+        secret = ws / ".env"
+        secret.write_text("SECRET=do-not-leak")
+        advertised.unlink()
+        try:
+            os.link(secret, advertised)
+        except OSError as exc:
+            pytest.skip(f"hard links unsupported: {exc}")
+        assert _safe_read(advertised, ws, (st.st_dev, st.st_ino)) is None
+        # Without the inode pin the replacement would be readable — the pin is
+        # what closes the window, not the path walk.
+        assert _safe_read(advertised, ws) == "SECRET=do-not-leak"
