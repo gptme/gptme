@@ -5,6 +5,15 @@ We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter,
 
 You can also bring your own subscription instead of an API key: a ChatGPT Plus/Pro plan via `OpenAI Subscription`_ or a SuperGrok plan via `Grok Subscription`_.
 
+.. important::
+
+    A provider or subscription backend is not an agent harness. This page
+    configures model access **inside the gptme runtime**. For example,
+    ``openai-subscription`` uses ChatGPT subscription access from gptme; it does
+    not run the Codex CLI harness. Likewise, ``grok-subscription`` does not run
+    the Grok Build harness. See :ref:`agent-runtime-portability` for the
+    workspace / harness / model / access distinction.
+
 .. note::
 
     We are in the process of adding support for configurable :doc:`custom providers <providers-custom>`.

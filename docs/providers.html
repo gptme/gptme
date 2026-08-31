@@ -530,6 +530,15 @@ document.write(`
 <h1>Providers<a class="headerlink" href="#providers" title="Link to this heading">#</a></h1>
 <p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
 <p>You can also bring your own subscription instead of an API key: a ChatGPT Plus/Pro plan via <a class="reference internal" href="#openai-subscription">OpenAI Subscription</a> or a SuperGrok plan via <a class="reference internal" href="#grok-subscription">Grok Subscription</a>.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>A provider or subscription backend is not an agent harness. This page
+configures model access <strong>inside the gptme runtime</strong>. For example,
+<code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code> uses ChatGPT subscription access from gptme; it does
+not run the Codex CLI harness. Likewise, <code class="docutils literal notranslate"><span class="pre">grok-subscription</span></code> does not run
+the Grok Build harness. See <a class="reference internal" href="agents.html#agent-runtime-portability"><span class="std std-ref">🔁 Runtime Portability</span></a> for the
+workspace / harness / model / access distinction.</p>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>We are in the process of adding support for configurable <a class="reference internal" href="providers-custom.html"><span class="doc">custom providers</span></a>.</p>

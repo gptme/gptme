@@ -862,6 +862,7 @@ document.write(`
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#superpowers">✨ Superpowers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-portability">🔁 Runtime Portability</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-brain">🧠 Agent Brain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#external-world">🌍 External World</a></li>
 </ul>
@@ -898,13 +899,35 @@ document.write(`
     Persistent[🔒 Persistent&lt;br/&gt;Complete history&lt;br/&gt;Version controlled]
     Autonomous[🎯 Autonomous&lt;br/&gt;Long-term goals&lt;br/&gt;Proactive &amp; self-directed]
     Evolving[🌱 Self-Improving&lt;br/&gt;Gets smarter over time&lt;br/&gt;Learns from experience]
+    Portable[🔁 Portable&lt;br/&gt;Workspace-owned identity&lt;br/&gt;Multiple runtimes]
 
     %% Force left-to-right layout
-    Persistent --- Autonomous --- Evolving
+    Persistent --- Autonomous --- Evolving --- Portable
 
     classDef benefits fill:#fff8e1,stroke:#f57f17,stroke-width:3px,color:#000
-    class Persistent,Autonomous,Evolving benefits
+    class Persistent,Autonomous,Evolving,Portable benefits
     </pre></section>
+<section id="runtime-portability">
+<span id="agent-runtime-portability"></span><h3>🔁 Runtime Portability<a class="headerlink" href="#runtime-portability" title="Link to this heading">#</a></h3>
+<p><strong>Your agent is the workspace, not the harness.</strong> Identity, memory, tasks,
+lessons, journal, workflow, and audit history live in the version-controlled
+workspace. gptme is the native runtime for that workspace, but another harness
+can operate on the same durable agent state when it implements the same context
+and task-lifecycle contract.</p>
+<p>Keep four layers distinct:</p>
+<ul class="simple">
+<li><p><strong>Agent workspace</strong> — identity, memory, tasks, journal, lessons, and workflow.</p></li>
+<li><p><strong>Harness / runtime</strong> — the agent loop, tools, context loading, and permissions.</p></li>
+<li><p><strong>Model / provider</strong> — the model used for reasoning and generation.</p></li>
+<li><p><strong>Access / billing</strong> — API keys, local inference, managed services, or a
+compatible subscription login.</p></li>
+</ul>
+<p>These layers are not a full Cartesian product. Each harness supports different
+models and access methods, and merely being able to read the repository is not
+the same as shipping a reliable autonomous adapter. See the
+<a class="reference external" href="https://github.com/gptme/gptme-agent-template#one-agent-multiple-runtimes">gptme-agent-template runtime compatibility matrix</a>
+for the concrete support levels in the public template.</p>
+</section>
 <section id="agent-brain">
 <h3>🧠 Agent Brain<a class="headerlink" href="#agent-brain" title="Link to this heading">#</a></h3>
 <pre  class="mermaid">
@@ -1087,7 +1110,7 @@ gptme-agent<span class="w"> </span>stop<span class="w">                </span><s
 gptme-agent<span class="w"> </span>start<span class="w">               </span><span class="c1"># Resume scheduled runs</span>
 </pre></div>
 </div>
-<p><strong>Execution Flow:</strong></p>
+<p><strong>Execution Flow with gptme:</strong></p>
 <ol class="arabic simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme</span></code> builds context from all systems</p>
 <ul class="simple">
@@ -1276,6 +1299,7 @@ The template system enables creating agents for specific domains:</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#superpowers">✨ Superpowers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-portability">🔁 Runtime Portability</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-brain">🧠 Agent Brain</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#external-world">🌍 External World</a></li>
 </ul>
