@@ -457,6 +457,11 @@ def register() -> None:
     scout_model: str | None = getattr(context_cfg, "scout_model", None)
     if not scout_model:
         return
+    if not _SUPPORTS_DIR_FD:
+        logger.warning(
+            "context-scout disabled: secure workspace reads require dir_fd support"
+        )
+        return
 
     workspace: Path | None = None
     if config.chat is not None:

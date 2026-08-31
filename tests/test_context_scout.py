@@ -17,6 +17,7 @@ from gptme.context.scout import (
     _make_turn_pre_hook,
     _safe_read,
     _wrap_file_payload,
+    register,
     scout_files,
 )
 from gptme.message import Message
@@ -513,6 +514,19 @@ class TestSafeRead:
         f.write_text("hello")
         with patch("gptme.context.scout._SUPPORTS_DIR_FD", False):
             assert _safe_read(f, tmp_path) is None
+
+    def test_does_not_register_without_dir_fd(self, tmp_path):
+        """Unsupported runtimes must skip before paying for scout-model calls."""
+        config = MagicMock()
+        config.context.scout_model = "cheap-model"
+        config.chat.workspace = tmp_path
+        with (
+            patch("gptme.context.scout._SUPPORTS_DIR_FD", False),
+            patch("gptme.config.get_config", return_value=config),
+            patch("gptme.hooks.register_hook") as register_hook,
+        ):
+            register()
+        register_hook.assert_not_called()
 
     def test_rejects_final_component_symlink(self, tmp_path):
         secret = tmp_path / ".env"
