@@ -21,6 +21,7 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    get_current_tool_use,
 )
 from .pruner import plan_tool_output_prune
 
@@ -377,10 +378,22 @@ def execute_read(
     # Dispatch TOOL_CONFIRM so guardrails (and any other confirm hook) can
     # intercept secret-path reads. Interactive confirm UIs decline the `read`
     # tool, so this does not add a per-file prompt.
+    #
+    # Direct executors (MCP's tool.execute() path) do not set the current
+    # ToolUse, and get_confirmation auto-confirms when context is missing.
+    # Synthesize a ToolUse so TOOL_CONFIRM still runs.
     from ..hooks import ConfirmAction, get_confirmation
 
     preview = "\n".join(str(p) for p in paths)
-    result = get_confirmation(preview=preview, default_confirm=True)
+    tool_use = get_current_tool_use()
+    if tool_use is None:
+        tool_use = ToolUse(
+            tool="read",
+            args=[str(p) for p in paths],
+            content=preview,
+            kwargs=kwargs,
+        )
+    result = get_confirmation(tool_use=tool_use, preview=preview, default_confirm=True)
     if result.action == ConfirmAction.SKIP:
         yield Message("system", result.message or "Operation aborted")
         return

