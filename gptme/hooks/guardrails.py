@@ -54,8 +54,8 @@ logger = logging.getLogger(__name__)
 
 _VALID_MODES = frozenset({"off", "shadow", "enforce"})
 _WRITE_TOOLS = frozenset({"save", "append", "patch", "patch_many", "morph"})
-_SHELL_READ_VERB = re.compile(
-    r"\b(?:cat|less|more|head|tail|bat|type|xxd|hexdump|strings|od|nl|tac)\b"
+_SHELL_KEYGEN = re.compile(
+    r"\b(?:ssh-keygen|openssl\s+(?:genrsa|req|ecparam|gendsa|genpkey))\b"
 )
 
 # ── Shell policy patterns ──────────────────────────────────────────────────────
@@ -258,13 +258,13 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
             return f"shell policy: {reason}"
 
     # 2. Secret-read denial — reads of credential paths, not writes/keygen.
+    # Generic suffixes (.pem/.key) apply to every non-write tool so python
+    # `open("server.pem")` and `grep server.pem` still block. Shell keygen
+    # is the exception: generating a key is not a secret *read*.
     if tool_name not in _WRITE_TOOLS:
-        if tool_name == "read":
-            include_generic = True
-        elif tool_name == "shell":
-            include_generic = bool(_SHELL_READ_VERB.search(content))
-        else:
-            include_generic = False
+        include_generic = not (
+            tool_name == "shell" and bool(_SHELL_KEYGEN.search(content))
+        )
         reason = _check_secret_read(content, include_generic=include_generic)
         if reason:
             return f"secret-read: {reason}"

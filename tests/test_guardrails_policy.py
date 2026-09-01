@@ -277,6 +277,20 @@ class TestGuardrailsHook:
         result = guardrails_hook(tu)
         assert result is None
 
+    def test_shell_grep_pem_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("shell", "grep -h secret server.pem")
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_python_open_pem_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("python", 'open("server.pem").read()')
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
     def test_enforce_blocks_mixed_destination_egress(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
