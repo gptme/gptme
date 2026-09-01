@@ -1,12 +1,24 @@
 """
-Cross-session knowledge base: save and retrieve problem/resolution pairs.
+Cross-session knowledge base: save and retrieve structured knowledge entries.
 
 Entries are stored as JSONL at ``~/.local/share/gptme/knowledge/entries.jsonl``
 (respects XDG_DATA_HOME).  Each entry carries ``memory_type="knowledge_entry"``
 so gptme-rag's ``KnowledgeEntrySource`` can index the same JSONL.
 
-Retrieval without gptme-rag uses keyword search over problem + resolution
-text. Matching entries are injected at session start (see
+Entry types (``entry_type`` field):
+
+- ``problem_resolution`` (default): a problem/resolution pair.
+- ``decision``: a decision and its rationale.
+- ``fact``: a topic and a fact about it.
+- ``how_to``: a task description and step-by-step instructions.
+- ``note``: a free-form title and content block.
+
+All types store text in the same ``problem``/``resolution`` fields (the
+primary text pair) so backward compatibility is preserved. ``entry_type``
+controls how they are displayed and how the CLI labels the prompts.
+
+Retrieval without gptme-rag uses keyword search over the full text.
+Matching entries are injected at session start (see
 ``gptme.hooks.knowledge_inject``) when the initial prompt has enough
 signal to search.
 """
@@ -29,15 +41,25 @@ if TYPE_CHECKING:
 
 from .dirs import get_data_dir
 
+ENTRY_TYPES = ("problem_resolution", "decision", "fact", "how_to", "note")
+ENTRY_TYPE_LABELS: dict[str, tuple[str, str]] = {
+    "problem_resolution": ("Problem", "Resolution"),
+    "decision": ("Decision", "Rationale"),
+    "fact": ("Topic", "Fact"),
+    "how_to": ("Task", "Steps"),
+    "note": ("Title", "Content"),
+}
+
 
 class KnowledgeEntry(TypedDict):
     id: str
-    problem: str
-    resolution: str
+    problem: str  # primary text field (label varies by entry_type)
+    resolution: str  # secondary text field (label varies by entry_type)
     tags: list[str]
     keywords: list[str]
     created_at: str
     memory_type: str  # always "knowledge_entry" — used by gptme-rag source filter
+    entry_type: str  # one of ENTRY_TYPES; defaults to "problem_resolution"
 
 
 def _knowledge_dir() -> Path:
@@ -84,7 +106,7 @@ def _is_valid_entry(parsed: object) -> bool:
         uuid.UUID(parsed.get("id", ""))
     except (AttributeError, TypeError, ValueError):
         return False
-    return all(
+    if not all(
         isinstance(parsed.get(key), expected_type)
         for key, expected_type in (
             ("problem", str),
@@ -92,7 +114,12 @@ def _is_valid_entry(parsed: object) -> bool:
             ("tags", list),
             ("created_at", str),
         )
-    ) and all(isinstance(tag, str) for tag in parsed["tags"])
+    ) or not all(isinstance(tag, str) for tag in parsed["tags"]):
+        return False
+    # entry_type is optional (absent in pre-generalization entries); when present
+    # it must be a known type string so corrupt data doesn't leak into prompts.
+    et = parsed.get("entry_type")
+    return not (et is not None and not isinstance(et, str))
 
 
 def _load_entries() -> list[KnowledgeEntry]:
@@ -156,13 +183,26 @@ def knowledge_save(
     problem: str,
     resolution: str,
     tags: list[str] | None = None,
+    entry_type: str = "problem_resolution",
 ) -> KnowledgeEntry:
-    """Save a problem/resolution pair to the cross-session knowledge base.
+    """Save a structured knowledge entry to the cross-session knowledge base.
 
     Args:
-        problem: Description of the problem or question.
-        resolution: How it was resolved or answered.
+        problem: Primary text field. Meaning depends on entry_type:
+            - ``problem_resolution``: description of the problem
+            - ``decision``: the decision made
+            - ``fact``: topic the fact is about
+            - ``how_to``: task being explained
+            - ``note``: title of the note
+        resolution: Secondary text field. Meaning depends on entry_type:
+            - ``problem_resolution``: how it was resolved
+            - ``decision``: rationale for the decision
+            - ``fact``: the fact itself
+            - ``how_to``: step-by-step instructions
+            - ``note``: the note content
         tags: Optional list of topic tags (e.g. ["git", "pytest"]).
+        entry_type: One of ``problem_resolution``, ``decision``, ``fact``,
+            ``how_to``, or ``note``. Defaults to ``problem_resolution``.
 
     Returns:
         The saved entry dict.
@@ -171,6 +211,10 @@ def knowledge_save(
         raise ValueError("problem cannot be empty")
     if not resolution.strip():
         raise ValueError("resolution cannot be empty")
+    if entry_type not in ENTRY_TYPES:
+        raise ValueError(
+            f"entry_type must be one of {ENTRY_TYPES!r}, got {entry_type!r}"
+        )
 
     keywords = _extract_keywords(f"{problem} {resolution}")
     entry: KnowledgeEntry = {
@@ -181,6 +225,7 @@ def knowledge_save(
         "keywords": keywords,
         "created_at": datetime.now(tz=timezone.utc).isoformat(),
         "memory_type": "knowledge_entry",
+        "entry_type": entry_type,
     }
     _append_entry(entry)
     return entry
@@ -310,10 +355,14 @@ def format_knowledge_prompt(entries: list[KnowledgeEntry]) -> str:
         "",
     ]
     for i, entry in enumerate(entries, start=1):
-        problem = _clip(str(entry.get("problem", "")))
-        resolution = _clip(str(entry.get("resolution", "")))
-        lines.append(f"{i}. {problem}")
-        lines.append(f"   {resolution}")
+        et = str(entry.get("entry_type") or "problem_resolution")
+        primary_label, secondary_label = ENTRY_TYPE_LABELS.get(
+            et, ENTRY_TYPE_LABELS["problem_resolution"]
+        )
+        primary = _clip(str(entry.get("problem", "")))
+        secondary = _clip(str(entry.get("resolution", "")))
+        lines.append(f"{i}. [{et}] {primary_label}: {primary}")
+        lines.append(f"   {secondary_label}: {secondary}")
         tags = [t for t in entry.get("tags", []) if isinstance(t, str) and t.strip()]
         if tags:
             lines.append(f"   tags: {_clip(', '.join(tags))}")

@@ -37,8 +37,8 @@ def knowledge():
 
 
 @knowledge.command("save")
-@click.argument("problem")
-@click.argument("resolution")
+@click.argument("primary")
+@click.argument("secondary")
 @click.option(
     "--tag",
     "-t",
@@ -46,24 +46,58 @@ def knowledge():
     multiple=True,
     help="Tag to attach (repeatable: -t git -t pytest).",
 )
+@click.option(
+    "--type",
+    "-T",
+    "entry_type",
+    default="problem_resolution",
+    show_default=True,
+    type=click.Choice(
+        ["problem_resolution", "decision", "fact", "how_to", "note"],
+        case_sensitive=True,
+    ),
+    help=(
+        "Entry type. Controls how PRIMARY and SECONDARY are labelled:\n\n\b\n"
+        "  problem_resolution: Problem / Resolution (default)\n"
+        "  decision:           Decision / Rationale\n"
+        "  fact:               Topic / Fact\n"
+        "  how_to:             Task / Steps\n"
+        "  note:               Title / Content\n"
+    ),
+)
 @click.option("--json", "as_json", is_flag=True, help="Print saved entry as JSON.")
 def knowledge_save_cmd(
-    problem: str, resolution: str, tags: tuple[str, ...], as_json: bool
+    primary: str,
+    secondary: str,
+    tags: tuple[str, ...],
+    entry_type: str,
+    as_json: bool,
 ):
-    """Save a PROBLEM/RESOLUTION pair to the knowledge base.
+    """Save a knowledge entry to the knowledge base.
 
-    Example:
+    PRIMARY and SECONDARY are the two required text fields. Their meaning depends
+    on --type (default: problem_resolution → Problem / Resolution).
 
     \b
+    Examples:
+
         gptme-util knowledge save \\
           "pytest discovers no tests despite test file existing" \\
           "The test function was not prefixed with test_; rename it." \\
           -t pytest -t testing
+
+        gptme-util knowledge save --type note \\
+          "gptme startup checklist" \\
+          "1. Read SOUL.md  2. Check gptodo status  3. Run context.sh"
+
+        gptme-util knowledge save --type decision \\
+          "Use JSONL as the knowledge store source of truth" \\
+          "Simpler than SQLite; append-only is safe under concurrent agents."
     """
     from ..knowledge import knowledge_save  # fmt: skip
 
     try:
-        entry = knowledge_save(problem, resolution, list(tags))
+        entry = knowledge_save(primary, secondary, list(tags), entry_type=entry_type)
     except (ValueError, OSError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -71,7 +105,8 @@ def knowledge_save_cmd(
     if as_json:
         click.echo(json.dumps(entry, indent=2))
     else:
-        click.echo(f"Saved knowledge entry {entry['id'][:8]}")
+        type_label = "" if entry_type == "problem_resolution" else f" [{entry_type}]"
+        click.echo(f"Saved knowledge entry{type_label} {entry['id'][:8]}")
         if entry["tags"]:
             click.echo(
                 f"  Tags: {', '.join(_strip_controls(t) for t in entry['tags'])}"
@@ -127,13 +162,19 @@ def _export_for_rag(kb_dir: Path) -> None:
         for entry in entries:
             eid = entry.get("id", "unknown")
             fpath = rag_dir / f"{eid}.md"
+            from ..knowledge import ENTRY_TYPE_LABELS  # fmt: skip
+
+            et = str(entry.get("entry_type") or "problem_resolution")
+            primary_label, secondary_label = ENTRY_TYPE_LABELS.get(
+                et, ENTRY_TYPE_LABELS["problem_resolution"]
+            )
             tags_line = ""
             if entry.get("tags"):
                 tags_line = f"\n**Tags**: {', '.join(entry['tags'])}\n"
             content = (
-                f"# Knowledge Entry\n\n"
-                f"**Problem**: {entry.get('problem', '')}\n\n"
-                f"**Resolution**: {entry.get('resolution', '')}\n"
+                f"# Knowledge Entry ({et})\n\n"
+                f"**{primary_label}**: {entry.get('problem', '')}\n\n"
+                f"**{secondary_label}**: {entry.get('resolution', '')}\n"
                 f"{tags_line}"
             )
             fpath.write_text(content, encoding="utf-8")
@@ -177,11 +218,19 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
         return
 
     for i, entry in enumerate(results, 1):
-        click.echo(f"\n[{i}] {entry['id'][:8]}  {entry.get('created_at', '')[:10]}")
+        et = str(entry.get("entry_type") or "problem_resolution")
+        click.echo(
+            f"\n[{i}] {entry['id'][:8]}  {entry.get('created_at', '')[:10]}  ({et})"
+        )
         if entry.get("tags"):
             click.echo(f"    Tags: {_strip_controls(', '.join(entry['tags']))}")
-        click.echo(f"    Problem:    {_strip_controls(entry['problem'])}")
-        click.echo(f"    Resolution: {_strip_controls(entry['resolution'])}")
+        from ..knowledge import ENTRY_TYPE_LABELS  # fmt: skip
+
+        primary_label, secondary_label = ENTRY_TYPE_LABELS.get(
+            et, ENTRY_TYPE_LABELS["problem_resolution"]
+        )
+        click.echo(f"    {primary_label}:    {_strip_controls(entry['problem'])}")
+        click.echo(f"    {secondary_label}: {_strip_controls(entry['resolution'])}")
 
 
 @knowledge.command("list")
@@ -216,12 +265,13 @@ def knowledge_list_cmd(tags: tuple[str, ...], limit: int, as_json: bool):
     for entry in entries:
         eid = entry.get("id", "")[:8]
         date = entry.get("created_at", "")[:10]
+        et = str(entry.get("entry_type") or "problem_resolution")
         tags_str = (
             f"  [{_strip_controls(', '.join(entry['tags']))}]"
             if entry.get("tags")
             else ""
         )
-        click.echo(f"  {eid}  {date}{tags_str}")
+        click.echo(f"  {eid}  {date}  {et}{tags_str}")
         click.echo(f"    {_strip_controls(entry['problem'][:80])}")
 
 

@@ -52,6 +52,88 @@ def test_save_validates_empty_fields():
         knowledge_save("some problem", "")
 
 
+def test_save_default_entry_type():
+    from gptme.knowledge import knowledge_save
+
+    entry = knowledge_save("my problem", "my resolution")
+    assert entry["entry_type"] == "problem_resolution"
+
+
+def test_save_with_entry_type():
+    from gptme.knowledge import knowledge_list, knowledge_save
+
+    pr = knowledge_save("a problem", "a resolution")
+    assert pr["entry_type"] == "problem_resolution"
+
+    decision = knowledge_save(
+        "Use JSONL as source of truth",
+        "Simpler than SQLite; safe under concurrent agents.",
+        entry_type="decision",
+    )
+    assert decision["entry_type"] == "decision"
+
+    note = knowledge_save("startup checklist", "1. read SOUL.md", entry_type="note")
+    assert note["entry_type"] == "note"
+
+    fact = knowledge_save("Python", "Python 3.10+ required", entry_type="fact")
+    assert fact["entry_type"] == "fact"
+
+    how_to = knowledge_save(
+        "run knowledge tests", "env -u VIRTUAL_ENV uv run pytest", entry_type="how_to"
+    )
+    assert how_to["entry_type"] == "how_to"
+
+    entries = knowledge_list()
+    types = {e["entry_type"] for e in entries}
+    assert {"problem_resolution", "decision", "note", "fact", "how_to"} == types
+
+
+def test_save_rejects_invalid_entry_type():
+    from gptme.knowledge import knowledge_save
+
+    with pytest.raises(ValueError, match="entry_type"):
+        knowledge_save("a problem", "a resolution", entry_type="garbage")
+
+
+def test_format_knowledge_prompt_uses_entry_type_labels():
+    from gptme.knowledge import format_knowledge_prompt, knowledge_save
+
+    decision = knowledge_save(
+        "Use JSONL not SQLite",
+        "Easier for concurrent writers.",
+        entry_type="decision",
+    )
+    note = knowledge_save("handy link", "https://example.com", entry_type="note")
+    prompt = format_knowledge_prompt([decision, note])
+
+    assert "[decision]" in prompt
+    assert "Decision:" in prompt
+    assert "Rationale:" in prompt
+    assert "[note]" in prompt
+    assert "Title:" in prompt
+    assert "Content:" in prompt
+
+
+def test_format_knowledge_prompt_backward_compat_no_entry_type():
+    """Entries without entry_type (pre-generalization) still format correctly."""
+    from gptme.knowledge import KnowledgeEntry, format_knowledge_prompt
+
+    legacy: KnowledgeEntry = {
+        "id": "legacy-id-0000000000000000",
+        "problem": "old-style problem",
+        "resolution": "old-style resolution",
+        "tags": [],
+        "keywords": [],
+        "created_at": "2025-01-01T00:00:00+00:00",
+        "memory_type": "knowledge_entry",
+        "entry_type": "problem_resolution",
+    }
+    prompt = format_knowledge_prompt([legacy])
+    assert "Problem:" in prompt
+    assert "Resolution:" in prompt
+    assert "old-style problem" in prompt
+
+
 def test_search_returns_relevant():
     from gptme.knowledge import knowledge_save, knowledge_search
 
@@ -260,6 +342,47 @@ def test_cli_save_basic():
     result = runner.invoke(main, ["knowledge", "save", "a problem", "a resolution"])
     assert result.exit_code == 0, result.output
     assert "Saved knowledge entry" in result.output
+
+
+def test_cli_save_with_type():
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["knowledge", "save", "--type", "decision", "Use JSONL", "Simpler than SQLite"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Saved knowledge entry [decision]" in result.output
+
+
+def test_cli_save_with_invalid_type():
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["knowledge", "save", "--type", "garbage", "some text", "some text"],
+    )
+    assert result.exit_code != 0
+
+
+def test_cli_search_shows_entry_type():
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["knowledge", "save", "--type", "note", "startup checklist", "read SOUL.md"],
+    )
+    result = runner.invoke(main, ["knowledge", "search", "startup checklist"])
+    assert result.exit_code == 0, result.output
+    assert "(note)" in result.output
+
+
+def test_cli_list_shows_entry_type():
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["knowledge", "save", "--type", "fact", "Python version", "requires 3.10+"],
+    )
+    result = runner.invoke(main, ["knowledge", "list"])
+    assert result.exit_code == 0, result.output
+    assert "fact" in result.output
 
 
 def test_cli_save_with_tags():
