@@ -254,6 +254,7 @@ class TestServerConfirmHook:
                 return_value=(False, None),
             ):
                 result = server_confirm_hook(mock_tool_use, preview=None)
+                assert result is not None
                 assert result.action == "confirm"
         finally:
             current_conversation_id.reset(token1)
@@ -266,6 +267,7 @@ class TestServerConfirmHook:
             return_value=(True, "auto-confirm active"),
         ):
             result = server_confirm_hook(mock_tool_use, preview=None)
+            assert result is not None
             assert result.action == "confirm"
 
     def test_auto_confirm_missing_conversation_id(self, mock_tool_use):
@@ -278,6 +280,7 @@ class TestServerConfirmHook:
                 return_value=(False, None),
             ):
                 result = server_confirm_hook(mock_tool_use, preview=None)
+                assert result is not None
                 assert result.action == "confirm"
         finally:
             current_conversation_id.reset(token1)
@@ -293,6 +296,7 @@ class TestServerConfirmHook:
                 return_value=(False, None),
             ):
                 result = server_confirm_hook(mock_tool_use, preview=None)
+                assert result is not None
                 assert result.action == "confirm"
         finally:
             current_conversation_id.reset(token1)
@@ -343,6 +347,7 @@ class TestServerConfirmHook:
                 result = server_confirm_hook(mock_tool_use, preview="echo hello")
                 t.join(timeout=5)
 
+                assert result is not None
                 assert result.action == "confirm"
                 # Verify SSE event was emitted
                 mock_session_mgr.add_event.assert_called_once()
@@ -366,6 +371,7 @@ class TestServerConfirmHook:
             ):
                 result = server_confirm_hook(mock_tool_use, preview=None)
                 # ImportError handler should auto-confirm, not skip
+                assert result is not None
                 assert result.action == "confirm"
         finally:
             current_conversation_id.reset(token1)

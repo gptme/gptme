@@ -321,6 +321,7 @@ class TestServerConfirmHook:
 
         # Without context vars set, should auto-confirm
         result = server_confirm_hook(tool_use)
+        assert result is not None
         assert result.action == ConfirmAction.CONFIRM
 
 
