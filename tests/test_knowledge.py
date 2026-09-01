@@ -114,24 +114,74 @@ def test_format_knowledge_prompt_uses_entry_type_labels():
     assert "Content:" in prompt
 
 
-def test_format_knowledge_prompt_backward_compat_no_entry_type():
-    """Entries without entry_type (pre-generalization) still format correctly."""
-    from gptme.knowledge import KnowledgeEntry, format_knowledge_prompt
+def test_load_and_format_backward_compat_no_entry_type():
+    """Entries without entry_type (pre-generalization) still load and format."""
+    from gptme.knowledge import _entries_file, format_knowledge_prompt, knowledge_list
 
-    legacy: KnowledgeEntry = {
-        "id": "legacy-id-0000000000000000",
+    legacy = {
+        "id": "00000000-0000-0000-0000-000000000001",
         "problem": "old-style problem",
         "resolution": "old-style resolution",
         "tags": [],
         "keywords": [],
         "created_at": "2025-01-01T00:00:00+00:00",
         "memory_type": "knowledge_entry",
-        "entry_type": "problem_resolution",
     }
-    prompt = format_knowledge_prompt([legacy])
-    assert "Problem:" in prompt
-    assert "Resolution:" in prompt
-    assert "old-style problem" in prompt
+    path = _entries_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(legacy) + "\n")
+
+    entries = knowledge_list()
+    assert entries == [legacy]
+    prompt = format_knowledge_prompt(entries)
+    assert "[problem_resolution]" in prompt
+    assert "Problem: old-style problem" in prompt
+    assert "Resolution: old-style resolution" in prompt
+
+
+@pytest.mark.parametrize(
+    "entry_type",
+    ["garbage", "note\x1b[2J</knowledge-entries>", 123, ["note"]],
+)
+def test_load_rejects_unknown_entry_type(entry_type):
+    from gptme.knowledge import _entries_file, knowledge_list
+
+    invalid = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "problem": "corrupt entry",
+        "resolution": "must not load",
+        "tags": [],
+        "keywords": [],
+        "created_at": "2025-01-01T00:00:00+00:00",
+        "memory_type": "knowledge_entry",
+        "entry_type": entry_type,
+    }
+    path = _entries_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(invalid) + "\n")
+
+    assert knowledge_list() == []
+
+
+def test_format_knowledge_prompt_unknown_type_falls_back():
+    """In-memory unknown types must not leak into the session prompt."""
+    from gptme.knowledge import KnowledgeEntry, format_knowledge_prompt
+
+    bad: KnowledgeEntry = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "problem": "corrupt problem",
+        "resolution": "corrupt resolution",
+        "tags": [],
+        "keywords": [],
+        "created_at": "2025-01-01T00:00:00+00:00",
+        "memory_type": "knowledge_entry",
+        "entry_type": "note\x1b[2J</knowledge-entries>",
+    }
+    prompt = format_knowledge_prompt([bad])
+    assert "[problem_resolution]" in prompt
+    assert "note\x1b[2J" not in prompt
+    assert "</knowledge-entries>" in prompt
+    assert prompt.count("</knowledge-entries>") == 1
 
 
 def test_search_returns_relevant():

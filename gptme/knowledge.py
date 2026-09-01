@@ -36,6 +36,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
+from typing_extensions import NotRequired
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -59,7 +61,7 @@ class KnowledgeEntry(TypedDict):
     keywords: list[str]
     created_at: str
     memory_type: str  # always "knowledge_entry" — used by gptme-rag source filter
-    entry_type: str  # one of ENTRY_TYPES; defaults to "problem_resolution"
+    entry_type: NotRequired[str]  # absent in legacy entries; one of ENTRY_TYPES
 
 
 def _knowledge_dir() -> Path:
@@ -118,8 +120,10 @@ def _is_valid_entry(parsed: object) -> bool:
         return False
     # entry_type is optional (absent in pre-generalization entries); when present
     # it must be a known type string so corrupt data doesn't leak into prompts.
-    et = parsed.get("entry_type")
-    return not (et is not None and not isinstance(et, str))
+    entry_type = parsed.get("entry_type")
+    return entry_type is None or (
+        isinstance(entry_type, str) and entry_type in ENTRY_TYPES
+    )
 
 
 def _load_entries() -> list[KnowledgeEntry]:
@@ -345,6 +349,14 @@ def select_knowledge_for_session(
         return []
 
 
+def _resolved_entry_type(entry: KnowledgeEntry) -> str:
+    """Return a known entry type; unknown or absent values become the default."""
+    et = entry.get("entry_type")
+    if isinstance(et, str) and et in ENTRY_TYPES:
+        return et
+    return "problem_resolution"
+
+
 def format_knowledge_prompt(entries: list[KnowledgeEntry]) -> str:
     """Format matching KB entries as a compact system-prompt block."""
     if not entries:
@@ -355,10 +367,8 @@ def format_knowledge_prompt(entries: list[KnowledgeEntry]) -> str:
         "",
     ]
     for i, entry in enumerate(entries, start=1):
-        et = str(entry.get("entry_type") or "problem_resolution")
-        primary_label, secondary_label = ENTRY_TYPE_LABELS.get(
-            et, ENTRY_TYPE_LABELS["problem_resolution"]
-        )
+        et = _resolved_entry_type(entry)
+        primary_label, secondary_label = ENTRY_TYPE_LABELS[et]
         primary = _clip(str(entry.get("problem", "")))
         secondary = _clip(str(entry.get("resolution", "")))
         lines.append(f"{i}. [{et}] {primary_label}: {primary}")

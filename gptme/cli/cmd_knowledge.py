@@ -148,7 +148,12 @@ def _export_for_rag(kb_dir: Path) -> None:
     mirror writes reflect the same consistent view of the JSONL file, preventing
     a concurrent delete from being resurrected by a stale export snapshot.
     """
-    from ..knowledge import _exclusive_lock, _load_entries  # fmt: skip
+    from ..knowledge import (  # fmt: skip
+        ENTRY_TYPE_LABELS,
+        _exclusive_lock,
+        _load_entries,
+        _resolved_entry_type,
+    )
 
     rag_dir = kb_dir / "rag"
     rag_dir.mkdir(parents=True, exist_ok=True)
@@ -162,12 +167,8 @@ def _export_for_rag(kb_dir: Path) -> None:
         for entry in entries:
             eid = entry.get("id", "unknown")
             fpath = rag_dir / f"{eid}.md"
-            from ..knowledge import ENTRY_TYPE_LABELS  # fmt: skip
-
-            et = str(entry.get("entry_type") or "problem_resolution")
-            primary_label, secondary_label = ENTRY_TYPE_LABELS.get(
-                et, ENTRY_TYPE_LABELS["problem_resolution"]
-            )
+            et = _resolved_entry_type(entry)
+            primary_label, secondary_label = ENTRY_TYPE_LABELS[et]
             tags_line = ""
             if entry.get("tags"):
                 tags_line = f"\n**Tags**: {', '.join(entry['tags'])}\n"
@@ -217,15 +218,15 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
         click.echo("No matching entries found.")
         return
 
+    from ..knowledge import ENTRY_TYPE_LABELS, _resolved_entry_type  # fmt: skip
+
     for i, entry in enumerate(results, 1):
-        et = str(entry.get("entry_type") or "problem_resolution")
+        et = _strip_controls(_resolved_entry_type(entry))
         click.echo(
             f"\n[{i}] {entry['id'][:8]}  {entry.get('created_at', '')[:10]}  ({et})"
         )
         if entry.get("tags"):
             click.echo(f"    Tags: {_strip_controls(', '.join(entry['tags']))}")
-        from ..knowledge import ENTRY_TYPE_LABELS  # fmt: skip
-
         primary_label, secondary_label = ENTRY_TYPE_LABELS.get(
             et, ENTRY_TYPE_LABELS["problem_resolution"]
         )
@@ -261,11 +262,13 @@ def knowledge_list_cmd(tags: tuple[str, ...], limit: int, as_json: bool):
         click.echo("No entries in knowledge base.")
         return
 
+    from ..knowledge import _resolved_entry_type  # fmt: skip
+
     click.echo(f"Knowledge base ({len(entries)} entries):\n")
     for entry in entries:
         eid = entry.get("id", "")[:8]
         date = entry.get("created_at", "")[:10]
-        et = str(entry.get("entry_type") or "problem_resolution")
+        et = _strip_controls(_resolved_entry_type(entry))
         tags_str = (
             f"  [{_strip_controls(', '.join(entry['tags']))}]"
             if entry.get("tags")
