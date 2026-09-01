@@ -94,20 +94,26 @@ _SHELL_POLICY: list[tuple[re.Pattern[str], str]] = [
     ),
 ]
 
+# Home-dir secret prefixes: tilde (`~/.aws/...`), absolute (`/home/alice/.aws/...`),
+# relative (`.aws/...`), and whitespace-prefixed. The `/` alternative is what
+# catches `/home/alice/.aws/credentials` — a tilde-only pattern misses it.
+_HOME_SECRET = r"(?:^|[/\s~])"
+
 # ── Secret-read path patterns ──────────────────────────────────────────────────
 # High-confidence identity/credential locations: always flagged on read + shell.
 _SECRET_PATH_STRICT: list[re.Pattern[str]] = [
     # SSH private keys (but not config/known_hosts/authorized_keys)
-    re.compile(r"~/\.ssh/(?!(?:config|known_hosts|authorized_keys)(?:\b|$))"),
+    re.compile(
+        _HOME_SECRET + r"\.ssh/(?!(?:config|known_hosts|authorized_keys)(?:\b|$))"
+    ),
     re.compile(r"/\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
     re.compile(r"(?:^|[\s])\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
     # AWS credentials
-    re.compile(r"~/\.aws/credentials"),
-    re.compile(r"(?:^|[\s])\.aws/credentials"),
+    re.compile(_HOME_SECRET + r"\.aws/credentials"),
     # GPG secret keyring
-    re.compile(r"~/\.gnupg/(?:secring|private-keys)"),
+    re.compile(_HOME_SECRET + r"\.gnupg/(?:secring|private-keys)"),
     # Kubernetes secrets
-    re.compile(r"~/\.kube/"),
+    re.compile(_HOME_SECRET + r"\.kube/"),
     # Unix shadow / etc passwords
     re.compile(r"/etc/shadow\b"),
     # dotenv files that typically hold secrets
@@ -184,8 +190,19 @@ def _egress_allowlist() -> list[str]:
     return [h.strip() for h in raw.split(",") if h.strip()]
 
 
+def _unescape_cmd_escapes(cmd: str) -> str:
+    """Collapse bash backslash-escapes so ``c\\url`` is inspected as ``curl``.
+
+    Bash removes these before execution; matching the raw string would miss
+    command-name evasion such as ``c\\url https://evil.example``. Quote
+    concatenation and ANSI-C escapes are out of scope.
+    """
+    return re.sub(r"\\(.)", r"\1", cmd)
+
+
 def _check_shell_policy(cmd: str) -> str | None:
     """Return a reason string if *cmd* violates shell policy, else ``None``."""
+    cmd = _unescape_cmd_escapes(cmd)
     for pattern, reason in _SHELL_POLICY:
         if pattern.search(cmd):
             return reason
@@ -310,6 +327,7 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
     """
     if not allowlist:
         return None  # egress check inactive — no allowlist configured
+    cmd = _unescape_cmd_escapes(cmd)
     if not _EGRESS_CMD.search(cmd):
         return None
     http_hosts = _http_hosts(cmd)

