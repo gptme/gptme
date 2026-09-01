@@ -176,7 +176,10 @@ _CURL_PROXY_LONG = re.compile(
     r"(?:^|[\s])(?:--proxy|--proxy1\.0|--preproxy|--socks4a?|--socks5(?:-hostname)?)"
     r"(?:=|\s+)\+?(\S+)"
 )
-_CURL_PROXY_SHORT = re.compile(r"(?:^|[\s])-x\s*(\S+)")
+# `-x VALUE`, `-xVALUE`, and clustered short options where `x` consumes the
+# rest of the token (`-vvxhttp://proxy:8080`). Case-sensitive: curl `-X` is
+# the request method, not a proxy flag.
+_CURL_PROXY_SHORT = re.compile(r"(?:^|[\s])-[A-Za-z]*x\s*(\S+)")
 
 
 def _mode() -> str:
@@ -421,6 +424,9 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
     if tool_name not in _WRITE_TOOLS:
         if tool_name == "shell":
             for segment in re.split(r"\s*(?:&&|\|\||;|\||\n)\s*", content):
+                # Same unescape as shell-policy/egress: `cat ~/.ss\h/id_rsa`
+                # is a secret read after bash removes the backslash.
+                segment = _unescape_cmd_escapes(segment)
                 include_generic = not bool(_SHELL_KEYGEN.search(segment))
                 reason = _check_secret_read(segment, include_generic=include_generic)
                 if reason:
