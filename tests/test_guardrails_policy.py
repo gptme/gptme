@@ -83,6 +83,9 @@ class TestSecretReadDenial:
     def test_ssh_ed25519_blocked(self):
         assert _check_secret_read("~/.ssh/id_ed25519") is not None
 
+    def test_relative_ssh_private_key_blocked(self):
+        assert _check_secret_read(".ssh/id_rsa") is not None
+
     def test_aws_credentials_blocked(self):
         assert _check_secret_read("cat ~/.aws/credentials") is not None
 
@@ -189,6 +192,11 @@ class TestEgressAllowlist:
             is None
         )
 
+    def test_ssh_port_flag_not_treated_as_host(self):
+        assert (
+            _check_egress("ssh -p 2222 example.com", allowlist=["example.com"]) is None
+        )
+
 
 # ── Full hook integration ──────────────────────────────────────────────────────
 
@@ -277,6 +285,15 @@ class TestGuardrailsHook:
         result = guardrails_hook(tu)
         assert result is None
 
+    def test_shell_keygen_then_cat_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use(
+            "shell", "openssl genrsa -out server.key 2048 && cat server.key"
+        )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
     def test_shell_grep_pem_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tu = self._tool_use("shell", "grep -h secret server.pem")
@@ -304,8 +321,10 @@ class TestGuardrailsHook:
     def test_read_tool_pipeline_dispatches_tool_confirm(self, monkeypatch):
         """The real read-tool path must invoke TOOL_CONFIRM, not just the helper."""
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from gptme.hooks.guardrails import register as register_guardrails
         from gptme.tools import init_tools
 
+        register_guardrails()
         init_tools(["read"])
         tu = ToolUse(tool="read", args=["~/.ssh/id_rsa"], content="")
         msgs = list(tu.execute())

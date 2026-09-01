@@ -100,8 +100,10 @@ _SECRET_PATH_STRICT: list[re.Pattern[str]] = [
     # SSH private keys (but not config/known_hosts/authorized_keys)
     re.compile(r"~/\.ssh/(?!(?:config|known_hosts|authorized_keys)(?:\b|$))"),
     re.compile(r"/\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
+    re.compile(r"(?:^|[\s])\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
     # AWS credentials
     re.compile(r"~/\.aws/credentials"),
+    re.compile(r"(?:^|[\s])\.aws/credentials"),
     # GPG secret keyring
     re.compile(r"~/\.gnupg/(?:secring|private-keys)"),
     # Kubernetes secrets
@@ -129,11 +131,32 @@ _HTTP_URL = re.compile(r"https?://[^\s'\"\\]+")
 _SCP_HOST = re.compile(
     r"(?:^|[\s])(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])(?::[^\s:]*)"
 )
-_SSH_HOST = re.compile(
-    r"\bssh\b(?:\s+-[^\s]+)*\s+(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])"
-)
-_NC_HOST = re.compile(
-    r"\b(?:nc|netcat|ncat)\b(?:\s+-[^\s]+)*\s+([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])"
+_SSH_INVOCATION = re.compile(r"\bssh\b([^;&|\n]*)")
+_NC_INVOCATION = re.compile(r"\b(?:nc|netcat|ncat)\b([^;&|\n]*)")
+_DOTTED_HOST = re.compile(r"(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z0-9.-]+)")
+_SSH_FLAGS_WITH_ARG = frozenset(
+    {
+        "-b",
+        "-c",
+        "-D",
+        "-E",
+        "-e",
+        "-F",
+        "-I",
+        "-i",
+        "-J",
+        "-L",
+        "-l",
+        "-m",
+        "-O",
+        "-o",
+        "-p",
+        "-Q",
+        "-R",
+        "-S",
+        "-W",
+        "-w",
+    }
 )
 _URL_SCHEMES = frozenset({"http", "https", "ftp", "sftp", "ssh", "file", "git"})
 
@@ -192,9 +215,41 @@ def _non_http_hosts(cmd: str) -> list[str]:
         host = match.group(1)
         if host.lower() not in _URL_SCHEMES:
             hosts.append(host)
-    hosts.extend(match.group(1) for match in _SSH_HOST.finditer(cmd))
-    hosts.extend(match.group(1) for match in _NC_HOST.finditer(cmd))
+    for match in _SSH_INVOCATION.finditer(cmd):
+        host = _host_from_argv(match.group(1), _SSH_FLAGS_WITH_ARG)
+        if host:
+            hosts.append(host)
+    for match in _NC_INVOCATION.finditer(cmd):
+        host = _host_from_argv(match.group(1), _SSH_FLAGS_WITH_ARG)
+        if host:
+            hosts.append(host)
     return hosts
+
+
+def _host_from_argv(argv: str, flags_with_arg: frozenset[str]) -> str | None:
+    """Return the first hostname-like token after skipping flags and their args."""
+    dotted = _DOTTED_HOST.search(argv)
+    if dotted:
+        return dotted.group(1)
+    tokens = argv.split()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.startswith("-"):
+            flag = tok[:2] if len(tok) >= 2 else tok
+            if flag in flags_with_arg and len(tok) == 2:
+                i += 2
+            else:
+                i += 1
+            continue
+        if tok.isdigit():
+            i += 1
+            continue
+        host = tok.rsplit("@", 1)[-1].split(":", 1)[0]
+        if host and host.lower() not in _URL_SCHEMES:
+            return host
+        i += 1
+    return None
 
 
 def _host_allowlisted(host: str, allowlist: list[str]) -> bool:
@@ -262,12 +317,16 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
     # `open("server.pem")` and `grep server.pem` still block. Shell keygen
     # is the exception: generating a key is not a secret *read*.
     if tool_name not in _WRITE_TOOLS:
-        include_generic = not (
-            tool_name == "shell" and bool(_SHELL_KEYGEN.search(content))
-        )
-        reason = _check_secret_read(content, include_generic=include_generic)
-        if reason:
-            return f"secret-read: {reason}"
+        if tool_name == "shell":
+            for segment in re.split(r"\s*(?:&&|\|\||;|\||\n)\s*", content):
+                include_generic = not bool(_SHELL_KEYGEN.search(segment))
+                reason = _check_secret_read(segment, include_generic=include_generic)
+                if reason:
+                    return f"secret-read: {reason}"
+        else:
+            reason = _check_secret_read(content, include_generic=True)
+            if reason:
+                return f"secret-read: {reason}"
 
     # 3. Egress allowlist — shell tool only (requires GPTME_EGRESS_ALLOWLIST)
     if tool_name == "shell":
