@@ -126,6 +126,7 @@ class TestServerConfirmHook:
         """Auto-confirms when not in a server session (no context vars set)."""
         tool_use = _make_tool_use()
         result = server_confirm_hook(tool_use)
+        assert result is not None
         assert result.action.name == "CONFIRM"
 
     def test_auto_confirm_with_centralized_auto(self):
@@ -136,6 +137,7 @@ class TestServerConfirmHook:
         ):
             tool_use = _make_tool_use()
             result = server_confirm_hook(tool_use)
+            assert result is not None
             assert result.action.name == "CONFIRM"
 
     def test_auto_confirm_partial_context(self):
@@ -144,6 +146,7 @@ class TestServerConfirmHook:
         # session_id is still None
         tool_use = _make_tool_use()
         result = server_confirm_hook(tool_use)
+        assert result is not None
         assert result.action.name == "CONFIRM"
 
     def test_auto_confirm_only_session_id(self):
@@ -152,6 +155,7 @@ class TestServerConfirmHook:
         # conversation_id is still None
         tool_use = _make_tool_use()
         result = server_confirm_hook(tool_use)
+        assert result is not None
         assert result.action.name == "CONFIRM"
 
     def test_server_confirm_with_full_context(self):
@@ -207,7 +211,15 @@ class TestServerConfirmHook:
             result = server_confirm_hook(tool_use)
             t.join(timeout=5)
 
+        assert result is not None
         assert result.action.name == "CONFIRM"
+
+    def test_read_tool_declines_interactive_confirm(self):
+        """read is exempt from the server prompt so guardrails can intercept it."""
+        tool_use = _make_tool_use("read", "~/.ssh/id_rsa")
+        current_conversation_id.set("conv-1")
+        current_session_id.set("sess-1")
+        assert server_confirm_hook(tool_use) is None
 
     def test_import_error_auto_confirms(self):
         """Auto-confirms when server modules are not available."""
@@ -231,6 +243,7 @@ class TestServerConfirmHook:
                 with patch.dict("sys.modules", {"gptme.server.api_v2_common": None}):
                     tool_use = _make_tool_use()
                     result = server_confirm_hook(tool_use)
+                    assert result is not None
                     assert result.action.name == "CONFIRM"
             finally:
                 sys.modules.update(hidden)

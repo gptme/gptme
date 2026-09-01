@@ -374,6 +374,17 @@ def execute_read(
         )
         return
 
+    # Dispatch TOOL_CONFIRM so guardrails (and any other confirm hook) can
+    # intercept secret-path reads. Interactive confirm UIs decline the `read`
+    # tool, so this does not add a per-file prompt.
+    from ..hooks import ConfirmAction, get_confirmation
+
+    preview = "\n".join(str(p) for p in paths)
+    result = get_confirmation(preview=preview, default_confirm=True)
+    if result.action == ConfirmAction.SKIP:
+        yield Message("system", result.message or "Operation aborted")
+        return
+
     for path in paths:
         yield from _read_one(path, start_line=start_line, end_line=end_line)
 

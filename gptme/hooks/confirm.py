@@ -72,6 +72,17 @@ def is_auto_confirm_active() -> bool:
     return _auto_override.get() or _auto_count.get() > 0
 
 
+# Tools that execute without a human confirmation prompt. Higher-priority
+# TOOL_CONFIRM hooks (e.g. guardrails) still run; interactive UI hooks should
+# return None so get_confirmation falls through to default_confirm.
+_INTERACTIVE_CONFIRM_EXEMPT = frozenset({"read"})
+
+
+def declines_interactive_confirm(tool_name: str) -> bool:
+    """True when a UI confirmation hook should decline to handle *tool_name*."""
+    return tool_name in _INTERACTIVE_CONFIRM_EXEMPT
+
+
 class ConfirmAction(str, Enum):
     """Actions that can be taken on a tool confirmation request."""
 
