@@ -19,6 +19,7 @@ from ._allowlist import (
     allowlist_contains_glob,
     expand_tool_allowlist_presets,
     is_hint_pattern,
+    is_mcp_allowlist_entry,
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
@@ -226,6 +227,8 @@ def init_tools(
         for tool_name in tool_names:
             if is_hint_pattern(tool_name):
                 continue  # hint patterns match 0+ tools by hint, no name validation
+            if not include_mcp and is_mcp_allowlist_entry(tool_name):
+                continue  # MCP names are not discoverable when include_mcp=False
             if matching_allowlist_tools(tool_name, loaded_tools):
                 continue
             matched_available = matching_allowlist_tools(tool_name, available_tools)
@@ -278,6 +281,8 @@ def get_toolchain(
                 continue  # hint patterns match by tool hints, not by name
             matched_tools = matching_allowlist_tools(tool_name, available_tools)
             if not matched_tools:
+                if not include_mcp and is_mcp_allowlist_entry(tool_name):
+                    continue  # MCP names are not discoverable when include_mcp=False
                 if strict:
                     raise ValueError(
                         f"Tool '{tool_name}' not found. Available tools: {', '.join(sorted(available_tool_names))}"

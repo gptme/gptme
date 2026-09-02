@@ -46,6 +46,16 @@ def test_init_tools_include_mcp_false_does_not_create_mcp_tools(monkeypatch):
     assert [t.name for t in get_tools()] == ["save"]
 
 
+def test_init_tools_include_mcp_false_accepts_mcp_only_allowlist():
+    """MCP-only allowlists must not ValueError when MCP discovery is skipped."""
+    clear_tools()
+    tools = init_tools(
+        allowlist=["discord.read_channel", "discord.*"], include_mcp=False
+    )
+    assert all(not t.is_mcp for t in tools)
+    assert "discord.read_channel" not in {t.name for t in tools}
+
+
 def test_init_tools_allowlist():
     clear_tools()  # ensure clean state regardless of test ordering
     init_tools(allowlist=["save"])

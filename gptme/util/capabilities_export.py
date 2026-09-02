@@ -311,6 +311,7 @@ def _collect_live_impl(
         get_tools,
         init_tools,
     )
+    from ..tools._allowlist import is_mcp_allowlist_entry  # fmt: skip
 
     set_config_from_workspace(workspace)
     cfg = get_config()
@@ -343,22 +344,21 @@ def _collect_live_impl(
             }
         )
 
-    # Read allowlist from config explicitly so we can filter it before passing
-    # to init_tools.  When connect_mcp=False, MCP-qualified entries like
-    # "discord.read_channel" or "discord.*" are not discoverable and would
-    # raise ValueError inside init_tools — drop them for the config-only path.
+    # Resolve the same allowlist init_tools would (TOOL_ALLOWLIST, then
+    # chat.tools) so the config-only path can drop MCP-qualified names
+    # before validation. Keep [] when every entry was MCP-qualified —
+    # `or None` would reload the original MCP-only list and abort.
     chat_cfg = getattr(cfg, "chat", None)
-    raw_allowlist: list[str] | None = (
-        getattr(chat_cfg, "tools", None) if chat_cfg else None
-    )
+    env_allowlist = cfg.get_env("TOOL_ALLOWLIST")
+    raw_allowlist: list[str] | None
+    if env_allowlist:
+        raw_allowlist = env_allowlist.split(",")
+    elif chat_cfg is not None and chat_cfg.tools:
+        raw_allowlist = list(chat_cfg.tools)
+    else:
+        raw_allowlist = None
     if not connect_mcp and raw_allowlist:
-
-        def _is_filepath(t: str) -> bool:
-            return t.endswith(".py") or "/" in t or "\\" in t
-
-        raw_allowlist = [
-            t for t in raw_allowlist if "." not in t or _is_filepath(t)
-        ] or None
+        raw_allowlist = [t for t in raw_allowlist if not is_mcp_allowlist_entry(t)]
 
     clear_tools()
     # Honor --connect-mcp: init_tools() used to call get_available_tools() with

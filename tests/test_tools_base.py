@@ -16,6 +16,7 @@ from gptme.message import Message
 from gptme.tools._allowlist import (
     allowlist_contains_glob,
     is_hint_pattern,
+    is_mcp_allowlist_entry,
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
@@ -812,6 +813,18 @@ class TestIsHintPattern:
 
     def test_glob_not_hint(self):
         assert not is_hint_pattern("discord.*")
+
+
+class TestIsMcpAllowlistEntry:
+    def test_server_tool_and_glob(self):
+        assert is_mcp_allowlist_entry("discord.read_channel")
+        assert is_mcp_allowlist_entry("discord.*")
+
+    def test_builtin_and_file_path_not_mcp(self):
+        assert not is_mcp_allowlist_entry("shell")
+        assert not is_mcp_allowlist_entry("hint:read-only")
+        assert not is_mcp_allowlist_entry("path/to/mytool.py")
+        assert not is_mcp_allowlist_entry("mytool.py")
 
 
 class TestAllowlistContainsGlob:

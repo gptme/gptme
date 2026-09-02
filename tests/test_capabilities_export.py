@@ -316,17 +316,32 @@ def test_collect_live_default_does_not_connect_mcp(tmp_path, monkeypatch):
 def test_collect_live_mcp_allowlist_does_not_abort_default_export(
     tmp_path, monkeypatch
 ):
-    """[chat].tools with MCP-qualified entries must not raise when connect_mcp=False."""
-    (tmp_path / "gptme.toml").write_text(
-        '[chat]\ntools = ["shell", "discord.read_channel", "discord.*"]\n'
-    )
+    """MCP-qualified allowlist entries must not raise when connect_mcp=False."""
+    monkeypatch.setenv("TOOL_ALLOWLIST", "shell,discord.read_channel,discord.*")
     snap = collect_live(
         tmp_path, connect_mcp=False, generated_at="2026-09-02T00:00:00Z"
     )
-    # The snapshot must be produced despite the MCP-qualified allowlist entries
     assert snap["schema_version"] == 1
-    tool_names = [t["name"] for t in snap["tools"]]
-    assert "shell" in tool_names
+    in_session = [t["name"] for t in snap["tools"] if t["in_session"]]
+    assert "shell" in in_session
+    assert "discord.read_channel" not in in_session
+
+
+def test_collect_live_mcp_only_allowlist_does_not_abort_default_export(
+    tmp_path, monkeypatch
+):
+    """MCP-only allowlist must not raise when connect_mcp=False.
+
+    Filtering every MCP-qualified entry must leave [], not None — None makes
+    init_tools reload the original allowlist and ValueError with include_mcp=False.
+    """
+    monkeypatch.setenv("TOOL_ALLOWLIST", "discord.read_channel,discord.*")
+    snap = collect_live(
+        tmp_path, connect_mcp=False, generated_at="2026-09-02T00:00:00Z"
+    )
+    assert snap["schema_version"] == 1
+    in_session = [t["name"] for t in snap["tools"] if t["in_session"]]
+    assert "discord.read_channel" not in in_session
 
 
 def test_collect_live_clears_stale_mcp_clients_before_fresh_collection(

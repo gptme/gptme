@@ -36,6 +36,16 @@ def is_hint_pattern(pattern: str) -> bool:
     return pattern.startswith(_HINT_PREFIX)
 
 
+def is_mcp_allowlist_entry(pattern: str) -> bool:
+    """Return True for MCP-qualified allowlist entries (``server.tool`` / ``server.*``).
+
+    File paths (``*.py`` or containing a slash) are tool-file entries, not MCP names.
+    """
+    if pattern.endswith(".py") or "/" in pattern or "\\" in pattern:
+        return False
+    return "." in pattern
+
+
 def allowlist_contains_glob(allowlist: list[str]) -> bool:
     """Return True when any allowlist entry uses shell-glob syntax or a hint: prefix.
 
