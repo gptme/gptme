@@ -221,14 +221,18 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
     in place and keeps chaining to the pre-HintKit hook, so repeated CLI
     entry (tests, embedding) cannot stack wrappers or duplicate stderr.
 
-    When the previous handler is ``sys.__excepthook__``, this hook does not
-    reprint the exception — it chains first, then appends a matching hint.
-    Custom previous hooks still receive the compact ``format_error`` output
-    plus a chain-through for their side effects.
+    The previous handler always owns exception rendering (default traceback
+    or a custom crash reporter). This hook chains first, then appends a
+    matching hint — it never prints ``format_error``, so a custom previous
+    hook that also renders cannot emit the exception twice.
+
+    ``verbose`` is accepted for call-site compatibility; traceback
+    rendering is owned by the previous hook.
     """
     if not is_enabled():
         return
 
+    _ = verbose
     current = sys.excepthook
     previous = (
         getattr(current, _HINTKIT_PREVIOUS_MARK, sys.__excepthook__)
@@ -242,18 +246,11 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
         exc: BaseException,
         tb: TracebackType | None,
     ) -> None:
-        if issubclass(exc_type, KeyboardInterrupt):
-            previous(exc_type, exc, tb)
-            return
-        if previous is sys.__excepthook__:
-            # Default hook already prints traceback + "Type: message".
-            # Only append a hint so the header is not duplicated.
-            previous(exc_type, exc, tb)
-            if is_enabled() and (hint := hint_for_exception(exc)):
-                print(render_hint(hint, color=out.isatty()), file=out)
-            return
-        print(format_error(exc, verbose=verbose, color=out.isatty(), tb=tb), file=out)
         previous(exc_type, exc, tb)
+        if issubclass(exc_type, KeyboardInterrupt):
+            return
+        if is_enabled() and (hint := hint_for_exception(exc)):
+            print(render_hint(hint, color=out.isatty()), file=out)
 
     setattr(_hook, _HINTKIT_HOOK_MARK, True)
     setattr(_hook, _HINTKIT_PREVIOUS_MARK, previous)

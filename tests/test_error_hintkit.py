@@ -55,17 +55,18 @@ def test_format_error_unmatched_preserves_str(monkeypatch) -> None:
 
 
 def test_install_excepthook_writes_hint(monkeypatch) -> None:
-    """Custom previous hook: format_error prints Type: message plus the hint."""
+    """Custom previous hook owns rendering; HintKit only appends the hint."""
     monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
     stream = io.StringIO()
+    previous_out = io.StringIO()
 
     def custom_hook(exc_type, exc, tb):
-        pass
+        print(f"{exc_type.__name__}: {exc}", file=previous_out)
 
     original = sys.excepthook
     try:
-        # Pytest replaces sys.excepthook; pin a custom previous so this
-        # hits format_error rather than the __excepthook__ hint-only path.
+        # Pytest replaces sys.excepthook; pin a custom renderer so this
+        # proves HintKit does not reprint Type: message beside it.
         monkeypatch.setattr(sys, "excepthook", custom_hook)
         error_hintkit.install_excepthook(stream=stream)
         sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
@@ -73,9 +74,10 @@ def test_install_excepthook_writes_hint(monkeypatch) -> None:
         sys.excepthook = original
 
     output = stream.getvalue()
-    assert "RuntimeError: Connection refused" in output
     assert "hint:" in output
     assert "gptme-server run" in output
+    assert "RuntimeError: Connection refused" not in output
+    assert previous_out.getvalue().count("RuntimeError: Connection refused") == 1
 
 
 def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
@@ -97,8 +99,8 @@ def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
     finally:
         sys.excepthook = original
 
-    # Unmatched error: compact str(exc) on our stream, plus the custom hook.
-    assert "boom" in stream.getvalue()
+    # Unmatched error: HintKit writes nothing; the custom hook still runs.
+    assert stream.getvalue() == ""
     assert len(calls) == 1
     assert calls[0][0] is ValueError
 
@@ -118,13 +120,14 @@ def test_install_excepthook_replace_in_place_does_not_stack(monkeypatch) -> None
         monkeypatch.setattr(sys, "excepthook", custom_hook)
         error_hintkit.install_excepthook(stream=first)
         error_hintkit.install_excepthook(stream=second)
-        sys.excepthook(ValueError, ValueError("stacked?"), None)
+        sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
     finally:
         sys.excepthook = original
 
     assert first.getvalue() == ""
-    assert "stacked?" in second.getvalue()
-    assert second.getvalue().count("stacked?") == 1
+    assert "hint:" in second.getvalue()
+    assert second.getvalue().count("hint:") == 1
+    assert "Connection refused" not in second.getvalue()
     assert calls == [1]
 
 
