@@ -343,11 +343,34 @@ def _collect_live_impl(
             }
         )
 
+    # Read allowlist from config explicitly so we can filter it before passing
+    # to init_tools.  When connect_mcp=False, MCP-qualified entries like
+    # "discord.read_channel" or "discord.*" are not discoverable and would
+    # raise ValueError inside init_tools — drop them for the config-only path.
+    chat_cfg = getattr(cfg, "chat", None)
+    raw_allowlist: list[str] | None = (
+        getattr(chat_cfg, "tools", None) if chat_cfg else None
+    )
+    if not connect_mcp and raw_allowlist:
+
+        def _is_filepath(t: str) -> bool:
+            return t.endswith(".py") or "/" in t or "\\" in t
+
+        raw_allowlist = [
+            t for t in raw_allowlist if "." not in t or _is_filepath(t)
+        ] or None
+
     clear_tools()
     # Honor --connect-mcp: init_tools() used to call get_available_tools() with
     # the default include_mcp=True, which connected every configured MCP server
     # before this flag was consulted.
-    init_tools(include_mcp=connect_mcp)
+    if connect_mcp:
+        # Clear stale clients so a reconnect failure is reported as
+        # mcp_not_connected, not the misleading connected_tools_excluded.
+        from ..tools.mcp_adapter import clear_mcp_clients  # fmt: skip
+
+        clear_mcp_clients()
+    init_tools(raw_allowlist, include_mcp=connect_mcp)
     connected_mcp_servers: set[str] = set()
     if connect_mcp:
         from ..tools.mcp_adapter import get_mcp_clients  # fmt: skip

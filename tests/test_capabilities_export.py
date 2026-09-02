@@ -313,6 +313,56 @@ def test_collect_live_default_does_not_connect_mcp(tmp_path, monkeypatch):
     assert any("pass --connect-mcp" in note for note in snap["limitations"])
 
 
+def test_collect_live_mcp_allowlist_does_not_abort_default_export(
+    tmp_path, monkeypatch
+):
+    """[chat].tools with MCP-qualified entries must not raise when connect_mcp=False."""
+    (tmp_path / "gptme.toml").write_text(
+        '[chat]\ntools = ["shell", "discord.read_channel", "discord.*"]\n'
+    )
+    snap = collect_live(
+        tmp_path, connect_mcp=False, generated_at="2026-09-02T00:00:00Z"
+    )
+    # The snapshot must be produced despite the MCP-qualified allowlist entries
+    assert snap["schema_version"] == 1
+    tool_names = [t["name"] for t in snap["tools"]]
+    assert "shell" in tool_names
+
+
+def test_collect_live_clears_stale_mcp_clients_before_fresh_collection(
+    tmp_path, monkeypatch
+):
+    """Stale MCP clients from a prior connection must not fabricate connectivity."""
+    from unittest.mock import MagicMock
+
+    import gptme.tools.mcp_adapter as mcp_mod
+
+    (tmp_path / "gptme.toml").write_text(
+        "[mcp]\n"
+        "enabled = true\n"
+        "\n"
+        "[[mcp.servers]]\n"
+        'name = "fake-server"\n'
+        "enabled = true\n"
+        'command = "true"\n'
+    )
+    # Inject a stale client as if a prior session connected this server
+    mcp_mod._mcp_clients["fake-server"] = MagicMock()
+
+    def fake_create(config: object) -> list:
+        # Reconnection fails — returns no tools, does not update _mcp_clients
+        return []
+
+    monkeypatch.setattr("gptme.tools.mcp_adapter.create_mcp_tools", fake_create)
+    snap = collect_live(tmp_path, connect_mcp=True, generated_at="2026-09-02T00:00:00Z")
+
+    # The stale client must have been cleared; connection failure → mcp_not_connected
+    servers = {s["name"]: s for s in snap["mcp_servers"]}
+    assert "fake-server" in servers
+    assert servers["fake-server"]["reason"] == "mcp_not_connected"
+    assert servers["fake-server"]["in_session"] is False
+
+
 def test_connect_mcp_not_requested_reason_renders():
     snap = build_snapshot(
         workspace="/tmp/w",

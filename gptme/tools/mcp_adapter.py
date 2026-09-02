@@ -63,6 +63,15 @@ def get_mcp_clients() -> dict[str, MCPClient]:
     return {**_mcp_clients, **_dynamic_servers}
 
 
+def clear_mcp_clients() -> None:
+    """Clear the global MCP client registry.
+
+    Called by capabilities export before a fresh collection run so that stale
+    clients from a prior connection are not misreported as connected.
+    """
+    _mcp_clients.clear()
+
+
 def _get_mcp_client(server_name: str) -> MCPClient | None:
     """Get MCP client from either pre-configured or dynamically loaded servers."""
     return _mcp_clients.get(server_name) or _dynamic_servers.get(server_name)
