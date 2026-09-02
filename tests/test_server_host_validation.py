@@ -158,7 +158,11 @@ class TestAuthEnabledSkipsValidation:
         assert auth_mod._host_validation_enabled is False
         # Host check skipped → request falls through to bearer auth, which
         # rejects the missing token with 401 (not a 403 host rejection).
-        resp = _get(client, "attacker.example.com")
+        # NOTE: /health is unauthenticated by design (gptme#3701), so probe a
+        # token-gated endpoint instead.
+        resp = client.get(
+            "/api/v2/conversations", headers={"Host": "attacker.example.com"}
+        )
         assert resp.status_code == 401
 
 

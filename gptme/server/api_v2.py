@@ -779,10 +779,14 @@ def api_session_delete(session_id: str):
 
 
 @v2_api.route("/api/v2/server/health")
-@require_auth
 @api_doc_simple(tags=["admin"])
 def api_server_health():
     """Server connection health summary.
+
+    Unauthenticated by design: liveness/readiness probes, load balancers, and
+    monitoring tools cannot carry bearer tokens (gptme#3701). Returns only
+    aggregate session counts and truncated slot IDs — no conversation content.
+    Network exposure is guarded by the bind address / ``--allowed-hosts``.
 
     Returns a compact health snapshot: total session count, generating/idle
     breakdown, a per-slot strip, and a color-coded health indicator —

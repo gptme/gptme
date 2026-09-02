@@ -141,3 +141,25 @@ def test_auth_disabled_via_env():
         else:
             os.environ.pop("GPTME_DISABLE_AUTH", None)
         gptme.server.auth._auth_enabled = original_auth_enabled
+
+
+def test_health_endpoint_unauthenticated(auth_token):
+    """Health endpoint is reachable without credentials even when auth is on.
+
+    Liveness/readiness probes and monitoring tools cannot carry bearer tokens
+    (gptme#3701). Auth-enabled server must still return 200 on
+    /api/v2/server/health, while other API endpoints stay 401.
+    """
+    from gptme.server.app import create_app
+
+    app = create_app()
+
+    with app.test_client() as client:
+        health = client.get("/api/v2/server/health")
+        assert health.status_code == 200
+        assert health.json is not None
+        assert "health" in health.json
+
+        # Sanity: a non-health API endpoint still requires auth.
+        protected = client.get("/api/v2/conversations")
+        assert protected.status_code == 401
