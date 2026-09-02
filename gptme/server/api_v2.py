@@ -786,7 +786,9 @@ def api_server_health():
     Unauthenticated by design: liveness/readiness probes, load balancers, and
     monitoring tools cannot carry bearer tokens (gptme#3701). Returns only
     aggregate session counts and truncated slot IDs — no conversation content.
-    Network exposure is guarded by the bind address / ``--allowed-hosts``.
+    Network exposure is the bind address. Host validation (``--allowed-hosts``)
+    is skipped while bearer auth is enabled, so any client that can reach the
+    listening socket can request this metadata.
 
     Returns a compact health snapshot: total session count, generating/idle
     breakdown, a per-slot strip, and a color-coded health indicator —
