@@ -308,6 +308,78 @@ output here
     ]
 
 
+def test_extract_codeblocks_shell_herestring_is_not_a_heredoc():
+    """A ``<<<`` here-string takes one inline value and never opens a
+    multi-line body. Regression for the Greptile P1 on gptme/gptme#3703:
+    the terminator regex matched the third ``<`` as a bogus terminator
+    (e.g. ``"<"``), so heredoc state never closed and the real closing
+    fence was absorbed as a nested opener.
+    """
+    markdown = """```shell
+cat <<< "hello"
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'cat <<< "hello"'),
+        Codeblock("", "output here"),
+    ]
+
+
+def test_extract_codeblocks_shell_heredoc_backslash_escaped_terminator():
+    """``<<\\EOF`` (backslash-escaped, unquoted) uses the plain word ``EOF``
+    as its terminator, same as ``<<EOF`` and ``<<'EOF'``. Regression for the
+    Greptile P1 on gptme/gptme#3703: the terminator regex captured the
+    backslash as part of the word (``"\\\\EOF"``), which never matched the
+    real closing line ``EOF``, so heredoc state persisted forever and
+    swallowed the rest of the message into the command.
+    """
+    markdown = """```shell
+cat <<\\EOF > file.md
+```
+some markdown
+```
+EOF
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock(
+        "shell", "cat <<\\EOF > file.md\n```\nsome markdown\n```\nEOF"
+    )
+
+
+def test_extract_codeblocks_ipython_arithmetic_shift_is_not_a_heredoc():
+    """An unquoted ``<<`` that's actually an arithmetic left-shift (e.g.
+    ipython ``x << 2``) must not permanently wedge heredoc state open.
+
+    Regression for the bob-ai-review P2 on gptme/gptme#3703: a phantom
+    terminator (``"2"``) that never appears alone on a later line used to
+    stay "open" for the rest of the message, so the real closing fence was
+    absorbed as a nested opener and the following prose/output blocks were
+    swallowed into the ipython command.
+    """
+    markdown = """```ipython
+x = 1 << 2
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("ipython", "x = 1 << 2"),
+        Codeblock("", "output here"),
+    ]
+
+
 def test_extract_codeblocks_concatenated_adjacent_fences():
     """Recover when a closing fence and the next opening fence are concatenated."""
     markdown = """```shell

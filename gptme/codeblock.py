@@ -110,11 +110,17 @@ def _find_heredoc_terminator(line: str) -> str | None:
     escapes the next character (matching shell quoting rules), so
     ``echo \\# not-a-comment`` and escaped quotes inside a double-quoted
     string don't desync the quote tracker. The terminator word accepts any
-    run of non-whitespace, non-quote characters (bash heredoc words aren't
-    restricted to ``\\w``, e.g. ``<<'END-TAG'``). Unquoted ``<<`` arithmetic
-    shifts (e.g. ipython ``x << 2``) can still false-positive; the
-    terminator word must then appear alone on a line to matter, which is
-    rare in practice.
+    run of non-whitespace, non-quote, non-backslash characters (bash
+    heredoc words aren't restricted to ``\\w``, e.g. ``<<'END-TAG'``), with
+    an optional single leading quote-or-backslash consumed but not part of
+    the terminator (``<<'EOF'``, ``<<"EOF"``, and ``<<\\EOF`` all use the
+    plain word ``EOF``). A ``<<<`` here-string takes one inline value and
+    never opens a multi-line body, so it's explicitly not matched here -
+    otherwise the capture group would swallow the third ``<`` as part of
+    the (bogus) terminator and heredoc state would never close. Unquoted
+    ``<<`` arithmetic shifts (e.g. ipython ``x << 2``) can still
+    false-positive; the terminator word must then appear alone on a line
+    to matter, which is rare in practice.
     """
     in_single = in_double = False
     i = 0
@@ -145,7 +151,11 @@ def _find_heredoc_terminator(line: str) -> str | None:
             and not in_double
             and (i == 0 or line[i - 1] != "<")
         ):
-            m = re.match(r"<<-?\s*['\"]?([^\s'\"]+)['\"]?", line[i:])
+            if i + 2 < n and line[i + 2] == "<":
+                # `<<<` here-string, not a heredoc operator - skip past it.
+                i += 2
+                continue
+            m = re.match(r"<<-?\s*['\"\\]?([^\s'\"\\]+)", line[i:])
             if m:
                 return m.group(1)
         i += 1
@@ -338,9 +348,20 @@ def _extract_codeblocks(
                 # A heredoc body may contain literal fence lines (e.g. a shell script
                 # writing a markdown file via cat << EOF).  Track open/close so the
                 # fence-termination logic below can distinguish them from block closers.
+                #
+                # A candidate terminator is only trusted once it's confirmed to appear
+                # alone on some later line. Without this check, an unrelated unquoted
+                # `<<` (e.g. an arithmetic shift `x << 2`, or ipython `x << 2`) sets a
+                # phantom terminator that never matches anything, so heredoc state would
+                # stay "open" for the rest of the message - permanently disabling the
+                # bare-fence-is-a-closer rule and swallowing every block that follows.
                 if lang in _EXEC_LANGS:
                     if heredoc_terminator is None:
-                        heredoc_terminator = _find_heredoc_terminator(line)
+                        candidate = _find_heredoc_terminator(line)
+                        if candidate is not None and any(
+                            later.strip() == candidate for later in lines[i + 1 :]
+                        ):
+                            heredoc_terminator = candidate
                     elif line.strip() == heredoc_terminator:
                         heredoc_terminator = None
 
