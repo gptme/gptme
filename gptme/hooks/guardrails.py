@@ -151,7 +151,6 @@ _SCP_HOST = re.compile(
 )
 _SSH_INVOCATION = re.compile(r"\bssh(?!-)\b([^;&|\n]*)")
 _NC_INVOCATION = re.compile(r"\b(?:nc|netcat|ncat)(?!-)\b([^;&|\n]*)")
-_DOTTED_HOST = re.compile(r"(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z0-9.-]+)")
 _SSH_FLAGS_WITH_ARG = frozenset(
     {
         "-b",
@@ -274,10 +273,13 @@ def _non_http_hosts(cmd: str) -> list[str]:
 
 
 def _host_from_argv(argv: str, flags_with_arg: frozenset[str]) -> str | None:
-    """Return the first hostname-like token after skipping flags and their args."""
-    dotted = _DOTTED_HOST.search(argv)
-    if dotted:
-        return dotted.group(1)
+    """Return the first hostname-like token after skipping flags and their args.
+
+    Flag values can contain dotted names that are not the SSH destination
+    (``-oHostKeyAlias=api.openai.com``). Scanning the whole argv for the
+    first dotted host would allowlist-check the alias and miss
+    ``user@attacker.example``.
+    """
     tokens = argv.split()
     i = 0
     while i < len(tokens):
