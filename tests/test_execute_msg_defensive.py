@@ -10,7 +10,7 @@ intentionally left unpaired when the tool is unavailable.
 """
 
 from gptme.message import Message
-from gptme.tools import execute_msg
+from gptme.tools import clear_tools, execute_msg, get_available_tools
 from gptme.tools.base import set_tool_format
 
 
@@ -77,6 +77,17 @@ class TestExecuteMsgDefensive:
     def test_disabled_by_default_tool_gets_enable_hint(self):
         """A disabled-by-default tool (e.g. 'read') includes '--tools +name' in error."""
         set_tool_format("tool")
+        # Ensure no tools are loaded so 'read' is not runnable in this context.
+        clear_tools()
+        # Precondition: 'read' must be discoverable and have disabled_by_default=True.
+        # If someone changes that flag this assertion fails loudly instead of silently.
+        read_specs = [
+            t for t in get_available_tools(include_mcp=False) if t.name == "read"
+        ]
+        assert read_specs, "read tool must be discoverable via get_available_tools"
+        assert read_specs[0].disabled_by_default, (
+            "read tool must have disabled_by_default=True for this test to be valid"
+        )
         call_id = "call-disabled-read"
         # 'read' is disabled_by_default=True; it is discoverable but not loaded
         content = f'@read({call_id}): {{"path": "somefile.txt"}}'

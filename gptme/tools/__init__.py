@@ -437,7 +437,7 @@ def execute_msg(
                         )
                         available_for_hint = []
             if any(
-                t.name == tooluse.tool and t.disabled_by_default
+                t.name == tooluse.tool and t.disabled_by_default and t.is_available
                 for t in available_for_hint
             ):
                 error_msg += (
