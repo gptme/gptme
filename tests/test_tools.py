@@ -31,6 +31,21 @@ def test_init_tools():
     assert len(get_tools()) > 1
 
 
+def test_init_tools_include_mcp_false_does_not_create_mcp_tools(monkeypatch):
+    """Snapshot/export paths must be able to init tools without connecting MCP."""
+    calls: list[object] = []
+
+    def fake_create(config: object) -> list:
+        calls.append(config)
+        return []
+
+    monkeypatch.setattr("gptme.tools.mcp_adapter.create_mcp_tools", fake_create)
+    clear_tools()
+    init_tools(allowlist=["save"], include_mcp=False)
+    assert calls == []
+    assert [t.name for t in get_tools()] == ["save"]
+
+
 def test_init_tools_allowlist():
     clear_tools()  # ensure clean state regardless of test ordering
     init_tools(allowlist=["save"])

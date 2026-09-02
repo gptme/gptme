@@ -344,13 +344,15 @@ def _collect_live_impl(
         )
 
     clear_tools()
-    init_tools()
-    # init_tools() connects MCP servers internally (via get_available_tools()).
-    # Capture the live registry now so we know which servers actually connected,
-    # rather than inferring connectivity from the allowlist-filtered tool list.
-    from ..tools.mcp_adapter import get_mcp_clients  # fmt: skip
+    # Honor --connect-mcp: init_tools() used to call get_available_tools() with
+    # the default include_mcp=True, which connected every configured MCP server
+    # before this flag was consulted.
+    init_tools(include_mcp=connect_mcp)
+    connected_mcp_servers: set[str] = set()
+    if connect_mcp:
+        from ..tools.mcp_adapter import get_mcp_clients  # fmt: skip
 
-    connected_mcp_servers = set(get_mcp_clients().keys())
+        connected_mcp_servers = set(get_mcp_clients().keys())
 
     loaded = {t.name: t for t in get_tools()}
     discovered = get_available_tools(include_mcp=connect_mcp)
@@ -448,6 +450,10 @@ def _collect_live_impl(
                 # Connected but all tools excluded by the allowlist
                 reason = "connected_tools_excluded"
                 in_session = False
+            elif not connect_mcp:
+                # Default path never connects; listing is config-only
+                reason = "connect_mcp_not_requested"
+                in_session = False
             else:
                 # Not connected (connection failed or server not yet reached)
                 reason = "mcp_not_connected"
@@ -471,6 +477,12 @@ def _collect_live_impl(
 
     chat = getattr(cfg, "chat", None)
     stamp = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    limitations: list[str] = []
+    if mcp_enabled and not connect_mcp:
+        limitations.append(
+            "MCP servers listed from config only; pass --connect-mcp to connect "
+            "and live-enumerate tools"
+        )
     return build_snapshot(
         workspace=str(workspace),
         generated_at=stamp,
@@ -484,6 +496,7 @@ def _collect_live_impl(
         skills=skills,
         plugins=plugin_records,
         mcp_servers=mcp_servers,
+        limitations=limitations,
         lessons_count=lessons_count,
     )
 
@@ -534,7 +547,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--connect-mcp",
         action="store_true",
-        help="Live-enumerate MCP tools (off by default)",
+        help="Connect to configured MCP servers and live-enumerate their tools "
+        "(off by default; the default path never connects)",
     )
     parser.add_argument("-o", "--output", type=Path, default=None)
     args = parser.parse_args(argv)

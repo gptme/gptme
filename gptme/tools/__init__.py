@@ -159,6 +159,8 @@ def _init_single_tool(tool: ToolSpec) -> ToolSpec:
 
 def init_tools(
     allowlist: list[str] | None = None,
+    *,
+    include_mcp: bool = True,
 ) -> list[ToolSpec]:
     """Initialize tools in a thread-safe manner.
 
@@ -170,6 +172,10 @@ def init_tools(
 
     Items in allowlist can be tool names (e.g. "shell") or paths to .py files
     containing ToolSpec definitions (e.g. "path/to/mytool.py").
+
+    ``include_mcp`` (default True) is passed through to discovery. Set False to
+    skip connecting configured MCP servers — used by snapshot/export paths that
+    must not mutate the environment as a side effect of listing tools.
     """
     from ..config import get_config  # fmt: skip
 
@@ -210,13 +216,13 @@ def init_tools(
         # When file paths are present, only load explicitly named built-in tools
         # (file_paths + no names = only file tools; file_paths + names = both)
         name_allowlist = tool_names if (tool_names or file_paths) else allowlist
-        for tool in get_toolchain(name_allowlist):
+        for tool in get_toolchain(name_allowlist, include_mcp=include_mcp):
             if has_tool(tool.name):
                 continue
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
-        available_tools = get_available_tools()
+        available_tools = get_available_tools(include_mcp=include_mcp)
         for tool_name in tool_names:
             if is_hint_pattern(tool_name):
                 continue  # hint patterns match 0+ tools by hint, no name validation
@@ -255,7 +261,7 @@ def _unavailable_message(tool_name: str, matched_tools: list[ToolSpec]) -> str:
 
 
 def get_toolchain(
-    allowlist: list[str] | None, *, strict: bool = True
+    allowlist: list[str] | None, *, strict: bool = True, include_mcp: bool = True
 ) -> list[ToolSpec]:
     allowlist = expand_tool_allowlist_presets(allowlist)
 
@@ -264,7 +270,7 @@ def get_toolchain(
     # Server contexts use strict=False since conversations may reference tools
     # that are no longer available.
     if allowlist is not None:
-        available_tools = get_available_tools()
+        available_tools = get_available_tools(include_mcp=include_mcp)
         available_tool_names = [tool.name for tool in available_tools]
 
         for tool_name in allowlist:
@@ -291,7 +297,7 @@ def get_toolchain(
     if allowlist:
         warn_on_skipped_mcp = not allowlist_contains_glob(allowlist)
     skipped_mcp_tools = []
-    for tool in get_available_tools():
+    for tool in get_available_tools(include_mcp=include_mcp):
         explicitly_allowed = allowlist is not None and tool_matches_allowlist(
             tool.name, allowlist, tool.hints
         )

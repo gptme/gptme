@@ -13,6 +13,7 @@ import pytest
 
 from gptme.util.capabilities_export import (
     build_snapshot,
+    collect_live,
     redact_secret_like,
     render,
 )
@@ -258,3 +259,80 @@ def test_limitations_include_provenance_gap():
         mcp_servers=[],
     )
     assert any("no native source field" in note for note in snap["limitations"])
+
+
+def test_html_escapes_untrusted_snapshot_scalars():
+    """--from-json HTML must not interpolate raw snapshot fields (XSS)."""
+    snap = build_snapshot(
+        workspace="/tmp/w",
+        generated_at="2026-09-02T01:30:00Z",
+        config=_fixture_snapshot()["config"],
+        tools=_fixture_snapshot()["tools"],
+        skills=_fixture_snapshot()["skills"],
+        plugins=_fixture_snapshot()["plugins"],
+        mcp_servers=_fixture_snapshot()["mcp_servers"],
+    )
+    snap["schema_version"] = "<script>alert(1)</script>"
+    snap["generated_at"] = "<b>xss</b>"
+    snap["workspace"] = '" onload="alert(1)'
+    snap["counts"]["tools_in_session"] = "<svg/onload=alert(1)>"
+    html = render(snap, "html")
+    assert "<script>" not in html
+    assert "<b>xss</b>" not in html
+    assert "<svg/onload=alert(1)>" not in html
+    assert "&lt;script&gt;" in html
+    assert "&lt;b&gt;xss&lt;/b&gt;" in html
+
+
+def test_collect_live_default_does_not_connect_mcp(tmp_path, monkeypatch):
+    """Default collect_live must not call create_mcp_tools even if MCP is enabled."""
+    (tmp_path / "gptme.toml").write_text(
+        "[mcp]\n"
+        "enabled = true\n"
+        "\n"
+        "[[mcp.servers]]\n"
+        'name = "fake-stdio"\n'
+        "enabled = true\n"
+        'command = "true"\n'
+    )
+    calls: list[object] = []
+
+    def fake_create(config: object) -> list:
+        calls.append(config)
+        return []
+
+    monkeypatch.setattr("gptme.tools.mcp_adapter.create_mcp_tools", fake_create)
+    snap = collect_live(
+        tmp_path, connect_mcp=False, generated_at="2026-09-02T00:00:00Z"
+    )
+    assert calls == []
+    servers = {s["name"]: s for s in snap["mcp_servers"]}
+    assert "fake-stdio" in servers
+    assert servers["fake-stdio"]["reason"] == "connect_mcp_not_requested"
+    assert servers["fake-stdio"]["in_session"] is False
+    assert any("pass --connect-mcp" in note for note in snap["limitations"])
+
+
+def test_connect_mcp_not_requested_reason_renders():
+    snap = build_snapshot(
+        workspace="/tmp/w",
+        generated_at="2026-09-02T01:30:00Z",
+        config={"mcp_enabled": True, "plugin_enabled": []},
+        tools=[],
+        skills=[],
+        plugins=[],
+        mcp_servers=[
+            {
+                "name": "myserver",
+                "enabled": True,
+                "transport": "stdio",
+                "in_session": False,
+                "reason": "connect_mcp_not_requested",
+                "tool_count": None,
+            }
+        ],
+    )
+    text = render(snap, "text")
+    assert "connect_mcp_not_requested" in text
+    html = render(snap, "html")
+    assert "connect_mcp_not_requested" in html

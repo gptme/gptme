@@ -42,7 +42,8 @@ import click
 @click.option(
     "--connect-mcp",
     is_flag=True,
-    help="Live-enumerate MCP tools (off by default)",
+    help="Connect to configured MCP servers and live-enumerate their tools "
+    "(off by default; the default path never connects)",
 )
 @click.option("-o", "--output", type=click.Path(path_type=Path), default=None)
 def capabilities(
