@@ -214,5 +214,7 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
             previous(exc_type, exc, tb)
             return
         print(format_error(exc, verbose=verbose, color=out.isatty(), tb=tb), file=out)
+        if previous is not sys.__excepthook__:
+            previous(exc_type, exc, tb)
 
     sys.excepthook = _hook

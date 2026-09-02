@@ -54,3 +54,28 @@ def test_install_excepthook_writes_hint(monkeypatch) -> None:
     assert "RuntimeError: Connection refused" in output
     assert "hint:" in output
     assert "gptme-server run" in output
+
+
+def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
+    """A pre-existing custom sys.excepthook must be called for non-KeyboardInterrupt exceptions."""
+    stream = io.StringIO()
+    calls: list[tuple] = []
+
+    def custom_hook(exc_type, exc, tb):
+        calls.append((exc_type, exc))
+
+    original = sys.excepthook
+    try:
+        monkeypatch.setattr(sys, "excepthook", custom_hook)
+        # Sanity: our hook is now the custom one, not sys.__excepthook__
+        assert sys.excepthook is custom_hook
+        error_hintkit.install_excepthook(stream=stream)
+        sys.excepthook(ValueError, ValueError("boom"), None)
+    finally:
+        sys.excepthook = original
+
+    # HintKit printed its output
+    assert "ValueError: boom" in stream.getvalue()
+    # And the custom hook was also called
+    assert len(calls) == 1
+    assert calls[0][0] is ValueError
