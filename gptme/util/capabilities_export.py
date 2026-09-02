@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -228,15 +229,15 @@ def snapshot_to_html(snapshot: dict[str, Any]) -> str:
 </head>
 <body>
   <h1>gptme capabilities</h1>
-  <p>Schema {snapshot["schema_version"]} · {html_escape(snapshot["generated_at"])}</p>
-  <p><code>{html_escape(snapshot["workspace"])}</code></p>
+  <p>Schema {html_escape(str(snapshot["schema_version"]))} · {html_escape(str(snapshot["generated_at"]))}</p>
+  <p><code>{html_escape(str(snapshot["workspace"]))}</code></p>
   <p class="warn">{html_escape(warning)}</p>
   <p>
-    In-session tools {counts["tools_in_session"]}/{counts["tools_available"]}
-    · skills {counts["skills"]}
-    · plugins {counts["plugins"]}
-    · MCP servers {counts["mcp_servers"]}
-    (mcp.enabled={str(cfg["mcp_enabled"]).lower()})
+    In-session tools {html_escape(str(counts["tools_in_session"]))}/{html_escape(str(counts["tools_available"]))}
+    · skills {html_escape(str(counts["skills"]))}
+    · plugins {html_escape(str(counts["plugins"]))}
+    · MCP servers {html_escape(str(counts["mcp_servers"]))}
+    (mcp.enabled={html_escape(str(cfg["mcp_enabled"]).lower())})
   </p>
   <h2>In-session tools</h2>
   {_rows(loaded, [("name", "Name"), ("desc", "Description"), ("provenance", "Provenance"), ("status", "Status")])}
@@ -388,7 +389,12 @@ def _collect_live_impl(
             record["instructions_included"] = True
         tools.append(record)
 
-    index = LessonIndex()
+    prev_cwd = Path.cwd()
+    os.chdir(workspace)
+    try:
+        index = LessonIndex()
+    finally:
+        os.chdir(prev_cwd)
     skills: list[dict[str, Any]] = []
     lessons_count = 0
     for item in index.lessons:
@@ -422,10 +428,20 @@ def _collect_live_impl(
     mcp_server_list: list[MCPServerConfig] = (
         list(mcp_typed.servers) if mcp_typed else []
     )
+    mcp_servers_in_session = {
+        t["provenance"]["detail"] for t in tools if t["is_mcp"] and t["in_session"]
+    }
     for srv in mcp_server_list:
         if mcp_enabled and srv.enabled:
-            reason = "configured"
-            in_session = True
+            if srv.name in mcp_servers_in_session:
+                reason = "configured"
+                in_session = True
+            elif not connect_mcp:
+                reason = "mcp_not_connected"
+                in_session = False
+            else:
+                reason = "no_tools_in_session"
+                in_session = False
         elif not mcp_enabled:
             reason = "mcp_globally_disabled"
             in_session = False
