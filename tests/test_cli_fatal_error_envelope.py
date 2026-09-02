@@ -69,6 +69,36 @@ def _setup_cli_mocks(
 
 
 # ---------------------------------------------------------------------------
+# Unit tests for Error-HintKit CLI wiring
+# ---------------------------------------------------------------------------
+
+
+def test_install_error_hintkit_delegates_to_bundled_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[bool] = []
+
+    def _install_excepthook(*, verbose: bool) -> None:
+        calls.append(verbose)
+
+    monkeypatch.setattr("gptme.error_hintkit.install_excepthook", _install_excepthook)
+
+    cli._install_error_hintkit(verbose=True)
+
+    assert calls == [True]
+
+
+def test_format_error_hint_uses_bundled_hint_registry() -> None:
+    rendered = cli._format_error_hint(
+        RuntimeError("tool 'read' is disabled by default")
+    )
+
+    assert "RuntimeError: tool 'read' is disabled by default" in rendered
+    assert "hint:" in rendered
+    assert "gptme config set tools.read.enabled true" in rendered
+
+
+# ---------------------------------------------------------------------------
 # Unit tests for _classify_fatal_error
 # ---------------------------------------------------------------------------
 
