@@ -75,6 +75,12 @@ def is_auto_confirm_active() -> bool:
 # Tools that execute without a human confirmation prompt. Higher-priority
 # TOOL_CONFIRM hooks (e.g. guardrails) still run; interactive UI hooks should
 # return None so get_confirmation falls through to default_confirm.
+#
+# `read` has never prompted — master did not dispatch TOOL_CONFIRM from the
+# read tool at all. The exemption keeps that UX now that read *does* dispatch
+# so enforce-mode guardrails can skip secret paths. Gating the exemption on
+# GPTME_GUARDRAILS=enforce would prompt on every file read in default shadow
+# mode, which is a regression, not a safeguard.
 _INTERACTIVE_CONFIRM_EXEMPT = frozenset({"read"})
 
 

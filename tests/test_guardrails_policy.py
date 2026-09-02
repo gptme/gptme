@@ -205,6 +205,19 @@ class TestEgressAllowlist:
             _check_egress("ssh -p 2222 example.com", allowlist=["example.com"]) is None
         )
 
+    def test_ssh_helpers_are_not_egress(self):
+        # `\bssh\b` matches `ssh-keygen` because `-` is a non-word character.
+        allow = ["api.openai.com"]
+        assert _check_egress("ssh-keygen -t rsa", allowlist=allow) is None
+        assert _check_egress("ssh-agent bash", allowlist=allow) is None
+        assert _check_egress("ssh-add -l", allowlist=allow) is None
+        assert _check_egress("ssh-keyscan github.com", allowlist=allow) is None
+
+    def test_ssh_to_non_allowlisted_still_blocked(self):
+        result = _check_egress("ssh evil.example", allowlist=["api.openai.com"])
+        assert result is not None
+        assert "evil.example" in result
+
     def test_curl_resolve_override_blocked(self):
         result = _check_egress(
             "curl --resolve api.openai.com:443:evil.example "
@@ -405,6 +418,13 @@ class TestGuardrailsHook:
     def test_shell_keygen_not_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tu = self._tool_use("shell", "openssl genrsa -out server.key 2048")
+        result = guardrails_hook(tu)
+        assert result is None
+
+    def test_ssh_keygen_not_blocked_as_egress(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.setenv("GPTME_EGRESS_ALLOWLIST", "api.openai.com")
+        tu = self._tool_use("shell", "ssh-keygen -t rsa")
         result = guardrails_hook(tu)
         assert result is None
 

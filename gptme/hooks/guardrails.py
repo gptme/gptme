@@ -127,18 +127,20 @@ _SECRET_PATH_GENERIC: list[re.Pattern[str]] = [
 ]
 
 # ── Egress command detection ───────────────────────────────────────────────────
+# `(?!-)` so `\bssh\b` cannot match the `ssh` prefix of `ssh-keygen` /
+# `ssh-agent` / `ssh-add` (`-` is a non-word character, so a bare `\b` does).
 _EGRESS_CMD = re.compile(
-    r"\b(?:curl|wget|nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)\b"
+    r"\b(?:curl|wget|nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)(?!-)\b"
 )
 _NON_HTTP_EGRESS = re.compile(
-    r"\b(?:nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)\b"
+    r"\b(?:nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)(?!-)\b"
 )
 _HTTP_URL = re.compile(r"https?://[^\s'\"\\]+")
 _SCP_HOST = re.compile(
     r"(?:^|[\s])(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])(?::[^\s:]*)"
 )
-_SSH_INVOCATION = re.compile(r"\bssh\b([^;&|\n]*)")
-_NC_INVOCATION = re.compile(r"\b(?:nc|netcat|ncat)\b([^;&|\n]*)")
+_SSH_INVOCATION = re.compile(r"\bssh(?!-)\b([^;&|\n]*)")
+_NC_INVOCATION = re.compile(r"\b(?:nc|netcat|ncat)(?!-)\b([^;&|\n]*)")
 _DOTTED_HOST = re.compile(r"(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z0-9.-]+)")
 _SSH_FLAGS_WITH_ARG = frozenset(
     {
