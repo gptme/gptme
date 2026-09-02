@@ -88,6 +88,11 @@ class TestExecuteMsgDefensive:
         assert read_specs[0].disabled_by_default, (
             "read tool must have disabled_by_default=True for this test to be valid"
         )
+        assert read_specs[0].is_available, (
+            "read tool must have is_available=True for this test to be valid "
+            "(the hint is only appended when the tool is both disabled_by_default "
+            "and is_available)"
+        )
         call_id = "call-disabled-read"
         # 'read' is disabled_by_default=True; it is discoverable but not loaded
         content = f'@read({call_id}): {{"path": "somefile.txt"}}'
