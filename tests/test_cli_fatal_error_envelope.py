@@ -88,7 +88,10 @@ def test_install_error_hintkit_delegates_to_bundled_hook(
     assert calls == [True]
 
 
-def test_format_error_hint_uses_bundled_hint_registry() -> None:
+def test_format_error_hint_uses_bundled_hint_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
     rendered = cli._format_error_hint(
         RuntimeError("tool 'read' is disabled by default")
     )

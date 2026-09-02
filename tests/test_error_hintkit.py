@@ -42,6 +42,7 @@ def test_format_error_honors_disabled_flag(monkeypatch) -> None:
 
 
 def test_install_excepthook_writes_hint(monkeypatch) -> None:
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
     stream = io.StringIO()
     previous = sys.excepthook
     try:
@@ -58,6 +59,7 @@ def test_install_excepthook_writes_hint(monkeypatch) -> None:
 
 def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
     """A pre-existing custom sys.excepthook must be called for non-KeyboardInterrupt exceptions."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
     stream = io.StringIO()
     calls: list[tuple] = []
 
@@ -79,3 +81,28 @@ def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
     # And the custom hook was also called
     assert len(calls) == 1
     assert calls[0][0] is ValueError
+
+
+def test_install_excepthook_replace_in_place_does_not_stack(monkeypatch) -> None:
+    """Repeated install must not wrap the previous HintKit hook."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    first = io.StringIO()
+    second = io.StringIO()
+    calls: list[int] = []
+
+    def custom_hook(exc_type, exc, tb):
+        calls.append(1)
+
+    original = sys.excepthook
+    try:
+        monkeypatch.setattr(sys, "excepthook", custom_hook)
+        error_hintkit.install_excepthook(stream=first)
+        error_hintkit.install_excepthook(stream=second)
+        sys.excepthook(ValueError, ValueError("stacked?"), None)
+    finally:
+        sys.excepthook = original
+
+    assert first.getvalue() == ""
+    assert "ValueError: stacked?" in second.getvalue()
+    assert second.getvalue().count("ValueError: stacked?") == 1
+    assert calls == [1]

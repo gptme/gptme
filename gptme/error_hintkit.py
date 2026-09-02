@@ -197,12 +197,30 @@ def format_error(
     return "\n".join(parts)
 
 
+_HINTKIT_HOOK_MARK = "_gptme_error_hintkit"
+_HINTKIT_PREVIOUS_MARK = "_gptme_error_hintkit_previous"
+
+
+def _is_hintkit_hook(hook: object) -> bool:
+    return getattr(hook, _HINTKIT_HOOK_MARK, False) is True
+
+
 def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -> None:
-    """Install a ``sys.excepthook`` that appends hints to uncaught CLI errors."""
+    """Install a ``sys.excepthook`` that appends hints to uncaught CLI errors.
+
+    Reinstall is idempotent: a later call replaces the existing HintKit hook
+    in place and keeps chaining to the pre-HintKit hook, so repeated CLI
+    entry (tests, embedding) cannot stack wrappers or duplicate stderr.
+    """
     if not is_enabled():
         return
 
-    previous = sys.excepthook
+    current = sys.excepthook
+    previous = (
+        getattr(current, _HINTKIT_PREVIOUS_MARK, sys.__excepthook__)
+        if _is_hintkit_hook(current)
+        else current
+    )
     out = stream if stream is not None else sys.stderr
 
     def _hook(
@@ -217,4 +235,6 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
         if previous is not sys.__excepthook__:
             previous(exc_type, exc, tb)
 
+    setattr(_hook, _HINTKIT_HOOK_MARK, True)
+    setattr(_hook, _HINTKIT_PREVIOUS_MARK, previous)
     sys.excepthook = _hook
