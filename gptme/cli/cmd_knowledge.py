@@ -168,7 +168,9 @@ def _export_for_rag(kb_dir: Path) -> None:
             eid = entry.get("id", "unknown")
             fpath = rag_dir / f"{eid}.md"
             et = _resolved_entry_type(entry)
-            primary_label, secondary_label = ENTRY_TYPE_LABELS[et]
+            primary_label, secondary_label = ENTRY_TYPE_LABELS.get(
+                et, ENTRY_TYPE_LABELS["problem_resolution"]
+            )
             tags_line = ""
             if entry.get("tags"):
                 tags_line = f"\n**Tags**: {', '.join(entry['tags'])}\n"
