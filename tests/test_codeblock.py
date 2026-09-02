@@ -158,6 +158,46 @@ echo "second"
     assert codeblocks[1].start == 3
 
 
+def test_extract_codeblocks_tooluse_then_output_block():
+    """Tooluse + prose + output fence must not swallow into one command.
+
+    Regression for gptme/gptme#3697: at depth 1 the nested-fence lookahead
+    treated the shell closer as a nested opener because a later bare fence
+    had non-blank content after it. The shell tool then received the prose
+    and inner fences as part of the command.
+    """
+    markdown = """```shell
+echo hello
+```
+The exact output is:
+
+```
+hello
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 2, f"expected 2 blocks, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock("shell", "echo hello")
+    assert blocks[1] == Codeblock("", "hello")
+
+
+def test_extract_codeblocks_ipython_then_output_block():
+    """Same swallow hazard for the ipython tool (also executed)."""
+    markdown = """```ipython
+1 + 1
+```
+The exact output is:
+
+```
+2
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 2, f"expected 2 blocks, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock("ipython", "1 + 1")
+    assert blocks[1] == Codeblock("", "2")
+
+
 def test_extract_codeblocks_concatenated_adjacent_fences():
     """Recover when a closing fence and the next opening fence are concatenated."""
     markdown = """```shell

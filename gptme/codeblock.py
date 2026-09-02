@@ -186,6 +186,25 @@ def _extract_codeblocks(
     # Normalize line endings so CRLF input does not leak carriage returns into content.
     markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
 
+    # Languages where a bare fence at depth 1 is never a nested opener.
+    # Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
+    # only produces false positives (swallowing prose + output blocks into
+    # the command). See gptme/gptme#3697.
+    _EXEC_LANGS = frozenset(
+        {
+            "shell",
+            "sh",
+            "bash",
+            "zsh",
+            "fish",
+            "ksh",
+            "nu",
+            "ps1",
+            "powershell",
+            "ipython",
+        }
+    )
+
     lines = markdown.split("\n")
     i = 0
 
@@ -316,8 +335,14 @@ def _extract_codeblocks(
                                 break
                             else:
                                 content_lines.append(line)
-                        elif next_has_content and not next_is_fence:
-                            # Next line has content - check if this is a real nested block
+                        elif (
+                            next_has_content
+                            and not next_is_fence
+                            and lang not in _EXEC_LANGS
+                        ):
+                            # Next line has content - check if this is a real nested block.
+                            # Skipped for execution languages (shell, ipython, etc.) where
+                            # a bare fence is always a closer, never a nested opener.
                             if nesting_depth > 1:
                                 # We're already nested, this opens another level
                                 nesting_depth += 1
