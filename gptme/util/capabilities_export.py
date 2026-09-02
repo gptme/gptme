@@ -345,6 +345,13 @@ def _collect_live_impl(
 
     clear_tools()
     init_tools()
+    # init_tools() connects MCP servers internally (via get_available_tools()).
+    # Capture the live registry now so we know which servers actually connected,
+    # rather than inferring connectivity from the allowlist-filtered tool list.
+    from ..tools.mcp_adapter import get_mcp_clients  # fmt: skip
+
+    connected_mcp_servers = set(get_mcp_clients().keys())
+
     loaded = {t.name: t for t in get_tools()}
     discovered = get_available_tools(include_mcp=connect_mcp)
 
@@ -434,13 +441,16 @@ def _collect_live_impl(
     for srv in mcp_server_list:
         if mcp_enabled and srv.enabled:
             if srv.name in mcp_servers_in_session:
+                # Connected and has tools active in this session
                 reason = "configured"
                 in_session = True
-            elif not connect_mcp:
-                reason = "mcp_not_connected"
+            elif srv.name in connected_mcp_servers:
+                # Connected but all tools excluded by the allowlist
+                reason = "connected_tools_excluded"
                 in_session = False
             else:
-                reason = "no_tools_in_session"
+                # Not connected (connection failed or server not yet reached)
+                reason = "mcp_not_connected"
                 in_session = False
         elif not mcp_enabled:
             reason = "mcp_globally_disabled"

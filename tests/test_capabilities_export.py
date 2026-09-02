@@ -219,6 +219,34 @@ def test_unknown_format_raises():
         render(snap, "yaml")  # pyright: ignore[reportArgumentType]
 
 
+def test_mcp_connected_tools_excluded_reason_renders():
+    """connected_tools_excluded reason appears when a server connected but its tools
+    were filtered by the allowlist — distinct from mcp_not_connected."""
+    snap = build_snapshot(
+        workspace="/tmp/w",
+        generated_at="2026-09-02T01:30:00Z",
+        config={"mcp_enabled": True, "plugin_enabled": []},
+        tools=[],
+        skills=[],
+        plugins=[],
+        mcp_servers=[
+            {
+                "name": "myserver",
+                "enabled": True,
+                "transport": "stdio",
+                "in_session": False,
+                "reason": "connected_tools_excluded",
+                "tool_count": None,
+            }
+        ],
+    )
+    text = render(snap, "text")
+    assert "connected_tools_excluded" in text
+    assert "myserver" in text
+    html = render(snap, "html")
+    assert "connected_tools_excluded" in html
+
+
 def test_limitations_include_provenance_gap():
     snap = build_snapshot(
         workspace="/tmp/w",
