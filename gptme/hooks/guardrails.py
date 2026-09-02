@@ -61,10 +61,12 @@ _SHELL_KEYGEN = re.compile(
 # a .pem/.key (e.g. `openssl genrsa … $(cat server.pem)`). The keygen skip
 # is only for the generated output file, not nested commands.
 _SHELL_NESTED = re.compile(r"\$\(|`|<\(|>\(")
-# ssh-keygen also inspects existing keys: `-y` prints the public key from a
-# private key file, `-l`/`-e`/`-p`/`-c` similarly read. Those must keep
-# generic suffix checks. Clustered shorts (`-yf existing.key`) included.
-_SSH_KEYGEN_READ = re.compile(r"\bssh-keygen\b[^;&|\n]*-[A-Za-z]*[yelpc]")
+# ssh-keygen also inspects or *uses* existing keys: `-y` prints the public
+# key from a private key, `-s` signs with a CA key, `-l`/`-e`/`-p`/`-c`
+# similarly read. Those must keep generic suffix checks. Clustered shorts
+# (`-yf existing.key`) included. Case-sensitive: generate `-C` (comment)
+# is uppercase and must not trip this.
+_SSH_KEYGEN_READ = re.compile(r"\bssh-keygen\b[^;&|\n]*-[A-Za-z]*[yselpc]")
 
 # ── Shell policy patterns ──────────────────────────────────────────────────────
 # (pattern, short_reason)
@@ -344,6 +346,12 @@ def _dest_from_curl_override(spec: str) -> list[str]:
                 return []
             hosts.append(item[1:close])
             continue
+        # Unbracketed IPv6 (`2001:db8::1`) has multiple colons. Splitting on
+        # the first would allowlist-check the fragment `2001` and miss the
+        # real destination. Hostname/IPv4 have at most one colon (optional port).
+        if item.count(":") >= 2:
+            hosts.append(item)
+            continue
         host = item.split(":")[0]
         if host:
             hosts.append(host)
@@ -466,7 +474,8 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
                 segment = _unescape_cmd_escapes(segment)
                 # Keygen may write .pem/.key; keep generic checks if the
                 # segment nests a command that could read one, or if
-                # ssh-keygen is inspecting an existing key (`-y`/`-l`/…).
+                # ssh-keygen is inspecting/signing an existing key
+                # (`-y`/`-s`/`-l`/…).
                 include_generic = (
                     not bool(_SHELL_KEYGEN.search(segment))
                     or bool(_SHELL_NESTED.search(segment))

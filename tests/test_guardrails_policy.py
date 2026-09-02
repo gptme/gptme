@@ -246,6 +246,26 @@ class TestEgressAllowlist:
         assert result is not None
         assert "evil.example" in result
 
+    def test_curl_resolve_unbracketed_ipv6_not_fragment(self):
+        # `--resolve HOST:PORT:2001:db8::1` must check `2001:db8::1`, not `2001`.
+        result = _check_egress(
+            "curl --resolve api.openai.com:443:2001:db8::1 "
+            "https://api.openai.com/secret",
+            allowlist=["2001", "api.openai.com"],
+        )
+        assert result is not None
+        assert "2001:db8::1" in result
+
+    def test_curl_resolve_unbracketed_ipv6_allowlisted(self):
+        assert (
+            _check_egress(
+                "curl --resolve api.openai.com:443:2001:db8::1 "
+                "https://api.openai.com/secret",
+                allowlist=["2001:db8::1", "api.openai.com"],
+            )
+            is None
+        )
+
     def test_curl_connect_to_ipv6_dest_allowlisted(self):
         assert (
             _check_egress(
@@ -496,6 +516,14 @@ class TestGuardrailsHook:
     def test_ssh_keygen_clustered_yf_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tu = self._tool_use("shell", "ssh-keygen -yf existing.key")
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_ssh_keygen_sign_ca_key_blocked(self, monkeypatch):
+        # `-s` reads a CA private key; the generate-key skip must not apply.
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("shell", "ssh-keygen -s ca.key -I identity user.pub")
         result = guardrails_hook(tu)
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
