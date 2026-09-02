@@ -61,6 +61,10 @@ _SHELL_KEYGEN = re.compile(
 # a .pem/.key (e.g. `openssl genrsa … $(cat server.pem)`). The keygen skip
 # is only for the generated output file, not nested commands.
 _SHELL_NESTED = re.compile(r"\$\(|`|<\(|>\(")
+# ssh-keygen also inspects existing keys: `-y` prints the public key from a
+# private key file, `-l`/`-e`/`-p`/`-c` similarly read. Those must keep
+# generic suffix checks. Clustered shorts (`-yf existing.key`) included.
+_SSH_KEYGEN_READ = re.compile(r"\bssh-keygen\b[^;&|\n]*-[A-Za-z]*[yelpc]")
 
 # ── Shell policy patterns ──────────────────────────────────────────────────────
 # (pattern, short_reason)
@@ -306,17 +310,44 @@ def _dest_from_curl_override(spec: str) -> list[str]:
 
     ``--resolve HOST:PORT:ADDR[,ADDR...]`` and
     ``--connect-to HOST1:PORT1:HOST2:PORT2`` both put the real destination in
-    the third colon-separated field. IPv6 addresses may be bracketed.
+    the third field. IPv6 addresses may be bracketed in HOST *or* DEST;
+    never treat the first bracketed token as the destination (that is the
+    source host in ``--connect-to [::1]:443:evil.example:443``).
     """
     spec = spec.strip("\"'")
-    bracket = re.search(r"\[([^\]]+)\]", spec)
-    if bracket:
-        return [bracket.group(1)]
-    parts = spec.split(":")
-    if len(parts) < 3:
+    if spec.startswith("["):
+        close = spec.find("]")
+        if close == -1:
+            return []
+        rest = spec[close + 1 :]
+    else:
+        colon = spec.find(":")
+        if colon == -1:
+            return []
+        rest = spec[colon:]
+    # rest is :PORT:DEST
+    if not rest.startswith(":"):
         return []
-    dest = parts[2]
-    return [d for d in dest.split(",") if d]
+    rest = rest[1:]
+    colon = rest.find(":")
+    if colon == -1:
+        return []
+    dest = rest[colon + 1 :]
+    hosts: list[str] = []
+    for item in dest.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if item.startswith("["):
+            close = item.find("]")
+            if close == -1:
+                return []
+            hosts.append(item[1:close])
+            continue
+        host = item.split(":")[0]
+        if host:
+            hosts.append(host)
+    return hosts
 
 
 def _curl_override_hosts(cmd: str) -> tuple[list[str], bool]:
@@ -434,9 +465,12 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
                 # is a secret read after bash removes the backslash.
                 segment = _unescape_cmd_escapes(segment)
                 # Keygen may write .pem/.key; keep generic checks if the
-                # segment also nests a command that could read one.
-                include_generic = not bool(_SHELL_KEYGEN.search(segment)) or bool(
-                    _SHELL_NESTED.search(segment)
+                # segment nests a command that could read one, or if
+                # ssh-keygen is inspecting an existing key (`-y`/`-l`/…).
+                include_generic = (
+                    not bool(_SHELL_KEYGEN.search(segment))
+                    or bool(_SHELL_NESTED.search(segment))
+                    or bool(_SSH_KEYGEN_READ.search(segment))
                 )
                 reason = _check_secret_read(segment, include_generic=include_generic)
                 if reason:

