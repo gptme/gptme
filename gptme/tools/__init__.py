@@ -422,11 +422,20 @@ def execute_msg(
             # If the tool exists but is disabled by default, give an actionable hint.
             if available_for_hint is None:
                 cached = _get_available_tools_cache()
-                available_for_hint = (
-                    cached
-                    if cached is not None
-                    else get_available_tools(include_mcp=False)
-                )
+                if cached is not None:
+                    available_for_hint = cached
+                else:
+                    try:
+                        available_for_hint = get_available_tools(include_mcp=False)
+                    except Exception:
+                        # Discovery failures (bad plugin/config) must not block
+                        # yielding the paired tool_result below, or the dangling
+                        # tool_use/400 bug this branch exists to prevent reopens.
+                        logger.warning(
+                            "Failed to look up available tools for enable hint",
+                            exc_info=True,
+                        )
+                        available_for_hint = []
             if any(
                 t.name == tooluse.tool and t.disabled_by_default
                 for t in available_for_hint
