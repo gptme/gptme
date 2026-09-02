@@ -350,16 +350,24 @@ def _extract_codeblocks(
                 # fence-termination logic below can distinguish them from block closers.
                 #
                 # A candidate terminator is only trusted once it's confirmed to appear
-                # alone on some later line. Without this check, an unrelated unquoted
-                # `<<` (e.g. an arithmetic shift `x << 2`, or ipython `x << 2`) sets a
-                # phantom terminator that never matches anything, so heredoc state would
-                # stay "open" for the rest of the message - permanently disabling the
-                # bare-fence-is-a-closer rule and swallowing every block that follows.
+                # alone on a later line within a bounded window. Without this check, an
+                # unrelated unquoted `<<` (e.g. an arithmetic shift `x << 2`, or ipython
+                # `x << 2`) sets a phantom terminator that never matches anything, so
+                # heredoc state would stay "open" for the rest of the message -
+                # permanently disabling the bare-fence-is-a-closer rule and swallowing
+                # every block that follows. The window can't stop at the next bare
+                # fence: a real heredoc body legitimately contains fence-like lines
+                # (that's the case this tracking exists to handle), so a fence-bounded
+                # scan would break on the very heredocs it's meant to support. A wide
+                # but finite window instead bounds both the false-confirm blast radius
+                # (an unrelated standalone line matching the candidate far later in the
+                # message) and the O(n^2) worst case on very large documents.
                 if lang in _EXEC_LANGS:
                     if heredoc_terminator is None:
                         candidate = _find_heredoc_terminator(line)
+                        _confirm_window = lines[i + 1 : i + 1 + 200]
                         if candidate is not None and any(
-                            later.strip() == candidate for later in lines[i + 1 :]
+                            later.strip() == candidate for later in _confirm_window
                         ):
                             heredoc_terminator = candidate
                     elif line.strip() == heredoc_terminator:
