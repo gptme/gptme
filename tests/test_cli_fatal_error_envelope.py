@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -99,6 +100,30 @@ def test_format_error_hint_uses_bundled_hint_registry(
     assert "RuntimeError: tool 'read' is disabled by default" in rendered
     assert "hint:" in rendered
     assert "gptme config set tools.read.enabled true" in rendered
+
+
+def test_format_error_hint_disabled_preserves_str(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HINTKIT_ENABLED=false must keep the historical logger.error(e) format."""
+    monkeypatch.setenv("HINTKIT_ENABLED", "false")
+    assert cli._format_error_hint(RuntimeError("boom")) == "boom"
+
+
+def test_install_error_hintkit_restores_hook_when_click_context_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restored: list[int] = []
+    monkeypatch.setattr("gptme.error_hintkit.install_excepthook", lambda **_: None)
+    monkeypatch.setattr(
+        "gptme.error_hintkit.uninstall_excepthook", lambda: restored.append(1)
+    )
+
+    ctx = click.Context(cli.main)
+    with ctx:
+        cli._install_error_hintkit(verbose=False)
+        assert restored == []
+    assert restored == [1]
 
 
 # ---------------------------------------------------------------------------

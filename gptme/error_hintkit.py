@@ -232,9 +232,18 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
             previous(exc_type, exc, tb)
             return
         print(format_error(exc, verbose=verbose, color=out.isatty(), tb=tb), file=out)
-        if previous is not sys.__excepthook__:
-            previous(exc_type, exc, tb)
+        # Always chain: custom hooks keep their side effects, and the
+        # default hook keeps Python's traceback for uncaught exceptions.
+        previous(exc_type, exc, tb)
 
     setattr(_hook, _HINTKIT_HOOK_MARK, True)
     setattr(_hook, _HINTKIT_PREVIOUS_MARK, previous)
     sys.excepthook = _hook
+
+
+def uninstall_excepthook() -> None:
+    """Restore the pre-HintKit ``sys.excepthook`` if we currently own it."""
+    current = sys.excepthook
+    if not _is_hintkit_hook(current):
+        return
+    sys.excepthook = getattr(current, _HINTKIT_PREVIOUS_MARK, sys.__excepthook__)

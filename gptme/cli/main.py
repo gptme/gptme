@@ -48,15 +48,24 @@ logger = logging.getLogger(__name__)
 
 def _install_error_hintkit(verbose: bool) -> None:
     """Install actionable error hints for uncaught CLI exceptions."""
-    from ..error_hintkit import install_excepthook
+    from ..error_hintkit import install_excepthook, uninstall_excepthook
 
     install_excepthook(verbose=verbose)
+    ctx = click.get_current_context(silent=True)
+    if ctx is not None:
+        ctx.call_on_close(uninstall_excepthook)
 
 
 def _format_error_hint(exc: BaseException, *, verbose: bool = False) -> str:
-    """Format a fatal CLI exception with a matching actionable hint."""
-    from ..error_hintkit import format_error
+    """Format a fatal CLI exception with a matching actionable hint.
 
+    When HintKit is disabled, return ``str(exc)`` unchanged so the
+    non-interactive fatal-error log keeps its historical format.
+    """
+    from ..error_hintkit import format_error, is_enabled
+
+    if not is_enabled():
+        return str(exc)
     return format_error(exc, verbose=verbose, color=False)
 
 

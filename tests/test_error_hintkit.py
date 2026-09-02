@@ -106,3 +106,43 @@ def test_install_excepthook_replace_in_place_does_not_stack(monkeypatch) -> None
     assert "ValueError: stacked?" in second.getvalue()
     assert second.getvalue().count("ValueError: stacked?") == 1
     assert calls == [1]
+
+
+def test_install_excepthook_delegates_to_default_hook(monkeypatch) -> None:
+    """Default sys.__excepthook__ must still run so the traceback is preserved."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    stream = io.StringIO()
+    calls: list[type] = []
+
+    def default_hook(exc_type, exc, tb):
+        calls.append(exc_type)
+
+    original = sys.excepthook
+    try:
+        monkeypatch.setattr(sys, "__excepthook__", default_hook)
+        monkeypatch.setattr(sys, "excepthook", default_hook)
+        assert sys.excepthook is sys.__excepthook__
+        error_hintkit.install_excepthook(stream=stream)
+        sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
+    finally:
+        sys.excepthook = original
+
+    assert "hint:" in stream.getvalue()
+    assert calls == [RuntimeError]
+
+
+def test_uninstall_excepthook_restores_previous(monkeypatch) -> None:
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+
+    def custom_hook(exc_type, exc, tb):
+        pass
+
+    original = sys.excepthook
+    try:
+        monkeypatch.setattr(sys, "excepthook", custom_hook)
+        error_hintkit.install_excepthook(stream=io.StringIO())
+        assert sys.excepthook is not custom_hook
+        error_hintkit.uninstall_excepthook()
+        assert sys.excepthook is custom_hook
+    finally:
+        sys.excepthook = original
