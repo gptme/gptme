@@ -372,6 +372,11 @@ def execute_msg(
         return
 
     remaining = iter(classified)
+    # Lazily resolved available-tool metadata for the disabled-by-default hint.
+    # Prefer the existing cache so unavailable structured calls do not re-run
+    # uncached module/plugin discovery (get_available_tools(include_mcp=False)
+    # deliberately skips the cache).
+    available_for_hint: list[ToolSpec] | None = None
     for tooluse in remaining:
         runnable = tooluse.is_runnable
         if runnable:
@@ -415,8 +420,17 @@ def execute_msg(
             )
             error_msg = f"Tool '{tooluse.tool}' is not available for execution."
             # If the tool exists but is disabled by default, give an actionable hint.
-            available = get_available_tools(include_mcp=False)
-            if any(t.name == tooluse.tool and t.disabled_by_default for t in available):
+            if available_for_hint is None:
+                cached = _get_available_tools_cache()
+                available_for_hint = (
+                    cached
+                    if cached is not None
+                    else get_available_tools(include_mcp=False)
+                )
+            if any(
+                t.name == tooluse.tool and t.disabled_by_default
+                for t in available_for_hint
+            ):
                 error_msg += (
                     f" This tool is disabled by default."
                     f" Enable it with '--tools +{tooluse.tool}'."

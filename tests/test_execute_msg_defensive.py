@@ -40,6 +40,9 @@ class TestExecuteMsgDefensive:
         assert "nonexistent_tool" in result.content, (
             "Error message should identify the tool that was unavailable"
         )
+        assert "disabled by default" not in result.content, (
+            "Unknown tools must keep the original error; no enable hint"
+        )
 
     def test_nonrunnable_markdown_tooluse_yields_nothing(self):
         """Markdown code block tool_use (no call_id) for unknown tool → no output.
