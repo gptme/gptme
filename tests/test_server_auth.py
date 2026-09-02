@@ -21,6 +21,7 @@ def auth_token():
     # Save original state
     original_token = gptme.server.auth._server_token
     original_auth_enabled = gptme.server.auth._auth_enabled
+    original_disable_auth = os.environ.pop("GPTME_DISABLE_AUTH", None)
 
     token = "test-token-12345"
     os.environ["GPTME_SERVER_TOKEN"] = token
@@ -33,6 +34,8 @@ def auth_token():
 
     # Cleanup
     os.environ.pop("GPTME_SERVER_TOKEN", None)
+    if original_disable_auth is not None:
+        os.environ["GPTME_DISABLE_AUTH"] = original_disable_auth
     gptme.server.auth._server_token = original_token
     gptme.server.auth._auth_enabled = original_auth_enabled
 
