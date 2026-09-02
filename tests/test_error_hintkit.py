@@ -55,20 +55,27 @@ def test_format_error_unmatched_preserves_str(monkeypatch) -> None:
 
 
 def test_install_excepthook_writes_hint(monkeypatch) -> None:
+    """Custom previous hook: format_error prints Type: message plus the hint."""
     monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
     stream = io.StringIO()
-    previous = sys.excepthook
+
+    def custom_hook(exc_type, exc, tb):
+        pass
+
+    original = sys.excepthook
     try:
+        # Pytest replaces sys.excepthook; pin a custom previous so this
+        # hits format_error rather than the __excepthook__ hint-only path.
+        monkeypatch.setattr(sys, "excepthook", custom_hook)
         error_hintkit.install_excepthook(stream=stream)
         sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
     finally:
-        sys.excepthook = previous
+        sys.excepthook = original
 
     output = stream.getvalue()
-    # Default hook owns the "Type: message" line; we only append the hint.
+    assert "RuntimeError: Connection refused" in output
     assert "hint:" in output
     assert "gptme-server run" in output
-    assert "RuntimeError: Connection refused" not in output
 
 
 def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
