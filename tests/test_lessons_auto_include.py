@@ -1253,3 +1253,107 @@ def test_classify_lesson_symlinked_lesson_file_outside_root_still_matches(
     monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
 
     assert _classify_lesson(str(lessons_dir / "foo.md"))[0] == "validated_core"
+
+
+# --- Class-aware dropout (Phase 1: differential epsilon) ---
+
+from gptme.lessons.auto_include import (
+    _get_dropout_epsilon_for_class,
+    _get_dropout_epsilon_validated_core,
+)
+
+
+def test_dropout_epsilon_validated_core_default(monkeypatch):
+    monkeypatch.delenv("LESSON_DROPOUT_EPSILON_VALIDATED_CORE", raising=False)
+    assert _get_dropout_epsilon_validated_core() == 0.05
+
+
+def test_dropout_epsilon_validated_core_env_override(monkeypatch):
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON_VALIDATED_CORE", "0.10")
+    assert _get_dropout_epsilon_validated_core() == 0.10
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON_VALIDATED_CORE", "0.0")
+    assert _get_dropout_epsilon_validated_core() == 0.0
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON_VALIDATED_CORE", "2.0")
+    assert _get_dropout_epsilon_validated_core() == 1.0
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON_VALIDATED_CORE", "not-a-float")
+    assert _get_dropout_epsilon_validated_core() == 0.05  # fallback to default
+
+
+def test_dropout_epsilon_for_class_exempt_is_always_zero(monkeypatch):
+    """exempt lessons must never be withheld regardless of global epsilon."""
+    assert _get_dropout_epsilon_for_class("exempt", 0.20) == 0.0
+    assert _get_dropout_epsilon_for_class("exempt", 1.0) == 0.0
+    assert _get_dropout_epsilon_for_class("exempt", 0.0) == 0.0
+
+
+def test_dropout_epsilon_for_class_validated_core_uses_lower_epsilon(monkeypatch):
+    monkeypatch.delenv("LESSON_DROPOUT_EPSILON_VALIDATED_CORE", raising=False)
+    # validated_core uses the lower default (0.05), not global_epsilon (0.20)
+    eff = _get_dropout_epsilon_for_class("validated_core", 0.20)
+    assert eff == 0.05
+    assert eff < 0.20
+
+
+def test_dropout_epsilon_for_class_holdout_uses_global(monkeypatch):
+    assert _get_dropout_epsilon_for_class("holdout", 0.20) == 0.20
+    assert _get_dropout_epsilon_for_class("unknown", 0.15) == 0.15
+
+
+def test_dropout_exempt_lesson_never_withheld(monkeypatch, tmp_path):
+    """An exempt lesson must never be withheld even at epsilon=1.0."""
+    import random as _random
+
+    import gptme.lessons.auto_include as _mod
+
+    log_dir = tmp_path / "drop"
+    exempt_path = "/tmp/exempt_lesson.md"
+
+    # Inject a manifest that classifies this path as exempt.
+    # Monkeypatch _load_policy_manifest directly — the cache-key comparison
+    # inside the real loader won't match an injected key, so we bypass it.
+    manifest = {
+        "version": 1,
+        "validated_core": [],
+        "exempt": ["exempt_lesson"],
+        "holdout_population": [],
+        "root": "/tmp",
+    }
+    monkeypatch.setattr(_mod, "_load_policy_manifest", lambda: manifest)
+
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "1.0")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-exempt-test")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+
+    _random.seed(99)
+    matches = [_MockMatch(_make_lesson("Exempt", "body", exempt_path))]
+    result = _apply_lesson_dropout(matches)
+
+    # The exempt lesson must be kept even at epsilon=1.0
+    assert len(result) == 1, "Exempt lesson was withheld — should be kept"
+
+
+def test_dropout_withheld_records_contain_effective_epsilon(monkeypatch, tmp_path):
+    """Withheld records must include effective_epsilon for per-class analysis."""
+    import random as _random
+
+    log_dir = tmp_path / "drop"
+    monkeypatch.setenv(
+        "LESSON_DROPOUT_EPSILON", "1.0"
+    )  # withhold everything non-exempt
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-eff-eps")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+
+    _random.seed(0)
+    matches = [_MockMatch(_make_lesson("H", "body", "/tmp/holdout.md"))]
+    _apply_lesson_dropout(matches)
+
+    log_file = log_dir / "sess-eff-eps.jsonl"
+    records = [json.loads(line) for line in log_file.read_text().splitlines() if line]
+    assert records, "No log written"
+    withheld = records[0]["withheld"]
+    assert withheld, "No withheld lessons logged"
+    assert "effective_epsilon" in withheld[0], (
+        "effective_epsilon missing from withheld record — needed for per-class analysis"
+    )

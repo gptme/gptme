@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import os
 import random
 import time
@@ -75,12 +76,47 @@ def _get_dropout_epsilon() -> float:
     except (ValueError, TypeError):
         logger.warning("Invalid LESSON_DROPOUT_EPSILON=%r, ignoring", raw)
         return 0.0
-    if epsilon <= 0.0:
+    if math.isnan(epsilon) or epsilon <= 0.0:
         return 0.0
     if epsilon > 1.0:
         logger.warning("LESSON_DROPOUT_EPSILON=%s clamped to 1.0", epsilon)
         return 1.0
     return epsilon
+
+
+def _get_dropout_epsilon_validated_core() -> float:
+    """Get dropout epsilon for ``validated_core`` lessons (default 0.05).
+
+    Only meaningful when the global ``LESSON_DROPOUT_EPSILON`` > 0.  Override
+    with ``LESSON_DROPOUT_EPSILON_VALIDATED_CORE`` env var.
+    """
+    raw = os.environ.get("LESSON_DROPOUT_EPSILON_VALIDATED_CORE")
+    if not raw:
+        return 0.05
+    try:
+        epsilon = float(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "Invalid LESSON_DROPOUT_EPSILON_VALIDATED_CORE=%r, using 0.05", raw
+        )
+        return 0.05
+    if math.isnan(epsilon):
+        return 0.05
+    return min(max(epsilon, 0.0), 1.0)
+
+
+def _get_dropout_epsilon_for_class(policy_class: str, global_epsilon: float) -> float:
+    """Return the effective dropout probability for a given policy class.
+
+    - ``exempt``: always 0.0 (never withheld, regardless of *global_epsilon*)
+    - ``validated_core``: ``LESSON_DROPOUT_EPSILON_VALIDATED_CORE`` (default 0.05)
+    - ``holdout`` / ``unknown``: *global_epsilon* (``LESSON_DROPOUT_EPSILON``)
+    """
+    if policy_class == "exempt":
+        return 0.0
+    if policy_class == "validated_core":
+        return _get_dropout_epsilon_validated_core()
+    return global_epsilon
 
 
 def _get_dropout_session_id() -> str:
@@ -391,13 +427,17 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
 def _apply_lesson_dropout(matches: list) -> list:
     """Randomly withhold matched lessons for causal LOO measurement.
 
-    For each match, flips a coin with probability ``LESSON_DROPOUT_EPSILON`` to
-    withhold it. Withheld lessons are logged to
-    ``<log dir>/<session-id>.jsonl`` and removed from the returned list so they
-    are not injected. When epsilon is 0 (default), the input list is returned
-    unchanged and nothing is logged. When epsilon is > 0, a log record is
-    always written (even if no lessons were withheld), so analysis can
-    distinguish treatment-group sessions from control.
+    For each match, flips a coin with a class-aware probability to withhold it:
+
+    - ``exempt``: never withheld (epsilon 0)
+    - ``validated_core``: ``LESSON_DROPOUT_EPSILON_VALIDATED_CORE`` (default 0.05)
+    - ``holdout`` / ``unknown``: ``LESSON_DROPOUT_EPSILON`` (global epsilon)
+
+    Withheld lessons are logged to ``<log dir>/<session-id>.jsonl`` and removed
+    from the returned list so they are not injected. When the global epsilon is 0
+    (default), the input list is returned unchanged and nothing is logged. When
+    epsilon is > 0, a log record is always written (even if no lessons were
+    withheld), so analysis can distinguish treatment-group sessions from control.
 
     Args:
         matches: Match results (already truncated to the injection cap).
@@ -412,9 +452,17 @@ def _apply_lesson_dropout(matches: list) -> list:
     kept: list = []
     withheld: list[dict] = []
     for match in matches:
-        if random.random() < epsilon:
-            lesson = match.lesson
-            withheld.append({"path": str(lesson.path), "title": lesson.title})
+        lesson = match.lesson
+        policy_class, _ = _classify_lesson(str(lesson.path))
+        eff_epsilon = _get_dropout_epsilon_for_class(policy_class, epsilon)
+        if eff_epsilon > 0.0 and random.random() < eff_epsilon:
+            withheld.append(
+                {
+                    "path": str(lesson.path),
+                    "title": lesson.title,
+                    "effective_epsilon": eff_epsilon,
+                }
+            )
         else:
             kept.append(match)
 
