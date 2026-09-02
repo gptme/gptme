@@ -233,6 +233,10 @@ def _extract_codeblocks(
 
             # Track nesting depth to handle nested code blocks
             nesting_depth = 1
+            # For exec langs: track heredoc state so embedded fences inside a heredoc
+            # body (e.g. a shell script writing a markdown file) are treated as literal
+            # content and never as block closers.
+            heredoc_terminator: str | None = None
 
             # Collect content until we find the matching closing ```
             while i < len(lines):
@@ -276,6 +280,18 @@ def _extract_codeblocks(
                         lines[i] = rest
                         reprocess_current_line = True
                         break
+
+                # Update heredoc state for exec langs before fence detection.
+                # A heredoc body may contain literal fence lines (e.g. a shell script
+                # writing a markdown file via cat << EOF).  Track open/close so the
+                # fence-termination logic below can distinguish them from block closers.
+                if lang in _EXEC_LANGS:
+                    if heredoc_terminator is None:
+                        m = re.search(r"<<-?\s*['\"]?(\w+)['\"]?", line)
+                        if m:
+                            heredoc_terminator = m.group(1)
+                    elif line.strip() == heredoc_terminator:
+                        heredoc_terminator = None
 
                 # Check if this line starts with backticks (potential opening or closing)
                 line_fence_match = re.match(r"^(`{3,})", line)
@@ -338,11 +354,15 @@ def _extract_codeblocks(
                         elif (
                             next_has_content
                             and not next_is_fence
-                            and lang not in _EXEC_LANGS
+                            and (
+                                lang not in _EXEC_LANGS
+                                or heredoc_terminator is not None
+                            )
                         ):
                             # Next line has content - check if this is a real nested block.
-                            # Skipped for execution languages (shell, ipython, etc.) where
-                            # a bare fence is always a closer, never a nested opener.
+                            # For exec langs outside a heredoc: bare fence is always a
+                            # closer (no triple-backtick syntax).  Inside a heredoc the
+                            # fence is literal content, so apply the look-ahead as normal.
                             if nesting_depth > 1:
                                 # We're already nested, this opens another level
                                 nesting_depth += 1

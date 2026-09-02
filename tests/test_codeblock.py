@@ -198,6 +198,46 @@ The exact output is:
     assert blocks[1] == Codeblock("", "2")
 
 
+def test_extract_codeblocks_shell_heredoc_with_embedded_fence():
+    """Shell block containing a heredoc whose body has literal fence lines must
+    not be truncated at the embedded fence.
+
+    Regression for gptme/gptme#3703: the EXEC_LANGS bare-fence-is-always-a-closer
+    fix broke any shell command that writes a markdown file via heredoc, because the
+    parser terminated the shell block at the first ``` inside the heredoc body.
+    """
+    markdown = """```shell
+cat << 'EOF' > file.md
+```
+some markdown
+```
+EOF
+echo done
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock(
+        "shell", "cat << 'EOF' > file.md\n```\nsome markdown\n```\nEOF\necho done"
+    )
+
+
+def test_extract_codeblocks_shell_heredoc_unquoted_terminator():
+    """Same heredoc case with an unquoted terminator (<<EOF vs <<'EOF')."""
+    markdown = """```shell
+cat <<EOF > readme.md
+```
+content
+```
+EOF
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    expected_content = "cat <<EOF > readme.md\n```\ncontent\n```\nEOF"
+    assert blocks[0] == Codeblock("shell", expected_content)
+
+
 def test_extract_codeblocks_concatenated_adjacent_fences():
     """Recover when a closing fence and the next opening fence are concatenated."""
     markdown = """```shell
