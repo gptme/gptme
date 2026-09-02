@@ -99,6 +99,39 @@ class Codeblock:
         return list(_extract_codeblocks(markdown, streaming=streaming))
 
 
+def _find_heredoc_terminator(line: str) -> str | None:
+    """Return the heredoc terminator word if ``line`` opens a heredoc.
+
+    Only recognizes ``<<`` operators at top-level (outside quoted strings):
+    a heredoc operator is shell syntax and never occurs inside a quoted
+    literal, so ``echo "a << b"`` is correctly ignored while
+    ``cat << 'EOF' > file.md`` is recognized. Unquoted ``<<`` arithmetic
+    shifts (e.g. ipython ``x << 2``) can still false-positive; the
+    terminator word must then appear alone on a line to matter, which is
+    rare in practice.
+    """
+    in_single = in_double = False
+    i = 0
+    while i < len(line) - 1:
+        c = line[i]
+        if c == "'" and not in_double:
+            in_single = not in_single
+        elif c == '"' and not in_single:
+            in_double = not in_double
+        elif (
+            c == "<"
+            and line[i + 1] == "<"
+            and not in_single
+            and not in_double
+            and (i == 0 or line[i - 1] != "<")
+        ):
+            m = re.match(r"<<-?\s*['\"]?(\w+)['\"]?", line[i:])
+            if m:
+                return m.group(1)
+        i += 1
+    return None
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -287,9 +320,7 @@ def _extract_codeblocks(
                 # fence-termination logic below can distinguish them from block closers.
                 if lang in _EXEC_LANGS:
                     if heredoc_terminator is None:
-                        m = re.search(r"<<-?\s*['\"]?(\w+)['\"]?", line)
-                        if m:
-                            heredoc_terminator = m.group(1)
+                        heredoc_terminator = _find_heredoc_terminator(line)
                     elif line.strip() == heredoc_terminator:
                         heredoc_terminator = None
 

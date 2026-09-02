@@ -1614,3 +1614,27 @@ def test_from_markdown_leading_whitespace_after_fence():
     cb = Codeblock.from_markdown("``` save path/to/file.py\nprint(1)\n```")
     assert cb.lang == "save path/to/file.py"
     assert cb.content == "print(1)\n"
+
+
+def test_extract_codeblocks_shell_quoted_non_heredoc_lt():
+    """A ``<<`` inside a quoted string is not a heredoc operator.
+
+    Regression for the Greptile P1 on gptme/gptme#3703: ``echo "a << b"``
+    recorded ``b`` as a heredoc terminator, re-enabling the depth-1
+    look-ahead so the real closer was treated as a nested opener and
+    subsequent prose/output blocks were absorbed into the command.
+    """
+    markdown = """```shell
+echo "a << b"
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'echo "a << b"'),
+        Codeblock("", "output here"),
+    ]
