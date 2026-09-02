@@ -57,6 +57,10 @@ _WRITE_TOOLS = frozenset({"save", "append", "patch", "patch_many", "morph"})
 _SHELL_KEYGEN = re.compile(
     r"\b(?:ssh-keygen|openssl\s+(?:genrsa|req|ecparam|gendsa|genpkey))\b"
 )
+# Command / process substitution inside a keygen segment can still *read*
+# a .pem/.key (e.g. `openssl genrsa … $(cat server.pem)`). The keygen skip
+# is only for the generated output file, not nested commands.
+_SHELL_NESTED = re.compile(r"\$\(|`|<\(|>\(")
 
 # ── Shell policy patterns ──────────────────────────────────────────────────────
 # (pattern, short_reason)
@@ -429,7 +433,11 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
                 # Same unescape as shell-policy/egress: `cat ~/.ss\h/id_rsa`
                 # is a secret read after bash removes the backslash.
                 segment = _unescape_cmd_escapes(segment)
-                include_generic = not bool(_SHELL_KEYGEN.search(segment))
+                # Keygen may write .pem/.key; keep generic checks if the
+                # segment also nests a command that could read one.
+                include_generic = not bool(_SHELL_KEYGEN.search(segment)) or bool(
+                    _SHELL_NESTED.search(segment)
+                )
                 reason = _check_secret_read(segment, include_generic=include_generic)
                 if reason:
                     return f"secret-read: {reason}"

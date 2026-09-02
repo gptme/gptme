@@ -437,6 +437,25 @@ class TestGuardrailsHook:
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
 
+    def test_keygen_nested_pem_read_blocked(self, monkeypatch):
+        # Segment-wide keygen skip must not hide `$(cat server.pem)`.
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use(
+            "shell", "openssl genrsa -out /dev/null 2048 $(cat server.pem)"
+        )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_keygen_backtick_pem_read_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use(
+            "shell", "openssl genrsa -out /dev/null 2048 `cat server.pem`"
+        )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
     def test_shell_grep_pem_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tu = self._tool_use("shell", "grep -h secret server.pem")
