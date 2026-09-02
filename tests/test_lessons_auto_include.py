@@ -768,6 +768,7 @@ def test_dropout_log_matched_has_policy_fields(monkeypatch, tmp_path):
     assert entry["policy_version"] == 1
     assert "path" in entry
     assert "title" in entry
+    assert entry["effective_epsilon"] == 0.05  # validated_core default, not global 0.25
 
 
 # --- Manifest root-anchored classification (Greptile finding) ---
@@ -1356,4 +1357,51 @@ def test_dropout_withheld_records_contain_effective_epsilon(monkeypatch, tmp_pat
     assert withheld, "No withheld lessons logged"
     assert "effective_epsilon" in withheld[0], (
         "effective_epsilon missing from withheld record — needed for per-class analysis"
+    )
+
+
+def test_dropout_kept_validated_core_records_override_epsilon(monkeypatch, tmp_path):
+    """Kept validated_core entries must persist the class epsilon, not global.
+
+    Greptile P1 on gptme/gptme#3700: a non-default
+    LESSON_DROPOUT_EPSILON_VALIDATED_CORE was recorded only on withheld
+    lessons, so kept observations could not reconstruct the assignment
+    probability used for the coin flip.
+    """
+    import random as _random
+
+    import gptme.lessons.auto_include as _mod
+
+    _reset_manifest_cache(monkeypatch)
+    log_dir = tmp_path / "drop"
+    p = _make_manifest_file(tmp_path, validated_core=["category/kept-core"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(p))
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "0.25")
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON_VALIDATED_CORE", "0.10")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-kept-eff-eps")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    monkeypatch.setattr(_random, "random", lambda: 0.9)  # always keep
+
+    matches = [
+        _MockMatch(_make_lesson("Kept", "body", "lessons/category/kept-core.md")),
+    ]
+    kept = _mod._apply_lesson_dropout(matches)
+    assert len(kept) == 1
+
+    records = [
+        json.loads(line)
+        for line in (log_dir / "sess-kept-eff-eps.jsonl").read_text().splitlines()
+        if line
+    ]
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["epsilon"] == 0.25  # global switch
+    assert rec["withheld"] == []
+    assert len(rec["matched"]) == 1
+    entry = rec["matched"][0]
+    assert entry["policy_class"] == "validated_core"
+    assert entry["effective_epsilon"] == 0.10, (
+        "kept validated_core must record the class-specific epsilon "
+        f"(got {entry.get('effective_epsilon')!r}, global was 0.25)"
     )

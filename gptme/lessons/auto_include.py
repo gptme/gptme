@@ -474,9 +474,10 @@ def _apply_lesson_dropout(matches: list) -> list:
 def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
     """Append a randomized-dropout record for causal LOO analysis.
 
-    Stage 1 shadow logging: includes ``policy_class`` and ``policy_version``
-    for every lesson (both kept and withheld) so manifest classification can
-    be verified without changing dropout behavior.
+    Stage 1 shadow logging: includes ``policy_class``, ``policy_version``, and
+    ``effective_epsilon`` for every lesson (both kept and withheld) so
+    treatment-assignment analysis can reconstruct the actual class-aware
+    probability, not just the global epsilon.
 
     Failures are logged and swallowed — dropout logging must never break lesson
     injection.
@@ -499,6 +500,9 @@ def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
             )
 
         # Log kept (matched) lessons for treatment-assignment verification.
+        # effective_epsilon must be recorded on kept observations too — a
+        # non-default LESSON_DROPOUT_EPSILON_VALIDATED_CORE is otherwise
+        # unrecoverable from the global epsilon + policy_class pair.
         enriched_matched = []
         for match in kept:
             lesson = match.lesson
@@ -509,6 +513,9 @@ def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
                     "title": lesson.title,
                     "policy_class": policy_class,
                     "policy_version": policy_version,
+                    "effective_epsilon": _get_dropout_epsilon_for_class(
+                        policy_class, epsilon
+                    ),
                 }
             )
 
