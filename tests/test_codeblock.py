@@ -238,6 +238,76 @@ EOF
     assert blocks[0] == Codeblock("shell", expected_content)
 
 
+def test_extract_codeblocks_shell_heredoc_punctuated_terminator():
+    """Heredoc terminator words aren't restricted to \\w (bash allows any
+    unquoted word without whitespace, e.g. hyphens). Regression for the
+    Greptile P1 on gptme/gptme#3703: ``\\w+`` failed to match ``END-TAG``,
+    so the embedded fence closed the block early.
+    """
+    markdown = """```shell
+cat << 'END-TAG' > file.md
+```
+some markdown
+```
+END-TAG
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock(
+        "shell", "cat << 'END-TAG' > file.md\n```\nsome markdown\n```\nEND-TAG"
+    )
+
+
+def test_extract_codeblocks_shell_comment_with_lt_lt_not_a_heredoc():
+    """A ``<<`` inside a ``#`` comment must not be treated as a heredoc
+    operator. Regression for the Greptile P1 on gptme/gptme#3703: the
+    heredoc scanner didn't know about comments, so inert ``<<`` text in a
+    comment falsely opened heredoc state, re-enabling the depth-1
+    look-ahead and absorbing the following prose/output blocks into the
+    command.
+    """
+    markdown = """```shell
+# see the << operator docs
+echo hi
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", "# see the << operator docs\necho hi"),
+        Codeblock("", "output here"),
+    ]
+
+
+def test_extract_codeblocks_shell_escaped_quote_not_a_heredoc():
+    """A backslash-escaped quote inside a double-quoted string must not
+    desync the quote tracker. Regression for the Greptile P1 on
+    gptme/gptme#3703: the scanner treated ``\\"`` as closing the string,
+    so a later unquoted-looking ``<<`` inside the (still-open) string
+    falsely opened heredoc state and absorbed the following prose/output
+    blocks into the command.
+    """
+    markdown = """```shell
+echo "value \\" << not-a-heredoc"
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'echo "value \\" << not-a-heredoc"'),
+        Codeblock("", "output here"),
+    ]
+
+
 def test_extract_codeblocks_concatenated_adjacent_fences():
     """Recover when a closing fence and the next opening fence are concatenated."""
     markdown = """```shell

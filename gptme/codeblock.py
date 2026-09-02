@@ -102,22 +102,42 @@ class Codeblock:
 def _find_heredoc_terminator(line: str) -> str | None:
     """Return the heredoc terminator word if ``line`` opens a heredoc.
 
-    Only recognizes ``<<`` operators at top-level (outside quoted strings):
-    a heredoc operator is shell syntax and never occurs inside a quoted
-    literal, so ``echo "a << b"`` is correctly ignored while
-    ``cat << 'EOF' > file.md`` is recognized. Unquoted ``<<`` arithmetic
+    Only recognizes ``<<`` operators at top-level (outside quoted strings,
+    outside comments, and not backslash-escaped): a heredoc operator is
+    shell syntax and never occurs inside a quoted literal or a ``#``
+    comment, so ``echo "a << b"`` and ``# see a << b`` are correctly
+    ignored while ``cat << 'EOF' > file.md`` is recognized. A backslash
+    escapes the next character (matching shell quoting rules), so
+    ``echo \\# not-a-comment`` and escaped quotes inside a double-quoted
+    string don't desync the quote tracker. The terminator word accepts any
+    run of non-whitespace, non-quote characters (bash heredoc words aren't
+    restricted to ``\\w``, e.g. ``<<'END-TAG'``). Unquoted ``<<`` arithmetic
     shifts (e.g. ipython ``x << 2``) can still false-positive; the
     terminator word must then appear alone on a line to matter, which is
     rare in practice.
     """
     in_single = in_double = False
     i = 0
-    while i < len(line) - 1:
+    n = len(line)
+    while i < n - 1:
         c = line[i]
+        if c == "\\" and not in_single:
+            # Backslash escapes the next char outside single quotes (bash
+            # doesn't allow escaping inside single quotes at all).
+            i += 2
+            continue
         if c == "'" and not in_double:
             in_single = not in_single
         elif c == '"' and not in_single:
             in_double = not in_double
+        elif (
+            c == "#"
+            and not in_single
+            and not in_double
+            and (i == 0 or line[i - 1].isspace())
+        ):
+            # Start of a shell comment - nothing after it is executable syntax.
+            return None
         elif (
             c == "<"
             and line[i + 1] == "<"
@@ -125,7 +145,7 @@ def _find_heredoc_terminator(line: str) -> str | None:
             and not in_double
             and (i == 0 or line[i - 1] != "<")
         ):
-            m = re.match(r"<<-?\s*['\"]?(\w+)['\"]?", line[i:])
+            m = re.match(r"<<-?\s*['\"]?([^\s'\"]+)['\"]?", line[i:])
             if m:
                 return m.group(1)
         i += 1
