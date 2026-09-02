@@ -71,6 +71,23 @@ class TestExecuteMsgDefensive:
             f"Expected role='system', got '{results[0].role}'"
         )
 
+    def test_disabled_by_default_tool_gets_enable_hint(self):
+        """A disabled-by-default tool (e.g. 'read') includes '--tools +name' in error."""
+        set_tool_format("tool")
+        call_id = "call-disabled-read"
+        # 'read' is disabled_by_default=True; it is discoverable but not loaded
+        content = f'@read({call_id}): {{"path": "somefile.txt"}}'
+        msg = Message("assistant", content)
+
+        results = list(execute_msg(msg))
+
+        assert len(results) == 1
+        result = results[0]
+        assert result.call_id == call_id
+        assert "--tools +read" in result.content, (
+            f"Expected enable hint in error for disabled-by-default tool, got: {result.content!r}"
+        )
+
     def test_multiple_structured_tooluses_all_get_error_results(self):
         """Multiple non-runnable structured tool_uses each get an error tool_result."""
         set_tool_format("tool")
