@@ -180,7 +180,14 @@ def format_error(
     color: bool = True,
     tb: TracebackType | None = None,
 ) -> str:
-    """Format an exception plus a matching actionable hint, if known."""
+    """Format an exception plus a matching actionable hint, if known.
+
+    Non-verbose output preserves ``str(exc)`` when no hint is attached so
+    callers that historically logged the bare exception keep a stable
+    format. The ``Type: message`` prefix is used only when a hint is
+    actually rendered.
+    """
+    hint = hint_for_exception(exc) if is_enabled() else None
     if verbose:
         parts = [
             "".join(
@@ -189,10 +196,12 @@ def format_error(
                 )
             ).rstrip()
         ]
-    else:
+    elif hint is not None:
         parts = [f"{type(exc).__name__}: {exc}"]
+    else:
+        parts = [str(exc)]
 
-    if is_enabled() and (hint := hint_for_exception(exc)):
+    if hint is not None:
         parts.append(render_hint(hint, color=color))
     return "\n".join(parts)
 
@@ -211,6 +220,11 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
     Reinstall is idempotent: a later call replaces the existing HintKit hook
     in place and keeps chaining to the pre-HintKit hook, so repeated CLI
     entry (tests, embedding) cannot stack wrappers or duplicate stderr.
+
+    When the previous handler is ``sys.__excepthook__``, this hook does not
+    reprint the exception — it chains first, then appends a matching hint.
+    Custom previous hooks still receive the compact ``format_error`` output
+    plus a chain-through for their side effects.
     """
     if not is_enabled():
         return
@@ -231,9 +245,14 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
         if issubclass(exc_type, KeyboardInterrupt):
             previous(exc_type, exc, tb)
             return
+        if previous is sys.__excepthook__:
+            # Default hook already prints traceback + "Type: message".
+            # Only append a hint so the header is not duplicated.
+            previous(exc_type, exc, tb)
+            if is_enabled() and (hint := hint_for_exception(exc)):
+                print(render_hint(hint, color=out.isatty()), file=out)
+            return
         print(format_error(exc, verbose=verbose, color=out.isatty(), tb=tb), file=out)
-        # Always chain: custom hooks keep their side effects, and the
-        # default hook keeps Python's traceback for uncaught exceptions.
         previous(exc_type, exc, tb)
 
     setattr(_hook, _HINTKIT_HOOK_MARK, True)

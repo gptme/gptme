@@ -110,6 +110,17 @@ def test_format_error_hint_disabled_preserves_str(
     assert cli._format_error_hint(RuntimeError("boom")) == "boom"
 
 
+def test_format_error_hint_unmatched_preserves_str(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enabled but unmatched errors keep str(exc) — no Type: prefix."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    assert (
+        cli._format_error_hint(ValueError("Codex API error 429: usage_limit_reached"))
+        == "Codex API error 429: usage_limit_reached"
+    )
+
+
 def test_install_error_hintkit_restores_hook_when_click_context_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

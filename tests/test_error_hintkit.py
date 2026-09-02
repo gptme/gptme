@@ -38,6 +38,19 @@ def test_format_error_honors_disabled_flag(monkeypatch) -> None:
         RuntimeError("ANTHROPIC_API_KEY is missing"), color=False
     )
 
+    assert rendered == "ANTHROPIC_API_KEY is missing"
+    assert "hint:" not in rendered
+
+
+def test_format_error_unmatched_preserves_str(monkeypatch) -> None:
+    """No matching hint → historical str(exc), no Type: prefix."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+
+    rendered = error_hintkit.format_error(
+        ValueError("Codex API error 429: usage_limit_reached"), color=False
+    )
+
+    assert rendered == "Codex API error 429: usage_limit_reached"
     assert "hint:" not in rendered
 
 
@@ -52,9 +65,10 @@ def test_install_excepthook_writes_hint(monkeypatch) -> None:
         sys.excepthook = previous
 
     output = stream.getvalue()
-    assert "RuntimeError: Connection refused" in output
+    # Default hook owns the "Type: message" line; we only append the hint.
     assert "hint:" in output
     assert "gptme-server run" in output
+    assert "RuntimeError: Connection refused" not in output
 
 
 def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
@@ -76,9 +90,8 @@ def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
     finally:
         sys.excepthook = original
 
-    # HintKit printed its output
-    assert "ValueError: boom" in stream.getvalue()
-    # And the custom hook was also called
+    # Unmatched error: compact str(exc) on our stream, plus the custom hook.
+    assert "boom" in stream.getvalue()
     assert len(calls) == 1
     assert calls[0][0] is ValueError
 
@@ -103,8 +116,8 @@ def test_install_excepthook_replace_in_place_does_not_stack(monkeypatch) -> None
         sys.excepthook = original
 
     assert first.getvalue() == ""
-    assert "ValueError: stacked?" in second.getvalue()
-    assert second.getvalue().count("ValueError: stacked?") == 1
+    assert "stacked?" in second.getvalue()
+    assert second.getvalue().count("stacked?") == 1
     assert calls == [1]
 
 
@@ -128,7 +141,32 @@ def test_install_excepthook_delegates_to_default_hook(monkeypatch) -> None:
         sys.excepthook = original
 
     assert "hint:" in stream.getvalue()
+    assert "RuntimeError: Connection refused" not in stream.getvalue()
     assert calls == [RuntimeError]
+
+
+def test_install_excepthook_does_not_duplicate_default_header(monkeypatch) -> None:
+    """Chaining to sys.__excepthook__ must not reprint Type: message on our stream."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    stream = io.StringIO()
+    previous_out = io.StringIO()
+
+    def default_hook(exc_type, exc, tb):
+        print(f"{exc_type.__name__}: {exc}", file=previous_out)
+
+    original = sys.excepthook
+    try:
+        monkeypatch.setattr(sys, "__excepthook__", default_hook)
+        monkeypatch.setattr(sys, "excepthook", default_hook)
+        assert sys.excepthook is sys.__excepthook__
+        error_hintkit.install_excepthook(stream=stream)
+        sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
+    finally:
+        sys.excepthook = original
+
+    assert "hint:" in stream.getvalue()
+    assert "RuntimeError: Connection refused" not in stream.getvalue()
+    assert previous_out.getvalue().count("RuntimeError: Connection refused") == 1
 
 
 def test_uninstall_excepthook_restores_previous(monkeypatch) -> None:

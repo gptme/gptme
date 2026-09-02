@@ -47,7 +47,12 @@ logger = logging.getLogger(__name__)
 
 
 def _install_error_hintkit(verbose: bool) -> None:
-    """Install actionable error hints for uncaught CLI exceptions."""
+    """Install a safety-net ``sys.excepthook`` for exceptions that escape Click.
+
+    Click catches command-callback exceptions and prints them with
+    ``traceback.print_exception``, then this hook is restored on context
+    close. The live fatal-error path is ``_format_error_hint``.
+    """
     from ..error_hintkit import install_excepthook, uninstall_excepthook
 
     install_excepthook(verbose=verbose)
@@ -59,8 +64,9 @@ def _install_error_hintkit(verbose: bool) -> None:
 def _format_error_hint(exc: BaseException, *, verbose: bool = False) -> str:
     """Format a fatal CLI exception with a matching actionable hint.
 
-    When HintKit is disabled, return ``str(exc)`` unchanged so the
-    non-interactive fatal-error log keeps its historical format.
+    When HintKit is disabled, or no registry entry matches, return
+    ``str(exc)`` unchanged so the non-interactive fatal-error log keeps
+    its historical format.
     """
     from ..error_hintkit import format_error, is_enabled
 
