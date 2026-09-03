@@ -10,7 +10,6 @@ import importlib.util as _importlib_util
 import logging
 import os
 import socket
-import time
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
@@ -26,15 +25,16 @@ _session_id: ContextVar[str | None] = ContextVar("session_id", default=None)
 
 
 class TelemetryConnectionErrorFilter(logging.Filter):
-    """Filter to debounce and truncate verbose network/export traces from OpenTelemetry.
+    """Filter to deduplicate and truncate verbose network/export traces from OpenTelemetry.
 
     This filter:
     1. Simplifies verbose stack traces to single-line messages
-    2. Debounces repeated errors (shows first, then suppresses for cooldown period)
-    3. Periodically shows a count of suppressed errors
+    2. Shows only the first occurrence per error type per session, then suppresses forever
 
     The filter ensures users see at least one error message when telemetry fails,
-    but prevents spam from repeated exporter network failures.
+    but prevents repeated spam from exporter network failures. After the first
+    occurrence the error is silently dropped — the user already knows, and repeated
+    "still failing" messages add no new information.
     """
 
     _NETWORK_ERROR_NAME_FRAGMENTS = (
@@ -48,15 +48,15 @@ class TelemetryConnectionErrorFilter(logging.Filter):
 
     def __init__(self, cooldown_seconds: float = 300.0):
         super().__init__()
-        self._error_counts: dict[str, int] = {}
-        self._last_logged: dict[str, float] = {}
-        self._cooldown_seconds = cooldown_seconds  # 5 minutes between repeated errors
+        self._shown: set[str] = set()
+        # cooldown_seconds kept for API compatibility but no longer used
+        self._cooldown_seconds = cooldown_seconds
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Filter and debounce connection error messages.
+        """Filter and deduplicate connection error messages.
 
         Returns True to allow the (possibly modified) record through.
-        Returns False to suppress duplicate errors within cooldown period.
+        Returns False to suppress duplicate errors (shown once per session).
         """
         # Only filter opentelemetry loggers (root logger or children)
         if not (
@@ -71,37 +71,22 @@ class TelemetryConnectionErrorFilter(logging.Filter):
                 fragment in exc_type.__name__
                 for fragment in self._NETWORK_ERROR_NAME_FRAGMENTS
             ):
-                # Create error key for deduplication (type + truncated message)
-                error_key = f"{exc_type.__name__}"
+                # Create error key for deduplication (type name only)
+                error_key = exc_type.__name__
 
-                # Track occurrence count
-                now = time.time()
-                count = self._error_counts.get(error_key, 0) + 1
-                self._error_counts[error_key] = count
+                # Show only on first occurrence per session
+                if error_key in self._shown:
+                    return False
+                self._shown.add(error_key)
 
-                last_logged = self._last_logged.get(error_key, 0)
-                time_since_last = now - last_logged
-
-                # Show first occurrence, or after cooldown expires
-                if count == 1 or time_since_last > self._cooldown_seconds:
-                    self._last_logged[error_key] = now
-
-                    # Replace verbose stack trace with simple message
-                    record.exc_info = None
-                    record.exc_text = None
-                    record.args = ()
-
-                    if count == 1:
-                        record.msg = f"Telemetry export failed: {exc_value}"
-                    else:
-                        # Show count of suppressed errors
-                        record.msg = (
-                            f"Telemetry export still failing "
-                            f"({count} occurrences): {exc_value}"
-                        )
-                    return True
-                # Suppress duplicate within cooldown period
-                return False
+                # Replace verbose stack trace with simple message
+                record.exc_info = None
+                record.exc_text = None
+                record.args = ()
+                record.msg = (
+                    f"Telemetry export failed (will suppress further): {exc_value}"
+                )
+                return True
 
         return True
 

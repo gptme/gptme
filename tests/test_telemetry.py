@@ -131,7 +131,9 @@ def test_connection_error_filter_truncates_read_timeout_traceback():
     assert record.exc_info is None
     assert record.exc_text is None
     assert record.args == ()
-    assert record.msg == "Telemetry export failed: read timed out"
+    assert (
+        record.msg == "Telemetry export failed (will suppress further): read timed out"
+    )
 
 
 def test_connection_error_filter_debounces_repeated_timeouts():

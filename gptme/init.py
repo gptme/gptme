@@ -472,8 +472,8 @@ def init_logging(verbose, *, stderr: bool = True, compact: bool = True):
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-    # Apply debouncing filter for OpenTelemetry connection errors
-    # This shows the first error, then suppresses duplicates for 5 minutes
+    # Apply deduplication filter for OpenTelemetry connection errors
+    # This shows the first error per session, then suppresses all subsequent ones
     # Prevents spam while still alerting users to telemetry issues
     # Uses singleton filter to share state with setup_telemetry() filters
     try:
