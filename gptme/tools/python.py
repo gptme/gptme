@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from ..constants import DECLINED_CONTENT
 from ..hooks import ConfirmAction, get_confirmation
-from ..message import Message
+from ..message import Message, is_output_json
 from ..util.context import md_codeblock
 from . import get_tools
 from .base import (
@@ -344,7 +344,14 @@ def execute_python(
     # Detect plot files created or modified during execution and attach descriptors
     post_images = _snapshot_images(cwd)
     plot_artifacts = _make_plot_artifacts(pre_images, post_images)
-    msg = Message("system", "Executed code block.\n\n" + output)
+    # capture_and_display() already streamed stdout/stderr to the terminal in
+    # real time via TeeIO.  Suppress the second print that manager.append()
+    # would trigger so the output doesn't appear twice in the terminal.
+    # JSON output mode still needs the structured event.  The TUI ignores quiet
+    # and renders the message through its own widget path.
+    msg = Message(
+        "system", "Executed code block.\n\n" + output, quiet=not is_output_json()
+    )
     if plot_artifacts:
         existing: MessageMetadata = dict(msg.metadata) if msg.metadata else {}  # type: ignore[assignment]
         existing["artifacts"] = [*existing.get("artifacts", []), *plot_artifacts]
