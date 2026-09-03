@@ -1055,3 +1055,31 @@ class TestTaskIdPathTraversal:
     def test_api_get_rejects_traversal(self, client):
         resp = client.get("/api/v2/tasks/../../etc/passwd")
         assert resp.status_code == 404
+
+    # -- null-byte injection via %-encoding ----------------------------------
+    # Before the fix (gptme/gptme#3709), these returned 404 with the raw
+    # task_id (including the null byte) echoed in the error message.  After
+    # the fix they must return 400 with {"error": "Invalid task_id"}.
+
+    def test_api_get_rejects_null_byte(self, client):
+        resp = client.get("/api/v2/tasks/test%00malicious")
+        assert resp.status_code == 400
+        assert resp.json == {"error": "Invalid task_id"}
+
+    def test_api_update_rejects_null_byte(self, client):
+        resp = client.put(
+            "/api/v2/tasks/test%00malicious",
+            json={"content": "x"},
+        )
+        assert resp.status_code == 400
+        assert resp.json == {"error": "Invalid task_id"}
+
+    def test_api_archive_rejects_null_byte(self, client):
+        resp = client.post("/api/v2/tasks/test%00malicious/archive")
+        assert resp.status_code == 400
+        assert resp.json == {"error": "Invalid task_id"}
+
+    def test_api_unarchive_rejects_null_byte(self, client):
+        resp = client.post("/api/v2/tasks/test%00malicious/unarchive")
+        assert resp.status_code == 400
+        assert resp.json == {"error": "Invalid task_id"}

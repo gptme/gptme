@@ -156,6 +156,21 @@ def _validate_task_id(task_id: str) -> bool:
     return bool(_TASK_ID_PATTERN.fullmatch(task_id))
 
 
+def _validate_task_id_response(
+    task_id: str,
+) -> tuple[flask.Response, int] | None:
+    """Validate task_id for API route handlers.
+
+    Returns None if valid, or (error_response, 400) if invalid.
+    Mirrors ``_validate_conversation_id`` in api_v2_common so the tasks API
+    rejects malformed IDs (null bytes, path separators, …) with an explicit
+    400 rather than silently echoing them in a 404 message.
+    """
+    if not _validate_task_id(task_id):
+        return flask.jsonify({"error": "Invalid task_id"}), 400
+    return None
+
+
 def get_tasks_dir() -> Path:
     """Get the tasks storage directory."""
     return get_logs_dir().parent / "tasks"
@@ -803,6 +818,8 @@ def api_tasks_get(task_id: str):
     Retrieve comprehensive information about a task including git status,
     conversation details, and derived status information.
     """
+    if err := _validate_task_id_response(task_id):
+        return err
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -842,6 +859,8 @@ def api_tasks_update(task_id: str):
     Update task content, target type, target repository, or metadata.
     Only provided fields will be updated.
     """
+    if err := _validate_task_id_response(task_id):
+        return err
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -925,6 +944,8 @@ def api_tasks_archive(task_id: str):
     Archive a task to hide it from active view while preserving all data.
     Archived tasks can be restored using the unarchive endpoint.
     """
+    if err := _validate_task_id_response(task_id):
+        return err
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -961,6 +982,8 @@ def api_tasks_unarchive(task_id: str):
     Restore an archived task to active view, making it visible
     in the standard task listings again.
     """
+    if err := _validate_task_id_response(task_id):
+        return err
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
