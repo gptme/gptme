@@ -22,9 +22,11 @@ def reset_output_format() -> Generator[None, None, None]:
     yield
     set_output_format("text")
     if python_tool._ipython is not None:
-        history_thread = python_tool._ipython.history_manager.save_thread
-        history_thread.stop()
-        history_thread.join(timeout=1)
+        history_manager = python_tool._ipython.history_manager
+        if history_manager is not None:
+            history_thread = history_manager.save_thread
+            history_thread.stop()
+            history_thread.join(timeout=1)
         python_tool._ipython = None
 
 

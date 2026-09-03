@@ -1451,13 +1451,11 @@ def test_shell_file(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
     # "yes" should appear in output (from cat stdout)
     assert "yes" in result.output, f"Expected 'yes' in output: {result.output}"
-    # The total count of "yes" should be 2-3: typically 2 (once in echoed command,
-    # once in stdout), but output formatting may vary. More than 3 indicates filename expansion.
-    # Tolerates output variations that caused flakiness (#1325, #1327).
+    # Captured shell output is rendered once. A second occurrence means the final
+    # tool-result message replayed output that was already streamed.
     yes_count = result.output.count("yes")
-    assert 2 <= yes_count <= 3, (
-        f"Expected 2-3 'yes' occurrences (command echo + stdout), got {yes_count}: "
-        f"{result.output}"
+    assert yes_count == 1, (
+        f"Expected one 'yes' occurrence from stdout, got {yes_count}: {result.output}"
     )
 
 
