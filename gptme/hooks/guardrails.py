@@ -67,6 +67,9 @@ _SHELL_NESTED = re.compile(r"\$\(|`|<\(|>\(")
 # (`-yf existing.key`) included. Case-sensitive: generate `-C` (comment)
 # is uppercase and must not trip this.
 _SSH_KEYGEN_READ = re.compile(r"\bssh-keygen\b[^;&|\n]*-[A-Za-z]*[yselpc]")
+# `openssl req` generates a CSR but reads an *existing* private key when
+# invoked with `-key` or `-inkey`. The keygen skip must not apply in that case.
+_OPENSSL_REQ_READ = re.compile(r"\bopenssl\s+req\b[^;&|\n]*-(?:key|inkey)\b")
 
 # ── Shell policy patterns ──────────────────────────────────────────────────────
 # (pattern, short_reason)
@@ -514,11 +517,13 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
                 # Keygen may write .pem/.key; keep generic checks if the
                 # segment nests a command that could read one, or if
                 # ssh-keygen is inspecting/signing an existing key
-                # (`-y`/`-s`/`-l`/…).
+                # (`-y`/`-s`/`-l`/…), or if `openssl req` is reading
+                # an existing private key via `-key`/`-inkey`.
                 include_generic = (
                     not bool(_SHELL_KEYGEN.search(segment))
                     or bool(_SHELL_NESTED.search(segment))
                     or bool(_SSH_KEYGEN_READ.search(segment))
+                    or bool(_OPENSSL_REQ_READ.search(segment))
                 )
                 reason = _check_secret_read(segment, include_generic=include_generic)
                 if reason:
