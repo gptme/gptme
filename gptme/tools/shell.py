@@ -452,6 +452,10 @@ class ShellSession:
 
     def _needs_tty(self, command: str) -> bool:
         """Check if a command needs a TTY (e.g. sudo password prompt) and we're interactive."""
+        return any(self._command_needs_tty(cmd) for cmd in split_commands(command))
+
+    def _command_needs_tty(self, command: str) -> bool:
+        """Check whether one command is routed through the interactive TTY path."""
         if _is_windows:
             return False  # No /dev/tty on Windows
         if not sys.stdin.isatty():
@@ -1579,6 +1583,10 @@ def execute_shell_impl(
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
 
+    # The interactive-TTY path buffers output in subprocess.communicate(), while
+    # the normal pipe path streams it as it arrives. Record the path before
+    # execution so timeout handling can render buffered partial output exactly once.
+    uses_tty = shell._needs_tty(cmd)
     try:
         returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
         interrupted = False
@@ -1624,22 +1632,24 @@ def execute_shell_impl(
             if hint:
                 workspace_hint_content = "\n\n" + hint.content
 
-    # stdout/stderr were already streamed by ShellSession. Keep the complete
-    # result for the model and structured consumers, but render only the command
-    # header and supplemental details that were not part of the live stream.
+    # stdout/stderr were already streamed by ShellSession, except for the
+    # interactive-TTY timeout path: subprocess.communicate() only returns its
+    # buffered partial output after the process is killed. Keep the complete
+    # result for the model and structured consumers, and render only details
+    # that were not already shown live.
     terminal_parts = [msg.split("\n\n", 1)[0]]
-    if not stdout and not stderr:
+    tty_timeout = timed_out and uses_tty
+    if tty_timeout:
+        if stdout:
+            terminal_parts.append(_format_block_smart("", stdout, "stdout").lstrip())
+        if stderr:
+            terminal_parts.append(_format_block_smart("", stderr, "stderr").lstrip())
+    elif not stdout and not stderr:
         remainder = msg.split("\n\n", 1)[1] if "\n\n" in msg else ""
         if remainder.strip():
             terminal_parts.append(remainder.strip())
     else:
-        if timed_out:
-            terminal_parts.append(
-                f"Command timed out after {timeout}s"
-                if timeout
-                else "Command timed out"
-            )
-        elif interrupted:
+        if interrupted:
             terminal_parts.append("Command interrupted")
         elif returncode:
             terminal_parts.append(f"Return code: {returncode}")

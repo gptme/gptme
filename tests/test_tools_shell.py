@@ -1846,6 +1846,7 @@ def test_needs_tty_sudo_detection():
             assert shell._needs_tty("sudo apt install vim")
             assert shell._needs_tty("sudo echo test")
             assert shell._needs_tty("sudo -u root ls")
+            assert shell._needs_tty("echo first\nsudo echo second")
 
             # sudo -S (stdin password) should NOT need TTY
             assert not shell._needs_tty("sudo -S apt install vim")
