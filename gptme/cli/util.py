@@ -975,7 +975,14 @@ def tools_list(available: bool, langtags: bool, compact: bool, as_json: bool):
         print(format_langtags(tools))
         return
 
-    print(format_tools_list(tools, show_all=not available, compact=compact))
+    print(
+        format_tools_list(
+            tools,
+            show_all=not available,
+            compact=compact,
+            use_color=sys.stdout.isatty(),
+        )
+    )
 
 
 @tools.command("info")

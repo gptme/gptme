@@ -419,6 +419,7 @@ def test_tools_list(mocker):
     result = runner.invoke(main, ["tools", "list"])
     assert "Available tools" in result.output
     assert result.exit_code == 0
+    assert "\x1b[" not in result.output
     assert "Using browser tool with" not in result.output
     assert "Failed to register hook" not in getattr(result, "stderr", "")
 

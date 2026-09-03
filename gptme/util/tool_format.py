@@ -107,6 +107,7 @@ def format_tools_list(
     show_status: bool = True,
     compact: bool = False,
     show_defaults: bool = True,
+    use_color: bool = True,
 ) -> str:
     """Format a list of tools for display.
 
@@ -116,6 +117,7 @@ def format_tools_list(
         show_status: Show ✓/✗ status icons
         compact: Use more compact format
         show_defaults: Mark tools that are disabled by default with [+]
+        use_color: Whether to colorize status icons and default markers
 
     Returns:
         Formatted multi-line string
@@ -140,7 +142,13 @@ def format_tools_list(
             lines.append("")
 
         lines.extend(
-            prefix + format_tool_summary(tool, show_status, show_default=show_defaults)
+            prefix
+            + format_tool_summary(
+                tool,
+                show_status,
+                use_color=use_color,
+                show_default=show_defaults,
+            )
             for tool in sorted(available, key=lambda t: t.name)
         )
 
@@ -150,7 +158,12 @@ def format_tools_list(
             lines.append("")
             lines.extend(
                 prefix
-                + format_tool_summary(tool, show_status, show_default=show_defaults)
+                + format_tool_summary(
+                    tool,
+                    show_status,
+                    use_color=use_color,
+                    show_default=show_defaults,
+                )
                 for tool in sorted(unavailable, key=lambda t: t.name)
             )
     else:
@@ -162,7 +175,13 @@ def format_tools_list(
             lines.append("")
 
         lines.extend(
-            prefix + format_tool_summary(tool, show_status, show_default=show_defaults)
+            prefix
+            + format_tool_summary(
+                tool,
+                show_status,
+                use_color=use_color,
+                show_default=show_defaults,
+            )
             for tool in sorted(available, key=lambda t: t.name)
         )
 
