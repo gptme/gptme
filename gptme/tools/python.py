@@ -343,7 +343,6 @@ def execute_python(
                 f"  {result.error_in_exec.__class__.__name__}: {result.error_in_exec}"
             )
             output += exception_output
-            terminal_output += exception_output
 
     # strip ANSI escape sequences (safety net — colors are disabled at the source
     # via NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them)

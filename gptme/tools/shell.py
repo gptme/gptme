@@ -365,10 +365,12 @@ class ShellSession:
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
     _cwd: str | None  # Workspace directory for this session (thread-safe)
     _memory_limit: int | None  # Address-space ceiling in bytes (None = off)
+    failed_command_used_tty: bool
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
         self._memory_limit = _get_memory_limit()
+        self.failed_command_used_tty = False
         self._init()
 
         # close on exit
@@ -441,6 +443,7 @@ class ShellSession:
         commands = split_commands(code)
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
+        self.failed_command_used_tty = False
         for cmd in commands:
             res_cur = self._run(cmd, output=output, timeout=timeout)
             res_code = res_cur[0]
@@ -565,7 +568,8 @@ class ShellSession:
         self, command: str, output=True, tries=0, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
         # Use TTY-based execution for interactive sudo commands
-        if self._needs_tty(command):
+        self.failed_command_used_tty = self._needs_tty(command)
+        if self.failed_command_used_tty:
             return self._run_with_tty(command, output=output, timeout=timeout)
         return self._run_pipe(command, output=output, tries=tries, timeout=timeout)
 
@@ -1583,10 +1587,6 @@ def execute_shell_impl(
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
 
-    # The interactive-TTY path buffers output in subprocess.communicate(), while
-    # the normal pipe path streams it as it arrives. Record the path before
-    # execution so timeout handling can render buffered partial output exactly once.
-    uses_tty = shell._needs_tty(cmd)
     try:
         returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
         interrupted = False
@@ -1638,7 +1638,7 @@ def execute_shell_impl(
     # result for the model and structured consumers, and render only details
     # that were not already shown live.
     terminal_parts = [msg.split("\n\n", 1)[0]]
-    tty_timeout = timed_out and uses_tty
+    tty_timeout = timed_out and shell.failed_command_used_tty
     if tty_timeout:
         if stdout:
             terminal_parts.append(_format_block_smart("", stdout, "stdout").lstrip())
