@@ -4,7 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rich.console import Console
@@ -139,3 +139,26 @@ class TestIPythonOutputDedup:
         assert messages[-1].terminal_display_content == (
             "Executed code block.\n\nResult:\n````\n42\n````"
         )
+
+
+class TestShellCompactPreviewTerminalDisplay:
+    """Compact previews (git-log/gh-list/query-pruned) carry their recovery
+    info — kept/total counts and the saved-output path — in a detail line
+    ahead of the codeblock. The terminal projection must keep that line, or
+    users can't tell how much was pruned or where to find the rest."""
+
+    def test_git_log_preview_detail_line_kept_in_terminal_display(
+        self, tmp_path: Path
+    ) -> None:
+        stdout = (Path(__file__).parent / "data" / "git-log-oneline.txt").read_text(
+            encoding="utf-8"
+        )
+        shell = MagicMock()
+        shell.run.return_value = (0, stdout, "")
+        with patch("gptme.tools.shell.get_shell", return_value=shell):
+            messages = list(execute_shell_impl("git log --oneline", logdir=tmp_path))
+
+        terminal_display = messages[-1].terminal_display_content
+        assert terminal_display is not None
+        assert "Showing first 20 of 27 commits." in terminal_display
+        assert "Full output saved to" in terminal_display
