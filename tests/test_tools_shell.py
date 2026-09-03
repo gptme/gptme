@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -1820,6 +1821,28 @@ def test_execute_jobs_command():
 
     job.kill()
     reset_background_jobs()
+
+
+def test_run_with_tty_timeout_returns_buffered_output():
+    shell = ShellSession()
+    process = MagicMock()
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd="sudo slow-command", timeout=1),
+        (b"partial stdout\n", b"partial stderr\n"),
+    ]
+    tty_stdin = MagicMock()
+    try:
+        with (
+            patch("builtins.open", return_value=tty_stdin),
+            patch("gptme.tools.shell.subprocess.Popen", return_value=process),
+        ):
+            result = shell._run_with_tty("sudo slow-command", timeout=1)
+    finally:
+        shell.close()
+
+    assert result == (-124, "partial stdout", "partial stderr")
+    process.kill.assert_called_once_with()
+    tty_stdin.close.assert_called_once_with()
 
 
 def test_needs_tty_sudo_detection():
