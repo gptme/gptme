@@ -1122,7 +1122,10 @@ def summarize(msg: str | Message | list[Message]) -> Message:
     elif isinstance(msg, Message):
         content = msg.content
     else:
-        content = "\n".join(format_msgs(msg))
+        # Summarization feeds an LLM, not the terminal — use the complete
+        # message content, not the reduced/empty terminal-display projection
+        # (which deliberately omits content already streamed live).
+        content = "\n".join(format_msgs(msg, terminal_projection=False))
 
     summary = _summarize_helper(content)
 

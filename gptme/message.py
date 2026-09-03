@@ -549,8 +549,16 @@ def format_msgs(
     oneline: bool = False,
     highlight: bool = False,
     indent: int = 0,
+    terminal_projection: bool = True,
 ) -> list[str]:
-    """Formats messages for printing to the console."""
+    """Formats messages for printing to the console.
+
+    terminal_projection: use `terminal_display_content` in place of `content`
+        when set (the default, matching the live-terminal rendering this
+        function exists for). Callers that feed the formatted text back into
+        an LLM (e.g. summarization) must pass False to avoid losing streamed
+        tool output that was deliberately left out of the terminal projection.
+    """
     # Import here to avoid circular import
     from .config import get_config
 
@@ -569,7 +577,7 @@ def format_msgs(
         max_len = shutil.get_terminal_size().columns - len(userprefix)
         content = (
             msg.terminal_display_content
-            if msg.terminal_display_content is not None
+            if terminal_projection and msg.terminal_display_content is not None
             else msg.content
         )
         stripped_content = _strip_think_sig(content)

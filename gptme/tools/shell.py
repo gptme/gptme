@@ -1650,6 +1650,18 @@ def execute_shell_impl(
         ]
         if truncation_lines:
             terminal_parts.extend(truncation_lines)
+        # Compact previews (git-log/gh-list/query-pruned) put their recovery
+        # info — the kept/total counts and saved-output path — in a detail
+        # line ahead of the codeblock, not in a "... (truncated)" marker.
+        # Without it, users can't tell how much was pruned or where to find
+        # the rest.
+        compact_detail_lines = [
+            line.strip()
+            for line in msg.splitlines()
+            if line.strip().startswith(("Showing first ", "Pruned to "))
+        ]
+        if compact_detail_lines:
+            terminal_parts.extend(compact_detail_lines)
     if workspace_hint_content:
         terminal_parts.append(workspace_hint_content.strip())
 
