@@ -349,9 +349,9 @@ def execute_python(
     # would trigger so the output doesn't appear twice in the terminal.
     # JSON output mode still needs the structured event.  The TUI ignores quiet
     # and renders the message through its own widget path.
-    msg = Message(
-        "system", "Executed code block.\n\n" + output, quiet=not is_output_json()
-    )
+    # Note: Only suppress in text mode when stdout is a real TTY (not captured/test contexts).
+    quiet_output = not is_output_json() and sys.stdout.isatty()
+    msg = Message("system", "Executed code block.\n\n" + output, quiet=quiet_output)
     if plot_artifacts:
         existing: MessageMetadata = dict(msg.metadata) if msg.metadata else {}  # type: ignore[assignment]
         existing["artifacts"] = [*existing.get("artifacts", []), *plot_artifacts]

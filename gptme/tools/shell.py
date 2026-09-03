@@ -1630,7 +1630,9 @@ def execute_shell_impl(
     # in the terminal.  In JSON output mode we still emit the structured
     # event so consumers see the full tool result.  The TUI ignores quiet
     # and renders the message through its own widget path.
-    yield Message("system", msg + workspace_hint_content, quiet=not is_output_json())
+    # Note: Only suppress in text mode when stdout is a real TTY (not captured/test contexts).
+    quiet_output = not is_output_json() and sys.stdout.isatty()
+    yield Message("system", msg + workspace_hint_content, quiet=quiet_output)
 
     if interrupted:
         raise KeyboardInterrupt from None
