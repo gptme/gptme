@@ -173,11 +173,11 @@ def _export_for_rag(kb_dir: Path) -> None:
             )
             tags_line = ""
             if entry.get("tags"):
-                tags_line = f"\n**Tags**: {', '.join(entry['tags'])}\n"
+                tags_line = f"\n**Tags**: {', '.join(_strip_controls(t) for t in entry['tags'])}\n"
             content = (
                 f"# Knowledge Entry ({et})\n\n"
-                f"**{primary_label}**: {entry.get('problem', '')}\n\n"
-                f"**{secondary_label}**: {entry.get('resolution', '')}\n"
+                f"**{primary_label}**: {_strip_controls(entry.get('problem', ''))}\n\n"
+                f"**{secondary_label}**: {_strip_controls(entry.get('resolution', ''))}\n"
                 f"{tags_line}"
             )
             fpath.write_text(content, encoding="utf-8")
