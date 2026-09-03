@@ -1434,8 +1434,9 @@ def test_shell(args: list[str], runner: CliRunner):
     args.append("/shell echo 'yes'")
     result = runner.invoke(cli.main, args)
     output = result.output.split("System")[-1]
-    # check for two 'yes' in output (both command and stdout)
-    assert output.count("yes") == 2, result.output
+    # Only the echoed command (`echo 'yes'`) remains after the last "System"
+    # split; the streamed stdout is no longer replayed in the final message.
+    assert output.count("yes") == 1, result.output
     assert result.exit_code == 0
 
 
