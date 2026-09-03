@@ -148,8 +148,9 @@ _NON_HTTP_EGRESS = re.compile(
 )
 _HTTP_URL = re.compile(r"https?://[^\s'\"\\]+")
 _SCP_HOST = re.compile(
-    r"(?:^|[\s])(?:[\w.-]+@)?([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9])(?::[^\s:]*)"
+    r"(?:^|[\s])(?:[\w.-]+@)?([a-zA-Z0-9_][a-zA-Z0-9_.-]*[a-zA-Z0-9_])(?::[^\s:]*)"
 )
+_SCP_REMOTE_OPERAND = re.compile(r"(?:^|\s)\S+:\S*")
 _SSH_INVOCATION = re.compile(r"\bssh(?!-)\b([^;&|\n]*)")
 _NC_INVOCATION = re.compile(r"\b(?:nc|netcat|ncat)(?!-)\b([^;&|\n]*)")
 _CURL_INVOCATION = re.compile(r"\bcurl(?!-)\b([^;&|\n]*)")
@@ -317,9 +318,11 @@ def _has_unparsed_non_http_destination(cmd: str) -> bool:
     for match in _NON_HTTP_INVOCATION.finditer(cmd):
         tool, argv = match.groups()
         if tool in {"scp", "rsync"}:
-            # A colon-bearing remote operand is parsed by ``_SCP_HOST``. With
-            # none present, both operands are local paths; with one present,
-            # ``_non_http_hosts`` already checks it against the allowlist.
+            # A colon-bearing operand is remote syntax. If ``_SCP_HOST`` could
+            # not extract it, fail closed rather than treating the command as
+            # a local-to-local copy. Host aliases may contain underscores.
+            if _SCP_REMOTE_OPERAND.search(argv) and not _SCP_HOST.search(argv):
+                return True
             continue
         if tool == "ssh":
             if _host_from_argv(argv, _SSH_FLAGS_WITH_ARG):
