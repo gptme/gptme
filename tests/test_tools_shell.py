@@ -1845,6 +1845,22 @@ def test_run_with_tty_timeout_returns_buffered_output():
     tty_stdin.close.assert_called_once_with()
 
 
+def test_run_records_path_used_by_failing_command():
+    shell = ShellSession.__new__(ShellSession)
+    shell.failed_command_used_tty = False
+    with (
+        patch.object(shell, "_needs_tty", return_value=False),
+        patch.object(shell, "_run_pipe", return_value=(-124, "partial stdout", "")),
+    ):
+        assert shell._run("slow-command", timeout=1) == (
+            -124,
+            "partial stdout",
+            "",
+        )
+
+    assert shell.failed_command_used_tty is False
+
+
 def test_needs_tty_sudo_detection():
     """Test that _needs_tty correctly detects sudo commands needing a TTY.
 

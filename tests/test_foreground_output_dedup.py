@@ -86,7 +86,7 @@ class TestShellOutputDedup:
     def test_tty_timeout_partial_output_remains_visible(self, tmp_path: Path) -> None:
         shell = MagicMock()
         shell.run.return_value = (-124, "partial stdout", "partial stderr")
-        shell._needs_tty.return_value = True
+        shell.failed_command_used_tty = True
         with (
             patch("gptme.tools.shell.get_shell", return_value=shell),
             _capture_tool_display(tmp_path) as (stdout, manager),
@@ -104,7 +104,7 @@ class TestShellOutputDedup:
     def test_pipe_timeout_partial_output_is_not_replayed(self, tmp_path: Path) -> None:
         shell = MagicMock()
         shell.run.return_value = (-124, "partial stdout", "partial stderr")
-        shell._needs_tty.return_value = False
+        shell.failed_command_used_tty = False
         with (
             patch("gptme.tools.shell.get_shell", return_value=shell),
             _capture_tool_display(tmp_path) as (stdout, manager),
@@ -112,6 +112,28 @@ class TestShellOutputDedup:
             print("partial stdout")
             print("partial stderr", file=sys.stderr)
             messages = list(execute_shell_impl("slow-command", logdir=None, timeout=1))
+            _append_results(manager, messages)
+
+        output = stdout.getvalue()
+        assert output.count("partial stdout") == 1
+        assert output.count("Command timed out") == 1
+
+    def test_mixed_script_pipe_timeout_partial_output_is_not_replayed(
+        self, tmp_path: Path
+    ) -> None:
+        shell = MagicMock()
+        shell.run.return_value = (-124, "partial stdout", "")
+        shell.failed_command_used_tty = False
+        with (
+            patch("gptme.tools.shell.get_shell", return_value=shell),
+            _capture_tool_display(tmp_path) as (stdout, manager),
+        ):
+            print("partial stdout")
+            messages = list(
+                execute_shell_impl(
+                    "slow-command\nsudo later-command", logdir=None, timeout=1
+                )
+            )
             _append_results(manager, messages)
 
         output = stdout.getvalue()
@@ -159,8 +181,8 @@ class TestIPythonOutputDedup:
             _append_results(manager, messages)
 
         output = stdout.getvalue()
-        assert "Exception during execution" in output
-        assert "RuntimeError: dedup-boom" in output
+        assert "Exception during execution" not in output
+        assert output.count("dedup-boom") == 2
 
     def test_json_mode_retains_complete_result(self, tmp_path: Path) -> None:
         set_output_format("json")
