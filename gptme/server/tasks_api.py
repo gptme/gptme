@@ -26,6 +26,7 @@ from ..message import Message
 from ..prompts import get_prompt
 from ..tools import get_toolchain
 from ..util.git_cmd import GIT_CMD
+from .api_v2_common import _validate_task_id
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, StatusResponse, api_doc_simple
 
@@ -147,13 +148,13 @@ class TaskListResponse(BaseModel):
     tasks: list[TaskResponse] = Field(..., description="List of tasks")
 
 
-# Task IDs must be alphanumeric with hyphens/underscores, no path separators
+# Task IDs must be alphanumeric with hyphens/underscores, no path separators or null bytes
 _TASK_ID_PATTERN = re.compile(r"[a-zA-Z0-9_-]+")
 
 
-def _validate_task_id(task_id: str) -> bool:
-    """Check that task_id doesn't contain path traversal characters."""
-    return bool(_TASK_ID_PATTERN.fullmatch(task_id))
+def _is_valid_task_id(task_id: str) -> bool:
+    """Check that task_id doesn't contain path traversal characters or null bytes."""
+    return bool(task_id) and "\x00" not in task_id and bool(_TASK_ID_PATTERN.fullmatch(task_id))
 
 
 def get_tasks_dir() -> Path:
@@ -163,7 +164,7 @@ def get_tasks_dir() -> Path:
 
 def load_task(task_id: str) -> Task | None:
     """Load a task from storage."""
-    if not _validate_task_id(task_id):
+    if not _is_valid_task_id(task_id):
         logger.warning(f"Rejected load_task with invalid task_id: {task_id!r}")
         return None
 
@@ -184,7 +185,7 @@ def load_task(task_id: str) -> Task | None:
 
 def save_task(task: Task) -> None:
     """Save a task to storage."""
-    if not _validate_task_id(task.id):
+    if not _is_valid_task_id(task.id):
         raise ValueError(f"Invalid task_id: {task.id!r}")
 
     tasks_dir = get_tasks_dir()
@@ -580,7 +581,7 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
 def create_task_conversation(task: Task) -> str:
     """Create a conversation for a task."""
-    if not _validate_task_id(task.id):
+    if not _is_valid_task_id(task.id):
         raise ValueError(f"Invalid task_id: {task.id!r}")
 
     # Use simple incremental suffix instead of timestamp
@@ -630,7 +631,7 @@ def create_task_conversation(task: Task) -> str:
 
 def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
     """Setup workspace for task. All conversations for this task will share this workspace."""
-    if not _validate_task_id(task_id):
+    if not _is_valid_task_id(task_id):
         raise ValueError(f"Invalid task_id: {task_id!r}")
 
     # Use task-level workspace that all conversations for this task will share
@@ -794,7 +795,7 @@ def api_tasks_create():
 @tasks_api.route("/api/v2/tasks/<string:task_id>")
 @require_auth
 @api_doc_simple(
-    responses={200: TaskResponse, 404: ErrorResponse, 500: ErrorResponse},
+    responses={200: TaskResponse, 400: ErrorResponse, 404: ErrorResponse, 500: ErrorResponse},
     tags=["tasks"],
 )
 def api_tasks_get(task_id: str):
@@ -803,6 +804,9 @@ def api_tasks_get(task_id: str):
     Retrieve comprehensive information about a task including git status,
     conversation details, and derived status information.
     """
+    if error := _validate_task_id(task_id):
+        return error
+
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -842,6 +846,9 @@ def api_tasks_update(task_id: str):
     Update task content, target type, target repository, or metadata.
     Only provided fields will be updated.
     """
+    if error := _validate_task_id(task_id):
+        return error
+
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -925,6 +932,9 @@ def api_tasks_archive(task_id: str):
     Archive a task to hide it from active view while preserving all data.
     Archived tasks can be restored using the unarchive endpoint.
     """
+    if error := _validate_task_id(task_id):
+        return error
+
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
@@ -961,6 +971,9 @@ def api_tasks_unarchive(task_id: str):
     Restore an archived task to active view, making it visible
     in the standard task listings again.
     """
+    if error := _validate_task_id(task_id):
+        return error
+
     task = load_task(task_id)
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404

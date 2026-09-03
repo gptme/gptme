@@ -1055,3 +1055,31 @@ class TestTaskIdPathTraversal:
     def test_api_get_rejects_traversal(self, client):
         resp = client.get("/api/v2/tasks/../../etc/passwd")
         assert resp.status_code == 404
+
+    def test_api_routes_reject_null_bytes(self, client):
+        """API endpoints must return 400 Bad Request with 'Invalid task_id' for null bytes."""
+        for method, path in [
+            ("get", "/api/v2/tasks/test%00malicious"),
+            ("put", "/api/v2/tasks/test%00malicious"),
+            ("post", "/api/v2/tasks/test%00malicious/archive"),
+            ("post", "/api/v2/tasks/test%00malicious/unarchive"),
+        ]:
+            fn = getattr(client, method)
+            resp = fn(path)
+            assert resp.status_code == 400
+            assert resp.json == {"error": "Invalid task_id"}
+
+    def test_validate_task_id_helper(self, app):
+        """Unit tests for _validate_task_id helper function."""
+        from gptme.server.api_v2_common import _validate_task_id
+
+        with app.app_context():
+            assert _validate_task_id("valid-task-123_abc") is None
+            res = _validate_task_id("test\x00malicious")
+            assert res is not None
+            assert res[1] == 400
+            assert res[0].get_json() == {"error": "Invalid task_id"}
+
+            assert _validate_task_id("../traversal")[1] == 400
+            assert _validate_task_id("invalid/char")[1] == 400
+            assert _validate_task_id("")[1] == 400

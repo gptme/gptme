@@ -3,6 +3,7 @@ Common types and utilities for the gptme server API.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -17,6 +18,24 @@ _MAX_ID_LENGTH = 255  # Linux NAME_MAX: 255 UTF-8 bytes for a single path compon
 _BRANCH_SUFFIX_LEN = len(
     ".jsonl"
 )  # branches/{name}.jsonl on disk — suffix counts against NAME_MAX
+_TASK_ID_PATTERN = re.compile(r"[a-zA-Z0-9_-]+")
+
+
+def _validate_task_id(
+    task_id: str,
+) -> tuple[flask.Response, int] | None:
+    """Validate task_id to prevent path traversal attacks, null bytes, and invalid input.
+
+    Returns None if valid, or (error_response, status_code) if invalid.
+    """
+    if (
+        not isinstance(task_id, str)
+        or not task_id
+        or "\x00" in task_id
+        or not _TASK_ID_PATTERN.fullmatch(task_id)
+    ):
+        return flask.jsonify({"error": "Invalid task_id"}), 400
+    return None
 
 
 def _validate_conversation_id(
