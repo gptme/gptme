@@ -140,6 +140,25 @@ class TestShellOutputDedup:
         assert output.count("partial stdout") == 1
         assert output.count("Command timed out") == 1
 
+    @pytest.mark.parametrize(
+        "user_output",
+        ["Showing first 5 of 10", "Pruned to 5 of 10", "... (output truncated) ..."],
+    )
+    def test_detail_like_user_output_is_not_replayed(
+        self, tmp_path: Path, user_output: str
+    ) -> None:
+        shell = MagicMock()
+        shell.run.return_value = (0, user_output, "")
+        with (
+            patch("gptme.tools.shell.get_shell", return_value=shell),
+            _capture_tool_display(tmp_path) as (stdout, manager),
+        ):
+            print(user_output)
+            messages = list(execute_shell_impl("custom-command", logdir=None))
+            _append_results(manager, messages)
+
+        assert stdout.getvalue().count(user_output) == 1
+
     def test_json_mode_retains_complete_result(self, tmp_path: Path) -> None:
         set_output_format("json")
         with _capture_tool_display(tmp_path) as (stdout, manager):

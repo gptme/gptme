@@ -1845,6 +1845,25 @@ def test_run_with_tty_timeout_returns_buffered_output():
     tty_stdin.close.assert_called_once_with()
 
 
+def test_run_with_tty_fallback_records_pipe_path():
+    shell = ShellSession.__new__(ShellSession)
+    shell.failed_command_used_tty = True
+    with (
+        patch("builtins.open", side_effect=OSError("no controlling tty")),
+        patch.object(
+            shell, "_run_pipe", return_value=(-124, "partial stdout", "")
+        ) as run_pipe,
+    ):
+        assert shell._run_with_tty("sudo slow-command", timeout=1) == (
+            -124,
+            "partial stdout",
+            "",
+        )
+
+    run_pipe.assert_called_once_with("sudo slow-command", output=True, timeout=1)
+    assert shell.failed_command_used_tty is False
+
+
 def test_run_records_path_used_by_failing_command():
     shell = ShellSession.__new__(ShellSession)
     shell.failed_command_used_tty = False
