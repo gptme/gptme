@@ -39,7 +39,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..message import Message, MessageMetadata
+from ..message import Message
 from ..sandbox import (
     SandboxConfig,
     _parse_size,
@@ -1625,11 +1625,13 @@ def execute_shell_impl(
                 workspace_hint_content = "\n\n" + hint.content
 
     # stdout/stderr were already streamed by ShellSession. Keep the complete
-    # result for the model and structured consumers, but render only status and
-    # supplemental details that were not part of the live stream in the terminal.
-    terminal_parts: list[str] = []
+    # result for the model and structured consumers, but render only the command
+    # header and supplemental details that were not part of the live stream.
+    terminal_parts = [msg.split("\n\n", 1)[0]]
     if not stdout and not stderr:
-        terminal_parts.append(msg)
+        remainder = msg.split("\n\n", 1)[1] if "\n\n" in msg else ""
+        if remainder.strip():
+            terminal_parts.append(remainder.strip())
     else:
         if timed_out:
             terminal_parts.append(
@@ -1641,17 +1643,21 @@ def execute_shell_impl(
             terminal_parts.append("Command interrupted")
         elif returncode:
             terminal_parts.append(f"Return code: {returncode}")
-        if "output truncated" in msg or "lines truncated" in msg:
-            terminal_parts.extend(
-                line.strip() for line in msg.splitlines() if "truncated" in line
-            )
+        truncation_lines = [
+            line.strip()
+            for line in msg.splitlines()
+            if line.strip().startswith("... (") and "truncated" in line
+        ]
+        if truncation_lines:
+            terminal_parts.extend(truncation_lines)
     if workspace_hint_content:
         terminal_parts.append(workspace_hint_content.strip())
 
-    metadata: MessageMetadata = {
-        "terminal_display_content": "\n\n".join(terminal_parts)
-    }
-    yield Message("system", msg + workspace_hint_content, metadata=metadata)
+    yield Message(
+        "system",
+        msg + workspace_hint_content,
+        terminal_display_content="\n\n".join(terminal_parts),
+    )
 
     if interrupted:
         raise KeyboardInterrupt from None
