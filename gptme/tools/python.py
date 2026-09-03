@@ -343,7 +343,10 @@ def execute_python(
                 f"  {result.error_in_exec.__class__.__name__}: {result.error_in_exec}"
             )
             output += exception_output
-            terminal_output += exception_output
+            # Do NOT add to terminal_output: the live IPython stream already
+            # shows the full traceback (including the exception message) in the
+            # foreground. Adding a synthesized summary here would produce an
+            # extra duplicate occurrence in non-live replay contexts.
 
     # strip ANSI escape sequences (safety net — colors are disabled at the source
     # via NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them)
