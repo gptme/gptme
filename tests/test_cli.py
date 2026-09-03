@@ -1,6 +1,7 @@
 import importlib
 import os
 import random
+import re
 import signal
 import tempfile
 import threading
@@ -1460,6 +1461,14 @@ def test_shell_file(args: list[str], runner: CliRunner):
     )
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Drop ANSI escape sequences so substring assertions see the rendered text."""
+    return _ANSI_RE.sub("", text)
+
+
 @pytest.mark.slow
 def test_python(args: list[str], runner: CliRunner):
     args.append("/py print('yes')")
@@ -1472,7 +1481,11 @@ def test_python(args: list[str], runner: CliRunner):
 def test_python_error(args: list[str], runner: CliRunner):
     args.append("/py raise Exception('yes')")
     result = runner.invoke(cli.main, args)
-    assert "Exception: yes" in result.output
+    # IPython streams its own traceback during run_cell, so the failure reaches
+    # the user as a colored `Exception: yes` line. Strip ANSI before asserting:
+    # the escape codes sit between the class name and the message, so a raw
+    # substring check would fail on output the user can plainly read.
+    assert "Exception: yes" in _strip_ansi(result.output)
     assert result.exit_code == 0
 
 
