@@ -47,18 +47,16 @@ logger = logging.getLogger(__name__)
 
 
 def _install_error_hintkit(verbose: bool) -> None:
-    """Install a safety-net ``sys.excepthook`` for exceptions that escape Click.
+    """Install a process-lifetime hook for exceptions that escape Click.
 
-    Click catches command-callback exceptions and prints them with
-    ``traceback.print_exception``, then this hook is restored on context
-    close. The live fatal-error path is ``_format_error_hint``.
+    Click closes its context while an exception is unwinding, before Python
+    invokes ``sys.excepthook``. The hook therefore must outlive the Click
+    context to append a hint to the escaping exception. Repeated installs are
+    safe because ``install_excepthook`` replaces its existing wrapper.
     """
-    from ..error_hintkit import install_excepthook, uninstall_excepthook
+    from ..error_hintkit import install_excepthook
 
     install_excepthook(verbose=verbose)
-    ctx = click.get_current_context(silent=True)
-    if ctx is not None:
-        ctx.call_on_close(uninstall_excepthook)
 
 
 def _format_error_hint(exc: BaseException, *, verbose: bool = False) -> str:

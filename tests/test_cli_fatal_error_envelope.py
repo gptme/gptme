@@ -121,9 +121,10 @@ def test_format_error_hint_unmatched_preserves_str(
     )
 
 
-def test_install_error_hintkit_restores_hook_when_click_context_closes(
+def test_install_error_hintkit_survives_click_context_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The hook must remain installed until an escaped exception is rendered."""
     restored: list[int] = []
     monkeypatch.setattr("gptme.error_hintkit.install_excepthook", lambda **_: None)
     monkeypatch.setattr(
@@ -134,7 +135,7 @@ def test_install_error_hintkit_restores_hook_when_click_context_closes(
     with ctx:
         cli._install_error_hintkit(verbose=False)
         assert restored == []
-    assert restored == [1]
+    assert restored == []
 
 
 # ---------------------------------------------------------------------------

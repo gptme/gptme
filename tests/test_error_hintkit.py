@@ -105,6 +105,30 @@ def test_install_excepthook_chains_custom_previous_hook(monkeypatch) -> None:
     assert calls[0][0] is ValueError
 
 
+def test_install_excepthook_uses_current_stderr_at_failure_time(monkeypatch) -> None:
+    """Default output follows stderr redirects made after installation."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    install_stream = io.StringIO()
+    failure_stream = io.StringIO()
+
+    def custom_hook(exc_type, exc, tb):
+        pass
+
+    original = sys.excepthook
+    try:
+        monkeypatch.setattr(sys, "excepthook", custom_hook)
+        monkeypatch.setattr(sys, "stderr", install_stream)
+        error_hintkit.install_excepthook()
+        monkeypatch.setattr(sys, "stderr", failure_stream)
+        sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
+    finally:
+        error_hintkit.uninstall_excepthook()
+        sys.excepthook = original
+
+    assert install_stream.getvalue() == ""
+    assert "hint:" in failure_stream.getvalue()
+
+
 def test_install_excepthook_replace_in_place_does_not_stack(monkeypatch) -> None:
     """Repeated install must not wrap the previous HintKit hook."""
     monkeypatch.delenv("HINTKIT_ENABLED", raising=False)

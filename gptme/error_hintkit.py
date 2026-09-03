@@ -239,7 +239,6 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
         if _is_hintkit_hook(current)
         else current
     )
-    out = stream if stream is not None else sys.stderr
 
     def _hook(
         exc_type: type[BaseException],
@@ -250,6 +249,7 @@ def install_excepthook(*, verbose: bool = False, stream: TextIO | None = None) -
         if issubclass(exc_type, KeyboardInterrupt):
             return
         if is_enabled() and (hint := hint_for_exception(exc)):
+            out = stream if stream is not None else sys.stderr
             print(render_hint(hint, color=out.isatty()), file=out)
 
     setattr(_hook, _HINTKIT_HOOK_MARK, True)
