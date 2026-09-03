@@ -8,6 +8,8 @@ Validates the three independent check layers:
 
 from __future__ import annotations
 
+import pytest
+
 from gptme.hooks.confirm import ConfirmAction, ConfirmationResult
 from gptme.hooks.guardrails import (
     _check_egress,
@@ -99,6 +101,10 @@ class TestSecretReadDenial:
 
     def test_pem_file_blocked(self):
         assert _check_secret_read("cat server.pem") is not None
+
+    @pytest.mark.parametrize("suffix", ["crt", "cert"])
+    def test_public_certificate_suffix_allowed(self, suffix):
+        assert _check_secret_read(f"cat server.{suffix}") is None
 
     def test_pem_generic_skipped_without_flag(self):
         assert (
@@ -250,6 +256,17 @@ class TestEgressAllowlist:
         result = _check_egress("ssh evil.example", allowlist=["api.openai.com"])
         assert result is not None
         assert "evil.example" in result
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rsync -av /home/user/data /mnt/backup",
+            "scp file /tmp",
+            "ssh -V",
+        ],
+    )
+    def test_local_non_http_commands_allowed(self, command):
+        assert _check_egress(command, allowlist=["api.openai.com"]) is None
 
     def test_curl_resolve_override_blocked(self):
         result = _check_egress(
@@ -414,6 +431,16 @@ class TestEgressAllowlist:
             )
             is None
         )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "ssh -x -p 22 api.openai.com",
+            "wget --proxy=on https://api.openai.com/file",
+        ],
+    )
+    def test_non_curl_proxy_flags_are_not_parsed_as_curl(self, command):
+        assert _check_egress(command, allowlist=["api.openai.com"]) is None
 
 
 # ── Full hook integration ──────────────────────────────────────────────────────

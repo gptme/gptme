@@ -133,7 +133,8 @@ _SECRET_PATH_STRICT: list[re.Pattern[str]] = [
 ]
 # Suffixes that are secrets when *read* but also legitimate write/keygen targets.
 _SECRET_PATH_GENERIC: list[re.Pattern[str]] = [
-    re.compile(r"\.(?:pem|key|p12|pfx|crt|cert)(?:\b|$)"),
+    # Certificates are public material; only private-key/container suffixes belong here.
+    re.compile(r"\.(?:pem|key|p12|pfx)(?:\b|$)"),
 ]
 
 # ── Egress command detection ───────────────────────────────────────────────────
@@ -151,6 +152,11 @@ _SCP_HOST = re.compile(
 )
 _SSH_INVOCATION = re.compile(r"\bssh(?!-)\b([^;&|\n]*)")
 _NC_INVOCATION = re.compile(r"\b(?:nc|netcat|ncat)(?!-)\b([^;&|\n]*)")
+_CURL_INVOCATION = re.compile(r"\bcurl(?!-)\b([^;&|\n]*)")
+_HTTP_EGRESS = re.compile(r"\b(?:curl|wget)(?!-)\b")
+_NON_HTTP_INVOCATION = re.compile(
+    r"\b(nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)(?!-)\b([^;&|\n]*)"
+)
 _SSH_FLAGS_WITH_ARG = frozenset(
     {
         "-b",
@@ -301,6 +307,29 @@ def _host_from_argv(argv: str, flags_with_arg: frozenset[str]) -> str | None:
     return None
 
 
+def _has_unparsed_non_http_destination(cmd: str) -> bool:
+    """Return whether *cmd* contains network syntax without a parsed host.
+
+    ``scp`` and ``rsync`` also support local-to-local copies, while ``ssh -V``
+    only prints version information. Those forms do not require a destination
+    and must remain usable when an egress allowlist is active.
+    """
+    for match in _NON_HTTP_INVOCATION.finditer(cmd):
+        tool, argv = match.groups()
+        if tool in {"scp", "rsync"}:
+            # A colon-bearing remote operand is parsed by ``_SCP_HOST``. With
+            # none present, both operands are local paths; with one present,
+            # ``_non_http_hosts`` already checks it against the allowlist.
+            continue
+        if tool == "ssh":
+            if _host_from_argv(argv, _SSH_FLAGS_WITH_ARG):
+                continue
+            if re.search(r"(?:^|\s)-V(?:\s|$)", argv):
+                continue
+        return True
+    return False
+
+
 def _host_allowlisted(host: str, allowlist: list[str]) -> bool:
     host_l = host.lower()
     return any(
@@ -422,17 +451,22 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
         return None
     http_hosts = _http_hosts(cmd)
     other_hosts = _non_http_hosts(cmd)
-    override_hosts, unparsed_override = _curl_override_hosts(cmd)
-    proxy_hosts, unparsed_proxy = _curl_proxy_hosts(cmd)
+    # Curl option names overlap with unrelated tools (for example ``ssh -x``
+    # and ``wget --proxy=on``), so only parse flags from curl invocations.
+    curl_argv = "\n".join(match.group(1) for match in _CURL_INVOCATION.finditer(cmd))
+    override_hosts, unparsed_override = _curl_override_hosts(curl_argv)
+    proxy_hosts, unparsed_proxy = _curl_proxy_hosts(curl_argv)
     if unparsed_override:
         return "network command with unparsed destination override (allowlist active)"
     if unparsed_proxy:
         return "network command with unparsed proxy destination (allowlist active)"
     hosts = http_hosts + other_hosts + override_hosts + proxy_hosts
-    if _NON_HTTP_EGRESS.search(cmd) and not other_hosts:
+    if _has_unparsed_non_http_destination(cmd):
         return "network command with unparsed non-HTTP destination (allowlist active)"
     if not hosts:
-        return "network command with no parseable host (allowlist active)"
+        if _HTTP_EGRESS.search(cmd):
+            return "network command with no parseable host (allowlist active)"
+        return None
     for host in hosts:
         if not _host_allowlisted(host, allowlist):
             return f"network egress to non-allowlisted host {host!r}"
