@@ -1,11 +1,20 @@
 """Tests for telemetry functionality."""
 
+import importlib.util
 import logging
 import subprocess
 import sys
 from unittest.mock import patch
 
 import pytest
+
+
+def _has_telemetry_deps():
+    """Check if telemetry dependencies are installed."""
+    return (
+        importlib.util.find_spec("opentelemetry") is not None
+        and importlib.util.find_spec("prometheus_client") is not None
+    )
 
 
 def test_telemetry_imports_lazy():
@@ -51,10 +60,8 @@ def test_calculate_llm_cost_resolves_anthropic_short_alias():
 
 
 @pytest.mark.skipif(
-    not pytest.importorskip(
-        "opentelemetry", reason="telemetry dependencies not installed"
-    ),
-    reason="Requires telemetry dependencies",
+    not _has_telemetry_deps(),
+    reason="Requires telemetry dependencies (opentelemetry, prometheus_client)",
 )
 def test_init_telemetry_with_pushgateway(monkeypatch):
     """Test telemetry initialization with Pushgateway."""
@@ -83,6 +90,10 @@ def test_init_telemetry_with_pushgateway(monkeypatch):
         shutdown_telemetry()
 
 
+@pytest.mark.skipif(
+    not _has_telemetry_deps(),
+    reason="Requires telemetry dependencies (opentelemetry, prometheus_client)",
+)
 def test_pushgateway_periodic_push(monkeypatch):
     """Test that metrics are pushed periodically to Pushgateway."""
     import time
