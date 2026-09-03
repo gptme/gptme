@@ -554,10 +554,8 @@ def format_msgs(
     """Formats messages for printing to the console.
 
     terminal_projection: use `terminal_display_content` in place of `content`
-        when set (the default, matching the live-terminal rendering this
-        function exists for). Callers that feed the formatted text back into
-        an LLM (e.g. summarization) must pass False to avoid losing streamed
-        tool output that was deliberately left out of the terminal projection.
+        when set (the default, matching terminal rendering). Callers that need
+        complete content (e.g. summarization or a full log view) must pass False.
     """
     # Import here to avoid circular import
     from .config import get_config
