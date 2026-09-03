@@ -39,7 +39,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..message import Message
+from ..message import Message, is_output_json
 from ..sandbox import (
     SandboxConfig,
     _parse_size,
@@ -1624,7 +1624,13 @@ def execute_shell_impl(
             if hint:
                 workspace_hint_content = "\n\n" + hint.content
 
-    yield Message("system", msg + workspace_hint_content)
+    # The shell already streamed output to the terminal in real time via
+    # _run_pipe / _run_with_tty (output=True).  Suppress the second print
+    # that manager.append() would trigger so the output doesn't appear twice
+    # in the terminal.  In JSON output mode we still emit the structured
+    # event so consumers see the full tool result.  The TUI ignores quiet
+    # and renders the message through its own widget path.
+    yield Message("system", msg + workspace_hint_content, quiet=not is_output_json())
 
     if interrupted:
         raise KeyboardInterrupt from None
