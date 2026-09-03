@@ -144,10 +144,6 @@ class MessageMetadata(TypedDict, total=False):
 
     All fields are optional for compact storage - only non-None values are serialized.
 
-    ``terminal_display_content`` can override ``content`` only while rendering the
-    live text terminal. The complete message remains persisted, serialized, and sent
-    to the model. An empty string suppresses the final terminal rendering entirely.
-
     Token/cost fields are populated for assistant messages when telemetry is enabled.
 
     Token counts are nested under ``usage`` to match LLM API response structure::
@@ -176,7 +172,6 @@ class MessageMetadata(TypedDict, total=False):
     voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
     tool: str  # tool that produced this result message
-    terminal_display_content: str
     # Identifies one generated startup-prompt generation. A newer generation
     # supersedes older ones in provider context while all remain on disk.
     prompt_generation: str
@@ -286,6 +281,9 @@ class Message:
 
     # Metadata for token usage and cost tracking
     metadata: MessageMetadata | None = None
+    # Content shown only by the immediate text-terminal render. It is deliberately
+    # not persisted, so resumed logs render the complete message content.
+    terminal_display_content: str | None = None
 
     def __post_init__(self):
         assert isinstance(self.timestamp, datetime)
@@ -569,8 +567,11 @@ def format_msgs(
 
         # get terminal width
         max_len = shutil.get_terminal_size().columns - len(userprefix)
-        display_content = (msg.metadata or {}).get("terminal_display_content")
-        content = display_content if isinstance(display_content, str) else msg.content
+        content = (
+            msg.terminal_display_content
+            if msg.terminal_display_content is not None
+            else msg.content
+        )
         stripped_content = _strip_think_sig(content)
         output = ""
         if oneline:
@@ -604,7 +605,7 @@ def format_msgs(
 
         status_emoji = ""
         if msg.role == "system":
-            first_line = content.split("\n", 1)[0].lower()
+            first_line = stripped_content.split("\n", 1)[0].lower()
             first_three_words = first_line.split()[:3]
             isSuccess = first_line.startswith(("saved", "appended")) or any(
                 word in ["success", "successfully"] for word in first_three_words

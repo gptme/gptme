@@ -355,11 +355,13 @@ def execute_python(
     # stdout/stderr were already streamed through TeeIO. Keep the complete result
     # for the model and structured consumers, but render only details that were
     # not part of the live stream when LogManager prints the terminal message.
-    metadata: MessageMetadata = {"terminal_display_content": terminal_output.rstrip()}
+    terminal_parts = ["Executed code block."]
+    if terminal_output:
+        terminal_parts.append(terminal_output.rstrip())
     msg = Message(
         "system",
         "Executed code block.\n\n" + output,
-        metadata=metadata,
+        terminal_display_content="\n\n".join(terminal_parts),
     )
     if plot_artifacts:
         existing: MessageMetadata = dict(msg.metadata) if msg.metadata else {}  # type: ignore[assignment]

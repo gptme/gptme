@@ -58,7 +58,11 @@ class TestShellOutputDedup:
             messages = list(execute_shell_impl("echo shell-dedup-marker", logdir=None))
             _append_results(manager, messages)
 
-        assert stdout.getvalue().count("shell-dedup-marker") == 1
+        output = stdout.getvalue()
+        # Live-streamed output should be present; the terminal_display_content
+        # summary line ("Ran allowlisted command: `echo shell-dedup-marker`")
+        # mentions the command, so count standalone output lines, not substrings.
+        assert output.count("shell-dedup-marker\n") == 1
         assert "shell-dedup-marker" in messages[-1].content
         assert messages[-1].quiet is False
 
@@ -87,7 +91,10 @@ class TestShellOutputDedup:
         output = stdout.getvalue()
         assert '"type": "message"' in output
         assert "shell-json-marker" in output
-        assert messages[-1].metadata == {"terminal_display_content": ""}
+        # echo is allowlisted, so the header says "Ran allowlisted command"
+        assert messages[-1].terminal_display_content == (
+            "Ran allowlisted command: `echo shell-json-marker`"
+        )
 
 
 class TestIPythonOutputDedup:
@@ -129,6 +136,6 @@ class TestIPythonOutputDedup:
         assert '"type": "message"' in output
         assert "Result:" in output
         assert "42" in output
-        assert messages[-1].metadata == {
-            "terminal_display_content": "Result:\n````\n42\n````"
-        }
+        assert messages[-1].terminal_display_content == (
+            "Executed code block.\n\nResult:\n````\n42\n````"
+        )
