@@ -357,6 +357,26 @@ def _get_memory_limit() -> int | None:
     return limit
 
 
+def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
+    """Return the subset of `fds` that are readable, waiting up to `timeout` seconds.
+
+    Uses `poll()` rather than `select()`. `select()` is backed by `fd_set`, which
+    cannot represent a descriptor >= FD_SETSIZE (1024) and raises
+    `ValueError: filedescriptor out of range in select()` instead of degrading.
+    Long-lived processes and highly parallel test runs (`pytest -n 16`) routinely
+    push descriptors past that line. `poll()` has no such ceiling.
+    """
+    poller = select.poll()
+    for fd in fds:
+        # POLLHUP/POLLERR are reported regardless of the requested mask, so EOF
+        # still wakes the poll — matching select(), which reports EOF as readable.
+        poller.register(fd, select.POLLIN)
+    # select() takes seconds (None == block forever); poll() takes milliseconds
+    # (negative == block forever).
+    timeout_ms = -1 if timeout is None else int(timeout * 1000)
+    return [fd for fd, _event in poller.poll(timeout_ms)]
+
+
 class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
@@ -634,7 +654,7 @@ class ShellSession:
         else:
             assert select is not None
             while True:
-                pre_drain_rlist, _, _ = select.select([self.stderr_fd], [], [], 0.05)
+                pre_drain_rlist = _wait_readable([self.stderr_fd], 0.05)
                 if not pre_drain_rlist:
                     break
                 pre_drain_data = os.read(self.stderr_fd, 2**16).decode(
@@ -912,9 +932,7 @@ class ShellSession:
                         1.0, timeout - elapsed
                     )  # Check at least every second
 
-                rlist, _, _ = select.select(
-                    [self.stdout_fd, self.stderr_fd], [], [], select_timeout
-                )
+                rlist = _wait_readable([self.stdout_fd, self.stderr_fd], select_timeout)
 
                 # Handle timeout in select
                 if not rlist and timeout and start_time:
@@ -1002,9 +1020,7 @@ class ShellSession:
                             # has time to arrive from bash.
                             drain_empty_count = 0
                             while drain_empty_count < 2:
-                                drain_rlist, _, _ = select.select(
-                                    [self.stderr_fd], [], [], 0.1
-                                )
+                                drain_rlist = _wait_readable([self.stderr_fd], 0.1)
                                 if not drain_rlist:
                                     drain_empty_count += 1
                                     continue
