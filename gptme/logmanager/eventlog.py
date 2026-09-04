@@ -78,9 +78,12 @@ def _event_log_lock(logdir: Path) -> Iterator[None]:
         if fcntl is not None:
             fcntl.flock(lock, fcntl.LOCK_EX)
         elif msvcrt is not None:  # pragma: no cover - Windows
-            lock.seek(0)
-            lock.write(b"\0")
-            lock.flush()
+            # Append mode is needed to atomically create the sidecar, but Windows
+            # append semantics ignore seek() for writes.  Only initialize an empty
+            # sidecar so repeated acquisitions do not grow it indefinitely.
+            if lock.seek(0, os.SEEK_END) == 0:
+                lock.write(b"\0")
+                lock.flush()
             lock.seek(0)
             msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
         try:

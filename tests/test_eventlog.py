@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -82,25 +81,35 @@ def test_event_log_lock_uses_windows_fallback(logdir: Path):
             assert count == 1
             calls.append((mode, count))
 
-    @contextmanager
-    def unlocked_thread_lock():
-        yield
+    class UnlockedThreadLock:
+        def __enter__(self) -> None:
+            pass
+
+        def __exit__(self, *args: object) -> None:
+            pass
 
     with (
         patch("gptme.logmanager.eventlog.fcntl", None),
         patch("gptme.logmanager.eventlog.msvcrt", FakeMsvcrt),
-        patch(
-            "gptme.logmanager.eventlog._event_log_thread_lock", unlocked_thread_lock()
-        ),
+        patch("gptme.logmanager.eventlog._event_log_thread_lock", UnlockedThreadLock()),
     ):
         append_event(
             logdir,
             {"seq": 1, "ts": "", "type": "test", "payload": {}},
         )
+        append_event(
+            logdir,
+            {"seq": 2, "ts": "", "type": "test", "payload": {}},
+        )
 
-    assert calls == [(FakeMsvcrt.LK_LOCK, 1), (FakeMsvcrt.LK_UNLCK, 1)]
+    assert calls == [
+        (FakeMsvcrt.LK_LOCK, 1),
+        (FakeMsvcrt.LK_UNLCK, 1),
+        (FakeMsvcrt.LK_LOCK, 1),
+        (FakeMsvcrt.LK_UNLCK, 1),
+    ]
     assert (logdir / f".{EVENT_LOG_NAME}.lock").read_bytes() == b"\0"
-    assert read_events(logdir)[0]["seq"] == 1
+    assert [event["seq"] for event in read_events(logdir)] == [1, 2]
 
 
 def test_read_events_empty_logdir(logdir: Path):
