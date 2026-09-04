@@ -6536,19 +6536,31 @@ any tool. Enable it explicitly with <code class="docutils literal notranslate"><
 <p>This is separate from <code class="docutils literal notranslate"><span class="pre">vent</span></code>: <code class="docutils literal notranslate"><span class="pre">vent</span></code> records operational friction, while
 <code class="docutils literal notranslate"><span class="pre">request_tool_change</span></code> names a concrete tool-configuration request.</p>
 <p>Opt-in tool for assistants to request session tool configuration changes.</p>
-<p>The request is audit-only: calling this tool records structured intent in ordinary
-assistant tool-call and result-message history. It does not change the active tool
-configuration.</p>
+<p>Phase 1 (audit-only) recorded the intent in tool-call history without mutating
+the active tool set.  Phase 2 (this file) actually applies enable/disable
+requests by mutating the session-local <code class="docutils literal notranslate"><span class="pre">_loaded_tools_var</span></code> ContextVar that
+<code class="docutils literal notranslate"><span class="pre">get_tools()</span></code> reads.</p>
+<p><code class="docutils literal notranslate"><span class="pre">configure_tool</span></code> requests remain audit-only; a future phase can add actuation
+for them without altering the enable/disable paths.</p>
 <p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool when the current tool configuration blocks or unnecessarily expands
-what you need to do. The request is recorded in ordinary tool-call history for an
-operator to inspect; it does not itself enable, disable, or configure any tool.
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool to adjust which tools are available mid-session.
+
+<span class="k">-</span><span class="w"> </span>``enable_tool``: adds a known tool to the active set so it can be called in
+  subsequent turns.
+<span class="k">-</span><span class="w"> </span>``disable_tool``: removes a tool from the active set for the remainder of the
+  session.  You cannot disable ``request_tool_change`` itself.
+<span class="k">-</span><span class="w"> </span>``configure_tool``: records a configuration change request (audit-only for now).
+
+Changes take effect immediately; the next LLM turn will see the updated tool list.
 </pre></div>
 </div>
 <dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.request_tool_change.</span></span><span class="sig-name descname"><span class="pre">execute_request_tool_change</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>
-<dd><p>Validate and acknowledge an audit-only tool-change request.</p>
+<dd><p>Validate and apply a tool-change request.</p>
+<p><code class="docutils literal notranslate"><span class="pre">enable_tool</span></code> and <code class="docutils literal notranslate"><span class="pre">disable_tool</span></code> requests are applied immediately by
+mutating the session-local tool list returned by <code class="docutils literal notranslate"><span class="pre">get_tools()</span></code>.
+<code class="docutils literal notranslate"><span class="pre">configure_tool</span></code> requests are still audit-only.</p>
 </dd></dl>
 
 </section>
