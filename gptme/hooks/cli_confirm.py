@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from rich import print
 from rich.console import Console
 
+from ..config import get_config
 from ..util.ask_execute import print_confirmation_help, print_preview
 from ..util.clipboard import copy
 from ..util.prompt import prompt_alert
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 console = Console(log_path=False)
+
+# Risk tier threshold for auto-approval in interactive mode.
+# Calls classified at this tier or below are approved without prompting unless
+# GPTME_AUTO_APPROVE_READ is disabled.
+_AUTO_APPROVE_TIER_MAX = 1  # corresponds to RiskTier.READ
 
 
 # Re-export centralized auto-confirm functions for backward compatibility
@@ -63,10 +69,31 @@ def cli_confirm_hook(
     - Supports auto-confirm mode
     - Supports editing content before execution
     - Supports copying content to clipboard
+
+    Low-risk (read-only) tool calls can be auto-approved without prompting.
     """
+    from ..tools.risk import classify_tool_risk  # fmt: skip
+
     # Get preview content - use provided preview or generate from tool_use
     content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool, content)
+
+    # Auto-approve read-only tool calls without prompting when explicitly enabled.
+    # Still show the preview so the user can see what was executed.
+    #
+    # Note: READ-tier auto-approval intentionally does NOT interact with the
+    # check_auto_confirm() counter ("a N" in interactive mode). The counter is for
+    # temporarily auto-approving WRITE-tier operations, so READ calls do not consume
+    # that budget. Users must explicitly enable READ approval through config.
+    risk = classify_tool_risk(tool_use)
+    auto_approve_read = get_config().get_env_bool(
+        "GPTME_AUTO_APPROVE_READ", default=False
+    )
+    if auto_approve_read and risk <= _AUTO_APPROVE_TIER_MAX:
+        logger.debug(f"Auto-approving read-tier tool: {tool_use.tool}")
+        preview_content = content or tool_use.tool
+        print_preview(preview_content, lang, copy=bool(content))
+        return ConfirmationResult.confirm()
 
     # Determine if content is editable/copiable
     editable = bool(content)
