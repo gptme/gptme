@@ -158,6 +158,228 @@ echo "second"
     assert codeblocks[1].start == 3
 
 
+def test_extract_codeblocks_tooluse_then_output_block():
+    """Tooluse + prose + output fence must not swallow into one command.
+
+    Regression for gptme/gptme#3697: at depth 1 the nested-fence lookahead
+    treated the shell closer as a nested opener because a later bare fence
+    had non-blank content after it. The shell tool then received the prose
+    and inner fences as part of the command.
+    """
+    markdown = """```shell
+echo hello
+```
+The exact output is:
+
+```
+hello
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 2, f"expected 2 blocks, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock("shell", "echo hello")
+    assert blocks[1] == Codeblock("", "hello")
+
+
+def test_extract_codeblocks_ipython_then_output_block():
+    """Same swallow hazard for the ipython tool (also executed)."""
+    markdown = """```ipython
+1 + 1
+```
+The exact output is:
+
+```
+2
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 2, f"expected 2 blocks, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock("ipython", "1 + 1")
+    assert blocks[1] == Codeblock("", "2")
+
+
+def test_extract_codeblocks_shell_heredoc_with_embedded_fence():
+    """Shell block containing a heredoc whose body has literal fence lines must
+    not be truncated at the embedded fence.
+
+    Regression for gptme/gptme#3703: the EXEC_LANGS bare-fence-is-always-a-closer
+    fix broke any shell command that writes a markdown file via heredoc, because the
+    parser terminated the shell block at the first ``` inside the heredoc body.
+    """
+    markdown = """```shell
+cat << 'EOF' > file.md
+```
+some markdown
+```
+EOF
+echo done
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock(
+        "shell", "cat << 'EOF' > file.md\n```\nsome markdown\n```\nEOF\necho done"
+    )
+
+
+def test_extract_codeblocks_shell_heredoc_unquoted_terminator():
+    """Same heredoc case with an unquoted terminator (<<EOF vs <<'EOF')."""
+    markdown = """```shell
+cat <<EOF > readme.md
+```
+content
+```
+EOF
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    expected_content = "cat <<EOF > readme.md\n```\ncontent\n```\nEOF"
+    assert blocks[0] == Codeblock("shell", expected_content)
+
+
+def test_extract_codeblocks_shell_heredoc_punctuated_terminator():
+    """Heredoc terminator words aren't restricted to \\w (bash allows any
+    unquoted word without whitespace, e.g. hyphens). Regression for the
+    Greptile P1 on gptme/gptme#3703: ``\\w+`` failed to match ``END-TAG``,
+    so the embedded fence closed the block early.
+    """
+    markdown = """```shell
+cat << 'END-TAG' > file.md
+```
+some markdown
+```
+END-TAG
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock(
+        "shell", "cat << 'END-TAG' > file.md\n```\nsome markdown\n```\nEND-TAG"
+    )
+
+
+def test_extract_codeblocks_shell_comment_with_lt_lt_not_a_heredoc():
+    """A ``<<`` inside a ``#`` comment must not be treated as a heredoc
+    operator. Regression for the Greptile P1 on gptme/gptme#3703: the
+    heredoc scanner didn't know about comments, so inert ``<<`` text in a
+    comment falsely opened heredoc state, re-enabling the depth-1
+    look-ahead and absorbing the following prose/output blocks into the
+    command.
+    """
+    markdown = """```shell
+# see the << operator docs
+echo hi
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", "# see the << operator docs\necho hi"),
+        Codeblock("", "output here"),
+    ]
+
+
+def test_extract_codeblocks_shell_escaped_quote_not_a_heredoc():
+    """A backslash-escaped quote inside a double-quoted string must not
+    desync the quote tracker. Regression for the Greptile P1 on
+    gptme/gptme#3703: the scanner treated ``\\"`` as closing the string,
+    so a later unquoted-looking ``<<`` inside the (still-open) string
+    falsely opened heredoc state and absorbed the following prose/output
+    blocks into the command.
+    """
+    markdown = """```shell
+echo "value \\" << not-a-heredoc"
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'echo "value \\" << not-a-heredoc"'),
+        Codeblock("", "output here"),
+    ]
+
+
+def test_extract_codeblocks_shell_herestring_is_not_a_heredoc():
+    """A ``<<<`` here-string takes one inline value and never opens a
+    multi-line body. Regression for the Greptile P1 on gptme/gptme#3703:
+    the terminator regex matched the third ``<`` as a bogus terminator
+    (e.g. ``"<"``), so heredoc state never closed and the real closing
+    fence was absorbed as a nested opener.
+    """
+    markdown = """```shell
+cat <<< "hello"
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'cat <<< "hello"'),
+        Codeblock("", "output here"),
+    ]
+
+
+def test_extract_codeblocks_shell_heredoc_backslash_escaped_terminator():
+    """``<<\\EOF`` (backslash-escaped, unquoted) uses the plain word ``EOF``
+    as its terminator, same as ``<<EOF`` and ``<<'EOF'``. Regression for the
+    Greptile P1 on gptme/gptme#3703: the terminator regex captured the
+    backslash as part of the word (``"\\\\EOF"``), which never matched the
+    real closing line ``EOF``, so heredoc state persisted forever and
+    swallowed the rest of the message into the command.
+    """
+    markdown = """```shell
+cat <<\\EOF > file.md
+```
+some markdown
+```
+EOF
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}: {blocks!r}"
+    assert blocks[0] == Codeblock(
+        "shell", "cat <<\\EOF > file.md\n```\nsome markdown\n```\nEOF"
+    )
+
+
+def test_extract_codeblocks_ipython_arithmetic_shift_is_not_a_heredoc():
+    """An unquoted ``<<`` that's actually an arithmetic left-shift (e.g.
+    ipython ``x << 2``) must not permanently wedge heredoc state open.
+
+    Regression for the bob-ai-review P2 on gptme/gptme#3703: a phantom
+    terminator (``"2"``) that never appears alone on a later line used to
+    stay "open" for the rest of the message, so the real closing fence was
+    absorbed as a nested opener and the following prose/output blocks were
+    swallowed into the ipython command.
+    """
+    markdown = """```ipython
+x = 1 << 2
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("ipython", "x = 1 << 2"),
+        Codeblock("", "output here"),
+    ]
+
+
 def test_extract_codeblocks_concatenated_adjacent_fences():
     """Recover when a closing fence and the next opening fence are concatenated."""
     markdown = """```shell
@@ -1534,3 +1756,27 @@ def test_from_markdown_leading_whitespace_after_fence():
     cb = Codeblock.from_markdown("``` save path/to/file.py\nprint(1)\n```")
     assert cb.lang == "save path/to/file.py"
     assert cb.content == "print(1)\n"
+
+
+def test_extract_codeblocks_shell_quoted_non_heredoc_lt():
+    """A ``<<`` inside a quoted string is not a heredoc operator.
+
+    Regression for the Greptile P1 on gptme/gptme#3703: ``echo "a << b"``
+    recorded ``b`` as a heredoc terminator, re-enabling the depth-1
+    look-ahead so the real closer was treated as a nested opener and
+    subsequent prose/output blocks were absorbed into the command.
+    """
+    markdown = """```shell
+echo "a << b"
+```
+prose after
+
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'echo "a << b"'),
+        Codeblock("", "output here"),
+    ]

@@ -99,6 +99,69 @@ class Codeblock:
         return list(_extract_codeblocks(markdown, streaming=streaming))
 
 
+def _find_heredoc_terminator(line: str) -> str | None:
+    """Return the heredoc terminator word if ``line`` opens a heredoc.
+
+    Only recognizes ``<<`` operators at top-level (outside quoted strings,
+    outside comments, and not backslash-escaped): a heredoc operator is
+    shell syntax and never occurs inside a quoted literal or a ``#``
+    comment, so ``echo "a << b"`` and ``# see a << b`` are correctly
+    ignored while ``cat << 'EOF' > file.md`` is recognized. A backslash
+    escapes the next character (matching shell quoting rules), so
+    ``echo \\# not-a-comment`` and escaped quotes inside a double-quoted
+    string don't desync the quote tracker. The terminator word accepts any
+    run of non-whitespace, non-quote, non-backslash characters (bash
+    heredoc words aren't restricted to ``\\w``, e.g. ``<<'END-TAG'``), with
+    an optional single leading quote-or-backslash consumed but not part of
+    the terminator (``<<'EOF'``, ``<<"EOF"``, and ``<<\\EOF`` all use the
+    plain word ``EOF``). A ``<<<`` here-string takes one inline value and
+    never opens a multi-line body, so it's explicitly not matched here -
+    otherwise the capture group would swallow the third ``<`` as part of
+    the (bogus) terminator and heredoc state would never close. Unquoted
+    ``<<`` arithmetic shifts (e.g. ipython ``x << 2``) can still
+    false-positive; the terminator word must then appear alone on a line
+    to matter, which is rare in practice.
+    """
+    in_single = in_double = False
+    i = 0
+    n = len(line)
+    while i < n - 1:
+        c = line[i]
+        if c == "\\" and not in_single:
+            # Backslash escapes the next char outside single quotes (bash
+            # doesn't allow escaping inside single quotes at all).
+            i += 2
+            continue
+        if c == "'" and not in_double:
+            in_single = not in_single
+        elif c == '"' and not in_single:
+            in_double = not in_double
+        elif (
+            c == "#"
+            and not in_single
+            and not in_double
+            and (i == 0 or line[i - 1].isspace())
+        ):
+            # Start of a shell comment - nothing after it is executable syntax.
+            return None
+        elif (
+            c == "<"
+            and line[i + 1] == "<"
+            and not in_single
+            and not in_double
+            and (i == 0 or line[i - 1] != "<")
+        ):
+            if i + 2 < n and line[i + 2] == "<":
+                # `<<<` here-string, not a heredoc operator - skip past it.
+                i += 2
+                continue
+            m = re.match(r"<<-?\s*['\"\\]?([^\s'\"\\]+)", line[i:])
+            if m:
+                return m.group(1)
+        i += 1
+    return None
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -186,6 +249,25 @@ def _extract_codeblocks(
     # Normalize line endings so CRLF input does not leak carriage returns into content.
     markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
 
+    # Languages where a bare fence at depth 1 is never a nested opener.
+    # Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
+    # only produces false positives (swallowing prose + output blocks into
+    # the command). See gptme/gptme#3697.
+    _EXEC_LANGS = frozenset(
+        {
+            "shell",
+            "sh",
+            "bash",
+            "zsh",
+            "fish",
+            "ksh",
+            "nu",
+            "ps1",
+            "powershell",
+            "ipython",
+        }
+    )
+
     lines = markdown.split("\n")
     i = 0
 
@@ -214,6 +296,10 @@ def _extract_codeblocks(
 
             # Track nesting depth to handle nested code blocks
             nesting_depth = 1
+            # For exec langs: track heredoc state so embedded fences inside a heredoc
+            # body (e.g. a shell script writing a markdown file) are treated as literal
+            # content and never as block closers.
+            heredoc_terminator: str | None = None
 
             # Collect content until we find the matching closing ```
             while i < len(lines):
@@ -257,6 +343,35 @@ def _extract_codeblocks(
                         lines[i] = rest
                         reprocess_current_line = True
                         break
+
+                # Update heredoc state for exec langs before fence detection.
+                # A heredoc body may contain literal fence lines (e.g. a shell script
+                # writing a markdown file via cat << EOF).  Track open/close so the
+                # fence-termination logic below can distinguish them from block closers.
+                #
+                # A candidate terminator is only trusted once it's confirmed to appear
+                # alone on a later line within a bounded window. Without this check, an
+                # unrelated unquoted `<<` (e.g. an arithmetic shift `x << 2`, or ipython
+                # `x << 2`) sets a phantom terminator that never matches anything, so
+                # heredoc state would stay "open" for the rest of the message -
+                # permanently disabling the bare-fence-is-a-closer rule and swallowing
+                # every block that follows. The window can't stop at the next bare
+                # fence: a real heredoc body legitimately contains fence-like lines
+                # (that's the case this tracking exists to handle), so a fence-bounded
+                # scan would break on the very heredocs it's meant to support. A wide
+                # but finite window instead bounds both the false-confirm blast radius
+                # (an unrelated standalone line matching the candidate far later in the
+                # message) and the O(n^2) worst case on very large documents.
+                if lang in _EXEC_LANGS:
+                    if heredoc_terminator is None:
+                        candidate = _find_heredoc_terminator(line)
+                        _confirm_window = lines[i + 1 : i + 1 + 200]
+                        if candidate is not None and any(
+                            later.strip() == candidate for later in _confirm_window
+                        ):
+                            heredoc_terminator = candidate
+                    elif line.strip() == heredoc_terminator:
+                        heredoc_terminator = None
 
                 # Check if this line starts with backticks (potential opening or closing)
                 line_fence_match = re.match(r"^(`{3,})", line)
@@ -316,8 +431,18 @@ def _extract_codeblocks(
                                 break
                             else:
                                 content_lines.append(line)
-                        elif next_has_content and not next_is_fence:
-                            # Next line has content - check if this is a real nested block
+                        elif (
+                            next_has_content
+                            and not next_is_fence
+                            and (
+                                lang not in _EXEC_LANGS
+                                or heredoc_terminator is not None
+                            )
+                        ):
+                            # Next line has content - check if this is a real nested block.
+                            # For exec langs outside a heredoc: bare fence is always a
+                            # closer (no triple-backtick syntax).  Inside a heredoc the
+                            # fence is literal content, so apply the look-ahead as normal.
                             if nesting_depth > 1:
                                 # We're already nested, this opens another level
                                 nesting_depth += 1
