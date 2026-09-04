@@ -1,8 +1,10 @@
 import copy
 import logging
 import os
+import sys
 import threading
 from collections.abc import Callable, Generator
+from contextvars import ContextVar
 from pathlib import Path
 
 from .commands import execute_cmd
@@ -28,6 +30,7 @@ from .message import (
     get_output_format,
     is_output_json,
     is_output_quiet,
+    len_tokens,
     set_output_format,
 )
 from .prompt_queue import drain_prompt_queue
@@ -50,6 +53,59 @@ from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
+
+# A mutable value in a ContextVar keeps each chat isolated while allowing all
+# step() calls in that chat to contribute to one running total.
+_session_tokens: ContextVar[list[int] | None] = ContextVar(
+    "session_tokens", default=None
+)
+
+
+def _reset_token_accumulator() -> None:
+    _session_tokens.set([0])
+
+
+def _get_session_tokens() -> int:
+    """Return the running total for the current chat context."""
+    session_tokens = _session_tokens.get()
+    return session_tokens[0] if session_tokens is not None else 0
+
+
+def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> None:
+    """Print running token totals after each LLM call (enabled by --track-tokens)."""
+    try:
+        session_tokens = _session_tokens.get()
+        if session_tokens is None:
+            session_tokens = [0]
+            _session_tokens.set(session_tokens)
+
+        # Resolve once from the caller-supplied name (alias or full). Tokenizer
+        # and context metadata then share that ModelMeta; passing .full back
+        # into get_model() is the lookup 48225d823 avoided.
+        resolved = get_model(model)
+        n_in = len_tokens(msgs, resolved.full)
+        n_out = len_tokens(msg_response, resolved.full)
+        context_limit = resolved.context
+        n_used = n_in + n_out
+        session_tokens[0] += n_used
+
+        # Occupancy is input+output: output tokens also consume the context
+        # window, so an n_in-only percentage understates how close we are to
+        # the limit (and to overflow on the next turn).
+        context_display = f"{context_limit:,}" if context_limit else "unknown"
+        pct_display = (
+            f" ({100.0 * n_used / context_limit:.1f}%)" if context_limit else ""
+        )
+        print(
+            f"[track-tokens] context: {n_used:,} / {context_display}{pct_display} | "
+            f"+{n_out:,} out | session total: {session_tokens[0]:,}",
+            file=sys.stderr,
+            flush=True,
+        )
+    except Exception as e:
+        # Informational only — never crash the main chat loop over token display.
+        # KeyboardInterrupt/SystemExit are BaseException and still propagate.
+        logger.warning("track-tokens failed: %s", e)
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
@@ -77,6 +133,12 @@ def chat(
 
     Callable from other modules.
     """
+    # Save the previous token accumulator so nested chat() calls (inline subagents)
+    # restore the outer chat's running total on return.  The actual reset is
+    # deferred to inside the try block so the finally clause always runs to
+    # restore _prev_tokens even if pre-try setup code raises an exception.
+    _prev_tokens = _session_tokens.get()
+
     # Set initial terminal title with conversation name
     conv_name = logdir.name
     set_current_conv_name(conv_name)
@@ -95,6 +157,9 @@ def chat(
     # restore it on exit instead of unconditionally resetting to "text".
     _prev_output_format = get_output_format()
     try:
+        # Reset here (inside try) so the finally clause always restores
+        # _prev_tokens if any setup code above raises before reaching this point.
+        _reset_token_accumulator()
         set_output_format(output_format)
 
         # init
@@ -197,6 +262,12 @@ def chat(
         # Restore the caller's format so nested chat() calls (inline subagents)
         # don't clobber the parent's JSON mode when they exit.
         set_output_format(_prev_output_format)
+        # Restore the outer chat's token accumulator so same-context nested
+        # chat() calls don't corrupt the parent's running total.
+        # Thread-mode subagents start with a fresh contextvars context, so
+        # their totals are already isolated; folding inner into parent here
+        # would not see the parent list across threads.
+        _session_tokens.set(_prev_tokens)
 
 
 def _run_chat_loop(
@@ -657,6 +728,8 @@ def step(
             )
         if get_config().get_env_bool("GPTME_COSTS"):
             log_costs(msgs + [msg_response])
+        if get_config().get_env_bool("GPTME_TRACK_TOKENS"):
+            _log_token_usage(msgs, msg_response, model)
 
         # Trigger generation post hooks (e.g., TTS)
         if generation_post_msgs := trigger_hook(

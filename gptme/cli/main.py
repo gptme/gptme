@@ -806,6 +806,13 @@ Run 'gptme-util --help' for all utility commands."""
     help="Write a JSON record before and after each tool call to this directory. "
     "Records can be committed alongside session artifacts for tool-call-level attribution.",
 )
+@click.option(
+    "--track-tokens",
+    "track_tokens",
+    is_flag=True,
+    envvar="GPTME_TRACK_TOKENS",
+    help="After each LLM call, print running token count and percent of the model's context window.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -840,6 +847,7 @@ def main(
     output_schema: str | None,
     injection_hygiene: str | None,
     manifest_dir: Path | None,
+    track_tokens: bool,
 ):
     """Main entrypoint for the CLI."""
     show_version = version or version_json
@@ -965,6 +973,12 @@ def main(
     # so this only fires when the flag was explicitly passed on the command line.
     if injection_hygiene is not None:
         os.environ["GPTME_INJECTION_HYGIENE"] = injection_hygiene
+
+    # Propagate an explicit --track-tokens flag to the env var checked per-step.
+    # Preserve the original env string otherwise so get_env_bool() can interpret
+    # falsy values such as GPTME_TRACK_TOKENS=0 correctly.
+    if ctx.get_parameter_source("track_tokens") == ParameterSource.COMMANDLINE:
+        os.environ["GPTME_TRACK_TOKENS"] = "1"
 
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
@@ -1099,7 +1113,7 @@ def main(
 
     # Everything below is an actual chat session: import the heavy parts of
     # gptme now, after the cheap early-exit paths (--help/--version/dispatch).
-    from ..chat import chat
+    from ..chat import _log_token_usage, chat
     from ..config import ensure_workspace_dir, get_config, setup_config_from_cli
     from ..init import init_logging
     from ..llm import get_provider_from_model, is_custom_provider
@@ -1596,6 +1610,12 @@ def main(
             tools=None,  # architect has no tools (planning only)
             workspace=workspace_path,
         )
+        # Architect calls llm_reply outside chat()/step(), so the per-step
+        # track-tokens hook never sees this turn. Log it here when enabled.
+        # chat() then resets the accumulator for the editor session — the
+        # planning context is a different window/model, not editor occupancy.
+        if get_config().get_env_bool("GPTME_TRACK_TOKENS"):
+            _log_token_usage(architect_msgs, architect_response, _arch_model)
 
         plan_text = architect_response.content.strip()
         logger.info("Architect plan generated (%d chars)", len(plan_text))
