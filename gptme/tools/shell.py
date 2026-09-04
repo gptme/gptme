@@ -371,9 +371,12 @@ def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
         # POLLHUP/POLLERR are reported regardless of the requested mask, so EOF
         # still wakes the poll — matching select(), which reports EOF as readable.
         poller.register(fd, select.POLLIN)
-    # select() takes seconds (None == block forever); poll() takes milliseconds
-    # (negative == block forever).
-    timeout_ms = -1 if timeout is None else int(timeout * 1000)
+    # select() takes seconds (None == block forever); poll() takes integer
+    # milliseconds (negative == block forever). Round positive sub-millisecond
+    # waits up so they do not become busy-spinning non-blocking polls.
+    timeout_ms = (
+        -1 if timeout is None else max(0 if timeout == 0 else 1, int(timeout * 1000))
+    )
     return [fd for fd, _event in poller.poll(timeout_ms)]
 
 

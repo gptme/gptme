@@ -11,6 +11,7 @@ POSIX-only: `resource`, `fcntl`, and `select.poll()` do not exist on Windows.
 """
 
 import os
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -95,3 +96,21 @@ def test_wait_readable_times_out_with_no_data():
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+def test_wait_readable_rounds_positive_submillisecond_timeout_up():
+    """A positive timeout must not turn into a non-blocking poll."""
+    poller = Mock()
+    poller.poll.return_value = []
+    with patch("gptme.tools.shell.select.poll", return_value=poller):
+        assert _wait_readable([7], 0.0001) == []
+    poller.poll.assert_called_once_with(1)
+
+
+def test_wait_readable_preserves_zero_timeout():
+    """An explicit zero timeout remains a non-blocking poll."""
+    poller = Mock()
+    poller.poll.return_value = []
+    with patch("gptme.tools.shell.select.poll", return_value=poller):
+        assert _wait_readable([7], 0) == []
+    poller.poll.assert_called_once_with(0)
