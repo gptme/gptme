@@ -233,6 +233,36 @@ def test_format_msgs_strips_standalone_think_sig():
     assert "wrapped-signature" not in content
 
 
+def test_format_msgs_terminal_projection_default_uses_display_content():
+    """By default (terminal rendering), the reduced terminal_display_content
+    is shown in place of the complete content, when set."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message(
+        "system",
+        "Executed code block.\n\nResult:\n```\nfull stdout that was streamed live\n```",
+        terminal_display_content="Executed code block.",
+    )
+    (content,) = format_msgs([msg])
+    assert "full stdout that was streamed live" not in content
+    assert "Executed code block." in content
+
+
+def test_format_msgs_terminal_projection_false_uses_complete_content():
+    """Callers that feed the formatted text back into an LLM (e.g.
+    summarization) must see the complete content, not the reduced
+    terminal-only projection — see gptme#3708."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message(
+        "system",
+        "Executed code block.\n\nResult:\n```\nfull stdout that was streamed live\n```",
+        terminal_display_content="Executed code block.",
+    )
+    (content,) = format_msgs([msg], terminal_projection=False)
+    assert "full stdout that was streamed live" in content
+
+
 def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):
     """Test that file paths are resolved to absolute paths when serializing.
 

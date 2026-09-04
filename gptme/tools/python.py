@@ -309,6 +309,7 @@ def execute_python(
     captured_stderr = stderr_capture.getvalue()
 
     output = ""
+    terminal_output = ""
     # TODO: should we include captured stdout with messages like these?
     # used by vision tool and observe helpers
     if isinstance(result.result, Message):
@@ -324,7 +325,9 @@ def execute_python(
         # show stdout before result if both exist
         if captured_stdout:
             output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
-        output += f"Result:\n{md_codeblock('', str(result.result))}\n\n"
+        result_output = f"Result:\n{md_codeblock('', str(result.result))}\n\n"
+        output += result_output
+        terminal_output += result_output
 
     elif captured_stdout:
         output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
@@ -335,7 +338,15 @@ def execute_python(
         while tb and tb.tb_next:
             tb = tb.tb_next
         if tb:
-            output += f"Exception during execution on line {tb.tb_lineno}:\n  {result.error_in_exec.__class__.__name__}: {result.error_in_exec}"
+            exception_output = (
+                f"Exception during execution on line {tb.tb_lineno}:\n"
+                f"  {result.error_in_exec.__class__.__name__}: {result.error_in_exec}"
+            )
+            output += exception_output
+            # Do NOT add to terminal_output: the live IPython stream already
+            # shows the full traceback (including the exception message) in the
+            # foreground. Adding a synthesized summary here would produce an
+            # extra duplicate occurrence in non-live replay contexts.
 
     # strip ANSI escape sequences (safety net — colors are disabled at the source
     # via NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them)
@@ -344,7 +355,17 @@ def execute_python(
     # Detect plot files created or modified during execution and attach descriptors
     post_images = _snapshot_images(cwd)
     plot_artifacts = _make_plot_artifacts(pre_images, post_images)
-    msg = Message("system", "Executed code block.\n\n" + output)
+    # stdout/stderr were already streamed through TeeIO. Keep the complete result
+    # for the model and structured consumers, but render only details that were
+    # not part of the live stream when LogManager prints the terminal message.
+    terminal_parts = ["Executed code block."]
+    if terminal_output:
+        terminal_parts.append(terminal_output.rstrip())
+    msg = Message(
+        "system",
+        "Executed code block.\n\n" + output,
+        terminal_display_content="\n\n".join(terminal_parts),
+    )
     if plot_artifacts:
         existing: MessageMetadata = dict(msg.metadata) if msg.metadata else {}  # type: ignore[assignment]
         existing["artifacts"] = [*existing.get("artifacts", []), *plot_artifacts]

@@ -281,6 +281,9 @@ class Message:
 
     # Metadata for token usage and cost tracking
     metadata: MessageMetadata | None = None
+    # Content shown only by the immediate text-terminal render. It is deliberately
+    # not persisted, so resumed logs render the complete message content.
+    terminal_display_content: str | None = None
 
     def __post_init__(self):
         assert isinstance(self.timestamp, datetime)
@@ -546,8 +549,14 @@ def format_msgs(
     oneline: bool = False,
     highlight: bool = False,
     indent: int = 0,
+    terminal_projection: bool = True,
 ) -> list[str]:
-    """Formats messages for printing to the console."""
+    """Formats messages for printing to the console.
+
+    terminal_projection: use `terminal_display_content` in place of `content`
+        when set (the default, matching terminal rendering). Callers that need
+        complete content (e.g. summarization or a full log view) must pass False.
+    """
     # Import here to avoid circular import
     from .config import get_config
 
@@ -564,7 +573,12 @@ def format_msgs(
 
         # get terminal width
         max_len = shutil.get_terminal_size().columns - len(userprefix)
-        stripped_content = _strip_think_sig(msg.content)
+        content = (
+            msg.terminal_display_content
+            if terminal_projection and msg.terminal_display_content is not None
+            else msg.content
+        )
+        stripped_content = _strip_think_sig(content)
         output = ""
         if oneline:
             content = stripped_content.replace("\n", "\\n")
@@ -597,7 +611,7 @@ def format_msgs(
 
         status_emoji = ""
         if msg.role == "system":
-            first_line = msg.content.split("\n", 1)[0].lower()
+            first_line = stripped_content.split("\n", 1)[0].lower()
             first_three_words = first_line.split()[:3]
             isSuccess = first_line.startswith(("saved", "appended")) or any(
                 word in ["success", "successfully"] for word in first_three_words
@@ -608,7 +622,10 @@ def format_msgs(
             elif isError:
                 status_emoji = "❌ "
 
-        outputs.append(f"{userprefix}: {status_emoji}{output.rstrip()}")
+        if stripped_content:
+            outputs.append(f"{userprefix}: {status_emoji}{output.rstrip()}")
+        else:
+            outputs.append("")
     return outputs
 
 
@@ -667,6 +684,8 @@ def print_msg(
     for m, s in zip(msgs, msgstrs):
         if m.hide and not show_hidden:
             skipped_hidden += 1
+            continue
+        if not s:
             continue
         try:
             # Plain-text formatting intentionally preserves literal Rich syntax.

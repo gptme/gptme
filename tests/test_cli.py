@@ -1,6 +1,7 @@
 import importlib
 import os
 import random
+import re
 import signal
 import tempfile
 import threading
@@ -1434,8 +1435,9 @@ def test_shell(args: list[str], runner: CliRunner):
     args.append("/shell echo 'yes'")
     result = runner.invoke(cli.main, args)
     output = result.output.split("System")[-1]
-    # check for two 'yes' in output (both command and stdout)
-    assert output.count("yes") == 2, result.output
+    # Only the echoed command (`echo 'yes'`) remains after the last "System"
+    # split; the streamed stdout is no longer replayed in the final message.
+    assert output.count("yes") == 1, result.output
     assert result.exit_code == 0
 
 
@@ -1451,14 +1453,20 @@ def test_shell_file(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
     # "yes" should appear in output (from cat stdout)
     assert "yes" in result.output, f"Expected 'yes' in output: {result.output}"
-    # The total count of "yes" should be 2-3: typically 2 (once in echoed command,
-    # once in stdout), but output formatting may vary. More than 3 indicates filename expansion.
-    # Tolerates output variations that caused flakiness (#1325, #1327).
+    # Captured shell output is rendered once. A second occurrence means the final
+    # tool-result message replayed output that was already streamed.
     yes_count = result.output.count("yes")
-    assert 2 <= yes_count <= 3, (
-        f"Expected 2-3 'yes' occurrences (command echo + stdout), got {yes_count}: "
-        f"{result.output}"
+    assert yes_count == 1, (
+        f"Expected one 'yes' occurrence from stdout, got {yes_count}: {result.output}"
     )
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Drop ANSI escape sequences so substring assertions see the rendered text."""
+    return _ANSI_RE.sub("", text)
 
 
 @pytest.mark.slow
@@ -1473,7 +1481,11 @@ def test_python(args: list[str], runner: CliRunner):
 def test_python_error(args: list[str], runner: CliRunner):
     args.append("/py raise Exception('yes')")
     result = runner.invoke(cli.main, args)
-    assert "Exception: yes" in result.output
+    # IPython streams its own traceback during run_cell, so the failure reaches
+    # the user as a colored `Exception: yes` line. Strip ANSI before asserting:
+    # the escape codes sit between the class name and the message, so a raw
+    # substring check would fail on output the user can plainly read.
+    assert "Exception: yes" in _strip_ansi(result.output)
     assert result.exit_code == 0
 
 
