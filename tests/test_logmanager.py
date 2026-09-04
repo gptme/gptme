@@ -672,10 +672,57 @@ def test_write_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
         log.write_jsonl(jsonl_file)
 
     assert len(calls) == 1, f"expected one open() call, got {calls}"
-    assert "w" in calls[0]["mode"]
+    assert "a" in calls[0]["mode"]
     assert calls[0]["encoding"] == "utf-8", (
         f"write_jsonl must pass encoding='utf-8', got encoding={calls[0]['encoding']!r}"
     )
+
+
+def test_write_jsonl_appends_only_new_messages(tmp_path: Path):
+    """Repeated persistence does not rewrite the existing conversation."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first")]).write_jsonl(jsonl_file)
+    first_size = jsonl_file.stat().st_size
+
+    log = log.append(Message("assistant", "second"))
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(jsonl_file)
+
+    assert calls[0]["mode"] == "a"
+    assert jsonl_file.stat().st_size > first_size
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
+    assert log.persisted_messages == 2
+
+
+def test_write_jsonl_rewrites_after_messages_are_removed(tmp_path: Path):
+    """Undo-like changes replace stale persisted trailing messages."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log(
+        [Message("user", "first"), Message("assistant", "remove me")]
+    ).write_jsonl(jsonl_file)
+
+    log = log.pop()
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(jsonl_file)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["first"]
+    assert log.persisted_messages == 1
+
+
+def test_write_jsonl_replaces_unknown_existing_file(tmp_path: Path):
+    """A fresh Log object must not append onto stale on-disk content."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+
+    with _record_open_calls() as calls:
+        Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
 
 
 def test_read_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):

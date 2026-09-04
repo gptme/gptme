@@ -19,6 +19,7 @@ from gptme.logmanager.eventlog import (
     EVENT_UNDO,
     _event_log_path,
     append_event,
+    compact_events,
     find_latest_checkpoint,
     read_events,
     recover_messages,
@@ -124,6 +125,55 @@ def test_find_latest_among_multiple(logdir: Path):
     assert cp is not None
     assert cp["seq"] == 100
     assert cp["payload"]["messages"][0]["content"] == "last"
+
+
+def test_compact_events_keeps_latest_checkpoint_and_tail(logdir: Path):
+    """Compaction drops history already represented by the latest checkpoint."""
+    append_event(
+        logdir,
+        {
+            "seq": 49,
+            "ts": "2026-01-01T00:00:00Z",
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "user", "content": "old"}},
+        },
+    )
+    write_checkpoint(logdir, 50, [{"role": "user", "content": "snapshot"}])
+    append_event(
+        logdir,
+        {
+            "seq": 51,
+            "ts": "2026-01-01T00:00:01Z",
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "tail"}},
+        },
+    )
+
+    compact_events(logdir)
+
+    events = read_events(logdir)
+    assert [event["seq"] for event in events] == [50, 51]
+    recovered = recover_messages(logdir)
+    assert recovered is not None
+    assert [message["content"] for message in recovered] == ["snapshot", "tail"]
+
+
+def test_compact_events_without_checkpoint_is_noop(logdir: Path):
+    """Compaction preserves append-only history until a checkpoint exists."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "ts": "2026-01-01T00:00:00Z",
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "user", "content": "hello"}},
+        },
+    )
+    before = (logdir / EVENT_LOG_NAME).read_bytes()
+
+    compact_events(logdir)
+
+    assert (logdir / EVENT_LOG_NAME).read_bytes() == before
 
 
 def test_recover_messages_no_event_log(logdir: Path):
@@ -403,13 +453,19 @@ def test_integration_recovery(logdir: Path):
 
 
 def test_integration_checkpoint_logmanager(logdir: Path):
-    """LogManager with many appends produces checkpoints."""
+    """LogManager checkpoints compact superseded append events."""
     with LogManager(logdir=logdir) as lm:
         for i in range(CHECKPOINT_INTERVAL + 5):
             lm.append(Message("user", f"msg{i}"))
 
     events = read_events(logdir)
     checkpoints = [e for e in events if e["type"] == EVENT_CHECKPOINT]
-    assert len(checkpoints) >= 1, (
-        f"Expected at least 1 checkpoint, got {len(checkpoints)}"
-    )
+    assert len(checkpoints) == 1
+    assert events[0]["type"] == EVENT_CHECKPOINT
+    assert len(events) == 1 + 5
+
+    recovered = recover_messages(logdir)
+    assert recovered is not None
+    assert [message["content"] for message in recovered] == [
+        f"msg{i}" for i in range(CHECKPOINT_INTERVAL + 5)
+    ]

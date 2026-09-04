@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +60,41 @@ def append_event(logdir: Path, event: dict[str, Any]) -> None:
         f.write(json.dumps(event, default=str) + "\n")
 
 
+def compact_events(logdir: Path) -> None:
+    """Drop events superseded by the latest checkpoint.
+
+    Checkpoints contain the full message state, so events before the newest one
+    are redundant for recovery.  Replace the log atomically to avoid exposing a
+    partially rewritten recovery source after an interrupted write.
+    """
+    path = _event_log_path(logdir)
+    events = read_events(logdir)
+    checkpoint = find_latest_checkpoint(events)
+    if checkpoint is None:
+        return
+
+    retained = [event for event in events if event["seq"] >= checkpoint["seq"]]
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.writelines(json.dumps(event, default=str) + "\n" for event in retained)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def read_events(logdir: Path) -> list[dict[str, Any]]:
     """Read all events from the event log, oldest first.
 
@@ -104,12 +141,13 @@ def write_checkpoint(
     seq: int,
     messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Write a checkpoint event that snapshots the full message state.
+    """Write a checkpoint event and compact superseded recovery history.
 
     Returns the written checkpoint event.
     """
     event = _make_event(seq, EVENT_CHECKPOINT, {"messages": messages})
     append_event(logdir, event)
+    compact_events(logdir)
     return event
 
 
