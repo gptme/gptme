@@ -212,6 +212,7 @@ class TestCliConfirmHook:
         tool = ToolUse(tool="shell", args=None, content="ls")
         with patch("gptme.hooks.cli_confirm.print_preview"):
             result = cli_confirm_hook(tool)
+        assert result is not None
         assert result.action == ConfirmAction.CONFIRM
 
     def test_auto_confirm_with_count(self):
@@ -223,6 +224,7 @@ class TestCliConfirmHook:
             result1 = cli_confirm_hook(tool)
             result2 = cli_confirm_hook(tool)
 
+        assert result1 is not None and result2 is not None
         assert result1.action == ConfirmAction.CONFIRM
         assert result2.action == ConfirmAction.CONFIRM
 
@@ -244,6 +246,7 @@ class TestCliConfirmHook:
         with patch("gptme.hooks.cli_confirm.print_preview") as mock_preview:
             result = cli_confirm_hook(tool)
         mock_preview.assert_not_called()
+        assert result is not None
         assert result.action == ConfirmAction.CONFIRM
 
     @patch("gptme.util.terminal.termios", None)
@@ -254,6 +257,7 @@ class TestCliConfirmHook:
         """Interactive confirmation with user saying yes."""
         tool = ToolUse(tool="shell", args=None, content="rm -rf /tmp/test")
         result = cli_confirm_hook(tool)
+        assert result is not None
         assert result.action == ConfirmAction.CONFIRM
         mock_bell.assert_called_once()
 
@@ -265,6 +269,7 @@ class TestCliConfirmHook:
         """Interactive confirmation with user saying no."""
         tool = ToolUse(tool="shell", args=None, content="dangerous command")
         result = cli_confirm_hook(tool)
+        assert result is not None
         assert result.action == ConfirmAction.SKIP
 
     def test_custom_preview(self):
@@ -274,6 +279,11 @@ class TestCliConfirmHook:
         with patch("gptme.hooks.cli_confirm.print_preview") as mock_preview:
             cli_confirm_hook(tool, preview="formatted diff")
         mock_preview.assert_called_once_with("formatted diff", "diff", copy=True)
+
+    def test_read_tool_declines_interactive_confirm(self):
+        """read is exempt from the CLI prompt so guardrails can intercept it."""
+        tool = ToolUse(tool="read", args=["README.md"], content="")
+        assert cli_confirm_hook(tool) is None
 
 
 class TestRegister:

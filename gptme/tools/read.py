@@ -21,6 +21,7 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    get_current_tool_use,
 )
 from .pruner import plan_tool_output_prune
 
@@ -372,6 +373,32 @@ def execute_read(
             f"Invalid line range: start_line ({start_line}) is greater than "
             f"end_line ({end_line}).",
         )
+        return
+
+    # Dispatch TOOL_CONFIRM so guardrails (and any other confirm hook) can
+    # intercept secret-path reads. Interactive confirm UIs decline the `read`
+    # tool, so this does not add a per-file prompt.
+    #
+    # Direct executors (MCP's tool.execute() path) do not set the current
+    # ToolUse, and get_confirmation auto-confirms when context is missing.
+    # Synthesize a ToolUse so TOOL_CONFIRM still runs.
+    from ..hooks import ConfirmAction, get_confirmation
+
+    # Resolve before confirmation so an innocently named symlink cannot hide a
+    # sensitive target from the guardrail. _read_one repeats containment checks.
+    resolved_paths = [path.resolve() for path in paths]
+    preview = "\n".join(str(p) for p in resolved_paths)
+    current_tool_use = get_current_tool_use()
+    tool_use = ToolUse(
+        tool="read",
+        args=[str(p) for p in resolved_paths],
+        content=preview,
+        kwargs=kwargs if current_tool_use is None else current_tool_use.kwargs,
+        call_id=None if current_tool_use is None else current_tool_use.call_id,
+    )
+    result = get_confirmation(tool_use=tool_use, preview=preview, default_confirm=True)
+    if result.action == ConfirmAction.SKIP:
+        yield Message("system", result.message or "Operation aborted")
         return
 
     for path in paths:

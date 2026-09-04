@@ -20,6 +20,7 @@ from ..util.useredit import edit_text_with_editor
 from .confirm import (
     ConfirmationResult,
     check_auto_confirm,
+    declines_interactive_confirm,
 )
 from .confirm import (
     reset_auto_confirm as _reset_auto_confirm,
@@ -54,7 +55,7 @@ def cli_confirm_hook(
     tool_use: "ToolUse",
     preview: str | None = None,
     workspace: Path | None = None,
-) -> ConfirmationResult:
+) -> ConfirmationResult | None:
     """CLI confirmation hook for terminal-based confirmation.
 
     This provides the interactive terminal confirmation experience:
@@ -64,6 +65,11 @@ def cli_confirm_hook(
     - Supports editing content before execution
     - Supports copying content to clipboard
     """
+    # `read` has never prompted; decline so guardrails can still intercept
+    # via TOOL_CONFIRM without adding a per-file confirmation dialog.
+    if declines_interactive_confirm(tool_use.tool):
+        return None
+
     # Get preview content - use provided preview or generate from tool_use
     content = preview or tool_use.content
     lang = _get_lang_for_tool(tool_use.tool, content)

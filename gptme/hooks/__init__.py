@@ -195,6 +195,11 @@ def init_hooks(
         "context_scout": lambda: __import__(
             "gptme.context.scout", fromlist=["register"]
         ).register(),
+        # Guardrails: deterministic pre-execution policy checks (RFC #3598).
+        # Registered by default in shadow mode; set GPTME_GUARDRAILS=enforce to block.
+        "guardrails": lambda: __import__(
+            "gptme.hooks.guardrails", fromlist=["register"]
+        ).register(),
         # Tool confirmation hooks (mode-specific, not registered by default)
         "cli_confirm": lambda: __import__(
             "gptme.hooks.cli_confirm", fromlist=["register"]

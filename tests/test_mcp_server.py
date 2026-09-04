@@ -21,7 +21,7 @@ from gptme.mcp.server import (
     _toolspec_to_mcp_tool,
     create_server,
 )
-from gptme.tools.base import Parameter, ToolSpec
+from gptme.tools.base import Parameter, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -332,6 +332,117 @@ class TestMCPServerHandlers:
         assert captured_sessions[1] is mock_session, (
             "Second call must reuse the same session"
         )
+
+    @pytest.mark.asyncio
+    async def test_call_tool_binds_current_tool_use(
+        self, server_with_mock_tools: GptmeMCPServer
+    ) -> None:
+        """MCP must bind a ToolUse so TOOL_CONFIRM (guardrails) can dispatch."""
+        import mcp.types as types
+
+        from gptme.message import Message
+        from gptme.tools.base import get_current_tool_use
+
+        captured: list[ToolUse | None] = []
+
+        def spy(code, args, kwargs):
+            captured.append(get_current_tool_use())
+            yield Message("system", "ok")
+
+        server_with_mock_tools._loaded_tools[0] = ToolSpec(
+            name="shell",
+            desc="Shell.",
+            execute=spy,
+            block_types=["shell"],
+            parameters=[Parameter(name="command", type="string", required=True)],
+        )
+
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(
+                name="shell", arguments={"command": "echo test"}
+            ),
+        )
+        await server_with_mock_tools._server.request_handlers[types.CallToolRequest](
+            req
+        )
+
+        assert captured, "spy must run"
+        tu = captured[0]
+        assert tu is not None
+        assert tu.tool == "shell"
+        assert tu.kwargs == {"command": "echo test"}
+
+    @pytest.mark.asyncio
+    async def test_mcp_shell_enforces_guardrails(self, monkeypatch) -> None:
+        """MCP shell must run TOOL_CONFIRM before calling the executor."""
+        import mcp.types as types
+
+        from gptme.message import Message
+        from gptme.tools.shell import tool as shell_tool
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        executed = False
+
+        def execution_spy(code, args, kwargs):
+            nonlocal executed
+            executed = True
+            yield Message("system", "executed")
+
+        server = GptmeMCPServer(tool_names=["shell"])
+        server._init_tools()
+        server._loaded_tools = [
+            ToolSpec(
+                name=shell_tool.name,
+                desc=shell_tool.desc,
+                execute=execution_spy,
+                block_types=shell_tool.block_types,
+                parameters=shell_tool.parameters,
+            )
+        ]
+
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(
+                name="shell", arguments={"command": "cat ~/.ssh/id_rsa"}
+            ),
+        )
+        result = await server._server.request_handlers[types.CallToolRequest](req)
+        assert isinstance(result.root, types.CallToolResult)
+        text = " ".join(
+            c.text for c in result.root.content if hasattr(c, "text") and c.text
+        )
+        assert not executed
+        assert "guardrails" in text.lower(), f"Expected guardrails skip; got: {text!r}"
+
+    @pytest.mark.asyncio
+    async def test_mcp_read_enforces_guardrails(self, monkeypatch) -> None:
+        """MCP read of a secret path must skip under GPTME_GUARDRAILS=enforce."""
+        import mcp.types as types
+
+        from gptme.hooks.auto_confirm import register as register_auto_confirm
+        from gptme.hooks.guardrails import register as register_guardrails
+        from gptme.tools.read import tool as read_tool
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        register_guardrails()
+        register_auto_confirm()
+
+        server = GptmeMCPServer(tool_names=["read"])
+        server._loaded_tools = [read_tool]
+
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(
+                name="read", arguments={"path": "/nonexistent/.ssh/id_rsa"}
+            ),
+        )
+        result = await server._server.request_handlers[types.CallToolRequest](req)
+        assert isinstance(result.root, types.CallToolResult)
+        text = " ".join(
+            c.text for c in result.root.content if hasattr(c, "text") and c.text
+        )
+        assert "guardrails" in text.lower(), f"Expected guardrails skip; got: {text!r}"
 
 
 class TestMCPServerCLI:

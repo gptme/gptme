@@ -52,7 +52,7 @@ from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
 from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, trigger_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
-from ..hooks.confirm import ConfirmationResult
+from ..hooks.confirm import ConfirmationResult, declines_interactive_confirm
 from ..llm.models import ModelMeta, get_default_model
 from ..logmanager import LogManager
 from ..message import Message
@@ -1660,8 +1660,12 @@ class GptmeApp(App):
         tool_use: ToolUseType,
         preview: str | None = None,
         workspace: Path | None = None,
-    ) -> ConfirmationResult:
+    ) -> ConfirmationResult | None:
         """TOOL_CONFIRM hook; called from the worker thread, blocks on dialog."""
+        # `read` has never prompted; decline so guardrails can still intercept
+        # via TOOL_CONFIRM without adding a per-file confirmation dialog.
+        if declines_interactive_confirm(tool_use.tool):
+            return None
         if self.auto_confirm:
             return ConfirmationResult.confirm()
 
