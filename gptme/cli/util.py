@@ -650,7 +650,7 @@ def context_git():
 @click.option(
     "--path", type=click.Path(exists=True), default=".", help="Workspace root"
 )
-@click.option("--max-depth", type=int, default=1, help="Tree depth")
+@click.option("--max-depth", type=click.IntRange(min=0), default=1, help="Tree depth")
 def context_tree(path: str, max_depth: int):
     """Print workspace directory tree (respects .gitignore)."""
     from rich.console import Console

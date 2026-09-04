@@ -1097,6 +1097,16 @@ def test_context_tree(tmp_path):
     assert "\x1b[" not in result.output
 
 
+def test_context_tree_rejects_negative_max_depth(tmp_path):
+    """context tree rejects negative depths instead of printing an empty tree."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["context", "tree", "--path", str(tmp_path), "--max-depth", "-1"]
+    )
+    assert result.exit_code == 2
+    assert "Invalid value for '--max-depth'" in result.output
+
+
 def test_context_files(tmp_path):
     """context files reads gptme.toml [prompt] files and prints them."""
     runner = CliRunner()
