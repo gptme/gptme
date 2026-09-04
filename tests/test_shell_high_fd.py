@@ -6,25 +6,45 @@ select()` rather than degrading. Long-lived processes and parallel test runs
 (`pytest -n 16`) push descriptors past that line, which surfaced as spurious
 `test_tools_shell` / `test_shell_output_mixing_issue408` failures across every
 PR in the repo. See gptme/gptme#3715.
+
+POSIX-only: `resource`, `fcntl`, and `select.poll()` do not exist on Windows.
 """
 
 import os
-import resource
 
 import pytest
 
 from gptme.tools.shell import _wait_readable
 
+fcntl = pytest.importorskip("fcntl", reason="POSIX-only test")
+resource = pytest.importorskip("resource", reason="POSIX-only test")
+
 # Anything at or above FD_SETSIZE is unrepresentable in an fd_set.
 FD_SETSIZE = 1024
-HIGH_FD = 1100
+# Headroom for the descriptors the scan may need to walk past.
+_FD_SCAN_WINDOW = 256
+
+
+def _find_free_fd(start: int) -> int:
+    """Return an unused descriptor >= `start`.
+
+    Never hardcode a target for `dup2`: it silently closes whatever already
+    occupies that number, and in the high-descriptor parallel environment this
+    test targets, that could be a live pytest/xdist descriptor.
+    """
+    for candidate in range(start, start + _FD_SCAN_WINDOW):
+        try:
+            fcntl.fcntl(candidate, fcntl.F_GETFD)
+        except OSError:
+            return candidate  # EBADF — nothing is using it
+    pytest.skip(f"no free descriptor in [{start}, {start + _FD_SCAN_WINDOW})")
 
 
 @pytest.fixture
 def high_fd_limit():
-    """Raise the soft RLIMIT_NOFILE far enough to allocate HIGH_FD, then restore."""
+    """Raise the soft RLIMIT_NOFILE far enough to allocate a high fd, then restore."""
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    needed = HIGH_FD + 16
+    needed = FD_SETSIZE + _FD_SCAN_WINDOW + 16
     if soft < needed:
         if hard != resource.RLIM_INFINITY and hard < needed:
             pytest.skip(f"RLIMIT_NOFILE hard limit {hard} < {needed}")
@@ -38,8 +58,8 @@ def test_wait_readable_handles_fd_above_fd_setsize(high_fd_limit):
     read_fd, write_fd = os.pipe()
     high_read_fd = None
     try:
-        os.dup2(read_fd, HIGH_FD)
-        high_read_fd = HIGH_FD
+        high_read_fd = _find_free_fd(FD_SETSIZE)
+        os.dup2(read_fd, high_read_fd)
         assert high_read_fd >= FD_SETSIZE
 
         os.write(write_fd, b"payload")
