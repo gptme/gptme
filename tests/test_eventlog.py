@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -65,6 +67,39 @@ def test_append_and_read_events(logdir: Path):
     assert len(events) == 2
     assert events[0]["seq"] == 1
     assert events[1]["seq"] == 2
+
+
+def test_event_log_lock_uses_windows_fallback(logdir: Path):
+    """Event persistence remains available when fcntl is unavailable."""
+    calls: list[tuple[int, int]] = []
+
+    class FakeMsvcrt:
+        LK_LOCK = 1
+        LK_UNLCK = 2
+
+        @staticmethod
+        def locking(fd: int, mode: int, count: int) -> None:
+            assert count == 1
+            calls.append((mode, count))
+
+    @contextmanager
+    def unlocked_thread_lock():
+        yield
+
+    with (
+        patch("gptme.logmanager.eventlog.fcntl", None),
+        patch("gptme.logmanager.eventlog.msvcrt", FakeMsvcrt),
+        patch(
+            "gptme.logmanager.eventlog._event_log_thread_lock", unlocked_thread_lock()
+        ),
+    ):
+        append_event(
+            logdir,
+            {"seq": 1, "ts": "", "type": "test", "payload": {}},
+        )
+
+    assert calls == [(FakeMsvcrt.LK_LOCK, 1), (FakeMsvcrt.LK_UNLCK, 1)]
+    assert read_events(logdir)[0]["seq"] == 1
 
 
 def test_read_events_empty_logdir(logdir: Path):

@@ -207,8 +207,8 @@ class LogManager:
             _branch = "main"
             if _branch not in self._branches:
                 branch_log = Log.read_jsonl(self.logdir / "conversation.jsonl")
-                self._branches[_branch] = Log(
-                    self.snapshot_message_files(branch_log.messages)
+                self._branches[_branch] = branch_log.replace(
+                    messages=self.snapshot_message_files(branch_log.messages)
                 )
         for file in self.logdir.glob("branches/*.jsonl"):
             if file.name == self.logdir.name:
@@ -216,8 +216,8 @@ class LogManager:
             _branch = file.stem
             if _branch not in self._branches:
                 branch_log = Log.read_jsonl(file)
-                self._branches[_branch] = Log(
-                    self.snapshot_message_files(branch_log.messages)
+                self._branches[_branch] = branch_log.replace(
+                    messages=self.snapshot_message_files(branch_log.messages)
                 )
 
         # Load view branches (compacted views stored in views/ directory)
@@ -227,8 +227,8 @@ class LogManager:
             for file in views_dir.glob("*.jsonl"):
                 view_name = file.stem
                 view_log = Log.read_jsonl(file)
-                self._views[view_name] = Log(
-                    self.snapshot_message_files(view_log.messages)
+                self._views[view_name] = view_log.replace(
+                    messages=self.snapshot_message_files(view_log.messages)
                 )
                 logger.debug(f"Loaded view branch: {view_name}")
 
@@ -710,7 +710,10 @@ class LogManager:
 
         log = Log.read_jsonl(logfile)
         msgs = log.messages or initial_msgs or []
-        return cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
+        manager = cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
+        if log.messages:
+            manager.log = manager.log.replace(persisted_messages=log.persisted_messages)
+        return manager
 
     def branch(self, name: str) -> None:
         """Switches to a branch."""

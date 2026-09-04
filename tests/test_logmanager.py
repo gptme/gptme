@@ -134,6 +134,23 @@ def test_constructor_snapshots_initial_message_files(tmp_path: Path):
     assert manager.log.messages[0].file_hashes[str(bootstrap_file)]
 
 
+def test_load_preserves_persistence_cursors(tmp_path: Path):
+    """Loaded active, branch, and view logs continue with incremental appends."""
+    logdir = tmp_path / "conversation"
+    (logdir / "branches").mkdir(parents=True)
+    (logdir / "views").mkdir()
+    message = Message("user", "persisted")
+    Log([message]).write_jsonl(logdir / "conversation.jsonl")
+    Log([message]).write_jsonl(logdir / "branches" / "dev.jsonl")
+    Log([message]).write_jsonl(logdir / "views" / "compact.jsonl")
+
+    manager = LogManager.load(logdir, lock=False)
+
+    assert manager._branches["main"].persisted_messages == 1
+    assert manager._branches["dev"].persisted_messages == 1
+    assert manager._views["compact"].persisted_messages == 1
+
+
 def test_initial_message_directories_are_not_snapshotted(tmp_path: Path):
     """Directory prompt matches are context references, not file snapshots."""
     context_dir = tmp_path / "docs"

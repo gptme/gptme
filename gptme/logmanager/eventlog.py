@@ -8,10 +8,12 @@ message list from the event log alone — skipping replay from event 1.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import os
 import tempfile
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -21,6 +23,18 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ..message import Message
+
+try:
+    fcntl: Any = importlib.import_module("fcntl")
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
+try:
+    msvcrt: Any = importlib.import_module("msvcrt")
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None
+
+_event_log_thread_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -57,16 +71,26 @@ def _make_event(seq: int, type: str, payload: dict[str, Any]) -> dict[str, Any]:
 @contextmanager
 def _event_log_lock(logdir: Path) -> Iterator[None]:
     """Serialize event appends and compaction for one recovery log."""
-    import fcntl
-
     path = _event_log_path(logdir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path.parent / f".{path.name}.lock", "a", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    lock_path = path.parent / f".{path.name}.lock"
+    with _event_log_thread_lock, lock_path.open("a+b") as lock:
+        if fcntl is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        elif msvcrt is not None:  # pragma: no cover - Windows
+            lock.seek(0)
+            lock.write(b"\0")
+            lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
         try:
             yield
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            elif msvcrt is not None:  # pragma: no cover - Windows
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def append_event(logdir: Path, event: dict[str, Any]) -> None:
