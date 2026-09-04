@@ -45,6 +45,34 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _install_error_hintkit(verbose: bool) -> None:
+    """Install a process-lifetime hook for exceptions that escape Click.
+
+    Click closes its context while an exception is unwinding, before Python
+    invokes ``sys.excepthook``. The hook therefore must outlive the Click
+    context to append a hint to the escaping exception. Repeated installs are
+    safe because ``install_excepthook`` replaces its existing wrapper.
+    """
+    from ..error_hintkit import install_excepthook
+
+    install_excepthook(verbose=verbose)
+
+
+def _format_error_hint(exc: BaseException, *, verbose: bool = False) -> str:
+    """Format a fatal CLI exception with a matching actionable hint.
+
+    When HintKit is disabled, or no registry entry matches, return
+    ``str(exc)`` unchanged so the non-interactive fatal-error log keeps
+    its historical format.
+    """
+    from ..error_hintkit import format_error, is_enabled
+
+    if not is_enabled():
+        return str(exc)
+    return format_error(exc, verbose=verbose, color=False)
+
+
 # Core scripts shipped with gptme itself — dynamically discovered from the
 # installed package's console_scripts entry points so this never drifts from
 # [project.scripts] in pyproject.toml.
@@ -842,6 +870,8 @@ def main(
     manifest_dir: Path | None,
 ):
     """Main entrypoint for the CLI."""
+    _install_error_hintkit(verbose=verbose)
+
     show_version = version or version_json
     dispatch_suppressed = click.get_current_context().meta.get(
         "shortcut_dispatch_suppressed", False
@@ -1657,7 +1687,7 @@ def main(
         if verbose:
             logger.exception(e)
         else:
-            logger.error(e)
+            logger.error(_format_error_hint(e))
             # Print last call site in gptme code for context
             tb = traceback.extract_tb(sys.exc_info()[2])
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -66,6 +67,75 @@ def _setup_cli_mocks(
         raise chat_raises
 
     monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", _raise)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for Error-HintKit CLI wiring
+# ---------------------------------------------------------------------------
+
+
+def test_install_error_hintkit_delegates_to_bundled_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[bool] = []
+
+    def _install_excepthook(*, verbose: bool) -> None:
+        calls.append(verbose)
+
+    monkeypatch.setattr("gptme.error_hintkit.install_excepthook", _install_excepthook)
+
+    cli._install_error_hintkit(verbose=True)
+
+    assert calls == [True]
+
+
+def test_format_error_hint_uses_bundled_hint_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    rendered = cli._format_error_hint(
+        RuntimeError("tool 'read' is disabled by default")
+    )
+
+    assert "RuntimeError: tool 'read' is disabled by default" in rendered
+    assert "hint:" in rendered
+    assert "gptme config set tools.read.enabled true" in rendered
+
+
+def test_format_error_hint_disabled_preserves_str(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HINTKIT_ENABLED=false must keep the historical logger.error(e) format."""
+    monkeypatch.setenv("HINTKIT_ENABLED", "false")
+    assert cli._format_error_hint(RuntimeError("boom")) == "boom"
+
+
+def test_format_error_hint_unmatched_preserves_str(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enabled but unmatched errors keep str(exc) — no Type: prefix."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    assert (
+        cli._format_error_hint(ValueError("Codex API error 429: usage_limit_reached"))
+        == "Codex API error 429: usage_limit_reached"
+    )
+
+
+def test_install_error_hintkit_survives_click_context_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hook must remain installed until an escaped exception is rendered."""
+    restored: list[int] = []
+    monkeypatch.setattr("gptme.error_hintkit.install_excepthook", lambda **_: None)
+    monkeypatch.setattr(
+        "gptme.error_hintkit.uninstall_excepthook", lambda: restored.append(1)
+    )
+
+    ctx = click.Context(cli.main)
+    with ctx:
+        cli._install_error_hintkit(verbose=False)
+        assert restored == []
+    assert restored == []
 
 
 # ---------------------------------------------------------------------------
