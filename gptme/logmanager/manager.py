@@ -746,7 +746,10 @@ class LogManager:
         msgs = log.messages or initial_msgs or []
         manager = cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
         if log.messages:
-            manager.log = manager.log.replace(persisted=log.persisted)
+            manager.log = manager.log.replace(
+                persisted=log.persisted,
+                persisted_path=log.persisted_path,
+            )
         return manager
 
     def branch(self, name: str) -> None:

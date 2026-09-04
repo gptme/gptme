@@ -147,8 +147,20 @@ def test_load_preserves_persistence_cursors(tmp_path: Path):
     manager = LogManager.load(logdir, lock=False)
 
     assert manager._branches["main"].persisted_messages == 1
+    assert (
+        manager._branches["main"].persisted_path
+        == (logdir / "conversation.jsonl").resolve()
+    )
     assert manager._branches["dev"].persisted_messages == 1
+    assert (
+        manager._branches["dev"].persisted_path
+        == (logdir / "branches" / "dev.jsonl").resolve()
+    )
     assert manager._views["compact"].persisted_messages == 1
+    assert (
+        manager._views["compact"].persisted_path
+        == (logdir / "views" / "compact.jsonl").resolve()
+    )
 
 
 def test_initial_message_directories_are_not_snapshotted(tmp_path: Path):
