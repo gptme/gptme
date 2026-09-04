@@ -1848,6 +1848,7 @@ def test_run_with_tty_timeout_returns_buffered_output():
 def test_run_with_tty_fallback_records_pipe_path():
     shell = ShellSession.__new__(ShellSession)
     shell.failed_command_used_tty = True
+    shell.failed_command_streamed_output = False
     with (
         patch("builtins.open", side_effect=OSError("no controlling tty")),
         patch.object(
@@ -1862,11 +1863,13 @@ def test_run_with_tty_fallback_records_pipe_path():
 
     run_pipe.assert_called_once_with("sudo slow-command", output=True, timeout=1)
     assert shell.failed_command_used_tty is False
+    assert shell.failed_command_streamed_output is True
 
 
 def test_run_records_path_used_by_failing_command():
     shell = ShellSession.__new__(ShellSession)
     shell.failed_command_used_tty = False
+    shell.failed_command_streamed_output = False
     with (
         patch.object(shell, "_needs_tty", return_value=False),
         patch.object(shell, "_run_pipe", return_value=(-124, "partial stdout", "")),
@@ -1878,6 +1881,7 @@ def test_run_records_path_used_by_failing_command():
         )
 
     assert shell.failed_command_used_tty is False
+    assert shell.failed_command_streamed_output is True
 
 
 def test_needs_tty_sudo_detection():
