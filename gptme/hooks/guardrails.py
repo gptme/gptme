@@ -73,20 +73,30 @@ _OPENSSL_REQ_READ = re.compile(r"\bopenssl\s+req\b[^;&|\n]*-(?:key|inkey)\b")
 
 # ── Shell policy patterns ──────────────────────────────────────────────────────
 # (pattern, short_reason)
+# Whole disks, partitions, virtual disks, loop devices, LVM device nodes, and
+# stable /dev/disk aliases. The trailing lookahead prevents prefix matches such
+# as /dev/sdata while still allowing paths below /dev/mapper and /dev/disk.
+_RAW_DISK_DEVICE = (
+    r"/dev/(?:"
+    r"(?:sd|hd|vd|xvd)[a-z]\d*"
+    r"|nvme\d+(?:n\d+(?:p\d+)?)?"
+    r"|mmcblk\d+(?:p\d+)?"
+    r"|loop\d+(?:p\d+)?"
+    r"|mapper/[^\s;|&]+"
+    r"|disk/(?:by-[^/]+/)?[^\s;|&]+"
+    r")"
+)
 _SHELL_POLICY: list[tuple[re.Pattern[str], str]] = [
     # Fork bombs
     (re.compile(r":\(\)\s*\{.*?:\s*\|"), "fork bomb (: shell function)"),
     (re.compile(r"\bforkbomb\b", re.IGNORECASE), "explicit fork bomb"),
-    # Raw disk writes — include partition suffixes (sda1, nvme0n1, nvme0n1p2).
-    # A trailing \b after `nvme\d` fails on nvme0n1 because `n` is a word char.
+    # Raw disk writes.
     (
-        re.compile(
-            r"\bdd\b.*\bof=/dev/(?:sd[a-z]\d*|nvme\d+(?:n\d+(?:p\d+)?)?|hd[a-z]\d*)\b"
-        ),
+        re.compile(rf"\bdd\b.*\bof={_RAW_DISK_DEVICE}(?=$|[\s;|&])"),
         "raw disk write (dd)",
     ),
     (
-        re.compile(r">\s*/dev/(?:sd[a-z]\d*|nvme\d+(?:n\d+(?:p\d+)?)?|hd[a-z]\d*)\b"),
+        re.compile(rf">\s*{_RAW_DISK_DEVICE}(?=$|[\s;|&])"),
         "raw disk overwrite",
     ),
     # Destructive SQL — only when piped into a DB client or executed via -e/-c
@@ -116,12 +126,15 @@ _HOME_SECRET = r"(?:^|[/\s~])"
 # High-confidence identity/credential locations: always flagged on read + shell.
 _SECRET_PATH_STRICT: list[re.Pattern[str]] = [
     # SSH private-key files (but not the directory itself or public metadata).
+    # Public-key siblings (`*.pub`) are intentionally readable.
     re.compile(
         _HOME_SECRET
-        + r"\.ssh/(?![\s'\"]|$)(?!(?:config|known_hosts|authorized_keys)(?:\b|$))"
+        + r"\.ssh/(?![\s'\"]|$)(?!(?:config|known_hosts|authorized_keys)(?:\b|$))(?![^\s'\"]+\.pub(?:\b|$))"
     ),
-    re.compile(r"/\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
-    re.compile(r"(?:^|[\s])\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
+    re.compile(r"/\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?!\.pub(?:\b|$))(?:\b|$)"),
+    re.compile(
+        r"(?:^|[\s])\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?!\.pub(?:\b|$))(?:\b|$)"
+    ),
     # AWS credentials
     re.compile(_HOME_SECRET + r"\.aws/credentials"),
     # GPG secret keyring
@@ -368,11 +381,10 @@ def _has_unparsed_non_http_destination(cmd: str) -> bool:
             if _SCP_REMOTE_OPERAND.search(argv) and not _SCP_HOST.search(argv):
                 return True
             continue
-        if tool == "ssh":
-            if _host_from_argv(argv, _SSH_FLAGS_WITH_ARG):
-                continue
-            if re.search(r"(?:^|\s)-V(?:\s|$)", argv):
-                continue
+        if _host_from_argv(argv, _SSH_FLAGS_WITH_ARG):
+            continue
+        if tool == "ssh" and re.search(r"(?:^|\s)-V(?:\s|$)", argv):
+            continue
         return True
     return False
 
@@ -449,10 +461,17 @@ def _curl_override_hosts(cmd: str) -> tuple[list[str], bool]:
     return hosts, unparsed
 
 
+_PROXY_BOOLEAN_VALUES = frozenset({"on", "off", "yes", "no", "true", "false"})
+
+
 def _host_from_proxy_spec(spec: str) -> str | None:
     """Extract the hostname from a curl ``-x`` / ``--proxy`` / SOCKS argument."""
     spec = spec.strip("\"'")
     if not spec or spec.startswith("-"):
+        return None
+    # GNU wget uses --proxy=on/off as a boolean. These values are not proxy
+    # hosts; ignore them rather than rejecting an otherwise allowlisted URL.
+    if spec.lower() in _PROXY_BOOLEAN_VALUES:
         return None
     parsed = urlparse(spec if "://" in spec else f"//{spec}")
     if parsed.hostname:
@@ -470,10 +489,11 @@ def _proxy_hosts(cmd: str, *patterns: re.Pattern[str]) -> tuple[list[str], bool]
     unparsed = False
     for pattern in patterns:
         for match in pattern.finditer(cmd):
-            host = _host_from_proxy_spec(match.group(1))
+            spec = match.group(1).strip("\"'")
+            host = _host_from_proxy_spec(spec)
             if host:
                 hosts.append(host)
-            else:
+            elif spec.lower() not in _PROXY_BOOLEAN_VALUES:
                 unparsed = True
     return hosts, unparsed
 
@@ -556,10 +576,11 @@ def _evaluate(tool_use: ToolUse, preview: str | None = None) -> str | None:
     # is the exception: generating a key is not a secret *read*.
     if tool_name not in _WRITE_TOOLS:
         if tool_name == "shell":
-            for segment in re.split(r"\s*(?:&&|\|\||;|\||\n)\s*", content):
-                # Same unescape as shell-policy/egress: `cat ~/.ss\h/id_rsa`
-                # is a secret read after bash removes the backslash.
-                segment = _unescape_cmd_escapes(segment)
+            # Same unescape as shell-policy/egress: `cat ~/.ss\h/id_rsa`
+            # is a secret read after bash removes the backslash. Do this before
+            # splitting so escaped command separators cannot hide later reads.
+            unescaped_content = _unescape_cmd_escapes(content)
+            for segment in re.split(r"\s*(?:&&|\|\||;|\||\n)\s*", unescaped_content):
                 # Keygen may write .pem/.key; keep generic checks if the
                 # segment nests a command that could read one, or if
                 # ssh-keygen is inspecting/signing an existing key

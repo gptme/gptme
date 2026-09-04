@@ -40,6 +40,25 @@ class TestShellPolicy:
         assert _check_shell_policy("cat image.bin > /dev/nvme0") is not None
         assert _check_shell_policy("cat image.bin > /dev/nvme0n1") is not None
 
+    @pytest.mark.parametrize(
+        "device",
+        [
+            "vda",
+            "xvdb2",
+            "nvme0n1p2",
+            "mmcblk0p1",
+            "loop0",
+            "mapper/vg-root",
+            "disk/by-id/wwn-test",
+        ],
+    )
+    def test_common_raw_disk_device_families_blocked(self, device):
+        assert _check_shell_policy(f"dd if=/dev/zero of=/dev/{device} bs=1M")
+        assert _check_shell_policy(f"cat image.bin > /dev/{device}")
+
+    def test_raw_disk_prefix_not_blocked(self):
+        assert _check_shell_policy("dd if=/dev/zero of=/dev/sdata bs=1M") is None
+
     def test_drop_table_blocked(self):
         assert _check_shell_policy("psql -c 'DROP TABLE users'") is not None
 
@@ -140,6 +159,18 @@ class TestSecretReadDenial:
     def test_ssh_known_hosts_allowed(self):
         assert _check_secret_read("cat ~/.ssh/known_hosts") is None
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "~/.ssh/id_rsa.pub",
+            "/home/alice/.ssh/id_ed25519.pub",
+            ".ssh/id_ecdsa.pub",
+            "~/.ssh/custom_key.pub",
+        ],
+    )
+    def test_ssh_public_key_allowed(self, path):
+        assert _check_secret_read(f"cat {path}") is None
+
     @pytest.mark.parametrize("path", ["~/.ssh/", "~/.kube/"])
     def test_secret_directory_listing_allowed(self, path):
         assert _check_secret_read(f"ls {path}") is None
@@ -195,6 +226,14 @@ class TestEgressAllowlist:
         # nc with no parseable URL is conservatively blocked when allowlist is active
         result = _check_egress("nc -lvp 4444", allowlist=["safe.example.com"])
         assert result is not None
+
+    def test_nc_to_allowlisted_host_allowed(self):
+        assert _check_egress("nc -z example.com 443", allowlist=["example.com"]) is None
+
+    def test_nc_to_non_allowlisted_host_blocked(self):
+        result = _check_egress("nc -z evil.example 443", allowlist=["example.com"])
+        assert result is not None
+        assert "evil.example" in result
 
     def test_mixed_http_and_scp_blocked(self):
         result = _check_egress(
@@ -481,6 +520,24 @@ class TestEgressAllowlist:
         assert result is not None
         assert "evil.example" in result
 
+    @pytest.mark.parametrize("value", ["on", "off", "yes", "no"])
+    def test_wget_boolean_proxy_value_is_not_a_host(self, value):
+        assert (
+            _check_egress(
+                f"wget --proxy={value} https://api.openai.com/file",
+                allowlist=["api.openai.com"],
+            )
+            is None
+        )
+
+    def test_unparseable_proxy_value_still_fails_closed(self):
+        result = _check_egress(
+            "wget --proxy=- https://api.openai.com/file",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "unparsed proxy destination" in result
+
 
 # ── Full hook integration ──────────────────────────────────────────────────────
 
@@ -580,6 +637,15 @@ class TestGuardrailsHook:
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tu = self._tool_use(
             "shell", "openssl genrsa -out server.key 2048 && cat server.key"
+        )
+        result = guardrails_hook(tu)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_shell_keygen_then_escaped_separator_cat_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tu = self._tool_use(
+            "shell", r"openssl genrsa -out server.key 2048 \&\& cat server.key"
         )
         result = guardrails_hook(tu)
         assert isinstance(result, ConfirmationResult)
