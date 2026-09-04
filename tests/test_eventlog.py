@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -536,3 +537,46 @@ def test_integration_checkpoint_logmanager(logdir: Path):
     assert [message["content"] for message in recovered] == [
         f"msg{i}" for i in range(CHECKPOINT_INTERVAL + 5)
     ]
+
+
+def test_compact_events_write_failure_does_not_close_reused_fd(logdir: Path):
+    """A failed compaction must not close a descriptor it no longer owns.
+
+    ``os.fdopen`` takes ownership of the ``mkstemp`` descriptor, so the file
+    object closes it on error.  Closing the raw number again would hit whatever
+    file a concurrent thread opened in the meantime.
+    """
+    write_checkpoint(logdir, 1, [{"role": "user", "content": "snapshot"}])
+
+    closed: list[int] = []
+    real_close = os.close
+    real_fdopen = os.fdopen
+    opened_fd: list[int] = []
+
+    def tracking_close(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    def tracking_fdopen(fd: int, *args, **kwargs):
+        opened_fd.append(fd)
+        return real_fdopen(fd, *args, **kwargs)
+
+    def boom(*args, **kwargs):
+        raise OSError("no space left on device")
+
+    with (
+        patch("gptme.logmanager.eventlog.os.close", tracking_close),
+        patch("gptme.logmanager.eventlog.os.fdopen", tracking_fdopen),
+        patch("gptme.logmanager.eventlog.os.fsync", boom),
+        pytest.raises(OSError, match="no space left on device"),
+    ):
+        compact_events(logdir)
+
+    assert opened_fd, "fdopen was never reached"
+    assert opened_fd[0] not in closed, (
+        "raw descriptor closed after fdopen took ownership — "
+        "a concurrently opened file could be reusing that number"
+    )
+    # The temp file is still cleaned up and the log is left intact.
+    assert not list(logdir.glob(f".{EVENT_LOG_NAME}.*.tmp"))
+    assert [event["seq"] for event in read_events(logdir)] == [1]

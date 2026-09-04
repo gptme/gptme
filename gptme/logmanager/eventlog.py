@@ -14,7 +14,7 @@ import logging
 import os
 import tempfile
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -123,7 +123,16 @@ def compact_events(logdir: Path) -> None:
             dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
         )
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            try:
+                tmp_file = os.fdopen(fd, "w", encoding="utf-8")
+            except BaseException:
+                # fdopen did not take ownership, so the raw descriptor is ours.
+                os.close(fd)
+                raise
+            # From here the file object owns fd and closes it exactly once; never
+            # close fd directly, or a concurrently opened file reusing the number
+            # gets closed instead.
+            with tmp_file as f:
                 f.writelines(
                     json.dumps(event, default=str) + "\n" for event in retained
                 )
@@ -131,14 +140,8 @@ def compact_events(logdir: Path) -> None:
                 os.fsync(f.fileno())
             os.replace(tmp_name, path)
         except BaseException:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            try:
+            with suppress(FileNotFoundError):
                 os.unlink(tmp_name)
-            except FileNotFoundError:
-                pass
             raise
 
 
