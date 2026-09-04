@@ -519,8 +519,9 @@ class LogManager:
         # When on a view, conversation.jsonl must always contain the full main
         # branch history — the view is persisted separately in views/ directory.
         if self.current_view is not None:
+            main_path = self.logdir / "conversation.jsonl"
             self._branches["main"] = self._branches["main"].write_jsonl(
-                self.logfile, append=True
+                main_path, append=True
             )
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)

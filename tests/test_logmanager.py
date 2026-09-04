@@ -427,6 +427,30 @@ def test_view_write_preserves_main_history(tmp_path: Path, monkeypatch):
     assert "new message after compact" in view_contents
 
 
+def test_view_on_non_main_branch_persists_each_destination(tmp_path: Path, monkeypatch):
+    """A view must not advance main's cursor against the current branch file."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "main history"))
+    manager.branch("dev")
+    manager.append(Message("assistant", "branch history"))
+    manager.create_view("compacted-001", Log([Message("system", "summary")]))
+    manager.switch_view("compacted-001")
+
+    manager.append(Message("user", "view message"))
+
+    main = Log.read_jsonl(logdir / "conversation.jsonl")
+    branch = Log.read_jsonl(logdir / "branches" / "dev.jsonl")
+    view = Log.read_jsonl(logdir / "views" / "compacted-001.jsonl")
+    assert [message.content for message in main] == ["main history", "view message"]
+    assert [message.content for message in branch] == [
+        "main history",
+        "branch history",
+    ]
+    assert [message.content for message in view] == ["summary", "view message"]
+
+
 def test_view_log_setter_updates_view(tmp_path: Path, monkeypatch):
     """Regression test: the log setter should update the view when current_view
     is set, not silently update the branch."""
