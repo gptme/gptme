@@ -55,6 +55,9 @@ class TestShellPolicy:
     def test_chmod_r_000_blocked(self):
         assert _check_shell_policy("chmod -R 000 /") is not None
 
+    def test_chmod_0000_blocked(self):
+        assert _check_shell_policy("chmod -R 0000 /important") is not None
+
     def test_crypto_miner_blocked(self):
         assert _check_shell_policy("./xmrig --pool pool.minexmr.com") is not None
 
@@ -136,6 +139,10 @@ class TestSecretReadDenial:
 
     def test_ssh_known_hosts_allowed(self):
         assert _check_secret_read("cat ~/.ssh/known_hosts") is None
+
+    @pytest.mark.parametrize("path", ["~/.ssh/", "~/.kube/"])
+    def test_secret_directory_listing_allowed(self, path):
+        assert _check_secret_read(f"ls {path}") is None
 
     def test_normal_file_allowed(self):
         assert _check_secret_read("cat /tmp/result.txt") is None
@@ -259,6 +266,18 @@ class TestEgressAllowlist:
         )
         assert result is not None
         assert "attacker.example" in result
+
+    @pytest.mark.parametrize(
+        ("command", "blocked_host"),
+        [
+            ("ssh -J evil.example allowed.example", "evil.example"),
+            ("ssh -L 8080:evil.example:80 allowed.example", "evil.example"),
+        ],
+    )
+    def test_ssh_route_host_must_be_allowlisted(self, command, blocked_host):
+        result = _check_egress(command, allowlist=["allowed.example"])
+        assert result is not None
+        assert blocked_host in result
 
     def test_ssh_helpers_are_not_egress(self):
         # `\bssh\b` matches `ssh-keygen` because `-` is a non-word character.
@@ -448,15 +467,19 @@ class TestEgressAllowlist:
             is None
         )
 
-    @pytest.mark.parametrize(
-        "command",
-        [
-            "ssh -x -p 22 api.openai.com",
-            "wget --proxy=on https://api.openai.com/file",
-        ],
-    )
-    def test_non_curl_proxy_flags_are_not_parsed_as_curl(self, command):
-        assert _check_egress(command, allowlist=["api.openai.com"]) is None
+    def test_non_curl_proxy_flags_are_not_parsed_as_curl(self):
+        assert (
+            _check_egress("ssh -x -p 22 api.openai.com", allowlist=["api.openai.com"])
+            is None
+        )
+
+    def test_wget_proxy_host_must_be_allowlisted(self):
+        result = _check_egress(
+            "wget --proxy=evil.example:8080 https://api.openai.com/file",
+            allowlist=["api.openai.com"],
+        )
+        assert result is not None
+        assert "evil.example" in result
 
 
 # ── Full hook integration ──────────────────────────────────────────────────────
@@ -665,6 +688,21 @@ class TestGuardrailsHook:
             "Expected guardrails skip on direct execute_read; "
             f"got: {[m.content for m in msgs]}"
         )
+
+    def test_read_resolves_symlink_before_confirmation(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from gptme.hooks.guardrails import register as register_guardrails
+        from gptme.tools.read import execute_read
+
+        secret = tmp_path / "secret.key"
+        secret.write_text("TOPSECRET")
+        alias = tmp_path / "notes"
+        alias.symlink_to(secret)
+        register_guardrails()
+
+        msgs = list(execute_read(None, [str(alias)], None))
+        assert any("guardrails" in m.content.lower() for m in msgs)
+        assert not any("TOPSECRET" in m.content for m in msgs)
 
     def test_enforce_blocks_curl_resolve_override(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")

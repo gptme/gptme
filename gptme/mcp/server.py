@@ -187,6 +187,7 @@ class GptmeMCPServer:
                 # get_shell() reuses it instead of creating a new one.
                 # Same for the hook registry: a fresh thread would otherwise
                 # auto-confirm without running TOOL_CONFIRM (guardrails).
+                from ..hooks import ConfirmAction, get_confirmation
                 from ..hooks.registry import set_registry
                 from ..tools.base import ToolUse, using_current_tool_use
                 from ..tools.shell import _shell_var as _shell_ctxvar
@@ -196,6 +197,12 @@ class GptmeMCPServer:
 
                 tool_use = ToolUse(tool=name, args=None, content=None, kwargs=kwargs)
                 with using_current_tool_use(tool_use):
+                    preview = "\n".join(kwargs.values()) or None
+                    confirmation = get_confirmation(
+                        tool_use=tool_use, preview=preview, default_confirm=True
+                    )
+                    if confirmation.action != ConfirmAction.CONFIRM:
+                        return confirmation.message or "Operation aborted"
                     result = tool.execute(None, None, kwargs)  # type: ignore[misc]
                     if hasattr(result, "__iter__"):
                         output = _collect_tool_output(result)  # type: ignore[arg-type]

@@ -374,6 +374,47 @@ class TestMCPServerHandlers:
         assert tu.kwargs == {"command": "echo test"}
 
     @pytest.mark.asyncio
+    async def test_mcp_shell_enforces_guardrails(self, monkeypatch) -> None:
+        """MCP shell must run TOOL_CONFIRM before calling the executor."""
+        import mcp.types as types
+
+        from gptme.message import Message
+        from gptme.tools.shell import tool as shell_tool
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        executed = False
+
+        def execution_spy(code, args, kwargs):
+            nonlocal executed
+            executed = True
+            yield Message("system", "executed")
+
+        server = GptmeMCPServer(tool_names=["shell"])
+        server._init_tools()
+        server._loaded_tools = [
+            ToolSpec(
+                name=shell_tool.name,
+                desc=shell_tool.desc,
+                execute=execution_spy,
+                block_types=shell_tool.block_types,
+                parameters=shell_tool.parameters,
+            )
+        ]
+
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(
+                name="shell", arguments={"command": "cat ~/.ssh/id_rsa"}
+            ),
+        )
+        result = await server._server.request_handlers[types.CallToolRequest](req)
+        text = " ".join(
+            c.text for c in result.root.content if hasattr(c, "text") and c.text
+        )
+        assert not executed
+        assert "guardrails" in text.lower(), f"Expected guardrails skip; got: {text!r}"
+
+    @pytest.mark.asyncio
     async def test_mcp_read_enforces_guardrails(self, monkeypatch) -> None:
         """MCP read of a secret path must skip under GPTME_GUARDRAILS=enforce."""
         import mcp.types as types

@@ -98,8 +98,8 @@ _SHELL_POLICY: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"\bTRUNCATE\s+TABLE\b", re.IGNORECASE),
         "destructive SQL (TRUNCATE TABLE)",
     ),
-    # chmod 000 — blocks all access (even root cannot open the file without chmod)
-    (re.compile(r"\bchmod\b.*\b000\b"), "chmod 000 (locks out all access)"),
+    # Any all-zero octal mode blocks all access (000 and 0000 are equivalent).
+    (re.compile(r"\bchmod\b.*\b0{3,}\b"), "chmod 000 (locks out all access)"),
     # Common crypto-miner command names
     (
         re.compile(r"\b(?:xmrig|cpuminer|minerd|nicehash)\b", re.IGNORECASE),
@@ -115,9 +115,10 @@ _HOME_SECRET = r"(?:^|[/\s~])"
 # ── Secret-read path patterns ──────────────────────────────────────────────────
 # High-confidence identity/credential locations: always flagged on read + shell.
 _SECRET_PATH_STRICT: list[re.Pattern[str]] = [
-    # SSH private keys (but not config/known_hosts/authorized_keys)
+    # SSH private-key files (but not the directory itself or public metadata).
     re.compile(
-        _HOME_SECRET + r"\.ssh/(?!(?:config|known_hosts|authorized_keys)(?:\b|$))"
+        _HOME_SECRET
+        + r"\.ssh/(?![\s'\"]|$)(?!(?:config|known_hosts|authorized_keys)(?:\b|$))"
     ),
     re.compile(r"/\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
     re.compile(r"(?:^|[\s])\.ssh/id_(?:rsa|ed25519|ecdsa|dsa)(?:\b|$)"),
@@ -125,8 +126,8 @@ _SECRET_PATH_STRICT: list[re.Pattern[str]] = [
     re.compile(_HOME_SECRET + r"\.aws/credentials"),
     # GPG secret keyring
     re.compile(_HOME_SECRET + r"\.gnupg/(?:secring|private-keys)"),
-    # Kubernetes secrets
-    re.compile(_HOME_SECRET + r"\.kube/"),
+    # Kubernetes secrets (but not listing the directory itself).
+    re.compile(_HOME_SECRET + r"\.kube/(?![\s'\"]|$)"),
     # Unix shadow / etc passwords
     re.compile(r"/etc/shadow\b"),
     # dotenv files that typically hold secrets
@@ -157,6 +158,7 @@ _SCP_REMOTE_OPERAND = re.compile(r"(?:^|\s)\S+:\S*")
 _SSH_INVOCATION = re.compile(r"\bssh(?!-)\b([^;&|\n]*)")
 _NC_INVOCATION = re.compile(r"\b(?:nc|netcat|ncat)(?!-)\b([^;&|\n]*)")
 _CURL_INVOCATION = re.compile(r"\bcurl(?!-)\b([^;&|\n]*)")
+_WGET_INVOCATION = re.compile(r"\bwget(?!-)\b([^;&|\n]*)")
 _HTTP_EGRESS = re.compile(r"\b(?:curl|wget)(?!-)\b")
 _NON_HTTP_INVOCATION = re.compile(
     r"\b(nc|netcat|ncat|nmap|ssh|scp|rsync|ftp|sftp|socat)(?!-)\b([^;&|\n]*)"
@@ -201,6 +203,7 @@ _CURL_PROXY_LONG = re.compile(
 # rest of the token (`-vvxhttp://proxy:8080`). Case-sensitive: curl `-X` is
 # the request method, not a proxy flag.
 _CURL_PROXY_SHORT = re.compile(r"(?:^|[\s])-[A-Za-z]*x\s*(\S+)")
+_WGET_PROXY_LONG = re.compile(r"(?:^|[\s])--proxy(?:=|\s+)(\S+)")
 
 
 def _mode() -> str:
@@ -264,17 +267,55 @@ def _http_hosts(cmd: str) -> list[str]:
     return hosts
 
 
+def _ssh_route_hosts(argv: str) -> list[str]:
+    """Extract hosts reached through SSH proxy-jump and forwarding flags."""
+    hosts: list[str] = []
+    tokens = argv.split()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        flag = tok[:2] if tok.startswith("-") and len(tok) >= 2 else ""
+        if flag in {"-J", "-L", "-R", "-W"}:
+            if len(tok) > 2:
+                spec = tok[2:]
+            elif i + 1 < len(tokens):
+                spec = tokens[i + 1]
+                i += 1
+            else:
+                spec = ""
+            if flag == "-J":
+                for hop in spec.split(","):
+                    host = hop.rsplit("@", 1)[-1].split(":", 1)[0]
+                    if host:
+                        hosts.append(host)
+            else:
+                parts = spec.rsplit(":", 2)
+                if len(parts) >= 2:
+                    host = parts[-2].strip("[]")
+                    if host and not host.isdigit():
+                        hosts.append(host)
+        i += 1
+    return hosts
+
+
 def _non_http_hosts(cmd: str) -> list[str]:
     """Extract scp/rsync/ssh/nc destinations that are not HTTP(S) URLs."""
     hosts: list[str] = []
+    ssh_spans = [match.span() for match in _SSH_INVOCATION.finditer(cmd)]
     for match in _SCP_HOST.finditer(cmd):
+        # Colons inside SSH forwarding arguments are not scp-style operands.
+        # _ssh_route_hosts parses those flags with their actual grammar below.
+        if any(start <= match.start() < end for start, end in ssh_spans):
+            continue
         host = match.group(1)
         if host.lower() not in _URL_SCHEMES:
             hosts.append(host)
     for match in _SSH_INVOCATION.finditer(cmd):
-        host = _host_from_argv(match.group(1), _SSH_FLAGS_WITH_ARG)
+        argv = match.group(1)
+        host = _host_from_argv(argv, _SSH_FLAGS_WITH_ARG)
         if host:
             hosts.append(host)
+        hosts.extend(_ssh_route_hosts(argv))
     for match in _NC_INVOCATION.finditer(cmd):
         host = _host_from_argv(match.group(1), _SSH_FLAGS_WITH_ARG)
         if host:
@@ -423,18 +464,17 @@ def _host_from_proxy_spec(spec: str) -> str | None:
     return host or None
 
 
-def _curl_proxy_hosts(cmd: str) -> tuple[list[str], bool]:
-    """Return (proxy destinations, had_unparsed_proxy) from curl proxy/SOCKS flags."""
+def _proxy_hosts(cmd: str, *patterns: re.Pattern[str]) -> tuple[list[str], bool]:
+    """Return proxy destinations and whether any matching spec was unparseable."""
     hosts: list[str] = []
     unparsed = False
-    specs = [m.group(1) for m in _CURL_PROXY_LONG.finditer(cmd)]
-    specs.extend(m.group(1) for m in _CURL_PROXY_SHORT.finditer(cmd))
-    for spec in specs:
-        host = _host_from_proxy_spec(spec)
-        if host:
-            hosts.append(host)
-        else:
-            unparsed = True
+    for pattern in patterns:
+        for match in pattern.finditer(cmd):
+            host = _host_from_proxy_spec(match.group(1))
+            if host:
+                hosts.append(host)
+            else:
+                unparsed = True
     return hosts, unparsed
 
 
@@ -460,8 +500,14 @@ def _check_egress(cmd: str, allowlist: list[str]) -> str | None:
     # Curl option names overlap with unrelated tools (for example ``ssh -x``
     # and ``wget --proxy=on``), so only parse flags from curl invocations.
     curl_argv = "\n".join(match.group(1) for match in _CURL_INVOCATION.finditer(cmd))
+    wget_argv = "\n".join(match.group(1) for match in _WGET_INVOCATION.finditer(cmd))
     override_hosts, unparsed_override = _curl_override_hosts(curl_argv)
-    proxy_hosts, unparsed_proxy = _curl_proxy_hosts(curl_argv)
+    proxy_hosts, unparsed_proxy = _proxy_hosts(
+        curl_argv, _CURL_PROXY_LONG, _CURL_PROXY_SHORT
+    )
+    wget_proxy_hosts, unparsed_wget_proxy = _proxy_hosts(wget_argv, _WGET_PROXY_LONG)
+    proxy_hosts.extend(wget_proxy_hosts)
+    unparsed_proxy = unparsed_proxy or unparsed_wget_proxy
     if unparsed_override:
         return "network command with unparsed destination override (allowlist active)"
     if unparsed_proxy:
