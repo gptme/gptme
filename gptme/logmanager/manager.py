@@ -73,7 +73,12 @@ def conversation_name_error(value: str) -> str | None:
 @dataclass(frozen=True, repr=False)
 class Log:
     messages: list[Message] = field(default_factory=list)
-    persisted_messages: int = 0
+    # The exact message objects last written to ``path``, used to decide whether
+    # a write can append instead of rewriting the whole file.  Compared by
+    # identity, not count: an in-place edit of an already-persisted message
+    # (``messages[i] = msg.replace(...)``) keeps the count but must still force
+    # a full rewrite, or the edit would never reach disk.
+    persisted: tuple[Message, ...] = field(default=(), compare=False, repr=False)
 
     def __getitem__(self, key):
         return self.messages[key]
@@ -90,6 +95,11 @@ class Log:
     def __repr__(self) -> str:
         return f"Log(messages=<{len(self.messages)} msgs>)"
 
+    @property
+    def persisted_messages(self) -> int:
+        """Number of messages known to be on disk already."""
+        return len(self.persisted)
+
     def replace(self, **kwargs) -> "Log":
         return replace(self, **kwargs)
 
@@ -105,22 +115,34 @@ class Log:
         if limit:
             gen = islice(gen, limit)
         messages = list(gen)
-        return Log(messages, persisted_messages=len(messages))
+        return Log(messages, persisted=tuple(messages))
+
+    def _can_append(self, output: Path) -> bool:
+        """Whether the persisted prefix is still intact, so we may append.
+
+        Requires every already-written message to still be the *same object* at
+        the same index.  Callers that edit history in place replace the list
+        entry with a new ``Message`` (dataclasses are frozen), so identity
+        catches truncation, reordering, and in-place edits alike.
+        """
+        prefix = self.persisted
+        if len(prefix) > len(self.messages):
+            return False
+        if not prefix:
+            # Nothing known-persisted: appending would duplicate existing lines.
+            return not output.exists()
+        return all(old is new for old, new in zip(prefix, self.messages))
 
     def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
         output = Path(path)
-        append_safe = (
-            append
-            and self.persisted_messages <= len(self.messages)
-            and (self.persisted_messages > 0 or not output.exists())
-        )
+        append_safe = append and self._can_append(output)
         mode = "a" if append_safe else "w"
-        start = self.persisted_messages if append_safe else 0
+        start = len(self.persisted) if append_safe else 0
         with open(output, mode, encoding="utf-8") as file:
             file.writelines(
                 json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:]
             )
-        return self.replace(persisted_messages=len(self.messages))
+        return self.replace(persisted=tuple(self.messages))
 
     def print(self, show_hidden: bool = False) -> int:
         """Prints the log to the console. Returns the number of messages shown."""
@@ -631,7 +653,7 @@ class LogManager:
         """backup the current log to a new branch, usually before editing/undoing"""
         branch_prefix = f"{self.current_branch}-{type}-"
         n = len([b for b in self._branches if b.startswith(branch_prefix)])
-        self._branches[f"{branch_prefix}{n}"] = self.log.replace(persisted_messages=0)
+        self._branches[f"{branch_prefix}{n}"] = self.log.replace(persisted=())
         self.write()
 
     def edit(self, new_log: Log | list[Message]) -> None:
@@ -713,7 +735,7 @@ class LogManager:
         msgs = log.messages or initial_msgs or []
         manager = cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
         if log.messages:
-            manager.log = manager.log.replace(persisted_messages=log.persisted_messages)
+            manager.log = manager.log.replace(persisted=log.persisted)
         return manager
 
     def branch(self, name: str) -> None:
@@ -721,7 +743,7 @@ class LogManager:
         self.write()
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
-            self._branches[name] = self.log.replace(persisted_messages=0)
+            self._branches[name] = self.log.replace(persisted=())
         self.current_branch = name
 
     def diff(self, branch: str) -> str | None:

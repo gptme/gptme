@@ -766,6 +766,31 @@ def test_write_jsonl_appends_only_new_messages(tmp_path: Path):
     assert log.persisted_messages == 2
 
 
+def test_write_jsonl_rewrites_after_in_place_message_edit(tmp_path: Path):
+    """Editing already-persisted history must reach disk, not be skipped.
+
+    Append-mode tracks the persisted prefix by identity precisely because the
+    message count is unchanged here: callers like ``_attach_tool_timings``
+    rewrite one earlier message in place, and a count-only check would append
+    zero lines and silently drop the edit.
+    """
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first"), Message("assistant", "second")]).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    log.messages[-1] = log.messages[-1].replace(content="second (edited)")
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(jsonl_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second (edited)",
+    ]
+    assert log.persisted_messages == 2
+
+
 def test_write_jsonl_rewrites_after_messages_are_removed(tmp_path: Path):
     """Undo-like changes replace stale persisted trailing messages."""
     jsonl_file = tmp_path / "conversation.jsonl"
