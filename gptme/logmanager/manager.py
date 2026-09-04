@@ -73,12 +73,14 @@ def conversation_name_error(value: str) -> str | None:
 @dataclass(frozen=True, repr=False)
 class Log:
     messages: list[Message] = field(default_factory=list)
-    # The exact message objects last written to ``path``, used to decide whether
-    # a write can append instead of rewriting the whole file.  Compared by
+    # The exact message objects last written to ``persisted_path``. Compared by
     # identity, not count: an in-place edit of an already-persisted message
     # (``messages[i] = msg.replace(...)``) keeps the count but must still force
-    # a full rewrite, or the edit would never reach disk.
+    # a full rewrite, or the edit would never reach disk. The path prevents a
+    # cursor recorded for conversation.jsonl from being reused for a branch or
+    # view file containing different bytes.
     persisted: tuple[Message, ...] = field(default=(), compare=False, repr=False)
+    persisted_path: Path | None = field(default=None, compare=False, repr=False)
 
     def __getitem__(self, key):
         return self.messages[key]
@@ -111,11 +113,16 @@ class Log:
 
     @classmethod
     def read_jsonl(cls, path: PathLike, limit=None) -> "Log":
-        gen: Iterator[Message] = _gen_read_jsonl(path)
+        output = Path(path).resolve()
+        gen: Iterator[Message] = _gen_read_jsonl(output)
         if limit:
             gen = islice(gen, limit)
         messages = list(gen)
-        return Log(messages, persisted=tuple(messages))
+        return Log(
+            messages,
+            persisted=tuple(messages),
+            persisted_path=output,
+        )
 
     def _can_append(self, output: Path) -> bool:
         """Whether the persisted prefix is still intact, so we may append.
@@ -125,6 +132,8 @@ class Log:
         entry with a new ``Message`` (dataclasses are frozen), so identity
         catches truncation, reordering, and in-place edits alike.
         """
+        if self.persisted_path != output.resolve():
+            return False
         prefix = self.persisted
         if len(prefix) > len(self.messages):
             return False
@@ -142,7 +151,10 @@ class Log:
             file.writelines(
                 json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:]
             )
-        return self.replace(persisted=tuple(self.messages))
+        return self.replace(
+            persisted=tuple(self.messages),
+            persisted_path=output.resolve(),
+        )
 
     def print(self, show_hidden: bool = False) -> int:
         """Prints the log to the console. Returns the number of messages shown."""
@@ -542,9 +554,8 @@ class LogManager:
         # branch history — the view is persisted separately in views/ directory.
         if self.current_view is not None:
             main_path = self.logdir / "conversation.jsonl"
-            self._branches["main"] = self._branches["main"].write_jsonl(
-                main_path, append=True
-            )
+            main_log = self._branches["main"]
+            self._branches["main"] = main_log.write_jsonl(main_path, append=True)
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)
 

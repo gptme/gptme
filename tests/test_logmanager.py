@@ -764,6 +764,28 @@ def test_write_jsonl_appends_only_new_messages(tmp_path: Path):
         "second",
     ]
     assert log.persisted_messages == 2
+    assert log.persisted_path == jsonl_file.resolve()
+
+
+def test_write_jsonl_rewrites_for_a_different_destination(tmp_path: Path):
+    """A persistence cursor belongs only to the file it was recorded for."""
+    conversation_file = tmp_path / "conversation.jsonl"
+    branch_file = tmp_path / "branches" / "dev.jsonl"
+    branch_file.parent.mkdir()
+    log = Log([Message("user", "inherited")]).write_jsonl(
+        conversation_file, append=True
+    )
+    log = log.append(Message("assistant", "branch message"))
+
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(branch_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(branch_file)] == [
+        "inherited",
+        "branch message",
+    ]
+    assert log.persisted_path == branch_file.resolve()
 
 
 def test_write_jsonl_rewrites_after_in_place_message_edit(tmp_path: Path):
