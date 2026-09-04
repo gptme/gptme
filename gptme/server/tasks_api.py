@@ -26,7 +26,7 @@ from ..message import Message
 from ..prompts import get_prompt
 from ..tools import get_toolchain
 from ..util.git_cmd import GIT_CMD
-from .api_v2_common import _validate_task_id
+from .api_v2_common import _MAX_ID_LENGTH, _validate_task_id
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, StatusResponse, api_doc_simple
 
@@ -153,10 +153,11 @@ _TASK_ID_PATTERN = re.compile(r"[a-zA-Z0-9_-]+")
 
 
 def _is_valid_task_id(task_id: str) -> bool:
-    """Check that task_id doesn't contain path traversal characters or null bytes."""
+    """Check that task_id doesn't contain path traversal characters, null bytes, or exceed NAME_MAX."""
     return (
         bool(task_id)
         and "\x00" not in task_id
+        and len(task_id.encode()) <= _MAX_ID_LENGTH
         and bool(_TASK_ID_PATTERN.fullmatch(task_id))
     )
 

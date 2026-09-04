@@ -1057,12 +1057,17 @@ class TestTaskIdPathTraversal:
         assert resp.status_code == 404
 
     def test_api_routes_reject_null_bytes(self, client):
-        """API endpoints must return 400 Bad Request with 'Invalid task_id' for null bytes."""
+        """API endpoints must return 400 Bad Request with 'Invalid task_id' for null bytes and overlong IDs."""
+        overlong_id = "a" * 256
         for method, path in [
             ("get", "/api/v2/tasks/test%00malicious"),
             ("put", "/api/v2/tasks/test%00malicious"),
             ("post", "/api/v2/tasks/test%00malicious/archive"),
             ("post", "/api/v2/tasks/test%00malicious/unarchive"),
+            ("get", f"/api/v2/tasks/{overlong_id}"),
+            ("put", f"/api/v2/tasks/{overlong_id}"),
+            ("post", f"/api/v2/tasks/{overlong_id}/archive"),
+            ("post", f"/api/v2/tasks/{overlong_id}/unarchive"),
         ]:
             fn = getattr(client, method)
             resp = fn(path)
@@ -1088,3 +1093,6 @@ class TestTaskIdPathTraversal:
 
             res_empty = _validate_task_id("")
             assert res_empty is not None and res_empty[1] == 400
+
+            res_long = _validate_task_id("a" * 256)
+            assert res_long is not None and res_long[1] == 400

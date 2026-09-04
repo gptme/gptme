@@ -32,6 +32,7 @@ def _validate_task_id(
         not isinstance(task_id, str)
         or not task_id
         or "\x00" in task_id
+        or len(task_id.encode()) > _MAX_ID_LENGTH
         or not _TASK_ID_PATTERN.fullmatch(task_id)
     ):
         return flask.jsonify({"error": "Invalid task_id"}), 400
