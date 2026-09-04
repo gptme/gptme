@@ -408,6 +408,7 @@ class TestMCPServerHandlers:
             ),
         )
         result = await server._server.request_handlers[types.CallToolRequest](req)
+        assert isinstance(result.root, types.CallToolResult)
         text = " ".join(
             c.text for c in result.root.content if hasattr(c, "text") and c.text
         )
