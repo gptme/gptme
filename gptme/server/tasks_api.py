@@ -154,7 +154,11 @@ _TASK_ID_PATTERN = re.compile(r"[a-zA-Z0-9_-]+")
 
 def _is_valid_task_id(task_id: str) -> bool:
     """Check that task_id doesn't contain path traversal characters or null bytes."""
-    return bool(task_id) and "\x00" not in task_id and bool(_TASK_ID_PATTERN.fullmatch(task_id))
+    return (
+        bool(task_id)
+        and "\x00" not in task_id
+        and bool(_TASK_ID_PATTERN.fullmatch(task_id))
+    )
 
 
 def get_tasks_dir() -> Path:
@@ -795,7 +799,12 @@ def api_tasks_create():
 @tasks_api.route("/api/v2/tasks/<string:task_id>")
 @require_auth
 @api_doc_simple(
-    responses={200: TaskResponse, 400: ErrorResponse, 404: ErrorResponse, 500: ErrorResponse},
+    responses={
+        200: TaskResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
     tags=["tasks"],
 )
 def api_tasks_get(task_id: str):

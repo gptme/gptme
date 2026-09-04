@@ -1080,6 +1080,11 @@ class TestTaskIdPathTraversal:
             assert res[1] == 400
             assert res[0].get_json() == {"error": "Invalid task_id"}
 
-            assert _validate_task_id("../traversal")[1] == 400
-            assert _validate_task_id("invalid/char")[1] == 400
-            assert _validate_task_id("")[1] == 400
+            res_trav = _validate_task_id("../traversal")
+            assert res_trav is not None and res_trav[1] == 400
+
+            res_slash = _validate_task_id("invalid/char")
+            assert res_slash is not None and res_slash[1] == 400
+
+            res_empty = _validate_task_id("")
+            assert res_empty is not None and res_empty[1] == 400
