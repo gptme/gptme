@@ -87,6 +87,7 @@ class TestShellOutputDedup:
         shell = MagicMock()
         shell.run.return_value = (-124, "partial stdout", "partial stderr")
         shell.failed_command_used_tty = True
+        shell.failed_command_streamed_output = False
         with (
             patch("gptme.tools.shell.get_shell", return_value=shell),
             _capture_tool_display(tmp_path) as (stdout, manager),
@@ -105,6 +106,7 @@ class TestShellOutputDedup:
         shell = MagicMock()
         shell.run.return_value = (-124, "partial stdout", "partial stderr")
         shell.failed_command_used_tty = False
+        shell.failed_command_streamed_output = True
         with (
             patch("gptme.tools.shell.get_shell", return_value=shell),
             _capture_tool_display(tmp_path) as (stdout, manager),
@@ -118,12 +120,32 @@ class TestShellOutputDedup:
         assert output.count("partial stdout") == 1
         assert output.count("Command timed out") == 1
 
+    def test_captured_pipe_timeout_partial_output_remains_visible(
+        self, tmp_path: Path
+    ) -> None:
+        shell = MagicMock()
+        shell.run.return_value = (-124, "partial stdout", "partial stderr")
+        shell.failed_command_used_tty = False
+        shell.failed_command_streamed_output = False
+        with (
+            patch("gptme.tools.shell.get_shell", return_value=shell),
+            _capture_tool_display(tmp_path) as (stdout, manager),
+        ):
+            messages = list(execute_shell_impl("slow-command", logdir=None, timeout=1))
+            _append_results(manager, messages)
+
+        output = stdout.getvalue()
+        assert output.count("partial stdout") == 1
+        assert output.count("partial stderr") == 1
+        assert output.count("Command timed out") == 1
+
     def test_mixed_script_pipe_timeout_partial_output_is_not_replayed(
         self, tmp_path: Path
     ) -> None:
         shell = MagicMock()
         shell.run.return_value = (-124, "partial stdout", "")
         shell.failed_command_used_tty = False
+        shell.failed_command_streamed_output = True
         with (
             patch("gptme.tools.shell.get_shell", return_value=shell),
             _capture_tool_display(tmp_path) as (stdout, manager),
@@ -184,13 +206,14 @@ class TestIPythonOutputDedup:
         assert "ipython-dedup-marker" in messages[-1].content
         assert messages[-1].quiet is False
 
-    def test_expression_result_remains_visible(self, tmp_path: Path) -> None:
+    def test_expression_result_remains_visible_once(self, tmp_path: Path) -> None:
         with _capture_tool_display(tmp_path) as (stdout, manager):
             messages = list(execute_python("6 * 7", [], None))
             _append_results(manager, messages)
 
-        assert "Result:" in stdout.getvalue()
-        assert "42" in stdout.getvalue()
+        output = stdout.getvalue()
+        assert "42" in output
+        assert output.count("42") == 1
 
     def test_synthesized_exception_remains_visible(self, tmp_path: Path) -> None:
         with _capture_tool_display(tmp_path) as (stdout, manager):

@@ -390,11 +390,13 @@ class ShellSession:
     _cwd: str | None  # Workspace directory for this session (thread-safe)
     _memory_limit: int | None  # Address-space ceiling in bytes (None = off)
     failed_command_used_tty: bool
+    failed_command_streamed_output: bool
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
         self._memory_limit = _get_memory_limit()
         self.failed_command_used_tty = False
+        self.failed_command_streamed_output = False
         self._init()
 
         # close on exit
@@ -468,6 +470,7 @@ class ShellSession:
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
         self.failed_command_used_tty = False
+        self.failed_command_streamed_output = False
         for cmd in commands:
             res_cur = self._run(cmd, output=output, timeout=timeout)
             res_code = res_cur[0]
@@ -743,7 +746,9 @@ class ShellSession:
         # Use TTY-based execution for interactive sudo commands
         self.failed_command_used_tty = self._needs_tty(command)
         if self.failed_command_used_tty:
+            self.failed_command_streamed_output = False
             return self._run_with_tty(command, output=output, timeout=timeout)
+        self.failed_command_streamed_output = output
         return self._run_pipe(command, output=output, tries=tries, timeout=timeout)
 
     def _run_pipe(
@@ -1807,8 +1812,8 @@ def execute_shell_impl(
     # result for the model and structured consumers, and render only details
     # that were not already shown live.
     terminal_parts = [msg.split("\n\n", 1)[0]]
-    tty_timeout = timed_out and shell.failed_command_used_tty
-    if tty_timeout:
+    buffered_timeout = timed_out and not shell.failed_command_streamed_output
+    if buffered_timeout:
         if stdout:
             terminal_parts.append(_format_block_smart("", stdout, "stdout").lstrip())
         if stderr:
