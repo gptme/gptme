@@ -615,8 +615,8 @@ def test_get_toolchain_glob_matches_mcp_tools():
     ]
 
 
-def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
-    """Plain allowlists should warn when they filter out available MCP tools."""
+def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools():
+    """Plain allowlists should warn once when they filter out available MCP tools."""
     import gptme.tools
     from gptme.tools.base import ToolSpec
 
@@ -627,30 +627,23 @@ def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
         ToolSpec(name="save", desc="Save"),
     ]
 
-    def _warning_count() -> int:
-        return caplog.text.count("Tool allowlist excluded MCP tools")
-
     with (
         patch("gptme.tools.get_available_tools", return_value=fake_tools),
         patch.object(gptme.tools, "_warned_mcp_allowlists", set()),
-        caplog.at_level("WARNING", logger="gptme.tools"),
+        patch.object(gptme.tools.logger, "warning") as mock_warning,
     ):
-        # Isolate from fixture/prior-test records and duplicate log handlers.
-        # The invariant is warn-once, not "exactly one handler emitted one record".
-        caplog.clear()
         tools = get_toolchain(["save"], strict=True)
-        after_first = _warning_count()
         repeated_tools = get_toolchain(["save"], strict=True)
-        after_second = _warning_count()
 
     assert [tool.name for tool in tools] == ["save"]
     assert [tool.name for tool in repeated_tools] == ["save"]
-    assert after_first >= 1
-    assert after_second == after_first
-    assert "Tool allowlist excluded MCP tools" in caplog.text
-    assert "discord.read_channel" in caplog.text
-    assert "discord.send_message" in caplog.text
-    assert "<server>.*" in caplog.text
+    mock_warning.assert_called_once()
+    args = mock_warning.call_args.args
+    rendered_warning = args[0] % args[1:]
+    assert "Tool allowlist excluded MCP tools" in rendered_warning
+    assert "discord.read_channel" in rendered_warning
+    assert "discord.send_message" in rendered_warning
+    assert "<server>.*" in rendered_warning
 
 
 def test_tool_descriptions_within_openai_limit():

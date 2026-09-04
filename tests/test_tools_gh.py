@@ -7,6 +7,7 @@ execute_gh, and pass-through with mocked subprocess.
 
 import json
 import subprocess
+import time
 from unittest.mock import MagicMock, patch
 
 from gptme.tools.gh import (
@@ -20,6 +21,33 @@ from gptme.tools.gh import (
     _wait_for_checks,
     execute_gh,
 )
+
+
+class _GhTime:
+    """Stand-in for the ``time`` module as imported by ``gptme.tools.gh``.
+
+    ``patch("gptme.tools.gh.time.sleep")`` resolves ``gptme.tools.gh.time`` to
+    the real ``time`` module and patches ``sleep`` on it — process-wide. Any
+    background thread that happens to sleep during the test is then counted by
+    ``mock_sleep``, so ``assert_not_called()`` fails with sleeps the poll loop
+    never made (observed in CI: "Expected 'sleep' to not have been called.
+    Called 544 times." — all ``call(0.05)``, while the poll interval is 10s).
+
+    Patching the *name* ``time`` in gh's own namespace scopes the mock to gh
+    while leaving real ``time.time``/``time.strftime`` available.
+    """
+
+    def __init__(self):
+        self.sleep = MagicMock(name="gh.time.sleep")
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+def patch_gh_sleep(func):
+    """Patch only gh's own ``time``; injects the sleep mock as the last arg."""
+    return patch("gptme.tools.gh.time", new_callable=_GhTime)(func)
+
 
 # --- Fixtures ---
 
@@ -223,10 +251,10 @@ class TestFormatCheckResults:
 
 
 class TestWaitForChecks:
-    @patch("gptme.tools.gh.time.sleep")
+    @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
     @patch("gptme.tools.gh._get_pr_check_runs")
-    def test_all_pass_immediately(self, mock_get_pr, mock_run, mock_sleep):
+    def test_all_pass_immediately(self, mock_get_pr, mock_run, gh_time):
         """All checks already completed successfully."""
         check_runs = [
             _make_check_run("build", "completed", "success"),
@@ -244,12 +272,12 @@ class TestWaitForChecks:
         # Should have: waiting message, status update, final success
         assert any("Waiting for checks" in m.content for m in messages)
         assert any("All checks passed" in m.content for m in messages)
-        mock_sleep.assert_not_called()
+        gh_time.sleep.assert_not_called()
 
-    @patch("gptme.tools.gh.time.sleep")
+    @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
     @patch("gptme.tools.gh._get_pr_check_runs")
-    def test_failure_detected(self, mock_get_pr, mock_run, mock_sleep):
+    def test_failure_detected(self, mock_get_pr, mock_run, gh_time):
         """Checks complete with failures."""
         check_runs = [
             _make_check_run("build", "completed", "success"),
@@ -273,10 +301,10 @@ class TestWaitForChecks:
         assert any("test" in m.content for m in messages)
         assert any("777" in m.content for m in messages)  # run ID from URL
 
-    @patch("gptme.tools.gh.time.sleep")
+    @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
     @patch("gptme.tools.gh._get_pr_check_runs")
-    def test_in_progress_then_complete(self, mock_get_pr, mock_run, mock_sleep):
+    def test_in_progress_then_complete(self, mock_get_pr, mock_run, gh_time):
         """Checks transition from in_progress to completed."""
         initial_runs = [
             _make_check_run("build", "completed", "success"),
@@ -297,11 +325,11 @@ class TestWaitForChecks:
 
         assert any("in progress" in m.content for m in messages)
         assert any("All checks passed" in m.content for m in messages)
-        mock_sleep.assert_called_once_with(10)
+        gh_time.sleep.assert_called_once_with(10)
 
-    @patch("gptme.tools.gh.time.sleep")
+    @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
-    def test_with_commit_sha(self, mock_run, mock_sleep):
+    def test_with_commit_sha(self, mock_run, gh_time):
         """Using explicit commit SHA bypasses PR lookup."""
         check_runs = [_make_check_run("build", "completed", "success")]
         mock_run.return_value = _mock_subprocess_run(
@@ -315,7 +343,7 @@ class TestWaitForChecks:
             "Waiting for checks on commit deadbee" in m.content for m in messages
         )
         assert any("All checks passed" in m.content for m in messages)
-        mock_sleep.assert_not_called()
+        gh_time.sleep.assert_not_called()
 
     @patch("gptme.tools.gh._get_pr_check_runs")
     def test_error_from_get_pr(self, mock_get_pr):
@@ -345,10 +373,10 @@ class TestWaitForChecks:
 
         assert any("No checks found" in m.content for m in messages)
 
-    @patch("gptme.tools.gh.time.sleep")
+    @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
     @patch("gptme.tools.gh._get_pr_check_runs")
-    def test_cancelled_checks(self, mock_get_pr, mock_run, mock_sleep):
+    def test_cancelled_checks(self, mock_get_pr, mock_run, gh_time):
         """All checks complete but some cancelled."""
         check_runs = [
             _make_check_run("build", "completed", "success"),
@@ -364,10 +392,10 @@ class TestWaitForChecks:
 
         assert any("cancelled" in m.content.lower() for m in messages)
 
-    @patch("gptme.tools.gh.time.sleep")
+    @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
     @patch("gptme.tools.gh._get_pr_check_runs")
-    def test_poll_api_error(self, mock_get_pr, mock_run, mock_sleep):
+    def test_poll_api_error(self, mock_get_pr, mock_run, gh_time):
         """API error during polling loop."""
         initial_runs = [_make_check_run("build", "in_progress", None)]
         mock_get_pr.return_value = ("abc1234", initial_runs, None)
@@ -377,7 +405,7 @@ class TestWaitForChecks:
         messages = list(_wait_for_checks("owner", "repo", url))
 
         assert any("Error fetching checks" in m.content for m in messages)
-        mock_sleep.assert_not_called()
+        gh_time.sleep.assert_not_called()
 
 
 # --- _handle_pr_status ---
