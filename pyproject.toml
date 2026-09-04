@@ -46,6 +46,7 @@ gptme-resume = "gptme.cli.cmd_resume:resume"
 gptme-mcp-server = "gptme.cli.cmd_mcp_serve:main"
 gptme-stats = "gptme.cli.cmd_stats:stats"
 gptme-service = "gptme.cli.cmd_service:cli"
+gptme-daemon = "gptme.cli.cmd_daemon:main"
 
 [tool.poetry]
 packages = [
