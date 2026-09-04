@@ -99,6 +99,7 @@ def test_event_log_lock_uses_windows_fallback(logdir: Path):
         )
 
     assert calls == [(FakeMsvcrt.LK_LOCK, 1), (FakeMsvcrt.LK_UNLCK, 1)]
+    assert (logdir / f".{EVENT_LOG_NAME}.lock").read_bytes() == b"\0"
     assert read_events(logdir)[0]["seq"] == 1
 
 

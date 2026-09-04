@@ -74,7 +74,8 @@ def _event_log_lock(logdir: Path) -> Iterator[None]:
     path = _event_log_path(logdir)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.parent / f".{path.name}.lock"
-    with _event_log_thread_lock, lock_path.open("a+b") as lock:
+    lock_path.touch(exist_ok=True)
+    with _event_log_thread_lock, lock_path.open("r+b") as lock:
         if fcntl is not None:
             fcntl.flock(lock, fcntl.LOCK_EX)
         elif msvcrt is not None:  # pragma: no cover - Windows
