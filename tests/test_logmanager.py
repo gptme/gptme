@@ -216,6 +216,34 @@ def test_conversation_name_error_rejects_control_and_edge_whitespace(
     assert conversation_name_error(value) == expected
 
 
+def test_new_branch_persists_inherited_history(tmp_path: Path, monkeypatch):
+    """A new branch writes its inherited prefix to its own destination."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "inherited"))
+
+    manager.branch("dev")
+    manager.append(Message("assistant", "branch-only"))
+
+    persisted = Log.read_jsonl(logdir / "branches" / "dev.jsonl")
+    assert [message.content for message in persisted] == ["inherited", "branch-only"]
+
+
+def test_edit_backup_persists_complete_history(tmp_path: Path, monkeypatch):
+    """An edit backup writes all messages despite originating from a persisted log."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "first"))
+    manager.append(Message("assistant", "second"))
+
+    manager.edit(Log([Message("user", "replacement")]))
+
+    persisted = Log.read_jsonl(logdir / "branches" / "main-edit-0.jsonl")
+    assert [message.content for message in persisted] == ["first", "second"]
+
+
 def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path, monkeypatch):
     """Regression test: writing while on a non-main branch should also persist
     the main branch to conversation.jsonl."""

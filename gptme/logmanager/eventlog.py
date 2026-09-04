@@ -12,10 +12,12 @@ import json
 import logging
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from ..message import Message
@@ -52,11 +54,25 @@ def _make_event(seq: int, type: str, payload: dict[str, Any]) -> dict[str, Any]:
 # ── public API ───────────────────────────────────────────────────────
 
 
+@contextmanager
+def _event_log_lock(logdir: Path) -> Iterator[None]:
+    """Serialize event appends and compaction for one recovery log."""
+    import fcntl
+
+    path = _event_log_path(logdir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.parent / f".{path.name}.lock", "a", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def append_event(logdir: Path, event: dict[str, Any]) -> None:
     """Append a single event record to the event log."""
     path = _event_log_path(logdir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
+    with _event_log_lock(logdir), open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(event, default=str) + "\n")
 
 
@@ -64,35 +80,39 @@ def compact_events(logdir: Path) -> None:
     """Drop events superseded by the latest checkpoint.
 
     Checkpoints contain the full message state, so events before the newest one
-    are redundant for recovery.  Replace the log atomically to avoid exposing a
-    partially rewritten recovery source after an interrupted write.
+    are redundant for recovery.  Appends and compaction share a per-log lock,
+    and replacement is atomic, so neither partial files nor lost appends are
+    observable.
     """
     path = _event_log_path(logdir)
-    events = read_events(logdir)
-    checkpoint = find_latest_checkpoint(events)
-    if checkpoint is None:
-        return
+    with _event_log_lock(logdir):
+        events = read_events(logdir)
+        checkpoint = find_latest_checkpoint(events)
+        if checkpoint is None:
+            return
 
-    retained = [event for event in events if event["seq"] >= checkpoint["seq"]]
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.writelines(json.dumps(event, default=str) + "\n" for event in retained)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
+        retained = [event for event in events if event["seq"] >= checkpoint["seq"]]
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+        )
         try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.unlink(tmp_name)
-        except FileNotFoundError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.writelines(
+                    json.dumps(event, default=str) + "\n" for event in retained
+                )
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_name, path)
+        except BaseException:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+            raise
 
 
 def read_events(logdir: Path) -> list[dict[str, Any]]:

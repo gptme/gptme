@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -174,6 +175,27 @@ def test_compact_events_without_checkpoint_is_noop(logdir: Path):
     compact_events(logdir)
 
     assert (logdir / EVENT_LOG_NAME).read_bytes() == before
+
+
+def test_compaction_does_not_lose_concurrent_append(logdir: Path):
+    """The compaction replacement is serialized with append_event."""
+    write_checkpoint(logdir, 50, [{"role": "user", "content": "snapshot"}])
+    tail = {
+        "seq": 51,
+        "ts": "2026-01-01T00:00:01Z",
+        "type": EVENT_MESSAGE_APPEND,
+        "payload": {"message": {"role": "assistant", "content": "tail"}},
+    }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(compact_events, logdir),
+            executor.submit(append_event, logdir, tail),
+        ]
+        for future in futures:
+            future.result()
+
+    assert [event["seq"] for event in read_events(logdir)] == [50, 51]
 
 
 def test_recover_messages_no_event_log(logdir: Path):

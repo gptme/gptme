@@ -630,7 +630,7 @@ class LogManager:
         """backup the current log to a new branch, usually before editing/undoing"""
         branch_prefix = f"{self.current_branch}-{type}-"
         n = len([b for b in self._branches if b.startswith(branch_prefix)])
-        self._branches[f"{branch_prefix}{n}"] = self.log
+        self._branches[f"{branch_prefix}{n}"] = self.log.replace(persisted_messages=0)
         self.write()
 
     def edit(self, new_log: Log | list[Message]) -> None:
@@ -717,7 +717,7 @@ class LogManager:
         self.write()
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
-            self._branches[name] = self.log
+            self._branches[name] = self.log.replace(persisted_messages=0)
         self.current_branch = name
 
     def diff(self, branch: str) -> str | None:
