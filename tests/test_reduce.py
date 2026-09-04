@@ -1230,3 +1230,299 @@ def test_drop_orphaned_tool_pairs_preserves_pinned_tool_result():
     assert "fn result" in result_contents, (
         "Pinned tool result must survive _drop_orphaned_tool_pairs even when anchor is absent"
     )
+
+
+def test_proactive_summarize_cache_hit_skips_llm(monkeypatch):
+    """proactive_summarize_log reuses the cached summary on a second call with the same log.
+
+    Regression: without the cache, every prepare_messages call (once above the
+    threshold) fires a fresh LLM summarize.  That produces non-deterministic
+    summaries on consecutive turns and breaks prompt-cache stability.
+    """
+    import gptme.util.reduce as reduce_mod
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        call_count = 0
+
+        def counting_summarize(msgs):
+            nonlocal call_count
+            call_count += 1
+            return Message(
+                "system",
+                f"Summary (call {call_count}): user asked about X",
+            )
+
+        monkeypatch.setattr("gptme.llm.summarize", counting_summarize)
+
+        # Clear the module-level cache so this test is independent.
+        reduce_mod._proactive_summarize_cache.clear()
+
+        msgs = [
+            Message("system", "You are helpful."),  # initial system — kept
+            Message("user", "word " * 5),  # old — will be summarized
+            Message("assistant", "word " * 5),  # old — will be summarized
+            Message("user", "recent question one"),  # recent — kept
+            Message("assistant", "recent answer one"),  # recent — kept
+            Message("user", "recent question two"),  # recent — kept
+            Message("assistant", "recent answer two"),  # recent — kept
+        ]
+
+        # First call — LLM is invoked.
+        result1 = proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 1, "LLM should be called exactly once on first invocation"
+
+        # Second call with the same log — should hit the cache, not the LLM.
+        result2 = proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 1, (
+            "LLM must NOT be called again when the middle messages haven't changed"
+        )
+
+        # Both calls must produce identical summary content.
+        summary1 = next(m for m in result1 if "Summary" in m.content)
+        summary2 = next(m for m in result2 if "Summary" in m.content)
+        assert summary1.content == summary2.content, (
+            "Cached result must be identical to first-call result"
+        )
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+        reduce_mod._proactive_summarize_cache.clear()
+
+
+def test_proactive_summarize_cache_miss_on_changed_messages(monkeypatch):
+    """proactive_summarize_log calls the LLM again when the middle messages change."""
+    import gptme.util.reduce as reduce_mod
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        call_count = 0
+
+        def counting_summarize(msgs):
+            nonlocal call_count
+            call_count += 1
+            return Message("system", f"Summary {call_count}")
+
+        monkeypatch.setattr("gptme.llm.summarize", counting_summarize)
+
+        reduce_mod._proactive_summarize_cache.clear()
+
+        base = [
+            Message("system", "You are helpful."),
+            Message("user", "old turn A " * 5),
+            Message("assistant", "old reply A " * 5),
+            Message("user", "recent q1"),
+            Message("assistant", "recent a1"),
+            Message("user", "recent q2"),
+            Message("assistant", "recent a2"),
+        ]
+        changed = [
+            Message("system", "You are helpful."),
+            Message("user", "DIFFERENT old content " * 5),  # changed middle
+            Message("assistant", "old reply A " * 5),
+            Message("user", "recent q1"),
+            Message("assistant", "recent a1"),
+            Message("user", "recent q2"),
+            Message("assistant", "recent a2"),
+        ]
+
+        proactive_summarize_log(base, threshold=0.5, recent_keep=4)
+        assert call_count == 1
+
+        proactive_summarize_log(changed, threshold=0.5, recent_keep=4)
+        assert call_count == 2, (
+            "LLM must be called again when the middle messages differ"
+        )
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+        reduce_mod._proactive_summarize_cache.clear()
+
+
+def test_proactive_summarize_concurrent_same_key(monkeypatch):
+    """Concurrent callers with identical input: only one LLM call, both get the same result.
+
+    Regression for the eviction race in the old winner-adoption pattern: a slow
+    second caller could store a different summary if the first caller's entry was
+    evicted from the cache before the second caller checked.  The Event-coordination
+    pattern fixes this: the second thread waits on the first thread's Event and
+    adopts the cached result after the Event fires.
+    """
+    import threading
+
+    import gptme.util.reduce as reduce_mod
+    from gptme.util.reduce import proactive_summarize_log
+
+    tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+    # Patch at the use-site in reduce.py so threads see the same tiny model
+    # regardless of ContextVar inheritance behaviour across threads.
+    monkeypatch.setattr("gptme.util.reduce.get_default_model", lambda: tiny_model)
+
+    call_count = 0
+    llm_started = threading.Event()
+    release_llm = threading.Event()
+
+    def slow_summarize(msgs):
+        nonlocal call_count
+        call_count += 1
+        llm_started.set()
+        release_llm.wait(timeout=5)
+        return Message("system", "The only summary")
+
+    monkeypatch.setattr("gptme.llm.summarize", slow_summarize)
+    reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()
+
+    msgs = [
+        Message("system", "You are helpful."),
+        Message("user", "old content " * 5),
+        Message("assistant", "old reply " * 5),
+        Message("user", "recent q1"),
+        Message("assistant", "recent a1"),
+        Message("user", "recent q2"),
+        Message("assistant", "recent a2"),
+    ]
+
+    results: list = [None, None]
+    errors: list = []
+
+    def call_summarize(idx: int) -> None:
+        try:
+            results[idx] = proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        except Exception as e:
+            errors.append(e)
+
+    t1 = threading.Thread(target=call_summarize, args=(0,))
+    t2 = threading.Thread(target=call_summarize, args=(1,))
+    t1.start()
+    # Wait until the compute thread has claimed the key and started the LLM call.
+    llm_started.wait(timeout=5)
+    # Thread 2 starts after thread 1 has registered its pending Event, so thread
+    # 2 will wait on that Event rather than making its own LLM call.
+    t2.start()
+    release_llm.set()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    assert not errors, f"Thread errors: {errors}"
+    assert results[0] is not None
+    assert results[1] is not None
+    assert results[0] == results[1], "Concurrent callers must return identical results"
+    assert call_count == 1, (
+        "Only one LLM call should occur for concurrent identical requests"
+    )
+    reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()
+
+
+def test_proactive_summarize_cache_isolated_by_provider(monkeypatch):
+    """proactive_summarize_log does NOT reuse a cached summary across different providers.
+
+    Regression: if two providers expose a model with the same name (e.g. a local
+    proxy and OpenAI both calling it "gpt-4"), the cache key must not collide.
+    Without provider in the key, the first provider's summary is silently returned
+    for the second, even though the providers may return different summaries due to
+    different endpoints or parameter defaults.
+    """
+    import gptme.util.reduce as reduce_mod
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        call_count = 0
+
+        def counting_summarize(msgs):
+            nonlocal call_count
+            call_count += 1
+            return Message("system", f"Summary (call {call_count})")
+
+        monkeypatch.setattr("gptme.llm.summarize", counting_summarize)
+        reduce_mod._proactive_summarize_cache.clear()
+
+        msgs = [
+            Message("system", "You are helpful."),
+            Message("user", "old content " * 5),
+            Message("assistant", "old reply " * 5),
+            Message("user", "recent q1"),
+            Message("assistant", "recent a1"),
+            Message("user", "recent q2"),
+            Message("assistant", "recent a2"),
+        ]
+
+        # First call with provider "openai".
+        provider_a = ModelMeta(provider="openai", model="gpt-4", context=10)
+        set_default_model(provider_a)
+        proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 1
+
+        # Second call with provider "local" — same model name, same content.
+        # The LLM must be invoked again; providers must not share a cache entry.
+        provider_b = ModelMeta(provider="local", model="gpt-4", context=10)
+        set_default_model(provider_b)
+        proactive_summarize_log(msgs, threshold=0.5, recent_keep=4)
+        assert call_count == 2, (
+            "LLM must be called again for a different provider even with the same model name"
+        )
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+        reduce_mod._proactive_summarize_cache.clear()
+
+
+def test_proactive_summarize_baseexception_releases_pending(monkeypatch):
+    """A BaseException mid-summarize must still release the pending claim.
+
+    Regression: the release used to live only in the `except Exception` and
+    success paths, so a KeyboardInterrupt (Ctrl+C during generation) left the
+    cache key claimed forever. Concurrent callers then looped on
+    `wait(timeout=120)` indefinitely, never seeing the key released.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import proactive_summarize_log
+
+    original_model = _default_model_var.get()
+    try:
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
+
+        def interrupted_summarize(_msgs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("gptme.llm.summarize", interrupted_summarize)
+
+        msgs = [
+            Message("system", "System."),
+            Message("user", "word " * 5),
+            Message("assistant", "word " * 5),
+            Message("user", "recent q"),
+            Message("assistant", "recent a"),
+        ]
+
+        with pytest.raises(KeyboardInterrupt):
+            proactive_summarize_log(msgs, threshold=0.5, recent_keep=2)
+
+        # The claim must be gone, otherwise every waiter hangs forever.
+        assert not reduce_mod._proactive_summarize_cache_pending, (
+            "pending claim must be released on BaseException, "
+            f"still holding {list(reduce_mod._proactive_summarize_cache_pending)}"
+        )
+        # And nothing bogus cached.
+        assert not reduce_mod._proactive_summarize_cache
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )

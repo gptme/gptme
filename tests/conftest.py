@@ -851,3 +851,22 @@ def wait_for_event():
         return False
 
     return wait
+
+
+@pytest.fixture(autouse=True)
+def _clear_proactive_summarize_cache():
+    """Clear the proactive-summarize in-process cache between tests.
+
+    The cache is module-level state. Without this fixture a test that calls
+    proactive_summarize_log will populate the cache with whatever fake/mocked
+    summary it used, and a later test that patches gptme.llm.summarize with a
+    *different* mock will silently get the earlier test's cached result instead
+    of its own mock's return value — causing hard-to-diagnose assertion failures.
+    """
+    import gptme.util.reduce as reduce_mod
+
+    reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()
+    yield
+    reduce_mod._proactive_summarize_cache.clear()
+    reduce_mod._proactive_summarize_cache_pending.clear()
