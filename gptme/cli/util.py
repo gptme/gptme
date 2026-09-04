@@ -1219,7 +1219,10 @@ def models_list(
         # redirect_stdout/redirect_stderr suppresses print() noise; logging.disable
         # suppresses Rich-formatted log output (httpx retry messages etc.) that escapes
         # through Rich's pre-captured file handle and is not affected by sys.stderr redirect.
-        logging.disable(logging.INFO)
+        # Disable *all* levels: provider discovery logs at WARNING (e.g. "gptme provider
+        # requires authentication"), which logging.disable(INFO) let through and which
+        # then prefixed the JSON document, making it unparseable.
+        logging.disable(logging.CRITICAL)
         try:
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 from ..llm import list_available_providers  # fmt: skip

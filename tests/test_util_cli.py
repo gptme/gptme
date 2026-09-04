@@ -1351,3 +1351,64 @@ def test_knowledge_search_empty_query_exits_nonzero(tmp_path, monkeypatch):
     result = runner.invoke(main, ["knowledge", "search", ""])
     assert result.exit_code != 0
     assert "empty" in result.output.lower() or "empty" in (result.stderr or "").lower()
+
+
+def test_models_list_json_suppresses_warning_level_logs(mocker):
+    """WARNING/ERROR provider logs must not prefix the JSON document.
+
+    Regression: provider discovery logs "gptme provider requires
+    authentication" at WARNING through a Rich handler holding the real stdout,
+    so it escaped `redirect_stdout` and was emitted *before* the JSON payload.
+    `logging.disable(logging.INFO)` did not cover WARNING, so
+    `gptme-util models list --json | jq` broke whenever a provider warned.
+    """
+    import json
+    import logging
+
+    runner = CliRunner()
+    logger = logging.getLogger("gptme.llm.models.listing")
+    observed: dict[str, bool] = {}
+
+    def warning_get_model_list(**_kwargs):
+        # Whatever the handlers are wired to, no record at WARNING or below may
+        # be emitted while the JSON payload is being assembled.
+        observed["warning"] = logger.isEnabledFor(logging.WARNING)
+        observed["error"] = logger.isEnabledFor(logging.ERROR)
+        logger.warning("gptme provider: requires authentication")
+        return [
+            SimpleNamespace(
+                provider="openai",
+                provider_key="openai",
+                model="gpt-5",
+                full="openai/gpt-5",
+                context=400000,
+                max_output=None,
+                supports_streaming=True,
+                supports_vision=True,
+                supports_reasoning=True,
+                supports_parallel_tool_calls=True,
+                supports_responses_api=True,
+                price_input=None,
+                price_output=None,
+                knowledge_cutoff=None,
+                deprecated=False,
+                preferred_edit_format=None,
+                pricing_type="per_token",
+                default_tool_format="tool",
+                supports_strict_tools=False,
+            )
+        ]
+
+    mocker.patch(
+        "gptme.cli.util.get_model_list",
+        side_effect=warning_get_model_list,
+    )
+
+    result = runner.invoke(main, ["models", "list", "--json"])
+
+    assert result.exit_code == 0
+    assert observed == {"warning": False, "error": False}
+    parsed = json.loads(result.output)
+    assert parsed[0]["full"] == "openai/gpt-5"
+    # Logging must be restored for the rest of the suite.
+    assert logging.root.manager.disable == logging.NOTSET
