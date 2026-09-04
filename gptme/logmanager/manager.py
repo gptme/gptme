@@ -107,10 +107,12 @@ class Log:
         messages = list(gen)
         return Log(messages, persisted_messages=len(messages))
 
-    def write_jsonl(self, path: PathLike) -> "Log":
+    def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
         output = Path(path)
-        append_safe = self.persisted_messages <= len(self.messages) and (
-            self.persisted_messages > 0 or not output.exists()
+        append_safe = (
+            append
+            and self.persisted_messages <= len(self.messages)
+            and (self.persisted_messages > 0 or not output.exists())
         )
         mode = "a" if append_safe else "w"
         start = self.persisted_messages if append_safe else 0
@@ -517,9 +519,11 @@ class LogManager:
         # When on a view, conversation.jsonl must always contain the full main
         # branch history — the view is persisted separately in views/ directory.
         if self.current_view is not None:
-            self._branches["main"] = self._branches["main"].write_jsonl(self.logfile)
+            self._branches["main"] = self._branches["main"].write_jsonl(
+                self.logfile, append=True
+            )
         else:
-            self.log = self.log.write_jsonl(self.logfile)
+            self.log = self.log.write_jsonl(self.logfile, append=True)
 
         # write other branches
         if branches:
@@ -531,10 +535,10 @@ class LogManager:
                     if self.current_branch != "main":
                         main_path = get_logs_dir() / self.chat_id / "conversation.jsonl"
                         main_path.parent.mkdir(parents=True, exist_ok=True)
-                        self._branches[branch] = log.write_jsonl(main_path)
+                        self._branches[branch] = log.write_jsonl(main_path, append=True)
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
-                self._branches[branch] = log.write_jsonl(branch_path)
+                self._branches[branch] = log.write_jsonl(branch_path, append=True)
 
             # Write view branches
             if self._views:
@@ -542,7 +546,7 @@ class LogManager:
                 views_dir.mkdir(parents=True, exist_ok=True)
                 for view_name, log in self._views.items():
                     view_path = views_dir / f"{view_name}.jsonl"
-                    self._views[view_name] = log.write_jsonl(view_path)
+                    self._views[view_name] = log.write_jsonl(view_path, append=True)
 
         # Persist model selection trace alongside the conversation
         trace_path = self.write_model_trace()

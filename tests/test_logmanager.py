@@ -672,7 +672,7 @@ def test_write_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
         log.write_jsonl(jsonl_file)
 
     assert len(calls) == 1, f"expected one open() call, got {calls}"
-    assert "a" in calls[0]["mode"]
+    assert "w" in calls[0]["mode"]
     assert calls[0]["encoding"] == "utf-8", (
         f"write_jsonl must pass encoding='utf-8', got encoding={calls[0]['encoding']!r}"
     )
@@ -681,12 +681,12 @@ def test_write_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
 def test_write_jsonl_appends_only_new_messages(tmp_path: Path):
     """Repeated persistence does not rewrite the existing conversation."""
     jsonl_file = tmp_path / "conversation.jsonl"
-    log = Log([Message("user", "first")]).write_jsonl(jsonl_file)
+    log = Log([Message("user", "first")]).write_jsonl(jsonl_file, append=True)
     first_size = jsonl_file.stat().st_size
 
     log = log.append(Message("assistant", "second"))
     with _record_open_calls() as calls:
-        log = log.write_jsonl(jsonl_file)
+        log = log.write_jsonl(jsonl_file, append=True)
 
     assert calls[0]["mode"] == "a"
     assert jsonl_file.stat().st_size > first_size
