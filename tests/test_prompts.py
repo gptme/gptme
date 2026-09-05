@@ -25,7 +25,8 @@ def test_get_prompt_full():
 
     # TODO: lower this significantly by selectively removing examples from the full prompt
     # Note: Hook system documentation increased the prompt size, should optimize later
-    assert 500 < len_tokens(combined_content, "gpt-4") < 8000 + user_config_size
+    # Note: verify_claim tool added ~320 tokens (2026-09-05)
+    assert 500 < len_tokens(combined_content, "gpt-4") < 8500 + user_config_size
 
 
 def test_get_prompt_short():
