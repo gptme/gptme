@@ -453,10 +453,12 @@ class TestGetInstallInfo:
         assert info.path == "/home/user/dev/gptme"
 
     @patch("gptme.info.importlib.metadata.distribution")
-    def test_editable_install_decodes_file_url(self, mock_dist_fn):
+    def test_editable_install_decodes_file_url(self, mock_dist_fn, tmp_path):
+        source_dir = tmp_path / "gptme checkout"
+        source_dir.mkdir()
         url_json = json.dumps(
             {
-                "url": "file:///home/user/dev/gptme%20checkout",
+                "url": source_dir.as_uri(),
                 "dir_info": {"editable": True},
             }
         )
@@ -466,7 +468,7 @@ class TestGetInstallInfo:
 
         info = get_install_info()
 
-        assert info.path == "/home/user/dev/gptme checkout"
+        assert info.path == str(source_dir)
 
     @patch("gptme.info.importlib.metadata.distribution")
     def test_path_distribution_not_editable(self, mock_dist_fn):
