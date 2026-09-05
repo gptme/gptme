@@ -222,3 +222,15 @@ class TestGetDefaultModel:
         result = _get_default_model("openai-subscription")
         assert result.startswith("openai-subscription/"), result
         assert result != "openai-subscription"
+
+    def test_unknown_provider_returns_empty_not_bare_name(self):
+        """A provider with no entry in MODELS must return '' not the bare name.
+
+        The bare provider name is not a valid model string (runtime requires
+        ``provider/model``).  The caller is responsible for prompting the user.
+        """
+        result = _get_default_model("unknown-future-provider")
+        assert result == "", (
+            "_get_default_model must return '' for unknown providers, "
+            f"not the bare name; got {result!r}"
+        )
