@@ -128,6 +128,24 @@ class TestDetectProviders:
 
         assert providers["openai"][0]
 
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=RuntimeError("token file corrupted"),
+    )
+    def test_oauth_lookup_failure_logs_warning(self, _mock_providers, caplog):
+        """OAuth credential lookup failures emit a warning rather than silently passing."""
+        import logging
+
+        with (
+            caplog.at_level(logging.WARNING, logger="gptme.cli.onboard"),
+            patch("gptme.config.get_config", return_value=_mock_empty_config()),
+        ):
+            _detect_providers()
+
+        messages = " ".join(r.message for r in caplog.records)
+        assert "OAuth credential check failed" in messages
+        assert "gptme auth" in messages
+
 
 class TestTestProvider:
     """Test provider connectivity testing."""
