@@ -73,6 +73,15 @@ def conversation_name_error(value: str) -> str | None:
 @dataclass(frozen=True, repr=False)
 class Log:
     messages: list[Message] = field(default_factory=list)
+    # The exact message objects last written to ``persisted_path``. Compared by
+    # identity, not count: an in-place edit of an already-persisted message
+    # (``messages[i] = msg.replace(...)``) keeps the count but must still force
+    # a full rewrite, or the edit would never reach disk. The path prevents a
+    # cursor recorded for conversation.jsonl from being reused for a branch or
+    # view file containing different bytes.
+    persisted: tuple[Message, ...] = field(default=(), compare=False, repr=False)
+    persisted_path: Path | None = field(default=None, compare=False, repr=False)
+    persisted_size: int | None = field(default=None, compare=False, repr=False)
 
     def __getitem__(self, key):
         return self.messages[key]
@@ -89,6 +98,11 @@ class Log:
     def __repr__(self) -> str:
         return f"Log(messages=<{len(self.messages)} msgs>)"
 
+    @property
+    def persisted_messages(self) -> int:
+        """Number of messages known to be on disk already."""
+        return len(self.persisted)
+
     def replace(self, **kwargs) -> "Log":
         return replace(self, **kwargs)
 
@@ -100,14 +114,62 @@ class Log:
 
     @classmethod
     def read_jsonl(cls, path: PathLike, limit=None) -> "Log":
-        gen: Iterator[Message] = _gen_read_jsonl(path)
+        output = Path(path).resolve()
+        gen: Iterator[Message] = _gen_read_jsonl(output)
         if limit:
             gen = islice(gen, limit)
-        return Log(list(gen))
+        messages = list(gen)
+        return Log(
+            messages,
+            persisted=tuple(messages),
+            persisted_path=output,
+            persisted_size=output.stat().st_size,
+        )
 
-    def write_jsonl(self, path: PathLike) -> None:
-        with open(path, "w", encoding="utf-8") as file:
-            file.writelines(json.dumps(msg.to_dict()) + "\n" for msg in self.messages)
+    def _can_append(self, output: Path) -> bool:
+        """Whether the persisted prefix is still intact, so we may append.
+
+        Requires every already-written message to still be the *same object* at
+        the same index.  Callers that edit history in place replace the list
+        entry with a new ``Message`` (dataclasses are frozen), so identity
+        catches truncation, reordering, and in-place edits alike.
+        """
+        if self.persisted_path != output.resolve():
+            return False
+        prefix = self.persisted
+        if len(prefix) > len(self.messages):
+            return False
+        if not prefix:
+            # Nothing known-persisted: appending would duplicate existing lines.
+            return not output.exists()
+        try:
+            if (
+                self.persisted_size is None
+                or output.stat().st_size != self.persisted_size
+            ):
+                return False
+            with output.open("rb") as file:
+                file.seek(-1, os.SEEK_END)
+                if file.read(1) != b"\n":
+                    return False
+        except OSError:
+            return False
+        return all(old is new for old, new in zip(prefix, self.messages))
+
+    def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
+        output = Path(path)
+        append_safe = append and self._can_append(output)
+        mode = "a" if append_safe else "w"
+        start = len(self.persisted) if append_safe else 0
+        with open(output, mode, encoding="utf-8") as file:
+            file.writelines(
+                json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:]
+            )
+        return self.replace(
+            persisted=tuple(self.messages),
+            persisted_path=output.resolve(),
+            persisted_size=output.stat().st_size,
+        )
 
     def print(self, show_hidden: bool = False) -> int:
         """Prints the log to the console. Returns the number of messages shown."""
@@ -194,8 +256,8 @@ class LogManager:
             _branch = "main"
             if _branch not in self._branches:
                 branch_log = Log.read_jsonl(self.logdir / "conversation.jsonl")
-                self._branches[_branch] = Log(
-                    self.snapshot_message_files(branch_log.messages)
+                self._branches[_branch] = branch_log.replace(
+                    messages=self.snapshot_message_files(branch_log.messages)
                 )
         for file in self.logdir.glob("branches/*.jsonl"):
             if file.name == self.logdir.name:
@@ -203,8 +265,8 @@ class LogManager:
             _branch = file.stem
             if _branch not in self._branches:
                 branch_log = Log.read_jsonl(file)
-                self._branches[_branch] = Log(
-                    self.snapshot_message_files(branch_log.messages)
+                self._branches[_branch] = branch_log.replace(
+                    messages=self.snapshot_message_files(branch_log.messages)
                 )
 
         # Load view branches (compacted views stored in views/ directory)
@@ -214,8 +276,8 @@ class LogManager:
             for file in views_dir.glob("*.jsonl"):
                 view_name = file.stem
                 view_log = Log.read_jsonl(file)
-                self._views[view_name] = Log(
-                    self.snapshot_message_files(view_log.messages)
+                self._views[view_name] = view_log.replace(
+                    messages=self.snapshot_message_files(view_log.messages)
                 )
                 logger.debug(f"Loaded view branch: {view_name}")
 
@@ -400,28 +462,37 @@ class LogManager:
         else:
             event_dir = self.logdir / "branches" / self.current_branch
         event_dir.mkdir(parents=True, exist_ok=True)
-        seq = eventlog.sequence_number(event_dir)
         if event_type == eventlog.EVENT_MESSAGE_APPEND:
-            if self.log.messages:
-                event = eventlog.build_message_append_event(seq, self.log.messages[-1])
-            else:
+            if not self.log.messages:
                 return
+            message = self.log.messages[-1]
+
+            def build_event(seq: int) -> dict[str, object]:
+                return eventlog.build_message_append_event(seq, message)
+
         elif event_type == eventlog.EVENT_MESSAGE_EDIT:
-            event = eventlog.build_message_edit_event(seq, list(self.log.messages))
+            messages = list(self.log.messages)
+
+            def build_event(seq: int) -> dict[str, object]:
+                return eventlog.build_message_edit_event(seq, messages)
+
         elif event_type == eventlog.EVENT_UNDO:
             n_raw = extra.get("n", 1)
             n = n_raw if isinstance(n_raw, int) else 1
-            event = eventlog.build_undo_event(seq, n=n)
+
+            def build_event(seq: int) -> dict[str, object]:
+                return eventlog.build_undo_event(seq, n=n)
+
         else:
             return  # unknown type, skip
 
-        eventlog.append_event(event_dir, event)
+        event = eventlog.append_next_event(event_dir, build_event)
+        seq = event["seq"]
 
         # Checkpoint if due
         if eventlog.should_checkpoint(seq):
             eventlog.write_checkpoint(
                 event_dir,
-                seq + 1,  # next seq for the checkpoint
                 [m.to_dict() for m in self.log.messages],
             )
 
@@ -484,6 +555,8 @@ class LogManager:
             # Use full path as key to avoid collisions with same-named files
             file_hashes[str(filepath)] = file_hash
 
+        if file_hashes == msg.file_hashes:
+            return msg
         # Return message with updated hashes (Message is frozen, so replace)
         return replace(msg, file_hashes=file_hashes)
 
@@ -506,9 +579,11 @@ class LogManager:
         # When on a view, conversation.jsonl must always contain the full main
         # branch history — the view is persisted separately in views/ directory.
         if self.current_view is not None:
-            self._branches["main"].write_jsonl(self.logfile)
+            main_path = self.logdir / "conversation.jsonl"
+            main_log = self._branches["main"]
+            self._branches["main"] = main_log.write_jsonl(main_path, append=True)
         else:
-            self.log.write_jsonl(self.logfile)
+            self.log = self.log.write_jsonl(self.logfile, append=True)
 
         # write other branches
         if branches:
@@ -520,10 +595,10 @@ class LogManager:
                     if self.current_branch != "main":
                         main_path = get_logs_dir() / self.chat_id / "conversation.jsonl"
                         main_path.parent.mkdir(parents=True, exist_ok=True)
-                        log.write_jsonl(main_path)
+                        self._branches[branch] = log.write_jsonl(main_path, append=True)
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
-                log.write_jsonl(branch_path)
+                self._branches[branch] = log.write_jsonl(branch_path, append=True)
 
             # Write view branches
             if self._views:
@@ -531,7 +606,7 @@ class LogManager:
                 views_dir.mkdir(parents=True, exist_ok=True)
                 for view_name, log in self._views.items():
                     view_path = views_dir / f"{view_name}.jsonl"
-                    log.write_jsonl(view_path)
+                    self._views[view_name] = log.write_jsonl(view_path, append=True)
 
         # Persist model selection trace alongside the conversation
         trace_path = self.write_model_trace()
@@ -615,7 +690,7 @@ class LogManager:
         """backup the current log to a new branch, usually before editing/undoing"""
         branch_prefix = f"{self.current_branch}-{type}-"
         n = len([b for b in self._branches if b.startswith(branch_prefix)])
-        self._branches[f"{branch_prefix}{n}"] = self.log
+        self._branches[f"{branch_prefix}{n}"] = self.log.replace(persisted=())
         self.write()
 
     def edit(self, new_log: Log | list[Message]) -> None:
@@ -695,14 +770,21 @@ class LogManager:
 
         log = Log.read_jsonl(logfile)
         msgs = log.messages or initial_msgs or []
-        return cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
+        manager = cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
+        if log.messages:
+            manager.log = manager.log.replace(
+                persisted=log.persisted,
+                persisted_path=log.persisted_path,
+                persisted_size=log.persisted_size,
+            )
+        return manager
 
     def branch(self, name: str) -> None:
         """Switches to a branch."""
         self.write()
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
-            self._branches[name] = self.log
+            self._branches[name] = self.log.replace(persisted=())
         self.current_branch = name
 
     def diff(self, branch: str) -> str | None:
@@ -749,7 +831,7 @@ class LogManager:
         views_dir = self.logdir / "views"
         views_dir.mkdir(parents=True, exist_ok=True)
         view_path = views_dir / f"{name}.jsonl"
-        log.write_jsonl(view_path)
+        self._views[name] = log.write_jsonl(view_path)
         logger.info(f"Created view branch: {name} ({len(log)} messages)")
 
     def switch_view(self, name: str) -> None:

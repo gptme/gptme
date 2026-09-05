@@ -8,15 +8,37 @@ message list from the event log alone — skipping replay from event 1.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
+import os
+import tempfile
+import threading
+import weakref
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from ..message import Message
+
+try:
+    fcntl: Any = importlib.import_module("fcntl")
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
+try:
+    msvcrt: Any = importlib.import_module("msvcrt")
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None
+
+_event_log_thread_locks_guard = threading.Lock()
+_event_log_thread_locks: weakref.WeakValueDictionary[Path, threading.Lock] = (
+    weakref.WeakValueDictionary()
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +72,111 @@ def _make_event(seq: int, type: str, payload: dict[str, Any]) -> dict[str, Any]:
 # ── public API ───────────────────────────────────────────────────────
 
 
-def append_event(logdir: Path, event: dict[str, Any]) -> None:
-    """Append a single event record to the event log."""
+def _get_event_log_thread_lock(path: Path) -> threading.Lock:
+    """Return the in-process lock shared by users of one recovery log."""
+    key = path.resolve()
+    with _event_log_thread_locks_guard:
+        lock = _event_log_thread_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _event_log_thread_locks[key] = lock
+        return lock
+
+
+@contextmanager
+def _event_log_lock(logdir: Path) -> Iterator[None]:
+    """Serialize event appends and compaction for one recovery log."""
     path = _event_log_path(logdir)
     path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / f".{path.name}.lock"
+    thread_lock = _get_event_log_thread_lock(path)
+    with thread_lock, lock_path.open("a+b") as lock:
+        if fcntl is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        elif msvcrt is not None:  # pragma: no cover - Windows
+            # Append mode is needed to atomically create the sidecar, but Windows
+            # append semantics ignore seek() for writes.  Only initialize an empty
+            # sidecar so repeated acquisitions do not grow it indefinitely.
+            if lock.seek(0, os.SEEK_END) == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            elif msvcrt is not None:  # pragma: no cover - Windows
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _append_event_unlocked(logdir: Path, event: dict[str, Any]) -> None:
+    path = _event_log_path(logdir)
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(event, default=str) + "\n")
+
+
+def append_event(logdir: Path, event: dict[str, Any]) -> None:
+    """Append a single event record to the event log."""
+    with _event_log_lock(logdir):
+        _append_event_unlocked(logdir, event)
+
+
+def append_next_event(
+    logdir: Path, build_event: Callable[[int], dict[str, Any]]
+) -> dict[str, Any]:
+    """Assign the next sequence and append an event under one lock."""
+    with _event_log_lock(logdir):
+        event = build_event(sequence_number(logdir))
+        _append_event_unlocked(logdir, event)
+    return event
+
+
+def _compact_events_unlocked(logdir: Path) -> None:
+    """Drop events superseded by the latest checkpoint; caller holds lock."""
+    path = _event_log_path(logdir)
+    events = read_events(logdir)
+    checkpoint = find_latest_checkpoint(events)
+    if checkpoint is None:
+        return
+
+    retained = [event for event in events if event["seq"] >= checkpoint["seq"]]
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    try:
+        try:
+            tmp_file = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            # fdopen did not take ownership, so the raw descriptor is ours.
+            os.close(fd)
+            raise
+        # From here the file object owns fd and closes it exactly once; never
+        # close fd directly, or a concurrently opened file reusing the number
+        # gets closed instead.
+        with tmp_file as f:
+            f.writelines(json.dumps(event, default=str) + "\n" for event in retained)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        with suppress(FileNotFoundError):
+            os.unlink(tmp_name)
+        raise
+
+
+def compact_events(logdir: Path) -> None:
+    """Drop events superseded by the latest checkpoint.
+
+    Checkpoints contain the full message state, so events before the newest one
+    are redundant for recovery.  Appends and compaction share a per-log lock,
+    and replacement is atomic, so neither partial files nor lost appends are
+    observable.
+    """
+    with _event_log_lock(logdir):
+        _compact_events_unlocked(logdir)
 
 
 def read_events(logdir: Path) -> list[dict[str, Any]]:
@@ -101,15 +222,18 @@ def sequence_number(logdir: Path) -> int:
 
 def write_checkpoint(
     logdir: Path,
-    seq: int,
     messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Write a checkpoint event that snapshots the full message state.
+    """Assign, write, and compact a checkpoint under one lock.
 
     Returns the written checkpoint event.
     """
-    event = _make_event(seq, EVENT_CHECKPOINT, {"messages": messages})
-    append_event(logdir, event)
+    with _event_log_lock(logdir):
+        event = _make_event(
+            sequence_number(logdir), EVENT_CHECKPOINT, {"messages": messages}
+        )
+        _append_event_unlocked(logdir, event)
+        _compact_events_unlocked(logdir)
     return event
 
 

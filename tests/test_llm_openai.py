@@ -3045,12 +3045,14 @@ class TestMaybeApplyVerbosity:
         model = get_model("openai/gpt-5")
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai"):
+        logger_name = "gptme.llm.llm_openai"
+        with caplog.at_level(logging.WARNING, logger=logger_name):
             _maybe_apply_verbosity({}, model)
             # Verify the flag was persisted (guards against parallel-state interference)
             assert llm_openai._verbosity_warned is True
             _maybe_apply_verbosity({}, model)
-        assert caplog.text.count("OPENAI_VERBOSITY") == 1
+        records = [record for record in caplog.records if record.name == logger_name]
+        assert sum("OPENAI_VERBOSITY" in record.getMessage() for record in records) == 1
 
 
 class TestOpenrouterModelToModelmeta:

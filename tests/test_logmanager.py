@@ -1,7 +1,9 @@
 import builtins
 import json
 from contextlib import contextmanager
+from io import TextIOWrapper
 from pathlib import Path
+from types import TracebackType
 from unittest.mock import patch
 
 import pytest
@@ -134,6 +136,70 @@ def test_constructor_snapshots_initial_message_files(tmp_path: Path):
     assert manager.log.messages[0].file_hashes[str(bootstrap_file)]
 
 
+def test_load_preserves_persistence_cursors(tmp_path: Path):
+    """Loaded active, branch, and view logs continue with incremental appends."""
+    logdir = tmp_path / "conversation"
+    (logdir / "branches").mkdir(parents=True)
+    (logdir / "views").mkdir()
+    message = Message("user", "persisted")
+    Log([message]).write_jsonl(logdir / "conversation.jsonl")
+    Log([message]).write_jsonl(logdir / "branches" / "dev.jsonl")
+    Log([message]).write_jsonl(logdir / "views" / "compact.jsonl")
+
+    manager = LogManager.load(logdir, lock=False)
+
+    assert manager._branches["main"].persisted_messages == 1
+    assert (
+        manager._branches["main"].persisted_path
+        == (logdir / "conversation.jsonl").resolve()
+    )
+    assert (
+        manager._branches["main"].persisted_size
+        == (logdir / "conversation.jsonl").stat().st_size
+    )
+    assert manager._branches["dev"].persisted_messages == 1
+    assert (
+        manager._branches["dev"].persisted_path
+        == (logdir / "branches" / "dev.jsonl").resolve()
+    )
+    assert (
+        manager._branches["dev"].persisted_size
+        == (logdir / "branches" / "dev.jsonl").stat().st_size
+    )
+    assert manager._views["compact"].persisted_messages == 1
+    assert (
+        manager._views["compact"].persisted_path
+        == (logdir / "views" / "compact.jsonl").resolve()
+    )
+    assert (
+        manager._views["compact"].persisted_size
+        == (logdir / "views" / "compact.jsonl").stat().st_size
+    )
+
+
+def test_load_with_snapshotted_file_keeps_incremental_cursor(tmp_path: Path):
+    """Preserving an existing attachment hash must keep message identity."""
+    logdir = tmp_path / "conversation"
+    attachment = tmp_path / "context.md"
+    attachment.write_text("context")
+    with patch("gptme.logmanager.manager.get_logs_dir", return_value=tmp_path):
+        manager = LogManager(
+            [Message("system", "context", files=[attachment])],
+            logdir=logdir,
+            lock=False,
+        )
+        manager.write()
+
+        loaded = LogManager.load(logdir, lock=False)
+        persisted_message = loaded.log.messages[0]
+        assert loaded.log.persisted[0] is persisted_message
+        loaded.append(Message("user", "next"))
+
+    assert [
+        message.content for message in Log.read_jsonl(logdir / "conversation.jsonl")
+    ] == ["context", "next"]
+
+
 def test_initial_message_directories_are_not_snapshotted(tmp_path: Path):
     """Directory prompt matches are context references, not file snapshots."""
     context_dir = tmp_path / "docs"
@@ -214,6 +280,34 @@ def test_conversation_name_error_rejects_control_and_edge_whitespace(
     value: str, expected: str
 ):
     assert conversation_name_error(value) == expected
+
+
+def test_new_branch_persists_inherited_history(tmp_path: Path, monkeypatch):
+    """A new branch writes its inherited prefix to its own destination."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "inherited"))
+
+    manager.branch("dev")
+    manager.append(Message("assistant", "branch-only"))
+
+    persisted = Log.read_jsonl(logdir / "branches" / "dev.jsonl")
+    assert [message.content for message in persisted] == ["inherited", "branch-only"]
+
+
+def test_edit_backup_persists_complete_history(tmp_path: Path, monkeypatch):
+    """An edit backup writes all messages despite originating from a persisted log."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "first"))
+    manager.append(Message("assistant", "second"))
+
+    manager.edit(Log([Message("user", "replacement")]))
+
+    persisted = Log.read_jsonl(logdir / "branches" / "main-edit-0.jsonl")
+    assert [message.content for message in persisted] == ["first", "second"]
 
 
 def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path, monkeypatch):
@@ -380,6 +474,30 @@ def test_view_write_preserves_main_history(tmp_path: Path, monkeypatch):
     view_contents = [m.content for m in view_log]
     assert "compacted summary" in view_contents
     assert "new message after compact" in view_contents
+
+
+def test_view_on_non_main_branch_persists_each_destination(tmp_path: Path, monkeypatch):
+    """A view must not advance main's cursor against the current branch file."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "main history"))
+    manager.branch("dev")
+    manager.append(Message("assistant", "branch history"))
+    manager.create_view("compacted-001", Log([Message("system", "summary")]))
+    manager.switch_view("compacted-001")
+
+    manager.append(Message("user", "view message"))
+
+    main = Log.read_jsonl(logdir / "conversation.jsonl")
+    branch = Log.read_jsonl(logdir / "branches" / "dev.jsonl")
+    view = Log.read_jsonl(logdir / "views" / "compacted-001.jsonl")
+    assert [message.content for message in main] == ["main history", "view message"]
+    assert [message.content for message in branch] == [
+        "main history",
+        "branch history",
+    ]
+    assert [message.content for message in view] == ["summary", "view message"]
 
 
 def test_view_log_setter_updates_view(tmp_path: Path, monkeypatch):
@@ -676,6 +794,189 @@ def test_write_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
     assert calls[0]["encoding"] == "utf-8", (
         f"write_jsonl must pass encoding='utf-8', got encoding={calls[0]['encoding']!r}"
     )
+
+
+def test_write_jsonl_appends_only_new_messages(tmp_path: Path):
+    """Repeated persistence does not rewrite the existing conversation."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first")]).write_jsonl(jsonl_file, append=True)
+    first_size = jsonl_file.stat().st_size
+
+    log = log.append(Message("assistant", "second"))
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(jsonl_file, append=True)
+
+    assert calls[0]["mode"] == "a"
+    assert jsonl_file.stat().st_size > first_size
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
+    assert log.persisted_messages == 2
+    assert log.persisted_path == jsonl_file.resolve()
+
+
+def test_write_jsonl_repairs_partial_failed_append_on_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A failed append must not leave bytes that a retry duplicates."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first")]).write_jsonl(jsonl_file, append=True)
+    log = log.append(Message("assistant", "second"))
+    real_open = builtins.open
+
+    class FailingAppendWriter:
+        def __init__(self, file: TextIOWrapper):
+            self.file = file
+
+        def __enter__(self):
+            self.file.__enter__()
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            self.file.__exit__(exc_type, exc_value, traceback)
+
+        def writelines(self, lines) -> None:
+            line = next(iter(lines))
+            self.file.write(line[: len(line) // 2])
+            self.file.flush()
+            raise OSError("no space left on device")
+
+    failed = False
+
+    def fail_first_append(path, mode="r", *args, **kwargs):
+        nonlocal failed
+        file = real_open(path, mode, *args, **kwargs)
+        if mode == "a" and not failed:
+            failed = True
+            return FailingAppendWriter(file)
+        return file
+
+    monkeypatch.setattr(builtins, "open", fail_first_append)
+    with pytest.raises(OSError, match="no space left on device"):
+        log.write_jsonl(jsonl_file, append=True)
+
+    repaired = log.write_jsonl(jsonl_file, append=True)
+
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
+    assert repaired.persisted_messages == 2
+
+
+def test_write_jsonl_rewrites_when_destination_is_truncated(tmp_path: Path):
+    """A changed destination invalidates the append cursor."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first")]).write_jsonl(jsonl_file, append=True)
+    log = log.append(Message("assistant", "second"))
+    jsonl_file.write_bytes(b"")
+
+    with _record_open_calls() as calls:
+        log.write_jsonl(jsonl_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
+
+
+def test_read_jsonl_with_partial_tail_rewrites_before_append(tmp_path: Path):
+    """Reloading a partial final line must not make that tail append-safe."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    Log([Message("user", "first")]).write_jsonl(jsonl_file)
+    with jsonl_file.open("ab") as file:
+        file.write(b'{"role":"assistant","content":"partial')
+
+    log = Log.read_jsonl(jsonl_file).append(Message("assistant", "second"))
+    with _record_open_calls() as calls:
+        log.write_jsonl(jsonl_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
+
+
+def test_write_jsonl_rewrites_for_a_different_destination(tmp_path: Path):
+    """A persistence cursor belongs only to the file it was recorded for."""
+    conversation_file = tmp_path / "conversation.jsonl"
+    branch_file = tmp_path / "branches" / "dev.jsonl"
+    branch_file.parent.mkdir()
+    log = Log([Message("user", "inherited")]).write_jsonl(
+        conversation_file, append=True
+    )
+    log = log.append(Message("assistant", "branch message"))
+
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(branch_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(branch_file)] == [
+        "inherited",
+        "branch message",
+    ]
+    assert log.persisted_path == branch_file.resolve()
+
+
+def test_write_jsonl_rewrites_after_in_place_message_edit(tmp_path: Path):
+    """Editing already-persisted history must reach disk, not be skipped.
+
+    Append-mode tracks the persisted prefix by identity precisely because the
+    message count is unchanged here: callers like ``_attach_tool_timings``
+    rewrite one earlier message in place, and a count-only check would append
+    zero lines and silently drop the edit.
+    """
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first"), Message("assistant", "second")]).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    log.messages[-1] = log.messages[-1].replace(content="second (edited)")
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(jsonl_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second (edited)",
+    ]
+    assert log.persisted_messages == 2
+
+
+def test_write_jsonl_rewrites_after_messages_are_removed(tmp_path: Path):
+    """Undo-like changes replace stale persisted trailing messages."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log(
+        [Message("user", "first"), Message("assistant", "remove me")]
+    ).write_jsonl(jsonl_file)
+
+    log = log.pop()
+    with _record_open_calls() as calls:
+        log = log.write_jsonl(jsonl_file)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["first"]
+    assert log.persisted_messages == 1
+
+
+def test_write_jsonl_replaces_unknown_existing_file(tmp_path: Path):
+    """A fresh Log object must not append onto stale on-disk content."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+
+    with _record_open_calls() as calls:
+        Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
 
 
 def test_read_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
