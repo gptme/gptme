@@ -20,6 +20,7 @@ from gptme.logmanager.eventlog import (
     EVENT_MESSAGE_APPEND,
     EVENT_MESSAGE_EDIT,
     EVENT_UNDO,
+    _event_log_lock,
     _event_log_path,
     append_event,
     append_next_event,
@@ -134,6 +135,20 @@ def test_sequence_number_increments(logdir: Path):
 
     append_event(logdir, {"seq": 2, "ts": "", "type": "test", "payload": {}})
     assert sequence_number(logdir) == 3
+
+
+def test_different_event_logs_do_not_share_an_io_lock(logdir: Path):
+    """Holding one conversation lock must not block another conversation."""
+    other_logdir = logdir.parent / "other-conversation"
+    event = {"seq": 1, "ts": "", "type": "test", "payload": {}}
+
+    with (
+        _event_log_lock(logdir),
+        ThreadPoolExecutor(max_workers=1) as executor,
+    ):
+        executor.submit(append_event, other_logdir, event).result(timeout=1)
+
+    assert read_events(other_logdir) == [event]
 
 
 def test_append_next_event_assigns_unique_sequences_concurrently(logdir: Path):
