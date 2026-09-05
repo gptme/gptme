@@ -104,7 +104,10 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
 def _test_provider(provider: str) -> tuple[bool, str]:
     """Test if a provider is working (checks env vars and config file)."""
     if provider in OAUTH_PROVIDERS:
-        available = {name for name, _ in list_available_providers()}
+        try:
+            available = {name for name, _ in list_available_providers()}
+        except Exception:
+            available = set()
         if provider in available:
             return True, "OAuth credentials found (not validated during onboarding)"
         return False, f"Not authenticated (run gptme auth {provider})"
@@ -315,7 +318,14 @@ def _run_wizard(check_only: bool = False) -> int:
             rec_model = get_recommended_model(cast(BuiltinProvider, selected))
             default_model = f"{selected}/{rec_model}"
         except ValueError:
-            # Provider doesn't have a recommended model configured
+            # OAuth/subscription providers may have no builtin recommended model.
+            # Prompt the user to supply the model in provider/model form.
+            if selected in OAUTH_PROVIDERS:
+                console.print(
+                    f"[dim]Note: {selected} requires specifying a model.  "
+                    f"Enter it as [bold]{selected}/MODEL-NAME[/bold] "
+                    f"(e.g. {selected}/grok-3).[/dim]"
+                )
             default_model = selected
     else:
         default_model = selected

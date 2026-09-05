@@ -161,3 +161,14 @@ class TestTestProvider:
 
         assert not is_valid
         assert message == "Not authenticated (run gptme auth openai-subscription)"
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=ValueError("malformed credentials"),
+    )
+    def test_oauth_lookup_failure_in_test_provider(self, _mock_providers):
+        """Credential lookup failure in _test_provider returns (False, message)."""
+        is_valid, message = _test_provider("openai-subscription")
+
+        assert not is_valid
+        assert "Not authenticated" in message
