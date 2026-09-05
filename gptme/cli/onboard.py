@@ -20,7 +20,7 @@ from rich.table import Table
 
 from ..config import config_path
 from ..llm import list_available_providers
-from ..llm.models import PROVIDERS, BuiltinProvider, get_recommended_model
+from ..llm.models import MODELS, PROVIDERS, BuiltinProvider, get_recommended_model
 from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,29 @@ def _show_provider_status(providers: dict[str, tuple[bool, str | None]]) -> None
         table.add_row(provider, status, preview_text, docs_url)
 
     console.print(table)
+
+
+def _get_default_model(provider: str) -> str:
+    """Return a valid default model string for the given provider.
+
+    For providers with a builtin recommended model, returns ``provider/model``.
+    For OAuth/subscription providers that have no builtin recommendation, falls
+    back to the first model listed in the static ``MODELS`` dict so the default
+    is always a fully-qualified ``provider/model`` string rather than the bare
+    provider name (which fails at startup).
+    """
+    if provider in PROVIDERS:
+        try:
+            rec = get_recommended_model(cast(BuiltinProvider, provider))
+            return f"{provider}/{rec}"
+        except ValueError:
+            pass
+    # Fallback: first model in the static MODELS dict, if any.
+    # MODELS keys are Literal types; cast provider str to avoid the mypy overload mismatch.
+    provider_models = list(MODELS.get(cast(BuiltinProvider, provider), {}).keys())
+    if provider_models:
+        return f"{provider}/{provider_models[0]}"
+    return provider
 
 
 def _select_provider(providers: dict[str, tuple[bool, str | None]]) -> str | None:
@@ -317,22 +340,14 @@ def _run_wizard(check_only: bool = False) -> int:
     console.print("\n[bold]Step 4: Create configuration[/bold]")
 
     # Ask for model preference
-    if selected in PROVIDERS:
-        try:
-            rec_model = get_recommended_model(cast(BuiltinProvider, selected))
-            default_model = f"{selected}/{rec_model}"
-        except ValueError:
-            # OAuth/subscription providers may have no builtin recommended model.
-            # Prompt the user to supply the model in provider/model form.
-            if selected in OAUTH_PROVIDERS:
-                console.print(
-                    f"[dim]Note: {selected} requires specifying a model.  "
-                    f"Enter it as [bold]{selected}/MODEL-NAME[/bold] "
-                    f"(e.g. {selected}/grok-3).[/dim]"
-                )
-            default_model = selected
-    else:
-        default_model = selected
+    default_model = _get_default_model(selected)
+    if selected in OAUTH_PROVIDERS:
+        # Show a hint for OAuth providers so the user knows the required format.
+        console.print(
+            f"[dim]Note: {selected} requires specifying a model.  "
+            f"Enter it as [bold]{selected}/MODEL-NAME[/bold] "
+            f"(e.g. {default_model}).[/dim]"
+        )
     model = Prompt.ask("Default model", default=default_model)
 
     # Create config

@@ -3,7 +3,12 @@
 import os
 from unittest.mock import MagicMock, patch
 
-from gptme.cli.onboard import _detect_providers, _show_provider_status, _test_provider
+from gptme.cli.onboard import (
+    _detect_providers,
+    _get_default_model,
+    _show_provider_status,
+    _test_provider,
+)
 
 
 def _mock_empty_config():
@@ -191,3 +196,29 @@ class TestShowProviderStatus:
         out = capsys.readouterr().out
         assert "openai-subscription" in out
         assert "Configured" in out
+
+
+class TestGetDefaultModel:
+    """Test _get_default_model returns a valid full model string."""
+
+    def test_known_provider_returns_recommended(self):
+        """Providers with a builtin recommendation return provider/model."""
+        result = _get_default_model("openai")
+        assert result.startswith("openai/"), result
+        assert "/" in result
+
+    def test_grok_subscription_returns_valid_model(self):
+        """grok-subscription has no builtin recommended model; must fall back to
+        the first model in the static MODELS dict (e.g. grok-4.6) rather than
+        returning the bare provider name, which fails at startup."""
+        result = _get_default_model("grok-subscription")
+        assert result.startswith("grok-subscription/"), result
+        assert result != "grok-subscription", (
+            "_get_default_model must never return the bare provider name"
+        )
+
+    def test_openai_subscription_returns_valid_model(self):
+        """openai-subscription should similarly return a qualified default."""
+        result = _get_default_model("openai-subscription")
+        assert result.startswith("openai-subscription/"), result
+        assert result != "openai-subscription"
