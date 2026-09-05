@@ -362,10 +362,10 @@ def _run_wizard(check_only: bool = False) -> int:
         else:
             model = Prompt.ask("Default model (e.g. provider/model-name)")
         provider, separator, model_name = model.partition("/")
-        if separator and provider == selected and model_name and "/" not in model_name:
+        if separator and provider == selected and model_name:
             break
         console.print(
-            f"[red]Model must be in {selected}/model format (e.g. {selected}/MODEL-NAME).[/red]"
+            f"[red]Model must start with {selected}/ followed by a model name (e.g. {selected}/MODEL-NAME).[/red]"
         )
 
     # Create config
