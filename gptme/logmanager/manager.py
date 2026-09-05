@@ -81,6 +81,7 @@ class Log:
     # view file containing different bytes.
     persisted: tuple[Message, ...] = field(default=(), compare=False, repr=False)
     persisted_path: Path | None = field(default=None, compare=False, repr=False)
+    persisted_size: int | None = field(default=None, compare=False, repr=False)
 
     def __getitem__(self, key):
         return self.messages[key]
@@ -122,6 +123,7 @@ class Log:
             messages,
             persisted=tuple(messages),
             persisted_path=output,
+            persisted_size=output.stat().st_size,
         )
 
     def _can_append(self, output: Path) -> bool:
@@ -140,6 +142,14 @@ class Log:
         if not prefix:
             # Nothing known-persisted: appending would duplicate existing lines.
             return not output.exists()
+        try:
+            if (
+                self.persisted_size is None
+                or output.stat().st_size != self.persisted_size
+            ):
+                return False
+        except OSError:
+            return False
         return all(old is new for old, new in zip(prefix, self.messages))
 
     def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
@@ -154,6 +164,7 @@ class Log:
         return self.replace(
             persisted=tuple(self.messages),
             persisted_path=output.resolve(),
+            persisted_size=output.stat().st_size,
         )
 
     def print(self, show_hidden: bool = False) -> int:
@@ -447,22 +458,32 @@ class LogManager:
         else:
             event_dir = self.logdir / "branches" / self.current_branch
         event_dir.mkdir(parents=True, exist_ok=True)
-        seq = eventlog.sequence_number(event_dir)
         if event_type == eventlog.EVENT_MESSAGE_APPEND:
-            if self.log.messages:
-                event = eventlog.build_message_append_event(seq, self.log.messages[-1])
-            else:
+            if not self.log.messages:
                 return
+            message = self.log.messages[-1]
+
+            def build_event(seq: int) -> dict[str, object]:
+                return eventlog.build_message_append_event(seq, message)
+
         elif event_type == eventlog.EVENT_MESSAGE_EDIT:
-            event = eventlog.build_message_edit_event(seq, list(self.log.messages))
+            messages = list(self.log.messages)
+
+            def build_event(seq: int) -> dict[str, object]:
+                return eventlog.build_message_edit_event(seq, messages)
+
         elif event_type == eventlog.EVENT_UNDO:
             n_raw = extra.get("n", 1)
             n = n_raw if isinstance(n_raw, int) else 1
-            event = eventlog.build_undo_event(seq, n=n)
+
+            def build_event(seq: int) -> dict[str, object]:
+                return eventlog.build_undo_event(seq, n=n)
+
         else:
             return  # unknown type, skip
 
-        eventlog.append_event(event_dir, event)
+        event = eventlog.append_next_event(event_dir, build_event)
+        seq = event["seq"]
 
         # Checkpoint if due
         if eventlog.should_checkpoint(seq):
@@ -749,6 +770,7 @@ class LogManager:
             manager.log = manager.log.replace(
                 persisted=log.persisted,
                 persisted_path=log.persisted_path,
+                persisted_size=log.persisted_size,
             )
         return manager
 

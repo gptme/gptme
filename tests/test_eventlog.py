@@ -22,6 +22,7 @@ from gptme.logmanager.eventlog import (
     EVENT_UNDO,
     _event_log_path,
     append_event,
+    append_next_event,
     compact_events,
     find_latest_checkpoint,
     read_events,
@@ -130,6 +131,21 @@ def test_sequence_number_increments(logdir: Path):
 
     append_event(logdir, {"seq": 2, "ts": "", "type": "test", "payload": {}})
     assert sequence_number(logdir) == 3
+
+
+def test_append_next_event_assigns_unique_sequences_concurrently(logdir: Path):
+    """Sequence assignment and append are one serialized operation."""
+
+    def build(seq: int) -> dict[str, object]:
+        return {"seq": seq, "ts": "", "type": "test", "payload": {}}
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        events = list(
+            executor.map(lambda _: append_next_event(logdir, build), range(40))
+        )
+
+    assert sorted(event["seq"] for event in events) == list(range(1, 41))
+    assert sorted(event["seq"] for event in read_events(logdir)) == list(range(1, 41))
 
 
 def test_should_checkpoint(logdir: Path):

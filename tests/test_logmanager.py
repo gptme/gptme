@@ -1,7 +1,9 @@
 import builtins
 import json
 from contextlib import contextmanager
+from io import TextIOWrapper
 from pathlib import Path
+from types import TracebackType
 from unittest.mock import patch
 
 import pytest
@@ -151,15 +153,27 @@ def test_load_preserves_persistence_cursors(tmp_path: Path):
         manager._branches["main"].persisted_path
         == (logdir / "conversation.jsonl").resolve()
     )
+    assert (
+        manager._branches["main"].persisted_size
+        == (logdir / "conversation.jsonl").stat().st_size
+    )
     assert manager._branches["dev"].persisted_messages == 1
     assert (
         manager._branches["dev"].persisted_path
         == (logdir / "branches" / "dev.jsonl").resolve()
     )
+    assert (
+        manager._branches["dev"].persisted_size
+        == (logdir / "branches" / "dev.jsonl").stat().st_size
+    )
     assert manager._views["compact"].persisted_messages == 1
     assert (
         manager._views["compact"].persisted_path
         == (logdir / "views" / "compact.jsonl").resolve()
+    )
+    assert (
+        manager._views["compact"].persisted_size
+        == (logdir / "views" / "compact.jsonl").stat().st_size
     )
 
 
@@ -777,6 +791,77 @@ def test_write_jsonl_appends_only_new_messages(tmp_path: Path):
     ]
     assert log.persisted_messages == 2
     assert log.persisted_path == jsonl_file.resolve()
+
+
+def test_write_jsonl_repairs_partial_failed_append_on_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A failed append must not leave bytes that a retry duplicates."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first")]).write_jsonl(jsonl_file, append=True)
+    log = log.append(Message("assistant", "second"))
+    real_open = builtins.open
+
+    class FailingAppendWriter:
+        def __init__(self, file: TextIOWrapper):
+            self.file = file
+
+        def __enter__(self):
+            self.file.__enter__()
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            self.file.__exit__(exc_type, exc_value, traceback)
+
+        def writelines(self, lines) -> None:
+            line = next(iter(lines))
+            self.file.write(line[: len(line) // 2])
+            self.file.flush()
+            raise OSError("no space left on device")
+
+    failed = False
+
+    def fail_first_append(path, mode="r", *args, **kwargs):
+        nonlocal failed
+        file = real_open(path, mode, *args, **kwargs)
+        if mode == "a" and not failed:
+            failed = True
+            return FailingAppendWriter(file)
+        return file
+
+    monkeypatch.setattr(builtins, "open", fail_first_append)
+    with pytest.raises(OSError, match="no space left on device"):
+        log.write_jsonl(jsonl_file, append=True)
+
+    repaired = log.write_jsonl(jsonl_file, append=True)
+
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
+    assert repaired.persisted_messages == 2
+
+
+def test_write_jsonl_rewrites_when_destination_is_truncated(tmp_path: Path):
+    """A changed destination invalidates the append cursor."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    log = Log([Message("user", "first")]).write_jsonl(jsonl_file, append=True)
+    log = log.append(Message("assistant", "second"))
+    jsonl_file.write_bytes(b"")
+
+    with _record_open_calls() as calls:
+        log.write_jsonl(jsonl_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
 
 
 def test_write_jsonl_rewrites_for_a_different_destination(tmp_path: Path):

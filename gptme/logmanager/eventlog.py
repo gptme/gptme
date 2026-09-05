@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from ..message import Message
@@ -96,11 +96,26 @@ def _event_log_lock(logdir: Path) -> Iterator[None]:
                 msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
+def _append_event_unlocked(logdir: Path, event: dict[str, Any]) -> None:
+    path = _event_log_path(logdir)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(event, default=str) + "\n")
+
+
 def append_event(logdir: Path, event: dict[str, Any]) -> None:
     """Append a single event record to the event log."""
-    path = _event_log_path(logdir)
-    with _event_log_lock(logdir), open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(event, default=str) + "\n")
+    with _event_log_lock(logdir):
+        _append_event_unlocked(logdir, event)
+
+
+def append_next_event(
+    logdir: Path, build_event: Callable[[int], dict[str, Any]]
+) -> dict[str, Any]:
+    """Assign the next sequence and append an event under one lock."""
+    with _event_log_lock(logdir):
+        event = build_event(sequence_number(logdir))
+        _append_event_unlocked(logdir, event)
+    return event
 
 
 def compact_events(logdir: Path) -> None:
