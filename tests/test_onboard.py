@@ -3,7 +3,12 @@
 import os
 from unittest.mock import MagicMock, patch
 
-from gptme.cli.onboard import _detect_providers, _test_provider
+from gptme.cli.onboard import (
+    _detect_providers,
+    _get_default_model,
+    _show_provider_status,
+    _test_provider,
+)
 
 
 def _mock_empty_config():
@@ -92,6 +97,55 @@ class TestDetectProviders:
                 assert preview is not None
                 assert "model:" in preview
 
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    def test_detect_with_oauth(self, _mock_providers):
+        """Test detection finds subscription providers with OAuth credentials."""
+        with patch("gptme.config.get_config", return_value=_mock_empty_config()):
+            providers = _detect_providers()
+
+        assert providers["openai-subscription"] == (True, "oauth")
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=ValueError("malformed credentials"),
+    )
+    def test_detect_preserves_env_fallback_when_oauth_lookup_fails(
+        self, _mock_providers
+    ):
+        """Credential lookup failures do not discard environment detection."""
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENAI_API_KEY": "sk-test1234567890abcdef"},
+                clear=True,
+            ),
+            patch("gptme.config.get_config", return_value=_mock_empty_config()),
+        ):
+            providers = _detect_providers()
+
+        assert providers["openai"][0]
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=RuntimeError("token file corrupted"),
+    )
+    def test_oauth_lookup_failure_logs_warning(self, _mock_providers, caplog):
+        """OAuth credential lookup failures emit a warning rather than silently passing."""
+        import logging
+
+        with (
+            caplog.at_level(logging.WARNING, logger="gptme.cli.onboard"),
+            patch("gptme.config.get_config", return_value=_mock_empty_config()),
+        ):
+            _detect_providers()
+
+        messages = " ".join(r.message for r in caplog.records)
+        assert "OAuth credential check failed" in messages
+        assert "gptme auth" in messages
+
 
 class TestTestProvider:
     """Test provider connectivity testing."""
@@ -111,3 +165,142 @@ class TestTestProvider:
                 is_valid, error = _test_provider("openai")
                 assert not is_valid
                 assert "No API key found" in error
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    def test_oauth_credentials_found(self, _mock_providers):
+        """Subscription credentials are accepted without an API-key validation call."""
+        is_valid, message = _test_provider("openai-subscription")
+
+        assert is_valid
+        assert "OAuth credentials found" in message
+
+    @patch("gptme.cli.onboard.list_available_providers", return_value=[])
+    def test_oauth_credentials_missing(self, _mock_providers):
+        """Missing subscription credentials give the provider-specific auth command."""
+        is_valid, message = _test_provider("openai-subscription")
+
+        assert not is_valid
+        assert message == "Not authenticated (run gptme auth openai-subscription)"
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=ValueError("malformed credentials"),
+    )
+    def test_oauth_lookup_failure_in_test_provider(self, _mock_providers):
+        """Credential lookup failure in _test_provider returns (False, message)."""
+        is_valid, message = _test_provider("openai-subscription")
+
+        assert not is_valid
+        assert "Not authenticated" in message
+
+
+class TestShowProviderStatus:
+    """Test the provider status table."""
+
+    def test_shows_configured_oauth_provider_not_in_builtins(self, capsys):
+        """An OAuth provider detected as configured is shown, even though it's
+        not in the builtin PROVIDERS list (regression: it was previously
+        omitted, so --check could report "1 provider(s) configured" while the
+        visible table showed everything as not configured)."""
+        providers: dict[str, tuple[bool, str | None]] = {
+            "openai-subscription": (True, "oauth")
+        }
+
+        _show_provider_status(providers)
+
+        out = capsys.readouterr().out
+        assert "openai-subscription" in out
+        assert "Configured" in out
+
+
+class TestGetDefaultModel:
+    """Test _get_default_model returns a valid full model string."""
+
+    def test_known_provider_returns_recommended(self):
+        """Providers with a builtin recommendation return provider/model."""
+        result = _get_default_model("openai")
+        assert result.startswith("openai/"), result
+        assert "/" in result
+
+    def test_grok_subscription_returns_valid_model(self):
+        """grok-subscription has no builtin recommended model; must fall back to
+        the first model in the static MODELS dict (e.g. grok-4.6) rather than
+        returning the bare provider name, which fails at startup."""
+        result = _get_default_model("grok-subscription")
+        assert result.startswith("grok-subscription/"), result
+        assert result != "grok-subscription", (
+            "_get_default_model must never return the bare provider name"
+        )
+
+    def test_openai_subscription_returns_valid_model(self):
+        """openai-subscription should similarly return a qualified default."""
+        result = _get_default_model("openai-subscription")
+        assert result.startswith("openai-subscription/"), result
+        assert result != "openai-subscription"
+
+    def test_unknown_provider_returns_empty_not_bare_name(self):
+        """A provider with no entry in MODELS must return '' not the bare name.
+
+        The bare provider name is not a valid model string (runtime requires
+        ``provider/model``).  The caller is responsible for prompting the user.
+        """
+        result = _get_default_model("unknown-future-provider")
+        assert result == "", (
+            "_get_default_model must return '' for unknown providers, "
+            f"not the bare name; got {result!r}"
+        )
+
+
+class TestModelValidation:
+    """Test model string validation used in the wizard input loop."""
+
+    def _is_valid_model(self, model: str, selected: str = "openai") -> bool:
+        """Replicate the wizard's partition-based validation predicate."""
+        provider, separator, model_name = model.partition("/")
+        return bool(
+            separator
+            and provider == selected
+            and model_name
+            and not model_name.endswith("/")
+        )
+
+    def test_trailing_slash_rejected(self):
+        """'openai/' must be rejected — empty model segment after the slash."""
+        assert not self._is_valid_model("openai/"), (
+            "trailing slash with no model name must not pass validation"
+        )
+
+    def test_nested_trailing_slash_rejected(self):
+        """'openrouter/deepseek/' must be rejected — empty final component."""
+        assert not self._is_valid_model(
+            "openrouter/deepseek/", selected="openrouter"
+        ), "nested trailing slash must be rejected — empty final component"
+
+    def test_valid_model_accepted(self):
+        """'openai/gpt-4o' and similar well-formed strings must pass."""
+        assert self._is_valid_model("openai/gpt-4o")
+        assert self._is_valid_model("openai/gpt-3.5-turbo")
+
+    def test_nested_model_accepted(self):
+        """Nested slash identifiers like openrouter/deepseek/deepseek-v4-pro must pass."""
+        assert self._is_valid_model(
+            "openrouter/deepseek/deepseek-v4-pro", selected="openrouter"
+        ), "OpenRouter nested model identifiers must be accepted"
+        assert self._is_valid_model(
+            "requesty/openai/gpt-4o-mini", selected="requesty"
+        ), "Requesty nested model identifiers must be accepted"
+
+    def test_bare_provider_rejected(self):
+        """Bare provider name without a slash must be rejected."""
+        assert not self._is_valid_model("openai")
+
+    def test_wrong_provider_rejected(self):
+        """A valid model string for the *wrong* provider must be rejected."""
+        assert not self._is_valid_model("anthropic/claude-3", selected="openai")
+
+    def test_leading_slash_rejected(self):
+        """/gpt-4o (no provider) must be rejected."""
+        assert not self._is_valid_model("/gpt-4o")

@@ -19,8 +19,9 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from ..config import config_path
-from ..llm.models import PROVIDERS, BuiltinProvider, get_recommended_model
-from ..llm.validate import PROVIDER_DOCS, validate_api_key
+from ..llm import list_available_providers
+from ..llm.models import MODELS, PROVIDERS, BuiltinProvider, get_recommended_model
+from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -60,6 +61,18 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         else:
             results[provider] = (False, None)
 
+    # OAuth providers have no API key; use the same token-file detection as the
+    # runtime and ``gptme-doctor``. Credential/config errors must not discard
+    # providers already detected from the environment.
+    try:
+        for provider, source in list_available_providers():
+            if provider in OAUTH_PROVIDERS:
+                results[provider] = (True, source)
+    except Exception as e:
+        logger.warning(
+            "OAuth credential check failed: %s — run `gptme auth` to re-authenticate", e
+        )
+
     # Also check config file for API keys and configured model
     try:
         from ..config import get_config
@@ -92,6 +105,15 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
 
 def _test_provider(provider: str) -> tuple[bool, str]:
     """Test if a provider is working (checks env vars and config file)."""
+    if provider in OAUTH_PROVIDERS:
+        try:
+            available = {name for name, _ in list_available_providers()}
+        except Exception:
+            available = set()
+        if provider in available:
+            return True, "OAuth credentials found (not validated during onboarding)"
+        return False, f"Not authenticated (run gptme auth {provider})"
+
     env_var = PROVIDER_ENV_VARS.get(provider)
     if not env_var:
         return False, f"Unknown provider: {provider}"
@@ -119,7 +141,11 @@ def _show_provider_status(providers: dict[str, tuple[bool, str | None]]) -> None
     table.add_column("Key Preview")
     table.add_column("Docs")
 
-    for provider in PROVIDERS:
+    # Show all builtin providers plus any additional (e.g. OAuth) providers
+    # detected in `providers` that aren't in the builtin list, so a
+    # configured OAuth provider isn't silently omitted from the table.
+    all_providers = list(PROVIDERS) + [p for p in providers if p not in PROVIDERS]
+    for provider in all_providers:
         has_key, preview = providers.get(provider, (False, None))
         if has_key:
             status = "✅ Configured"
@@ -132,6 +158,35 @@ def _show_provider_status(providers: dict[str, tuple[bool, str | None]]) -> None
         table.add_row(provider, status, preview_text, docs_url)
 
     console.print(table)
+
+
+def _get_default_model(provider: str) -> str:
+    """Return a valid default model string for the given provider.
+
+    For providers with a builtin recommended model, returns ``provider/model``.
+    For OAuth/subscription providers that have no builtin recommendation, falls
+    back to the first model listed in the static ``MODELS`` dict so the default
+    is always a fully-qualified ``provider/model`` string rather than the bare
+    provider name (which fails at startup).
+
+    Returns an empty string if no default model can be determined.
+    Callers must treat an empty return as "no default available" and require
+    the user to supply a full ``provider/model`` string explicitly.
+    """
+    if provider in PROVIDERS:
+        try:
+            rec = get_recommended_model(cast(BuiltinProvider, provider))
+            return f"{provider}/{rec}"
+        except ValueError:
+            pass
+    # Fallback: first model in the static MODELS dict, if any.
+    # MODELS keys are Literal types; cast provider str to avoid the mypy overload mismatch.
+    provider_models = list(MODELS.get(cast(BuiltinProvider, provider), {}).keys())
+    if provider_models:
+        return f"{provider}/{provider_models[0]}"
+    # No default known — returning the bare provider name would produce an invalid
+    # config (runtime requires provider/model).  Let the caller ask the user.
+    return ""
 
 
 def _select_provider(providers: dict[str, tuple[bool, str | None]]) -> str | None:
@@ -293,16 +348,30 @@ def _run_wizard(check_only: bool = False) -> int:
     console.print("\n[bold]Step 4: Create configuration[/bold]")
 
     # Ask for model preference
-    if selected in PROVIDERS:
-        try:
-            rec_model = get_recommended_model(cast(BuiltinProvider, selected))
-            default_model = f"{selected}/{rec_model}"
-        except ValueError:
-            # Provider doesn't have a recommended model configured
-            default_model = selected
-    else:
-        default_model = selected
-    model = Prompt.ask("Default model", default=default_model)
+    default_model = _get_default_model(selected)
+    if selected in OAUTH_PROVIDERS:
+        # Show a hint for OAuth providers so the user knows the required format.
+        example = f" (e.g. {default_model})" if default_model else ""
+        console.print(
+            f"[dim]Note: {selected} requires specifying a model.  "
+            f"Enter it as [bold]{selected}/MODEL-NAME[/bold]{example}.[/dim]"
+        )
+    while True:
+        if default_model:
+            model = Prompt.ask("Default model", default=default_model)
+        else:
+            model = Prompt.ask("Default model (e.g. provider/model-name)")
+        provider, separator, model_name = model.partition("/")
+        if (
+            separator
+            and provider == selected
+            and model_name
+            and not model_name.endswith("/")
+        ):
+            break
+        console.print(
+            f"[red]Model must start with {selected}/ followed by a model name (e.g. {selected}/MODEL-NAME).[/red]"
+        )
 
     # Create config
     config_created = _create_config(selected, model)
