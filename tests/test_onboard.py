@@ -92,6 +92,17 @@ class TestDetectProviders:
                 assert preview is not None
                 assert "model:" in preview
 
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    def test_detect_with_oauth(self, _mock_providers):
+        """Test detection finds subscription providers with OAuth credentials."""
+        with patch("gptme.config.get_config", return_value=_mock_empty_config()):
+            providers = _detect_providers()
+
+        assert providers["openai-subscription"] == (True, "oauth")
+
 
 class TestTestProvider:
     """Test provider connectivity testing."""
@@ -111,3 +122,22 @@ class TestTestProvider:
                 is_valid, error = _test_provider("openai")
                 assert not is_valid
                 assert "No API key found" in error
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    def test_oauth_credentials_found(self, _mock_providers):
+        """Subscription credentials are accepted without an API-key validation call."""
+        is_valid, message = _test_provider("openai-subscription")
+
+        assert is_valid
+        assert "OAuth credentials found" in message
+
+    @patch("gptme.cli.onboard.list_available_providers", return_value=[])
+    def test_oauth_credentials_missing(self, _mock_providers):
+        """Missing subscription credentials give the provider-specific auth command."""
+        is_valid, message = _test_provider("openai-subscription")
+
+        assert not is_valid
+        assert message == "Not authenticated (run gptme auth openai-subscription)"

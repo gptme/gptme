@@ -19,8 +19,9 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from ..config import config_path
+from ..llm import list_available_providers
 from ..llm.models import PROVIDERS, BuiltinProvider, get_recommended_model
-from ..llm.validate import PROVIDER_DOCS, validate_api_key
+from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -60,6 +61,12 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         else:
             results[provider] = (False, None)
 
+    # OAuth providers have no API key; use the same token-file detection as the
+    # runtime and ``gptme-doctor``.
+    for provider, source in list_available_providers():
+        if provider in OAUTH_PROVIDERS:
+            results[provider] = (True, source)
+
     # Also check config file for API keys and configured model
     try:
         from ..config import get_config
@@ -92,6 +99,12 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
 
 def _test_provider(provider: str) -> tuple[bool, str]:
     """Test if a provider is working (checks env vars and config file)."""
+    if provider in OAUTH_PROVIDERS:
+        available = {name for name, _ in list_available_providers()}
+        if provider in available:
+            return True, "OAuth credentials found (not validated during onboarding)"
+        return False, f"Not authenticated (run gptme auth {provider})"
+
     env_var = PROVIDER_ENV_VARS.get(provider)
     if not env_var:
         return False, f"Unknown provider: {provider}"
