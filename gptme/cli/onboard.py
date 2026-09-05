@@ -139,7 +139,11 @@ def _show_provider_status(providers: dict[str, tuple[bool, str | None]]) -> None
     table.add_column("Key Preview")
     table.add_column("Docs")
 
-    for provider in PROVIDERS:
+    # Show all builtin providers plus any additional (e.g. OAuth) providers
+    # detected in `providers` that aren't in the builtin list, so a
+    # configured OAuth provider isn't silently omitted from the table.
+    all_providers = list(PROVIDERS) + [p for p in providers if p not in PROVIDERS]
+    for provider in all_providers:
         has_key, preview = providers.get(provider, (False, None))
         if has_key:
             status = "✅ Configured"
