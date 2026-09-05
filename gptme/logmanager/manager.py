@@ -148,6 +148,10 @@ class Log:
                 or output.stat().st_size != self.persisted_size
             ):
                 return False
+            with output.open("rb") as file:
+                file.seek(-1, os.SEEK_END)
+                if file.read(1) != b"\n":
+                    return False
         except OSError:
             return False
         return all(old is new for old, new in zip(prefix, self.messages))

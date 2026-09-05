@@ -887,6 +887,24 @@ def test_write_jsonl_rewrites_when_destination_is_truncated(tmp_path: Path):
     ]
 
 
+def test_read_jsonl_with_partial_tail_rewrites_before_append(tmp_path: Path):
+    """Reloading a partial final line must not make that tail append-safe."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    Log([Message("user", "first")]).write_jsonl(jsonl_file)
+    with jsonl_file.open("ab") as file:
+        file.write(b'{"role":"assistant","content":"partial')
+
+    log = Log.read_jsonl(jsonl_file).append(Message("assistant", "second"))
+    with _record_open_calls() as calls:
+        log.write_jsonl(jsonl_file, append=True)
+
+    assert calls[0]["mode"] == "w"
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == [
+        "first",
+        "second",
+    ]
+
+
 def test_write_jsonl_rewrites_for_a_different_destination(tmp_path: Path):
     """A persistence cursor belongs only to the file it was recorded for."""
     conversation_file = tmp_path / "conversation.jsonl"
