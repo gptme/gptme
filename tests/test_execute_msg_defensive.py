@@ -10,7 +10,15 @@ intentionally left unpaired when the tool is unavailable.
 """
 
 from gptme.message import Message
-from gptme.tools import execute_msg
+from gptme.tools import (
+    _get_available_tools_cache,
+    _set_available_tools_cache,
+    clear_tools,
+    execute_msg,
+    get_available_tools,
+    get_tools,
+    set_tools,
+)
 from gptme.tools.base import set_tool_format
 
 
@@ -39,6 +47,9 @@ class TestExecuteMsgDefensive:
         )
         assert "nonexistent_tool" in result.content, (
             "Error message should identify the tool that was unavailable"
+        )
+        assert "disabled by default" not in result.content, (
+            "Unknown tools must keep the original error; no enable hint"
         )
 
     def test_nonrunnable_markdown_tooluse_yields_nothing(self):
@@ -70,6 +81,48 @@ class TestExecuteMsgDefensive:
         assert results[0].role == "system", (
             f"Expected role='system', got '{results[0].role}'"
         )
+
+    def test_disabled_by_default_tool_gets_enable_hint(self):
+        """A disabled-by-default tool (e.g. 'read') includes '--tools +name' in error."""
+        set_tool_format("tool")
+        # clear_tools() wipes context-local loaded tools and the available-tools
+        # cache. Snapshot and restore so later tests in this process don't inherit
+        # an empty registry (pytest shares one thread/context by default).
+        prev_tools = list(get_tools())
+        prev_cache = _get_available_tools_cache()
+        try:
+            # Ensure no tools are loaded so 'read' is not runnable in this context.
+            clear_tools()
+            # Precondition: 'read' must be discoverable and have disabled_by_default=True.
+            # If someone changes that flag this assertion fails loudly instead of silently.
+            read_specs = [
+                t for t in get_available_tools(include_mcp=False) if t.name == "read"
+            ]
+            assert read_specs, "read tool must be discoverable via get_available_tools"
+            assert read_specs[0].disabled_by_default, (
+                "read tool must have disabled_by_default=True for this test to be valid"
+            )
+            assert read_specs[0].is_available, (
+                "read tool must have is_available=True for this test to be valid "
+                "(the hint is only appended when the tool is both disabled_by_default "
+                "and is_available)"
+            )
+            call_id = "call-disabled-read"
+            # 'read' is disabled_by_default=True; it is discoverable but not loaded
+            content = f'@read({call_id}): {{"path": "somefile.txt"}}'
+            msg = Message("assistant", content)
+
+            results = list(execute_msg(msg))
+
+            assert len(results) == 1
+            result = results[0]
+            assert result.call_id == call_id
+            assert "--tools +read" in result.content, (
+                f"Expected enable hint in error for disabled-by-default tool, got: {result.content!r}"
+            )
+        finally:
+            set_tools(prev_tools)
+            _set_available_tools_cache(prev_cache)
 
     def test_multiple_structured_tooluses_all_get_error_results(self):
         """Multiple non-runnable structured tool_uses each get an error tool_result."""

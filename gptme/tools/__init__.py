@@ -372,6 +372,11 @@ def execute_msg(
         return
 
     remaining = iter(classified)
+    # Lazily resolved available-tool metadata for the disabled-by-default hint.
+    # Prefer the existing cache so unavailable structured calls do not re-run
+    # uncached module/plugin discovery (get_available_tools(include_mcp=False)
+    # deliberately skips the cache).
+    available_for_hint: list[ToolSpec] | None = None
     for tooluse in remaining:
         runnable = tooluse.is_runnable
         if runnable:
@@ -413,9 +418,35 @@ def execute_msg(
                 "the tool_use/tool_result pairing valid.",
                 tooluse.tool,
             )
+            error_msg = f"Tool '{tooluse.tool}' is not available for execution."
+            # If the tool exists but is disabled by default, give an actionable hint.
+            if available_for_hint is None:
+                cached = _get_available_tools_cache()
+                if cached is not None:
+                    available_for_hint = cached
+                else:
+                    try:
+                        available_for_hint = get_available_tools(include_mcp=False)
+                    except Exception:
+                        # Discovery failures (bad plugin/config) must not block
+                        # yielding the paired tool_result below, or the dangling
+                        # tool_use/400 bug this branch exists to prevent reopens.
+                        logger.warning(
+                            "Failed to look up available tools for enable hint",
+                            exc_info=True,
+                        )
+                        available_for_hint = []
+            if any(
+                t.name == tooluse.tool and t.disabled_by_default and t.is_available
+                for t in available_for_hint
+            ):
+                error_msg += (
+                    f" This tool is disabled by default."
+                    f" Enable it with '--tools +{tooluse.tool}'."
+                )
             yield Message(
                 "system",
-                f"Tool '{tooluse.tool}' is not available for execution.",
+                error_msg,
                 call_id=tooluse.call_id,
             )
 

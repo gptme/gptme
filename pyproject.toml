@@ -108,6 +108,9 @@ matplotlib = {version = "*", optional=true}
 pandas = {version = "*", optional=true}
 numpy = {version = "*", optional=true}
 
+# testing (needed for coverage concurrency tracking)
+greenlet = "*"  # required by coverage for concurrency=greenlet tracking
+
 # tool sounds (GPTME_TOOL_SOUNDS=true)
 sounddevice = {version = "*", optional=true}
 scipy = {version = "*", optional=true}
@@ -158,7 +161,6 @@ pytest-dotenv = "^0.5.2"
 pytest-timeout = "^2.4.0"
 pytest-retry = "^1.7.0"
 pytest-mock = "*"
-greenlet = "*"  # dependency of playwright, but needed for coverage
 
 # build
 pyinstaller = {version="^6.21", python=">=3.10,<3.15"}  # not yet compatible with Python 3.15+
