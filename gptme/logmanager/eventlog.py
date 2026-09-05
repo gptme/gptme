@@ -14,6 +14,7 @@ import logging
 import os
 import tempfile
 import threading
+import weakref
 from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -34,7 +35,10 @@ try:
 except ImportError:  # pragma: no cover - POSIX
     msvcrt = None
 
-_event_log_thread_lock = threading.Lock()
+_event_log_thread_locks_guard = threading.Lock()
+_event_log_thread_locks: weakref.WeakValueDictionary[Path, threading.Lock] = (
+    weakref.WeakValueDictionary()
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +72,25 @@ def _make_event(seq: int, type: str, payload: dict[str, Any]) -> dict[str, Any]:
 # ── public API ───────────────────────────────────────────────────────
 
 
+def _get_event_log_thread_lock(path: Path) -> threading.Lock:
+    """Return the in-process lock shared by users of one recovery log."""
+    key = path.resolve()
+    with _event_log_thread_locks_guard:
+        lock = _event_log_thread_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _event_log_thread_locks[key] = lock
+        return lock
+
+
 @contextmanager
 def _event_log_lock(logdir: Path) -> Iterator[None]:
     """Serialize event appends and compaction for one recovery log."""
     path = _event_log_path(logdir)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.parent / f".{path.name}.lock"
-    with _event_log_thread_lock, lock_path.open("a+b") as lock:
+    thread_lock = _get_event_log_thread_lock(path)
+    with thread_lock, lock_path.open("a+b") as lock:
         if fcntl is not None:
             fcntl.flock(lock, fcntl.LOCK_EX)
         elif msvcrt is not None:  # pragma: no cover - Windows
@@ -118,6 +134,39 @@ def append_next_event(
     return event
 
 
+def _compact_events_unlocked(logdir: Path) -> None:
+    """Drop events superseded by the latest checkpoint; caller holds lock."""
+    path = _event_log_path(logdir)
+    events = read_events(logdir)
+    checkpoint = find_latest_checkpoint(events)
+    if checkpoint is None:
+        return
+
+    retained = [event for event in events if event["seq"] >= checkpoint["seq"]]
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    try:
+        try:
+            tmp_file = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            # fdopen did not take ownership, so the raw descriptor is ours.
+            os.close(fd)
+            raise
+        # From here the file object owns fd and closes it exactly once; never
+        # close fd directly, or a concurrently opened file reusing the number
+        # gets closed instead.
+        with tmp_file as f:
+            f.writelines(json.dumps(event, default=str) + "\n" for event in retained)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        with suppress(FileNotFoundError):
+            os.unlink(tmp_name)
+        raise
+
+
 def compact_events(logdir: Path) -> None:
     """Drop events superseded by the latest checkpoint.
 
@@ -126,38 +175,8 @@ def compact_events(logdir: Path) -> None:
     and replacement is atomic, so neither partial files nor lost appends are
     observable.
     """
-    path = _event_log_path(logdir)
     with _event_log_lock(logdir):
-        events = read_events(logdir)
-        checkpoint = find_latest_checkpoint(events)
-        if checkpoint is None:
-            return
-
-        retained = [event for event in events if event["seq"] >= checkpoint["seq"]]
-        fd, tmp_name = tempfile.mkstemp(
-            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
-        )
-        try:
-            try:
-                tmp_file = os.fdopen(fd, "w", encoding="utf-8")
-            except BaseException:
-                # fdopen did not take ownership, so the raw descriptor is ours.
-                os.close(fd)
-                raise
-            # From here the file object owns fd and closes it exactly once; never
-            # close fd directly, or a concurrently opened file reusing the number
-            # gets closed instead.
-            with tmp_file as f:
-                f.writelines(
-                    json.dumps(event, default=str) + "\n" for event in retained
-                )
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_name, path)
-        except BaseException:
-            with suppress(FileNotFoundError):
-                os.unlink(tmp_name)
-            raise
+        _compact_events_unlocked(logdir)
 
 
 def read_events(logdir: Path) -> list[dict[str, Any]]:
@@ -203,16 +222,18 @@ def sequence_number(logdir: Path) -> int:
 
 def write_checkpoint(
     logdir: Path,
-    seq: int,
     messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Write a checkpoint event and compact superseded recovery history.
+    """Assign, write, and compact a checkpoint under one lock.
 
     Returns the written checkpoint event.
     """
-    event = _make_event(seq, EVENT_CHECKPOINT, {"messages": messages})
-    append_event(logdir, event)
-    compact_events(logdir)
+    with _event_log_lock(logdir):
+        event = _make_event(
+            sequence_number(logdir), EVENT_CHECKPOINT, {"messages": messages}
+        )
+        _append_event_unlocked(logdir, event)
+        _compact_events_unlocked(logdir)
     return event
 
 

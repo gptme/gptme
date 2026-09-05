@@ -489,7 +489,6 @@ class LogManager:
         if eventlog.should_checkpoint(seq):
             eventlog.write_checkpoint(
                 event_dir,
-                seq + 1,  # next seq for the checkpoint
                 [m.to_dict() for m in self.log.messages],
             )
 
@@ -552,6 +551,8 @@ class LogManager:
             # Use full path as key to avoid collisions with same-named files
             file_hashes[str(filepath)] = file_hash
 
+        if file_hashes == msg.file_hashes:
+            return msg
         # Return message with updated hashes (Message is frozen, so replace)
         return replace(msg, file_hashes=file_hashes)
 

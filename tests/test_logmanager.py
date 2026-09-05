@@ -177,6 +177,29 @@ def test_load_preserves_persistence_cursors(tmp_path: Path):
     )
 
 
+def test_load_with_snapshotted_file_keeps_incremental_cursor(tmp_path: Path):
+    """Preserving an existing attachment hash must keep message identity."""
+    logdir = tmp_path / "conversation"
+    attachment = tmp_path / "context.md"
+    attachment.write_text("context")
+    with patch("gptme.logmanager.manager.get_logs_dir", return_value=tmp_path):
+        manager = LogManager(
+            [Message("system", "context", files=[attachment])],
+            logdir=logdir,
+            lock=False,
+        )
+        manager.write()
+
+        loaded = LogManager.load(logdir, lock=False)
+        persisted_message = loaded.log.messages[0]
+        assert loaded.log.persisted[0] is persisted_message
+        loaded.append(Message("user", "next"))
+
+    assert [
+        message.content for message in Log.read_jsonl(logdir / "conversation.jsonl")
+    ] == ["context", "next"]
+
+
 def test_initial_message_directories_are_not_snapshotted(tmp_path: Path):
     """Directory prompt matches are context references, not file snapshots."""
     context_dir = tmp_path / "docs"

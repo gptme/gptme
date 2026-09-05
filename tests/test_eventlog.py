@@ -93,7 +93,10 @@ def test_event_log_lock_uses_windows_fallback(logdir: Path):
     with (
         patch("gptme.logmanager.eventlog.fcntl", None),
         patch("gptme.logmanager.eventlog.msvcrt", FakeMsvcrt),
-        patch("gptme.logmanager.eventlog._event_log_thread_lock", UnlockedThreadLock()),
+        patch(
+            "gptme.logmanager.eventlog._get_event_log_thread_lock",
+            return_value=UnlockedThreadLock(),
+        ),
     ):
         append_event(
             logdir,
@@ -148,6 +151,32 @@ def test_append_next_event_assigns_unique_sequences_concurrently(logdir: Path):
     assert sorted(event["seq"] for event in read_events(logdir)) == list(range(1, 41))
 
 
+def test_checkpoint_and_append_assign_unique_sequences_concurrently(logdir: Path):
+    """A checkpoint cannot race another append onto the same sequence."""
+    message = {"role": "user", "content": "tail"}
+
+    def append_message() -> dict[str, object]:
+        return append_next_event(
+            logdir,
+            lambda seq: {
+                "seq": seq,
+                "ts": "",
+                "type": EVENT_MESSAGE_APPEND,
+                "payload": {"message": message},
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        checkpoint = executor.submit(write_checkpoint, logdir, [message])
+        append = executor.submit(append_message)
+
+    events = [checkpoint.result(), append.result()]
+    assert sorted(event["seq"] for event in events) == [1, 2]
+    persisted = read_events(logdir)
+    assert len({event["seq"] for event in persisted}) == len(persisted)
+    assert recover_messages(logdir) in ([message], [message, message])
+
+
 def test_should_checkpoint(logdir: Path):
     """Checkpoint is due every CHECKPOINT_INTERVAL events."""
     assert should_checkpoint(0) is False
@@ -164,29 +193,29 @@ def test_write_and_find_checkpoint(logdir: Path):
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": "hi"},
     ]
-    write_checkpoint(logdir, 50, messages)
+    write_checkpoint(logdir, messages)
 
     # Read events, find checkpoint
     events = read_events(logdir)
     assert len(events) == 1
     assert events[0]["type"] == EVENT_CHECKPOINT
-    assert events[0]["seq"] == 50
+    assert events[0]["seq"] == 1
     assert len(events[0]["payload"]["messages"]) == 2
 
     # find_latest_checkpoint
     cp = find_latest_checkpoint(events)
     assert cp is not None
-    assert cp["seq"] == 50
+    assert cp["seq"] == 1
 
 
 def test_find_latest_among_multiple(logdir: Path):
     """find_latest_checkpoint returns the most recent checkpoint."""
-    write_checkpoint(logdir, 50, [])
-    write_checkpoint(logdir, 100, [{"role": "user", "content": "last"}])
+    write_checkpoint(logdir, [])
+    write_checkpoint(logdir, [{"role": "user", "content": "last"}])
 
     cp = find_latest_checkpoint(read_events(logdir))
     assert cp is not None
-    assert cp["seq"] == 100
+    assert cp["seq"] == 2
     assert cp["payload"]["messages"][0]["content"] == "last"
 
 
@@ -201,7 +230,7 @@ def test_compact_events_keeps_latest_checkpoint_and_tail(logdir: Path):
             "payload": {"message": {"role": "user", "content": "old"}},
         },
     )
-    write_checkpoint(logdir, 50, [{"role": "user", "content": "snapshot"}])
+    write_checkpoint(logdir, [{"role": "user", "content": "snapshot"}])
     append_event(
         logdir,
         {
@@ -241,9 +270,9 @@ def test_compact_events_without_checkpoint_is_noop(logdir: Path):
 
 def test_compaction_does_not_lose_concurrent_append(logdir: Path):
     """The compaction replacement is serialized with append_event."""
-    write_checkpoint(logdir, 50, [{"role": "user", "content": "snapshot"}])
+    write_checkpoint(logdir, [{"role": "user", "content": "snapshot"}])
     tail = {
-        "seq": 51,
+        "seq": 2,
         "ts": "2026-01-01T00:00:01Z",
         "type": EVENT_MESSAGE_APPEND,
         "payload": {"message": {"role": "assistant", "content": "tail"}},
@@ -257,7 +286,7 @@ def test_compaction_does_not_lose_concurrent_append(logdir: Path):
         for future in futures:
             future.result()
 
-    assert [event["seq"] for event in read_events(logdir)] == [50, 51]
+    assert [event["seq"] for event in read_events(logdir)] == [1, 2]
 
 
 def test_recover_messages_no_event_log(logdir: Path):
@@ -300,7 +329,6 @@ def test_recover_messages_with_checkpoint_and_replay(logdir: Path):
     # Write a checkpoint with 2 messages
     write_checkpoint(
         logdir,
-        10,
         [
             {"role": "user", "content": "msg1"},
             {"role": "assistant", "content": "msg2"},
@@ -311,7 +339,7 @@ def test_recover_messages_with_checkpoint_and_replay(logdir: Path):
     append_event(
         logdir,
         {
-            "seq": 11,
+            "seq": 2,
             "ts": "2026-01-01T00:00:00Z",
             "type": EVENT_MESSAGE_APPEND,
             "payload": {"message": {"role": "user", "content": "msg3"}},
@@ -562,7 +590,7 @@ def test_compact_events_write_failure_does_not_close_reused_fd(logdir: Path):
     object closes it on error.  Closing the raw number again would hit whatever
     file a concurrent thread opened in the meantime.
     """
-    write_checkpoint(logdir, 1, [{"role": "user", "content": "snapshot"}])
+    write_checkpoint(logdir, [{"role": "user", "content": "snapshot"}])
 
     closed: list[int] = []
     real_close = os.close
