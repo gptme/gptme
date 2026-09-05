@@ -260,9 +260,7 @@ class TestModelValidation:
     def _is_valid_model(self, model: str, selected: str = "openai") -> bool:
         """Replicate the wizard's partition-based validation predicate."""
         provider, separator, model_name = model.partition("/")
-        return bool(
-            separator and provider == selected and model_name and "/" not in model_name
-        )
+        return bool(separator and provider == selected and model_name)
 
     def test_trailing_slash_rejected(self):
         """'openai/' must be rejected — empty model segment after the slash."""
@@ -274,6 +272,15 @@ class TestModelValidation:
         """'openai/gpt-4o' and similar well-formed strings must pass."""
         assert self._is_valid_model("openai/gpt-4o")
         assert self._is_valid_model("openai/gpt-3.5-turbo")
+
+    def test_nested_model_accepted(self):
+        """Nested slash identifiers like openrouter/deepseek/deepseek-v4-pro must pass."""
+        assert self._is_valid_model(
+            "openrouter/deepseek/deepseek-v4-pro", selected="openrouter"
+        ), "OpenRouter nested model identifiers must be accepted"
+        assert self._is_valid_model(
+            "requesty/openai/gpt-4o-mini", selected="requesty"
+        ), "Requesty nested model identifiers must be accepted"
 
     def test_bare_provider_rejected(self):
         """Bare provider name without a slash must be rejected."""
