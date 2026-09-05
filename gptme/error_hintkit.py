@@ -54,8 +54,8 @@ _HINTS = (
             "health.*authentication",
             "Unauthorized.*health",
         ),
-        text="Server health checks require auth; use a fresh auth token.",
-        fix="gptme -s gptme-server get-auth",
+        text="Server health checks require auth; use the configured server token.",
+        fix="gptme-server token",
         docs_url="https://gptme.org/docs/server.html#server-auth-model",
     ),
     ErrorHint(
@@ -91,8 +91,8 @@ _HINTS = (
             "OpenAI.*key",
             "provider.*env",
         ),
-        text="Set the provider API key in the environment or config.",
-        fix="export ANTHROPIC_API_KEY=your-key-here",
+        text="Set the provider-specific API key named in the error.",
+        fix="export <PROVIDER>_API_KEY=your-key-here",
         docs_url="https://gptme.org/docs/providers.html#configuring-credentials",
     ),
     ErrorHint(
@@ -182,10 +182,8 @@ def format_error(
 ) -> str:
     """Format an exception plus a matching actionable hint, if known.
 
-    Non-verbose output preserves ``str(exc)`` when no hint is attached so
-    callers that historically logged the bare exception keep a stable
-    format. The ``Type: message`` prefix is used only when a hint is
-    actually rendered.
+    Non-verbose output keeps ``str(exc)`` as its first line so callers that
+    historically logged the bare exception retain a stable message.
     """
     hint = hint_for_exception(exc) if is_enabled() else None
     if verbose:
@@ -196,8 +194,6 @@ def format_error(
                 )
             ).rstrip()
         ]
-    elif hint is not None:
-        parts = [f"{type(exc).__name__}: {exc}"]
     else:
         parts = [str(exc)]
 

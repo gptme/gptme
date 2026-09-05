@@ -7,6 +7,7 @@ When gptme --non-interactive encounters a fatal LLM startup error, it should:
 
 import importlib
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -97,7 +98,7 @@ def test_format_error_hint_uses_bundled_hint_registry(
         RuntimeError("tool 'read' is disabled by default")
     )
 
-    assert "RuntimeError: tool 'read' is disabled by default" in rendered
+    assert rendered.splitlines()[0] == "tool 'read' is disabled by default"
     assert "hint:" in rendered
     assert "gptme config set tools.read.enabled true" in rendered
 
@@ -124,18 +125,36 @@ def test_format_error_hint_unmatched_preserves_str(
 def test_install_error_hintkit_survives_click_context_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The hook must remain installed until an escaped exception is rendered."""
-    restored: list[int] = []
-    monkeypatch.setattr("gptme.error_hintkit.install_excepthook", lambda **_: None)
-    monkeypatch.setattr(
-        "gptme.error_hintkit.uninstall_excepthook", lambda: restored.append(1)
-    )
+    """The real hook must remain installed after Click closes its context."""
+    from gptme import error_hintkit
 
-    ctx = click.Context(cli.main)
-    with ctx:
-        cli._install_error_hintkit(verbose=False)
-        assert restored == []
-    assert restored == []
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    previous = sys.excepthook
+    try:
+        ctx = click.Context(cli.main)
+        with ctx:
+            cli._install_error_hintkit(verbose=False)
+            installed = sys.excepthook
+            assert error_hintkit._is_hintkit_hook(installed)
+
+        assert sys.excepthook is installed
+    finally:
+        error_hintkit.uninstall_excepthook()
+        sys.excepthook = previous
+
+
+def test_embedded_cli_invocation_restores_excepthook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """standalone_mode=False must not leak gptme's hook into its host."""
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+    previous = sys.excepthook
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main.main(args=["--version"], standalone_mode=False)
+
+    assert exc_info.value.code == 0
+    assert sys.excepthook is previous
 
 
 # ---------------------------------------------------------------------------

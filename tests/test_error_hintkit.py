@@ -22,13 +22,35 @@ def test_format_error_renders_compact_hint(monkeypatch) -> None:
         RuntimeError("ANTHROPIC_API_KEY is missing"), color=False
     )
 
-    assert "RuntimeError: ANTHROPIC_API_KEY is missing" in rendered
+    assert rendered.splitlines()[0] == "ANTHROPIC_API_KEY is missing"
     assert "hint:" in rendered
-    assert "export ANTHROPIC_API_KEY" in rendered
+    assert "export <PROVIDER>_API_KEY" in rendered
     assert (
         "docs: https://gptme.org/docs/providers.html#configuring-credentials"
         in rendered
     )
+
+
+def test_provider_key_hint_does_not_name_the_wrong_provider(monkeypatch) -> None:
+    monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
+
+    rendered = error_hintkit.format_error(
+        RuntimeError("openai: OPENAI_API_KEY is missing"), color=False
+    )
+
+    assert rendered.splitlines()[0] == "openai: OPENAI_API_KEY is missing"
+    assert "export <PROVIDER>_API_KEY" in rendered
+    assert "ANTHROPIC_API_KEY" not in rendered
+
+
+def test_health_auth_hint_uses_real_token_command() -> None:
+    hint = error_hintkit.hint_for_exception(
+        RuntimeError("/api/v2/server/health returned 401 Unauthorized")
+    )
+
+    assert hint is not None
+    assert hint.id == "health_requires_auth"
+    assert hint.fix == "gptme-server token"
 
 
 def test_format_error_honors_disabled_flag(monkeypatch) -> None:
@@ -155,8 +177,8 @@ def test_install_excepthook_replace_in_place_does_not_stack(monkeypatch) -> None
     assert calls == [1]
 
 
-def test_install_excepthook_delegates_to_default_hook(monkeypatch) -> None:
-    """Default sys.__excepthook__ must still run so the traceback is preserved."""
+def test_reinstall_with_missing_previous_delegates_to_default_hook(monkeypatch) -> None:
+    """A damaged HintKit hook must fall back to sys.__excepthook__."""
     monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
     stream = io.StringIO()
     calls: list[type] = []
@@ -164,11 +186,15 @@ def test_install_excepthook_delegates_to_default_hook(monkeypatch) -> None:
     def default_hook(exc_type, exc, tb):
         calls.append(exc_type)
 
+    def prior_hintkit_hook(exc_type, exc, tb):
+        raise AssertionError("reinstall must replace the prior HintKit hook")
+
+    setattr(prior_hintkit_hook, error_hintkit._HINTKIT_HOOK_MARK, True)
     original = sys.excepthook
     try:
         monkeypatch.setattr(sys, "__excepthook__", default_hook)
-        monkeypatch.setattr(sys, "excepthook", default_hook)
-        assert sys.excepthook is sys.__excepthook__
+        monkeypatch.setattr(sys, "excepthook", prior_hintkit_hook)
+        assert sys.excepthook is not sys.__excepthook__
         error_hintkit.install_excepthook(stream=stream)
         sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
     finally:
@@ -179,8 +205,8 @@ def test_install_excepthook_delegates_to_default_hook(monkeypatch) -> None:
     assert calls == [RuntimeError]
 
 
-def test_install_excepthook_does_not_duplicate_default_header(monkeypatch) -> None:
-    """Chaining to sys.__excepthook__ must not reprint Type: message on our stream."""
+def test_reinstall_fallback_does_not_duplicate_default_header(monkeypatch) -> None:
+    """The fallback renderer owns the Type: message header."""
     monkeypatch.delenv("HINTKIT_ENABLED", raising=False)
     stream = io.StringIO()
     previous_out = io.StringIO()
@@ -188,11 +214,15 @@ def test_install_excepthook_does_not_duplicate_default_header(monkeypatch) -> No
     def default_hook(exc_type, exc, tb):
         print(f"{exc_type.__name__}: {exc}", file=previous_out)
 
+    def prior_hintkit_hook(exc_type, exc, tb):
+        raise AssertionError("reinstall must replace the prior HintKit hook")
+
+    setattr(prior_hintkit_hook, error_hintkit._HINTKIT_HOOK_MARK, True)
     original = sys.excepthook
     try:
         monkeypatch.setattr(sys, "__excepthook__", default_hook)
-        monkeypatch.setattr(sys, "excepthook", default_hook)
-        assert sys.excepthook is sys.__excepthook__
+        monkeypatch.setattr(sys, "excepthook", prior_hintkit_hook)
+        assert sys.excepthook is not sys.__excepthook__
         error_hintkit.install_excepthook(stream=stream)
         sys.excepthook(RuntimeError, RuntimeError("Connection refused"), None)
     finally:

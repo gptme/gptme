@@ -126,6 +126,40 @@ class _DynamicHelpCommand(click.Command):
 
     _help_expanded = False
 
+    def main(  # type: ignore[override]
+        self,
+        args: list[str] | None = None,
+        prog_name: str | None = None,
+        complete_var: str | None = None,
+        standalone_mode: bool = True,
+        windows_expand_args: bool = True,
+        **extra: object,
+    ) -> object:
+        """Keep the CLI hook process-scoped, but clean up embedded calls."""
+        if standalone_mode:
+            return super().main(
+                args=args,
+                prog_name=prog_name,
+                complete_var=complete_var,
+                standalone_mode=True,
+                windows_expand_args=windows_expand_args,
+                **extra,
+            )
+
+        try:
+            return super().main(
+                args=args,
+                prog_name=prog_name,
+                complete_var=complete_var,
+                standalone_mode=False,
+                windows_expand_args=windows_expand_args,
+                **extra,
+            )
+        finally:
+            from ..error_hintkit import uninstall_excepthook
+
+            uninstall_excepthook()
+
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         """Keep arguments after a mirrored utility command opaque to Click."""
         # Build the set of option names that consume a following value token
