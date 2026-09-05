@@ -68,6 +68,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "snapshot": (".cmd_snapshot", "snapshot"),
     "stats": (".cmd_stats", "stats"),
     "status": (".cmd_status", "status"),
+    "dataset": (".cmd_dataset", "dataset"),
 }
 
 # Inline groups defined via @main.group() in this file
