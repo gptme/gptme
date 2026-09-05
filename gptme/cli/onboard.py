@@ -362,7 +362,12 @@ def _run_wizard(check_only: bool = False) -> int:
         else:
             model = Prompt.ask("Default model (e.g. provider/model-name)")
         provider, separator, model_name = model.partition("/")
-        if separator and provider == selected and model_name:
+        if (
+            separator
+            and provider == selected
+            and model_name
+            and not model_name.endswith("/")
+        ):
             break
         console.print(
             f"[red]Model must start with {selected}/ followed by a model name (e.g. {selected}/MODEL-NAME).[/red]"

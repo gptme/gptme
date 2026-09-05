@@ -260,13 +260,24 @@ class TestModelValidation:
     def _is_valid_model(self, model: str, selected: str = "openai") -> bool:
         """Replicate the wizard's partition-based validation predicate."""
         provider, separator, model_name = model.partition("/")
-        return bool(separator and provider == selected and model_name)
+        return bool(
+            separator
+            and provider == selected
+            and model_name
+            and not model_name.endswith("/")
+        )
 
     def test_trailing_slash_rejected(self):
         """'openai/' must be rejected — empty model segment after the slash."""
         assert not self._is_valid_model("openai/"), (
             "trailing slash with no model name must not pass validation"
         )
+
+    def test_nested_trailing_slash_rejected(self):
+        """'openrouter/deepseek/' must be rejected — empty final component."""
+        assert not self._is_valid_model(
+            "openrouter/deepseek/", selected="openrouter"
+        ), "nested trailing slash must be rejected — empty final component"
 
     def test_valid_model_accepted(self):
         """'openai/gpt-4o' and similar well-formed strings must pass."""
