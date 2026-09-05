@@ -361,7 +361,8 @@ def _run_wizard(check_only: bool = False) -> int:
             model = Prompt.ask("Default model", default=default_model)
         else:
             model = Prompt.ask("Default model (e.g. provider/model-name)")
-        if "/" in model and model.split("/", 1)[0] == selected:
+        provider, separator, model_name = model.partition("/")
+        if separator and provider == selected and model_name and "/" not in model_name:
             break
         console.print(
             f"[red]Model must be in {selected}/model format (e.g. {selected}/MODEL-NAME).[/red]"
