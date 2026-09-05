@@ -62,10 +62,14 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
             results[provider] = (False, None)
 
     # OAuth providers have no API key; use the same token-file detection as the
-    # runtime and ``gptme-doctor``.
-    for provider, source in list_available_providers():
-        if provider in OAUTH_PROVIDERS:
-            results[provider] = (True, source)
+    # runtime and ``gptme-doctor``. Credential/config errors must not discard
+    # providers already detected from the environment.
+    try:
+        for provider, source in list_available_providers():
+            if provider in OAUTH_PROVIDERS:
+                results[provider] = (True, source)
+    except Exception:
+        pass
 
     # Also check config file for API keys and configured model
     try:
