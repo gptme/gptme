@@ -15,6 +15,7 @@ import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.request import url2pathname
 
 from .__version__ import __version__
 from .dirs import get_logs_dir
@@ -57,6 +58,13 @@ _INTERNAL_EXTRAS = {"all", "eval", "pyinstaller"}
 
 # Cache for parsed extras
 _EXTRAS_CACHE: list[ExtraInfo] | None = None
+
+
+def _file_url_to_path(url: str) -> str | None:
+    """Convert an absolute ``file://`` URL from package metadata to a path."""
+    if not url.startswith("file://"):
+        return None
+    return url2pathname(url[7:])
 
 
 def _load_toml_data(pyproject_path: Path) -> dict:
@@ -156,8 +164,8 @@ def _parse_extras_from_metadata() -> list[ExtraInfo]:
                 dir_info = url_data.get("dir_info", {})
                 if dir_info.get("editable"):
                     src_url = url_data.get("url", "")
-                    if src_url.startswith("file://"):
-                        src_dir = Path(src_url[7:])
+                    if src_path := _file_url_to_path(src_url):
+                        src_dir = Path(src_path)
                         pyproject = src_dir / "pyproject.toml"
                         if pyproject.exists():
                             return _parse_extras_from_pyproject(pyproject)
@@ -266,8 +274,7 @@ def get_install_info() -> InstallInfo:
                 data = json.loads(direct_url_text)
                 editable = data.get("dir_info", {}).get("editable", False)
                 url = data.get("url", "")
-                if url.startswith("file://"):
-                    path = url[7:]  # Strip file://
+                path = _file_url_to_path(url)
         except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError):
             pass
 

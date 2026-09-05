@@ -230,6 +230,29 @@ class TestParseExtrasFromMetadata:
         assert result == []
 
     @patch("gptme.info.importlib.metadata.distribution")
+    def test_editable_fallback_decodes_file_url(self, mock_dist, tmp_path):
+        source_dir = tmp_path / "gptme checkout"
+        source_dir.mkdir()
+        (source_dir / "pyproject.toml").write_text(
+            '[project.optional-dependencies]\nbrowser = ["playwright"]\n',
+            encoding="utf-8",
+        )
+        dist = self._make_mock_dist(extras=[], requires=[])
+        dist.read_text.return_value = json.dumps(
+            {
+                "url": source_dir.as_uri(),
+                "dir_info": {"editable": True},
+            }
+        )
+        mock_dist.return_value = dist
+
+        result = _parse_extras_from_metadata()
+
+        assert [(extra.name, extra.packages) for extra in result] == [
+            ("browser", ["playwright"])
+        ]
+
+    @patch("gptme.info.importlib.metadata.distribution")
     def test_none_extras(self, mock_dist):
         dist = MagicMock()
         dist.metadata = MagicMock()
@@ -428,6 +451,24 @@ class TestGetInstallInfo:
         info = get_install_info()
         assert info.editable is True
         assert info.path == "/home/user/dev/gptme"
+
+    @patch("gptme.info.importlib.metadata.distribution")
+    def test_editable_install_decodes_file_url(self, mock_dist_fn, tmp_path):
+        source_dir = tmp_path / "gptme checkout"
+        source_dir.mkdir()
+        url_json = json.dumps(
+            {
+                "url": source_dir.as_uri(),
+                "dir_info": {"editable": True},
+            }
+        )
+        mock_dist_fn.return_value = self._mock_dist(
+            installer="uv", direct_url_json=url_json
+        )
+
+        info = get_install_info()
+
+        assert info.path == str(source_dir)
 
     @patch("gptme.info.importlib.metadata.distribution")
     def test_path_distribution_not_editable(self, mock_dist_fn):
