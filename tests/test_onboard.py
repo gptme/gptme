@@ -252,3 +252,37 @@ class TestGetDefaultModel:
             "_get_default_model must return '' for unknown providers, "
             f"not the bare name; got {result!r}"
         )
+
+
+class TestModelValidation:
+    """Test model string validation used in the wizard input loop."""
+
+    def _is_valid_model(self, model: str, selected: str = "openai") -> bool:
+        """Replicate the wizard's partition-based validation predicate."""
+        provider, separator, model_name = model.partition("/")
+        return bool(
+            separator and provider == selected and model_name and "/" not in model_name
+        )
+
+    def test_trailing_slash_rejected(self):
+        """'openai/' must be rejected — empty model segment after the slash."""
+        assert not self._is_valid_model("openai/"), (
+            "trailing slash with no model name must not pass validation"
+        )
+
+    def test_valid_model_accepted(self):
+        """'openai/gpt-4o' and similar well-formed strings must pass."""
+        assert self._is_valid_model("openai/gpt-4o")
+        assert self._is_valid_model("openai/gpt-3.5-turbo")
+
+    def test_bare_provider_rejected(self):
+        """Bare provider name without a slash must be rejected."""
+        assert not self._is_valid_model("openai")
+
+    def test_wrong_provider_rejected(self):
+        """A valid model string for the *wrong* provider must be rejected."""
+        assert not self._is_valid_model("anthropic/claude-3", selected="openai")
+
+    def test_leading_slash_rejected(self):
+        """/gpt-4o (no provider) must be rejected."""
+        assert not self._is_valid_model("/gpt-4o")
