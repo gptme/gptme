@@ -166,6 +166,10 @@ def _get_default_model(provider: str) -> str:
     back to the first model listed in the static ``MODELS`` dict so the default
     is always a fully-qualified ``provider/model`` string rather than the bare
     provider name (which fails at startup).
+
+    Returns an empty string if no default model can be determined.
+    Callers must treat an empty return as "no default available" and require
+    the user to supply a full ``provider/model`` string explicitly.
     """
     if provider in PROVIDERS:
         try:
@@ -178,7 +182,9 @@ def _get_default_model(provider: str) -> str:
     provider_models = list(MODELS.get(cast(BuiltinProvider, provider), {}).keys())
     if provider_models:
         return f"{provider}/{provider_models[0]}"
-    return provider
+    # No default known — returning the bare provider name would produce an invalid
+    # config (runtime requires provider/model).  Let the caller ask the user.
+    return ""
 
 
 def _select_provider(providers: dict[str, tuple[bool, str | None]]) -> str | None:
@@ -343,12 +349,21 @@ def _run_wizard(check_only: bool = False) -> int:
     default_model = _get_default_model(selected)
     if selected in OAUTH_PROVIDERS:
         # Show a hint for OAuth providers so the user knows the required format.
+        example = f" (e.g. {default_model})" if default_model else ""
         console.print(
             f"[dim]Note: {selected} requires specifying a model.  "
-            f"Enter it as [bold]{selected}/MODEL-NAME[/bold] "
-            f"(e.g. {default_model}).[/dim]"
+            f"Enter it as [bold]{selected}/MODEL-NAME[/bold]{example}.[/dim]"
         )
-    model = Prompt.ask("Default model", default=default_model)
+    while True:
+        if default_model:
+            model = Prompt.ask("Default model", default=default_model)
+        else:
+            model = Prompt.ask("Default model (e.g. provider/model-name)")
+        if "/" in model:
+            break
+        console.print(
+            "[red]Model must be in provider/model format (e.g. openai/gpt-4o).[/red]"
+        )
 
     # Create config
     config_created = _create_config(selected, model)
