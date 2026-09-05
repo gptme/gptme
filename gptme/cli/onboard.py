@@ -68,8 +68,10 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         for provider, source in list_available_providers():
             if provider in OAUTH_PROVIDERS:
                 results[provider] = (True, source)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "OAuth credential check failed: %s — run `gptme auth` to re-authenticate", e
+        )
 
     # Also check config file for API keys and configured model
     try:
@@ -359,10 +361,10 @@ def _run_wizard(check_only: bool = False) -> int:
             model = Prompt.ask("Default model", default=default_model)
         else:
             model = Prompt.ask("Default model (e.g. provider/model-name)")
-        if "/" in model:
+        if "/" in model and model.split("/", 1)[0] == selected:
             break
         console.print(
-            "[red]Model must be in provider/model format (e.g. openai/gpt-4o).[/red]"
+            f"[red]Model must be in {selected}/model format (e.g. {selected}/MODEL-NAME).[/red]"
         )
 
     # Create config
