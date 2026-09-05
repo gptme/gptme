@@ -103,6 +103,26 @@ class TestDetectProviders:
 
         assert providers["openai-subscription"] == (True, "oauth")
 
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=ValueError("malformed credentials"),
+    )
+    def test_detect_preserves_env_fallback_when_oauth_lookup_fails(
+        self, _mock_providers
+    ):
+        """Credential lookup failures do not discard environment detection."""
+        with (
+            patch.dict(
+                os.environ,
+                {"OPENAI_API_KEY": "sk-test1234567890abcdef"},
+                clear=True,
+            ),
+            patch("gptme.config.get_config", return_value=_mock_empty_config()),
+        ):
+            providers = _detect_providers()
+
+        assert providers["openai"][0]
+
 
 class TestTestProvider:
     """Test provider connectivity testing."""
