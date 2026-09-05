@@ -3,7 +3,7 @@
 import os
 from unittest.mock import MagicMock, patch
 
-from gptme.cli.onboard import _detect_providers, _test_provider
+from gptme.cli.onboard import _detect_providers, _show_provider_status, _test_provider
 
 
 def _mock_empty_config():
@@ -172,3 +172,22 @@ class TestTestProvider:
 
         assert not is_valid
         assert "Not authenticated" in message
+
+
+class TestShowProviderStatus:
+    """Test the provider status table."""
+
+    def test_shows_configured_oauth_provider_not_in_builtins(self, capsys):
+        """An OAuth provider detected as configured is shown, even though it's
+        not in the builtin PROVIDERS list (regression: it was previously
+        omitted, so --check could report "1 provider(s) configured" while the
+        visible table showed everything as not configured)."""
+        providers: dict[str, tuple[bool, str | None]] = {
+            "openai-subscription": (True, "oauth")
+        }
+
+        _show_provider_status(providers)
+
+        out = capsys.readouterr().out
+        assert "openai-subscription" in out
+        assert "Configured" in out
