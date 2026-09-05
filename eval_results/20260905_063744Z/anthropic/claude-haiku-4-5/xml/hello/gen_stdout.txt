@@ -1,0 +1,12 @@
+
+--- Start of generation ---
+[06:36:55] Using model: anthropic/claude-haiku-4-5 (→ claude-haiku-4-5-20251001)
+[06:36:57] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-09-05-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-d7f93b04                                                 
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-09-05-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-d7f93b04/workspace                                       
+Skipped 5 hidden system messages (/log --hidden to show)
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                
