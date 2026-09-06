@@ -435,7 +435,7 @@ This stack is simple and composable: selectors improve work choice, lessons stee
 ### 🚧 In Progress
 
 - 🖥 **[gptme-tauri](https://github.com/gptme/gptme-tauri)** — desktop app for Linux, macOS, and Windows with auto-updates ([download](https://github.com/gptme/gptme/releases/latest))
-- ☁️ **[gptme.ai](https://gptme.ai)** — managed cloud service for running gptme agents (early access; still self-hostable by running `gptme-server` + `gptme-webui` yourself)
+- ☁️ **[gptme.ai](https://gptme.ai/?utm_source=github&utm_medium=docs&utm_campaign=gptme_ai_readme_probe_202609)** — managed cloud service for running gptme agents (early access; still self-hostable by running `gptme-server` + `gptme-webui` yourself)
 - 🌳 Tree-based conversation structure (see [#17](https://github.com/gptme/gptme/issues/17))
 - 📜 RAG to automatically include context from local files (see [#59](https://github.com/gptme/gptme/issues/59))
 - 🏆 Advanced evals for testing frontier capabilities
