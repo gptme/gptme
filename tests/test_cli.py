@@ -18,6 +18,7 @@ import gptme.cli.main as cli
 import gptme.constants
 import gptme.tools.browser
 from gptme.__version__ import __version__
+from gptme.cli.cmd_capabilities import capabilities
 from gptme.message import Message
 from gptme.tools import ToolUse
 
@@ -154,6 +155,20 @@ def test_help_no_external_subcommands_section_when_none_installed(
     result = runner.invoke(cli.main, ["--help"])
     assert result.exit_code == 0
     assert "Installed external subcommands" not in result.output
+
+
+def test_capabilities_output_missing_parent_exits_cleanly(tmp_path: Path):
+    """A bad --output path should print a clean CLI error, not a traceback."""
+    runner = CliRunner()
+    out = tmp_path / "missing" / "capabilities.txt"
+
+    result = runner.invoke(capabilities, ["--output", str(out)])
+
+    assert result.exit_code != 0
+    combined_output = result.output + (result.stderr or "")
+    assert "Unable to write capabilities output" in combined_output
+    assert "Traceback" not in combined_output
+    assert "FileNotFoundError" not in combined_output
 
 
 def test_version(runner: CliRunner):

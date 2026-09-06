@@ -74,6 +74,11 @@ def capabilities(
 
     text = render(snapshot, fmt, show_all=show_all)
     if output:
-        output.write_text(text, encoding="utf-8")
+        try:
+            output.write_text(text, encoding="utf-8")
+        except OSError as exc:
+            raise click.ClickException(
+                f"Unable to write capabilities output to {output}: {exc.strerror}"
+            ) from exc
     else:
         click.echo(text, nl=False)
