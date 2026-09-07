@@ -25,8 +25,11 @@ def test_read_only_tools_are_flagged(tool_name):
     """Tools that cannot modify state must carry read_only=True."""
     from gptme import tools as _tools_module
 
-    # Trigger tool loading
-    _tools_module.init_tools(allowlist=[tool_name])
+    # Trigger tool loading; skip when tool is unavailable (missing optional deps)
+    try:
+        _tools_module.init_tools(allowlist=[tool_name])
+    except ValueError as e:
+        pytest.skip(f"{tool_name!r} not available in this environment: {e}")
     from gptme.tools import get_tool
 
     spec = get_tool(tool_name)
