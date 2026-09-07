@@ -347,11 +347,23 @@ def _run_process(
                 proc.kill()
             # Drain the pipes with a short timeout so a still-alive process
             # cannot block the caller indefinitely if termination failed.
+            # proc.communicate() blocks until stdin/stdout/stderr hit EOF, which
+            # a surviving descendant that inherited the pipe write-ends can
+            # delay indefinitely, so it must never be the unbounded fallback.
             try:
                 proc.communicate(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.communicate()
+                # Wait for the direct child only — wait() is bounded and returns
+                # once the child exits, unlike communicate() which waits for pipe
+                # EOF. If the child is still alive after the grace window, close
+                # the pipes so the caller cannot be blocked regardless.
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    for stream in (proc.stdout, proc.stderr):
+                        if stream is not None:
+                            stream.close()
             return None, _result(
                 False, claim_type, target, f"command timed out after {timeout:g}s"
             )

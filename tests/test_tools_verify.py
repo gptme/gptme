@@ -183,3 +183,63 @@ def test_execute_verify_claim_parses_key_value_block(tmp_path: Path) -> None:
 
     assert payload["ok"] is True
     assert payload["claim_type"] == "contains"
+
+
+def test_run_process_timeout_cleanup_is_bounded(monkeypatch) -> None:
+    """Timeout cleanup must never fall through to an unbounded communicate().
+
+    Regression guard for the Greptile P1: when the first bounded communicate()
+    times out (a surviving descendant retains the pipe write-ends, so EOF never
+    arrives), the cleanup must not call communicate() with no timeout, which
+    would block the caller indefinitely. It should bound every wait and close
+    the pipes instead.
+    """
+    import subprocess
+    from types import SimpleNamespace
+
+    from gptme.tools import verify as verify_mod
+
+    monkeypatch.setenv(PROCESS_VERIFICATION_ENV, "1")
+
+    calls: list[tuple] = []
+
+    class FakeProc:
+        pid = 12345
+        returncode = None
+        stdout = SimpleNamespace(close=lambda: calls.append(("close_stdout", None)))
+        stderr = SimpleNamespace(close=lambda: calls.append(("close_stderr", None)))
+
+        def communicate(self, timeout=None):
+            calls.append(("communicate", timeout))
+            raise subprocess.TimeoutExpired(cmd="x", timeout=1)
+
+        def kill(self):
+            calls.append(("kill", None))
+
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout))
+            raise subprocess.TimeoutExpired(cmd="x", timeout=1)
+
+    def fake_popen(*args, **kwargs):
+        calls.append(("popen", None))
+        return FakeProc()
+
+    monkeypatch.setattr(verify_mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        verify_mod.subprocess, "TimeoutExpired", subprocess.TimeoutExpired
+    )
+
+    result = verify_mod.verify_shell("sleep 10", timeout=0.1)
+
+    assert result.ok is False
+    assert "timed out" in result.reason
+    # Every communicate()/wait() on the proc must carry an explicit timeout.
+    for name, arg in calls:
+        if name in ("communicate", "wait"):
+            assert arg is not None, f"unbounded {name}() with no timeout in {calls}"
+    # The unbounded fallback communicate() must never be reached.
+    assert not any(name == "communicate" and arg is None for name, arg in calls)
+    # Cleanup should close the pipe streams once waits are exhausted.
+    assert ("close_stdout", None) in calls
+    assert ("close_stderr", None) in calls
+    # (monkeypatch restores the module-level Popen automatically after the test.)
