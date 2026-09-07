@@ -292,4 +292,72 @@ describe('useConversation', () => {
     expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(true);
     expect(interruptGenerationApi).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    [
+      'edit-with-truncation',
+      (result: { current: ReturnType<typeof useConversation> }) =>
+        result.current.editMessage(0, 'What is gptme?', true),
+    ],
+    [
+      'rerun-of-a-non-last-message',
+      (result: { current: ReturnType<typeof useConversation> }) =>
+        result.current.rerunFromMessage(0),
+    ],
+    [
+      'regenerate',
+      (result: { current: ReturnType<typeof useConversation> }) =>
+        result.current.regenerateMessage(1),
+    ],
+  ])('honors a Stop pressed while the %s request is in flight', async (_label, startGeneration) => {
+    conversations$.get('chat-placeholder')?.data.log.set([
+      {
+        role: 'user',
+        content: 'What is gptme?',
+        timestamp: '2026-06-07T00:00:00.000Z',
+      },
+      {
+        role: 'assistant',
+        content: 'An agent.',
+        timestamp: '2026-06-07T00:00:01.000Z',
+      },
+    ]);
+    conversations$.get('chat-placeholder')?.isGenerating.set(true);
+
+    // Hold the truncation request open so Stop lands while it is in flight.
+    let resolveEdit: (value: { log: []; branches: Record<string, never> }) => void = () => {};
+    editMessageApi.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveEdit = resolve;
+      })
+    );
+
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    let pending: Promise<unknown> | undefined;
+    act(() => {
+      pending = startGeneration(result);
+    });
+
+    await act(async () => {
+      await result.current.interruptGeneration();
+    });
+
+    await act(async () => {
+      resolveEdit({ log: [], branches: {} });
+      await pending;
+    });
+
+    await act(async () => {
+      eventHandlers?.onMessageStart?.();
+    });
+
+    // The Stop is newer than the request, so onMessageStart must not resume.
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
+    expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
+  });
 });

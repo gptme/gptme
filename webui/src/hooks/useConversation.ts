@@ -533,10 +533,14 @@ export function useConversation(conversationId: string, serverId?: string) {
     };
   }, [conversationId, isConnected, api, conversation$, toast, retryNonce]);
 
+  // A new user-initiated generation supersedes any prior Stop. Without this,
+  // onMessageStart treats the next edit/rerun/regenerate as part of the
+  // cancelled request and immediately interrupts it.
+  //
+  // Call this BEFORE the first await of the path, never after. Clearing the
+  // flag once a request is already in flight would also swallow a *newer* Stop
+  // the user pressed while waiting for that request.
   const beginGeneration = () => {
-    // A new user-initiated generation supersedes any prior Stop. Without this,
-    // onMessageStart treats the next edit/rerun/regenerate as part of the
-    // cancelled request and immediately interrupts it.
     stopRequestedRef.current = false;
   };
 
@@ -720,6 +724,8 @@ export function useConversation(conversationId: string, serverId?: string) {
     files?: string[],
     pendingFiles?: File[]
   ) => {
+    // A truncating edit re-generates, so it owns the stop flag from here on.
+    if (truncate) beginGeneration();
     try {
       // Upload any new files first, then merge with existing file paths
       let allFiles = files;
@@ -737,7 +743,6 @@ export function useConversation(conversationId: string, serverId?: string) {
 
       // After truncation, trigger re-generation
       if (truncate) {
-        beginGeneration();
         await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
       }
     } catch (error) {
@@ -767,6 +772,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     const localIndex = index - conversation$.logOffset.get();
     const isLastMessage = localIndex === log.length - 1;
 
+    beginGeneration();
     try {
       if (!isLastMessage) {
         // Truncate after this message (creates backup branch)
@@ -778,7 +784,6 @@ export function useConversation(conversationId: string, serverId?: string) {
       }
       // Re-run tools from the (now last) assistant message
       // This parses tool uses and sets them as pending, without calling the LLM
-      beginGeneration();
       try {
         await api.rerunTools(conversationId);
       } catch {
