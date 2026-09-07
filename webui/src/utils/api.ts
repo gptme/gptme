@@ -18,7 +18,13 @@ import { getApiBaseUrl } from '@/utils/connectionConfig';
 import { isLocalUrl, withLocalAddressSpace } from '@/utils/addressSpace';
 import { type Observable } from '@legendapp/state';
 import { observable } from '@legendapp/state';
-import { initConversation, setMaxTokens, setTemperature, setTopP } from '@/stores/conversations';
+import {
+  initConversation,
+  setGenerating,
+  setMaxTokens,
+  setTemperature,
+  setTopP,
+} from '@/stores/conversations';
 
 // Add DOM types
 type RequestInit = globalThis.RequestInit;
@@ -1334,6 +1340,11 @@ export class ApiClient {
       },
       { needsInitialStep: true, initialStepStream: options?.stream }
     );
+    // Pre-set generating state so the stop-button appears the moment the chat page renders,
+    // collapsing the "user message appears" and "response starts indicating" into one visual
+    // event instead of two. onMessageStart will re-set it (no-op); onError/onInterrupted
+    // will clear it on failure as they do for any other generation.
+    setGenerating(conversationId, true);
     if (options?.maxTokens !== undefined) {
       setMaxTokens(conversationId, options.maxTokens);
     }
