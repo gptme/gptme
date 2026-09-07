@@ -498,6 +498,30 @@ def test_render_malformed_snapshot_raises_clean_value_error():
             "mcp_servers": [],
             "limitations": [],
         },
+        {  # tools entry has non-dict provenance (would crash prov.get() in renderers)
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": _VALID_CONFIG,
+            "counts": _VALID_COUNTS,
+            "tools": [{"name": "bash", "provenance": "builtin"}],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [],
+        },
+        {  # limitations entry is not a string (would crash html_escape in HTML renderer)
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": _VALID_CONFIG,
+            "counts": _VALID_COUNTS,
+            "tools": [],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [{"not": "a string"}],
+        },
     ]
     for snapshot in malformed:
         for fmt in ("text", "html", "json"):

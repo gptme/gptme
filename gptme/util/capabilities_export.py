@@ -597,6 +597,16 @@ def validate_snapshot(snapshot: Any) -> dict[str, Any]:
                 raise ValueError(
                     f"invalid capabilities snapshot: {coll}[{i}]['name'] must be a string"
                 )
+            prov = entry.get("provenance")
+            if prov is not None and not isinstance(prov, dict):
+                raise ValueError(
+                    f"invalid capabilities snapshot: {coll}[{i}]['provenance'] must be an object or null, got {type(prov).__name__}"
+                )
+    for i, note in enumerate(snapshot["limitations"]):
+        if not isinstance(note, str):
+            raise ValueError(
+                f"invalid capabilities snapshot: limitations[{i}] must be a string, got {type(note).__name__}"
+            )
     return snapshot
 
 
