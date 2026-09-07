@@ -304,6 +304,37 @@ def get_cc_memory_file(workspace: Path) -> Path:
     return get_cc_memory_dir(workspace) / "MEMORY.md"
 
 
+def get_workspace_memory_dir(workspace: Path) -> Path:
+    """Get the workspace-local memory directory.
+
+    Unlike the CC memory path (which lives in ``~/.claude/projects/<hash>/``),
+    this directory lives *inside* the workspace repo at ``memory/``.  It is
+    git-tracked and accessible to any runtime that can read the repo — including
+    Codex (via an ``AGENTS.md`` files-list entry), gptme (auto-loaded by
+    ``prompt_workspace``), and Claude Code (via the CC memory hook if configured
+    to write here).
+
+    Args:
+        workspace: Absolute path to the workspace root
+
+    Returns:
+        Path to ``<workspace>/memory/`` (may not exist)
+    """
+    return workspace.resolve() / "memory"
+
+
+def get_workspace_memory_file(workspace: Path) -> Path:
+    """Get the workspace-local MEMORY.md path.
+
+    Args:
+        workspace: Absolute path to the workspace root
+
+    Returns:
+        Path to ``<workspace>/memory/MEMORY.md`` (may not exist)
+    """
+    return get_workspace_memory_dir(workspace) / "MEMORY.md"
+
+
 def _migrate_readline_history():
     """Migrate readline history from config dir to data dir."""
     old_path = get_config_dir() / "history"

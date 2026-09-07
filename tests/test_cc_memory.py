@@ -4,7 +4,13 @@ import re
 from pathlib import Path
 from unittest.mock import patch
 
-from gptme.dirs import _claude_project_dirname, get_cc_memory_dir, get_cc_memory_file
+from gptme.dirs import (
+    _claude_project_dirname,
+    get_cc_memory_dir,
+    get_cc_memory_file,
+    get_workspace_memory_dir,
+    get_workspace_memory_file,
+)
 
 
 class TestClaudeProjectDirname:
@@ -415,3 +421,232 @@ class TestCcMemoryInWorkspacePrompt:
         # The file was read with a size bound, not in full
         assert max_bytes_read, "open() was not called on the memory file in binary mode"
         assert max(max_bytes_read) <= _CC_MEMORY_MAX_BYTES + 1
+
+
+class TestGetWorkspaceMemoryDir:
+    """Tests for get_workspace_memory_dir and get_workspace_memory_file."""
+
+    def test_workspace_memory_dir_is_inside_workspace(self, tmp_path):
+        """Workspace memory dir is <workspace>/memory/."""
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = get_workspace_memory_dir(workspace)
+        assert mem_dir == workspace.resolve() / "memory"
+
+    def test_workspace_memory_file_is_memory_md(self, tmp_path):
+        """Workspace memory file is <workspace>/memory/MEMORY.md."""
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_file = get_workspace_memory_file(workspace)
+        assert mem_file == workspace.resolve() / "memory" / "MEMORY.md"
+
+    def test_workspace_memory_differs_from_cc_memory(self, tmp_path):
+        """Workspace memory path is always different from the CC memory path."""
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        ws_file = get_workspace_memory_file(workspace)
+        cc_file = get_cc_memory_file(workspace)
+        assert ws_file != cc_file
+
+
+class TestWorkspaceLocalMemoryInWorkspacePrompt:
+    """Tests for workspace-local memory/MEMORY.md loading in prompt_workspace."""
+
+    def _run_prompt_workspace(self, workspace, tmp_path, nonexistent_cc=True):
+        """Helper: run prompt_workspace with standard mocks."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        nonexistent = tmp_path / "no-cc" / "MEMORY.md"  # never exists
+        with (
+            patch(
+                "gptme.prompts.workspace.get_cc_memory_file",
+                return_value=nonexistent if nonexistent_cc else nonexistent,
+            ),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            return list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+    def test_loads_workspace_local_memory_when_present(self, tmp_path):
+        """Workspace-local memory/MEMORY.md is loaded into workspace context."""
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = workspace / "memory"
+        mem_dir.mkdir()
+        (mem_dir / "MEMORY.md").write_text(
+            "# Memory\n\n- [fact](fact.md) — A workspace fact\n"
+        )
+
+        messages = self._run_prompt_workspace(workspace, tmp_path)
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" in combined
+        assert "workspace fact" in combined
+
+    def test_no_workspace_memory_when_directory_missing(self, tmp_path):
+        """No memory message when workspace has no memory/ directory."""
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        # No memory/ dir created
+
+        messages = self._run_prompt_workspace(workspace, tmp_path)
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" not in combined
+
+    def test_skips_empty_workspace_memory(self, tmp_path):
+        """Empty workspace MEMORY.md produces no memory message."""
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = workspace / "memory"
+        mem_dir.mkdir()
+        (mem_dir / "MEMORY.md").write_text("   \n\n   ")  # whitespace only
+
+        messages = self._run_prompt_workspace(workspace, tmp_path)
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" not in combined
+
+    def test_skips_workspace_memory_when_include_user_context_false(self, tmp_path):
+        """Workspace memory is not loaded when include_user_context=False."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = workspace / "memory"
+        mem_dir.mkdir()
+        (mem_dir / "MEMORY.md").write_text("# Memory\n\n- some insight\n")
+
+        nonexistent = tmp_path / "no-cc" / "MEMORY.md"
+        with (
+            patch(
+                "gptme.prompts.workspace.get_cc_memory_file",
+                return_value=nonexistent,
+            ),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=False,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" not in combined
+
+    def test_both_workspace_and_cc_memory_loaded_when_both_present(self, tmp_path):
+        """When both workspace-local and CC memory exist, both are loaded."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = workspace / "memory"
+        mem_dir.mkdir()
+        (mem_dir / "MEMORY.md").write_text(
+            "# Memory\n\n- [ws-fact](ws-fact.md) — workspace memory fact\n"
+        )
+
+        cc_memory_file = tmp_path / "cc-memory" / "MEMORY.md"
+        cc_memory_file.parent.mkdir(parents=True)
+        cc_memory_file.write_text(
+            "# Memory\n\n- [cc-fact](cc-fact.md) — CC memory fact\n"
+        )
+
+        with (
+            patch(
+                "gptme.prompts.workspace.get_cc_memory_file",
+                return_value=cc_memory_file,
+            ),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        mem_msgs = [m for m in messages if "Persistent Memory" in m.content]
+        # Both memory sources should produce a message
+        assert len(mem_msgs) == 2
+        all_content = "\n".join(m.content for m in mem_msgs)
+        assert "workspace memory fact" in all_content
+        assert "CC memory fact" in all_content
+
+
+class TestResolveMemoryDir:
+    """Tests for resolve_memory_dir in memory tool."""
+
+    def test_prefers_workspace_local_when_exists(self, tmp_path):
+        """resolve_memory_dir returns workspace/memory/ when it exists."""
+        from gptme.tools.memory import resolve_memory_dir
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = workspace / "memory"
+        mem_dir.mkdir()
+
+        resolved = resolve_memory_dir(workspace)
+        assert resolved == mem_dir
+
+    def test_falls_back_to_cc_when_workspace_dir_missing(self, tmp_path):
+        """resolve_memory_dir falls back to CC path when workspace/memory/ absent."""
+        from gptme.tools.memory import resolve_memory_dir
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        # No memory/ dir
+
+        resolved = resolve_memory_dir(workspace)
+        assert resolved == get_cc_memory_dir(workspace)
+
+    def test_save_memory_writes_to_workspace_local_when_dir_exists(self, tmp_path):
+        """save_memory writes to workspace/memory/ when that dir exists."""
+        from gptme.tools.memory import save_memory
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = workspace / "memory"
+        mem_dir.mkdir()
+
+        path = save_memory(
+            "my-pref", "User prefers short answers.", workspace=workspace
+        )
+        assert Path(path).is_relative_to(mem_dir)
+        assert (mem_dir / "my-pref.md").exists()
+        # Index also written to workspace-local memory dir
+        assert (mem_dir / "MEMORY.md").exists()
+
+    def test_save_memory_falls_back_to_cc_when_no_workspace_dir(self, tmp_path):
+        """save_memory writes to CC path when workspace/memory/ doesn't exist."""
+        from gptme.tools.memory import save_memory
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        # No memory/ dir
+
+        path = save_memory(
+            "my-pref", "User prefers short answers.", workspace=workspace
+        )
+        cc_dir = get_cc_memory_dir(workspace)
+        assert Path(path).is_relative_to(cc_dir)

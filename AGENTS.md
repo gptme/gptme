@@ -104,3 +104,29 @@ See [webui/AGENTS.md](webui/AGENTS.md) for full setup including dev servers, tes
 ```bash
 make docs
 ```
+
+## Persistent Memory (cross-runtime)
+
+gptme supports two memory stores, both auto-loaded at session start:
+
+1. **Workspace-local** (`memory/MEMORY.md` at repo root) — git-tracked, accessible to
+   all runtimes.  gptme loads it automatically.  For Codex access, add this file to your
+   AGENTS.md files list:
+   ```toml
+   # in gptme.toml
+   [prompt]
+   files = ["AGENTS.md", "memory/MEMORY.md"]
+   ```
+   The `memory` tool writes here by default when `memory/` exists in the workspace.
+
+2. **Claude Code path** (`~/.claude/projects/<hash>/memory/MEMORY.md`) — written by
+   CC's built-in memory pipeline.  gptme also auto-loads this when it exists.  The
+   `memory` tool falls back to this path when no workspace-local `memory/` directory
+   is present.
+
+To start using workspace-local memory, create the directory:
+```bash
+mkdir -p memory && echo "# Persistent Memory" > memory/MEMORY.md
+```
+Then use the `memory` tool in any gptme session to save entries that future sessions
+on any runtime can read.

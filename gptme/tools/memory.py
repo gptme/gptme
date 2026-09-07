@@ -1,14 +1,24 @@
 """
 Persistent memory tool for gptme.
 
-Saves memories to the shared Claude Code memory path so they are readable
-by future sessions on any runtime (CC, gptme, Codex).
+Saves memories to the shared memory path so they are readable by future
+sessions on any runtime (CC, gptme, Codex).
 
-Memory files are written to:
-  ~/.claude/projects/<workspace-hash>/memory/<name>.md
+Memory files are written to (in priority order):
 
-And an entry is added to MEMORY.md (the index file), which is auto-loaded
-by gptme (via prompt_workspace) and by Claude Code in every session.
+  1. <workspace>/memory/<name>.md   — workspace-local, git-tracked.
+     Used when the workspace already has a ``memory/`` directory (i.e.
+     the user/project has opted into the git-tracked memory store).
+     This is readable by ALL runtimes: gptme loads it from
+     ``prompt_workspace``, Codex loads it if ``memory/MEMORY.md`` is
+     listed in ``AGENTS.md``, and CC can be configured to read it too.
+
+  2. ~/.claude/projects/<workspace-hash>/memory/<name>.md — CC path.
+     Fallback when no workspace-local ``memory/`` directory exists.
+     This is the default Claude Code memory location; gptme loads it
+     via ``prompt_workspace`` (Option 2 from #3625).
+
+An entry is also added to the corresponding MEMORY.md index file.
 
 Usage:
   memory save <name>
@@ -21,7 +31,7 @@ import re
 from collections.abc import Generator
 from pathlib import Path
 
-from ..dirs import get_cc_memory_dir, get_workspace
+from ..dirs import get_cc_memory_dir, get_workspace, get_workspace_memory_dir
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import ToolSpec, ToolUse
@@ -124,8 +134,39 @@ def _update_memory_index(
             _unlock(f)
 
 
+def resolve_memory_dir(workspace: Path) -> Path:
+    """Resolve the memory directory to write to for a given workspace.
+
+    Priority:
+
+    1. ``<workspace>/memory/`` — if the directory already exists (the
+       workspace has opted into git-tracked, cross-runtime memory).
+    2. ``~/.claude/projects/<hash>/memory/`` — CC path fallback.
+
+    The workspace-local directory is preferred because it is git-tracked
+    and readable by every runtime (CC, gptme, Codex) without any
+    per-runtime path configuration.
+
+    Args:
+        workspace: Absolute path to the workspace root.
+
+    Returns:
+        The resolved memory directory (may not exist yet; callers must
+        ``mkdir(parents=True, exist_ok=True)`` before writing).
+    """
+    ws_mem = get_workspace_memory_dir(workspace)
+    if ws_mem.exists():
+        return ws_mem
+    return get_cc_memory_dir(workspace)
+
+
 def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
-    """Save a memory to the shared CC memory directory.
+    """Save a memory to the shared cross-runtime memory store.
+
+    Writes to the workspace-local ``memory/`` directory when it already
+    exists (git-tracked, accessible by CC/gptme/Codex), otherwise falls
+    back to the Claude Code path at
+    ``~/.claude/projects/<hash>/memory/``.
 
     Args:
         name: Memory name (slugified to a safe filename).
@@ -138,7 +179,7 @@ def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
     if workspace is None:
         workspace = get_workspace()
 
-    memory_dir = get_cc_memory_dir(workspace)
+    memory_dir = resolve_memory_dir(workspace)
     memory_dir.mkdir(parents=True, exist_ok=True)
 
     slug = _slugify(name)
@@ -189,7 +230,7 @@ def execute_memory(
         _kwargs: dict[str, str] | None,
     ) -> Path:
         ws = get_workspace()
-        mem_dir = get_cc_memory_dir(ws)
+        mem_dir = resolve_memory_dir(ws)
         return mem_dir / f"{_slugify(name)}.md"
 
     def _do_save(

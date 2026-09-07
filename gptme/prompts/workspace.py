@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..config import config_path, get_config, get_project_config
-from ..dirs import get_cc_memory_file
+from ..dirs import get_cc_memory_file, get_workspace_memory_file
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.context_dedup import _content_hash
@@ -415,6 +415,47 @@ def prompt_workspace(
             f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
             files=valid_context_files,
         )
+
+    # Load persistent memory — two possible locations, loaded independently.
+    #
+    # 1. Workspace-local memory at <workspace>/memory/MEMORY.md
+    #    Git-tracked; accessible to all runtimes (CC, gptme, Codex) that can
+    #    read the repo.  Codex picks it up by listing it in AGENTS.md.
+    #    This is the preferred location for new cross-runtime memory stores.
+    #
+    # 2. Claude Code memory at ~/.claude/projects/<hash>/memory/MEMORY.md
+    #    Written by CC's built-in memory pipeline.  gptme loads it so CC-written
+    #    memories are visible here even when the workspace has no git-tracked
+    #    memory/ directory.
+    #
+    # Both are loaded when present; they are always at different paths so there
+    # is no deduplication risk.
+    if include_user_context:
+        ws_memory_file = get_workspace_memory_file(workspace_resolved)
+        if ws_memory_file.exists():
+            try:
+                with open(ws_memory_file, "rb") as _f:
+                    raw = _f.read(_CC_MEMORY_MAX_BYTES + 1)
+                truncated = len(raw) > _CC_MEMORY_MAX_BYTES
+                if truncated:
+                    raw = raw[:_CC_MEMORY_MAX_BYTES]
+                    logger.warning(
+                        f"Workspace memory file {ws_memory_file} exceeds "
+                        f"{_CC_MEMORY_MAX_BYTES // 1024}KB; truncating"
+                    )
+                memory_content = raw.decode("utf-8", errors="ignore").strip()
+                if memory_content:
+                    yield Message(
+                        "system",
+                        f"## Persistent Memory\n\n"
+                        f"The following memory was saved across sessions "
+                        f"(from `{ws_memory_file}`):\n\n{memory_content}",
+                    )
+                    logger.debug(f"Loaded workspace memory from {ws_memory_file}")
+            except OSError as e:
+                logger.debug(
+                    f"Failed to read workspace memory file {ws_memory_file}: {e}"
+                )
 
     # Load Claude Code memory if present — makes CC-written memories accessible in gptme
     if include_user_context:
