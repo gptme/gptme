@@ -26,6 +26,8 @@ describe('useConversation', () => {
   const subscribeToEvents = jest.fn().mockResolvedValue(undefined);
   const step = jest.fn().mockResolvedValue(undefined);
   const interruptGenerationApi = jest.fn().mockResolvedValue(undefined);
+  const editMessageApi = jest.fn();
+  const rerunTools = jest.fn().mockResolvedValue(undefined);
   const closeEventStream = jest.fn();
   const getChatConfig = jest.fn().mockResolvedValue(null);
   let eventHandlers:
@@ -43,6 +45,8 @@ describe('useConversation', () => {
     });
     step.mockReset().mockResolvedValue(undefined);
     interruptGenerationApi.mockReset().mockResolvedValue(undefined);
+    editMessageApi.mockReset().mockResolvedValue({ log: [], branches: {} });
+    rerunTools.mockReset().mockResolvedValue(undefined);
     closeEventStream.mockClear();
     getChatConfig.mockReset().mockResolvedValue(null);
 
@@ -71,6 +75,8 @@ describe('useConversation', () => {
           subscribeToEvents,
           step,
           interruptGeneration: interruptGenerationApi,
+          editMessage: editMessageApi,
+          rerunTools,
           closeEventStream,
           getConversation: jest.fn(),
           getChatConfig,
@@ -226,5 +232,64 @@ describe('useConversation', () => {
       expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
     });
     expect(step).toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'edit with truncation',
+      async (result: { current: ReturnType<typeof useConversation> }) => {
+        await result.current.editMessage(0, 'What is gptme?', true);
+      },
+    ],
+    [
+      'rerun',
+      async (result: { current: ReturnType<typeof useConversation> }) => {
+        rerunTools.mockRejectedValueOnce(new Error('no tools'));
+        await result.current.rerunFromMessage(0);
+      },
+    ],
+    [
+      'regenerate',
+      async (result: { current: ReturnType<typeof useConversation> }) => {
+        conversations$.get('chat-placeholder')?.data.log.set([
+          {
+            role: 'user',
+            content: 'What is gptme?',
+            timestamp: '2026-06-07T00:00:00.000Z',
+          },
+          {
+            role: 'assistant',
+            content: 'An agent.',
+            timestamp: '2026-06-07T00:00:01.000Z',
+          },
+        ]);
+        await result.current.regenerateMessage(1);
+      },
+    ],
+  ])('does not interrupt a later %s after Stop', async (_label, startGeneration) => {
+    conversations$.get('chat-placeholder')?.isGenerating.set(true);
+
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.interruptGeneration();
+    });
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
+
+    await act(async () => {
+      await startGeneration(result);
+    });
+    expect(step).toHaveBeenCalled();
+
+    await act(async () => {
+      eventHandlers?.onMessageStart?.();
+    });
+
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(true);
+    expect(interruptGenerationApi).toHaveBeenCalledTimes(1);
   });
 });

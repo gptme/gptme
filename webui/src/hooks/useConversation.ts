@@ -533,11 +533,18 @@ export function useConversation(conversationId: string, serverId?: string) {
     };
   }, [conversationId, isConnected, api, conversation$, toast, retryNonce]);
 
+  const beginGeneration = () => {
+    // A new user-initiated generation supersedes any prior Stop. Without this,
+    // onMessageStart treats the next edit/rerun/regenerate as part of the
+    // cancelled request and immediately interrupts it.
+    stopRequestedRef.current = false;
+  };
+
   const sendMessage = async ({ message, options }: { message: string; options?: ChatOptions }) => {
     if (!conversation$) {
       throw new Error('Conversation not initialized');
     }
-    stopRequestedRef.current = false;
+    beginGeneration();
 
     // Clear any pending or executing tool when sending a new message
     const pendingTool = conversation$?.pendingTool.get();
@@ -730,6 +737,7 @@ export function useConversation(conversationId: string, serverId?: string) {
 
       // After truncation, trigger re-generation
       if (truncate) {
+        beginGeneration();
         await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
       }
     } catch (error) {
@@ -770,6 +778,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       }
       // Re-run tools from the (now last) assistant message
       // This parses tool uses and sets them as pending, without calling the LLM
+      beginGeneration();
       try {
         await api.rerunTools(conversationId);
       } catch {
@@ -791,6 +800,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     if (prevIndex < 0) return;
 
     try {
+      beginGeneration();
       const result = await api.editMessage(conversationId, prevIndex, undefined, true);
       replaceLog(conversationId, result.log);
       if (result.branches) {
