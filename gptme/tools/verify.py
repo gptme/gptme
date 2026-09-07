@@ -72,8 +72,12 @@ def verify_file_exists(path: str) -> VerificationResult:
     """Verify that a filesystem path exists."""
     if not path:
         return _result(False, "file_exists", "", "path is required")
-    display = _display_path(path)
-    ok = Path(path).expanduser().exists()
+    resolved = Path(path).expanduser().resolve(strict=False)
+    containment_error = _check_path_containment(resolved, "file_exists", path)
+    if containment_error is not None:
+        return containment_error
+    display = str(resolved)
+    ok = resolved.exists()
     reason = f"path exists: {display}" if ok else f"path does not exist: {display}"
     return _result(ok, "file_exists", path, reason, actual=display)
 
@@ -82,8 +86,12 @@ def verify_file_not_exists(path: str) -> VerificationResult:
     """Verify that a filesystem path does not exist."""
     if not path:
         return _result(False, "file_not_exists", "", "path is required")
-    display = _display_path(path)
-    ok = not Path(path).expanduser().exists()
+    resolved = Path(path).expanduser().resolve(strict=False)
+    containment_error = _check_path_containment(resolved, "file_not_exists", path)
+    if containment_error is not None:
+        return containment_error
+    display = str(resolved)
+    ok = not resolved.exists()
     reason = f"path is absent: {display}" if ok else f"path exists: {display}"
     return _result(ok, "file_not_exists", path, reason, actual=display)
 
@@ -189,21 +197,24 @@ def _verify_pattern(
         return error
     assert text is not None
 
+    # Run regex in a separate thread so we can enforce a wall-clock timeout.
+    # shutdown(wait=False) ensures a catastrophic match doesn't block the caller.
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(re.search, pattern, text, re.MULTILINE)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(re.search, pattern, text, re.MULTILINE)
-            try:
-                match = future.result(timeout=REGEX_TIMEOUT_SECONDS)
-            except concurrent.futures.TimeoutError:
-                return _result(
-                    False,
-                    claim_type,
-                    path,
-                    f"regex match timed out after {REGEX_TIMEOUT_SECONDS:g}s "
-                    f"(pattern may cause catastrophic backtracking)",
-                    expected=pattern,
-                )
+        match = future.result(timeout=REGEX_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        executor.shutdown(wait=False)
+        return _result(
+            False,
+            claim_type,
+            path,
+            f"regex match timed out after {REGEX_TIMEOUT_SECONDS:g}s "
+            f"(pattern may cause catastrophic backtracking)",
+            expected=pattern,
+        )
     except re.error as exc:
+        executor.shutdown(wait=False)
         return _result(
             False,
             claim_type,
@@ -211,6 +222,7 @@ def _verify_pattern(
             f"invalid regex pattern: {exc}",
             expected=pattern,
         )
+    executor.shutdown(wait=False)
 
     found = match is not None
     ok = found is want_found
@@ -297,7 +309,11 @@ def _run_process(
         except subprocess.TimeoutExpired:
             # Kill the entire process group to clean up descendants
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except AttributeError:
+                # os.getpgid/os.killpg not available on Windows
+                proc.kill()
             except (ProcessLookupError, OSError):
                 proc.kill()
             proc.communicate()
@@ -355,12 +371,12 @@ def verify_shell(
             expected=expected,
             actual=actual,
         )
-    if expected is not None and expected not in actual:
+    if expected is not None and expected not in (proc.stdout or ""):
         return _result(
             False,
             "shell",
             command,
-            "expected text was not present in output",
+            "expected text was not present in stdout",
             expected=expected,
             actual=actual,
         )

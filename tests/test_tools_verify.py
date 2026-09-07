@@ -117,7 +117,7 @@ def test_verify_shell_expected_stdout_mismatch(monkeypatch) -> None:
     result = verify_shell(command, expected="missing")
 
     assert result.ok is False
-    assert result.reason == "expected text was not present in output"
+    assert result.reason == "expected text was not present in stdout"
     assert "ready" in (result.actual or "")
 
 
