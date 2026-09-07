@@ -345,7 +345,13 @@ def _run_process(
                 subprocess.TimeoutExpired,
             ):
                 proc.kill()
-            proc.communicate()
+            # Drain the pipes with a short timeout so a still-alive process
+            # cannot block the caller indefinitely if termination failed.
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
             return None, _result(
                 False, claim_type, target, f"command timed out after {timeout:g}s"
             )
