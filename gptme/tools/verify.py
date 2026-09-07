@@ -588,27 +588,15 @@ tool = ToolSpec(
     name="verify_claim",
     desc="Deterministically verify factual claims before taking action",
     instructions=f"""
-Use this tool before taking risky actions when a premise might be stale or wrong.
+Use before taking risky actions when a premise might be stale or wrong.
 A failed verification is a signal to re-investigate, not to proceed anyway.
 
-**When to use it**
-- Before patching a file: verify it exists and contains the symbol you expect.
-- Before running a build step: verify environment variables and tool availability.
-- After shipping a change: verify the test that previously failed now passes.
+Prefer `file_exists`/`contains`/`env_var` over `shell` (no process overhead).
+Use `shell` only when no native type covers it; keep commands read-only.
+Use `test_passes`/`test_fails` to gate on a specific pytest outcome.
+Process checks require {PROCESS_VERIFICATION_ENV}=1 or the shell tool.
 
-**Pick the narrowest claim type**
-- Prefer `file_exists` / `contains` / `env_var` over `shell` — they have no
-  process-spawning overhead and work in restricted sessions.
-- Use `shell` only when no native type covers the check; keep commands read-only.
-- Use `test_passes` / `test_fails` to gate on a specific pytest outcome.
-- Process checks (`shell`, `test_passes`, `test_fails`) require the shell tool
-  or {PROCESS_VERIFICATION_ENV}=1 — they will not silently widen a restricted
-  session.
-
-**Acting on results**
-- `ok: true` — proceed with confidence; the premise is confirmed.
-- `ok: false` — stop; re-read `reason` and `actual` to understand what changed,
-  then repair the state before retrying the action.
+`ok: true` — proceed. `ok: false` — stop; re-read `reason` and `actual`.
 """.strip(),
     instructions_format={
         "tool": (
