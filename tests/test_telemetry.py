@@ -1,9 +1,12 @@
 """Tests for telemetry functionality."""
 
 import importlib.util
+import json
 import logging
+import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -31,6 +34,66 @@ def test_telemetry_imports_lazy():
         "assert not leaked, f'opentelemetry eagerly imported: {leaked[:5]}'"
     )
     subprocess.check_call([sys.executable, "-c", code])
+
+
+@pytest.mark.skipif(
+    not _has_telemetry_deps(),
+    reason="Requires telemetry dependencies (opentelemetry, prometheus_client)",
+)
+def test_telemetry_startup_preserves_json_stdout():
+    """Startup runs before chat selects JSON output; diagnostics belong on stderr."""
+    for dependency in (
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        "opentelemetry.instrumentation.flask",
+        "opentelemetry.instrumentation.requests",
+        "opentelemetry.instrumentation.openai",
+        "opentelemetry.instrumentation.anthropic",
+        "opentelemetry.instrumentation.threading",
+    ):
+        pytest.importorskip(dependency)
+    code = """
+from unittest.mock import patch
+from gptme.init import init_logging
+from gptme.message import Message, print_msg, set_output_format
+from gptme.util._telemetry import init_telemetry, is_telemetry_enabled, shutdown_telemetry
+
+init_logging(False, stderr=True)
+with (
+    patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"),
+    patch("opentelemetry.exporter.otlp.proto.http.metric_exporter.OTLPMetricExporter.export"),
+):
+    init_telemetry(
+        enable_flask_instrumentation=False,
+        enable_requests_instrumentation=False,
+        enable_openai_instrumentation=False,
+        enable_anthropic_instrumentation=False,
+        interactive=False,
+    )
+    assert is_telemetry_enabled()
+    set_output_format("json")
+    print_msg(Message("assistant", "review complete"))
+    shutdown_telemetry()
+"""
+    # A separate process isolates OpenTelemetry's global providers and threads.
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        env={
+            **os.environ,
+            "GPTME_TELEMETRY_ENABLED": "true",
+            "OTLP_ENDPOINT": "http://localhost:4318",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(events) == 1
+    assert events[0]["role"] == "assistant"
+    assert events[0]["content"] == "review complete"
+    assert "Using OTLP" in result.stderr
 
 
 def test_calculate_llm_cost_resolves_anthropic_short_alias():
