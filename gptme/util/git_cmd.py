@@ -42,6 +42,12 @@ GIT_CMD: str = _resolve_git_cmd()
 # during ls-files), diff.external (external diff tool), core.hooksPath
 # (pre-commit / post-checkout hooks).  Setting them to empty / /dev/null
 # suppresses execution without affecting the output of read-only commands.
+#
+# Alias overrides: a .git/config may define ``[alias] status = !<payload>``
+# which git resolves *before* builtins, bypassing the four flags above.
+# Setting each alias to the bare subcommand name (no ``!`` prefix) makes git
+# expand it once, detect the recursion, and fall through to the builtin —
+# effectively disabling the shell-dispatch alias without affecting output.
 _INSPECT_SAFE_FLAGS: list[str] = [
     "-c",
     "core.fsmonitor=",
@@ -51,6 +57,16 @@ _INSPECT_SAFE_FLAGS: list[str] = [
     "diff.external=",
     "-c",
     "core.hooksPath=/dev/null",
+    # Neutralise shell-dispatch aliases for every subcommand called via
+    # git_inspect_cmd() (status, diff, ls-files, rev-parse).
+    "-c",
+    "alias.status=status",
+    "-c",
+    "alias.diff=diff",
+    "-c",
+    "alias.ls-files=ls-files",
+    "-c",
+    "alias.rev-parse=rev-parse",
 ]
 
 

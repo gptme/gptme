@@ -105,7 +105,7 @@ def test_git_cmd_cwd_filtered_from_path():
 
 
 def test_git_inspect_cmd_structure():
-    """git_inspect_cmd() returns a list with GIT_CMD and all four sink-suppression flags."""
+    """git_inspect_cmd() returns a list with GIT_CMD and all sink-suppression flags."""
     from gptme.util.git_cmd import GIT_CMD, git_inspect_cmd
 
     cmd = git_inspect_cmd()
@@ -114,6 +114,7 @@ def test_git_inspect_cmd_structure():
     assert cmd[0] == GIT_CMD
 
     joined = " ".join(cmd)
+    # Core execution sinks
     for sink in (
         "core.fsmonitor=",
         "core.sshCommand=",
@@ -121,6 +122,18 @@ def test_git_inspect_cmd_structure():
         "core.hooksPath=",
     ):
         assert sink in joined, f"git_inspect_cmd() is missing -{sink!r} suppression"
+
+    # Alias overrides — each subcommand called via git_inspect_cmd() must have its
+    # alias neutralised to prevent ``[alias] status = !<payload>`` bypass.
+    for alias in (
+        "alias.status=",
+        "alias.diff=",
+        "alias.ls-files=",
+        "alias.rev-parse=",
+    ):
+        assert alias in joined, (
+            f"git_inspect_cmd() is missing alias neutralisation for {alias!r}"
+        )
 
 
 def _find_real_git() -> str | None:
@@ -230,4 +243,97 @@ def test_git_inspect_cmd_suppresses_fsmonitor(tmp_path):
     )
     assert not marker.exists(), (
         "core.fsmonitor fired despite -c core.fsmonitor= flag — sink suppression is broken"
+    )
+
+
+@pytest.mark.skipif(
+    _REAL_GIT is None,
+    reason="real git binary not available outside ~/bin",
+)
+@pytest.mark.skipif(
+    platform.system() == "Windows",
+    reason="shell-alias test is Unix-only",
+)
+def test_git_inspect_cmd_suppresses_alias(tmp_path):
+    """git_inspect_cmd() flags prevent ``alias.status=!<payload>`` from executing.
+
+    Regression guard for the GitSpawn alias-bypass class:
+    a ``.git/config`` may define ``[alias] status = !<payload>`` which git
+    resolves before the builtin, bypassing the core.* sink-suppression flags.
+    ``git_inspect_cmd()`` includes ``-c alias.status=status`` (and peers) to
+    force the identity expansion that defeats the shell-dispatch alias.
+    """
+    from gptme.util.git_cmd import _INSPECT_SAFE_FLAGS
+
+    assert _REAL_GIT is not None  # for type-checker
+    real_git = _REAL_GIT
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    git_env = {**os.environ, "HOME": str(fake_home), "GIT_CONFIG_NOSYSTEM": "1"}
+
+    repo = tmp_path / "testrepo"
+    repo.mkdir()
+    marker = tmp_path / "alias_fired"
+    payload_script = tmp_path / "alias_payload.sh"
+    payload_script.write_text(
+        f"#!/bin/sh\ntouch {marker}\ngit --no-optional-locks status --short --no-column\n"
+    )
+    payload_script.chmod(0o755)
+
+    for cmd in [
+        [real_git, "init", str(repo)],
+        [real_git, "-C", str(repo), "config", "user.email", "test@example.com"],
+        [real_git, "-C", str(repo), "config", "user.name", "Test"],
+    ]:
+        subprocess.run(cmd, check=True, capture_output=True, env=git_env)
+    (repo / "file.txt").write_text("hello")
+    subprocess.run(
+        [real_git, "-C", str(repo), "add", "."],
+        check=True,
+        capture_output=True,
+        env=git_env,
+    )
+    subprocess.run(
+        [real_git, "-C", str(repo), "commit", "-m", "init"],
+        check=True,
+        capture_output=True,
+        env=git_env,
+    )
+
+    # Plant a shell-dispatch alias in the repo's local config
+    subprocess.run(
+        [real_git, "-C", str(repo), "config", "alias.status", f"!{payload_script}"],
+        check=True,
+        capture_output=True,
+        env=git_env,
+    )
+
+    # Baseline: bare git DOES fire the alias (validates setup is sound)
+    marker.unlink(missing_ok=True)
+    subprocess.run(
+        [real_git, "status", "--short"],
+        cwd=repo,
+        capture_output=True,
+        timeout=5,
+        env=git_env,
+        check=False,
+    )
+    if not marker.exists():
+        pytest.skip(
+            "alias.status did not fire with bare git on this platform — test setup inconclusive"
+        )
+
+    # With inspect flags the alias must NOT fire
+    marker.unlink(missing_ok=True)
+    subprocess.run(
+        [real_git, *_INSPECT_SAFE_FLAGS, "status", "--short"],
+        cwd=repo,
+        capture_output=True,
+        timeout=5,
+        env=git_env,
+        check=False,
+    )
+    assert not marker.exists(), (
+        "alias.status=!payload fired despite alias neutralisation — alias bypass not fixed"
     )
