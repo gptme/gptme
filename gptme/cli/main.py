@@ -1155,6 +1155,12 @@ def main(
                 interactive = False
                 no_confirm = True
                 auto_switched_noninteractive = True
+                # Reconfigure logging to stderr: the handler was set up before
+                # the auto-switch (when interactive was True, stderr=False), so
+                # it still points at stdout.  Re-init with stderr=True so that
+                # subsequent logger.info calls (e.g. from init_telemetry) don't
+                # contaminate JSON stdout.
+                init_logging(verbose, stderr=True)
 
     # add prompts to prompt-toolkit history
     for prompt in prompts:
