@@ -28,7 +28,7 @@ from .gh import (
     parse_github_url,
     transform_github_url,
 )
-from .git_cmd import GIT_CMD
+from .git_cmd import git_inspect_cmd
 from .uri import URI
 
 logger = logging.getLogger(__name__)
@@ -336,7 +336,7 @@ def git_branch() -> str | None:
     if shutil.which("git"):
         try:
             branch = subprocess.run(
-                [GIT_CMD, "rev-parse", "--abbrev-ref", "HEAD"],
+                [*git_inspect_cmd(), "rev-parse", "--abbrev-ref", "HEAD"],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -397,7 +397,7 @@ def git_status() -> str | None:
     """Get git status if in a repository."""
     try:
         git_status = subprocess.run(
-            [GIT_CMD, "status"],
+            [*git_inspect_cmd(), "status"],
             capture_output=True,
             text=True,
             check=True,
@@ -459,7 +459,7 @@ def get_changed_files() -> list[Path]:
     """Returns a list of changed files based on git diff."""
     try:
         p = subprocess.run(
-            [GIT_CMD, "diff", "--name-only", "HEAD"],
+            [*git_inspect_cmd(), "diff", "--name-only", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
@@ -817,7 +817,13 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str:
     try:
         # Try git ls-files first (respects .gitignore, lists tracked + untracked)
         result = subprocess.run(
-            [GIT_CMD, "ls-files", "--cached", "--others", "--exclude-standard"],
+            [
+                *git_inspect_cmd(),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
             cwd=path,
             capture_output=True,
             text=True,

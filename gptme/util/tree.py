@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..config import get_config
-from .git_cmd import GIT_CMD
+from .git_cmd import git_inspect_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
     in_git_repo = False
     try:
         result = subprocess.run(
-            [GIT_CMD, "rev-parse", "--is-inside-work-tree"],
+            [*git_inspect_cmd(), "rev-parse", "--is-inside-work-tree"],
             check=False,
             cwd=workspace,
             capture_output=True,
@@ -39,7 +39,7 @@ def get_tree_output(workspace: Path, method: TreeMethod = "git") -> str | None:
 
     # git and tree --gitignore require a git repo; ls works anywhere
     git_methods: dict[TreeMethod, list[str]] = {
-        "git": [GIT_CMD, "ls-files", "--exclude-standard"],
+        "git": [*git_inspect_cmd(), "ls-files", "--exclude-standard"],
         "tree": ["tree", "-fi", "--gitignore", "."],
     }
     non_git_methods: dict[TreeMethod, list[str]] = {

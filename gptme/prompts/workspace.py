@@ -10,7 +10,7 @@ from ..dirs import get_cc_memory_file
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.context_dedup import _content_hash
-from ..util.git_cmd import GIT_CMD
+from ..util.git_cmd import git_inspect_cmd
 from ..util.tree import get_tree_output
 from . import AGENT_FILES, DEFAULT_CONTEXT_FILES, _loaded_agent_files_var
 from .context_cmd import get_project_context_cmd_output
@@ -73,7 +73,7 @@ def _get_git_status(workspace: Path) -> str | None:
     try:
         # Check if in a git repo
         result = subprocess.run(
-            [GIT_CMD, "rev-parse", "--is-inside-work-tree"],
+            [*git_inspect_cmd(), "rev-parse", "--is-inside-work-tree"],
             check=False,
             cwd=workspace,
             capture_output=True,
@@ -85,7 +85,7 @@ def _get_git_status(workspace: Path) -> str | None:
 
         # Get current branch
         branch_result = subprocess.run(
-            [GIT_CMD, "rev-parse", "--abbrev-ref", "HEAD"],
+            [*git_inspect_cmd(), "rev-parse", "--abbrev-ref", "HEAD"],
             check=False,
             cwd=workspace,
             capture_output=True,
@@ -98,7 +98,7 @@ def _get_git_status(workspace: Path) -> str | None:
 
         # Get short status (modified/untracked files)
         status_result = subprocess.run(
-            [GIT_CMD, "status", "--short"],
+            [*git_inspect_cmd(), "status", "--short"],
             check=False,
             cwd=workspace,
             capture_output=True,
