@@ -1757,6 +1757,14 @@ def main(
                 )
             except ValueError as e2:
                 raise click.UsageError(str(e2)) from e2
+            # setup_config_from_cli just saved the transient fallback tool list.
+            # Clear it so a subsequent ``--tool-manifest`` on resume can re-evaluate
+            # the manifest and auto-recover when the server comes back online.
+            assert config.chat  # setup_config_from_cli always sets chat on success
+            _session_tools = config.chat.tools
+            config.chat.tools = None
+            config.chat.save()
+            config.chat.tools = _session_tools
         else:
             raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
@@ -1796,12 +1804,13 @@ def main(
             )
             try:
                 tools = init_tools(fallback_tools)
-                # Keep config in sync so chat() → init() → init_tools() uses
-                # the same reduced list; without this the stale config.chat.tools
-                # (still containing manifest tool names) would cause a second
-                # ValueError crash inside chat() when the MCP server is still down.
+                # Update in-memory config so chat() uses the fallback tools list.
+                # The saved config already has the full manifest list from the
+                # setup_config_from_cli() call above, so do NOT call
+                # config.chat.save() here: the full list stays on disk, and on
+                # resume init_tools() retries it — recovering the tool if the
+                # server has come back online.
                 config.chat.tools = fallback_tools
-                config.chat.save()
             except ValueError as e2:
                 raise click.UsageError(str(e2)) from e2
         else:

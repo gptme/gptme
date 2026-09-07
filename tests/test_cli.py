@@ -2513,10 +2513,15 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     assert not any("github" in t for t in (fake_config.chat.tools or []))
 
 
-def test_tool_manifest_unavailable_tool_persists_fallback_tools(
+def test_tool_manifest_unavailable_tool_does_not_persist_fallback_tools(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """A new conversation must not persist unavailable manifest tools for resume."""
+    """Fallback when a manifest tool is unavailable must not persist the reduced list.
+
+    The full manifest tool list is saved by setup_config_from_cli(); the init_tools
+    fallback must leave it intact so a later resume can re-evaluate the manifest and
+    auto-recover tools whose servers have come back online.
+    """
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
@@ -2570,7 +2575,9 @@ def test_tool_manifest_unavailable_tool_persists_fallback_tools(
     )
 
     assert result.exit_code == 0, result.output
-    assert saved_tools == [["read"]]
+    # init_tools fallback must NOT call config.chat.save() with the reduced list.
+    # The full manifest list stays saved so resume can re-evaluate the manifest.
+    assert saved_tools == []
 
 
 def test_tool_manifest_unavailable_builtin_falls_back_gracefully(
@@ -2798,24 +2805,26 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
         encoding="utf-8",
     )
 
-    fake_config = SimpleNamespace(
-        chat=SimpleNamespace(
-            agent_config=None,
-            tools=[
-                "read",
-                "shell",
-            ],  # no manifest tools — fallback already excluded them
-            interactive=False,
-            tool_format="markdown",
-            model="local/test",
-            workspace=tmp_path,
-            stream=False,
-            no_confirm=True,
-            agent=None,
-            gear=None,
-        ),
-        project=None,
+    saved_tools: list[list[str] | None] = []
+    fake_chat = SimpleNamespace(
+        agent_config=None,
+        tools=[
+            "read",
+            "shell",
+        ],  # no manifest tools — fallback already excluded them
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        no_confirm=True,
+        agent=None,
+        gear=None,
     )
+    fake_chat.save = lambda: saved_tools.append(
+        list(fake_chat.tools) if fake_chat.tools is not None else None
+    )
+    fake_config = SimpleNamespace(chat=fake_chat, project=None)
 
     setup_calls: list[Any] = []
 
@@ -2865,6 +2874,12 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
     assert setup_calls[0] and "+github.search_code" in setup_calls[0]
     # Second (fallback) call does NOT include the manifest tool
     assert not (setup_calls[1] and "github" in setup_calls[1])
+    # After the fallback setup_config call, the saved config must have tools=None
+    # so --tool-manifest can be re-applied on resume to auto-recover.
+    assert saved_tools == [None], (
+        f"Expected saved_tools==[None] (transient fallback must not persist), "
+        f"got {saved_tools!r}"
+    )
 
 
 def test_tool_manifest_unavailable_builtin_falls_back_in_config_setup(
@@ -2880,21 +2895,23 @@ def test_tool_manifest_unavailable_builtin_falls_back_in_config_setup(
         encoding="utf-8",
     )
 
-    fake_config = SimpleNamespace(
-        chat=SimpleNamespace(
-            agent_config=None,
-            tools=["read", "github.search_code"],
-            interactive=False,
-            tool_format="markdown",
-            model="local/test",
-            workspace=tmp_path,
-            stream=False,
-            no_confirm=True,
-            agent=None,
-            gear=None,
-        ),
-        project=None,
+    saved_tools_builtin: list[list[str] | None] = []
+    fake_builtin_chat = SimpleNamespace(
+        agent_config=None,
+        tools=["read", "github.search_code"],
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        no_confirm=True,
+        agent=None,
+        gear=None,
     )
+    fake_builtin_chat.save = lambda: saved_tools_builtin.append(
+        list(fake_builtin_chat.tools) if fake_builtin_chat.tools is not None else None
+    )
+    fake_config = SimpleNamespace(chat=fake_builtin_chat, project=None)
     available_tools = [
         SimpleNamespace(name="read", is_available=True),
         SimpleNamespace(name="ipython", is_available=False),
@@ -2936,6 +2953,9 @@ def test_tool_manifest_unavailable_builtin_falls_back_in_config_setup(
         "read,ipython,github.search_code",
         "read,github.search_code",
     ]
+    # The fallback must clear tools=None in the saved config so resume can
+    # re-evaluate the manifest after the unavailable tool's server recovers.
+    assert saved_tools_builtin == [None]
 
 
 def test_tool_manifest_expands_builtin_preset_before_fallback(
@@ -2951,21 +2971,20 @@ def test_tool_manifest_expands_builtin_preset_before_fallback(
         encoding="utf-8",
     )
 
-    fake_config = SimpleNamespace(
-        chat=SimpleNamespace(
-            agent_config=None,
-            tools=["read"],
-            interactive=False,
-            tool_format="markdown",
-            model="local/test",
-            workspace=tmp_path,
-            stream=False,
-            no_confirm=True,
-            agent=None,
-            gear=None,
-        ),
-        project=None,
+    fake_preset_chat = SimpleNamespace(
+        agent_config=None,
+        tools=["read"],
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        no_confirm=True,
+        agent=None,
+        gear=None,
     )
+    fake_preset_chat.save = lambda: None  # fallback must call save (to clear tools)
+    fake_config = SimpleNamespace(chat=fake_preset_chat, project=None)
     setup_calls: list[str | None] = []
 
     def fake_setup_config(*, tool_allowlist=None, **_kwargs):
@@ -3028,24 +3047,23 @@ def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(
         encoding="utf-8",
     )
 
-    fake_config = SimpleNamespace(
-        chat=SimpleNamespace(
-            agent_config=None,
-            tools=[
-                "read",
-                "grep",
-            ],  # builtins only — fallback already excluded MCP tool
-            interactive=False,
-            tool_format="markdown",
-            model="local/test",
-            workspace=tmp_path,
-            stream=False,
-            no_confirm=True,
-            agent=None,
-            gear=None,
-        ),
-        project=None,
+    fake_preserves_chat = SimpleNamespace(
+        agent_config=None,
+        tools=[
+            "read",
+            "grep",
+        ],  # builtins only — fallback already excluded MCP tool
+        interactive=False,
+        tool_format="markdown",
+        model="local/test",
+        workspace=tmp_path,
+        stream=False,
+        no_confirm=True,
+        agent=None,
+        gear=None,
     )
+    fake_preserves_chat.save = lambda: None  # fallback must call save (to clear tools)
+    fake_config = SimpleNamespace(chat=fake_preserves_chat, project=None)
 
     setup_calls: list[Any] = []
 
