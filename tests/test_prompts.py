@@ -25,8 +25,8 @@ def test_get_prompt_full():
 
     # TODO: lower this significantly by selectively removing examples from the full prompt
     # Note: Ceiling bumped to 8100 to accommodate memory tool instructions
-    # Note: verify_claim tool added ~320 tokens (2026-09-05)
-    assert 500 < len_tokens(combined_content, "gpt-4") < 8500 + user_config_size
+    # Note: verify_claim tool added ~320 tokens (2026-09-05); ceiling bumped to 8600
+    assert 500 < len_tokens(combined_content, "gpt-4") < 8600 + user_config_size
 
 
 def test_get_prompt_short():
@@ -36,7 +36,8 @@ def test_get_prompt_short():
 
     # TODO: make the short prompt shorter
     # Note: prompt size grows with new tools/features; bump ceiling as needed
-    assert 400 < len_tokens(combined_content, "gpt-4") < 4500 + user_config_size
+    # Note: verify_claim tool added tokens; ceiling bumped to 4700
+    assert 400 < len_tokens(combined_content, "gpt-4") < 4700 + user_config_size
 
 
 def test_get_prompt_custom():
