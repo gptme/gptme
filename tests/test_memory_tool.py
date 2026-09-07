@@ -1,9 +1,9 @@
 """Tests for the gptme memory write tool (cross-runtime memory store)."""
 
 from gptme.dirs import get_cc_memory_dir, get_cc_memory_file
+from gptme.memory.ops import _update_index as _update_memory_index
 from gptme.tools.memory import (
     _slugify,
-    _update_memory_index,
     execute_memory,
     save_memory,
     tool,

@@ -26,24 +26,6 @@ from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import ToolSpec, ToolUse
 
-try:
-    import fcntl as _fcntl
-
-    def _lock_exclusive(f) -> None:
-        _fcntl.flock(f, _fcntl.LOCK_EX)
-
-    def _unlock(f) -> None:
-        _fcntl.flock(f, _fcntl.LOCK_UN)
-
-except ImportError:
-    # Windows: no flock — skip locking (best-effort)
-    def _lock_exclusive(f) -> None:
-        pass
-
-    def _unlock(f) -> None:
-        pass
-
-
 logger = logging.getLogger(__name__)
 
 instructions = """
@@ -83,49 +65,11 @@ def _slugify(name: str) -> str:
     return slug or "memory"
 
 
-def _update_memory_index(
-    memory_dir: Path, slug: str, filename: str, description: str
-) -> None:
-    """Add or update an entry in MEMORY.md.
-
-    Uses the slug (not the raw name) as the index key so that distinct names
-    that normalise to the same slug always update the same single entry rather
-    than creating duplicate lines pointing at the same file.
-
-    An exclusive file lock serialises concurrent index updates so that parallel
-    sessions cannot race and silently drop each other's entries.
-    """
-    index_path = memory_dir / "MEMORY.md"
-    entry = f"- [{slug}]({filename}) — {description}\n"
-
-    # Open 'a+': creates when absent, positions at EOF, allows read+write.
-    with open(index_path, "a+", encoding="utf-8") as f:
-        _lock_exclusive(f)
-        try:
-            f.seek(0)
-            content = f.read()
-            if not content:
-                new_content = f"# Persistent Memory\n\n{entry}"
-            else:
-                pattern = rf"^- \[{re.escape(slug)}\]\({re.escape(filename)}\).*$"
-                if re.search(pattern, content, re.MULTILINE):
-                    replacement = entry.rstrip()
-                    new_content = re.sub(
-                        pattern, lambda _: replacement, content, flags=re.MULTILINE
-                    )
-                else:
-                    if not content.endswith("\n"):
-                        content += "\n"
-                    new_content = content + entry
-            f.seek(0)
-            f.truncate()
-            f.write(new_content)
-        finally:
-            _unlock(f)
-
-
 def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
     """Save a memory to the shared CC memory directory.
+
+    Delegates to gptme.memory.ops.save_memory which handles schema,
+    index update, and root selection.
 
     Args:
         name: Memory name (slugified to a safe filename).
@@ -135,29 +79,11 @@ def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
     Returns:
         Path to the saved memory file as a string.
     """
-    if workspace is None:
-        workspace = get_workspace()
+    from ..memory.ops import save_memory as _save  # fmt: skip
 
-    memory_dir = get_cc_memory_dir(workspace)
-    memory_dir.mkdir(parents=True, exist_ok=True)
-
-    slug = _slugify(name)
-    filename = f"{slug}.md"
-    file_path = memory_dir / filename
-
-    lines = content.strip().splitlines()
-    description = lines[0].strip() if lines else name
-    body = "\n".join(lines[1:]).strip() if len(lines) > 1 else content.strip()
-
-    safe_desc = description.replace("\\", "\\\\").replace('"', '\\"')
-    frontmatter = f'---\nname: {slug}\ndescription: "{safe_desc}"\nmetadata:\n  type: general\n---\n\n'
-    file_path.write_text(frontmatter + body + "\n", encoding="utf-8")
-
-    # Use slug as the index key so colliding names update the same entry.
-    _update_memory_index(memory_dir, slug, filename, description)
-
-    logger.debug(f"Saved memory '{name}' to {file_path}")
-    return str(file_path)
+    path = _save(name=name, content=content, workspace=workspace)
+    logger.debug(f"Saved memory '{name}' to {path}")
+    return str(path)
 
 
 def execute_memory(
