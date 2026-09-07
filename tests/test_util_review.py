@@ -2264,6 +2264,15 @@ class TestReviewToolPresets:
         )
         # And it must restate that read content is untrusted.
         assert "UNTRUSTED DATA" in with_read
+        file_access = with_read.split("## File access", 1)[1].split(
+            "## Security boundary", 1
+        )[0]
+        # The child runs outside the exported tree. Telling it to construct
+        # absolute paths from cwd produces denied reads and wastes review turns.
+        assert "running inside a checkout" not in file_access
+        assert "repository-relative paths" in file_access
+        assert "GPTME_READ_ROOT" in file_access
+        assert "isolated runtime directory" in file_access
 
     # ------------------------------------------------------------------
     # _preset_grants_file_reads: the grant and its guards stay in sync
