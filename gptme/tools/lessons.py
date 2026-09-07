@@ -412,7 +412,9 @@ def auto_include_lessons_hook(
 
         titles = [str(match.lesson.title) for match in new_matches]
         titles_list = "\n".join(f"- {title}" for title in titles)
-        logger.info(f"Auto-included {len(new_matches)} lessons:\n{titles_list}")
+        # debug-level: session-end stats (session_end_lessons_hook) report this
+        # in the right place; info-level spam here fires mid-reply at hook time.
+        logger.debug(f"Auto-included {len(new_matches)} lessons:\n{titles_list}")
 
         yield lesson_msg
 

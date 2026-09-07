@@ -678,7 +678,9 @@ def print_msg(
             logger.exception("Error printing message")
             print(s)
         shown += 1
-    if skipped_hidden:
+    # Only show the skip notice when printing a multi-message log (e.g. /log),
+    # not when a single appended message happens to be hidden (spammy mid-reply).
+    if skipped_hidden and len(msgs) > 1:
         console.print(
             f"[dim]Skipped {skipped_hidden} hidden system messages (/log --hidden to show)[/]"
         )
