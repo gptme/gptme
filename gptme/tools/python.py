@@ -4,6 +4,7 @@ The assistant can execute Python code blocks.
 It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.
 """
 
+import ast
 import dataclasses
 import functools
 import importlib.util
@@ -93,13 +94,30 @@ _ipython: "InteractiveShell | None" = None
 
 
 registered_functions: dict[str, Callable] = {}
+registered_function_tools: dict[str, str] = {}
 
 T = TypeVar("T", bound=Callable)
 
 
-def register_function(func: T) -> T:
-    """Decorator to register a function to be available in the IPython instance."""
+def _single_registered_function_owner(code: str) -> str | None:
+    """Return the owning tool when *code* is exactly one registered helper call."""
+    try:
+        body = ast.parse(code, mode="exec").body
+    except SyntaxError:
+        return None
+    if len(body) != 1 or not isinstance(body[0], ast.Expr):
+        return None
+    call = body[0].value
+    if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+        return None
+    return registered_function_tools.get(call.func.id)
+
+
+def register_function(func: T, *, tool_name: str | None = None) -> T:
+    """Register a function for IPython and optionally record its owning tool."""
     registered_functions[func.__name__] = func
+    if tool_name is not None:
+        registered_function_tools[func.__name__] = tool_name
     # if ipython is already initialized, push the function to it to make it available
     if _ipython is not None:
         _ipython.push({func.__name__: func})
@@ -248,8 +266,12 @@ def execute_python(
     if code is None:
         raise ValueError("Code content is required to execute Python")
 
-    # Get confirmation via hook system (hook will display preview)
-    confirm_result = get_confirmation()
+    # Registered helper calls inherit their owning tool's confirmation policy when
+    # the cell is exactly one function call. Arbitrary Python remains ``ipython``.
+    confirmation_tool_use = None
+    if owner := _single_registered_function_owner(code):
+        confirmation_tool_use = ToolUse(tool=owner, args=[], content=code)
+    confirm_result = get_confirmation(tool_use=confirmation_tool_use)
     if confirm_result.action != ConfirmAction.CONFIRM:
         # early return - use DECLINED_CONTENT so chat loop detects declined execution
         yield Message("system", DECLINED_CONTENT)
@@ -470,7 +492,7 @@ def init() -> ToolSpec:
     for loaded_tool in get_tools():
         if loaded_tool.functions:
             for tf in loaded_tool.functions:
-                register_function(tf.fn)
+                register_function(tf.fn, tool_name=loaded_tool.name)
 
     _sandbox_backend = os.environ.get("GPTME_SANDBOX", "none").lower()
     docker_mode = _sandbox_backend == "docker"
