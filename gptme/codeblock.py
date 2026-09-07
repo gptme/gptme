@@ -117,10 +117,11 @@ def _find_heredoc_terminator(line: str) -> str | None:
     plain word ``EOF``). A ``<<<`` here-string takes one inline value and
     never opens a multi-line body, so it's explicitly not matched here -
     otherwise the capture group would swallow the third ``<`` as part of
-    the (bogus) terminator and heredoc state would never close. Unquoted
-    ``<<`` arithmetic shifts (e.g. ipython ``x << 2``) can still
-    false-positive; the terminator word must then appear alone on a line
-    to matter, which is rare in practice.
+    the (bogus) terminator and heredoc state would never close. A ``<<``
+    inside ``$((...))`` arithmetic expansion is always a bit-shift, and a
+    ``<<`` whose right operand is a bare integer literal is too, so both
+    are rejected to avoid minting a phantom terminator that could swallow
+    later fences.
     """
     in_single = in_double = False
     i = 0
@@ -145,6 +146,19 @@ def _find_heredoc_terminator(line: str) -> str | None:
             # Start of a shell comment - nothing after it is executable syntax.
             return None
         elif (
+            c == "$"
+            and not in_single
+            and not in_double
+            and i + 2 < n
+            and line[i + 1 : i + 3] == "(("
+        ):
+            # `$((...))` arithmetic expansion: `<<` inside is always a
+            # bit-shift, never a heredoc. Skip to the matching `))` so a
+            # shift like `$((1 << 3))` can't mint a phantom terminator.
+            j = line.find("))", i + 2)
+            i = (j + 2) if j != -1 else n
+            continue
+        elif (
             c == "<"
             and line[i + 1] == "<"
             and not in_single
@@ -157,7 +171,16 @@ def _find_heredoc_terminator(line: str) -> str | None:
                 continue
             m = re.match(r"<<-?\s*['\"\\]?([^\s'\"\\]+)", line[i:])
             if m:
-                return m.group(1)
+                term = m.group(1)
+                if term.lstrip("+-").isdigit():
+                    # `<< N` with an integer N is an arithmetic bit-shift
+                    # (`x << 2`, `1 << 3`), not a heredoc opener. A bare
+                    # integer heredoc delimiter is effectively never written
+                    # in real shell, so reject it rather than mint a phantom
+                    # terminator that could swallow later fences.
+                    i += 2
+                    continue
+                return term
         i += 1
     return None
 

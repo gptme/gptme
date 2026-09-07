@@ -380,6 +380,59 @@ output here
     ]
 
 
+def test_extract_codeblocks_shift_operand_alone_is_not_a_heredoc():
+    """A shift operand that later appears alone on a line must not mint a
+    phantom heredoc terminator and swallow the closing fence.
+
+    Regression for gptme/gptme#3703: ``x << 2`` used to return ``"2"`` as a
+    candidate heredoc terminator; when a standalone ``2`` appeared within the
+    200-line confirmation window, heredoc state stayed open past the real
+    closing fence and the following block was absorbed into the shell command.
+    """
+    markdown = """```shell
+x << 2
+echo "result"
+```
+prose after
+
+2
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'x << 2\necho "result"'),
+        Codeblock("", "output here"),
+    ]
+
+
+def test_extract_codeblocks_arithmetic_expansion_shift_is_not_a_heredoc():
+    """A ``<<`` inside ``$((...))`` arithmetic expansion is a bit-shift, not a
+    heredoc, even when its operand appears alone on a later line.
+
+    Regression for gptme/gptme#3703: ``$((1 << 3))`` used to mint ``"3))"`` as
+    a phantom terminator, and a standalone ``3`` in following content confirmed
+    it, swallowing the closing fence.
+    """
+    markdown = """```shell
+result=$((1 << 3))
+echo "done"
+```
+prose
+
+3
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", 'result=$((1 << 3))\necho "done"'),
+        Codeblock("", "output here"),
+    ]
+
+
 def test_extract_codeblocks_concatenated_adjacent_fences():
     """Recover when a closing fence and the next opening fence are concatenated."""
     markdown = """```shell
