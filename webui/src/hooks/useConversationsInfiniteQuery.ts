@@ -3,6 +3,16 @@ import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
 import type { ConversationSummary } from '@/types/conversation';
 
+/**
+ * Canonical query key for the conversations list.
+ *
+ * Callers that invalidate the list MUST use this instead of an inline array:
+ * `invalidateQueries` matches by key *prefix*, so an extra trailing element
+ * (e.g. the old `isConnected` flag) silently matches nothing and the list is
+ * never refreshed.
+ */
+export const conversationsQueryKey = (baseUrl: string) => ['conversations', baseUrl] as const;
+
 export function useConversationsInfiniteQuery(enabled: boolean = true) {
   const { api, connectionConfig } = useApi();
   const isConnected = use$(api.isConnected$);
@@ -12,7 +22,7 @@ export function useConversationsInfiniteQuery(enabled: boolean = true) {
     // isConnected flips from false→true on auto-connect. The `enabled` flag
     // already controls when the query fires. staleTime=30s prevents redundant
     // refetches within a fresh window (common during auto-connect handshake).
-    queryKey: ['conversations', connectionConfig.baseUrl],
+    queryKey: conversationsQueryKey(connectionConfig.baseUrl),
     queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
       try {
         return await api.getConversationsPaginated(pageParam, 50);

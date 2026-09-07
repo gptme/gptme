@@ -29,6 +29,7 @@ import type { ChangeEvent, FC } from 'react';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { useState, useMemo, useRef, useCallback } from 'react';
+import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 
 // Simplified task display component for sidebar
 const TaskListItem: FC<{ task: Task; isSelected: boolean; onClick: () => void }> = ({
@@ -246,7 +247,7 @@ export const UnifiedSidebar: FC<Props> = ({
         });
 
         await queryClient.invalidateQueries({
-          queryKey: ['conversations', connectionConfig.baseUrl, isConnected],
+          queryKey: conversationsQueryKey(connectionConfig.baseUrl),
         });
 
         toast.success(

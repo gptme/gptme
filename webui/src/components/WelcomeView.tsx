@@ -28,6 +28,7 @@ import { appRoute, chatRoute } from '@/utils/routes';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
 import { formatUnknownError } from '@/utils/errors';
 import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
+import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
@@ -121,7 +122,7 @@ export const WelcomeView = () => {
 
       // Invalidate conversations query to refresh the list (async, don't block)
       queryClient.invalidateQueries({
-        queryKey: ['conversations', connectionConfig.baseUrl, isConnected$.get()],
+        queryKey: conversationsQueryKey(connectionConfig.baseUrl),
       });
     } catch (error) {
       // This only catches synchronous errors (e.g., local state issues)

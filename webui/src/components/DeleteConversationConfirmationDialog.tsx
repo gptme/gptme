@@ -12,8 +12,8 @@ import { Loader2 } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { useQueryClient } from '@tanstack/react-query';
-import { use$ } from '@legendapp/state/react';
 import { demoConversations } from '@/democonversations';
+import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 
 interface Props {
   conversationName: string;
@@ -31,9 +31,8 @@ export function DeleteConversationConfirmationDialog({
   onOpenChange,
   onDelete,
 }: Props) {
-  const { api, connectionConfig, isConnected$ } = useApi();
+  const { api, connectionConfig } = useApi();
   const queryClient = useQueryClient();
-  const isConnected = use$(isConnected$);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isError, setIsError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,7 +56,7 @@ export function DeleteConversationConfirmationDialog({
     }
     conversations$.delete(conversationName);
     queryClient.invalidateQueries({
-      queryKey: ['conversations', connectionConfig.baseUrl, isConnected],
+      queryKey: conversationsQueryKey(connectionConfig.baseUrl),
     });
     selectedConversation$.set(demoConversations[0].name);
 
