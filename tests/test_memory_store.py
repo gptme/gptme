@@ -393,6 +393,20 @@ class TestRecall:
         assert "line one xxxxxxxx..." in rendered
         assert "line one\n" not in rendered
 
+    def test_render_tiny_body_chars_does_not_bypass_bound(self, tmp_path):
+        store = MemoryStore([MemoryRoot("explicit", tmp_path)])
+        self._entry(tmp_path, "one", "Useful memory", "line one\n" + "x" * 80)
+        result = recall(store, "one useful memory", backend="overlap")
+        for body_chars in (1, 2, 3):
+            tiny = render_recall(result, body_chars=body_chars)
+            body_line = next(
+                line
+                for line in tiny.splitlines()
+                if line.startswith("  ") and not line.startswith("  Match:")
+            )
+            assert len(body_line[2:]) <= body_chars
+            assert "x" * 10 not in tiny
+
 
 class TestCli:
     @pytest.fixture

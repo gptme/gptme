@@ -227,7 +227,10 @@ def render_recall(result: RecallResult, *, body_chars: int = DEFAULT_BODY_CHARS)
         summary = re.sub(r"\s+", " ", entry.body.strip() or entry.description)
         if summary:
             if len(summary) > body_chars:
-                summary = summary[: body_chars - 3].rstrip() + "..."
+                if body_chars <= 3:
+                    summary = summary[:body_chars]
+                else:
+                    summary = summary[: body_chars - 3].rstrip() + "..."
             lines.append(f"  {summary}")
     lines.append("</memory_relevant_entries>")
     return "\n".join(lines)

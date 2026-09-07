@@ -381,6 +381,10 @@ module = "gptme_sessions.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "gptme_rag.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["docx", "magic"]
 ignore_missing_imports = true
 
