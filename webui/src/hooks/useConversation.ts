@@ -741,8 +741,10 @@ export function useConversation(conversationId: string, serverId?: string) {
         updateBranches(conversationId, result.branches);
       }
 
-      // After truncation, trigger re-generation
+      // After truncation, trigger re-generation unless Stop landed while
+      // the edit request was in flight.
       if (truncate) {
+        if (stopRequestedRef.current) return;
         await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
       }
     } catch (error) {
@@ -782,12 +784,14 @@ export function useConversation(conversationId: string, serverId?: string) {
           updateBranches(conversationId, result.branches);
         }
       }
+      if (stopRequestedRef.current) return;
       // Re-run tools from the (now last) assistant message
       // This parses tool uses and sets them as pending, without calling the LLM
       try {
         await api.rerunTools(conversationId);
       } catch {
         // No tools found — fall back to step() (regenerate)
+        if (stopRequestedRef.current) return;
         await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
       }
     } catch (error) {
@@ -811,6 +815,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       if (result.branches) {
         updateBranches(conversationId, result.branches);
       }
+      if (stopRequestedRef.current) return;
       await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
     } catch (error) {
       console.error('Error regenerating message:', error);

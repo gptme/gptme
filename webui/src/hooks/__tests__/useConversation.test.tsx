@@ -356,7 +356,10 @@ describe('useConversation', () => {
       eventHandlers?.onMessageStart?.();
     });
 
-    // The Stop is newer than the request, so onMessageStart must not resume.
+    // The Stop is newer than the request: do not start generation, and do
+    // not let a late onMessageStart resume it.
+    expect(step).not.toHaveBeenCalled();
+    expect(rerunTools).not.toHaveBeenCalled();
     expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
     expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
   });
