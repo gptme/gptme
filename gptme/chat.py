@@ -73,7 +73,7 @@ def _get_session_tokens() -> int:
 
 
 def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> None:
-    """Print running token totals after each LLM call (enabled by --track-tokens)."""
+    """Print running token totals after each LLM call (enabled by GPTME_TRACK_TOKENS)."""
     try:
         session_tokens = _session_tokens.get()
         if session_tokens is None:
