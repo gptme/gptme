@@ -62,6 +62,16 @@ def test_verify_contains_branches(tmp_path: Path) -> None:
     assert present.actual == "line 2: beta"
 
 
+def test_path_traversal_via_relative_is_denied(tmp_path: Path, monkeypatch) -> None:
+    # A relative path that resolves outside cwd must be blocked even though
+    # `resolved` is always absolute — the old `elif not resolved.is_absolute()`
+    # was unreachable. This test ensures the fix holds.
+    monkeypatch.chdir(tmp_path)
+    result = verify_file_exists("../../etc/passwd")
+    assert result.ok is False
+    assert "path traversal denied" in result.reason
+
+
 def test_verify_contains_reports_invalid_regex(tmp_path: Path) -> None:
     path = tmp_path / "sample.txt"
     path.write_text("alpha\n", encoding="utf-8")

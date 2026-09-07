@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
+import multiprocessing
 import os
 import re
 import shlex
@@ -119,8 +119,10 @@ def _check_path_containment(
                 raw,
                 f"path traversal denied: {resolved} is outside read root {read_root}",
             )
-    elif not resolved.is_absolute():
-        # Relative paths must stay within cwd
+    elif not Path(raw).is_absolute():
+        # A relative input that resolves outside cwd is a traversal attempt
+        # (e.g. "../../etc/passwd"). Check the ORIGINAL raw input — not `resolved`,
+        # which is always absolute — so explicit absolute paths are still allowed.
         cwd = Path.cwd().resolve()
         try:
             resolved.relative_to(cwd)
@@ -174,12 +176,19 @@ def _read_text(
         return None, _result(False, claim_type, path, f"could not read file: {exc}")
 
 
-def _match_line(text: str, match: re.Match[str]) -> str:
-    line_no = text.count("\n", 0, match.start()) + 1
-    line_start = text.rfind("\n", 0, match.start()) + 1
-    line_end = text.find("\n", match.end())
+def _match_line(text: str, start: int, end: int) -> str:
+    line_no = text.count("\n", 0, start) + 1
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
     line = text[line_start : len(text) if line_end == -1 else line_end].strip()
     return f"line {line_no}: {line[:197] + '...' if len(line) > 200 else line}"
+
+
+def _regex_search_span(args: tuple[str, str, int]) -> tuple[int, int] | None:
+    """Run re.search in a subprocess worker; returns span or None (picklable)."""
+    pattern, text, flags = args
+    match = re.search(pattern, text, flags)
+    return (match.start(), match.end()) if match else None
 
 
 def _verify_pattern(
@@ -197,36 +206,44 @@ def _verify_pattern(
         return error
     assert text is not None
 
-    # Run regex in a separate thread so we can enforce a wall-clock timeout.
-    # shutdown(wait=False) ensures a catastrophic match doesn't block the caller.
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(re.search, pattern, text, re.MULTILINE)
+    # Validate the pattern before spawning a worker to catch re.error cheaply.
     try:
-        match = future.result(timeout=REGEX_TIMEOUT_SECONDS)
-    except concurrent.futures.TimeoutError:
-        executor.shutdown(wait=False)
-        return _result(
-            False,
-            claim_type,
-            path,
-            f"regex match timed out after {REGEX_TIMEOUT_SECONDS:g}s "
-            f"(pattern may cause catastrophic backtracking)",
-            expected=pattern,
-        )
+        re.compile(pattern)
     except re.error as exc:
-        executor.shutdown(wait=False)
         return _result(
-            False,
-            claim_type,
-            path,
-            f"invalid regex pattern: {exc}",
-            expected=pattern,
+            False, claim_type, path, f"invalid regex pattern: {exc}", expected=pattern
         )
-    executor.shutdown(wait=False)
 
-    found = match is not None
+    # Run regex in a subprocess so we can terminate a catastrophic match.
+    # A thread cannot be interrupted mid-re.search; a process can be killed.
+    ctx = multiprocessing.get_context("fork" if sys.platform != "win32" else "spawn")
+    with ctx.Pool(processes=1) as pool:
+        async_result = pool.apply_async(
+            _regex_search_span, ((pattern, text, re.MULTILINE),)
+        )
+        try:
+            span = async_result.get(timeout=REGEX_TIMEOUT_SECONDS)
+        except multiprocessing.TimeoutError:
+            pool.terminate()
+            pool.join()
+            return _result(
+                False,
+                claim_type,
+                path,
+                f"regex match timed out after {REGEX_TIMEOUT_SECONDS:g}s "
+                f"(pattern may cause catastrophic backtracking)",
+                expected=pattern,
+            )
+        except Exception as exc:
+            pool.terminate()
+            pool.join()
+            return _result(
+                False, claim_type, path, f"regex error: {exc}", expected=pattern
+            )
+
+    found = span is not None
     ok = found is want_found
-    actual = _match_line(text, match) if match else "not found"
+    actual = _match_line(text, span[0], span[1]) if span is not None else "not found"
     reason = "pattern was found" if found else "pattern was not found"
     return _result(ok, claim_type, path, reason, expected=pattern, actual=actual)
 
@@ -307,14 +324,26 @@ def _run_process(
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Kill the entire process group to clean up descendants
+            # Kill the entire process tree to clean up descendants.
             try:
-                pgid = os.getpgid(proc.pid)
-                os.killpg(pgid, signal.SIGKILL)
-            except AttributeError:
-                # os.getpgid/os.killpg not available on Windows
-                proc.kill()
-            except (ProcessLookupError, OSError):
+                if sys.platform == "win32":
+                    # taskkill /F /T kills the process and all its descendants.
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                        check=False,
+                    )
+                else:
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+            except (
+                OSError,
+                ProcessLookupError,
+                FileNotFoundError,
+                subprocess.TimeoutExpired,
+            ):
                 proc.kill()
             proc.communicate()
             return None, _result(
