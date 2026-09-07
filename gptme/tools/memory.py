@@ -17,32 +17,14 @@ Usage:
 """
 
 import logging
-import re
 from collections.abc import Generator
 from pathlib import Path
 
 from ..dirs import get_cc_memory_dir, get_workspace
+from ..memory import MemoryEntry, MemoryRoot, MemoryStore, slugify, update_index_line
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import ToolSpec, ToolUse
-
-try:
-    import fcntl as _fcntl
-
-    def _lock_exclusive(f) -> None:
-        _fcntl.flock(f, _fcntl.LOCK_EX)
-
-    def _unlock(f) -> None:
-        _fcntl.flock(f, _fcntl.LOCK_UN)
-
-except ImportError:
-    # Windows: no flock — skip locking (best-effort)
-    def _lock_exclusive(f) -> None:
-        pass
-
-    def _unlock(f) -> None:
-        pass
-
 
 logger = logging.getLogger(__name__)
 
@@ -75,53 +57,19 @@ def examples(tool_format):
 """.strip()
 
 
-def _slugify(name: str) -> str:
-    """Convert a name to a safe filename slug."""
-    slug = name.lower().strip()
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    slug = slug.strip("-")
-    return slug or "memory"
+# Kept as module-level names for callers and tests; the implementation lives
+# in gptme.memory so gptme-util and other harnesses share it.
+_slugify = slugify
 
 
 def _update_memory_index(
     memory_dir: Path, slug: str, filename: str, description: str
 ) -> None:
-    """Add or update an entry in MEMORY.md.
-
-    Uses the slug (not the raw name) as the index key so that distinct names
-    that normalise to the same slug always update the same single entry rather
-    than creating duplicate lines pointing at the same file.
-
-    An exclusive file lock serialises concurrent index updates so that parallel
-    sessions cannot race and silently drop each other's entries.
-    """
-    index_path = memory_dir / "MEMORY.md"
-    entry = f"- [{slug}]({filename}) — {description}\n"
-
-    # Open 'a+': creates when absent, positions at EOF, allows read+write.
-    with open(index_path, "a+", encoding="utf-8") as f:
-        _lock_exclusive(f)
-        try:
-            f.seek(0)
-            content = f.read()
-            if not content:
-                new_content = f"# Persistent Memory\n\n{entry}"
-            else:
-                pattern = rf"^- \[{re.escape(slug)}\]\({re.escape(filename)}\).*$"
-                if re.search(pattern, content, re.MULTILINE):
-                    replacement = entry.rstrip()
-                    new_content = re.sub(
-                        pattern, lambda _: replacement, content, flags=re.MULTILINE
-                    )
-                else:
-                    if not content.endswith("\n"):
-                        content += "\n"
-                    new_content = content + entry
-            f.seek(0)
-            f.truncate()
-            f.write(new_content)
-        finally:
-            _unlock(f)
+    """Add or update an entry line in MEMORY.md (delegates to gptme.memory)."""
+    update_index_line(
+        memory_dir,
+        MemoryEntry(name=slug, description=description, path=memory_dir / filename),
+    )
 
 
 def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
@@ -138,26 +86,12 @@ def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
     if workspace is None:
         workspace = get_workspace()
 
-    memory_dir = get_cc_memory_dir(workspace)
-    memory_dir.mkdir(parents=True, exist_ok=True)
-
-    slug = _slugify(name)
-    filename = f"{slug}.md"
-    file_path = memory_dir / filename
-
     lines = content.strip().splitlines()
     description = lines[0].strip() if lines else name
     body = "\n".join(lines[1:]).strip() if len(lines) > 1 else content.strip()
 
-    safe_desc = description.replace("\\", "\\\\").replace('"', '\\"')
-    frontmatter = f'---\nname: {slug}\ndescription: "{safe_desc}"\nmetadata:\n  type: general\n---\n\n'
-    file_path.write_text(frontmatter + body + "\n", encoding="utf-8")
-
-    # Use slug as the index key so colliding names update the same entry.
-    _update_memory_index(memory_dir, slug, filename, description)
-
-    logger.debug(f"Saved memory '{name}' to {file_path}")
-    return str(file_path)
+    store = MemoryStore([MemoryRoot("cc", get_cc_memory_dir(workspace))])
+    return str(store.save(name, description, body))
 
 
 def execute_memory(
@@ -190,7 +124,7 @@ def execute_memory(
     ) -> Path:
         ws = get_workspace()
         mem_dir = get_cc_memory_dir(ws)
-        return mem_dir / f"{_slugify(name)}.md"
+        return mem_dir / f"{slugify(name)}.md"
 
     def _do_save(
         save_content: str, path: Path | None

@@ -1,0 +1,198 @@
+"""gptme-util memory — cross-harness memory store CLI.
+
+Entries are Claude Code compatible markdown files (``name``, ``description``,
+``metadata.type`` frontmatter) read from an ordered list of roots and written
+to one scope. Any harness can wrap these commands: Claude Code through hooks,
+Codex through an AGENTS.md snippet, gptme through the ``memory`` tool.
+
+See gptme/gptme#3734 for the design.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+
+import click
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _clean(value: str) -> str:
+    return _CONTROL_CHARS_RE.sub("", value)
+
+
+def _store():
+    from ..memory import MemoryStore  # fmt: skip
+
+    return MemoryStore.from_workspace()
+
+
+@click.group("memory")
+def memory():
+    """Cross-harness memory store: CC-compatible entries, layered roots."""
+
+
+@memory.command("roots")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def memory_roots(as_json: bool):
+    """Show the resolved memory roots, nearest layer first."""
+    store = _store()
+    if as_json:
+        click.echo(
+            json.dumps(
+                [
+                    {"scope": r.scope, "path": str(r.path), "exists": r.exists}
+                    for r in store.roots
+                ],
+                indent=2,
+            )
+        )
+        return
+    for r in store.roots:
+        marker = "" if r.exists else "  (missing)"
+        click.echo(f"{r.scope:8s} {r.path}{marker}")
+
+
+@memory.command("list")
+@click.option("--type", "type_", help="Only entries of this type.")
+@click.option(
+    "--scope", help="Only entries from this root (project, cc, agent, user, explicit)."
+)
+@click.option(
+    "--status", help="Only entries with this status (living, superseded, historical)."
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def memory_list(
+    type_: str | None, scope: str | None, status: str | None, as_json: bool
+):
+    """List entries across all roots (nearest root wins on name collision)."""
+    store = _store()
+    entries = store.entries(type=type_, status=status, scope=scope)
+    if as_json:
+        click.echo(json.dumps([e.to_dict() for e in entries], indent=2, default=str))
+    else:
+        for e in entries:
+            click.echo(f"{e.type:10s} {e.name}  — {_clean(e.description)}")
+    if store.errors:
+        click.echo(
+            f"({len(store.errors)} file(s) skipped: not memory entries)", err=True
+        )
+
+
+@memory.command("show")
+@click.argument("name")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Output as JSON (frontmatter fields + body).",
+)
+def memory_show(name: str, as_json: bool):
+    """Print one entry by name."""
+    entry = _store().get(name)
+    if entry is None:
+        click.echo(f"Error: no memory entry named {name!r}", err=True)
+        sys.exit(1)
+    if as_json:
+        click.echo(
+            json.dumps({**entry.to_dict(), "body": entry.body}, indent=2, default=str)
+        )
+    else:
+        click.echo(entry.to_markdown(), nl=False)
+
+
+@memory.command("save")
+@click.argument("name")
+@click.argument("description")
+@click.option(
+    "--type",
+    "type_",
+    default="general",
+    show_default=True,
+    help="Entry type (user, feedback, project, reference, general, …).",
+)
+@click.option(
+    "--scope", help="Root to write to (default: project when present, else cc)."
+)
+@click.option("--title", help="Index link text (defaults to the name).")
+@click.option(
+    "--body-file",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Read the body from this file instead of stdin.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the saved entry as JSON.")
+def memory_save(
+    name: str,
+    description: str,
+    type_: str,
+    scope: str | None,
+    title: str | None,
+    body_file: str | None,
+    as_json: bool,
+):
+    """Save an entry. The body is read from --body-file or from stdin when piped.
+
+    Example:
+
+    \b
+        gptme-util memory save prefer-short-answers \\
+          "User prefers short, direct answers." --type feedback < body.md
+    """
+    if body_file:
+        with open(body_file, encoding="utf-8") as f:
+            body = f.read()
+    elif not sys.stdin.isatty():
+        body = sys.stdin.read()
+    else:
+        body = ""
+    store = _store()
+    try:
+        path = store.save(name, description, body, type=type_, scope=scope, title=title)
+    except (KeyError, OSError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    if as_json:
+        entry = store.get(name)
+        click.echo(
+            json.dumps(
+                entry.to_dict() if entry else {"path": str(path)}, indent=2, default=str
+            )
+        )
+    else:
+        click.echo(f"Saved memory to {path}")
+
+
+@memory.command("index")
+@click.option("--scope", help="Root whose index to generate (default: the write root).")
+@click.option("--write", is_flag=True, help="Write MEMORY.md instead of printing it.")
+@click.option(
+    "--check",
+    is_flag=True,
+    help="Exit 1 when MEMORY.md differs from the regenerated index.",
+)
+@click.option("--budget", type=int, help="Cap the index at this many bytes.")
+def memory_index(scope: str | None, write: bool, check: bool, budget: int | None):
+    """Generate the always-on index (living entries grouped by type).
+
+    Prints to stdout by default so a hand-curated MEMORY.md is never
+    overwritten by accident; pass --write to replace it, --check to verify.
+    """
+    store = _store()
+    try:
+        if check:
+            ok = store.check_index(scope, budget=budget)
+            click.echo(f"{store.index_path(scope)}: {'up to date' if ok else 'DRIFT'}")
+            sys.exit(0 if ok else 1)
+        if write:
+            path = store.write_index(scope, budget=budget)
+            click.echo(f"Wrote {path}")
+            return
+        root = store.root(scope)
+        click.echo(
+            store.render_index(store.entries(scope=root.scope), budget=budget), nl=False
+        )
+    except KeyError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)

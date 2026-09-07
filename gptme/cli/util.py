@@ -58,6 +58,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "hooks": (".cmd_hooks", "hooks"),
     "knowledge": (".cmd_knowledge", "knowledge"),
     "mcp": (".cmd_mcp", "mcp"),
+    "memory": (".cmd_memory", "memory"),
     "resume": (".cmd_resume", "resume"),
     # Unified review group (gptme#3442): ``gptme-util review watch``
     "review": (".cmd_review", "review"),
