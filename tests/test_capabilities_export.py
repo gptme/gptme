@@ -403,6 +403,22 @@ def test_connect_mcp_not_requested_reason_renders():
     assert "connect_mcp_not_requested" in html
 
 
+_VALID_COUNTS = {
+    "tools_in_session": 0,
+    "tools_available": 0,
+    "skills": 0,
+    "lessons": 0,
+    "plugins": 0,
+    "mcp_servers": 0,
+}
+_VALID_CONFIG = {
+    "mcp_enabled": False,
+    "plugin_enabled": [],
+    "tool_allowlist": None,
+    "profile": None,
+}
+
+
 def test_render_malformed_snapshot_raises_clean_value_error():
     """Malformed snapshots (e.g. from --from-json) must raise ValueError, not a
     raw KeyError/TypeError traceback."""
@@ -410,13 +426,61 @@ def test_render_malformed_snapshot_raises_clean_value_error():
         {},  # missing every key
         [],  # wrong top-level type
         {"workspace": "/tmp", "schema_version": 1},  # missing most keys
-        {  # wrong type for a nested structure
+        {  # wrong type for counts
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": _VALID_CONFIG,
+            "counts": 5,
+            "tools": [],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [],
+        },
+        {  # counts is an object but missing required sub-keys (P1 fix)
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": _VALID_CONFIG,
+            "counts": {},
+            "tools": [],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [],
+        },
+        {  # config is an object but missing mcp_enabled (P1 fix)
             "schema_version": 1,
             "generated_at": "x",
             "workspace": "/tmp",
             "config": {},
-            "counts": 5,
+            "counts": _VALID_COUNTS,
             "tools": [],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [],
+        },
+        {  # tools entry is not a dict (P1 fix)
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": _VALID_CONFIG,
+            "counts": _VALID_COUNTS,
+            "tools": ["not-a-dict"],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [],
+        },
+        {  # tools entry missing 'name' (P1 fix)
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": _VALID_CONFIG,
+            "counts": _VALID_COUNTS,
+            "tools": [{"desc": "no name here"}],
             "skills": [],
             "plugins": [],
             "mcp_servers": [],
@@ -442,3 +506,57 @@ def test_render_valid_snapshot_still_works_after_validation():
     )
     assert "gptme capabilities" in render(snap, "text")
     assert render(snap, "json").startswith("{")
+
+
+def test_click_cli_invalid_json_exits_cleanly(tmp_path):
+    """click CLI must emit a clean error (not traceback) on invalid JSON."""
+    from click.testing import CliRunner
+
+    from gptme.cli.cmd_capabilities import capabilities
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("not json")
+    result = CliRunner().invoke(capabilities, ["--from-json", str(bad)])
+    assert result.exit_code != 0
+    assert "invalid JSON" in result.output
+    assert "Traceback" not in result.output
+    assert "JSONDecodeError" not in result.output
+
+
+def test_click_cli_malformed_snapshot_exits_cleanly(tmp_path):
+    """click CLI must emit a clean error (not traceback) on malformed snapshot."""
+    from click.testing import CliRunner
+
+    from gptme.cli.cmd_capabilities import capabilities
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("{}")  # missing all required keys
+    result = CliRunner().invoke(capabilities, ["--from-json", str(bad)])
+    assert result.exit_code != 0
+    assert "invalid capabilities snapshot" in result.output
+    assert "Traceback" not in result.output
+    assert "KeyError" not in result.output
+
+
+def test_main_argparse_invalid_json_exits_cleanly(tmp_path, capsys):
+    """argparse main() must emit a clean error on invalid JSON."""
+    from gptme.util.capabilities_export import main
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("not json")
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--from-json", str(bad)])
+    assert exc_info.value.code == 2
+    assert "invalid JSON" in capsys.readouterr().err
+
+
+def test_main_argparse_malformed_snapshot_exits_cleanly(tmp_path, capsys):
+    """argparse main() must emit a clean error on malformed snapshot."""
+    from gptme.util.capabilities_export import main
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("{}")  # missing all required keys
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--from-json", str(bad)])
+    assert exc_info.value.code == 2
+    assert "invalid capabilities snapshot" in capsys.readouterr().err

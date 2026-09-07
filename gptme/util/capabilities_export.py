@@ -536,6 +536,14 @@ _REQUIRED_SNAPSHOT_KEYS = (
     "mcp_servers",
     "limitations",
 )
+_REQUIRED_COUNTS_KEYS = (
+    "tools_in_session",
+    "tools_available",
+    "skills",
+    "plugins",
+    "mcp_servers",
+)
+_REQUIRED_CONFIG_KEYS = ("mcp_enabled",)
 
 
 def validate_snapshot(snapshot: Any) -> dict[str, Any]:
@@ -563,6 +571,28 @@ def validate_snapshot(snapshot: Any) -> dict[str, Any]:
     for key in ("tools", "skills", "plugins", "mcp_servers", "limitations"):
         if not isinstance(snapshot.get(key), list):
             raise ValueError(f"invalid capabilities snapshot: '{key}' must be an array")
+    missing_counts = [k for k in _REQUIRED_COUNTS_KEYS if k not in snapshot["counts"]]
+    if missing_counts:
+        raise ValueError(
+            "invalid capabilities snapshot: counts missing key(s): "
+            + ", ".join(missing_counts)
+        )
+    missing_cfg = [k for k in _REQUIRED_CONFIG_KEYS if k not in snapshot["config"]]
+    if missing_cfg:
+        raise ValueError(
+            "invalid capabilities snapshot: config missing key(s): "
+            + ", ".join(missing_cfg)
+        )
+    for coll in ("tools", "skills", "plugins", "mcp_servers"):
+        for i, entry in enumerate(snapshot[coll]):
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"invalid capabilities snapshot: {coll}[{i}] must be an object"
+                )
+            if "name" not in entry:
+                raise ValueError(
+                    f"invalid capabilities snapshot: {coll}[{i}] missing 'name'"
+                )
     return snapshot
 
 
