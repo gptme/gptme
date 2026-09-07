@@ -442,6 +442,12 @@ def _extract_codeblocks(
                     is_outer_close = is_bare_fence and line_fence_len == fence_len
                     if is_outer_close or (is_bare_fence and nesting_depth > 1):
                         # Bare fence - determine if opening or closing based on context
+                        # A fence inside an open quoted string is literal content,
+                        # not a markdown delimiter (same rationale as heredoc bodies).
+                        if _qs_in_single or _qs_in_double:
+                            content_lines.append(line)
+                            i += 1
+                            continue
 
                         # Check next line
                         has_next_line = i + 1 < len(lines)

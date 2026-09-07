@@ -1970,3 +1970,31 @@ def test_extract_codeblocks_shell_streaming_exec_lang_closes_without_blank_line(
         "Stop-detection: streaming must find at least one complete block "
         "in a finished exec-lang reply"
     )
+
+
+def test_extract_codeblocks_shell_quoted_bare_fence_is_literal():
+    """A bare fence inside an open multiline quoted string is literal content.
+
+    Regression for gptme/gptme#3730 Greptile P1: the exec-lang streaming
+    fast-path treated every bare fence as a closer even when the quote
+    scanner reported an open multiline string.  Closing at the data fence
+    truncated the runnable block (and stopped generation).  Guarding the
+    fast-path against quote state is necessary but not sufficient — the
+    streaming fallback then treated the same fence as a nested opener,
+    so the real closer only un-nested to depth 1 and the block was never
+    yielded.  Quoted fences must be literal content in both modes.
+    """
+    from gptme.codeblock import _extract_codeblocks
+
+    message = "```shell\ns='\n```\n'\necho done\n```\n"
+    expected = [Codeblock("shell", "s='\n```\n'\necho done")]
+
+    blocks_default = list(_extract_codeblocks(message, streaming=False))
+    assert blocks_default == expected, (
+        "Non-streaming must not close at a fence inside an open quoted string"
+    )
+
+    blocks_stream = list(_extract_codeblocks(message, streaming=True))
+    assert blocks_stream == expected, (
+        "Streaming must not close or nest at a fence inside an open quoted string"
+    )
