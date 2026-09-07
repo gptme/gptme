@@ -16,10 +16,10 @@ import sys
 
 import click
 
-# C0/C1 controls. ``keep_newlines`` still drops ESC/CSI but preserves \t and \n
-# so markdown bodies and generated indexes stay readable.
+# C0/C1 controls. ``keep_newlines`` still drops ESC/CSI/CR (CR overwrites the
+# current terminal line) but preserves \t and \n so markdown stays readable.
 _ALL_CONTROLS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-_UNSAFE_CONTROLS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_UNSAFE_CONTROLS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def _clean(value: str, *, keep_newlines: bool = False) -> str:

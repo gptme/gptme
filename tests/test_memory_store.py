@@ -294,17 +294,20 @@ class TestCli:
         _write(
             env,
             "unsafe",
-            '---\nname: unsafe\ndescription: "red \u001b[31mtext\u001b[0m"\n---\n\nline 1\nline 2\n',
+            '---\nname: unsafe\ndescription: "red \u001b[31mtext\u001b[0m"\n---\n\nline 1\r\nline 2\n',
         )
         runner = CliRunner()
         shown = runner.invoke(util_main, ["memory", "show", "unsafe"])
         assert shown.exit_code == 0
         assert "\x1b" not in shown.output
+        assert "\r" not in shown.output
         assert "line 1\nline 2" in shown.output
         listed = runner.invoke(util_main, ["memory", "list"])
         assert "\x1b" not in listed.output
+        assert "\r" not in listed.output
         indexed = runner.invoke(util_main, ["memory", "index"])
         assert "\x1b" not in indexed.output
+        assert "\r" not in indexed.output
 
     def test_index_budget_cli_rejects_non_positive(self, env):
         r = CliRunner().invoke(util_main, ["memory", "index", "--budget", "0"])
