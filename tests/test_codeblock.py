@@ -380,6 +380,35 @@ output here
     ]
 
 
+def test_extract_codeblocks_ipython_nonnumeric_shift_is_not_a_heredoc():
+    """An ipython ``<<`` with a nonnumeric operand (e.g. ``x << marker``) must
+    not activate heredoc state even when ``marker`` appears alone on a later line.
+
+    IPython/Python has no heredoc syntax — ``<<`` is always bitwise left-shift.
+    Regression for gptme/gptme#3703 (Greptile P1 "Nonnumeric shifts mimic heredocs"):
+    before the _SHELL_LANGS fix, the heredoc scanner ran on ipython blocks and
+    returned ``"marker"`` as a candidate terminator; when ``marker`` appeared
+    standalone in the prose, heredoc state opened and the actual closing fence
+    was treated as a nested opener, swallowing the output block.
+    """
+    markdown = """```ipython
+x << marker
+result = x
+```
+prose after
+
+marker
+```
+output here
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("ipython", "x << marker\nresult = x"),
+        Codeblock("", "output here"),
+    ]
+
+
 def test_extract_codeblocks_shift_operand_alone_is_not_a_heredoc():
     """A shift operand that later appears alone on a line must not mint a
     phantom heredoc terminator and swallow the closing fence.

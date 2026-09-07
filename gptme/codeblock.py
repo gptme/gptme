@@ -290,6 +290,10 @@ def _extract_codeblocks(
             "ipython",
         }
     )
+    # Shell languages that support heredoc syntax (``<<``).  IPython/Python's
+    # ``<<`` is always the bitwise left-shift operator — there is no heredoc
+    # syntax in Python — so ipython is excluded from heredoc state tracking.
+    _SHELL_LANGS = _EXEC_LANGS - {"ipython"}
 
     lines = markdown.split("\n")
     i = 0
@@ -385,7 +389,7 @@ def _extract_codeblocks(
                 # but finite window instead bounds both the false-confirm blast radius
                 # (an unrelated standalone line matching the candidate far later in the
                 # message) and the O(n^2) worst case on very large documents.
-                if lang in _EXEC_LANGS:
+                if lang in _SHELL_LANGS:
                     if heredoc_terminator is None:
                         candidate = _find_heredoc_terminator(line)
                         _confirm_window = lines[i + 1 : i + 1 + 200]
