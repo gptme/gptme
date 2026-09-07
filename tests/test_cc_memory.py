@@ -650,3 +650,79 @@ class TestResolveMemoryDir:
         )
         cc_dir = get_cc_memory_dir(workspace)
         assert Path(path).is_relative_to(cc_dir)
+
+
+class TestSymlinkContainment:
+    """Symlink containment checks prevent workspace-escape via malicious symlinks."""
+
+    def test_resolve_memory_dir_rejects_symlink_escaping_workspace(self, tmp_path):
+        """resolve_memory_dir falls back to CC path when memory/ is a symlink outside workspace."""
+        from gptme.tools.memory import resolve_memory_dir
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        external_dir = tmp_path / "external"
+        external_dir.mkdir()
+
+        # Symlink memory/ -> ../external (escapes workspace)
+        mem_link = workspace / "memory"
+        mem_link.symlink_to(external_dir)
+
+        resolved = resolve_memory_dir(workspace)
+        # Must fall back — symlink resolves outside the workspace
+        assert resolved == get_cc_memory_dir(workspace)
+
+    def test_resolve_memory_dir_rejects_regular_file_named_memory(self, tmp_path):
+        """resolve_memory_dir falls back when memory is a regular file, not a directory."""
+        from gptme.tools.memory import resolve_memory_dir
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        # Regular file named "memory" — saves would fail if we returned this
+        (workspace / "memory").write_text("I am not a directory")
+
+        resolved = resolve_memory_dir(workspace)
+        assert resolved == get_cc_memory_dir(workspace)
+
+    def test_ws_memory_symlink_escaping_workspace_is_skipped(self, tmp_path):
+        """Workspace MEMORY.md symlink pointing outside workspace is not loaded."""
+        from unittest.mock import patch
+
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        mem_dir = workspace / "memory"
+        mem_dir.mkdir()
+
+        # Create a sensitive file outside the workspace
+        sensitive = tmp_path / "sensitive.txt"
+        sensitive.write_text("SECRET DATA")
+
+        # MEMORY.md is a symlink to the sensitive file outside the workspace
+        memory_file = mem_dir / "MEMORY.md"
+        memory_file.symlink_to(sensitive)
+
+        with (
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+            patch(
+                "gptme.prompts.workspace.get_cc_memory_file",
+                return_value=tmp_path / "no-cc-memory.md",
+            ),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
+        # The sensitive data must NOT appear in any system message
+        assert "SECRET DATA" not in combined

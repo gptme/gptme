@@ -433,29 +433,44 @@ def prompt_workspace(
     if include_user_context:
         ws_memory_file = get_workspace_memory_file(workspace_resolved)
         if ws_memory_file.exists():
+            # Containment check: reject symlinks whose resolved target escapes
+            # the workspace.  A repository-controlled MEMORY.md symlink could
+            # otherwise disclose arbitrary local files by loading them into the
+            # system message and forwarding them to the model provider.
+            _ws_contained = True
             try:
-                with open(ws_memory_file, "rb") as _f:
-                    raw = _f.read(_CC_MEMORY_MAX_BYTES + 1)
-                truncated = len(raw) > _CC_MEMORY_MAX_BYTES
-                if truncated:
-                    raw = raw[:_CC_MEMORY_MAX_BYTES]
-                    logger.warning(
-                        f"Workspace memory file {ws_memory_file} exceeds "
-                        f"{_CC_MEMORY_MAX_BYTES // 1024}KB; truncating"
-                    )
-                memory_content = raw.decode("utf-8", errors="ignore").strip()
-                if memory_content:
-                    yield Message(
-                        "system",
-                        f"## Persistent Memory\n\n"
-                        f"The following memory was saved across sessions "
-                        f"(from `{ws_memory_file}`):\n\n{memory_content}",
-                    )
-                    logger.debug(f"Loaded workspace memory from {ws_memory_file}")
-            except OSError as e:
-                logger.debug(
-                    f"Failed to read workspace memory file {ws_memory_file}: {e}"
+                ws_memory_file.resolve().relative_to(workspace_resolved.resolve())
+            except ValueError:
+                _ws_contained = False
+                logger.warning(
+                    "Workspace memory file %s resolves outside the workspace "
+                    "via symlink; skipping",
+                    ws_memory_file,
                 )
+            if _ws_contained:
+                try:
+                    with open(ws_memory_file, "rb") as _f:
+                        raw = _f.read(_CC_MEMORY_MAX_BYTES + 1)
+                    truncated = len(raw) > _CC_MEMORY_MAX_BYTES
+                    if truncated:
+                        raw = raw[:_CC_MEMORY_MAX_BYTES]
+                        logger.warning(
+                            f"Workspace memory file {ws_memory_file} exceeds "
+                            f"{_CC_MEMORY_MAX_BYTES // 1024}KB; truncating"
+                        )
+                    memory_content = raw.decode("utf-8", errors="ignore").strip()
+                    if memory_content:
+                        yield Message(
+                            "system",
+                            f"## Persistent Memory\n\n"
+                            f"The following memory was saved across sessions "
+                            f"(from `{ws_memory_file}`):\n\n{memory_content}",
+                        )
+                        logger.debug(f"Loaded workspace memory from {ws_memory_file}")
+                except OSError as e:
+                    logger.debug(
+                        f"Failed to read workspace memory file {ws_memory_file}: {e}"
+                    )
 
     # Load Claude Code memory if present — makes CC-written memories accessible in gptme
     if include_user_context:

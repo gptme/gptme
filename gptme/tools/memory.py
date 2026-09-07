@@ -156,7 +156,20 @@ def resolve_memory_dir(workspace: Path) -> Path:
     """
     ws_mem = get_workspace_memory_dir(workspace)
     if ws_mem.exists():
-        return ws_mem
+        # Must be a real directory, not a regular file (which would make saves
+        # fail), and its resolved path must stay inside the workspace so a
+        # repository-controlled symlink cannot redirect writes to an arbitrary
+        # filesystem location.
+        if ws_mem.is_dir():
+            try:
+                ws_mem.resolve().relative_to(workspace.resolve())
+                return ws_mem
+            except ValueError:
+                logger.warning(
+                    "Workspace memory directory %s resolves outside the workspace "
+                    "via symlink; falling back to CC memory path",
+                    ws_mem,
+                )
     return get_cc_memory_dir(workspace)
 
 
