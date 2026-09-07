@@ -99,8 +99,19 @@ registered_function_tools: dict[str, str] = {}
 T = TypeVar("T", bound=Callable)
 
 
+def _is_literal_or_name(node: ast.AST) -> bool:
+    """True when *node* cannot execute arbitrary code during evaluation."""
+    return isinstance(node, ast.Constant | ast.Name)
+
+
 def _single_registered_function_owner(code: str) -> str | None:
-    """Return the owning tool when *code* is exactly one registered helper call."""
+    """Return the owning tool when *code* is exactly one registered helper call.
+
+    Arguments must be constants or names. Nested calls, attribute access, and
+    other subexpressions are evaluated before the helper runs, so treating
+    ``inspect_data(__import__("os").system("id"))`` as a read-only helper
+    would auto-approve arbitrary Python. Fail closed on anything richer.
+    """
     try:
         body = ast.parse(code, mode="exec").body
     except SyntaxError:
@@ -109,6 +120,12 @@ def _single_registered_function_owner(code: str) -> str | None:
         return None
     call = body[0].value
     if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+        return None
+    if not all(_is_literal_or_name(arg) for arg in call.args):
+        return None
+    if not all(
+        kw.arg is not None and _is_literal_or_name(kw.value) for kw in call.keywords
+    ):
         return None
     return registered_function_tools.get(call.func.id)
 

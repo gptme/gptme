@@ -99,6 +99,13 @@ def test_ipython_registered_read_only_function_reaches_cli_auto_approval(
         "inspect_data().mutate()",
         "inspect_data() + 1",
         "print(inspect_data())",
+        "inspect_data(__import__('os').system('id'))",
+        "inspect_data(open('/etc/passwd').read())",
+        "inspect_data(obj.attr)",
+        "inspect_data(*args)",
+        "inspect_data(**kwargs)",
+        "inspect_data(foo())",
+        "inspect_data(path=foo())",
     ],
 )
 def test_ipython_mixed_code_keeps_ipython_confirmation(code: str):
@@ -109,6 +116,28 @@ def test_ipython_mixed_code_keeps_ipython_confirmation(code: str):
     try:
         python_tool.registered_function_tools["inspect_data"] = "observer"
         assert python_tool._single_registered_function_owner(code) is None
+    finally:
+        python_tool.registered_function_tools.clear()
+        python_tool.registered_function_tools.update(old_owners)
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "inspect_data()",
+        "inspect_data('notes.md')",
+        "inspect_data(path)",
+        "inspect_data(path='notes.md')",
+    ],
+)
+def test_ipython_literal_or_name_args_inherit_owner(code: str):
+    """Constants and names are the only argument forms that may inherit policy."""
+    from gptme.tools import python as python_tool
+
+    old_owners = dict(python_tool.registered_function_tools)
+    try:
+        python_tool.registered_function_tools["inspect_data"] = "observer"
+        assert python_tool._single_registered_function_owner(code) == "observer"
     finally:
         python_tool.registered_function_tools.clear()
         python_tool.registered_function_tools.update(old_owners)
@@ -142,6 +171,29 @@ def test_ipython_registered_function_owner_is_recorded_by_init():
         python_tool.registered_functions.update(old_functions)
         python_tool.registered_function_tools.clear()
         python_tool.registered_function_tools.update(old_owners)
+        _loaded_tools_var.reset(token)
+
+
+def test_cli_confirm_hook_does_not_auto_approve_mcp_read_only(monkeypatch):
+    """MCP tools must not inherit the read_only confirmation bypass."""
+    from gptme.hooks.cli_confirm import cli_confirm_hook
+    from gptme.tools import _loaded_tools_var
+
+    spec = ToolSpec(name="remote.read", desc="test", read_only=True, is_mcp=True)
+    token = _loaded_tools_var.set([spec])
+    try:
+        import gptme.hooks.cli_confirm as _m
+
+        monkeypatch.setattr(_m, "prompt_alert", lambda _: "n")
+        monkeypatch.setattr(_m, "print_bell", lambda: None)
+        monkeypatch.setattr(_m, "flush_stdin", lambda: None)
+
+        tool_use = ToolUse(tool="remote.read", args=[], content="")
+        result = cli_confirm_hook(tool_use, preview=None)
+        assert result.action != ConfirmAction.CONFIRM, (
+            "MCP read_only tools must not be auto-confirmed"
+        )
+    finally:
         _loaded_tools_var.reset(token)
 
 

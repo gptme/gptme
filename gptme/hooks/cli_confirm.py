@@ -77,11 +77,15 @@ def cli_confirm_hook(
     if content:
         print_preview(content, lang, copy=copiable)
 
-    # Auto-confirm read-only tools — they can't modify state
+    # Auto-confirm read-only builtin tools — they can't modify state.
+    # MCP tools set their own annotations remotely; never trust those as a
+    # confirmation bypass even if a spec later copies readOnlyHint onto
+    # read_only. In-process plugins already run at import time, so their
+    # ToolSpec.read_only declaration is the same trust boundary as the plugin.
     from ..tools import get_tool
 
     _tool = get_tool(tool_use.tool)
-    if _tool and _tool.read_only:
+    if _tool and _tool.read_only and not _tool.is_mcp:
         return ConfirmationResult.confirm()
 
     # Check auto-confirm (after showing preview)

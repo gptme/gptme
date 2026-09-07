@@ -28,6 +28,41 @@ def _cleanup_temp_files() -> None:
 atexit.register(_cleanup_temp_files)
 
 
+def _vision_allowed_roots() -> list[Path]:
+    """Directories from which view_image may attach a file to the model.
+
+    Auto-approval of the vision tool only holds if this boundary does. Workspace
+    images, screenshot output, and the process temp dir (pytest + scaled copies)
+    are in-bounds; home-directory and system paths are not.
+    """
+    from .screenshot import OUTPUT_DIR
+
+    return [
+        Path.cwd().resolve(),
+        OUTPUT_DIR.resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+    ]
+
+
+def _vision_path_denied(path: Path) -> str | None:
+    """Return an error message if *path* is outside the vision path boundary."""
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError as exc:
+        return f"Image path could not be resolved: `{path}` ({exc})"
+    for root in _vision_allowed_roots():
+        try:
+            resolved.relative_to(root)
+            return None
+        except ValueError:
+            continue
+    return (
+        f"Image path is outside allowed directories: `{path}` "
+        f"(resolves to `{resolved}`). Allowed: workspace, screenshot output "
+        f"({_vision_allowed_roots()[1]}), and temp."
+    )
+
+
 def view_image(image_path: "Path | str | Image.Image") -> Message:
     """View an image. Large images (>1MB) will be automatically scaled down."""
     # Handle PIL Image objects
@@ -39,6 +74,10 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
 
     if isinstance(image_path, str):
         image_path = Path(image_path)
+
+    # Confine before exists() so out-of-bound paths do not leak file presence.
+    if denied := _vision_path_denied(image_path):
+        return Message("system", denied)
 
     if not image_path.exists():
         return Message("system", f"Image not found at `{image_path}`")

@@ -173,6 +173,23 @@ class TestViewImageErrors:
         assert msg.role == "system"
         assert "not found" in msg.content.lower()
 
+    def test_path_outside_allowed_roots_is_denied(self, tmp_path: Path):
+        """Absolute paths outside workspace/temp/screenshot output are refused."""
+        outside = Path("/etc/passwd")
+        msg = view_image(outside)
+        assert msg.role == "system"
+        assert "outside allowed directories" in msg.content.lower()
+        assert len(msg.files) == 0
+
+    def test_outside_path_does_not_leak_existence(self):
+        """Boundary check runs before exists(), so missing out-of-bound files
+        get the same denial as present ones."""
+        missing = Path("/etc/gptme-vision-does-not-exist.png")
+        msg = view_image(missing)
+        assert "outside allowed directories" in msg.content.lower()
+        assert "not found" not in msg.content.lower()
+        assert len(msg.files) == 0
+
 
 class TestViewImageFormats:
     """Tests for different image formats."""
