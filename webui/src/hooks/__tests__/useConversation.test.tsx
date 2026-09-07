@@ -70,6 +70,7 @@ describe('useConversation', () => {
           closeEventStream,
           getConversation: jest.fn(),
           getChatConfig,
+          waitForConversationCreation: jest.fn().mockResolvedValue(undefined),
         }) as any,
       isConnected$: observable(true),
     } as any);
