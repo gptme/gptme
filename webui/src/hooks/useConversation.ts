@@ -182,6 +182,9 @@ export function useConversation(conversationId: string, serverId?: string) {
           // and the model selector is stuck on its loading skeleton for the
           // whole life of every newly created conversation.
           try {
+            // Gate on any in-flight background server creation before fetching
+            // config: the config endpoint returns 404 until the PUT completes.
+            await api.waitForConversationCreation(conversationId);
             const chatConfig = await api.getChatConfig(conversationId);
             if (!cancelled) updateConversation(conversationId, { chatConfig });
           } catch (error) {

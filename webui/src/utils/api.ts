@@ -746,9 +746,9 @@ export class ApiClient {
     // conversation doesn't exist on the server yet.
     const pendingCreation = this.pendingServerCreations.get(conversationId);
     if (pendingCreation) {
-      // Remove before awaiting: reconnect attempts skip this branch because
-      // the same settled promise resolves immediately anyway.
-      this.pendingServerCreations.delete(conversationId);
+      // Keep the promise in the map until it settles so that concurrent
+      // subscribers (e.g. navigate away and back while creation is pending)
+      // also wait on it instead of bypassing the gate.
       try {
         await pendingCreation;
       } catch (error) {
@@ -757,6 +757,10 @@ export class ApiClient {
           error instanceof Error ? error.message : 'Failed to create conversation on server'
         );
         return;
+      } finally {
+        // Delete after settling (success or failure) so no further subscriber
+        // can block on a stale entry.
+        this.pendingServerCreations.delete(conversationId);
       }
     }
 
@@ -1379,6 +1383,14 @@ export class ApiClient {
         });
       }
     })();
+
+    // Attach a catch handler so that if no subscriber ever calls
+    // subscribeToEvents, an abandoned rejection doesn't become an
+    // UnhandledPromiseRejection and the map entry is cleaned up.
+    serverCreation.catch((error) => {
+      console.warn('[ApiClient] Background server creation failed (no subscriber):', error);
+      this.pendingServerCreations.delete(conversationId);
+    });
 
     this.pendingServerCreations.set(conversationId, serverCreation);
 
