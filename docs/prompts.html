@@ -809,7 +809,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f0de63b85e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fd11258c5e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1799,6 +1799,33 @@ Other commands:
 
 <span class="sb">```mcp</span>
 <span class="s">roots remove filesystem file:///home/user/project</span>
+<span class="sb">```</span>
+
+<span class="gu">## memory</span>
+
+<span class="gs">**Description:**</span> Save a persistent memory to the shared cross-runtime memory store (readable by CC, gptme, Codex).
+
+<span class="gs">**Instructions:**</span> Save a persistent memory to recall important context across future sessions.
+
+Use this tool when you learn something worth remembering for future work:
+<span class="k">-</span><span class="w"> </span>A user preference that should shape all future responses
+<span class="k">-</span><span class="w"> </span>A decision or rationale the user wants preserved
+<span class="k">-</span><span class="w"> </span>A fact about the project that isn&#39;t obvious from the code
+
+Each memory is cross-runtime: future sessions on gptme, Claude Code, and Codex
+all load it automatically at workspace startup.
+
+The first line of the content is the one-line summary shown in the index;
+subsequent lines are the full detail body.
+
+Use a code block with the language tag <span class="sb">`memory &lt;name&gt;`</span> to save a memory. The first line is the description; the rest is the body.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: remember that I prefer short answers</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```memory</span><span class="w"> </span>prefer-short-answers
+<span class="s">User prefers short, direct answers without preamble.</span>
 <span class="sb">```</span>
 
 <span class="gu">## morph</span>
@@ -2941,7 +2968,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 19806</p>
+<p>Tokens: 20034</p>
 </dd></dl>
 
 <dl class="py function">
