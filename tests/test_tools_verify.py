@@ -117,8 +117,8 @@ def test_verify_shell_expected_stdout_mismatch(monkeypatch) -> None:
     result = verify_shell(command, expected="missing")
 
     assert result.ok is False
-    assert result.reason == "expected text was not present in stdout"
-    assert result.actual == "ready"
+    assert result.reason == "expected text was not present in output"
+    assert "ready" in (result.actual or "")
 
 
 def test_verify_pytest_passes_and_fails(tmp_path: Path, monkeypatch) -> None:

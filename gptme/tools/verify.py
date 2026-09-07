@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -16,8 +18,10 @@ from ..message import Message
 from .base import Parameter, ToolFormat, ToolFunction, ToolSpec, ToolUse
 
 PROCESS_VERIFICATION_ENV = "GPTME_VERIFY_ALLOW_PROCESS"
+_READ_ROOT_ENV = "GPTME_READ_ROOT"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 TEST_TIMEOUT_SECONDS = 60.0
+REGEX_TIMEOUT_SECONDS = 5.0
 MAX_FILE_BYTES = 2_000_000
 MAX_OUTPUT_CHARS = 4000
 CLAIM_TYPES = (
@@ -84,25 +88,69 @@ def verify_file_not_exists(path: str) -> VerificationResult:
     return _result(ok, "file_not_exists", path, reason, actual=display)
 
 
+def _check_path_containment(
+    resolved: Path, claim_type: str, raw: str
+) -> VerificationResult | None:
+    """Return an error result if resolved is outside the permitted read root."""
+    read_root_val = os.environ.get(_READ_ROOT_ENV)
+    if read_root_val:
+        read_root = Path(read_root_val)
+        if not read_root.is_absolute():
+            return _result(
+                False,
+                claim_type,
+                raw,
+                f"{_READ_ROOT_ENV} must be an absolute path: {read_root_val!r}",
+            )
+        try:
+            resolved.relative_to(read_root)
+        except ValueError:
+            return _result(
+                False,
+                claim_type,
+                raw,
+                f"path traversal denied: {resolved} is outside read root {read_root}",
+            )
+    elif not resolved.is_absolute():
+        # Relative paths must stay within cwd
+        cwd = Path.cwd().resolve()
+        try:
+            resolved.relative_to(cwd)
+        except ValueError:
+            return _result(
+                False,
+                claim_type,
+                raw,
+                f"path traversal denied: {resolved} is outside current directory {cwd}",
+            )
+    return None
+
+
 def _read_text(
     path: str, claim_type: str
 ) -> tuple[str | None, VerificationResult | None]:
     if not path:
         return None, _result(False, claim_type, "", "path is required")
 
-    candidate = Path(path).expanduser()
-    display = _display_path(path)
-    if not candidate.exists():
+    expanded = Path(path).expanduser()
+    resolved = expanded.resolve()
+    display = str(resolved)
+
+    containment_error = _check_path_containment(resolved, claim_type, path)
+    if containment_error is not None:
+        return None, containment_error
+
+    if not resolved.exists():
         return None, _result(
             False, claim_type, path, f"path does not exist: {display}", actual=display
         )
-    if not candidate.is_file():
+    if not resolved.is_file():
         return None, _result(
             False, claim_type, path, f"path is not a file: {display}", actual=display
         )
 
     try:
-        size = candidate.stat().st_size
+        size = resolved.stat().st_size
         if size > MAX_FILE_BYTES:
             return None, _result(
                 False,
@@ -111,7 +159,7 @@ def _read_text(
                 f"file is too large to scan ({size} bytes, max {MAX_FILE_BYTES})",
                 actual=f"{size} bytes",
             )
-        return candidate.read_text(encoding="utf-8"), None
+        return resolved.read_text(encoding="utf-8"), None
     except UnicodeDecodeError:
         return None, _result(False, claim_type, path, "file is not valid UTF-8 text")
     except OSError as exc:
@@ -142,7 +190,19 @@ def _verify_pattern(
     assert text is not None
 
     try:
-        match = re.search(pattern, text, flags=re.MULTILINE)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(re.search, pattern, text, re.MULTILINE)
+            try:
+                match = future.result(timeout=REGEX_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                return _result(
+                    False,
+                    claim_type,
+                    path,
+                    f"regex match timed out after {REGEX_TIMEOUT_SECONDS:g}s "
+                    f"(pattern may cause catastrophic backtracking)",
+                    expected=pattern,
+                )
     except re.error as exc:
         return _result(
             False,
@@ -225,16 +285,29 @@ def _run_process(
             expected=expected,
         )
     try:
-        return subprocess.run(
-            args, capture_output=True, text=True, check=False, timeout=timeout
-        ), None
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,  # own process group so timeout kills all descendants
+        )
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Kill the entire process group to clean up descendants
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                proc.kill()
+            proc.communicate()
+            return None, _result(
+                False, claim_type, target, f"command timed out after {timeout:g}s"
+            )
+        return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr), None
     except FileNotFoundError as exc:
         return None, _result(
             False, claim_type, target, f"executable not found: {exc.filename}"
-        )
-    except subprocess.TimeoutExpired:
-        return None, _result(
-            False, claim_type, target, f"command timed out after {timeout:g}s"
         )
     except OSError as exc:
         return None, _result(False, claim_type, target, f"could not run command: {exc}")
@@ -282,12 +355,12 @@ def verify_shell(
             expected=expected,
             actual=actual,
         )
-    if expected is not None and expected not in proc.stdout:
+    if expected is not None and expected not in actual:
         return _result(
             False,
             "shell",
             command,
-            "expected text was not present in stdout",
+            "expected text was not present in output",
             expected=expected,
             actual=actual,
         )
@@ -515,18 +588,27 @@ tool = ToolSpec(
     name="verify_claim",
     desc="Deterministically verify factual claims before taking action",
     instructions=f"""
-Use before risky actions when a factual premise might be stale or hallucinated.
-Prefer native claim types over shell checks.
+Use this tool before taking risky actions when a premise might be stale or wrong.
+A failed verification is a signal to re-investigate, not to proceed anyway.
 
-Claim types: {", ".join(CLAIM_TYPES)}.
-For contains/not_contains, set target to a UTF-8 text file and pattern to a regex.
-For env_var, set name or target; actual values are never echoed.
-For shell, set command; expected is optional stdout text.
-For test_passes/test_fails, set target to a pytest test spec.
+**When to use it**
+- Before patching a file: verify it exists and contains the symbol you expect.
+- Before running a build step: verify environment variables and tool availability.
+- After shipping a change: verify the test that previously failed now passes.
 
-Process checks only run when the shell tool is loaded or
-{PROCESS_VERIFICATION_ENV}=1 is set, so verify_claim cannot widen a restricted
-session's execution capability.
+**Pick the narrowest claim type**
+- Prefer `file_exists` / `contains` / `env_var` over `shell` — they have no
+  process-spawning overhead and work in restricted sessions.
+- Use `shell` only when no native type covers the check; keep commands read-only.
+- Use `test_passes` / `test_fails` to gate on a specific pytest outcome.
+- Process checks (`shell`, `test_passes`, `test_fails`) require the shell tool
+  or {PROCESS_VERIFICATION_ENV}=1 — they will not silently widen a restricted
+  session.
+
+**Acting on results**
+- `ok: true` — proceed with confidence; the premise is confirmed.
+- `ok: false` — stop; re-read `reason` and `actual` to understand what changed,
+  then repair the state before retrying the action.
 """.strip(),
     instructions_format={
         "tool": (
