@@ -551,8 +551,10 @@ def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     init_tools()
 
     # Use ``shell`` lang tag (recognized by get_tool_for_langtag).
-    # streaming=True requires a blank line after closing ``` to confirm block closure.
-    tool_block = "```shell\necho hi\n```\n\n"
+    # Exec langs (shell, bash, …) close immediately in streaming mode without
+    # requiring a blank line after the closing ``` — a bare fence at depth 1 is
+    # unambiguously a closer for langs that have no triple-backtick syntax.
+    tool_block = "```shell\necho hi\n```\n"
     suffix = "This text should not be reached"
 
     def _fake_gen(chunks):

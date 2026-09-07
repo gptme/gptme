@@ -563,7 +563,12 @@ def _extract_codeblocks(
                             # prevents the trailing-blank-line sensitivity where
                             # an extra ``\n`` at end-of-message flips the result
                             # from no-block to an oversized block.
-                            if lang in _EXEC_LANGS and heredoc_terminator is None:
+                            if (
+                                lang in _EXEC_LANGS
+                                and heredoc_terminator is None
+                                and not _qs_in_single
+                                and not _qs_in_double
+                            ):
                                 yield Codeblock(
                                     lang,
                                     "\n".join(content_lines),
