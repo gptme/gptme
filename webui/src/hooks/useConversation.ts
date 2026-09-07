@@ -786,9 +786,20 @@ export function useConversation(conversationId: string, serverId?: string) {
       }
       if (stopRequestedRef.current) return;
       // Re-run tools from the (now last) assistant message
-      // This parses tool uses and sets them as pending, without calling the LLM
+      // This parses tool uses and sets them as pending, without calling the LLM.
+      // Auto-confirm tools can start executing on the server before this
+      // request returns, so a Stop that lands in-flight may interrupt nothing.
       try {
         await api.rerunTools(conversationId);
+        if (stopRequestedRef.current) {
+          setGenerating(conversationId, false);
+          try {
+            await api.interruptGeneration(conversationId);
+          } catch (error) {
+            console.error('Error interrupting generation after Stop raced with rerun:', error);
+          }
+          return;
+        }
       } catch {
         // No tools found — fall back to step() (regenerate)
         if (stopRequestedRef.current) return;

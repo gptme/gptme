@@ -363,4 +363,62 @@ describe('useConversation', () => {
     expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
     expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
   });
+
+  it('re-interrupts after a successful rerunTools that raced with Stop', async () => {
+    conversations$.get('chat-placeholder')?.data.log.set([
+      {
+        role: 'user',
+        content: 'What is gptme?',
+        timestamp: '2026-06-07T00:00:00.000Z',
+      },
+      {
+        role: 'assistant',
+        content: 'An agent.',
+        timestamp: '2026-06-07T00:00:01.000Z',
+      },
+    ]);
+    conversations$.get('chat-placeholder')?.isGenerating.set(true);
+
+    // Hold rerunTools itself open. Unlike the truncation-request race, a
+    // successful rerun can start auto-confirm execution before it returns.
+    let resolveRerun: (value: { status: string; tool_ids: string[] }) => void = () => {};
+    rerunTools.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRerun = resolve;
+      })
+    );
+
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    let pending: Promise<unknown> | undefined;
+    act(() => {
+      // Last message: skip truncation and go straight to rerunTools.
+      pending = result.current.rerunFromMessage(1);
+    });
+
+    await act(async () => {
+      await result.current.interruptGeneration();
+    });
+
+    await act(async () => {
+      resolveRerun({ status: 'ok', tool_ids: ['tool-1'] });
+      await pending;
+    });
+
+    await act(async () => {
+      eventHandlers?.onMessageStart?.();
+    });
+
+    expect(step).not.toHaveBeenCalled();
+    expect(rerunTools).toHaveBeenCalledTimes(1);
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
+    // 1: user Stop while rerunTools is in flight
+    // 2: post-success re-interrupt of the execution rerun started
+    // 3: late onMessageStart still sees the stop flag
+    expect(interruptGenerationApi).toHaveBeenCalledTimes(3);
+  });
 });
