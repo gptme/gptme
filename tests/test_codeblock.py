@@ -1998,3 +1998,27 @@ def test_extract_codeblocks_shell_quoted_bare_fence_is_literal():
     assert blocks_stream == expected, (
         "Streaming must not close or nest at a fence inside an open quoted string"
     )
+
+
+def test_extract_codeblocks_shell_ansi_c_escaped_quote_does_not_hide_closer():
+    """ANSI-C ``$'...'`` with an escaped quote must not leave quote state open.
+
+    Regression for gptme/gptme#3730 Greptile P1: ``x=$'a\\'b'`` was scanned as
+    POSIX single quotes (backslash ignored), so the trailing ``'`` opened a
+    new quote and the real closing fence was treated as literal content.
+    The block was never yielded.
+    """
+    from gptme.codeblock import _extract_codeblocks
+
+    message = "```shell\nx=$'a\\'b'\necho done\n```\n"
+    expected = [Codeblock("shell", "x=$'a\\'b'\necho done")]
+
+    blocks_default = list(_extract_codeblocks(message, streaming=False))
+    assert blocks_default == expected, (
+        "Non-streaming must still close after a complete ANSI-C string"
+    )
+
+    blocks_stream = list(_extract_codeblocks(message, streaming=True))
+    assert blocks_stream == expected, (
+        "Streaming must still close after a complete ANSI-C string"
+    )

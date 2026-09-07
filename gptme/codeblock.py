@@ -103,14 +103,20 @@ def _find_heredoc_terminator(
     line: str,
     in_single: bool = False,
     in_double: bool = False,
-) -> tuple[str | None, bool, bool]:
-    """Return ``(terminator | None, in_single, in_double)`` for the given line.
+    in_ansi_c: bool = False,
+) -> tuple[str | None, bool, bool, bool]:
+    """Return ``(terminator | None, in_single, in_double, in_ansi_c)``.
 
-    The ``in_single`` / ``in_double`` parameters let callers carry per-character
-    quote state across lines so that a multiline single-quoted string (e.g.
+    The quote-state parameters let callers carry per-character quote state
+    across lines so that a multiline single-quoted string (e.g.
     ``s='\\n<< EOF\\n'``) is not misidentified as a heredoc opener on the
     continuation line.  Returns the end-of-line quote state so callers can
     pass it into the next invocation.
+
+    ``in_ansi_c`` tracks bash ANSI-C quoting (``$'...'``), where backslash
+    escapes *are* processed (unlike POSIX single quotes).  Without this,
+    ``x=$'a\\'b'`` is scanned as POSIX ``'...'`` and leaves ``in_single``
+    set, so a later closing fence is treated as quoted content.
 
     Only recognizes ``<<`` operators at top-level (outside quoted strings,
     outside comments, and not backslash-escaped): a heredoc operator is
@@ -141,9 +147,29 @@ def _find_heredoc_terminator(
     # look-ahead but silently skipped trailing quote characters.
     while i < n:
         c = line[i]
+        if in_ansi_c:
+            # ANSI-C $'...' : backslash escapes the next char, including quotes.
+            if c == "\\":
+                i += 2
+                continue
+            if c == "'":
+                in_ansi_c = False
+            i += 1
+            continue
         if c == "\\" and not in_single:
             # Backslash escapes the next char outside single quotes (bash
             # doesn't allow escaping inside single quotes at all).
+            i += 2
+            continue
+        if (
+            c == "$"
+            and not in_single
+            and not in_double
+            and i + 1 < n
+            and line[i + 1] == "'"
+        ):
+            # Start of ANSI-C quoting: $'...'
+            in_ansi_c = True
             i += 2
             continue
         if c == "'" and not in_double:
@@ -157,7 +183,7 @@ def _find_heredoc_terminator(
             and (i == 0 or line[i - 1].isspace())
         ):
             # Start of a shell comment - nothing after it is executable syntax.
-            return None, in_single, in_double
+            return None, in_single, in_double, in_ansi_c
         elif (
             c == "$"
             and not in_single
@@ -196,9 +222,9 @@ def _find_heredoc_terminator(
                     continue
                 # At the heredoc opener, quote state is always unquoted (the
                 # guard above requires not in_single and not in_double).
-                return term, False, False
+                return term, False, False, False
         i += 1
-    return None, in_single, in_double
+    return None, in_single, in_double, in_ansi_c
 
 
 def _extract_codeblocks(
@@ -349,6 +375,7 @@ def _extract_codeblocks(
             # continuation line is misidentified as a heredoc opener.
             _qs_in_single: bool = False
             _qs_in_double: bool = False
+            _qs_in_ansi_c: bool = False
 
             # Collect content until we find the matching closing ```
             while i < len(lines):
@@ -413,8 +440,10 @@ def _extract_codeblocks(
                 # message) and the O(n^2) worst case on very large documents.
                 if lang in _SHELL_LANGS:
                     if heredoc_terminator is None:
-                        candidate, _qs_in_single, _qs_in_double = (
-                            _find_heredoc_terminator(line, _qs_in_single, _qs_in_double)
+                        candidate, _qs_in_single, _qs_in_double, _qs_in_ansi_c = (
+                            _find_heredoc_terminator(
+                                line, _qs_in_single, _qs_in_double, _qs_in_ansi_c
+                            )
                         )
                         _confirm_window = lines[i + 1 : i + 1 + 200]
                         if candidate is not None and any(
@@ -430,6 +459,7 @@ def _extract_codeblocks(
                         # unquoted after the body closes is always correct.
                         _qs_in_single = False
                         _qs_in_double = False
+                        _qs_in_ansi_c = False
 
                 # Check if this line starts with backticks (potential opening or closing)
                 line_fence_match = re.match(r"^(`{3,})", line)
@@ -444,7 +474,7 @@ def _extract_codeblocks(
                         # Bare fence - determine if opening or closing based on context
                         # A fence inside an open quoted string is literal content,
                         # not a markdown delimiter (same rationale as heredoc bodies).
-                        if _qs_in_single or _qs_in_double:
+                        if _qs_in_single or _qs_in_double or _qs_in_ansi_c:
                             content_lines.append(line)
                             i += 1
                             continue
@@ -574,6 +604,7 @@ def _extract_codeblocks(
                                 and heredoc_terminator is None
                                 and not _qs_in_single
                                 and not _qs_in_double
+                                and not _qs_in_ansi_c
                             ):
                                 yield Codeblock(
                                     lang,
