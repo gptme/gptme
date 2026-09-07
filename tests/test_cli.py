@@ -2659,6 +2659,138 @@ def test_tool_manifest_unavailable_tool_falls_back_gracefully(
     assert not any("github" in t for t in (fake_config.chat.tools or []))
 
 
+def test_tools_manifest_alias_unavailable_mcp_init_tools_falls_back(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """``--tools <alias>`` must use the same init_tools MCP fallback as ``--tool-manifest``.
+
+    Config normalization passes dotted MCP names through. Failure happens at
+    init_tools. Without this fallback, startup aborts instead of dropping the
+    unavailable manifest tool.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read", "shell", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        if any(isinstance(t, str) and "github" in t for t in (tools or [])):
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda *_, **__: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    assert len(init_calls) == 2
+    assert any("github" in t for t in init_calls[0])
+    assert not any("github" in t for t in init_calls[1])
+    assert not any("github" in t for t in (fake_config.chat.tools or []))
+
+
+def test_explicit_mcp_tool_unavailable_does_not_use_manifest_fallback(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A direct ``--tools server.tool`` request must not silently drop the tool.
+
+    The init_tools fallback is for workspace aliases / ``--tool-manifest``, not
+    for an explicit MCP name the user asked for.
+    """
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(tools)
+        raise ToolAllowlistError("Tool 'github.search_code' not found")
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda *_, **__: [])
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "github.search_code",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code == 2, result.output
+    assert len(init_calls) == 1
+    assert "github.search_code" in result.output
+
+
 def test_tool_manifest_unavailable_tool_persists_fallback_tools(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):

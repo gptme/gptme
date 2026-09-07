@@ -1188,6 +1188,31 @@ def main(
             )
         return ",".join(remaining)
 
+    def _init_tools_fallback_allowlist(
+        allowlist: str | None, workspace: Path
+    ) -> str | None:
+        """Allowlist whose unavailable entries may be dropped at init_tools.
+
+        ``--tool-manifest`` already rewrites *allowlist* to concrete names.
+        ``--tools <alias>`` does not: dotted MCP names pass config
+        normalization, so init_tools is the first failure. Expand the alias
+        here so the retry can drop only those manifest tools. Returns None
+        for a plain ``--tools`` selection that is not a workspace alias.
+        """
+        if not allowlist:
+            return None
+        if tool_manifest_type:
+            return allowlist
+        from ..config.cli_setup import _resolve_manifest_aliases
+
+        try:
+            expanded = _resolve_manifest_aliases(allowlist, workspace)
+        except (OSError, ValueError):
+            return None
+        if expanded == allowlist:
+            return None
+        return expanded
+
     def apply_tool_manifest(
         workspace_path: Path, conversation_logdir: Path | None = None
     ) -> str | None:
@@ -1581,14 +1606,18 @@ def main(
             try:
                 tools = init_tools(config.chat.tools)
             except ValueError as e:
+                stats_fallback_allowlist = _init_tools_fallback_allowlist(
+                    stats_tool_allowlist_str, manifest_workspace
+                )
                 if (
-                    tool_manifest_type
+                    stats_fallback_allowlist
                     and isinstance(e, ToolAllowlistError)
                     and not stats_setup_fallback_ran
                 ):
                     # Match normal startup: remove only unavailable manifest tools
                     # so prompt statistics describe the real session's toolset.
-                    unavailable = _unavailable_manifest_tools(stats_tool_allowlist_str)
+                    # Covers both --tool-manifest and --tools <alias>.
+                    unavailable = _unavailable_manifest_tools(stats_fallback_allowlist)
                     for tool_name in unavailable:
                         logger.warning(
                             "Manifest tool %r is unavailable (MCP server may not be running),"
@@ -1596,7 +1625,7 @@ def main(
                             tool_name,
                         )
                     fallback_stats_tools = _fallback_tools_excluding_unavailable(
-                        config.chat.tools, stats_tool_allowlist_str
+                        config.chat.tools, stats_fallback_allowlist
                     )
                     try:
                         tools = init_tools(fallback_stats_tools)
@@ -1947,8 +1976,11 @@ def main(
     try:
         tools = init_tools(config.chat.tools)
     except ValueError as e:
+        fallback_allowlist = _init_tools_fallback_allowlist(
+            tool_allowlist_str, manifest_workspace
+        )
         if (
-            tool_manifest_type
+            fallback_allowlist
             and isinstance(e, ToolAllowlistError)
             and not setup_fallback_ran
         ):
@@ -1956,7 +1988,10 @@ def main(
             # and any curated built-ins in the session. Expand presets first so
             # a lone ``read-only`` allowlist is filtered as ``read``, not as a
             # missing tool named ``read-only``.
-            unavailable_manifest_tools = _unavailable_manifest_tools(tool_allowlist_str)
+            # Same path for --tool-manifest and --tools <alias>: aliases expand
+            # to dotted MCP names during config setup, so init_tools is the
+            # first place an unavailable server actually fails.
+            unavailable_manifest_tools = _unavailable_manifest_tools(fallback_allowlist)
             for tool_name in unavailable_manifest_tools:
                 logger.warning(
                     "Manifest tool %r is unavailable (MCP server may not be running),"
@@ -1964,7 +1999,7 @@ def main(
                     tool_name,
                 )
             fallback_tools = _fallback_tools_excluding_unavailable(
-                config.chat.tools, tool_allowlist_str
+                config.chat.tools, fallback_allowlist
             )
             try:
                 tools = init_tools(fallback_tools)
