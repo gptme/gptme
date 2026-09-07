@@ -389,14 +389,10 @@ class ShellSession:
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
     _cwd: str | None  # Workspace directory for this session (thread-safe)
     _memory_limit: int | None  # Address-space ceiling in bytes (None = off)
-    failed_command_used_tty: bool
-    failed_command_streamed_output: bool
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
         self._memory_limit = _get_memory_limit()
-        self.failed_command_used_tty = False
-        self.failed_command_streamed_output = False
         self._init()
 
         # close on exit
@@ -469,8 +465,6 @@ class ShellSession:
         commands = split_commands(code)
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
-        self.failed_command_used_tty = False
-        self.failed_command_streamed_output = False
         for cmd in commands:
             res_cur = self._run(cmd, output=output, timeout=timeout)
             res_code = res_cur[0]
@@ -744,11 +738,8 @@ class ShellSession:
         self, command: str, output=True, tries=0, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
         # Use TTY-based execution for interactive sudo commands
-        self.failed_command_used_tty = self._needs_tty(command)
-        if self.failed_command_used_tty:
-            self.failed_command_streamed_output = False
+        if self._needs_tty(command):
             return self._run_with_tty(command, output=output, timeout=timeout)
-        self.failed_command_streamed_output = output
         return self._run_pipe(command, output=output, tries=tries, timeout=timeout)
 
     def _run_pipe(
@@ -1761,6 +1752,7 @@ def execute_shell_impl(
     shell = get_shell()
     allowlisted = is_allowlisted(cmd)
 
+    start_time = time.monotonic()
     try:
         returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
         interrupted = False
@@ -1778,6 +1770,7 @@ def execute_shell_impl(
         timed_out = False
     except Exception as e:
         raise ValueError(f"Shell error: {e}") from None
+    duration = time.monotonic() - start_time
 
     # Format and yield output
     msg = _format_shell_output(
@@ -1806,19 +1799,23 @@ def execute_shell_impl(
             if hint:
                 workspace_hint_content = "\n\n" + hint.content
 
-    # stdout/stderr were already streamed by ShellSession, except for the
-    # interactive-TTY timeout path: subprocess.communicate() only returns its
-    # buffered partial output after the process is killed. Keep the complete
-    # result for the model and structured consumers, and render only details
-    # that were not already shown live.
-    terminal_parts = [msg.split("\n\n", 1)[0]]
-    buffered_timeout = timed_out and not shell.failed_command_streamed_output
-    if buffered_timeout:
-        if stdout:
-            terminal_parts.append(_format_block_smart("", stdout, "stdout").lstrip())
-        if stderr:
-            terminal_parts.append(_format_block_smart("", stderr, "stderr").lstrip())
-    elif not stdout and not stderr:
+    # stdout/stderr were already streamed live by ShellSession (both the
+    # persistent-pipe and the TTY path stream as bytes arrive), so the
+    # terminal projection only needs to render details that were not already
+    # shown: the header (with duration/line-count for a non-TTY reader
+    # tailing a log), and any failure/truncation detail.
+    header_line = msg.split("\n\n", 1)[0]
+    line_count = len(stdout.splitlines()) + len(stderr.splitlines())
+    meta_bits = [f"{duration:.1f}s"]
+    if line_count:
+        meta_bits.append(f"{line_count} {'line' if line_count == 1 else 'lines'}")
+    meta_suffix = " · " + " · ".join(meta_bits)
+    if header_line.endswith("```"):
+        header_line += "\n" + meta_suffix.lstrip(" ·")
+    else:
+        header_line += meta_suffix
+    terminal_parts = [header_line]
+    if not stdout and not stderr:
         remainder = msg.split("\n\n", 1)[1] if "\n\n" in msg else ""
         if remainder.strip():
             terminal_parts.append(remainder.strip())

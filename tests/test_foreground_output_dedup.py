@@ -1,5 +1,6 @@
 """Display-boundary tests for streamed shell and IPython output."""
 
+import re
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -83,30 +84,12 @@ class TestShellOutputDedup:
 
         assert "No output" in stdout.getvalue()
 
-    def test_tty_timeout_partial_output_remains_visible(self, tmp_path: Path) -> None:
-        shell = MagicMock()
-        shell.run.return_value = (-124, "partial stdout", "partial stderr")
-        shell.failed_command_used_tty = True
-        shell.failed_command_streamed_output = False
-        with (
-            patch("gptme.tools.shell.get_shell", return_value=shell),
-            _capture_tool_display(tmp_path) as (stdout, manager),
-        ):
-            messages = list(
-                execute_shell_impl("sudo slow-command", logdir=None, timeout=1)
-            )
-            _append_results(manager, messages)
-
-        output = stdout.getvalue()
-        assert output.count("partial stdout") == 1
-        assert output.count("partial stderr") == 1
-        assert output.count("Command timed out") == 1
-
     def test_pipe_timeout_partial_output_is_not_replayed(self, tmp_path: Path) -> None:
+        # Both the persistent-pipe and TTY paths stream output live now, so a
+        # timeout never has buffered output to replay into the projection —
+        # only the header (with duration/lines) and status should appear.
         shell = MagicMock()
         shell.run.return_value = (-124, "partial stdout", "partial stderr")
-        shell.failed_command_used_tty = False
-        shell.failed_command_streamed_output = True
         with (
             patch("gptme.tools.shell.get_shell", return_value=shell),
             _capture_tool_display(tmp_path) as (stdout, manager),
@@ -120,32 +103,11 @@ class TestShellOutputDedup:
         assert output.count("partial stdout") == 1
         assert output.count("Command timed out") == 1
 
-    def test_captured_pipe_timeout_partial_output_remains_visible(
-        self, tmp_path: Path
-    ) -> None:
-        shell = MagicMock()
-        shell.run.return_value = (-124, "partial stdout", "partial stderr")
-        shell.failed_command_used_tty = False
-        shell.failed_command_streamed_output = False
-        with (
-            patch("gptme.tools.shell.get_shell", return_value=shell),
-            _capture_tool_display(tmp_path) as (stdout, manager),
-        ):
-            messages = list(execute_shell_impl("slow-command", logdir=None, timeout=1))
-            _append_results(manager, messages)
-
-        output = stdout.getvalue()
-        assert output.count("partial stdout") == 1
-        assert output.count("partial stderr") == 1
-        assert output.count("Command timed out") == 1
-
     def test_mixed_script_pipe_timeout_partial_output_is_not_replayed(
         self, tmp_path: Path
     ) -> None:
         shell = MagicMock()
         shell.run.return_value = (-124, "partial stdout", "")
-        shell.failed_command_used_tty = False
-        shell.failed_command_streamed_output = True
         with (
             patch("gptme.tools.shell.get_shell", return_value=shell),
             _capture_tool_display(tmp_path) as (stdout, manager),
@@ -190,9 +152,14 @@ class TestShellOutputDedup:
         output = stdout.getvalue()
         assert '"type": "message"' in output
         assert "shell-json-marker" in output
-        # echo is allowlisted, so the header says "Ran allowlisted command"
-        assert messages[-1].terminal_display_content == (
-            "Ran allowlisted command: `echo shell-json-marker`"
+        # echo is allowlisted, so the header says "Ran allowlisted command",
+        # with a " · <duration>s · N lines" suffix (duration is not exact).
+        content = messages[-1].terminal_display_content
+        assert content is not None
+        assert content.startswith("Ran allowlisted command: `echo shell-json-marker`")
+        assert re.fullmatch(
+            r"Ran allowlisted command: `echo shell-json-marker` · [\d.]+s · 1 line",
+            content,
         )
 
 
