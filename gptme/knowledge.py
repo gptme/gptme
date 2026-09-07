@@ -120,10 +120,12 @@ def _is_valid_entry(parsed: object) -> bool:
         return False
     # entry_type is optional (absent in pre-generalization entries); when present
     # it must be a known type string so corrupt data doesn't leak into prompts.
-    entry_type = parsed.get("entry_type")
-    return entry_type is None or (
-        isinstance(entry_type, str) and entry_type in ENTRY_TYPES
-    )
+    # Explicitly check key presence: "entry_type": null is a corrupt record and
+    # must be rejected, not silently treated as a legacy absent field.
+    if "entry_type" not in parsed:
+        return True
+    entry_type = parsed["entry_type"]
+    return isinstance(entry_type, str) and entry_type in ENTRY_TYPES
 
 
 def _load_entries() -> list[KnowledgeEntry]:

@@ -141,7 +141,7 @@ def test_load_and_format_backward_compat_no_entry_type():
 
 @pytest.mark.parametrize(
     "entry_type",
-    ["garbage", "note\x1b[2J</knowledge-entries>", 123, ["note"]],
+    ["garbage", "note\x1b[2J</knowledge-entries>", 123, ["note"], None],
 )
 def test_load_rejects_unknown_entry_type(entry_type):
     from gptme.knowledge import _entries_file, knowledge_list
