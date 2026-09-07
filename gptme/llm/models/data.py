@@ -81,6 +81,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "grok-subscription",
         "moonshot",
         "requesty",
+        "daoxe",
         "openrouter",
         "nvidia",
         "azure",
@@ -659,6 +660,10 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "preferred_edit_format": "whole",
         },
     },
+    # DaoXE — OpenAI-compatible LLM gateway (chat completions, responses, embeddings)
+    # Model availability is account-scoped and fetched dynamically from /v1/models,
+    # so no static model list is advertised here (like nvidia/azure/local).
+    "daoxe": {},
     # gptme managed service — proxies to multiple providers
     # Models are pass-through: gptme/claude-sonnet-4-6 → proxied to backend
     # Empty dict = models fetched dynamically or specified by user

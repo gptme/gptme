@@ -1,7 +1,7 @@
 Providers
 =========
 
-We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
+We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, DaoXE, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
 
 You can also bring your own subscription instead of an API key: a ChatGPT Plus/Pro plan via `OpenAI Subscription`_ or a SuperGrok plan via `Grok Subscription`_.
 
@@ -152,6 +152,21 @@ Requesty
     REQUESTY_API_KEY = "your-api-key"
 
 Get an API key at https://app.requesty.ai/api-keys. See https://docs.requesty.ai for details.
+
+DaoXE
+-----
+
+`DaoXE <https://daoxe.com/>`_ is an OpenAI-compatible LLM gateway that provides one-key access to hundreds of models from ~25 providers (Claude, GPT, Gemini, Grok, DeepSeek, Kimi, Qwen and more), reached through the standard OpenAI-compatible client path at ``https://api.daoxe.com/v1``. Model availability is account-scoped — list the models available to your key with ``GET /v1/models``.
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [env]
+    DAOXE_API_KEY = "your-api-key"
+
+Live model pricing is published at https://daoxe.com/pricing.
 
 Groq
 ----
