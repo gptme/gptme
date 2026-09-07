@@ -19,6 +19,7 @@ const mockUseTauriServerStatus = jest.fn(() => ({
   serverStatus: null,
 }));
 const isConnected$ = observable(true);
+const isAutoConnecting$ = observable(false);
 const compatibilityWarning$ = observable<null | {
   kind: 'server_older' | 'api_major_mismatch';
   serverApiVersion: number;
@@ -85,6 +86,7 @@ jest.mock('@/contexts/ApiContext', () => {
         compatibilityWarning$,
       },
       isConnected$,
+      isAutoConnecting$,
       connect: mockConnect,
       connectionConfig: { baseUrl: mockBaseUrl },
       switchServer: jest.fn(),
