@@ -1,4 +1,10 @@
-from gptme.util.git_cmd import GIT_CMD
+def _git_cmd_contains(cmd, *parts):
+    """Check if a command list contains the git subcommand parts."""
+    if not isinstance(cmd, list) or len(cmd) < len(parts):
+        return False
+    # Check if the git subcommand parts appear in the command
+    # (accounting for git config flags that come before the subcommand)
+    return parts == tuple(cmd[-len(parts) :])
 
 
 def test_get_tree_output_different_methods(tmp_path, monkeypatch):
@@ -17,7 +23,7 @@ def test_get_tree_output_different_methods(tmp_path, monkeypatch):
 
     def mock_run(*args, **kwargs):
         called_commands.append(args[0])
-        if args[0][:2] == [GIT_CMD, "rev-parse"]:
+        if "rev-parse" in args[0]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
@@ -41,9 +47,7 @@ def test_get_tree_output_different_methods(tmp_path, monkeypatch):
             )
         elif method == "git":
             assert any(
-                cmd[:2] == [GIT_CMD, "ls-files"]
-                for cmd in called_commands
-                if isinstance(cmd, list)
+                "ls-files" in cmd for cmd in called_commands if isinstance(cmd, list)
             )
         elif method == "ls":
             assert any(
@@ -77,7 +81,7 @@ def test_get_tree_output_fallback_when_tree_missing(tmp_path, monkeypatch):
 
     def mock_run(*args, **kwargs):
         called_commands.append(args[0])
-        if args[0][:2] == [GIT_CMD, "rev-parse"]:
+        if "rev-parse" in args[0]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
@@ -86,7 +90,7 @@ def test_get_tree_output_fallback_when_tree_missing(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(
                 args[0], returncode=127, stdout="", stderr="tree: command not found"
             )
-        if isinstance(args[0], list) and args[0][:2] == [GIT_CMD, "ls-files"]:
+        if isinstance(args[0], list) and "ls-files" in args[0]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="file1.txt\nfile2.txt", stderr=""
             )
@@ -100,10 +104,7 @@ def test_get_tree_output_fallback_when_tree_missing(tmp_path, monkeypatch):
 
     # Verify git ls-files was called after tree failed
     assert any(isinstance(cmd, list) and cmd[0] == "tree" for cmd in called_commands)
-    assert any(
-        isinstance(cmd, list) and cmd[:2] == [GIT_CMD, "ls-files"]
-        for cmd in called_commands
-    )
+    assert any(isinstance(cmd, list) and "ls-files" in cmd for cmd in called_commands)
 
 
 def test_get_tree_output_not_git_repo(tmp_path, monkeypatch):
@@ -120,7 +121,7 @@ def test_get_tree_output_not_git_repo(tmp_path, monkeypatch):
 
     def mock_run(*args, **kwargs):
         called_commands.append(args[0])
-        if args[0][:2] == [GIT_CMD, "rev-parse"]:
+        if "rev-parse" in args[0]:
             return subprocess.CompletedProcess(
                 args[0], returncode=1, stdout="", stderr="not a git repository"
             )
@@ -140,8 +141,7 @@ def test_get_tree_output_not_git_repo(tmp_path, monkeypatch):
         isinstance(cmd, list) and cmd[:2] == ["ls", "-R"] for cmd in called_commands
     )
     assert not any(
-        isinstance(cmd, list) and cmd[:2] == [GIT_CMD, "ls-files"]
-        for cmd in called_commands
+        isinstance(cmd, list) and "ls-files" in cmd for cmd in called_commands
     )
 
 
@@ -156,7 +156,7 @@ def test_get_tree_output_command_fails(tmp_path, monkeypatch):
     import subprocess
 
     def mock_run(*args, **kwargs):
-        if args[0][:2] == [GIT_CMD, "rev-parse"]:
+        if "rev-parse" in args[0]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
@@ -182,7 +182,7 @@ def test_get_tree_output_too_long(tmp_path, monkeypatch):
     import subprocess
 
     def mock_run(*args, **kwargs):
-        if args[0][:2] == [GIT_CMD, "rev-parse"]:
+        if "rev-parse" in args[0]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
@@ -213,7 +213,7 @@ def test_get_tree_output_success(tmp_path, monkeypatch):
     expected_output = "file1.txt\nfile2.txt\nsrc/main.py"
 
     def mock_run(*args, **kwargs):
-        if args[0][:2] == [GIT_CMD, "rev-parse"]:
+        if "rev-parse" in args[0]:
             return subprocess.CompletedProcess(
                 args[0], returncode=0, stdout="true", stderr=""
             )
