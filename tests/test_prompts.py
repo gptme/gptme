@@ -24,8 +24,8 @@ def test_get_prompt_full():
     combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
 
     # TODO: lower this significantly by selectively removing examples from the full prompt
-    # Note: Hook system documentation increased the prompt size, should optimize later
-    assert 500 < len_tokens(combined_content, "gpt-4") < 8000 + user_config_size
+    # Note: Ceiling bumped to 8200; error_hintkit adds ~170 tokens of hook docs.
+    assert 500 < len_tokens(combined_content, "gpt-4") < 8200 + user_config_size
 
 
 def test_get_prompt_short():
