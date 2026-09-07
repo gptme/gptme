@@ -441,10 +441,13 @@ describe('WelcomeView', () => {
     expect(screen.queryByText(/Cannot reach/i)).not.toBeInTheDocument();
   });
 
-  it('shows the disconnected banner once auto-connect finishes without connecting', () => {
+  it('shows the disconnected banner once auto-connect finishes without connecting', async () => {
+    // Mount during the in-flight window, then flip the observable so the
+    // banner appears via the live true→false transition — not a pre-settled
+    // render that would still pass if WelcomeView stopped reacting.
     mockBaseUrl = 'http://my-server.example.com:5700';
     isConnected$.set(false);
-    isAutoConnecting$.set(false);
+    isAutoConnecting$.set(true);
 
     render(
       <SettingsProvider>
@@ -452,7 +455,13 @@ describe('WelcomeView', () => {
       </SettingsProvider>
     );
 
-    expect(screen.getByText(/Cannot reach/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Cannot reach/i)).not.toBeInTheDocument();
+
+    act(() => {
+      isAutoConnecting$.set(false);
+    });
+
+    expect(await screen.findByText(/Cannot reach/i)).toBeInTheDocument();
   });
 
   it('shows a finish-setup banner when the server has no provider configured', async () => {
