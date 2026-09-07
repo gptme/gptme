@@ -486,6 +486,18 @@ def test_render_malformed_snapshot_raises_clean_value_error():
             "mcp_servers": [],
             "limitations": [],
         },
+        {  # tools entry has non-string name (would crash text renderer's format specifier)
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": _VALID_CONFIG,
+            "counts": _VALID_COUNTS,
+            "tools": [{"name": 123}],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [],
+        },
     ]
     for snapshot in malformed:
         for fmt in ("text", "html", "json"):

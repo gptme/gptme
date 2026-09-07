@@ -593,6 +593,10 @@ def validate_snapshot(snapshot: Any) -> dict[str, Any]:
                 raise ValueError(
                     f"invalid capabilities snapshot: {coll}[{i}] missing 'name'"
                 )
+            if not isinstance(entry["name"], str):
+                raise ValueError(
+                    f"invalid capabilities snapshot: {coll}[{i}]['name'] must be a string"
+                )
     return snapshot
 
 
