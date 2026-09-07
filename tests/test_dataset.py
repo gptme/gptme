@@ -68,18 +68,30 @@ def make_repo(tmp_path: Path) -> Path:
 
 def add_commit(repo: Path, filename: str, content: str, message: str) -> str:
     """Add a file and commit it; return the SHA."""
-    (repo / filename).write_text(content)
+    target = repo / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
     _git(["add", filename], cwd=repo)
     _git(["commit", "-m", message], cwd=repo)
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+    return _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+
+def add_merge_commit(repo: Path, session_id: str) -> str:
+    """Create a non-fast-forward merge attributed to *session_id*."""
+    _git(["switch", "-c", "session-branch"], cwd=repo)
+    add_commit(repo, "merged.py", "merged\n", "feat: branch change")
+    _git(["switch", "test-main"], cwd=repo)
+    _git(
+        [
+            "merge",
+            "--no-ff",
+            "session-branch",
+            "-m",
+            f"chore: merge session ({session_id})",
+        ],
         cwd=repo,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=_GIT_ENV,
     )
-    return result.stdout.strip()
+    return _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
 
 
 def make_logs_dir(tmp_path: Path, session_id: str, messages: list[dict]) -> Path:
@@ -241,6 +253,39 @@ def test_find_session_commits_no_match(tmp_path):
     assert commits == []
 
 
+def test_find_session_commits_requires_exact_marker(tmp_path):
+    repo = make_repo(tmp_path)
+    unrelated = add_commit(repo, "bar.py", "pass\n", "fix: feed parser")
+    matching = add_commit(repo, "foo.py", "pass\n", "fix: parser (feed)")
+
+    commits = _find_session_commits("feed", repo)
+
+    assert matching in commits
+    assert unrelated not in commits
+
+
+def test_find_session_commits_does_not_search_divergent_refs(tmp_path):
+    repo = make_repo(tmp_path)
+    _git(["switch", "-c", "other"], cwd=repo)
+    add_commit(repo, "other.py", "pass\n", "fix: other branch (cafe)")
+    _git(["switch", "test-main"], cwd=repo)
+
+    assert _find_session_commits("cafe", repo) == []
+
+
+def test_find_session_commits_accepts_full_id_trailer(tmp_path):
+    repo = make_repo(tmp_path)
+    session_id = "2026-01-01-fix-utils"
+    matching = add_commit(
+        repo,
+        "foo.py",
+        "pass\n",
+        f"fix: parser\n\nGit-Session-Id: {session_id}",
+    )
+
+    assert _find_session_commits(session_id, repo) == [matching]
+
+
 def test_get_entry_commit(tmp_path):
     repo = make_repo(tmp_path)
     # initial commit is the parent we expect
@@ -264,6 +309,13 @@ def test_get_files_changed(tmp_path):
     assert "utils.py" in files
 
 
+def test_get_files_changed_includes_merge_changes(tmp_path):
+    repo = make_repo(tmp_path)
+    sha = add_merge_commit(repo, "beef")
+
+    assert "merged.py" in _get_files_changed([sha], repo)
+
+
 def test_extract_environments_end_to_end(tmp_path):
     session_id = "cafe"
     repo = make_repo(tmp_path)
@@ -276,7 +328,8 @@ def test_extract_environments_end_to_end(tmp_path):
     assert len(envs) == 1
 
     env = envs[0]
-    assert env.session_id == session_id
+    # session_id is the full conversation directory name, not just the short hex
+    assert env.session_id == f"2026-01-01_topic_{session_id}"
     assert env.entry_commit  # non-empty
     assert "script.py" in env.files_changed
     assert env.task_description == "Fix the broken test for utils.py"
@@ -305,6 +358,53 @@ def test_extract_environments_requires_git_repo(tmp_path):
     not_a_repo.mkdir()
     with pytest.raises(ValueError, match="not a git repository"):
         list(extract_environments(repo_path=not_a_repo, logs_dir=logs_dir))
+
+
+def test_extract_environments_accepts_repo_subdirectory(tmp_path):
+    session_id = "cafe"
+    repo = make_repo(tmp_path)
+    add_commit(repo, "src/impl.py", "# impl\n", f"feat: implement ({session_id})")
+    logs_dir = make_logs_dir(tmp_path, session_id, make_messages(session_id))
+
+    envs = list(
+        extract_environments(repo_path=repo / "src", logs_dir=logs_dir, limit=10)
+    )
+
+    assert len(envs) == 1
+    # session_id is the full conversation directory name, not just the short hex
+    assert envs[0].session_id == f"2026-01-01_topic_{session_id}"
+
+
+def test_extract_environments_accepts_nonhex_conversation_id(tmp_path):
+    # A real non-hex session ID: the conv directory name IS the full session ID.
+    session_id = "2026-01-01-fix-utils"
+    repo = make_repo(tmp_path)
+    add_commit(
+        repo,
+        "impl.py",
+        "# impl\n",
+        f"feat: implement\n\nGit-Session-Id: {session_id}",
+    )
+    # Create the conv dir with session_id as the exact directory name so the
+    # scanned conv_id matches the Git-Session-Id trailer in the commit.
+    logs_dir = tmp_path / "logs"
+    conv_dir = logs_dir / session_id
+    conv_dir.mkdir(parents=True)
+    with (conv_dir / "conversation.jsonl").open("w") as fh:
+        for msg in make_messages(session_id):
+            fh.write(json.dumps(msg) + "\n")
+
+    envs = list(extract_environments(repo_path=repo, logs_dir=logs_dir))
+
+    assert len(envs) == 1
+    assert envs[0].session_id == session_id
+
+
+def test_extract_environments_rejects_nonpositive_min_commits(tmp_path):
+    repo = make_repo(tmp_path)
+
+    with pytest.raises(ValueError, match="at least 1"):
+        list(extract_environments(repo_path=repo, min_commits=0))
 
 
 def test_task_environment_to_jsonl_roundtrip():
@@ -360,6 +460,55 @@ def test_cli_stats_no_repo(tmp_path):
     assert "Error" in result.output
 
 
+def test_cli_export_invalid_repo_has_no_traceback(tmp_path):
+    from gptme.cli.cmd_dataset import dataset
+
+    runner = CliRunner()
+    not_a_repo = tmp_path / "notrepo"
+    not_a_repo.mkdir()
+
+    result = runner.invoke(dataset, ["export", "--repo", str(not_a_repo)])
+
+    assert result.exit_code != 0
+    assert "Error" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_cli_export_failure_preserves_existing_output(tmp_path):
+    from gptme.cli.cmd_dataset import dataset
+
+    runner = CliRunner()
+    not_a_repo = tmp_path / "notrepo"
+    not_a_repo.mkdir()
+    output = tmp_path / "dataset.jsonl"
+    output.write_text("existing\n")
+
+    result = runner.invoke(
+        dataset,
+        ["export", "--repo", str(not_a_repo), "--output", str(output)],
+    )
+
+    assert result.exit_code != 0
+    assert output.read_text() == "existing\n"
+    assert not list(tmp_path.glob(".dataset.jsonl.*"))
+
+
+def test_cli_export_rejects_nonpositive_min_commits(tmp_path):
+    from gptme.cli.cmd_dataset import dataset
+
+    runner = CliRunner()
+    repo = make_repo(tmp_path)
+
+    result = runner.invoke(
+        dataset,
+        ["export", "--repo", str(repo), "--min-commits", "0"],
+    )
+
+    assert result.exit_code != 0
+    # click.IntRange(min=1) produces "not in the range x>=1"; check non-zero exit
+    assert "Error" in result.output
+
+
 def test_cli_export_stdout(tmp_path):
     from gptme.cli.cmd_dataset import dataset
 
@@ -379,7 +528,8 @@ def test_cli_export_stdout(tmp_path):
     lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
     assert lines, f"Expected JSON output, got:\n{result.output}"
     env_dict = json.loads(lines[0])
-    assert env_dict["session_id"] == session_id
+    # session_id is the full conversation directory name; short hex appears as suffix
+    assert session_id in env_dict["session_id"]
 
 
 def test_cli_stats_json(tmp_path):

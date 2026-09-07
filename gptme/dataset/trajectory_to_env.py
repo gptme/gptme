@@ -41,13 +41,9 @@ from ..logmanager.conversations import _is_test_conversation_id
 
 logger = logging.getLogger(__name__)
 
-# Pattern that gptme sessions use when embedding session IDs in commit messages.
-# Matches both:
-#   "(a1b2)" – short-hash style (most common)
-#   "session a1b2" – long-form annotation
-_SESSION_ID_RE = re.compile(
-    r"(?:\(([0-9a-f]{4,})\)|session ([0-9a-f]{4,}))", re.IGNORECASE
-)
+# Legacy commit subjects identify a session as either ``(<id>)`` or
+# ``session <id>``. Newer commits may use an exact ``Git-Session-Id`` trailer.
+_SESSION_MARKER_TEMPLATE = r"(?:\({id}\)|\bsession[ :]+{id}(?=$|\s|[—–-]))"
 
 
 @dataclass
@@ -125,17 +121,29 @@ def _run_git(args: list[str], cwd: Path) -> str:
         return ""
 
 
+def _attribution_ids(conversation_id: str) -> list[str]:
+    """Return exact IDs that may identify *conversation_id* in a commit."""
+    ids = [conversation_id]
+    short_match = re.search(
+        r"(?:^|[-_])([0-9a-f]{4,})$", conversation_id, re.IGNORECASE
+    )
+    if short_match and short_match.group(1).casefold() != conversation_id.casefold():
+        ids.append(short_match.group(1))
+    return ids
+
+
 def _find_session_commits(session_id: str, repo: Path) -> list[str]:
-    """Return commit SHAs whose message references *session_id*, oldest first."""
-    # --grep matches the message; we search for the session ID in parentheses
-    # or after the word "session".
+    """Return reachable commits exactly attributed to a session, oldest first."""
+    attribution_ids = _attribution_ids(session_id)
+    grep_args: list[str] = []
+    for attribution_id in attribution_ids:
+        grep_args.extend(["--grep", attribution_id])
     log_output = _run_git(
         [
             "log",
-            "--all",
-            "--grep",
-            session_id,
-            "--format=%H %s",
+            "HEAD",
+            *grep_args,
+            "--format=%H%x1f%B%x1e",
             "--reverse",
         ],
         cwd=repo,
@@ -144,16 +152,31 @@ def _find_session_commits(session_id: str, repo: Path) -> list[str]:
         return []
 
     commits = []
-    for line in log_output.splitlines():
-        parts = line.split(maxsplit=1)
-        if not parts:
+    for record in log_output.split("\x1e"):
+        record = record.strip()
+        if not record:
             continue
-        sha = parts[0]
-        # Verify the session_id actually appears in the message
-        # (git --grep is substring search, so filter more precisely)
-        msg = parts[1] if len(parts) > 1 else ""
-        if re.search(rf"\b{re.escape(session_id)}\b", msg, re.IGNORECASE):
-            commits.append(sha)
+        sha, separator, message = record.partition("\x1f")
+        if not separator:
+            continue
+        trailers = re.findall(
+            r"^Git-Session-Id:\s*(\S+)\s*$", message, re.IGNORECASE | re.MULTILINE
+        )
+        exact_trailer = any(
+            trailer.casefold() == attribution_id.casefold()
+            for trailer in trailers
+            for attribution_id in attribution_ids
+        )
+        exact_subject_marker = any(
+            re.search(
+                _SESSION_MARKER_TEMPLATE.format(id=re.escape(attribution_id)),
+                message.splitlines()[0],
+                re.IGNORECASE,
+            )
+            for attribution_id in attribution_ids
+        )
+        if exact_trailer or exact_subject_marker:
+            commits.append(sha.strip())
 
     return commits
 
@@ -168,11 +191,11 @@ def _get_entry_commit(first_session_commit: str, repo: Path) -> str:
 
 
 def _get_files_changed(commits: list[str], repo: Path) -> list[str]:
-    """Return sorted unique list of files changed across all *commits*."""
+    """Return files changed versus each commit's first parent."""
     files: set[str] = set()
     for sha in commits:
         output = _run_git(
-            ["diff-tree", "--no-commit-id", "-r", "--name-only", sha],
+            ["diff", "--name-only", f"{sha}^", sha],
             cwd=repo,
         )
         for line in output.splitlines():
@@ -323,6 +346,15 @@ def scan_sessions(
         scanned += 1
 
 
+def _resolve_repo(repo_path: Path | None) -> Path:
+    """Resolve *repo_path* to its enclosing Git worktree root."""
+    candidate = (repo_path or Path.cwd()).resolve()
+    root = _run_git(["rev-parse", "--show-toplevel"], cwd=candidate)
+    if not root:
+        raise ValueError(f"{candidate} is not a git repository")
+    return Path(root).resolve()
+
+
 def extract_environments(
     repo_path: Path | None = None,
     logs_dir: Path | None = None,
@@ -352,22 +384,14 @@ def extract_environments(
         envs = list(extract_environments(repo_path=Path("/path/to/repo"), limit=500))
         print(f"Convertible: {len(envs)}")
     """
-    repo = (repo_path or Path.cwd()).resolve()
-    if not (repo / ".git").exists():
-        raise ValueError(f"{repo} is not a git repository")
+    if min_commits < 1:
+        raise ValueError("min_commits must be at least 1")
+    repo = _resolve_repo(repo_path)
 
     for session_id, messages in scan_sessions(
         logs_dir=logs_dir, limit=limit, include_test=include_test
     ):
-        # Extract a short ID from the conversation ID (last hex segment).
-        # Conversation IDs look like "2026-01-01_topic_a1b2" or just "a1b2".
-        short_id_match = re.search(r"([0-9a-f]{4,})$", session_id, re.IGNORECASE)
-        if not short_id_match:
-            logger.debug("Skipping %s: no hex suffix for session ID", session_id)
-            continue
-        short_id = short_id_match.group(1)
-
-        commits = _find_session_commits(short_id, repo)
+        commits = _find_session_commits(session_id, repo)
         if len(commits) < min_commits:
             logger.debug(
                 "Skipping %s: only %d commits (need %d)",
@@ -390,7 +414,7 @@ def extract_environments(
         duration_seconds = _get_session_duration(messages)
 
         yield TaskEnvironment(
-            session_id=short_id,
+            session_id=session_id,
             entry_commit=entry,
             solution_commits=commits,
             files_changed=files_changed,
@@ -422,9 +446,7 @@ def corpus_stats(
         A dict with keys: ``scanned``, ``convertible``, ``yield_pct``,
         ``category_counts``, ``model_counts``.
     """
-    repo = (repo_path or Path.cwd()).resolve()
-    if not (repo / ".git").exists():
-        raise ValueError(f"{repo} is not a git repository")
+    repo = _resolve_repo(repo_path)
 
     total = 0
     convertible = 0
@@ -435,11 +457,7 @@ def corpus_stats(
         logs_dir=logs_dir, limit=limit, include_test=False
     ):
         total += 1
-        short_id_match = re.search(r"([0-9a-f]{4,})$", session_id, re.IGNORECASE)
-        if not short_id_match:
-            continue
-        short_id = short_id_match.group(1)
-        commits = _find_session_commits(short_id, repo)
+        commits = _find_session_commits(session_id, repo)
         if commits:
             convertible += 1
             files = _get_files_changed(commits, repo)

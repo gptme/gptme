@@ -11,7 +11,9 @@ See ``gptme.dataset.trajectory_to_env`` for implementation details and
 
 import json
 import logging
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import click
@@ -129,6 +131,7 @@ def stats_cmd(
     "--min-commits",
     default=1,
     show_default=True,
+    type=click.IntRange(min=1),
     help="Minimum solution commits required to include an environment.",
 )
 @click.option(
@@ -156,27 +159,46 @@ def export_cmd(
     """
     from ..dataset.trajectory_to_env import extract_environments
 
-    try:
-        repo = repo_path.resolve()
-        env_iter = extract_environments(
-            repo_path=repo,
-            logs_dir=logs_dir,
-            limit=limit,
-            include_test=include_test,
-            min_commits=min_commits,
-        )
-    except ValueError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+    env_iter = extract_environments(
+        repo_path=repo_path.resolve(),
+        logs_dir=logs_dir,
+        limit=limit,
+        include_test=include_test,
+        min_commits=min_commits,
+    )
 
-    out = sys.stdout if output_path == "-" else open(output_path, "w", encoding="utf-8")
+    destination = None if output_path == "-" else Path(output_path)
+    temp_path: Path | None = None
+    out = sys.stdout
     count = 0
     try:
+        if destination is not None:
+            destination = destination.resolve()
+            temp = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                delete=False,
+            )
+            out = temp
+            temp_path = Path(temp.name)
+
         for env in env_iter:
             out.write(env.to_jsonl() + "\n")
             count += 1
-    finally:
-        if output_path != "-":
+
+        if destination is not None:
             out.close()
+            assert temp_path is not None
+            os.replace(temp_path, destination)
+            temp_path = None
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        if destination is not None and not out.closed:
+            out.close()
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
     click.echo(f"Exported {count} environments.", err=True)
