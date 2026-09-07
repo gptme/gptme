@@ -64,7 +64,10 @@ def capabilities(
     from ..util.capabilities_export import collect_live, render
 
     if from_json:
-        snapshot = json.loads(from_json.read_text(encoding="utf-8"))
+        try:
+            snapshot = json.loads(from_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise click.ClickException(f"invalid JSON in {from_json}: {exc}") from exc
     else:
         snapshot = collect_live(
             (workspace or Path.cwd()).resolve(),
@@ -72,7 +75,10 @@ def capabilities(
             connect_mcp=connect_mcp,
         )
 
-    text = render(snapshot, fmt, show_all=show_all)
+    try:
+        text = render(snapshot, fmt, show_all=show_all)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     if output:
         try:
             output.write_text(text, encoding="utf-8")

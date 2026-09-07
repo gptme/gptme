@@ -524,7 +524,50 @@ def _collect_live_impl(
     )
 
 
-def render(snapshot: dict[str, Any], fmt: str, *, show_all: bool = False) -> str:
+_REQUIRED_SNAPSHOT_KEYS = (
+    "schema_version",
+    "generated_at",
+    "workspace",
+    "config",
+    "counts",
+    "tools",
+    "skills",
+    "plugins",
+    "mcp_servers",
+    "limitations",
+)
+
+
+def validate_snapshot(snapshot: Any) -> dict[str, Any]:
+    """Validate a snapshot (e.g. loaded from ``--from-json``).
+
+    Raises a clear ``ValueError`` instead of letting the renderers crash with a
+    raw ``KeyError``/``TypeError`` traceback on malformed input.
+    """
+    if not isinstance(snapshot, dict):
+        raise ValueError(
+            "invalid capabilities snapshot: expected a JSON object, got "
+            f"{type(snapshot).__name__}"
+        )
+    missing = [k for k in _REQUIRED_SNAPSHOT_KEYS if k not in snapshot]
+    if missing:
+        raise ValueError(
+            "invalid capabilities snapshot: missing required key(s) "
+            + ", ".join(missing)
+        )
+    for key in ("config", "counts"):
+        if not isinstance(snapshot.get(key), dict):
+            raise ValueError(
+                f"invalid capabilities snapshot: '{key}' must be an object"
+            )
+    for key in ("tools", "skills", "plugins", "mcp_servers", "limitations"):
+        if not isinstance(snapshot.get(key), list):
+            raise ValueError(f"invalid capabilities snapshot: '{key}' must be an array")
+    return snapshot
+
+
+def render(snapshot: Any, fmt: str, *, show_all: bool = False) -> str:
+    snapshot = validate_snapshot(snapshot)
     if fmt == "json":
         return snapshot_to_json(snapshot)
     if fmt == "html":
@@ -577,7 +620,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.from_json:
-        snapshot = json.loads(args.from_json.read_text(encoding="utf-8"))
+        try:
+            snapshot = json.loads(args.from_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            parser.error(f"invalid JSON in {args.from_json}: {exc}")
     else:
         workspace = (args.workspace or Path.cwd()).resolve()
         snapshot = collect_live(
@@ -586,7 +632,10 @@ def main(argv: list[str] | None = None) -> int:
             connect_mcp=args.connect_mcp,
         )
 
-    text = render(snapshot, args.format, show_all=args.show_all)
+    try:
+        text = render(snapshot, args.format, show_all=args.show_all)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.output:
         args.output.write_text(text, encoding="utf-8")
     else:

@@ -401,3 +401,44 @@ def test_connect_mcp_not_requested_reason_renders():
     assert "connect_mcp_not_requested" in text
     html = render(snap, "html")
     assert "connect_mcp_not_requested" in html
+
+
+def test_render_malformed_snapshot_raises_clean_value_error():
+    """Malformed snapshots (e.g. from --from-json) must raise ValueError, not a
+    raw KeyError/TypeError traceback."""
+    malformed = [
+        {},  # missing every key
+        [],  # wrong top-level type
+        {"workspace": "/tmp", "schema_version": 1},  # missing most keys
+        {  # wrong type for a nested structure
+            "schema_version": 1,
+            "generated_at": "x",
+            "workspace": "/tmp",
+            "config": {},
+            "counts": 5,
+            "tools": [],
+            "skills": [],
+            "plugins": [],
+            "mcp_servers": [],
+            "limitations": [],
+        },
+    ]
+    for snapshot in malformed:
+        for fmt in ("text", "html", "json"):
+            with pytest.raises(ValueError, match="invalid capabilities snapshot"):
+                render(snapshot, fmt)
+
+
+def test_render_valid_snapshot_still_works_after_validation():
+    """Validation must not reject a snapshot produced by build_snapshot."""
+    snap = build_snapshot(
+        workspace="/tmp/w",
+        generated_at="2026-09-02T01:30:00Z",
+        config={},
+        tools=[],
+        skills=[],
+        plugins=[],
+        mcp_servers=[],
+    )
+    assert "gptme capabilities" in render(snap, "text")
+    assert render(snap, "json").startswith("{")
