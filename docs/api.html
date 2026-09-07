@@ -547,6 +547,7 @@ document.write(`
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log"><code class="docutils literal notranslate"><span class="pre">Log</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.__init__"><code class="docutils literal notranslate"><span class="pre">Log.__init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.persisted_messages"><code class="docutils literal notranslate"><span class="pre">Log.persisted_messages</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.print"><code class="docutils literal notranslate"><span class="pre">Log.print()</span></code></a></li>
 </ul>
 </li>
@@ -972,11 +973,17 @@ per conversation, creating ~97% of all trace spans (see Issue #199).</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.logmanager.Log">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.logmanager.</span></span><span class="sig-name descname"><span class="pre">Log</span></span><a class="headerlink" href="#gptme.logmanager.Log" title="Link to this definition">#</a></dt>
-<dd><p>Log(messages: list[gptme.message.Message] = &lt;factory&gt;)</p>
+<dd><p>Log(messages: list[gptme.message.Message] = &lt;factory&gt;, persisted: tuple[gptme.message.Message, …] = (), persisted_path: pathlib.Path | None = None, persisted_size: int | None = None)</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.logmanager.Log.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages:</span> <span class="pre">list[~gptme.message.Message]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.logmanager.Log.__init__" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages:</span> <span class="pre">list[~gptme.message.Message]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">persisted:</span> <span class="pre">tuple[~gptme.message.Message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">...]</span> <span class="pre">=</span> <span class="pre">()</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">persisted_path:</span> <span class="pre">~pathlib.Path</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">persisted_size:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.logmanager.Log.__init__" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="gptme.logmanager.Log.persisted_messages">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">persisted_messages</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></em><a class="headerlink" href="#gptme.logmanager.Log.persisted_messages" title="Link to this definition">#</a></dt>
+<dd><p>Number of messages known to be on disk already.</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.logmanager.Log.print">
@@ -2099,6 +2106,7 @@ coercion inside the function body.</p>
 </li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log"><code class="docutils literal notranslate"><span class="pre">Log</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.__init__"><code class="docutils literal notranslate"><span class="pre">Log.__init__()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.persisted_messages"><code class="docutils literal notranslate"><span class="pre">Log.persisted_messages</span></code></a></li>
 <li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.Log.print"><code class="docutils literal notranslate"><span class="pre">Log.print()</span></code></a></li>
 </ul>
 </li>
