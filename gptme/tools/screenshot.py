@@ -171,4 +171,5 @@ tool = ToolSpec(
     instructions=INSTRUCTIONS,
     functions=[ToolFunction.from_callable(screenshot)],
     examples=examples,
+    read_only=True,
 )

@@ -460,6 +460,7 @@ tool = ToolSpec(
     hooks={
         "rag_context": ("generation.pre", _rag_context_hook, 0),
     },
+    read_only=True,
 )
 
 __doc__ = tool.get_doc(__doc__)

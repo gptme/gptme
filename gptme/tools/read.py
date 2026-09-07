@@ -410,6 +410,7 @@ tool = ToolSpec(
         ),
     ],
     hints=frozenset({"file-ops", "read-only"}),
+    read_only=True,
     disabled_by_default=True,
 )
 __doc__ = tool.get_doc(__doc__)

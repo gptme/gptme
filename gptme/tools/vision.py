@@ -119,4 +119,5 @@ tool = ToolSpec(
     desc="Viewing images",
     instructions=instructions,
     functions=[ToolFunction.from_callable(view_image)],
+    read_only=True,
 )

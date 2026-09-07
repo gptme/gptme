@@ -395,6 +395,7 @@ class ToolSpec:
     disabled_by_default: bool = False
     is_mcp: bool = False
     hints: frozenset[str] = field(default_factory=frozenset)
+    read_only: bool = False
     hooks: dict[str, tuple[str, HookFunc, int]] = field(default_factory=dict)
     commands: dict[str, Callable] = field(default_factory=dict)
 
@@ -416,6 +417,7 @@ class ToolSpec:
         disabled_by_default: bool = False,
         is_mcp: bool = False,
         hints: frozenset[str] | None = None,
+        read_only: bool = False,
         hooks: dict[str, tuple[str, HookFunc, int]] | None = None,
         commands: dict[str, Callable] | None = None,
     ):
@@ -439,6 +441,7 @@ class ToolSpec:
         object.__setattr__(self, "disabled_by_default", disabled_by_default)
         object.__setattr__(self, "is_mcp", is_mcp)
         object.__setattr__(self, "hints", hints or frozenset())
+        object.__setattr__(self, "read_only", read_only)
         object.__setattr__(self, "hooks", hooks or {})
         object.__setattr__(self, "commands", commands or {})
 
