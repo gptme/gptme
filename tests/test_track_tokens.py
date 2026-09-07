@@ -230,6 +230,43 @@ def test_accumulator_isolated_across_chat_contexts():
     assert _get_session_tokens() == 120
 
 
+def test_copied_context_does_not_mutate_parent_accumulator():
+    """copy_context() children must not share the parent's running total.
+
+    Server/TUI/ACP step threads run under copy_context(). A mutable list stored
+    in the ContextVar would be shared by reference, so a child step() that
+    calls _log_token_usage without going through chat()'s reset would inflate
+    the parent's session total. An immutable int rebind isolates them.
+    """
+    meta = _make_model_meta(context=10_000)
+
+    with (
+        patch.object(chat_module, "get_model", return_value=meta),
+        patch.object(chat_module, "len_tokens", side_effect=[100, 20, 50, 10]),
+    ):
+        _log_token_usage(
+            [Message("user", "parent")],
+            Message("assistant", "reply"),
+            "mock/gpt-mock",
+        )
+        assert _get_session_tokens() == 120
+
+        child_context = copy_context()
+
+        def run_child() -> None:
+            # No reset — this is the step()-outside-chat() path.
+            _log_token_usage(
+                [Message("user", "child")],
+                Message("assistant", "reply"),
+                "mock/gpt-mock",
+            )
+            assert _get_session_tokens() == 180
+
+        child_context.run(run_child)
+
+    assert _get_session_tokens() == 120
+
+
 def test_log_token_usage_survives_len_tokens_error(caplog):
     """_log_token_usage never raises; errors are logged so the chat loop continues."""
     with (

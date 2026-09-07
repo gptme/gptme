@@ -55,31 +55,26 @@ from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_ti
 
 logger = logging.getLogger(__name__)
 
-# A mutable value in a ContextVar keeps each chat isolated while allowing all
-# step() calls in that chat to contribute to one running total.
-_session_tokens: ContextVar[list[int] | None] = ContextVar(
-    "session_tokens", default=None
-)
+# Store an immutable int. copy_context() (server/TUI/ACP step threads) copies
+# the binding, not the value: a list would be shared by reference and a child
+# step() would mutate the parent's running total. Rebinding via .set() keeps
+# each context isolated while still letting every step() in the same context
+# contribute to one total.
+_session_tokens: ContextVar[int | None] = ContextVar("session_tokens", default=None)
 
 
 def _reset_token_accumulator() -> None:
-    _session_tokens.set([0])
+    _session_tokens.set(0)
 
 
 def _get_session_tokens() -> int:
     """Return the running total for the current chat context."""
-    session_tokens = _session_tokens.get()
-    return session_tokens[0] if session_tokens is not None else 0
+    return _session_tokens.get() or 0
 
 
 def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> None:
     """Print running token totals after each LLM call (enabled by GPTME_TRACK_TOKENS)."""
     try:
-        session_tokens = _session_tokens.get()
-        if session_tokens is None:
-            session_tokens = [0]
-            _session_tokens.set(session_tokens)
-
         # Resolve once from the caller-supplied name (alias or full). Tokenizer
         # and context metadata then share that ModelMeta; passing .full back
         # into get_model() is the lookup 48225d823 avoided.
@@ -88,7 +83,8 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
         n_out = len_tokens(msg_response, resolved.full)
         context_limit = resolved.context
         n_used = n_in + n_out
-        session_tokens[0] += n_used
+        session_tokens = (_session_tokens.get() or 0) + n_used
+        _session_tokens.set(session_tokens)
 
         # Occupancy is input+output: output tokens also consume the context
         # window, so an n_in-only percentage understates how close we are to
@@ -99,7 +95,7 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
         )
         print(
             f"[track-tokens] context: {n_used:,} / {context_display}{pct_display} | "
-            f"+{n_out:,} out | session total: {session_tokens[0]:,}",
+            f"+{n_out:,} out | session total: {session_tokens:,}",
             file=sys.stderr,
             flush=True,
         )
@@ -273,7 +269,7 @@ def chat(
         # chat() calls don't corrupt the parent's running total.
         # Thread-mode subagents start with a fresh contextvars context, so
         # their totals are already isolated; folding inner into parent here
-        # would not see the parent list across threads.
+        # would not see the parent total across threads.
         _session_tokens.set(_prev_tokens)
 
 
