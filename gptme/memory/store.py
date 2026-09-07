@@ -104,18 +104,10 @@ class MemoryStore:
         available = ", ".join(r.scope for r in self.roots) or "none"
         raise KeyError(f"no memory root for scope {scope!r} (available: {available})")
 
-    def entries(
-        self,
-        *,
-        type: str | None = None,
-        status: str | None = None,
-        scope: str | None = None,
-    ) -> list[MemoryEntry]:
+    def _entries_from_roots(self, roots: Iterable[MemoryRoot]) -> list[MemoryEntry]:
         self.errors = []
         seen: dict[str, MemoryEntry] = {}
-        for r in self.roots:
-            if scope is not None and r.scope != scope:
-                continue
+        for r in roots:
             if not r.path.is_dir():
                 continue
             for path in sorted(r.path.glob("*.md")):
@@ -127,12 +119,34 @@ class MemoryStore:
                     self.errors.append((path, str(e)))
                     continue
                 seen.setdefault(entry.name, entry)  # nearest root wins
-        out = list(seen.values())
+        return list(seen.values())
+
+    def entries(
+        self,
+        *,
+        type: str | None = None,
+        status: str | None = None,
+        scope: str | None = None,
+    ) -> list[MemoryEntry]:
+        if scope is None:
+            roots = self.roots
+        else:
+            roots = [r for r in self.roots if r.scope == scope]
+        out = self._entries_from_roots(roots)
         if type is not None:
             out = [e for e in out if e.type == type]
         if status is not None:
             out = [e for e in out if e.status == status]
         return sorted(out, key=lambda e: e.name)
+
+    def index_entries(self, scope: str | None = None) -> list[MemoryEntry]:
+        """Entries that belong in the index of one physical root.
+
+        ``entries(scope=...)`` unions every root with that scope name, which
+        would put later-directory filenames into the first directory's
+        ``MEMORY.md``. Index generation is always per-directory.
+        """
+        return self._entries_from_roots([self.root(scope)])
 
     def get(self, name: str, scope: str | None = None) -> MemoryEntry | None:
         wanted = {name, slugify(name)}
@@ -180,10 +194,14 @@ class MemoryStore:
     ) -> str:
         """Generate the always-on index: living entries grouped by type, one line each.
 
-        ``budget`` caps the output in bytes; entries past the budget are
-        replaced by one trailing line naming how many were omitted, so the
-        output is deterministic for a given entry set.
+        ``budget`` caps the output in bytes. Entries that do not fit — including
+        every later type group — are replaced by one trailing line naming how
+        many were omitted. The marker is included in the cap, so the returned
+        text never exceeds ``budget``.
         """
+        if budget is not None and budget <= 0:
+            raise ValueError(f"budget {budget} is too small for the index header")
+
         living = [e for e in entries if e.is_living]
         groups: dict[str, list[MemoryEntry]] = {}
         for e in living:
@@ -191,34 +209,49 @@ class MemoryStore:
         order = [t for t in TYPE_ORDER if t in groups] + sorted(
             t for t in groups if t not in TYPE_ORDER
         )
-        lines = [INDEX_HEADER, ""]
-        size = len("\n".join(lines).encode()) + 1
-        omitted = 0
-        for t in order:
-            header = f"## {t.capitalize()}"
-            block = [header] + [
-                e.index_line() for e in sorted(groups[t], key=lambda e: e.name)
-            ]
-            for i, line in enumerate(block):
-                cost = len(line.encode()) + 1
-                if budget is not None and size + cost > budget - 64:
-                    omitted += len(block) - i
-                    if i == 0:
-                        omitted -= 1  # the header is not an entry
+        grouped: list[tuple[str, list[str]]] = [
+            (
+                f"## {t.capitalize()}",
+                [e.index_line() for e in sorted(groups[t], key=lambda e: e.name)],
+            )
+            for t in order
+        ]
+        total = sum(len(lines) for _, lines in grouped)
+
+        def build(n_entries: int) -> str:
+            omitted = total - n_entries
+            lines = [INDEX_HEADER, ""]
+            remaining = n_entries
+            for header, entry_lines in grouped:
+                if remaining <= 0:
                     break
-                lines.append(line)
-                size += cost
-            else:
+                take = min(len(entry_lines), remaining)
+                lines.append(header)
+                lines.extend(entry_lines[:take])
                 lines.append("")
-                size += 1
-                continue
-            break
-        if omitted:
-            lines.append("")
-            lines.append(f"- … {omitted} more entries omitted (budget {budget} bytes)")
-        while lines and lines[-1] == "":
-            lines.pop()
-        return "\n".join(lines) + "\n"
+                remaining -= take
+            while lines and lines[-1] == "":
+                lines.pop()
+            if omitted:
+                lines.extend(
+                    [
+                        "",
+                        f"- … {omitted} more entries omitted (budget {budget} bytes)",
+                    ]
+                )
+            return "\n".join(lines) + "\n"
+
+        if budget is None:
+            return build(total)
+
+        n = total
+        while True:
+            text = build(n)
+            if len(text.encode()) <= budget:
+                return text
+            if n == 0:
+                raise ValueError(f"budget {budget} is too small for the index header")
+            n -= 1
 
     def index_path(self, scope: str | None = None) -> Path:
         return self.root(scope).path / INDEX_FILENAME
@@ -227,7 +260,7 @@ class MemoryStore:
         self, scope: str | None = None, *, budget: int | None = None
     ) -> Path:
         root = self.root(scope)
-        text = self.render_index(self.entries(scope=root.scope), budget=budget)
+        text = self.render_index(self.index_entries(scope), budget=budget)
         root.path.mkdir(parents=True, exist_ok=True)
         path = root.path / INDEX_FILENAME
         path.write_text(text, encoding="utf-8")
@@ -237,7 +270,6 @@ class MemoryStore:
         self, scope: str | None = None, *, budget: int | None = None
     ) -> bool:
         """True when the on-disk index equals the regenerated one byte for byte."""
-        root = self.root(scope)
-        path = root.path / INDEX_FILENAME
-        expected = self.render_index(self.entries(scope=root.scope), budget=budget)
+        path = self.root(scope).path / INDEX_FILENAME
+        expected = self.render_index(self.index_entries(scope), budget=budget)
         return path.is_file() and path.read_text(encoding="utf-8") == expected

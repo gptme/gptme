@@ -16,11 +16,16 @@ import sys
 
 import click
 
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# C0/C1 controls. ``keep_newlines`` still drops ESC/CSI but preserves \t and \n
+# so markdown bodies and generated indexes stay readable.
+_ALL_CONTROLS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_UNSAFE_CONTROLS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 
-def _clean(value: str) -> str:
-    return _CONTROL_CHARS_RE.sub("", value)
+def _clean(value: str, *, keep_newlines: bool = False) -> str:
+    """Strip terminal controls from untrusted memory text."""
+    pattern = _UNSAFE_CONTROLS_RE if keep_newlines else _ALL_CONTROLS_RE
+    return pattern.sub("", value)
 
 
 def _store():
@@ -74,7 +79,9 @@ def memory_list(
         click.echo(json.dumps([e.to_dict() for e in entries], indent=2, default=str))
     else:
         for e in entries:
-            click.echo(f"{e.type:10s} {e.name}  — {_clean(e.description)}")
+            click.echo(
+                f"{_clean(e.type):10s} {_clean(e.name)}  — {_clean(e.description)}"
+            )
     if store.errors:
         click.echo(
             f"({len(store.errors)} file(s) skipped: not memory entries)", err=True
@@ -100,7 +107,7 @@ def memory_show(name: str, as_json: bool):
             json.dumps({**entry.to_dict(), "body": entry.body}, indent=2, default=str)
         )
     else:
-        click.echo(entry.to_markdown(), nl=False)
+        click.echo(_clean(entry.to_markdown(), keep_newlines=True), nl=False)
 
 
 @memory.command("save")
@@ -172,7 +179,11 @@ def memory_save(
     is_flag=True,
     help="Exit 1 when MEMORY.md differs from the regenerated index.",
 )
-@click.option("--budget", type=int, help="Cap the index at this many bytes.")
+@click.option(
+    "--budget",
+    type=click.IntRange(min=1),
+    help="Cap the index at this many bytes.",
+)
 def memory_index(scope: str | None, write: bool, check: bool, budget: int | None):
     """Generate the always-on index (living entries grouped by type).
 
@@ -189,10 +200,13 @@ def memory_index(scope: str | None, write: bool, check: bool, budget: int | None
             path = store.write_index(scope, budget=budget)
             click.echo(f"Wrote {path}")
             return
-        root = store.root(scope)
         click.echo(
-            store.render_index(store.entries(scope=root.scope), budget=budget), nl=False
+            _clean(
+                store.render_index(store.index_entries(scope), budget=budget),
+                keep_newlines=True,
+            ),
+            nl=False,
         )
-    except KeyError as e:
+    except (KeyError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

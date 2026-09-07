@@ -228,6 +228,34 @@ class TestStore:
         assert small == store.render_index(store.entries(), budget=400)
         assert len(full.encode()) > 400
 
+    def test_index_budget_counts_entries_in_later_groups(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("first", "x" * 80, type="feedback")
+        store.save("second", "x" * 80, type="project")
+        text = store.render_index(store.entries(), budget=130)
+        assert len(text.encode()) <= 130
+        assert "2 more entries omitted" in text
+
+    def test_index_budget_too_small_raises(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("first", "x" * 80, type="feedback")
+        with pytest.raises(ValueError, match="too small"):
+            store.render_index(store.entries(), budget=1)
+        with pytest.raises(ValueError, match="too small"):
+            store.render_index(store.entries(), budget=0)
+
+    def test_index_uses_only_selected_physical_root(self, tmp_path):
+        first, second = tmp_path / "first", tmp_path / "second"
+        _write(first, "one", "---\nname: one\ndescription: first\n---\n")
+        _write(second, "two", "---\nname: two\ndescription: second\n---\n")
+        store = MemoryStore(
+            [MemoryRoot("explicit", first), MemoryRoot("explicit", second)]
+        )
+        store.write_index("explicit")
+        text = (first / "MEMORY.md").read_text()
+        assert "one.md" in text
+        assert "two.md" not in text
+
 
 class TestCli:
     @pytest.fixture
@@ -261,6 +289,26 @@ class TestCli:
         assert r.exit_code == 0
         r = runner.invoke(util_main, ["memory", "index", "--check"])
         assert r.exit_code == 0, r.output
+
+    def test_human_output_strips_controls_but_preserves_lines(self, env):
+        _write(
+            env,
+            "unsafe",
+            '---\nname: unsafe\ndescription: "red \u001b[31mtext\u001b[0m"\n---\n\nline 1\nline 2\n',
+        )
+        runner = CliRunner()
+        shown = runner.invoke(util_main, ["memory", "show", "unsafe"])
+        assert shown.exit_code == 0
+        assert "\x1b" not in shown.output
+        assert "line 1\nline 2" in shown.output
+        listed = runner.invoke(util_main, ["memory", "list"])
+        assert "\x1b" not in listed.output
+        indexed = runner.invoke(util_main, ["memory", "index"])
+        assert "\x1b" not in indexed.output
+
+    def test_index_budget_cli_rejects_non_positive(self, env):
+        r = CliRunner().invoke(util_main, ["memory", "index", "--budget", "0"])
+        assert r.exit_code != 0
 
     def test_roots(self, env):
         r = CliRunner().invoke(util_main, ["memory", "roots"])
