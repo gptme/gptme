@@ -424,26 +424,29 @@ export function useConversation(conversationId: string, serverId?: string) {
             },
             onConnected: () => {
               // Check if this conversation needs initial step (was created from WelcomeView)
-              // This fixes the race condition where step() was called before subscription
-              const needsStep = conversation$?.needsInitialStep?.get();
-              if (needsStep) {
-                const initialStepStream = conversation$?.initialStepStream?.get();
-                clearInitialStepState(conversationId);
-                api
-                  .step(
-                    conversationId,
-                    undefined,
-                    initialStepStream ?? true,
-                    'main',
-                    maxTokens,
-                    temperature,
-                    topP
-                  )
-                  .catch((error) => {
-                    console.error('[useConversation] Error triggering initial step:', error);
-                    toastStepStartError(toast, error);
-                  });
+              // This fixes the race condition where step() was called before subscription.
+              // Re-read immediately before stepping so a Stop click during the handshake
+              // (which clears needsInitialStep) is honored instead of starting generation.
+              if (!conversation$?.needsInitialStep?.get()) {
+                return;
               }
+              const initialStepStream = conversation$?.initialStepStream?.get();
+              clearInitialStepState(conversationId);
+              api
+                .step(
+                  conversationId,
+                  undefined,
+                  initialStepStream ?? true,
+                  'main',
+                  maxTokens,
+                  temperature,
+                  topP
+                )
+                .catch((error) => {
+                  console.error('[useConversation] Error triggering initial step:', error);
+                  setGenerating(conversationId, false);
+                  toastStepStartError(toast, error);
+                });
             },
             onConnectionState: (state) => {
               switch (state.status) {
@@ -491,6 +494,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           })
           .catch((err) => {
             console.error('[useConversation] Failed to subscribe to events:', err);
+            setGenerating(conversationId, false);
             toast({
               variant: 'destructive',
               title: 'Error',
@@ -661,6 +665,13 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const interruptGeneration = async () => {
+    // Stop before the initial step starts: drop the optimistic generating
+    // state and cancel the pending step so onConnected cannot start it.
+    if (conversation$?.needsInitialStep?.get()) {
+      clearInitialStepState(conversationId);
+      setGenerating(conversationId, false);
+    }
+
     try {
       await api.interruptGeneration(conversationId);
     } catch (error) {

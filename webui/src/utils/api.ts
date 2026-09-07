@@ -1340,10 +1340,12 @@ export class ApiClient {
       },
       { needsInitialStep: true, initialStepStream: options?.stream }
     );
-    // Pre-set generating state so the stop-button appears the moment the chat page renders,
-    // collapsing the "user message appears" and "response starts indicating" into one visual
-    // event instead of two. onMessageStart will re-set it (no-op); onError/onInterrupted
-    // will clear it on failure as they do for any other generation.
+    // Pre-set generating so Stop appears with the first chat render, collapsing
+    // "message appears" and "response starts indicating" into one visual event.
+    // Stop before the SSE session exists cancels this pending initial step
+    // (useConversation.interruptGeneration). A rejected initial step() also
+    // clears the flag. onMessageStart re-sets it (no-op); onError/onInterrupted
+    // remain the SSE failure/interrupt paths.
     setGenerating(conversationId, true);
     if (options?.maxTokens !== undefined) {
       setMaxTokens(conversationId, options.maxTokens);
@@ -1704,7 +1706,9 @@ export class ApiClient {
       const sessionId: string | undefined = this.sessions$.get(logfile).get();
 
       if (!sessionId) {
-        throw new ApiClientError('Session ID not found for conversation', 404);
+        // Stop clicked before the SSE handshake supplied a session. Nothing to
+        // interrupt on the server; the caller cancels any pending local initial-step.
+        return;
       }
 
       await this.fetchJson<{ status: string }>(

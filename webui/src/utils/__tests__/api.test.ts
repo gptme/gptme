@@ -5,6 +5,7 @@ jest.mock('@/utils/connectionConfig', () => ({
 }));
 jest.mock('@/stores/conversations', () => ({
   initConversation: jest.fn(),
+  setGenerating: jest.fn(),
   setMaxTokens: jest.fn(),
   setTemperature: jest.fn(),
   setTopP: jest.fn(),
@@ -825,6 +826,7 @@ describe('createConversationWithPlaceholder workspace defaults', () => {
       configurable: true,
     });
     (conversationsStore.initConversation as jest.Mock).mockClear();
+    (conversationsStore.setGenerating as jest.Mock).mockClear();
     (conversationsStore.setMaxTokens as jest.Mock).mockClear();
     (conversationsStore.setTemperature as jest.Mock).mockClear();
     (conversationsStore.setTopP as jest.Mock).mockClear();
@@ -981,5 +983,70 @@ describe('createConversationWithPlaceholder workspace defaults', () => {
     fetchResolve();
     await client.waitForConversationCreation(conversationId);
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('pre-sets generating so Stop is visible before the SSE handshake', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', session_id: 'session-1' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    const conversationId = await client.createConversationWithPlaceholder('hello');
+
+    expect(conversationsStore.setGenerating).toHaveBeenCalledWith(conversationId, true);
+  });
+});
+
+describe('ApiClient interruptGeneration', () => {
+  const originalFetch = global.fetch;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    Object.defineProperty(global, 'crypto', {
+      value: { ...originalCrypto, randomUUID: jest.fn(() => 'test-client-id') },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'crypto', { value: originalCrypto, configurable: true });
+    jest.restoreAllMocks();
+  });
+
+  it('posts interrupt when a session id exists', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok' }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    client.sessions$.set('conv-1', 'session-1');
+
+    await client.interruptGeneration('conv-1');
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:5700/api/v2/conversations/conv-1/interrupt',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ session_id: 'session-1' }),
+      })
+    );
+  });
+
+  it('no-ops without error when no session id exists yet', async () => {
+    global.fetch = jest.fn();
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await expect(client.interruptGeneration('conv-1')).resolves.toBeUndefined();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
