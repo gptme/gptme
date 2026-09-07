@@ -31,6 +31,7 @@ describe('useConversation', () => {
   let eventHandlers:
     | {
         onConnected?: () => void;
+        onMessageStart?: () => void;
       }
     | undefined;
 
@@ -176,6 +177,35 @@ describe('useConversation', () => {
     });
 
     expect(step).not.toHaveBeenCalled();
+  });
+
+  it('hides Stop even after onConnected already consumed the pending initial step', async () => {
+    conversations$.get('chat-placeholder')?.isGenerating.set(true);
+
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      eventHandlers?.onConnected?.();
+      await Promise.resolve();
+    });
+    expect(step).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.interruptGeneration();
+    });
+
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
+
+    await act(async () => {
+      eventHandlers?.onMessageStart?.();
+    });
+
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
+    expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
   });
 
   it('clears generating when the initial step request fails', async () => {
