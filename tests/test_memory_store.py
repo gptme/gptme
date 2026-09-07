@@ -1,5 +1,6 @@
 """Tests for gptme.memory: schema round-trip, layered roots, store, index, CLI."""
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -11,10 +12,14 @@ from gptme.memory import (
     MemoryParseError,
     MemoryRoot,
     MemoryStore,
+    RecallBackendUnavailable,
     parse_entry,
+    recall,
+    render_recall,
     resolve_roots,
     slugify,
 )
+from gptme.memory.recall import RecallHit
 from gptme.memory.roots import default_write_root
 from gptme.memory.schema import entry_from_text
 
@@ -257,6 +262,138 @@ class TestStore:
         assert "two.md" not in text
 
 
+class TestRecall:
+    @staticmethod
+    def _entry(
+        root: Path,
+        name: str,
+        description: str,
+        body: str = "",
+        *,
+        status: str = "living",
+    ) -> MemoryEntry:
+        path = _write(
+            root,
+            name,
+            "---\n"
+            f"name: {name}\n"
+            f'description: "{description}"\n'
+            f"status: {status}\n"
+            "---\n"
+            f"{body}\n",
+        )
+        return parse_entry(path, scope="explicit")
+
+    def test_overlap_fallback_ranks_all_layered_roots(self, tmp_path, monkeypatch):
+        near = tmp_path / "near"
+        far = tmp_path / "far"
+        self._entry(
+            near,
+            "openrouter-guardrail",
+            "OpenRouter guardrail blocks Anthropic model IDs",
+            "Use another provider when Anthropic requests return 404.",
+        )
+        self._entry(
+            far,
+            "slot-refresh",
+            "Refresh dead Claude subscription slots",
+            "An invalid_grant means the slot needs login.",
+        )
+        self._entry(
+            far,
+            "old-guardrail",
+            "OpenRouter guardrail historical note",
+            status="superseded",
+        )
+        store = MemoryStore([MemoryRoot("explicit", near), MemoryRoot("user", far)])
+
+        def unavailable(*_args, **_kwargs):
+            raise RecallBackendUnavailable("gptme-rag unavailable")
+
+        recall_module = importlib.import_module("gptme.memory.recall")
+        monkeypatch.setattr(recall_module, "_recall_tfidf", unavailable)
+        result = recall(
+            store,
+            "Why are Anthropic model requests blocked by the OpenRouter guardrail?",
+            limit=3,
+        )
+        assert result.backend == "overlap"
+        assert [hit.entry.name for hit in result.hits] == ["openrouter-guardrail"]
+        assert result.hits[0].matched_terms == [
+            "anthropic",
+            "guardrail",
+            "model",
+            "openrouter",
+            "requests",
+        ]
+
+        second = recall(
+            store,
+            "The Claude slot says invalid grant and needs login refresh",
+            backend="overlap",
+        )
+        assert [hit.entry.name for hit in second.hits] == ["slot-refresh"]
+        assert second.hits[0].entry.scope == "user"
+
+    def test_auto_prefers_tfidf_when_available(self, tmp_path, monkeypatch):
+        entry = self._entry(tmp_path, "one", "One useful memory")
+        store = MemoryStore([MemoryRoot("explicit", tmp_path)])
+        expected = [RecallHit(entry=entry, score=0.42, matched_terms=[])]
+        recall_module = importlib.import_module("gptme.memory.recall")
+        monkeypatch.setattr(
+            recall_module,
+            "_recall_tfidf",
+            lambda entries, query, limit: expected,
+        )
+        result = recall(store, "useful memory", backend="auto")
+        assert result.backend == "tfidf"
+        assert result.hits == expected
+
+    def test_real_tfidf_backend_when_optional_package_is_installed(self, tmp_path):
+        pytest.importorskip("gptme_rag.lexical")
+        store = MemoryStore([MemoryRoot("explicit", tmp_path)])
+        self._entry(
+            tmp_path,
+            "guardrail",
+            "OpenRouter guardrail blocks Anthropic models",
+            "The account returns a provider-specific 404.",
+        )
+        self._entry(
+            tmp_path,
+            "database",
+            "PostgreSQL migration procedure",
+            "Back up the database before applying migrations.",
+        )
+        result = recall(
+            store,
+            "Why does the OpenRouter Anthropic guardrail return 404?",
+            backend="tfidf",
+        )
+        assert result.backend == "tfidf"
+        assert [hit.entry.name for hit in result.hits] == ["guardrail"]
+        assert result.hits[0].score > 0
+
+    def test_forced_tfidf_does_not_silently_fallback(self, tmp_path, monkeypatch):
+        store = MemoryStore([MemoryRoot("explicit", tmp_path)])
+        self._entry(tmp_path, "one", "One useful memory")
+
+        def unavailable(*_args, **_kwargs):
+            raise RecallBackendUnavailable("install gptme-rag[lexical]")
+
+        recall_module = importlib.import_module("gptme.memory.recall")
+        monkeypatch.setattr(recall_module, "_recall_tfidf", unavailable)
+        with pytest.raises(RecallBackendUnavailable, match="gptme-rag"):
+            recall(store, "useful memory", backend="tfidf")
+
+    def test_render_bounds_and_flattens_entry_body(self, tmp_path):
+        store = MemoryStore([MemoryRoot("explicit", tmp_path)])
+        self._entry(tmp_path, "one", "Useful memory", "line one\n" + "x" * 80)
+        result = recall(store, "one useful memory", backend="overlap")
+        rendered = render_recall(result, body_chars=20)
+        assert "line one xxxxxxxx..." in rendered
+        assert "line one\n" not in rendered
+
+
 class TestCli:
     @pytest.fixture
     def env(self, tmp_path, monkeypatch):
@@ -312,6 +449,56 @@ class TestCli:
     def test_index_budget_cli_rejects_non_positive(self, env):
         r = CliRunner().invoke(util_main, ["memory", "index", "--budget", "0"])
         assert r.exit_code != 0
+
+    def test_recall_hook_json_reads_claude_payload(self, env):
+        _write(
+            env,
+            "provider-policy",
+            "---\n"
+            "name: provider-policy\n"
+            'description: "Keep private code off training providers"\n'
+            "metadata:\n"
+            "  type: feedback\n"
+            "---\n"
+            "Route sensitive review through a private provider.\n",
+        )
+        result = CliRunner().invoke(
+            util_main,
+            [
+                "memory",
+                "recall",
+                "--prompt",
+                "-",
+                "--backend",
+                "overlap",
+                "--format",
+                "hook-json",
+            ],
+            input='{"prompt":"Which provider should review private sensitive code?"}',
+        )
+        assert result.exit_code == 0, result.output
+        payload = __import__("json").loads(result.output)
+        hook = payload["hookSpecificOutput"]
+        assert hook["hookEventName"] == "UserPromptSubmit"
+        assert "provider-policy" in hook["additionalContext"]
+        assert "backend=overlap" in hook["additionalContext"]
+
+    def test_recall_json_discloses_backend_and_empty_results(self, env):
+        result = CliRunner().invoke(
+            util_main,
+            [
+                "memory",
+                "recall",
+                "no matching signal here",
+                "--backend",
+                "overlap",
+                "--format",
+                "json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = __import__("json").loads(result.output)
+        assert payload == {"backend": "overlap", "hits": []}
 
     def test_roots(self, env):
         r = CliRunner().invoke(util_main, ["memory", "roots"])

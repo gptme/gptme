@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from typing import Literal
 
 import click
 
@@ -169,6 +170,100 @@ def memory_save(
         )
     else:
         click.echo(f"Saved memory to {path}")
+
+
+def _read_recall_prompt(prompt: str | None) -> str:
+    if prompt == "-":
+        raw = sys.stdin.read()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+        if isinstance(payload, dict):
+            value = payload.get("prompt")
+            return value if isinstance(value, str) else ""
+        return ""
+    if prompt is not None:
+        return prompt
+    if not sys.stdin.isatty():
+        return sys.stdin.read()
+    raise click.UsageError("provide QUERY or --prompt - to read stdin")
+
+
+@memory.command("recall")
+@click.argument("query", required=False)
+@click.option(
+    "--prompt",
+    help="Prompt text, or '-' to read a Claude Code hook payload/plain text from stdin.",
+)
+@click.option(
+    "-k",
+    "--limit",
+    type=click.IntRange(min=1),
+    default=3,
+    show_default=True,
+    help="Maximum number of entries to return.",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(["auto", "tfidf", "overlap"]),
+    default="auto",
+    show_default=True,
+    help="Retrieval backend; auto falls back to token overlap.",
+)
+@click.option(
+    "--format",
+    "format_",
+    type=click.Choice(["text", "json", "hook-json"]),
+    default="text",
+    show_default=True,
+    help="Output format. hook-json is a Claude Code UserPromptSubmit response.",
+)
+@click.option(
+    "--body-chars",
+    type=click.IntRange(min=1),
+    default=1200,
+    show_default=True,
+    help="Maximum body characters to inject per text result.",
+)
+def memory_recall(
+    query: str | None,
+    prompt: str | None,
+    limit: int,
+    backend: Literal["auto", "tfidf", "overlap"],
+    format_: str,
+    body_chars: int,
+):
+    """Recall relevant entries from every layered memory root."""
+    from ..memory import RecallBackendUnavailable, recall, render_recall
+
+    if query is not None and prompt is not None:
+        raise click.UsageError("use either QUERY or --prompt, not both")
+    prompt_text = _read_recall_prompt(prompt if prompt is not None else query)
+    try:
+        result = recall(_store(), prompt_text, limit=limit, backend=backend)
+    except (RecallBackendUnavailable, ValueError) as e:
+        raise click.ClickException(str(e)) from e
+
+    if format_ == "json":
+        click.echo(json.dumps(result.to_dict(), indent=2, default=str))
+        return
+
+    rendered = _clean(render_recall(result, body_chars=body_chars), keep_newlines=True)
+    if format_ == "hook-json":
+        click.echo(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": rendered,
+                    }
+                }
+            )
+        )
+        return
+    if rendered:
+        click.echo(rendered)
 
 
 @memory.command("index")
