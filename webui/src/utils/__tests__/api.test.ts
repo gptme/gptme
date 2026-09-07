@@ -846,7 +846,12 @@ describe('createConversationWithPlaceholder workspace defaults', () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     client.setConnected(true);
 
-    await client.createConversationWithPlaceholder('hello', { workspace: '.' });
+    const conversationId = await client.createConversationWithPlaceholder('hello', {
+      workspace: '.',
+    });
+    // Server creation runs in background; await it explicitly so the fetch
+    // mock has been called before we inspect its arguments.
+    await client.waitForConversationCreation(conversationId);
 
     const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
     const body = JSON.parse(request.body as string);
@@ -864,7 +869,8 @@ describe('createConversationWithPlaceholder workspace defaults', () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     client.setConnected(true);
 
-    await client.createConversationWithPlaceholder('hello');
+    const conversationId = await client.createConversationWithPlaceholder('hello');
+    await client.waitForConversationCreation(conversationId);
 
     const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
     const body = JSON.parse(request.body as string);
@@ -882,7 +888,7 @@ describe('createConversationWithPlaceholder workspace defaults', () => {
     client.setConnected(true);
 
     await client.createConversationWithPlaceholder('hello', { workspace: '.' });
-
+    // initConversation is called synchronously, so no need to await server creation here
     const [, initData] = (conversationsStore.initConversation as jest.Mock).mock.calls[0];
     expect(initData.workspace).toBe('@log');
   });
@@ -897,9 +903,10 @@ describe('createConversationWithPlaceholder workspace defaults', () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     client.setConnected(true);
 
-    await client.createConversationWithPlaceholder('hello', {
+    const conversationId = await client.createConversationWithPlaceholder('hello', {
       workspace: '/workspace/project',
     });
+    await client.waitForConversationCreation(conversationId);
 
     const request = (global.fetch as jest.Mock).mock.calls[0][1] as RequestInit;
     const body = JSON.parse(request.body as string);
@@ -919,8 +926,60 @@ describe('createConversationWithPlaceholder workspace defaults', () => {
     await client.createConversationWithPlaceholder('hello', {
       workspace: '/home/user/project',
     });
-
+    // initConversation is called synchronously, so no need to await server creation here
     const [, initData] = (conversationsStore.initConversation as jest.Mock).mock.calls[0];
     expect(initData.workspace).toBe('/home/user/project');
+  });
+
+  it('returns the conversation ID before the server responds (no-block navigation)', async () => {
+    // Verify the core UX fix: createConversationWithPlaceholder must return the
+    // conversation ID before the server fetch resolves so that the UI can navigate
+    // to the chat page without waiting for the server round-trip.
+    // The server call starts in the background; the returned promise resolves
+    // immediately with the local ID so the caller can navigate.
+    let fetchResolve!: () => void;
+    let fetchWasCalled = false;
+    global.fetch = jest.fn().mockImplementation(() => {
+      fetchWasCalled = true;
+      return new Promise<Response>((res) => {
+        fetchResolve = () =>
+          res({
+            ok: true,
+            status: 200,
+            json: async () => ({ status: 'ok', session_id: 'session-1' }),
+          } as Response);
+      });
+    });
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    // createConversationWithPlaceholder MUST resolve (return the ID) before the
+    // server fetch promise resolves.  We don't resolve fetchResolve until after
+    // we have the ID, proving navigation can happen without waiting for the server.
+    const idPromise = client.createConversationWithPlaceholder('hello');
+
+    // initConversation is synchronous — must be called before any await.
+    expect(conversationsStore.initConversation).toHaveBeenCalledTimes(1);
+
+    // The idPromise should resolve immediately (before we resolve the fetch).
+    // We collect the ID without resolving the server response first.
+    let conversationId = '';
+    let idResolved = false;
+    idPromise.then((id) => {
+      conversationId = id;
+      idResolved = true;
+    });
+
+    // Flush microtasks — idPromise should be resolved by now.
+    await Promise.resolve();
+    expect(idResolved).toBe(true);
+    expect(conversationId).toMatch(/^chat-/);
+    expect(fetchWasCalled).toBe(true); // fetch started in background
+
+    // Now let the server respond and verify the pending creation settles.
+    fetchResolve();
+    await client.waitForConversationCreation(conversationId);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -407,6 +407,9 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     deleteSession: async () => {},
     getExternalSession: async () => notImpl('getExternalSession'),
     steerExternalSession: async () => notImpl('steerExternalSession'),
+    // Demo conversations are created synchronously in-memory, so there is never
+    // a background server creation in flight.
+    waitForConversationCreation: async () => {},
   };
 
   return client;
