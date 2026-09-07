@@ -573,50 +573,80 @@ def test_streaming_parameter_comprehensive():
     """
     Comprehensive test for streaming parameter behavior.
 
-    Tests both positive and negative cases:
-    - Streaming=True with blank line → should extract
-    - Streaming=True without blank line → should NOT extract
-    - Streaming=False with blank line → should extract
-    - Streaming=False without blank line → should extract
+    Exec langs (shell, bash, python, …) have no triple-backtick syntax of
+    their own, so a bare ``` at depth 1 is *always* a closer — no blank-line
+    confirmation is required even in streaming mode.
+
+    Non-exec langs (markdown, text, …) still require a blank line to confirm
+    closure in streaming mode because a bare ``` could be the opening of an
+    inner nested block that isn't finished yet.
+
+    Tests:
+    - Exec lang, streaming=True, WITH blank line → extract
+    - Exec lang, streaming=True, WITHOUT blank line → extract (no confirmation needed)
+    - Exec lang, streaming=False → always extract
+    - Non-exec lang, streaming=True, WITH blank line → extract
+    - Non-exec lang, streaming=True, WITHOUT blank line → do NOT extract
     """
     fence = "```"
 
-    # Case 1: Streaming=True, WITH blank line (positive case)
-    # Should extract because blank line confirms completion
-    markdown_with_blank = f"""{fence}shell
+    # ── Exec lang (shell) ──────────────────────────────────────────────────
+
+    markdown_exec_with_blank = f"""{fence}shell
 echo "hello"
 {fence}
 
 """
-    blocks = list(_extract_codeblocks(markdown_with_blank, streaming=True))
-    assert len(blocks) == 1, "Should extract block when streaming=True with blank line"
-    assert blocks[0].lang == "shell"
-    assert blocks[0].content == 'echo "hello"'
-
-    # Case 2: Streaming=True, WITHOUT blank line (negative case)
-    # Should NOT extract because no blank line to confirm completion
-    markdown_without_blank = f"""{fence}shell
+    markdown_exec_no_blank = f"""{fence}shell
 echo "hello"
 {fence}"""
-    blocks = list(_extract_codeblocks(markdown_without_blank, streaming=True))
-    assert len(blocks) == 0, (
-        "Should NOT extract block when streaming=True without blank line"
-    )
 
-    # Case 3: Streaming=False, WITH blank line (positive case)
-    # Should extract normally
-    blocks = list(_extract_codeblocks(markdown_with_blank, streaming=False))
-    assert len(blocks) == 1, "Should extract block when streaming=False with blank line"
+    # Case 1: Exec lang, streaming=True, WITH blank line → extract
+    blocks = list(_extract_codeblocks(markdown_exec_with_blank, streaming=True))
+    assert len(blocks) == 1, "Exec: should extract with blank line in streaming mode"
     assert blocks[0].lang == "shell"
+    assert blocks[0].content == 'echo "hello"'
 
-    # Case 4: Streaming=False, WITHOUT blank line (positive case)
-    # Should extract because message is complete (not streaming)
-    blocks = list(_extract_codeblocks(markdown_without_blank, streaming=False))
+    # Case 2: Exec lang, streaming=True, WITHOUT blank line → extract
+    # Shell has no nested ``` syntax; a bare fence at depth 1 is always a closer.
+    blocks = list(_extract_codeblocks(markdown_exec_no_blank, streaming=True))
     assert len(blocks) == 1, (
-        "Should extract block when streaming=False even without blank line"
+        "Exec: should extract without blank line in streaming mode "
+        "(bare fence is unambiguously a closer for exec langs)"
     )
     assert blocks[0].lang == "shell"
     assert blocks[0].content == 'echo "hello"'
+
+    # Case 3: Exec lang, streaming=False → always extract
+    blocks = list(_extract_codeblocks(markdown_exec_no_blank, streaming=False))
+    assert len(blocks) == 1, "Exec: should extract in non-streaming mode"
+    assert blocks[0].lang == "shell"
+    assert blocks[0].content == 'echo "hello"'
+
+    # ── Non-exec lang (text) ───────────────────────────────────────────────
+
+    markdown_text_with_blank = f"""{fence}text
+hello
+{fence}
+
+"""
+    markdown_text_no_blank = f"""{fence}text
+hello
+{fence}"""
+
+    # Case 4: Non-exec lang, streaming=True, WITH blank line → extract
+    blocks = list(_extract_codeblocks(markdown_text_with_blank, streaming=True))
+    assert len(blocks) == 1, (
+        "Non-exec: should extract with blank line in streaming mode"
+    )
+    assert blocks[0].content == "hello"
+
+    # Case 5: Non-exec lang, streaming=True, WITHOUT blank line → do NOT extract
+    # A bare ``` could still be a nested opener whose body hasn't arrived yet.
+    blocks = list(_extract_codeblocks(markdown_text_no_blank, streaming=True))
+    assert len(blocks) == 0, (
+        "Non-exec: should NOT extract without blank line in streaming mode"
+    )
 
 
 def test_streaming_nested_blocks():
@@ -1862,3 +1892,81 @@ output here
         Codeblock("shell", 'echo "a << b"'),
         Codeblock("", "output here"),
     ]
+
+
+def test_extract_codeblocks_shell_multiline_quoted_string_no_phantom_heredoc():
+    """A ``<<`` inside a multi-line single-quoted string must not be treated
+    as a heredoc opener.
+
+    Regression for the quote-state-across-lines bug: ``_find_heredoc_terminator``
+    used to start each line with ``in_single=False``, so the ``<< EOF`` on the
+    continuation line of ``s='\\n<< EOF\\n'`` was misidentified as a heredoc
+    opener.  That phantom terminator matched the standalone ``EOF`` in subsequent
+    prose, causing the parser to absorb the real closing fence, the prose, and
+    the output block into an oversized shell block.
+    """
+    markdown = "```shell\ns='\n<< EOF\n'\necho \"$s\"\n```\nThis is documentation.\n\nEOF\n```\noutput\n```\n"
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("shell", "s='\n<< EOF\n'\necho \"$s\""),
+        Codeblock("", "output"),
+    ], (
+        "The << EOF inside the single-quoted string must not open heredoc state; "
+        "the shell block must close at its own ``` fence"
+    )
+
+
+def test_extract_codeblocks_shell_streaming_exec_lang_closes_without_blank_line():
+    """Exec-lang blocks in streaming mode must close at the bare fence
+    regardless of whether a blank confirmation line follows.
+
+    Regression for the trailing-blank-line sensitivity: previously, streaming
+    mode required a blank line after ``` to confirm closure.  For exec langs
+    (shell, bash, python, …) this was wrong — these langs have no triple-backtick
+    syntax of their own, so a bare fence at depth 1 is always a closer.
+
+    The practical consequence was asymmetric stop-detection: a complete reply
+    ending in ``...```\\n`` yielded no blocks, while the same reply with an extra
+    trailing newline yielded one oversized block absorbing prose and output.
+    Both variants must now yield just the shell block (the output block may not
+    be extractable in streaming mode when no confirmation newline follows it).
+    """
+    from gptme.codeblock import _extract_codeblocks
+
+    # A complete LLM reply: shell command + prose + output block.
+    message = "```shell\necho hello\n```\nThe exact output is:\n\n```\nhello\n```\n"
+
+    # Non-streaming: both blocks extracted.
+    blocks_default = list(_extract_codeblocks(message, streaming=False))
+    assert blocks_default == [
+        Codeblock("shell", "echo hello"),
+        Codeblock("", "hello"),
+    ], "Non-streaming should extract both blocks"
+
+    # Streaming + single trailing newline: shell block extracted.
+    # (The output block has no blank confirmation line in this variant.)
+    blocks_stream_single = list(_extract_codeblocks(message, streaming=True))
+    assert blocks_stream_single == [Codeblock("shell", "echo hello")], (
+        "Streaming + single trailing newline must yield the shell block "
+        "(exec langs close without blank-line confirmation)"
+    )
+
+    # Streaming + extra trailing newline: both blocks extracted.
+    # The extra newline provides the blank confirmation needed for the
+    # non-exec output block.
+    blocks_stream_double = list(_extract_codeblocks(message + "\n", streaming=True))
+    assert blocks_stream_double == [
+        Codeblock("shell", "echo hello"),
+        Codeblock("", "hello"),
+    ], (
+        "Streaming + extra trailing newline must yield both blocks; "
+        "must NOT yield an oversized block absorbing prose and output"
+    )
+
+    # Verify stop-detection semantics: the streaming parser must signal
+    # 'at least one complete block found' for a finished exec-lang reply,
+    # regardless of the trailing newline count.
+    assert len(blocks_stream_single) > 0, (
+        "Stop-detection: streaming must find at least one complete block "
+        "in a finished exec-lang reply"
+    )
