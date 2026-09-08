@@ -254,9 +254,52 @@ async def test_skill_command_drains_prompt_queue_and_starts_generation(
             assert any(
                 "Do the parity thing." in w.content for w in app.query(UserMessage)
             )
+            skill_msgs = [
+                m
+                for m in manager.log
+                if m.role == "user" and "Skill invoked: /skill:parity-demo" in m.content
+            ]
+            assert skill_msgs
+            assert skill_msgs[0].metadata is not None
+            assert skill_msgs[0].metadata.get("skill_invocation_id")
     finally:
         unregister_skill_commands()
         clear_cache()
+
+
+@pytest.mark.asyncio
+async def test_batched_tui_drain_preserves_skill_invocation_metadata(
+    tmp_path, monkeypatch
+):
+    """Later drained skill prompts must keep invocation metadata in the TUI queue."""
+    from gptme.prompt_queue import queue_prompt
+
+    manager = make_manager(tmp_path)
+    app = GptmeApp(manager, workspace=tmp_path)
+    monkeypatch.setattr(app, "_start_generation", lambda: None)
+
+    queue_prompt(manager.logdir, "first prompt")
+    queue_prompt(
+        manager.logdir,
+        "skill prompt",
+        skill_invocation_id="invocation-queued-rest",
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._drain_command_queued_prompts()
+        await pilot.pause()
+
+        assert manager.log.messages[-1].content == "first prompt"
+        assert len(app.prompt_queue) == 1
+        queued = app.prompt_queue[0]
+        assert isinstance(queued, Message)
+        assert queued.content == "skill prompt"
+        assert queued.metadata == {"skill_invocation_id": "invocation-queued-rest"}
+
+        await app._generation_done()
+        skill_msg = next(m for m in manager.log if m.content == "skill prompt")
+        assert skill_msg.metadata == {"skill_invocation_id": "invocation-queued-rest"}
 
 
 @pytest.mark.asyncio

@@ -73,6 +73,11 @@ logger = logging.getLogger(__name__)
 MAX_INITIAL_MESSAGES = 100
 
 
+def _queued_prompt_text(item: str | Message) -> str:
+    """Return the user-visible text for a TUI-queued prompt."""
+    return item.content if isinstance(item, Message) else item
+
+
 def _summarize(content: str, maxlen: int = 80) -> str:
     """One-line summary of message content, for collapsed sections."""
     lines = content.strip().splitlines() or [""]
@@ -1041,7 +1046,7 @@ class GptmeApp(App):
         # (exclusive=True), so reusing one Context is safe, and mutations
         # (e.g. /model-style changes) persist across turns.
         self._chat_ctx = contextvars.copy_context()
-        self.prompt_queue: list[str] = []
+        self.prompt_queue: list[str | Message] = []
         self._queued_widgets: list[Widget] = []
         self.generating = False
         self.state = "idle"
@@ -1417,7 +1422,9 @@ class GptmeApp(App):
         first, *rest = drained
         self.manager.append(first)
         self._show_message(first)
-        self.prompt_queue.extend(msg.content for msg in rest)
+        # Keep drained Message objects so later batched skill prompts retain
+        # skill_invocation_id instead of being rebuilt from content strings.
+        self.prompt_queue.extend(rest)
         self._start_generation()
 
     def _rebuild_chat(self) -> None:
@@ -1428,8 +1435,13 @@ class GptmeApp(App):
         chat.remove_children()
         self._render_history()
 
-    async def _submit(self, text: str) -> None:
-        msg = Message("user", text, quiet=True)
+    async def _submit(self, prompt: str | Message) -> None:
+        if isinstance(prompt, Message):
+            msg = prompt
+            text = msg.content
+        else:
+            text = prompt
+            msg = Message("user", text, quiet=True)
         # Confirm before fetching any URLs, matching CLI behavior (TUI can't
         # use prompt_toolkit's sync dialog inside the running event loop).
         pre_confirmed_urls: list[str] | None = None
@@ -1638,18 +1650,18 @@ class GptmeApp(App):
         self._clear_tool_placeholder()
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
-            text = "\n".join(self.prompt_queue)
+            text = "\n".join(_queued_prompt_text(item) for item in self.prompt_queue)
             self.prompt_queue.clear()
             for w in self._queued_widgets:
                 w.remove()
             self._queued_widgets.clear()
             self.query_one("#input", ChatInput)._set_text(text)
         elif self.prompt_queue:
-            text = self.prompt_queue.pop(0)
+            prompt = self.prompt_queue.pop(0)
             if self._queued_widgets:
                 self._queued_widgets.pop(0).remove()
             self._set_state("idle")
-            await self._submit(text)
+            await self._submit(prompt)
             return
         self._set_state("idle")
 
