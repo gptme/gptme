@@ -25,6 +25,7 @@ from gptme.server.preview_proxy_api import (  # fmt: skip
     PREVIEW_CSP_SANDBOX,
     _check_port,
     _forward_request_headers,
+    _forward_response_headers,
     _is_websocket_upgrade,
     _sanitize_query_string,
 )
@@ -362,6 +363,40 @@ class TestPreviewProxyHTTP:
         assert resp.headers.get("X-Content-Type-Options") == "nosniff"
         assert "Content-Security-Policy" not in resp.headers
 
+    def test_strips_upstream_set_cookie(self, client: FlaskClient):
+        """Untrusted upstreams must not overwrite the preview auth cookie."""
+
+        class _CookieHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header(
+                    "Set-Cookie",
+                    "gptme_auth=poisoned; Path=/preview/",
+                )
+                self.send_header("Clear-Site-Data", '"cookies"')
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), _CookieHandler)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+
+        resp = client.get(f"/preview/{port}/")
+        t.join(timeout=3)
+        srv.server_close()
+
+        assert resp.status_code == 200
+        assert resp.data == b"ok"
+        assert resp.headers.get("Set-Cookie") is None
+        assert resp.headers.getlist("Set-Cookie") == []
+        assert resp.headers.get("Clear-Site-Data") is None
+        assert client.get_cookie("gptme_auth") is None
+
 
 class TestHeaderHelpers:
     def test_sanitize_drops_token(self):
@@ -390,3 +425,25 @@ class TestHeaderHelpers:
         assert "connection" not in lower
         assert forwarded.get("Accept-Encoding") == "identity"
         assert forwarded["Accept"] == "text/html"
+
+    def test_forward_response_headers_strips_cookies(self):
+        headers = {
+            "Content-Type": "text/html",
+            "Set-Cookie": "gptme_auth=poisoned; Path=/preview/",
+            "Set-Cookie2": "obsolete=1",
+            "Clear-Site-Data": '"cookies"',
+            "Content-Encoding": "gzip",
+            "Content-Security-Policy": "sandbox allow-same-origin",
+            "Connection": "close",
+            "X-Custom": "keep",
+        }
+        forwarded = _forward_response_headers(headers)
+        lower = {key.lower() for key, _ in forwarded}
+        assert "set-cookie" not in lower
+        assert "set-cookie2" not in lower
+        assert "clear-site-data" not in lower
+        assert "content-encoding" not in lower
+        assert "content-security-policy" not in lower
+        assert "connection" not in lower
+        assert ("X-Custom", "keep") in forwarded
+        assert ("Content-Type", "text/html") in forwarded

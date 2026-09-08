@@ -37,6 +37,9 @@ Security
   ``allow-same-origin``, so preview documents run in an opaque origin and
   cannot inherit API privileges. Upstream CSP is stripped so a malicious
   listener cannot opt back into ``allow-same-origin``.
+- Upstream ``Set-Cookie`` / ``Clear-Site-Data`` are stripped so a preview
+  service cannot overwrite the ``Path=/preview/`` auth cookie or wipe
+  origin credentials.
 
 noVNC / VNC
 -----------
@@ -130,6 +133,18 @@ _ISOLATION_STRIP: frozenset[str] = frozenset(
     }
 )
 
+# Cookie-setting / credential-clearing headers from untrusted upstreams
+# must not reach the browser.  A preview service can otherwise overwrite
+# gptme_auth (Path=/preview/) and 401 later preview requests, or wipe
+# origin credentials via Clear-Site-Data.
+_CREDENTIAL_RESPONSE_STRIP: frozenset[str] = frozenset(
+    {
+        "set-cookie",
+        "set-cookie2",
+        "clear-site-data",
+    }
+)
+
 # Documents that can execute script.  Unique-origin sandbox them so they
 # cannot call cookie-authenticated /api/ routes as the user.
 _HTML_LIKE_MIME: frozenset[str] = frozenset(
@@ -206,8 +221,13 @@ def _forward_request_headers(
 
 
 def _forward_response_headers(headers: Any) -> list[tuple[str, str]]:
-    """Copy upstream response headers, dropping hop-by-hop, decoded-body, isolation."""
-    skip = _HOP_BY_HOP | _DECODED_RESPONSE_STRIP | _ISOLATION_STRIP
+    """Copy upstream response headers, dropping hop-by-hop, decoded-body, isolation, cookies."""
+    skip = (
+        _HOP_BY_HOP
+        | _DECODED_RESPONSE_STRIP
+        | _ISOLATION_STRIP
+        | _CREDENTIAL_RESPONSE_STRIP
+    )
     return [(key, value) for key, value in headers.items() if key.lower() not in skip]
 
 
