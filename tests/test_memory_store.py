@@ -202,9 +202,13 @@ class TestStore:
         with pytest.raises(ValueError, match="itself"):
             store.supersede("one", "one", scope="project")
         store.supersede("one", "two", scope="project")
+        # Repeating the exact supersession is idempotent.
+        store.supersede("one", "two", scope="project")
         store.save("three", "three", scope="project")
         with pytest.raises(ValueError, match="not living"):
             store.supersede("three", "one", scope="project")
+        with pytest.raises(ValueError, match="not living"):
+            store.supersede("one", "three", scope="project")
 
     def test_audit_reports_invalid_yaml_and_broken_supersession(self, tmp_path):
         root = tmp_path / "project"
@@ -225,6 +229,21 @@ class TestStore:
         assert {(issue.code, issue.entry) for issue in issues} >= {
             ("invalid-yaml", "invalid.md"),
             ("dangling-superseded-by", "old"),
+        }
+
+    def test_audit_reports_asymmetric_reverse_link(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "old",
+            "---\nname: old\ndescription: old\nstatus: superseded\nsuperseded_by: new\n---\n",
+        )
+        _write(root, "new", "---\nname: new\ndescription: new\n---\n")
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert {(issue.code, issue.entry) for issue in issues} == {
+            ("asymmetric-supersession", "old")
         }
 
     def test_audit_reports_dangling_and_asymmetric_forward_links(self, tmp_path):

@@ -223,6 +223,8 @@ class MemoryStore:
         new = parse_entry(new_path, scope=root.scope, strict=True)
         if not new.is_living:
             raise ValueError(f"replacement entry {new.name!r} is not living")
+        if not old.is_living and old.superseded_by != new.name:
+            raise ValueError(f"entry {old.name!r} is not living")
 
         old_original = old.to_markdown()
         new_original = new.to_markdown()
@@ -268,14 +270,24 @@ class MemoryStore:
             entries[entry.name] = entry
 
         for entry in entries.values():
-            if entry.superseded_by and entry.superseded_by not in entries:
-                issues.append(
-                    AuditIssue(
-                        "dangling-superseded-by",
-                        entry.name,
-                        f"replacement {entry.superseded_by!r} does not exist",
+            if entry.superseded_by:
+                replacement = entries.get(entry.superseded_by)
+                if replacement is None:
+                    issues.append(
+                        AuditIssue(
+                            "dangling-superseded-by",
+                            entry.name,
+                            f"replacement {entry.superseded_by!r} does not exist",
+                        )
                     )
-                )
+                elif entry.name not in replacement.supersedes:
+                    issues.append(
+                        AuditIssue(
+                            "asymmetric-supersession",
+                            entry.name,
+                            f"{entry.superseded_by!r} does not point back to this entry",
+                        )
+                    )
             for old_name in entry.supersedes:
                 old = entries.get(old_name)
                 if old is None:
