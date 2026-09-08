@@ -36,9 +36,10 @@ root's strict YAML and bidirectional supersession links:
 ``supersede`` updates both entries (``superseded_by`` on the old entry and
 ``supersedes`` on the replacement) and regenerates the selected root's index.
 Both entries must be in the same root; use ``--scope`` when needed. The command
-refuses malformed YAML rather than rewriting it through the lenient read
-fallback. ``audit`` exits non-zero for malformed entries, dangling targets, or
-asymmetric links, making ``audit --quiet`` suitable for lifecycle hooks.
+refuses malformed YAML and invalid field types rather than rewriting them
+through the lenient read fallback. ``audit`` exits non-zero for malformed
+entries, duplicate names, dangling targets, or asymmetric links, making
+``audit --quiet`` suitable for lifecycle hooks.
 
 Recall
 ------

@@ -208,6 +208,14 @@ def _as_list(
     return [str(v) for v in value]
 
 
+def _optional_str(value: Any, *, field_name: str, strict: bool = False) -> str | None:
+    if value is None or value == "":
+        return None
+    if strict and not isinstance(value, str):
+        raise MemoryFrontmatterError(f"invalid {field_name}: expected string")
+    return str(value)
+
+
 def entry_from_text(
     text: str,
     path: Path | None = None,
@@ -231,47 +239,85 @@ def entry_from_text(
     if strict and not isinstance(type_, str):
         raise MemoryFrontmatterError("invalid type: expected string")
 
-    name = data.get("name") or (path.stem if path is not None else None)
+    if "name" in data:
+        raw_name = data["name"]
+        if strict and (not isinstance(raw_name, str) or not raw_name.strip()):
+            raise MemoryFrontmatterError("invalid name: expected non-empty string")
+        name = (
+            raw_name
+            if isinstance(raw_name, str) and raw_name
+            else (path.stem if path is not None else None)
+        )
+        if name is not None and not isinstance(name, str):
+            name = str(name)
+    else:
+        name = path.stem if path is not None else None
     if not name:
         raise MemoryParseError(f"entry has no name: {path or '<text>'}")
-    if strict and not isinstance(name, str):
-        raise MemoryFrontmatterError("invalid name: expected string")
 
     confidence = data.get("confidence")
-    try:
-        confidence = float(confidence) if confidence is not None else None
-    except (TypeError, ValueError) as exc:
+    if confidence is None:
+        parsed_confidence = None
+    elif isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         if strict:
-            raise MemoryFrontmatterError("invalid confidence: expected number") from exc
-        confidence = None
-    if strict and confidence is not None and not 0 <= confidence <= 1:
+            raise MemoryFrontmatterError("invalid confidence: expected number")
+        try:
+            parsed_confidence = float(confidence)
+        except (TypeError, ValueError):
+            parsed_confidence = None
+    else:
+        parsed_confidence = float(confidence)
+    if strict and parsed_confidence is not None and not 0 <= parsed_confidence <= 1:
         raise MemoryFrontmatterError("invalid confidence: expected 0..1")
 
     provenance = data.get("provenance")
     if strict and provenance is not None and not isinstance(provenance, dict):
         raise MemoryFrontmatterError("invalid provenance: expected mapping")
-    raw_status = data.get("status") or DEFAULT_STATUS
-    if strict and (not isinstance(raw_status, str) or raw_status not in STATUSES):
-        raise MemoryFrontmatterError(
-            f"invalid status: expected one of {', '.join(STATUSES)}"
-        )
-    status = str(raw_status)
+    if "status" in data:
+        raw_status = data["status"]
+    else:
+        raw_status = DEFAULT_STATUS
+    if strict:
+        if not isinstance(raw_status, str) or raw_status not in STATUSES:
+            raise MemoryFrontmatterError(
+                f"invalid status: expected one of {', '.join(STATUSES)}"
+            )
+        status = raw_status
+    else:
+        status = str(raw_status) if raw_status else DEFAULT_STATUS
+        if status not in STATUSES:
+            status = DEFAULT_STATUS
+
+    raw_description = data.get("description")
+    if raw_description is None:
+        description = ""
+    elif strict and not isinstance(raw_description, str):
+        raise MemoryFrontmatterError("invalid description: expected string")
+    else:
+        description = str(raw_description).strip()
+
+    raw_title = data.get("title")
+    if strict and raw_title is not None and not isinstance(raw_title, str):
+        raise MemoryFrontmatterError("invalid title: expected string")
+    title = str(raw_title) if raw_title else None
 
     return MemoryEntry(
         name=str(name),
-        description=str(data.get("description") or "").strip(),
+        description=description,
         type=str(type_),
         body=body.strip("\n"),
-        title=str(data["title"]) if data.get("title") else None,
-        status=status if status in STATUSES else DEFAULT_STATUS,
+        title=title,
+        status=status,
         supersedes=_as_list(
             data.get("supersedes"), field_name="supersedes", strict=strict
         ),
-        superseded_by=str(data["superseded_by"]) if data.get("superseded_by") else None,
+        superseded_by=_optional_str(
+            data.get("superseded_by"), field_name="superseded_by", strict=strict
+        ),
         provenance=dict(provenance) if isinstance(provenance, dict) else {},
-        confidence=confidence,
+        confidence=parsed_confidence,
         keywords=_as_list(data.get("keywords"), field_name="keywords", strict=strict),
-        recheck=str(data["recheck"]) if data.get("recheck") else None,
+        recheck=_optional_str(data.get("recheck"), field_name="recheck", strict=strict),
         metadata=metadata,
         path=path,
         scope=scope,

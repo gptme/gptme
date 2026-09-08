@@ -195,11 +195,32 @@ class TestStore:
         root = tmp_path / "project"
         before = {path.name: path.read_text() for path in root.glob("*.md")}
 
-        def fail_index(*_args, **_kwargs):
+        def fail_commit(*_args, **_kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(store, "write_index", fail_index)
+        monkeypatch.setattr("gptme.memory.store._commit_replacements", fail_commit)
         with pytest.raises(OSError, match="disk full"):
+            store.supersede("old", "new", scope="project")
+
+        assert {path.name: path.read_text() for path in root.glob("*.md")} == before
+
+    def test_supersede_restores_after_partial_replace(self, tmp_path, monkeypatch):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="project")
+        root = tmp_path / "project"
+        before = {path.name: path.read_text() for path in root.glob("*.md")}
+        real_replace = __import__("os").replace
+        calls = {"n": 0}
+
+        def fail_second(src, dst, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise OSError("rename failed")
+            return real_replace(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr("gptme.memory.store.os.replace", fail_second)
+        with pytest.raises(OSError, match="rename failed"):
             store.supersede("old", "new", scope="project")
 
         assert {path.name: path.read_text() for path in root.glob("*.md")} == before
@@ -232,12 +253,20 @@ class TestStore:
         "field",
         [
             "status: bogus",
+            "status: false",
             "confidence: nope",
             "confidence: 2",
+            "confidence: true",
             "metadata: nope",
             "provenance: nope",
             "supersedes: 42",
             "keywords: [fine, 42]",
+            "superseded_by: 42",
+            "recheck: 42",
+            "title: 42",
+            "description: 42",
+            "name: false",
+            "name: ''",
         ],
     )
     def test_audit_reports_invalid_field_types(self, tmp_path, field):

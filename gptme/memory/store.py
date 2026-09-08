@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -28,6 +29,60 @@ logger = logging.getLogger(__name__)
 
 INDEX_FILENAME = "MEMORY.md"
 INDEX_HEADER = "# Persistent Memory"
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` via a same-directory temp file and ``os.replace``.
+
+    Staging the content first means ENOSPC cannot truncate the destination.
+    ``os.replace`` is atomic on POSIX when source and dest share a filesystem.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
+    """Replace each destination with staged content; restore on failure.
+
+    All payloads land in sibling temp files before any destination is renamed
+    into place, so a disk-full error during staging leaves originals untouched.
+    Destinations already renamed are restored from the in-memory snapshot.
+    """
+    staged: list[tuple[Path, Path, str | None]] = []
+    replaced: list[tuple[Path, str | None]] = []
+    try:
+        for dest, text in pairs:
+            original = dest.read_text(encoding="utf-8") if dest.is_file() else None
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
+            tmp.write_text(text, encoding="utf-8")
+            staged.append((dest, tmp, original))
+        for dest, tmp, original in staged:
+            os.replace(tmp, dest)
+            replaced.append((dest, original))
+    except OSError:
+        for _dest, tmp, _original in staged:
+            tmp.unlink(missing_ok=True)
+        restore_errors: list[OSError] = []
+        for dest, original in replaced:
+            try:
+                if original is None:
+                    dest.unlink(missing_ok=True)
+                else:
+                    dest.write_text(original, encoding="utf-8")
+            except OSError as restore_exc:
+                restore_errors.append(restore_exc)
+        if restore_errors:
+            raise OSError(
+                f"write failed and rollback incomplete ({restore_errors[0]})"
+            ) from restore_errors[0]
+        raise
 
 
 @dataclass(frozen=True)
@@ -226,12 +281,6 @@ class MemoryStore:
         if not old.is_living and old.superseded_by != new.name:
             raise ValueError(f"entry {old.name!r} is not living")
 
-        old_original = old_path.read_text(encoding="utf-8")
-        new_original = new_path.read_text(encoding="utf-8")
-        index_path = self.index_path(root.scope)
-        index_original = (
-            index_path.read_text(encoding="utf-8") if index_path.is_file() else None
-        )
         old = replace(old, status="superseded", superseded_by=new.name)
         new_supersedes = list(new.supersedes)
         if old.name not in new_supersedes:
@@ -243,18 +292,28 @@ class MemoryStore:
         # Validate both complete serializations before the first write.
         entry_from_text(old_text, path=old_path, scope=root.scope, strict=True)
         entry_from_text(new_text, path=new_path, scope=root.scope, strict=True)
-        try:
-            old_path.write_text(old_text, encoding="utf-8")
-            new_path.write_text(new_text, encoding="utf-8")
-            self.write_index(root.scope)
-        except OSError:
-            old_path.write_text(old_original, encoding="utf-8")
-            new_path.write_text(new_original, encoding="utf-8")
-            if index_original is None:
-                index_path.unlink(missing_ok=True)
+
+        updated_entries = []
+        for entry in self.index_entries(root.scope):
+            if entry.path == old_path:
+                updated_entries.append(old)
+            elif entry.path == new_path:
+                updated_entries.append(new)
             else:
-                index_path.write_text(index_original, encoding="utf-8")
-            raise
+                updated_entries.append(entry)
+        seen_paths = {entry.path for entry in updated_entries}
+        if old_path not in seen_paths:
+            updated_entries.append(old)
+        if new_path not in seen_paths:
+            updated_entries.append(new)
+        index_text = self.render_index(updated_entries)
+        _commit_replacements(
+            [
+                (old_path, old_text),
+                (new_path, new_text),
+                (self.index_path(root.scope), index_text),
+            ]
+        )
         return old, new
 
     def audit(self, *, scope: str | None = None) -> list[AuditIssue]:
@@ -400,9 +459,8 @@ class MemoryStore:
     ) -> Path:
         root = self.root(scope)
         text = self.render_index(self.index_entries(scope), budget=budget)
-        root.path.mkdir(parents=True, exist_ok=True)
         path = root.path / INDEX_FILENAME
-        path.write_text(text, encoding="utf-8")
+        _atomic_write(path, text)
         return path
 
     def check_index(
