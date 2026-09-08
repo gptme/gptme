@@ -204,6 +204,17 @@ def test_find_potential_paths_punctuation():
     assert "https://example.com" in paths
 
 
+def test_find_potential_paths_ignores_lone_slash():
+    """Prose/markdown ' / ' is not a filesystem path (#3758)."""
+    assert _find_potential_paths("**Still open / not done:**") == []
+    assert _find_potential_paths("also file the rm -rf / false-positive") == []
+    assert "/" not in _find_potential_paths("use `/` as the separator")
+    assert "//" not in _find_potential_paths("see // for details")
+    # Real absolute paths must still be detected
+    assert "/tmp/foo" in _find_potential_paths("clean /tmp/foo afterwards")
+    assert "/tmp" in _find_potential_paths("rm -rf /tmp,")
+
+
 def test_find_potential_paths_at_prefix(tmp_path, monkeypatch):
     """Test that @-prefixed paths are detected and the @ is stripped."""
     (tmp_path / "main.py").touch()

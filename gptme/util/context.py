@@ -715,6 +715,10 @@ def _find_potential_paths(content: str) -> list[str]:
         w = word.removeprefix("@") if word.startswith("@") else word
 
         def _is_path_like_bare(s: str) -> bool:
+            # A lone slash is prose/markdown ("open / not"), not a path.
+            # Implicitly attaching filesystem root is never useful (#3758).
+            if s.strip("/") == "":
+                return False
             return (
                 # Absolute/home/relative paths
                 any(s.startswith(p) for p in ["/", "~/", "./"])

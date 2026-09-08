@@ -788,3 +788,45 @@ def test_include_paths_does_not_scan_root(monkeypatch):
         )
         called_paths = [Path(c.args[0]).resolve() for c in listing.call_args_list]
         assert Path("/") not in called_paths
+
+
+def test_include_paths_does_not_scan_root_from_markdown_heading(monkeypatch):
+    """Ordinary markdown ' / ' must not attach filesystem root (#3758)."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    with patch(
+        "gptme.util.context._dir_to_listing",
+        return_value="[listing suppressed]",
+    ) as listing:
+        include_paths(
+            Message("user", "**Still open / not done:**"),
+            Path.cwd(),
+        )
+        assert listing.call_args_list == []
+
+
+def test_include_paths_does_not_scan_tmp_from_prose(monkeypatch):
+    """Prose mentioning /tmp must not attach the temp root (#3758)."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    with patch(
+        "gptme.util.context._dir_to_listing",
+        return_value="[listing suppressed]",
+    ) as listing:
+        include_paths(
+            Message("user", "rm -rf /tmp,"),
+            Path.cwd(),
+        )
+        called_paths = [Path(c.args[0]).resolve() for c in listing.call_args_list]
+        tmp_roots = {Path("/tmp").resolve(), Path("/private/tmp").resolve()}
+        assert tmp_roots.isdisjoint(called_paths)
