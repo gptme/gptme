@@ -413,9 +413,24 @@ def execute_msg(
                 "the tool_use/tool_result pairing valid.",
                 tooluse.tool,
             )
+            error_msg = f"Tool '{tooluse.tool}' is not available for execution."
+            # If the tool is disabled by default, tell the user how to enable it (#3698).
+            # Search available (not just loaded) tools since disabled-by-default tools
+            # are not loaded unless explicitly allowlisted.
+            available = get_available_tools(include_mcp=False)
+            tool_spec = next(
+                (
+                    t
+                    for t in available
+                    if t.name == tooluse.tool or tooluse.tool in t.block_types
+                ),
+                None,
+            )
+            if tool_spec is not None and tool_spec.disabled_by_default:
+                error_msg += f" Add --tools +{tool_spec.name} to enable this tool."
             yield Message(
                 "system",
-                f"Tool '{tooluse.tool}' is not available for execution.",
+                error_msg,
                 call_id=tooluse.call_id,
             )
 

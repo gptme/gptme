@@ -10,7 +10,7 @@ intentionally left unpaired when the tool is unavailable.
 """
 
 from gptme.message import Message
-from gptme.tools import execute_msg
+from gptme.tools import clear_tools, execute_msg, init_tools
 from gptme.tools.base import set_tool_format
 
 
@@ -84,4 +84,50 @@ class TestExecuteMsgDefensive:
         assert "call-002" in call_ids, "tool_two call_id must appear in results"
         assert len(results) == 2, (
             "Each non-runnable structured tool_use needs one error result"
+        )
+
+    def test_disabled_by_default_tool_error_message_tells_how_to_enable(self):
+        """Disabled-by-default tool error should include --tools +<name> hint (#3698).
+
+        Tools like 'read' have disabled_by_default=True and are not loaded unless
+        explicitly allowlisted. When the model calls them, the error message should
+        tell the user how to enable the tool, not just say it's unavailable.
+        """
+        clear_tools()
+        set_tool_format("tool")
+        init_tools()  # Default allowlist: 'read' is NOT loaded (disabled_by_default)
+
+        call_id = "call-disabled-read"
+        content = f'@read({call_id}): {{"path": "example.txt"}}'
+        msg = Message("assistant", content)
+
+        results = list(execute_msg(msg))
+
+        assert len(results) == 1
+        assert results[0].call_id == call_id
+        assert "not available for execution" in results[0].content
+        assert "--tools +read" in results[0].content, (
+            "Error message for disabled-by-default tool should tell user how to enable it"
+        )
+
+    def test_non_disabled_tool_error_message_has_no_enable_hint(self):
+        """Non-disabled tools should NOT get the --tools +<name> hint.
+
+        The enable hint only applies to tools with disabled_by_default=True.
+        A nonexistent tool (not in the registry at all) should get a plain error.
+        """
+        clear_tools()
+        set_tool_format("tool")
+        init_tools()
+
+        call_id = "call-unknown-tool"
+        content = f'@nonexistent_tool_xyz({call_id}): {{"arg": "value"}}'
+        msg = Message("assistant", content)
+
+        results = list(execute_msg(msg))
+
+        assert len(results) == 1
+        assert "not available for execution" in results[0].content
+        assert "--tools +" not in results[0].content, (
+            "Non-disabled/nonexistent tools should not get an enable hint"
         )
