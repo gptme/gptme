@@ -217,8 +217,8 @@ describe('shouldShowDemoContent', () => {
     resetDemoModeForTests();
   });
 
-  // A normal signed-in user is neither in demo mode nor on the dev server
-  // (import.meta.env.DEV is unavailable under Jest, so isDevServer() is false).
+  // A normal signed-in user is neither in demo mode nor on the Vite dev
+  // server. Jest maps `viteEnv.ts` to a production-like mock (isViteDev=false).
   // Demo fixtures must not surface for them — this is the flash-on-connect fix.
   it('is false for a normal user (no ?demo=1, not the dev server)', () => {
     window.history.replaceState(null, '', '/');

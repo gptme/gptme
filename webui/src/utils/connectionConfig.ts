@@ -5,6 +5,7 @@ import {
   setActiveServer,
   updateServer,
 } from '@/stores/servers';
+import { isViteDev } from '@/utils/viteEnv';
 
 const DEFAULT_API_URL = 'http://127.0.0.1:5700';
 const DEFAULT_CLOUD_APP_BASE_URL = 'https://gptme.ai';
@@ -57,12 +58,7 @@ export function resetDemoModeForTests(): void {
 
 /** True on the local Vite dev server; false in production builds and Jest. */
 function isDevServer(): boolean {
-  try {
-    return Boolean(Function('return import.meta.env.DEV')());
-  } catch {
-    // Jest / Node runtime (import.meta not available)
-    return false;
-  }
+  return isViteDev;
 }
 
 /**

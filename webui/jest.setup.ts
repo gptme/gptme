@@ -29,8 +29,9 @@ if (typeof URL.revokeObjectURL === 'undefined') {
 }
 
 // Shim Vite import.meta.env for Jest.
-// connectionConfig.ts and SetupWizard.tsx wrap import.meta.env accesses in
-// Function() and fall back to process.env when that throws.
+// connectionConfig.ts reads named VITE_* vars via Function() + process.env
+// fallback (Jest cannot parse import.meta). The DEV flag lives in viteEnv.ts
+// and is remapped to src/utils/__mocks__/viteEnv.ts by jest.config.ts.
 // Keep these in sync with the hardcoded defaults in connectionConfig.ts.
 process.env.VITE_GPTME_CLOUD_BASE_URL = 'https://gptme.ai';
 process.env.VITE_GPTME_FLEET_BASE_URL = 'https://fleet.gptme.ai';

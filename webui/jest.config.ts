@@ -2,6 +2,8 @@ export default {
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleNameMapper: {
+    // Must beat the @/ mapper: Jest cannot parse import.meta in viteEnv.ts.
+    '^@/utils/viteEnv$': '<rootDir>/src/utils/__mocks__/viteEnv.ts',
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|sass|scss)$': 'identity-obj-proxy',
     '^@google/model-viewer$': '<rootDir>/src/__mocks__/@google/model-viewer.ts',
