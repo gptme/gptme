@@ -152,6 +152,97 @@ class TestStore:
             ]
         )
 
+    def test_supersede_links_both_entries_and_regenerates_index(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("old-belief", "Old belief", "Old body", scope="project")
+        store.save("new-belief", "New belief", "New body", scope="project")
+
+        old, new = store.supersede("old-belief", "new-belief", scope="project")
+
+        assert old.status == "superseded"
+        assert old.superseded_by == "new-belief"
+        assert new.supersedes == ["old-belief"]
+        assert not old.is_living
+        reparsed_old = parse_entry(tmp_path / "project" / "old-belief.md")
+        reparsed_new = parse_entry(tmp_path / "project" / "new-belief.md")
+        assert reparsed_old.superseded_by == "new-belief"
+        assert reparsed_new.supersedes == ["old-belief"]
+        index = (tmp_path / "project" / "MEMORY.md").read_text()
+        assert "new-belief.md" in index
+        assert "old-belief.md" not in index
+
+    def test_supersede_requires_strict_frontmatter_before_rewriting(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "old",
+            "---\nname: old\ndescription: unquoted: colon\n---\nold body\n",
+        )
+        _write(root, "new", "---\nname: new\ndescription: fine\n---\nnew body\n")
+        store = self._store(tmp_path)
+
+        with pytest.raises(ValueError, match="invalid YAML"):
+            store.supersede("old", "new", scope="project")
+
+        assert "status: superseded" not in (root / "old.md").read_text()
+
+    def test_supersede_rejects_cross_root_entries(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="user")
+
+        with pytest.raises(KeyError, match="new"):
+            store.supersede("old", "new", scope="project")
+
+    def test_supersede_rejects_self_and_non_living_replacement(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("one", "one", scope="project")
+        store.save("two", "two", scope="project")
+
+        with pytest.raises(ValueError, match="itself"):
+            store.supersede("one", "one", scope="project")
+        store.supersede("one", "two", scope="project")
+        store.save("three", "three", scope="project")
+        with pytest.raises(ValueError, match="not living"):
+            store.supersede("three", "one", scope="project")
+
+    def test_audit_reports_invalid_yaml_and_broken_supersession(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "invalid",
+            "---\nname: invalid\ndescription: unquoted: colon\n---\nbody\n",
+        )
+        _write(
+            root,
+            "old",
+            "---\nname: old\ndescription: old\nstatus: superseded\nsuperseded_by: missing\n---\n",
+        )
+        store = self._store(tmp_path)
+
+        issues = store.audit(scope="project")
+
+        assert {(issue.code, issue.entry) for issue in issues} >= {
+            ("invalid-yaml", "invalid.md"),
+            ("dangling-superseded-by", "old"),
+        }
+
+    def test_audit_reports_dangling_and_asymmetric_forward_links(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "new",
+            "---\nname: new\ndescription: new\nsupersedes: [missing, old]\n---\n",
+        )
+        _write(root, "old", "---\nname: old\ndescription: old\n---\n")
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert {(issue.code, issue.entry) for issue in issues} == {
+            ("dangling-supersedes", "new"),
+            ("asymmetric-supersession", "new"),
+        }
+
     def test_union_and_nearest_wins(self, tmp_path):
         _write(
             tmp_path / "project",
@@ -464,6 +555,35 @@ class TestCli:
     def test_index_budget_cli_rejects_non_positive(self, env):
         r = CliRunner().invoke(util_main, ["memory", "index", "--budget", "0"])
         assert r.exit_code != 0
+
+    def test_supersede_and_audit_cli(self, env):
+        runner = CliRunner()
+        for name in ("old", "new"):
+            result = runner.invoke(
+                util_main,
+                ["memory", "save", name, f"{name} description"],
+            )
+            assert result.exit_code == 0, result.output
+
+        result = runner.invoke(util_main, ["memory", "supersede", "old", "new"])
+        assert result.exit_code == 0, result.output
+        assert "old -> new" in result.output
+        result = runner.invoke(util_main, ["memory", "audit", "--quiet"])
+        assert result.exit_code == 0, result.output
+        assert result.output == ""
+
+    def test_audit_cli_fails_on_invalid_yaml(self, env):
+        _write(
+            env,
+            "invalid",
+            "---\nname: invalid\ndescription: unquoted: colon\n---\nbody\n",
+        )
+
+        result = CliRunner().invoke(util_main, ["memory", "audit"])
+
+        assert result.exit_code == 1
+        assert "invalid-yaml" in result.output
+        assert "invalid.md" in result.output
 
     def test_recall_hook_json_reads_claude_payload(self, env):
         _write(

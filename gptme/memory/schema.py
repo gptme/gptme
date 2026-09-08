@@ -33,6 +33,10 @@ class MemoryParseError(ValueError):
     """Raised when a file is not a memory entry (no or unusable frontmatter)."""
 
 
+class MemoryFrontmatterError(MemoryParseError):
+    """Raised when strict parsing is required but the YAML is invalid."""
+
+
 def slugify(name: str) -> str:
     """Convert a name to a safe filename slug (``My Fact!`` → ``my-fact``)."""
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower().strip()).strip("-")
@@ -174,12 +178,16 @@ def _lenient_load(raw: str) -> dict[str, Any]:
     return data
 
 
-def parse_frontmatter(raw: str) -> dict[str, Any]:
+def parse_frontmatter(raw: str, *, strict: bool = False) -> dict[str, Any]:
     try:
         loaded = yaml.safe_load(raw)
-    except yaml.YAMLError:
+    except yaml.YAMLError as exc:
+        if strict:
+            raise MemoryFrontmatterError(f"invalid YAML: {exc}") from exc
         return _lenient_load(raw)
     if not isinstance(loaded, dict):
+        if strict:
+            raise MemoryFrontmatterError("invalid YAML: frontmatter is not a mapping")
         return _lenient_load(raw)
     return loaded
 
@@ -193,13 +201,17 @@ def _as_list(value: Any) -> list[str]:
 
 
 def entry_from_text(
-    text: str, path: Path | None = None, scope: str | None = None
+    text: str,
+    path: Path | None = None,
+    scope: str | None = None,
+    *,
+    strict: bool = False,
 ) -> MemoryEntry:
     parts = split_frontmatter(text)
     if parts is None:
         raise MemoryParseError(f"no frontmatter: {path or '<text>'}")
     raw, body = parts
-    data = parse_frontmatter(raw)
+    data = parse_frontmatter(raw, strict=strict)
     if not data:
         raise MemoryParseError(f"empty frontmatter: {path or '<text>'}")
 
@@ -239,6 +251,10 @@ def entry_from_text(
     )
 
 
-def parse_entry(path: Path, scope: str | None = None) -> MemoryEntry:
+def parse_entry(
+    path: Path, scope: str | None = None, *, strict: bool = False
+) -> MemoryEntry:
     """Parse one memory file. Raises :class:`MemoryParseError` for non-entries."""
-    return entry_from_text(path.read_text(encoding="utf-8"), path=path, scope=scope)
+    return entry_from_text(
+        path.read_text(encoding="utf-8"), path=path, scope=scope, strict=strict
+    )

@@ -21,6 +21,25 @@ Inspect and write memory
 ``index`` prints by default. Pass ``--write`` only when you want to replace the
 selected root's ``MEMORY.md`` with a generated index.
 
+Supersession and audit
+----------------------
+
+Replace an obsolete entry with an already-existing living entry, then check the
+root's strict YAML and bidirectional supersession links:
+
+.. code-block:: console
+
+   $ gptme-util memory supersede old-belief new-belief
+   $ gptme-util memory audit
+   $ gptme-util memory audit --quiet
+
+``supersede`` updates both entries (``superseded_by`` on the old entry and
+``supersedes`` on the replacement) and regenerates the selected root's index.
+Both entries must be in the same root; use ``--scope`` when needed. The command
+refuses malformed YAML rather than rewriting it through the lenient read
+fallback. ``audit`` exits non-zero for malformed entries, dangling targets, or
+asymmetric links, making ``audit --quiet`` suitable for lifecycle hooks.
+
 Recall
 ------
 

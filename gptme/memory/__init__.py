@@ -13,11 +13,19 @@ from .recall import (
     render_recall,
 )
 from .roots import MemoryRoot, resolve_roots
-from .schema import MemoryEntry, MemoryParseError, parse_entry, slugify
-from .store import MemoryStore, update_index_line
+from .schema import (
+    MemoryEntry,
+    MemoryFrontmatterError,
+    MemoryParseError,
+    parse_entry,
+    slugify,
+)
+from .store import AuditIssue, MemoryStore, update_index_line
 
 __all__ = [
+    "AuditIssue",
     "MemoryEntry",
+    "MemoryFrontmatterError",
     "MemoryParseError",
     "MemoryRoot",
     "MemoryStore",
