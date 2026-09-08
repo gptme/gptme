@@ -103,7 +103,7 @@ function makeConversationState() {
     reconnectMaxAttempts: null,
     reconnectRetryInMs: null,
     reconnectRetryStartedAt: null,
-    connectionError: null,
+    connectionError: null as string | null,
     hasMoreBefore: false,
     isConnected: true,
     isGenerating: false,
@@ -447,6 +447,78 @@ describe('server disconnected banner — removed server', () => {
     mockIsDemoMode.mockReturnValue(true);
     render(<ConversationContent conversationId="demo/test" serverId="removed-server" />);
     expect(screen.queryByText(/server not connected/i)).toBeNull();
+  });
+});
+
+describe('event-stream connection banner', () => {
+  // The server-disconnected banner keys off isConnected$ (the API-level
+  // connection); keep that connected so these tests isolate the *event-stream*
+  // banner, which keys off the conversation's connectionStatus.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsDemoMode.mockReturnValue(false);
+    isConnected$.set(true);
+    lastConnectionResult$.set(null);
+    mockConversation$.set(makeConversationState().peek());
+  });
+
+  const setStatus = (status: string) =>
+    act(() => {
+      mockConversation$.connectionStatus.set(status);
+    });
+
+  // These three are the normal open handshake and must never flash the banner.
+  it.each(['idle', 'connecting', 'connected'])(
+    'does not show the banner while %s (never connected / connect in progress)',
+    (status) => {
+      setStatus(status);
+      renderComponent();
+      expect(screen.queryByText(/event stream disconnected/i)).toBeNull();
+      expect(screen.queryByText(/reconnecting event stream/i)).toBeNull();
+    }
+  );
+
+  it('shows the reconnecting banner when an established stream drops', () => {
+    setStatus('reconnecting');
+    renderComponent();
+    expect(screen.getByText(/reconnecting event stream/i)).toBeInTheDocument();
+  });
+
+  it('shows the disconnected banner when the connection genuinely fails', () => {
+    setStatus('disconnected');
+    renderComponent();
+    expect(screen.getByText(/event stream disconnected/i)).toBeInTheDocument();
+  });
+
+  it('surfaces the specific connectionError when present', () => {
+    act(() => {
+      mockConversation$.connectionStatus.set('disconnected');
+      mockConversation$.connectionError.set('Stream failed after 5 retries');
+    });
+    renderComponent();
+    expect(screen.getByText(/stream failed after 5 retries/i)).toBeInTheDocument();
+  });
+
+  it('never flashes the banner across the idle → connecting → connected handshake', () => {
+    setStatus('idle');
+    renderComponent();
+    const bannerAbsent = () => {
+      expect(screen.queryByText(/event stream disconnected/i)).toBeNull();
+      expect(screen.queryByText(/reconnecting event stream/i)).toBeNull();
+    };
+    bannerAbsent();
+    setStatus('connecting');
+    bannerAbsent();
+    setStatus('connected');
+    bannerAbsent();
+  });
+
+  it('shows the banner when a connected stream transitions to disconnected', () => {
+    setStatus('connected');
+    renderComponent();
+    expect(screen.queryByText(/event stream disconnected/i)).toBeNull();
+    setStatus('disconnected');
+    expect(screen.getByText(/event stream disconnected/i)).toBeInTheDocument();
   });
 });
 

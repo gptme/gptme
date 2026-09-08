@@ -54,7 +54,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const queryClient = useQueryClient();
   const loadError = use$(() => conversation$?.loadError.get() ?? null);
   const messageCount = use$(() => conversation$?.data.log.get()?.length ?? 0);
-  const connectionStatus = use$(() => conversation$?.connectionStatus.get() ?? 'disconnected');
+  const connectionStatus = use$(() => conversation$?.connectionStatus.get() ?? 'idle');
   const reconnectAttempt = use$(() => conversation$?.reconnectAttempt.get() ?? null);
   const reconnectMaxAttempts = use$(() => conversation$?.reconnectMaxAttempts.get() ?? null);
   const reconnectRetryInMs = use$(() => conversation$?.reconnectRetryInMs.get() ?? null);
@@ -739,6 +739,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     [forkConversation, navigate, queryClient, serverId]
   );
 
+  // Only surface the event-stream banner for a genuine problem: an established
+  // stream that dropped ('reconnecting') or a genuine failure with retries
+  // exhausted ('disconnected'). The initial 'idle' and in-progress 'connecting'
+  // states show nothing, so opening a conversation no longer flashes the banner
+  // during the normal idle → connecting → connected handshake.
   const showConnectionBanner =
     !isReadOnly && (connectionStatus === 'reconnecting' || connectionStatus === 'disconnected');
 

@@ -6,6 +6,8 @@ import {
   replaceLog,
   prependLogPage,
   setCurrentBranch,
+  setConnected,
+  setConnectionStatus,
   toAbsoluteIndex,
   toLocalIndex,
 } from '../conversations';
@@ -215,5 +217,51 @@ describe('setCurrentBranch window metadata reset', () => {
     // Branch unchanged, window metadata unchanged
     expect(conv?.currentBranch.get()).toBe('main');
     expect(conv?.logOffset.get()).toBe(100); // still the windowed offset
+  });
+});
+
+describe('connection status transitions', () => {
+  const id = 'test-conv';
+
+  beforeEach(() => {
+    initConversation(id);
+  });
+
+  it('starts in idle, not disconnected (so the banner never flashes on open)', () => {
+    const conv = conversations$.get(id);
+    expect(conv?.connectionStatus.get()).toBe('idle');
+    expect(conv?.isConnected.get()).toBe(false);
+  });
+
+  it('setConnected(true) marks the stream connected', () => {
+    setConnected(id, true);
+    const conv = conversations$.get(id);
+    expect(conv?.connectionStatus.get()).toBe('connected');
+    expect(conv?.isConnected.get()).toBe(true);
+  });
+
+  it('setConnected(false) is an intentional teardown → idle, not disconnected', () => {
+    setConnected(id, true);
+    setConnected(id, false);
+    const conv = conversations$.get(id);
+    // A background eviction / page-unload teardown must not surface as a failure.
+    expect(conv?.connectionStatus.get()).toBe('idle');
+    expect(conv?.isConnected.get()).toBe(false);
+  });
+
+  it('setConnectionStatus reports a genuine disconnect with its error', () => {
+    setConnectionStatus(id, 'disconnected', { error: 'stream failed after 5 retries' });
+    const conv = conversations$.get(id);
+    expect(conv?.connectionStatus.get()).toBe('disconnected');
+    expect(conv?.isConnected.get()).toBe(false);
+    expect(conv?.connectionError.get()).toBe('stream failed after 5 retries');
+  });
+
+  it('setConnectionStatus tracks reconnecting attempts', () => {
+    setConnectionStatus(id, 'reconnecting', { attempt: 2, maxAttempts: 5, retryInMs: 1000 });
+    const conv = conversations$.get(id);
+    expect(conv?.connectionStatus.get()).toBe('reconnecting');
+    expect(conv?.reconnectAttempt.get()).toBe(2);
+    expect(conv?.reconnectMaxAttempts.get()).toBe(5);
   });
 });

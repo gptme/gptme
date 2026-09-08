@@ -16,9 +16,18 @@ export interface ExecutingTool {
 }
 
 export type ConversationConnectionStatus =
+  // Never connected yet, or intentionally disconnected (e.g. evicted to respect
+  // the connection cap, or torn down on page unload). This is the initial state
+  // and must NOT surface an alarming "disconnected" banner — no established
+  // stream has dropped and no connection attempt has failed.
+  | 'idle'
+  // A connection attempt is in progress (initial connect). No banner.
   | 'connecting'
   | 'connected'
+  // An established stream dropped and is auto-retrying. Shows a banner.
   | 'reconnecting'
+  // Genuine failure: the stream dropped or the initial connect failed and
+  // retries are exhausted. Shows a banner.
   | 'disconnected';
 
 export interface ConversationState {
@@ -100,7 +109,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       data: { id, name: '', log: [], logfile: id, branches: {}, workspace: '/default/workspace' },
       isGenerating: false,
       isConnected: false,
-      connectionStatus: 'disconnected',
+      connectionStatus: 'idle',
       reconnectAttempt: null,
       reconnectMaxAttempts: null,
       reconnectRetryInMs: null,
@@ -180,7 +189,12 @@ export function setGenerating(id: string, isGenerating: boolean) {
 export function setConnected(id: string, isConnected: boolean) {
   updateConversation(id, {
     isConnected,
-    connectionStatus: isConnected ? 'connected' : 'disconnected',
+    // A false here means an *intentional* teardown (evicting a background
+    // conversation to respect the connection cap, or closing the stream on page
+    // unload) — not a failure. Treat it as 'idle' so re-opening reconnects
+    // cleanly without flashing the "disconnected" banner. Genuine drops/failures
+    // come through setConnectionStatus(id, 'disconnected', ...) instead.
+    connectionStatus: isConnected ? 'connected' : 'idle',
     reconnectAttempt: null,
     reconnectMaxAttempts: null,
     reconnectRetryInMs: null,
@@ -274,7 +288,7 @@ export function initConversation(
     },
     isGenerating: false,
     isConnected: false,
-    connectionStatus: 'disconnected',
+    connectionStatus: 'idle',
     reconnectAttempt: null,
     reconnectMaxAttempts: null,
     reconnectRetryInMs: null,
