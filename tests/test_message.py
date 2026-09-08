@@ -1,6 +1,10 @@
+import json
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import pytest
 
 from gptme.message import Message, msgs_to_toml, toml_to_msgs
 
@@ -261,6 +265,88 @@ def test_format_msgs_terminal_projection_false_uses_complete_content():
     )
     (content,) = format_msgs([msg], terminal_projection=False)
     assert "full stdout that was streamed live" in content
+
+
+def test_native_ipython_display_preserves_raw_message_and_arguments():
+    from gptme.message import format_msgs
+
+    code = "values = [1, 2]\nprint(values)"
+    raw_call = "@ipython(call_1): " + json.dumps(
+        {"code": code, "kernel": "python3", "options": {"timeout": 3, "quiet": False}}
+    )
+    msg = Message("assistant", "Before\n" + raw_call + "\nAfter")
+    original = msg.to_dict()
+
+    (display,) = format_msgs([msg])
+    assert "@ipython(call_1):" in display
+    assert code in display
+    assert '"kernel": "python3"' in display
+    assert '"options": {"timeout": 3, "quiet": false}' in display
+    assert display.index("Before") < display.index(code) < display.index("After")
+    assert '"code":' not in display
+    assert msg.to_dict() == original
+    assert raw_call in format_msgs([msg], terminal_projection=False)[0]
+
+
+def test_native_ipython_highlight_preserves_literal_source(monkeypatch):
+    from rich.console import Console
+    from rich.text import Text
+
+    from gptme.message import print_msg
+
+    code = 'values = [1, 2]\nprint("```python [bold]literal[/bold]")\nprint(values)'
+    msg = Message("assistant", "@ipython(call_2): " + json.dumps({"code": code}))
+    captured = StringIO()
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(
+        "gptme.message.console",
+        Console(file=captured, force_terminal=True, no_color=False, width=120),
+    )
+
+    assert print_msg(msg, highlight=True) == 1
+    rendered = Text.from_ansi(captured.getvalue())
+    assert code in rendered.plain
+    # Python identifiers get syntax styles; the role label alone is insufficient.
+    source_start = rendered.plain.index("values =")
+    assert any(span.start <= source_start < span.end for span in rendered.spans)
+    assert msg.content == "@ipython(call_2): " + json.dumps({"code": code})
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        '{"kernel": "[bold]literal[/bold]"}',
+        '{"code": ["not source"]}',
+        '{"code": "unterminated',
+        '{"code": "print(1)", broken}',
+    ],
+)
+def test_native_ipython_unrenderable_arguments_remain_raw(arguments):
+    from gptme.message import format_msgs
+
+    raw = "@ipython(call_3): " + arguments
+    msg = Message("assistant", raw)
+    assert format_msgs([msg])[0] == "Assistant: " + raw
+    assert msg.content == raw
+
+
+@pytest.mark.parametrize("fence", ["```", "````", "~~~", "   ```"])
+def test_native_ipython_fenced_examples_keep_existing_rendering(fence):
+    from gptme.message import format_msgs
+
+    raw = '@ipython(example): {"code": "print(1)\\nprint(2)"}'
+    msg = Message("assistant", fence + "text\n" + raw + "\n" + fence)
+    assert format_msgs([msg]) == format_msgs([msg], terminal_projection=False)
+
+
+@pytest.mark.parametrize("role", ["user", "system"])
+def test_native_ipython_examples_in_other_roles_remain_raw(role):
+    from gptme.message import format_msgs
+
+    raw = '@ipython(example): {"code": "print(1)\\nprint(2)"}'
+    msg = Message(role, raw)
+    assert format_msgs([msg])[0].endswith(raw)
 
 
 def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):

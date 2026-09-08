@@ -2,6 +2,8 @@
 
 from typing import Any
 
+import pytest
+
 from gptme.llm.utils import apply_cache_control, parameters2dict, process_image_file
 from gptme.tools.base import Parameter
 
@@ -406,6 +408,145 @@ class TestProcessImageFile:
         content_parts2: list[dict] = []
         result2 = process_image_file(str(img_file), content_parts2, max_size_mb=3)
         assert result2 is not None
+
+
+@pytest.mark.parametrize("chunk_size", [1, 7, 10000])
+@pytest.mark.parametrize("break_on_tooluse", [False, True])
+def test_reply_stream_ipython_terminal_projection(
+    monkeypatch, chunk_size, break_on_tooluse
+):
+    """Terminal projection must not alter callbacks, saved content, or tool breaks."""
+    import io
+    import json
+
+    from rich.console import Console
+
+    from gptme.llm import _reply_stream, _StreamWithMetadata
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(["ipython"], include_mcp=False)
+    monkeypatch.setattr("gptme.tools.base.tool_format", "tool")
+    source = 'values = [1, 2]\nprint("} \\" [/tmp/source] ```")'
+    call = "@ipython(call-1): " + json.dumps(
+        {"code": source, "kernel": "python3"}, indent=2
+    )
+    suffix = "\nAfter the call"
+    raw = call + suffix
+
+    def chunks():
+        for i in range(0, len(raw), chunk_size):
+            yield raw[i : i + chunk_size]
+        return {"model": "mock/echo", "usage": {"output_tokens": 9}}
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _StreamWithMetadata(chunks(), "mock/echo"),
+    )
+    captured = io.StringIO()
+    terminal = Console(file=captured, width=160, force_terminal=True, record=True)
+    monkeypatch.setattr("gptme.llm.rprint", terminal.print)
+    tokens: list[str] = []
+    result = _reply_stream(
+        [Message("user", "hi")],
+        model="mock/echo",
+        tools=None,
+        on_token=tokens.append,
+        break_on_tooluse=break_on_tooluse,
+    )
+
+    expected = call if break_on_tooluse else raw
+    assert result.content == expected
+    assert "".join(tokens) == expected
+    assert result.metadata is not None
+    assert result.metadata["usage"]["output_tokens"] == 9
+    rendered = terminal.export_text()
+    assert "@ipython(call-1):" in rendered
+    assert source in rendered
+    assert 'arguments: {"kernel": "python3"}' in rendered
+    assert '"code":' not in rendered
+    assert ("After the call" in rendered) is (not break_on_tooluse)
+    assert "\x1b[" in captured.getvalue()
+
+
+def test_reply_stream_tool_display_preserves_prose_and_other_tools(monkeypatch):
+    """Ordinary text and non-code calls still reach the terminal each chunk."""
+    import io
+
+    from rich.console import Console
+
+    from gptme.llm import _reply_stream, _StreamWithMetadata
+    from gptme.message import Message
+
+    captured = io.StringIO()
+    terminal = Console(file=captured, width=160)
+    monkeypatch.setattr("gptme.llm.rprint", terminal.print)
+    ordinary = 'Hello\n@shell(call-2): {"command": "pwd"}\n'
+
+    def chunks():
+        yield "Hello"
+        assert "Hello" in captured.getvalue()
+        yield ordinary[len("Hello") :]
+        assert ordinary in captured.getvalue()
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _StreamWithMetadata(chunks(), "mock/echo"),
+    )
+    result = _reply_stream(
+        [Message("user", "hi")], "mock/echo", None, break_on_tooluse=False
+    )
+    assert result.content == ordinary
+
+
+@pytest.mark.parametrize("error", [None, KeyboardInterrupt, RuntimeError])
+def test_reply_stream_unfinished_ipython_display_is_flushed(monkeypatch, error):
+    """A cancelled or broken stream must display incomplete native calls once."""
+    import io
+
+    from rich.console import Console
+
+    from gptme.llm import _reply_stream, _StreamWithMetadata
+    from gptme.message import Message
+
+    raw = '@ipython(partial): {"code": "print(\\n[/tmp/source]'
+    captured = io.StringIO()
+    terminal = Console(file=captured, width=160)
+    monkeypatch.setattr("gptme.llm.rprint", terminal.print)
+
+    def chunks():
+        yield raw[:9]
+        yield raw[9:]
+        if error:
+            raise error()
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _StreamWithMetadata(chunks(), "mock/echo"),
+    )
+    if error is RuntimeError:
+        with pytest.raises(RuntimeError):
+            _reply_stream([Message("user", "hi")], "mock/echo", None)
+    else:
+        result = _reply_stream([Message("user", "hi")], "mock/echo", None)
+        suffix = "... ^C Interrupted" if error is KeyboardInterrupt else ""
+        assert result.content == raw + suffix
+    assert captured.getvalue().count(raw) == 1
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_reply_ipython_display_with_offline_provider(capsys, stream):
+    """The actual provider/reply path shares terminal-only formatting."""
+    import json
+
+    from gptme.llm import reply
+    from gptme.message import Message
+
+    source = "values = [1, 2]\nprint(values)"
+    request = "\n@ipython(offline): " + json.dumps({"code": source})
+    result = reply([Message("user", request)], "mock/echo", stream=stream)
+    assert result.content == "Echo: " + request
+    assert source in capsys.readouterr().out
 
 
 def test_reply_stream_on_token_callback(monkeypatch):

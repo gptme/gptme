@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from rich import print as rprint
+from rich.text import Text
 
 from ..config import Config, get_config
 from ..constants import prompt_assistant
@@ -24,6 +25,7 @@ from ..message import (
 from ..telemetry import trace_function
 from ..tools import ToolSpec, ToolUse, get_tool_format
 from ..util import console
+from ..util.tool_display import ToolCallDisplay, ToolCodeDisplay
 from .models import (
     MODELS,
     PROVIDERS_OPENAI,
@@ -414,7 +416,11 @@ def _reply_after_hooks(
     )
     if not json_mode and not is_output_quiet():
         rprint(" " * shutil.get_terminal_size().columns, end="\r")
-        rprint(f"{prompt_assistant(agent_name)}: {response}")
+        rprint(f"{prompt_assistant(agent_name)}: ", end="")
+        display = ToolCallDisplay()
+        for part in display.feed(response):
+            rprint(part.render() if isinstance(part, ToolCodeDisplay) else part, end="")
+        rprint(Text(display.finish()))
     return Message("assistant", response, metadata=metadata)
 
 
@@ -817,6 +823,11 @@ def _reply_stream(
     # sys.stdout.flush() calls from O(chars) to O(chunks) — the main source of
     # bursty terminal rendering (gptme/gptme#2717 terminal side).
     normal_display_buffer: list[str] = []
+    tool_display = ToolCallDisplay()
+
+    def _display_normal(text: str) -> None:
+        for part in tool_display.feed(text):
+            rprint(part.render() if isinstance(part, ToolCodeDisplay) else part, end="")
 
     # Create stream wrapper to capture metadata
     stream = _stream(
@@ -911,13 +922,13 @@ def _reply_stream(
                     if normal_display_buffer:
                         # Flush buffered normal chars before the newline so the
                         # line content appears before the line ending.
-                        rprint("".join(normal_display_buffer), end="")
+                        _display_normal("".join(normal_display_buffer))
                         normal_display_buffer.clear()
                     if think_display_buffer:
                         # Emit the entire buffered line dimly in one shot.
                         rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
                         think_display_buffer.clear()
-                    rprint(char, end="")
+                    _display_normal(char)
             else:
                 # Print normal characters
                 if display_enabled:
@@ -978,7 +989,7 @@ def _reply_stream(
             # of bursty terminal rendering (per-char syscall overhead).
             if _is_chunk_end and display_enabled:
                 if normal_display_buffer:
-                    rprint("".join(normal_display_buffer), end="")
+                    _display_normal("".join(normal_display_buffer))
                     normal_display_buffer.clear()
                 sys.stdout.flush()
 
@@ -1007,7 +1018,7 @@ def _reply_stream(
         # Flush any remaining buffered chars (responses that end without a
         # trailing newline, or partial lines left after a break_on_tooluse break).
         if display_enabled and normal_display_buffer:
-            rprint("".join(normal_display_buffer), end="")
+            _display_normal("".join(normal_display_buffer))
             normal_display_buffer.clear()
         if display_enabled and think_display_buffer:
             rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
@@ -1020,7 +1031,7 @@ def _reply_stream(
         # Flush any chars buffered since the last chunk boundary so the terminal
         # shows everything received before the interrupt.
         if display_enabled and normal_display_buffer:
-            rprint("".join(normal_display_buffer), end="")
+            _display_normal("".join(normal_display_buffer))
             normal_display_buffer.clear()
         # Flush partial line before the interrupt suffix so callers see the
         # content that was streamed up to the interrupt point.
@@ -1050,6 +1061,12 @@ def _reply_stream(
         # Explicitly close the underlying generator to release resources
         # This handles all exit paths: normal completion, KeyboardInterrupt, and tool break
         stream.gen.close()
+        if display_enabled:
+            if normal_display_buffer:
+                _display_normal("".join(normal_display_buffer))
+                normal_display_buffer.clear()
+            if pending := tool_display.finish():
+                rprint(Text(pending), end="")
         print_clear()
         if first_token_time:
             end_time = time.time()

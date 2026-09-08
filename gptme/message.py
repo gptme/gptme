@@ -17,6 +17,7 @@ import tomlkit
 from dateutil.parser import isoparse
 from rich.markup import escape as escape_markup
 from rich.syntax import Syntax
+from rich.text import Text
 from tomlkit._utils import escape_string
 from typing_extensions import Self
 
@@ -559,6 +560,7 @@ def format_msgs(
     """
     # Import here to avoid circular import
     from .config import get_config
+    from .util.tool_display import ToolCallDisplay, ToolCodeDisplay
 
     outputs = []
     for msg in msgs:
@@ -590,24 +592,44 @@ def format_msgs(
         else:
             multiline = len(stripped_content.split("\n")) > 1
             output += "\n" + indent * " " if multiline else ""
-            for i, block in enumerate(stripped_content.split("```")):
-                if i % 2 == 0:
-                    # Escape Rich markup in non-code-block content
-                    if highlight:
-                        block = escape_markup(block)
-                    output += textwrap.indent(block, prefix=indent * " ")
-                    continue
-                if highlight:
-                    lang = block.split("\n", 1)[0]
-                    content = block.split("\n", 1)[-1]
-                    fmt = "underline blue"
-                    block = f"[{fmt}]{lang}\n[/{fmt}]" + rich_to_str(
-                        Syntax(
-                            content.rstrip().replace("[", r"\["),
-                            lang,
-                        )
+            parts: list[str | Text | ToolCodeDisplay] = [stripped_content]
+            if terminal_projection and msg.role == "assistant":
+                display = ToolCallDisplay()
+                parts = [*display.feed(stripped_content), Text(display.finish())]
+            for part in parts:
+                if isinstance(part, ToolCodeDisplay):
+                    rendered = rich_to_str(
+                        part.render(highlight), force_terminal=highlight
                     )
-                output += f"```{block.rstrip()}\n```"
+                    output += textwrap.indent(
+                        Text.from_ansi(rendered).markup if highlight else rendered,
+                        prefix=indent * " ",
+                    )
+                    continue
+                if isinstance(part, Text):
+                    output += textwrap.indent(
+                        escape_markup(part.plain) if highlight else part.plain,
+                        prefix=indent * " ",
+                    )
+                    continue
+                for i, block in enumerate(part.split("```")):
+                    if i % 2 == 0:
+                        # Escape Rich markup in non-code-block content
+                        if highlight:
+                            block = escape_markup(block)
+                        output += textwrap.indent(block, prefix=indent * " ")
+                        continue
+                    if highlight:
+                        lang = block.split("\n", 1)[0]
+                        content = block.split("\n", 1)[-1]
+                        fmt = "underline blue"
+                        block = f"[{fmt}]{lang}\n[/{fmt}]" + rich_to_str(
+                            Syntax(
+                                content.rstrip().replace("[", r"\["),
+                                lang,
+                            )
+                        )
+                    output += f"```{block.rstrip()}\n```"
 
         status_emoji = ""
         if msg.role == "system":
