@@ -56,6 +56,8 @@ export function useConversation(conversationId: string, serverId?: string) {
   // Stop during the new-chat handshake: onConnected / onMessageStart must not
   // restart generation after the user already cancelled the pending initial step.
   const stopRequestedRef = useRef(false);
+  const generationEpochRef = useRef(0);
+  const generationChainRef = useRef<Promise<void> | null>(null);
   const loadingOlderMessagesRef = useRef(false);
   const isLoadingOlderMessages$ = useObservable(false);
   const isLoadingOlderMessages = use$(isLoadingOlderMessages$);
@@ -540,87 +542,126 @@ export function useConversation(conversationId: string, serverId?: string) {
   // Call this BEFORE the first await of the path, never after. Clearing the
   // flag once a request is already in flight would also swallow a *newer* Stop
   // the user pressed while waiting for that request.
+  //
+  // Epoch + chain: a later action may call this while an older rerunTools() is
+  // still in flight. That clear is current user intent, but the older request
+  // must still re-interrupt leftover auto-confirm tools before the newer path
+  // starts its first API call. The chain serializes those paths so the
+  // re-interrupt cannot kill the new generation.
   const beginGeneration = () => {
+    generationEpochRef.current += 1;
     stopRequestedRef.current = false;
+    return generationEpochRef.current;
+  };
+
+  const generationIsStale = (epoch: number) =>
+    stopRequestedRef.current || generationEpochRef.current !== epoch;
+
+  const runGeneration = async (work: (epoch: number) => Promise<void>) => {
+    const epoch = beginGeneration();
+    const previous = generationChainRef.current;
+    let release: () => void = () => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    generationChainRef.current = current;
+    try {
+      // Only yield when another generation is actually in flight. Awaiting an
+      // already-resolved tail would let Stop land before this path's first
+      // API call — a different race than the one we serialize.
+      if (previous) {
+        await previous.catch(() => undefined);
+      }
+      if (generationIsStale(epoch)) return;
+      await work(epoch);
+    } finally {
+      release();
+      if (generationChainRef.current === current) {
+        generationChainRef.current = null;
+      }
+    }
   };
 
   const sendMessage = async ({ message, options }: { message: string; options?: ChatOptions }) => {
     if (!conversation$) {
       throw new Error('Conversation not initialized');
     }
-    beginGeneration();
 
-    // Clear any pending or executing tool when sending a new message
-    const pendingTool = conversation$?.pendingTool.get();
-    const executingTool = conversation$?.executingTool.get();
-    if (pendingTool) {
-      setPendingTool(conversationId, null, null);
-    }
-    if (executingTool) {
-      setExecutingTool(conversationId, null, null);
-    }
+    await runGeneration(async (epoch) => {
+      // Clear any pending or executing tool when sending a new message
+      const pendingTool = conversation$?.pendingTool.get();
+      const executingTool = conversation$?.executingTool.get();
+      if (pendingTool) {
+        setPendingTool(conversationId, null, null);
+      }
+      if (executingTool) {
+        setExecutingTool(conversationId, null, null);
+      }
 
-    // Upload pending files first if any
-    let filePaths = options?.files || [];
-    if (options?.pendingFiles?.length) {
+      // Upload pending files first if any
+      let filePaths = options?.files || [];
+      if (options?.pendingFiles?.length) {
+        try {
+          const uploadResult = await api.uploadFiles(conversationId, options.pendingFiles);
+          filePaths = [...filePaths, ...uploadResult.files.map((f) => f.path)];
+        } catch (error) {
+          console.error('[useConversation] File upload failed:', error);
+          toast({
+            variant: 'destructive',
+            title: 'Upload failed',
+            description: 'Failed to upload attached files',
+          });
+          // Continue sending the message without files
+        }
+      }
+
+      // Create user message with pending status
+      const userMessage: Message = {
+        role: 'user',
+        content: message,
+        timestamp: new Date().toISOString(),
+        ...(filePaths.length > 0 ? { files: filePaths } : {}),
+        _status: 'pending',
+      };
+
+      // Add message to conversation (optimistic)
+      addMessage(conversationId, userMessage);
+
       try {
-        const uploadResult = await api.uploadFiles(conversationId, options.pendingFiles);
-        filePaths = [...filePaths, ...uploadResult.files.map((f) => f.path)];
+        // Send the message
+        await api.sendMessage(conversationId, userMessage);
+        setMessageStatus(conversationId, userMessage.timestamp!, 'sent');
+
+        if (generationIsStale(epoch)) return;
+
+        // Start generation
+        await api.step(
+          conversationId,
+          options?.model,
+          options?.stream,
+          'main',
+          options?.maxTokens,
+          options?.temperature,
+          options?.topP
+        );
+        // Store generation params in conversation state so regenerate/rerun paths can use them
+        setMaxTokens(conversationId, options?.maxTokens);
+        setTemperature(conversationId, options?.temperature);
+        setTopP(conversationId, options?.topP);
       } catch (error) {
-        console.error('[useConversation] File upload failed:', error);
+        console.error('Error sending message:', error);
+        const { title, description } = getApiErrorPresentation(error, {
+          fallbackTitle: 'Failed to send',
+          fallbackDescription: 'Failed to send message',
+        });
+        setMessageStatus(conversationId, userMessage.timestamp!, 'failed', description);
         toast({
           variant: 'destructive',
-          title: 'Upload failed',
-          description: 'Failed to upload attached files',
+          title,
+          description,
         });
-        // Continue sending the message without files
       }
-    }
-
-    // Create user message with pending status
-    const userMessage: Message = {
-      role: 'user',
-      content: message,
-      timestamp: new Date().toISOString(),
-      ...(filePaths.length > 0 ? { files: filePaths } : {}),
-      _status: 'pending',
-    };
-
-    // Add message to conversation (optimistic)
-    addMessage(conversationId, userMessage);
-
-    try {
-      // Send the message
-      await api.sendMessage(conversationId, userMessage);
-      setMessageStatus(conversationId, userMessage.timestamp!, 'sent');
-
-      // Start generation
-      await api.step(
-        conversationId,
-        options?.model,
-        options?.stream,
-        'main',
-        options?.maxTokens,
-        options?.temperature,
-        options?.topP
-      );
-      // Store generation params in conversation state so regenerate/rerun paths can use them
-      setMaxTokens(conversationId, options?.maxTokens);
-      setTemperature(conversationId, options?.temperature);
-      setTopP(conversationId, options?.topP);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      const { title, description } = getApiErrorPresentation(error, {
-        fallbackTitle: 'Failed to send',
-        fallbackDescription: 'Failed to send message',
-      });
-      setMessageStatus(conversationId, userMessage.timestamp!, 'failed', description);
-      toast({
-        variant: 'destructive',
-        title,
-        description,
-      });
-    }
+    });
   };
 
   const confirmTool = async (
@@ -724,34 +765,41 @@ export function useConversation(conversationId: string, serverId?: string) {
     files?: string[],
     pendingFiles?: File[]
   ) => {
-    // A truncating edit re-generates, so it owns the stop flag from here on.
-    if (truncate) beginGeneration();
-    try {
-      // Upload any new files first, then merge with existing file paths
-      let allFiles = files;
-      if (pendingFiles?.length) {
-        const uploadResult = await api.uploadFiles(conversationId, pendingFiles);
-        const newPaths = uploadResult.files.map((f) => f.path);
-        allFiles = [...(files || []), ...newPaths];
-      }
-      const result = await api.editMessage(conversationId, index, content, truncate, allFiles);
-      // Use API response directly (SSE event may also arrive, but this is immediate)
-      replaceLog(conversationId, result.log);
-      if (result.branches) {
-        updateBranches(conversationId, result.branches);
-      }
+    const applyEdit = async (epoch?: number) => {
+      try {
+        // Upload any new files first, then merge with existing file paths
+        let allFiles = files;
+        if (pendingFiles?.length) {
+          const uploadResult = await api.uploadFiles(conversationId, pendingFiles);
+          const newPaths = uploadResult.files.map((f) => f.path);
+          allFiles = [...(files || []), ...newPaths];
+        }
+        const result = await api.editMessage(conversationId, index, content, truncate, allFiles);
+        // Use API response directly (SSE event may also arrive, but this is immediate)
+        replaceLog(conversationId, result.log);
+        if (result.branches) {
+          updateBranches(conversationId, result.branches);
+        }
 
-      // After truncation, trigger re-generation unless Stop landed while
-      // the edit request was in flight.
-      if (truncate) {
-        if (stopRequestedRef.current) return;
-        await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+        // After truncation, trigger re-generation unless Stop landed while
+        // the edit request was in flight, or a newer action superseded it.
+        if (truncate) {
+          if (epoch === undefined || generationIsStale(epoch)) return;
+          await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+        }
+      } catch (error) {
+        console.error('Error editing message:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Failed to edit message';
+        toast({ variant: 'destructive', title: 'Edit failed', description: errorMsg });
       }
-    } catch (error) {
-      console.error('Error editing message:', error);
-      const errorMsg = error instanceof Error ? error.message : 'Failed to edit message';
-      toast({ variant: 'destructive', title: 'Edit failed', description: errorMsg });
+    };
+
+    // A truncating edit re-generates, so it owns the stop flag from here on.
+    if (truncate) {
+      await runGeneration(applyEdit);
+      return;
     }
+    await applyEdit();
   };
 
   const deleteMessage = async (index: number) => {
@@ -770,46 +818,49 @@ export function useConversation(conversationId: string, serverId?: string) {
 
   const rerunFromMessage = async (index: number) => {
     if (!conversation$) return;
-    const log = conversation$.data.log.get();
-    const localIndex = index - conversation$.logOffset.get();
-    const isLastMessage = localIndex === log.length - 1;
+    const conv$ = conversation$;
 
-    beginGeneration();
-    try {
-      if (!isLastMessage) {
-        // Truncate after this message (creates backup branch)
-        const result = await api.editMessage(conversationId, index, undefined, true);
-        replaceLog(conversationId, result.log);
-        if (result.branches) {
-          updateBranches(conversationId, result.branches);
-        }
-      }
-      if (stopRequestedRef.current) return;
-      // Re-run tools from the (now last) assistant message
-      // This parses tool uses and sets them as pending, without calling the LLM.
-      // Auto-confirm tools can start executing on the server before this
-      // request returns, so a Stop that lands in-flight may interrupt nothing.
+    await runGeneration(async (epoch) => {
+      const log = conv$.data.log.get();
+      const localIndex = index - conv$.logOffset.get();
+      const isLastMessage = localIndex === log.length - 1;
+
       try {
-        await api.rerunTools(conversationId);
-        if (stopRequestedRef.current) {
-          setGenerating(conversationId, false);
-          try {
-            await api.interruptGeneration(conversationId);
-          } catch (error) {
-            console.error('Error interrupting generation after Stop raced with rerun:', error);
+        if (!isLastMessage) {
+          // Truncate after this message (creates backup branch)
+          const result = await api.editMessage(conversationId, index, undefined, true);
+          replaceLog(conversationId, result.log);
+          if (result.branches) {
+            updateBranches(conversationId, result.branches);
           }
-          return;
         }
-      } catch {
-        // No tools found — fall back to step() (regenerate)
-        if (stopRequestedRef.current) return;
-        await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+        if (generationIsStale(epoch)) return;
+        // Re-run tools from the (now last) assistant message
+        // This parses tool uses and sets them as pending, without calling the LLM.
+        // Auto-confirm tools can start executing on the server before this
+        // request returns, so a Stop that lands in-flight may interrupt nothing.
+        try {
+          await api.rerunTools(conversationId);
+          if (generationIsStale(epoch)) {
+            setGenerating(conversationId, false);
+            try {
+              await api.interruptGeneration(conversationId);
+            } catch (error) {
+              console.error('Error interrupting generation after Stop raced with rerun:', error);
+            }
+            return;
+          }
+        } catch {
+          // No tools found — fall back to step() (regenerate)
+          if (generationIsStale(epoch)) return;
+          await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+        }
+      } catch (error) {
+        console.error('Error re-running from message:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Failed to re-run';
+        toast({ variant: 'destructive', title: 'Re-run failed', description: errorMsg });
       }
-    } catch (error) {
-      console.error('Error re-running from message:', error);
-      const errorMsg = error instanceof Error ? error.message : 'Failed to re-run';
-      toast({ variant: 'destructive', title: 'Re-run failed', description: errorMsg });
-    }
+    });
   };
 
   const regenerateMessage = async (index: number) => {
@@ -819,20 +870,21 @@ export function useConversation(conversationId: string, serverId?: string) {
     const prevIndex = index - 1;
     if (prevIndex < 0) return;
 
-    try {
-      beginGeneration();
-      const result = await api.editMessage(conversationId, prevIndex, undefined, true);
-      replaceLog(conversationId, result.log);
-      if (result.branches) {
-        updateBranches(conversationId, result.branches);
+    await runGeneration(async (epoch) => {
+      try {
+        const result = await api.editMessage(conversationId, prevIndex, undefined, true);
+        replaceLog(conversationId, result.log);
+        if (result.branches) {
+          updateBranches(conversationId, result.branches);
+        }
+        if (generationIsStale(epoch)) return;
+        await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+      } catch (error) {
+        console.error('Error regenerating message:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';
+        toast({ variant: 'destructive', title: 'Regenerate failed', description: errorMsg });
       }
-      if (stopRequestedRef.current) return;
-      await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
-    } catch (error) {
-      console.error('Error regenerating message:', error);
-      const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';
-      toast({ variant: 'destructive', title: 'Regenerate failed', description: errorMsg });
-    }
+    });
   };
 
   const forkConversation = async (index: number) => {

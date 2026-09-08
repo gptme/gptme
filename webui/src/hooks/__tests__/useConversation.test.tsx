@@ -421,4 +421,65 @@ describe('useConversation', () => {
     // 3: late onMessageStart still sees the stop flag
     expect(interruptGenerationApi).toHaveBeenCalledTimes(3);
   });
+
+  it('re-interrupts leftover rerun tools before a later action that started in flight', async () => {
+    conversations$.get('chat-placeholder')?.data.log.set([
+      {
+        role: 'user',
+        content: 'What is gptme?',
+        timestamp: '2026-06-07T00:00:00.000Z',
+      },
+      {
+        role: 'assistant',
+        content: 'An agent.',
+        timestamp: '2026-06-07T00:00:01.000Z',
+      },
+    ]);
+    conversations$.get('chat-placeholder')?.isGenerating.set(true);
+
+    let resolveRerun: (value: { status: string; tool_ids: string[] }) => void = () => {};
+    rerunTools.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRerun = resolve;
+      })
+    );
+
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    let pendingRerun: Promise<unknown> | undefined;
+    act(() => {
+      pendingRerun = result.current.rerunFromMessage(1);
+    });
+
+    await act(async () => {
+      await result.current.interruptGeneration();
+    });
+
+    let pendingEdit: Promise<unknown> | undefined;
+    act(() => {
+      pendingEdit = result.current.editMessage(0, 'What is gptme?', true);
+    });
+
+    await act(async () => {
+      resolveRerun({ status: 'ok', tool_ids: ['tool-1'] });
+      await pendingRerun;
+      await pendingEdit;
+    });
+
+    await act(async () => {
+      eventHandlers?.onMessageStart?.();
+    });
+
+    expect(rerunTools).toHaveBeenCalledTimes(1);
+    expect(step).toHaveBeenCalledTimes(1);
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(true);
+    // 1: user Stop while rerunTools is in flight
+    // 2: old rerun re-interrupts leftover auto-confirm tools before the edit steps
+    // Late onMessageStart belongs to the edit, so it must not interrupt again.
+    expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
+  });
 });
