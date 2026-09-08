@@ -4,6 +4,7 @@ import contextlib
 import logging
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -14,9 +15,11 @@ from xml.sax.saxutils import escape as xml_escape
 
 from ..completion_verification import (
     VerificationCommand,
+    approved_execution_argv,
     discover_verification_command,
     episode_has_authoring_mutation,
     fingerprints_match,
+    uses_approved_snapshot,
 )
 from ..hooks import HookType, StopPropagation
 from ..hooks.confirm import ConfirmAction, get_confirmation
@@ -116,12 +119,17 @@ def _bound_verifier_output(output: str) -> str:
     return f"{output[:head]}\n... [{omitted} characters omitted] ...\n{output[-tail:]}"
 
 
+class StaleManifestError(RuntimeError):
+    """Raised when a live-manifest runner changed after approval and cannot be snapshotted."""
+
+
 def _run_verify_cmd(
     cmd: str,
     workspace: Path | None,
     *,
     script_content: str | None = None,
     argv: tuple[str, ...] | None = None,
+    discovered: VerificationCommand | None = None,
 ) -> "subprocess.CompletedProcess[str]":
     """Run the verification command and return the result.
 
@@ -130,24 +138,41 @@ def _run_verify_cmd(
     not just the immediate shell. For a workspace script, ``script_content``
     is written to a private snapshot and executed as a file so its shebang and
     ``$0`` semantics are preserved without reopening the repository path.
+    Discovered runners that expose executable configuration (Make, npm, pytest.ini)
+    are rebound to approved snapshot bytes before process startup.
     """
     timeout = _env_int("GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT)
     popen_kwargs: dict = {} if _is_windows else {"start_new_session": True}
     snapshot_path: str | None = None
+    snapshot_dir: str | None = None
     process_env: dict[str, str] | None = None
     command: str | list[str]
+    if argv is None and discovered is not None:
+        argv = discovered.argv
     if argv is not None:
-        sandbox = SandboxConfig.from_env(workspace=workspace)
-        if sandbox.enabled:
-            available, availability = sandbox.check_available()
-            if not available:
-                raise RuntimeError(
-                    f"GPTME_SANDBOX={sandbox.backend!r} was requested but unavailable: "
-                    f"{availability}"
+        try:
+            if discovered is not None and uses_approved_snapshot(discovered):
+                snapshot_dir = tempfile.mkdtemp(prefix="gptme-verify-manifest-")
+                argv = approved_execution_argv(
+                    discovered, Path(snapshot_dir), workspace
                 )
-        command = wrap_shell_cmd(sandbox, list(argv))
-        process_env = build_env(sandbox)
-        shell = False
+            elif discovered is not None and not fingerprints_match(discovered):
+                raise StaleManifestError(discovered.display)
+            sandbox = SandboxConfig.from_env(workspace=workspace)
+            if sandbox.enabled:
+                available, availability = sandbox.check_available()
+                if not available:
+                    raise RuntimeError(
+                        f"GPTME_SANDBOX={sandbox.backend!r} was requested but unavailable: "
+                        f"{availability}"
+                    )
+            command = wrap_shell_cmd(sandbox, list(argv))
+            process_env = build_env(sandbox)
+            shell = False
+        except BaseException:
+            if snapshot_dir is not None:
+                shutil.rmtree(snapshot_dir, ignore_errors=True)
+            raise
     elif script_content is not None:
         fd, snapshot_path = tempfile.mkstemp(prefix="gptme-verify-", suffix=".sh")
         try:
@@ -181,6 +206,8 @@ def _run_verify_cmd(
         if snapshot_path is not None:
             with contextlib.suppress(OSError):
                 os.unlink(snapshot_path)
+        if snapshot_dir is not None:
+            shutil.rmtree(snapshot_dir, ignore_errors=True)
         raise
 
     try:
@@ -228,6 +255,8 @@ def _run_verify_cmd(
         if snapshot_path is not None:
             with contextlib.suppress(OSError):
                 os.unlink(snapshot_path)
+        if snapshot_dir is not None:
+            shutil.rmtree(snapshot_dir, ignore_errors=True)
 
 
 class SessionCompleteException(Exception):
@@ -348,7 +377,9 @@ def complete_hook(
                         raise SessionCompleteException(
                             "Session completed via complete tool"
                         )
-                    if not fingerprints_match(discovered):
+                    if not fingerprints_match(
+                        discovered
+                    ) and not uses_approved_snapshot(discovered):
                         refreshed = (
                             discover_verification_command(workspace)
                             if workspace is not None
@@ -477,8 +508,17 @@ def complete_hook(
                             script_content=script_content
                             if is_workspace_script
                             else None,
-                            argv=discovered.argv if discovered is not None else None,
+                            discovered=discovered,
                         )
+                    except StaleManifestError:
+                        logger.warning(
+                            "Completion verification manifest changed after approval; "
+                            "skipping live command: %s",
+                            verify_cmd,
+                        )
+                        raise SessionCompleteException(
+                            "Session completed via complete tool"
+                        ) from None
                     except subprocess.TimeoutExpired:
                         timeout = _env_int(
                             "GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT

@@ -385,7 +385,9 @@ class TestCompleteHookVerification:
         assert "pytest -x -q" in preview
         run.assert_called_once()
         assert run.call_args.args[0] == "pytest -x -q"
-        assert run.call_args.kwargs["argv"] == ("pytest", "-x", "-q")
+        discovered = run.call_args.kwargs["discovered"]
+        assert discovered is not None
+        assert discovered.argv == ("pytest", "-x", "-q")
 
     def test_explicit_command_beats_workspace_script_and_discovery(
         self, monkeypatch, tmp_path
@@ -516,6 +518,38 @@ class TestCompleteHookVerification:
         bounded = _bound_verifier_output(output)
         assert len(bounded) < len(output)
         assert "characters omitted" in bounded
+
+    def test_discovered_make_runs_approved_snapshot(self, monkeypatch, tmp_path):
+        """Replacing Makefile after approval cannot change the executed target."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        makefile = tmp_path / "Makefile"
+        original = tmp_path / "original_ran"
+        replacement = tmp_path / "replacement_ran"
+        makefile.write_text(f"test:\n\ttouch {original}\n")
+        messages = [
+            _user("implement it"),
+            _assistant("```save src/example.py\nvalue = 1\n```"),
+            _system("saved"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        def replace_after_confirmation(**_kwargs):
+            makefile.write_text(f"test:\n\ttouch {replacement}\n")
+            return ConfirmationResult.confirm()
+
+        with (
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                side_effect=replace_after_confirmation,
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(messages, workspace=tmp_path))
+
+        assert original.exists(), "approved Makefile snapshot must have run"
+        assert not replacement.exists(), "replacement Makefile must NOT have run"
 
     def test_discovered_command_manifest_change_forces_rediscovery(
         self, monkeypatch, tmp_path
