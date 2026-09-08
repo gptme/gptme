@@ -539,6 +539,58 @@ def test_reply_stream_unfinished_ipython_display_is_flushed(monkeypatch, error):
     assert captured.getvalue().count(raw) == 1
 
 
+def test_tool_call_display_compacts_emitted_prefix():
+    """Emitted prose is dropped so later drain scans do not rescan the whole reply."""
+    from gptme.util.tool_display import ToolCallDisplay, ToolCodeDisplay
+
+    display = ToolCallDisplay()
+    prefix = "Hello world\n" * 40
+    streamed = "".join(part for part in display.feed(prefix) if isinstance(part, str))
+    assert streamed == prefix
+    assert "Hello world" not in display._buf
+    assert display._emitted == 0
+
+    parts = list(display.feed('@shell(c1): {"command": "pwd"}\nAfter\n'))
+    assert any(isinstance(p, ToolCodeDisplay) and p.code == "pwd" for p in parts)
+    assert any(isinstance(p, str) and "After" in p for p in parts)
+
+
+def test_tool_call_display_compacts_up_to_incomplete_call():
+    from gptme.util.tool_display import ToolCallDisplay, ToolCodeDisplay
+
+    display = ToolCallDisplay()
+    list(display.feed('Prose before\n@shell(c1): {"command": "pw'))
+    assert "Prose before" not in display._buf
+    assert display._buf.startswith("@shell")
+    parts = list(display.feed('d"}'))
+    assert any(isinstance(p, ToolCodeDisplay) and p.code == "pwd" for p in parts)
+    assert display.finish() == ""
+
+
+def test_tool_call_display_retains_open_fence_across_chunks():
+    """An unclosed fence must survive compaction so later native calls stay literal."""
+    from gptme.util.tool_display import ToolCallDisplay, ToolCodeDisplay
+
+    display = ToolCallDisplay()
+    list(display.feed("```example\n"))
+    assert "```example" in display._buf
+    parts = list(display.feed('@shell(c1): {"command": "pwd"}\n'))
+    assert not any(isinstance(p, ToolCodeDisplay) for p in parts)
+    parts = list(display.feed('```\nAfter\n@shell(c2): {"command": "ls"}\n'))
+    projected = [p for p in parts if isinstance(p, ToolCodeDisplay)]
+    assert len(projected) == 1
+    assert projected[0].code == "ls"
+
+
+def test_tool_call_display_drops_closed_fence():
+    from gptme.util.tool_display import ToolCallDisplay
+
+    display = ToolCallDisplay()
+    list(display.feed("```example\nfoo\n```\n"))
+    assert display._buf == ""
+    assert display._emitted == 0
+
+
 @pytest.mark.parametrize("stream", [False, True])
 def test_reply_ipython_display_with_offline_provider(capsys, stream):
     """The actual provider/reply path shares terminal-only formatting."""

@@ -51,8 +51,8 @@ _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
 _PARTIAL_NATIVE = re.compile(r"@[\w.]*(?:\([\w\-:.]*\)?(?::\s*\{?)?)?")
 
 
-def _display_skip_ranges(content: str) -> list[tuple[int, int]]:
-    """Fenced regions that must keep native calls literal, including an unclosed fence."""
+def _skip_state(content: str) -> tuple[list[tuple[int, int]], int | None]:
+    """Fenced skip ranges plus the start of an unclosed fence, if any."""
     ranges: list[tuple[int, int]] = []
     fence = ""
     start: int | None = None
@@ -75,7 +75,7 @@ def _display_skip_ranges(content: str) -> list[tuple[int, int]]:
         pos = newline + 1
     if start is not None:
         ranges.append((start, len(content)))
-    return ranges
+    return ranges, start
 
 
 def _inside_skip(pos: int, ranges: list[tuple[int, int]]) -> int | None:
@@ -173,6 +173,7 @@ class ToolCallDisplay:
     def feed(self, text: str) -> Iterator[str | Text | ToolCodeDisplay]:
         self._buf += text
         yield from self._drain()
+        self._compact()
 
     def finish(self) -> str:
         leftover = self._buf[self._emitted :]
@@ -180,9 +181,22 @@ class ToolCallDisplay:
         self._emitted = 0
         return leftover
 
+    def _compact(self) -> None:
+        """Drop emitted prefix; keep a partial native call or unclosed fence."""
+        if self._emitted <= 0:
+            return
+        keep_from = self._emitted
+        _, open_start = _skip_state(self._buf)
+        if open_start is not None and open_start < keep_from:
+            keep_from = open_start
+        if keep_from <= 0:
+            return
+        self._buf = self._buf[keep_from:]
+        self._emitted -= keep_from
+
     def _drain(self) -> Iterator[str | Text | ToolCodeDisplay]:
+        skip, _ = _skip_state(self._buf)
         while self._emitted < len(self._buf):
-            skip = _display_skip_ranges(self._buf)
             match = None
             search_from = self._emitted
             while found := toolcall_re.search(self._buf, search_from):
