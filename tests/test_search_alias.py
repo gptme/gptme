@@ -2,7 +2,7 @@
 
 import importlib
 import re
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from click.testing import CliRunner
@@ -175,7 +175,9 @@ class TestUtilSubcommandMirroring:
         ):
             result = runner.invoke(main, ["chats"])
         assert result.exit_code == 0
-        mock_call.assert_called_once_with(["/usr/local/bin/gptme-util", "chats"])
+        mock_call.assert_called_once_with(
+            ["/usr/local/bin/gptme-util", "chats"], env=ANY
+        )
 
     def test_util_subcmd_passes_all_args(self, runner: CliRunner):
         """gptme chats list passes 'chats list' to gptme-util."""
@@ -189,7 +191,7 @@ class TestUtilSubcommandMirroring:
             result = runner.invoke(main, ["chats", "list"])
         assert result.exit_code == 0
         mock_call.assert_called_once_with(
-            ["/usr/local/bin/gptme-util", "chats", "list"]
+            ["/usr/local/bin/gptme-util", "chats", "list"], env=ANY
         )
 
     def test_util_subcmd_forwards_nested_help(self, runner: CliRunner):
@@ -204,7 +206,7 @@ class TestUtilSubcommandMirroring:
             result = runner.invoke(main, ["chats", "list", "--help"])
         assert result.exit_code == 0
         mock_call.assert_called_once_with(
-            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"], env=ANY
         )
 
     def test_util_subcmd_forwards_nested_help_with_leading_flag(
@@ -221,7 +223,7 @@ class TestUtilSubcommandMirroring:
             result = runner.invoke(main, ["--verbose", "chats", "list", "--help"])
         assert result.exit_code == 0
         mock_call.assert_called_once_with(
-            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"], env=ANY
         )
 
     def test_util_subcmd_forwards_nested_help_with_leading_value_option(
@@ -243,7 +245,7 @@ class TestUtilSubcommandMirroring:
             )
         assert result.exit_code == 0
         mock_call.assert_called_once_with(
-            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"], env=ANY
         )
 
     def test_util_subcmd_forwards_nested_help_with_grouped_short_option(
@@ -265,7 +267,7 @@ class TestUtilSubcommandMirroring:
             result = runner.invoke(main, ["-vm", "gpt-4", "chats", "list", "--help"])
         assert result.exit_code == 0
         mock_call.assert_called_once_with(
-            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"], env=ANY
         )
 
     def test_util_subcmd_forwards_nested_help_with_inline_value_short_option(
@@ -287,7 +289,7 @@ class TestUtilSubcommandMirroring:
             result = runner.invoke(main, ["-mgpt-4", "chats", "list", "--help"])
         assert result.exit_code == 0
         mock_call.assert_called_once_with(
-            ["/usr/local/bin/gptme-util", "chats", "list", "--help"]
+            ["/usr/local/bin/gptme-util", "chats", "list", "--help"], env=ANY
         )
 
     def test_util_subcmd_after_double_dash_suppresses_dispatch(self):
@@ -357,7 +359,7 @@ class TestUtilSubcommandMirroring:
                 return "/usr/local/bin/gptme-chats"
             return None
 
-        def fake_call(args: list) -> int:
+        def fake_call(args: list, **kwargs) -> int:
             calls.append(args)
             return 0
 
