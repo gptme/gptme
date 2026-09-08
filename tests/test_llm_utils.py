@@ -591,6 +591,76 @@ def test_tool_call_display_drops_closed_fence():
     assert display._emitted == 0
 
 
+def test_tool_call_display_abandoned_partial_call_streams_later_prose():
+    """An incomplete native call that turns into illegal JSON must not freeze."""
+    from gptme.util.tool_display import ToolCallDisplay, ToolCodeDisplay
+
+    display = ToolCallDisplay()
+    assert list(display.feed("@shell(call-2): {")) == []
+    parts = list(display.feed("\nThis is ordinary prose\nMore text\n"))
+    streamed = "".join(p for p in parts if isinstance(p, str))
+    assert "This is ordinary prose" in streamed
+    assert "More text" in streamed
+    assert not any(isinstance(p, ToolCodeDisplay) for p in parts)
+    assert display.finish() == ""
+
+
+def test_tool_call_display_pretty_printed_json_still_projects():
+    """A newline after '{' is still a live JSON prefix, not an abandoned call."""
+    from gptme.util.tool_display import ToolCallDisplay, ToolCodeDisplay
+
+    display = ToolCallDisplay()
+    assert list(display.feed("@shell(c1): {\n")) == []
+    parts = list(display.feed('  "command": "pwd"\n}'))
+    projected = [p for p in parts if isinstance(p, ToolCodeDisplay)]
+    assert len(projected) == 1
+    assert projected[0].code == "pwd"
+    assert display.finish() == ""
+
+
+def test_tool_call_display_holds_header_newline_for_next_json_chunk():
+    """Header plus newline must stay buffered so the JSON chunk is still a call."""
+    from gptme.util.tool_display import ToolCallDisplay, ToolCodeDisplay
+
+    display = ToolCallDisplay()
+    assert list(display.feed("@shell(c1):\n")) == []
+    assert display._buf.startswith("@shell")
+    parts = list(display.feed('{"command": "pwd"}'))
+    projected = [p for p in parts if isinstance(p, ToolCodeDisplay)]
+    assert len(projected) == 1
+    assert projected[0].code == "pwd"
+
+
+def test_reply_stream_abandoned_partial_call_still_streams_prose(monkeypatch):
+    """Abandoned '@shell(...): {' must not hide later streamed prose."""
+    import io
+
+    from rich.console import Console
+
+    from gptme.llm import _reply_stream, _StreamWithMetadata
+    from gptme.message import Message
+
+    captured = io.StringIO()
+    terminal = Console(file=captured, width=160, force_terminal=True, record=True)
+    monkeypatch.setattr("gptme.llm.rprint", terminal.print)
+    ordinary = "@shell(call-2): {\nThis is ordinary prose\n"
+
+    def chunks():
+        yield "@shell(call-2): {"
+        yield "\nThis is ordinary prose\n"
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _StreamWithMetadata(chunks(), "mock/echo"),
+    )
+    result = _reply_stream(
+        [Message("user", "hi")], "mock/echo", None, break_on_tooluse=False
+    )
+    assert result.content == ordinary
+    rendered = terminal.export_text()
+    assert "This is ordinary prose" in rendered
+
+
 @pytest.mark.parametrize("stream", [False, True])
 def test_reply_ipython_display_with_offline_provider(capsys, stream):
     """The actual provider/reply path shares terminal-only formatting."""

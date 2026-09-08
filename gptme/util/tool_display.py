@@ -49,6 +49,78 @@ _EXT_LANG = {
 }
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
 _PARTIAL_NATIVE = re.compile(r"@[\w.]*(?:\([\w\-:.]*\)?(?::\s*\{?)?)?")
+_JSON_KEYWORDS = ("true", "false", "null")
+
+
+def _json_prefix_viable(s: str, start: int) -> bool:
+    """True if s[start:] can still complete as a JSON object.
+
+    False means the fragment is already illegal, so this is not a live native call.
+    """
+    if start >= len(s) or s[start] != "{":
+        return False
+    in_string = False
+    escape = False
+    i = start
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if escape:
+            escape = False
+            i += 1
+            continue
+        if in_string:
+            if c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            i += 1
+            continue
+        if c.isspace() or c in "{}[]:,":
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            i += 1
+            continue
+        if c in "-0123456789":
+            i += 1
+            while i < n and s[i] in "0123456789.eE+-":
+                i += 1
+            continue
+        matched = False
+        for kw in _JSON_KEYWORDS:
+            if s.startswith(kw, i):
+                i += len(kw)
+                matched = True
+                break
+            if kw.startswith(s[i:]):
+                return True
+        if matched:
+            continue
+        return False
+    return True
+
+
+def _partial_native_hold_start(remaining: str) -> int | None:
+    """Offset in remaining to keep unemitted, or None to flush it all.
+
+    Holds a last-line partial header, and also ``@tool(id):\\n`` so a JSON object
+    that arrives on the next chunk is still recognized as part of the call.
+    """
+    last_nl = remaining.rfind("\n")
+    if last_nl < 0:
+        return 0 if _PARTIAL_NATIVE.fullmatch(remaining) else None
+    last_line = remaining[last_nl + 1 :]
+    if _PARTIAL_NATIVE.fullmatch(last_line):
+        return last_nl + 1
+    if last_line.strip() == "":
+        prev_nl = remaining.rfind("\n", 0, last_nl)
+        prev_start = prev_nl + 1
+        prev_line = remaining[prev_start:last_nl]
+        if _PARTIAL_NATIVE.fullmatch(prev_line):
+            return prev_start
+    return None
 
 
 def _skip_state(content: str) -> tuple[list[tuple[int, int]], int | None]:
@@ -198,30 +270,34 @@ class ToolCallDisplay:
         skip, _ = _skip_state(self._buf)
         while self._emitted < len(self._buf):
             match = None
+            json_end: int | None = None
             search_from = self._emitted
             while found := toolcall_re.search(self._buf, search_from):
                 skipped_until = _inside_skip(found.start(), skip)
                 if skipped_until is not None:
                     search_from = skipped_until
                     continue
+                candidate_end = find_json_end(self._buf, found.start(3))
+                if candidate_end is None and not _json_prefix_viable(
+                    self._buf, found.start(3)
+                ):
+                    # Abandoned/invalid JSON: not a live native call.
+                    search_from = found.start() + 1
+                    continue
                 match = found
+                json_end = candidate_end
                 break
 
             if match is None:
                 remaining = self._buf[self._emitted :]
-                last_nl = remaining.rfind("\n")
-                last_line = remaining[last_nl + 1 :]
-                last_line_start = self._emitted + last_nl + 1
-                if last_nl < 0:
-                    last_line_start = self._emitted
-                if (
-                    _PARTIAL_NATIVE.fullmatch(last_line)
-                    and _inside_skip(last_line_start, skip) is None
-                ):
-                    if last_nl >= 0:
-                        yield remaining[: last_nl + 1]
-                        self._emitted += last_nl + 1
-                    return
+                hold = _partial_native_hold_start(remaining)
+                if hold is not None:
+                    hold_abs = self._emitted + hold
+                    if _inside_skip(hold_abs, skip) is None:
+                        if hold > 0:
+                            yield remaining[:hold]
+                            self._emitted += hold
+                        return
                 yield remaining
                 self._emitted = len(self._buf)
                 return
@@ -230,7 +306,6 @@ class ToolCallDisplay:
                 yield self._buf[self._emitted : match.start()]
                 self._emitted = match.start()
 
-            json_end = find_json_end(self._buf, match.start(3))
             if json_end is None:
                 return
 
