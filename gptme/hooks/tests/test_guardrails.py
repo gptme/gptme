@@ -23,15 +23,17 @@ from ..guardrails import (
 # ---------------------------------------------------------------------------
 
 
-def _make_tool_use(tool: str, content: str):
-    """Create a minimal ToolUse-like object for testing."""
+def _make_tool_use(tool: str, content: str, args=None, kwargs=None):
+    """Create a ToolUse-like object matching production field layout."""
 
     class _FakeToolUse:
-        def __init__(self, t: str, c: str):
+        def __init__(self, t: str, c: str, a, k):
             self.tool = t
             self.content = c
+            self.args = a
+            self.kwargs = k
 
-    return _FakeToolUse(tool, content)
+    return _FakeToolUse(tool, content, args, kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +91,21 @@ class TestIsSecretPath:
     def test_safe_project_file(self):
         assert not _is_secret_path("/tmp/project/main.py")
 
+    def test_dollar_home_ssh(self):
+        assert _is_secret_path("$HOME/.ssh/id_rsa")
+
+    def test_braced_home_aws(self):
+        assert _is_secret_path("${HOME}/.aws/credentials")
+
+    def test_sibling_ssh_backup_not_secret(self):
+        assert not _is_secret_path("~/.ssh-backup")
+
+    def test_sibling_aws_cli_not_secret(self):
+        assert not _is_secret_path("~/.aws-cli")
+
+    def test_sibling_gptme_project_not_secret(self):
+        assert not _is_secret_path("~/.config/gptme-project")
+
 
 # ---------------------------------------------------------------------------
 # _find_secret_path_in_cmd
@@ -115,6 +132,15 @@ class TestFindSecretPathInCmd:
     def test_flags_ignored(self):
         # -rf is a flag, not a path
         assert _find_secret_path_in_cmd("rm -rf ./build") is None
+
+    def test_quoted_dollar_home(self):
+        result = _find_secret_path_in_cmd('cat "$HOME/.ssh/id_rsa"')
+        assert result is not None
+        assert "id_rsa" in result or "ssh" in result
+
+    def test_braced_home_in_cmd(self):
+        result = _find_secret_path_in_cmd("cat ${HOME}/.aws/credentials")
+        assert result is not None
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +230,36 @@ class TestGuardrailHookEnforceMode:
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tool_use = _make_tool_use("read", "/tmp/server.pem")
         result = guardrail_hook(tool_use)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_read_tool_secret_path_in_args(self, monkeypatch):
+        """Markdown `read <path>` stores the path in args, not content."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tool_use = _make_tool_use("read", "", args=["~/.ssh/id_rsa"])
+        result = guardrail_hook(tool_use)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_read_tool_secret_path_in_kwargs(self, monkeypatch):
+        """Native/tool-format calls store the path in kwargs['path']."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tool_use = _make_tool_use("read", "", kwargs={"path": "~/.aws/credentials"})
+        result = guardrail_hook(tool_use)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_read_tool_sibling_path_not_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tool_use = _make_tool_use("read", "", args=["~/.ssh-backup"])
+        result = guardrail_hook(tool_use)
+        assert result is None
+
+    def test_shell_dollar_home_blocked(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        cmd = 'cat "$HOME/.ssh/id_rsa"'
+        tool_use = _make_tool_use("shell", cmd)
+        result = guardrail_hook(tool_use, preview=cmd)
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
 
@@ -311,3 +367,43 @@ class TestRegister:
         guardrail_hooks = [h for h in hooks if h.name == "guardrails"]
         assert guardrail_hooks
         assert guardrail_hooks[0].priority >= 200  # above server_confirm (100)
+
+
+# ---------------------------------------------------------------------------
+# execute_read wiring — TOOL_CONFIRM must actually run for the read tool
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteReadInvokesGuardrail:
+    """The read tool does not go through execute_with_confirmation().
+
+    execute_read() must invoke the TOOL_CONFIRM chain itself, otherwise
+    GPTME_GUARDRAILS=enforce never sees built-in reads.
+    """
+
+    def test_execute_read_blocks_secret_path_in_enforce(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from gptme.hooks import clear_hooks
+        from gptme.tools.read import execute_read
+
+        clear_hooks()
+        register()
+        msgs = list(execute_read(None, ["~/.ssh/id_rsa"], None))
+        assert any(
+            "Blocked by guardrail" in m.content or "Secret path" in m.content
+            for m in msgs
+        ), f"Expected a guardrail block; got: {[m.content for m in msgs]}"
+
+    def test_execute_read_allows_safe_path_in_enforce(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from gptme.hooks import clear_hooks
+        from gptme.tools.read import execute_read
+
+        clear_hooks()
+        register()
+        safe = tmp_path / "notes.txt"
+        safe.write_text("hello\n")
+        msgs = list(execute_read(None, [str(safe)], None))
+        assert any("hello" in m.content for m in msgs), (
+            f"Safe read should succeed; got: {[m.content for m in msgs]}"
+        )

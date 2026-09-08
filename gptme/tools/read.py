@@ -21,6 +21,7 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    get_current_tool_use,
 )
 from .pruner import plan_tool_output_prune
 
@@ -311,6 +312,30 @@ def execute_read(
     if not paths:
         yield Message("system", "No path provided")
         return
+
+    # Built-in read skips execute_with_confirmation() (it is read_only), so
+    # TOOL_CONFIRM never runs on this path unless we invoke it here. Only fire
+    # the chain for paths that look sensitive — otherwise server_confirm would
+    # prompt on every ordinary file open.
+    from ..hooks.confirm import ConfirmAction, get_confirmation
+    from ..hooks.guardrails import _is_secret_path
+
+    if any(_is_secret_path(str(p)) for p in paths):
+        tool_use = get_current_tool_use() or ToolUse(
+            tool="read",
+            args=[str(paths[0])] if len(paths) == 1 else None,
+            content="\n".join(str(p) for p in paths) if len(paths) != 1 else "",
+        )
+        result = get_confirmation(
+            tool_use=tool_use,
+            preview="\n".join(str(p) for p in paths),
+        )
+        if result.action == ConfirmAction.SKIP:
+            yield Message(
+                "system",
+                result.message or "Read blocked by guardrail",
+            )
+            return
 
     # Parse optional line range from kwargs (single-path only)
     start_line = 1

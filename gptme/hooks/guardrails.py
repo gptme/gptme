@@ -97,23 +97,49 @@ _SECRET_EXTENSIONS: tuple[str, ...] = (
 )
 
 
+def _normalize_path_token(path: str) -> str:
+    """Expand ``~``, ``$HOME``, ``${HOME}``, and env vars; collapse no-op separators.
+
+    Shell commands reach this scanner *before* the shell expands them, so a
+    literal ``$HOME/.ssh/id_rsa`` token must be treated as the same path as
+    ``~/.ssh/id_rsa``. ``os.path.expandvars`` is not sufficient on its own:
+    it is a no-op when ``HOME`` is unset, so we also rewrite the two common
+    spellings against ``Path.home()``.
+    """
+    token = path.strip().strip("'\"")
+    home = str(Path.home())
+    if token.startswith("${HOME}"):
+        token = home + token[len("${HOME}") :]
+    elif token.startswith("$HOME"):
+        token = home + token[len("$HOME") :]
+    token = os.path.expandvars(token)
+    token = os.path.expanduser(token)
+    while "//" in token:
+        token = token.replace("//", "/")
+    while "/./" in token:
+        token = token.replace("/./", "/")
+    return token
+
+
+def _path_has_prefix(path: str, prefix: str) -> bool:
+    """True if ``path`` is ``prefix`` or a descendant, not a sibling.
+
+    ``~/.ssh-backup`` must not match ``~/.ssh``; ``~/.ssh/id_rsa`` must.
+    """
+    prefix = prefix.rstrip("/")
+    return path == prefix or path.startswith(prefix + "/")
+
+
 def _is_secret_path(path: str) -> bool:
     """Return True if ``path`` looks like it leads to a secret/credential file."""
-    # Expand ~ once for comparison
-    home = str(Path.home())
+    expanded = _normalize_path_token(path)
 
-    # Normalise the token: expand tilde
-    expanded = path.replace("~", home)
-
-    # Check against home-relative sensitive dirs (raw ~ form)
     for secret_dir in _SECRET_HOME_DIRS:
-        expanded_secret = secret_dir.replace("~", home)
-        if expanded.startswith(expanded_secret):
+        if _path_has_prefix(expanded, _normalize_path_token(secret_dir)):
             return True
 
-    # Check absolute prefixes
     for prefix in _SECRET_ABS_PREFIXES:
-        if expanded.startswith(prefix):
+        if _path_has_prefix(expanded, _normalize_path_token(prefix)):
             return True
 
     # Check for secret file extensions (basename only to avoid false positives)
@@ -140,15 +166,46 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
         tokens = cmd.split()
 
     for token in tokens:
+        token = token.strip("'\"")
         # Skip option flags
         if token.startswith("-"):
             continue
-        # Skip command names (heuristic: no path separators and no ~)
-        if "/" not in token and "~" not in token and not token.startswith("."):
+        # Skip command names (heuristic: no path separators and no home marker)
+        if (
+            "/" not in token
+            and "~" not in token
+            and "$HOME" not in token
+            and "${HOME}" not in token
+            and not token.startswith(".")
+        ):
             continue
         if _is_secret_path(token):
             return token
     return None
+
+
+def _read_paths_from_tool_use(tool_use: "ToolUse") -> list[str]:
+    """Extract read-tool paths from the production ToolUse layout.
+
+    Markdown ``read <path>`` stores the path in ``args``; native/tool-format
+    calls store it in ``kwargs["path"]``; a markdown code-block may list one
+    path per line in ``content``. Tests that stuff the path into ``content``
+    still work as the last fallback.
+    """
+    kwargs = getattr(tool_use, "kwargs", None)
+    if kwargs and kwargs.get("path"):
+        return [kwargs["path"]]
+    args = getattr(tool_use, "args", None)
+    if args:
+        return [" ".join(args)]
+    content = (getattr(tool_use, "content", None) or "").strip()
+    if content:
+        return [
+            line.strip()
+            for line in content.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -216,13 +273,20 @@ def guardrail_hook(
                     )
 
     elif tool_use.tool == "read":
-        path_arg = (tool_use.content or "").strip()
-        if path_arg and _is_secret_path(path_arg.split()[0]):
-            first_token = path_arg.split()[0]
-            block_reason = (
-                f"Secret path access blocked: read tool references {first_token!r}. "
-                "Use a dedicated secrets manager or explicit user approval."
-            )
+        path_candidates = _read_paths_from_tool_use(tool_use)
+        if preview:
+            path_candidates = path_candidates or [
+                line.strip()
+                for line in preview.splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        for path_arg in path_candidates:
+            if _is_secret_path(path_arg):
+                block_reason = (
+                    f"Secret path access blocked: read tool references {path_arg!r}. "
+                    "Use a dedicated secrets manager or explicit user approval."
+                )
+                break
 
     if block_reason is None:
         return None  # Allow — fall through to next hook
