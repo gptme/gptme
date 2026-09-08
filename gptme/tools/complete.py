@@ -19,6 +19,7 @@ from ..completion_verification import (
     discover_verification_command,
     episode_has_authoring_mutation,
     fingerprints_match,
+    restore_approved_snapshots,
     uses_approved_snapshot,
 )
 from ..hooks import HookType, StopPropagation
@@ -123,6 +124,19 @@ class StaleManifestError(RuntimeError):
     """Raised when a live-manifest runner changed after approval and cannot be snapshotted."""
 
 
+def _cleanup_verify_snapshot(
+    snapshot_dir: str | None, snapshot_path: str | None
+) -> None:
+    """Restore swapped manifests, then drop private snapshot files."""
+    if snapshot_path is not None:
+        with contextlib.suppress(OSError):
+            os.unlink(snapshot_path)
+    if snapshot_dir is None:
+        return
+    restore_approved_snapshots(Path(snapshot_dir))
+    shutil.rmtree(snapshot_dir, ignore_errors=True)
+
+
 def _run_verify_cmd(
     cmd: str,
     workspace: Path | None,
@@ -138,8 +152,8 @@ def _run_verify_cmd(
     not just the immediate shell. For a workspace script, ``script_content``
     is written to a private snapshot and executed as a file so its shebang and
     ``$0`` semantics are preserved without reopening the repository path.
-    Discovered runners that expose executable configuration (Make, npm, pytest.ini)
-    are rebound to approved snapshot bytes before process startup.
+    Discovered runners are rebound to approved snapshot bytes before process
+    startup so a replaced live manifest cannot change what executes.
     """
     timeout = _env_int("GPTME_VERIFY_COMPLETION_TIMEOUT", _DEFAULT_VERIFY_TIMEOUT)
     popen_kwargs: dict = {} if _is_windows else {"start_new_session": True}
@@ -170,8 +184,7 @@ def _run_verify_cmd(
             process_env = build_env(sandbox)
             shell = False
         except BaseException:
-            if snapshot_dir is not None:
-                shutil.rmtree(snapshot_dir, ignore_errors=True)
+            _cleanup_verify_snapshot(snapshot_dir, None)
             raise
     elif script_content is not None:
         fd, snapshot_path = tempfile.mkstemp(prefix="gptme-verify-", suffix=".sh")
@@ -203,11 +216,7 @@ def _run_verify_cmd(
             **popen_kwargs,
         )
     except BaseException:
-        if snapshot_path is not None:
-            with contextlib.suppress(OSError):
-                os.unlink(snapshot_path)
-        if snapshot_dir is not None:
-            shutil.rmtree(snapshot_dir, ignore_errors=True)
+        _cleanup_verify_snapshot(snapshot_dir, snapshot_path)
         raise
 
     try:
@@ -252,11 +261,7 @@ def _run_verify_cmd(
         if proc.returncode is None:
             with contextlib.suppress(subprocess.TimeoutExpired, OSError):
                 proc.wait(timeout=1)
-        if snapshot_path is not None:
-            with contextlib.suppress(OSError):
-                os.unlink(snapshot_path)
-        if snapshot_dir is not None:
-            shutil.rmtree(snapshot_dir, ignore_errors=True)
+        _cleanup_verify_snapshot(snapshot_dir, snapshot_path)
 
 
 class SessionCompleteException(Exception):

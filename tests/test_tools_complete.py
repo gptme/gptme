@@ -551,6 +551,40 @@ class TestCompleteHookVerification:
         assert original.exists(), "approved Makefile snapshot must have run"
         assert not replacement.exists(), "replacement Makefile must NOT have run"
 
+    def test_discovered_npm_runs_approved_snapshot(self, monkeypatch, tmp_path):
+        """Replacing package.json after approval cannot change the executed script."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        package = tmp_path / "package.json"
+        original = tmp_path / "original_ran"
+        replacement = tmp_path / "replacement_ran"
+        package.write_text(f'{{"scripts":{{"test":"touch {original.as_posix()}"}}}}')
+        messages = [
+            _user("implement it"),
+            _assistant("```save src/example.ts\nexport const x = 1\n```"),
+            _system("saved"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        def replace_after_confirmation(**_kwargs):
+            package.write_text(
+                f'{{"scripts":{{"test":"touch {replacement.as_posix()}"}}}}'
+            )
+            return ConfirmationResult.confirm()
+
+        with (
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                side_effect=replace_after_confirmation,
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(messages, workspace=tmp_path))
+
+        assert original.exists(), "approved npm snapshot must have run"
+        assert not replacement.exists(), "replacement package.json must NOT have run"
+
     def test_discovered_command_manifest_change_forces_rediscovery(
         self, monkeypatch, tmp_path
     ):

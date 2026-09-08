@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from gptme.completion_verification import (
     classify_authoring_tool_use,
     discover_verification_command,
     npm_lifecycle_script,
+    restore_approved_snapshots,
     uses_approved_snapshot,
 )
 from gptme.tools.base import ToolUse
@@ -117,6 +119,19 @@ def test_compound_commands_with_writes_arm_discovery(command: str) -> None:
     ],
 )
 def test_compound_commands_without_writes_do_not_arm(command: str) -> None:
+    assert not classify_authoring_tool_use(_tool("shell", content=command))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo ok # note && rm old-file",
+        "echo 'foo && rm old-file'",
+        'echo "foo && rm old-file"',
+        "cat <<'EOF'\nplease rm old-file\nEOF",
+    ],
+)
+def test_quoted_comment_and_heredoc_writes_do_not_arm(command: str) -> None:
     assert not classify_authoring_tool_use(_tool("shell", content=command))
 
 
@@ -271,10 +286,87 @@ def test_approved_make_argv_binds_snapshot(tmp_path: Path) -> None:
 
 def test_npm_lifecycle_script_uses_approved_bodies() -> None:
     blob = json.dumps(
-        {"scripts": {"pretest": "node prep.js", "test": "vitest run"}}
+        {
+            "name": "demo",
+            "scripts": {"pretest": "node prep.js", "test": "vitest run"},
+        }
     ).encode()
     script = npm_lifecycle_script(blob)
     assert script is not None
     assert "node prep.js" in script
     assert "vitest run" in script
-    assert "npm" not in script
+    assert "npm test" not in script
+    assert "INIT_CWD" in script
+    assert "npm_lifecycle_event" in script
+    assert "npm_package_name" in script
+    assert script.count("sh -c") == 2
+    pretest_at = script.index("npm_lifecycle_event='pretest'")
+    test_at = script.index("npm_lifecycle_event='test'")
+    assert pretest_at < test_at
+
+
+def test_approved_npm_argv_invokes_shell_wrapper(tmp_path: Path) -> None:
+    package = tmp_path / "package.json"
+    package.write_text(json.dumps({"name": "demo", "scripts": {"test": "vitest run"}}))
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    snapshot_dir = tmp_path / "snap"
+    snapshot_dir.mkdir()
+    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    wrapper = Path(argv[-1])
+    assert wrapper.exists()
+    if os.name == "nt":
+        assert "cmd" in Path(argv[0]).name.lower()
+        assert "vitest run" in wrapper.read_text()
+    else:
+        assert argv[0].endswith("sh") or argv[0].endswith("sh.exe")
+        body = wrapper.read_text()
+        assert "sh -c" in body
+        assert "vitest run" in body
+
+
+def test_approved_pytest_pyproject_binds_ini_snapshot(tmp_path: Path) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text("[tool.pytest.ini_options]\naddopts = '-q'\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert uses_approved_snapshot(command)
+    snapshot_dir = tmp_path / "snap"
+    snapshot_dir.mkdir()
+    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    assert "-c" in argv
+    assert "--rootdir" in argv
+    ini = Path(argv[argv.index("-c") + 1])
+    assert ini.read_text() == "[pytest]\naddopts = -q\n"
+
+
+def test_approved_tox_argv_binds_workspace_side_file(tmp_path: Path) -> None:
+    tox_ini = tmp_path / "tox.ini"
+    tox_ini.write_text("[tox]\nenvlist = py\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    snapshot_dir = tmp_path / "snap"
+    snapshot_dir.mkdir()
+    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    assert argv[:2] == ("tox", "-c")
+    bound = Path(argv[2])
+    assert bound.read_bytes() == b"[tox]\nenvlist = py\n"
+    tox_ini.write_text("[tox]\nenvlist = evil\n")
+    assert bound.read_bytes() == b"[tox]\nenvlist = py\n"
+    restore_approved_snapshots(snapshot_dir)
+    assert not bound.exists()
+
+
+def test_approved_cargo_swaps_manifest_then_restores(tmp_path: Path) -> None:
+    cargo = tmp_path / "Cargo.toml"
+    cargo.write_text("[package]\nname = 'demo'\nversion = '0.1.0'\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    snapshot_dir = tmp_path / "snap"
+    snapshot_dir.mkdir()
+    cargo.write_text("[package]\nname = 'evil'\nversion = '0.1.0'\n")
+    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    assert argv == ("cargo", "test")
+    assert b"name = 'demo'" in cargo.read_bytes()
+    restore_approved_snapshots(snapshot_dir)
+    assert b"name = 'evil'" in cargo.read_bytes()

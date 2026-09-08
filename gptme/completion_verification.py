@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import configparser
+import contextlib
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -52,8 +55,7 @@ _SHELL_WRITE_SIGNAL = re.compile(
     r"\b(?:python|python3|bash|sh|node|deno)\s+\S+"
 )
 _MAKE_TEST_TARGET = re.compile(r"(?m)^test\s*(?::|::)")
-# Split compound payloads so a leading test/read-only command cannot hide a later write.
-_STATEMENT_SEP = re.compile(r"&&|\|\||[\n;]|[|](?![|])")
+_NPM_ENV_KEY = re.compile(r"[^A-Za-z0-9]+")
 
 
 @dataclass(frozen=True)
@@ -117,17 +119,175 @@ def classify_authoring_tool_use(tool_use: ToolUse) -> bool:
     return _payload_has_authoring_statement(payload)
 
 
+def _split_shell_statements(payload: str) -> list[str]:
+    """Split a payload on unquoted separators, keeping heredoc bodies intact."""
+    statements: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(payload)
+    quote: str | None = None
+    heredoc_delim: str | None = None
+    heredoc_pending: str | None = None
+
+    def flush() -> None:
+        statements.append("".join(buf))
+        buf.clear()
+
+    while i < n:
+        ch = payload[i]
+        if heredoc_delim is not None:
+            line_end = payload.find("\n", i)
+            line = payload[i:] if line_end == -1 else payload[i:line_end]
+            buf.append(payload[i:] if line_end == -1 else payload[i : line_end + 1])
+            if line.strip() == heredoc_delim:
+                heredoc_delim = None
+            if line_end == -1:
+                break
+            i = line_end + 1
+            continue
+        if quote is not None:
+            buf.append(ch)
+            if ch == "\\" and quote != "'" and i + 1 < n:
+                buf.append(payload[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in "'\"":
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "#" and (not buf or buf[-1] in " \t\n;&|"):
+            while i < n and payload[i] != "\n":
+                i += 1
+            continue
+        if payload.startswith("<<", i) and not payload.startswith("<<<", i):
+            buf.append("<<")
+            i += 2
+            if i < n and payload[i] == "-":
+                buf.append("-")
+                i += 1
+            while i < n and payload[i] in " \t":
+                buf.append(payload[i])
+                i += 1
+            delim: list[str] = []
+            if i < n and payload[i] in "'\"":
+                q = payload[i]
+                buf.append(q)
+                i += 1
+                while i < n and payload[i] != q:
+                    delim.append(payload[i])
+                    buf.append(payload[i])
+                    i += 1
+                if i < n:
+                    buf.append(payload[i])
+                    i += 1
+            else:
+                while i < n and payload[i] not in " \t\n;&|<>":
+                    delim.append(payload[i])
+                    buf.append(payload[i])
+                    i += 1
+            heredoc_pending = "".join(delim) or None
+            continue
+        if ch == "\n" and heredoc_pending is not None:
+            buf.append(ch)
+            heredoc_delim = heredoc_pending
+            heredoc_pending = None
+            i += 1
+            continue
+        if payload.startswith("&&", i) or payload.startswith("||", i):
+            flush()
+            i += 2
+            continue
+        if ch in ";\n" or (ch == "|" and (i + 1 >= n or payload[i + 1] != "|")):
+            flush()
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    flush()
+    return statements
+
+
+def _mask_inert_shell_text(statement: str) -> str:
+    """Blank quoted strings and heredoc bodies so write-signal matches stay real."""
+    chars = list(statement)
+    i = 0
+    n = len(statement)
+    quote: str | None = None
+    while i < n:
+        ch = statement[i]
+        if quote is not None:
+            chars[i] = " "
+            if ch == "\\" and quote != "'" and i + 1 < n:
+                chars[i + 1] = " "
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in "'\"":
+            chars[i] = " "
+            quote = ch
+            i += 1
+            continue
+        if statement.startswith("<<", i) and not statement.startswith("<<<", i):
+            i += 2
+            if i < n and statement[i] == "-":
+                i += 1
+            while i < n and statement[i] in " \t":
+                i += 1
+            delim: list[str] = []
+            if i < n and statement[i] in "'\"":
+                q = statement[i]
+                i += 1
+                while i < n and statement[i] != q:
+                    delim.append(statement[i])
+                    i += 1
+                if i < n:
+                    i += 1
+            else:
+                while i < n and statement[i] not in " \t\n;&|<>":
+                    delim.append(statement[i])
+                    i += 1
+            newline = statement.find("\n", i)
+            if newline == -1 or not delim:
+                break
+            i = newline + 1
+            token = "".join(delim)
+            while i < n:
+                line_end = statement.find("\n", i)
+                line = statement[i:] if line_end == -1 else statement[i:line_end]
+                end = n if line_end == -1 else line_end
+                if line.strip() == token:
+                    i = n if line_end == -1 else line_end + 1
+                    break
+                for j in range(i, end):
+                    chars[j] = " "
+                if line_end == -1:
+                    break
+                i = line_end + 1
+            continue
+        i += 1
+    return "".join(chars)
+
+
 def _payload_has_authoring_statement(payload: str) -> bool:
     """Return whether any compound-command statement mutates workspace state."""
-    for statement in _STATEMENT_SEP.split(payload):
+    for statement in _split_shell_statements(payload):
         statement = statement.strip()
         if not statement:
             continue
+        active = _mask_inert_shell_text(statement)
         if _NON_AUTHORING_COMMAND.match(statement) or _READ_ONLY_COMMAND.match(
             statement
         ):
             continue
-        if _SHELL_WRITE_SIGNAL.search(statement):
+        if _SHELL_WRITE_SIGNAL.search(active):
             return True
     return False
 
@@ -235,31 +395,222 @@ def _has_tox_config(name: str, text: str) -> bool:
 
 def uses_approved_snapshot(command: VerificationCommand) -> bool:
     """Return whether execution can bind to approved manifest bytes."""
-    if not command.source_blobs:
-        return False
-    name = command.source_blobs[0][0].name
-    return name in {"Makefile", "makefile", "GNUmakefile", "package.json", "pytest.ini"}
+    return bool(command.source_blobs)
 
 
-def npm_lifecycle_script(blob: bytes) -> str | None:
-    """Rebuild npm's pretest/test/posttest sequence from approved package.json bytes."""
+def _sh_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _cmd_set(name: str, value: str) -> str:
+    escaped = value.replace("%", "%%").replace('"', '""')
+    return f'set "{name}={escaped}"'
+
+
+def _flatten_npm_package_env(data: dict) -> dict[str, str]:
+    env: dict[str, str] = {}
+
+    def walk(prefix: str, value: object) -> None:
+        if value is None:
+            return
+        if isinstance(value, dict):
+            for key, inner in value.items():
+                safe = _NPM_ENV_KEY.sub("_", str(key)).strip("_")
+                if not safe:
+                    continue
+                walk(f"{prefix}_{safe}", inner)
+        elif isinstance(value, list):
+            for index, inner in enumerate(value):
+                walk(f"{prefix}_{index}", inner)
+        elif isinstance(value, bool):
+            env[prefix] = "true" if value else "false"
+        else:
+            env[prefix] = str(value)
+
+    walk("npm_package", data)
+    return env
+
+
+def _npm_lifecycle_events(blob: bytes) -> tuple[dict, list[tuple[str, str]]] | None:
     try:
         data = json.loads(blob)
     except json.JSONDecodeError:
         return None
-    scripts = data.get("scripts") if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    scripts = data.get("scripts")
     if not isinstance(scripts, dict) or not isinstance(scripts.get("test"), str):
         return None
+    events = [
+        (name, scripts[name])
+        for name in ("pretest", "test", "posttest")
+        if isinstance(scripts.get(name), str)
+    ]
+    return data, events
+
+
+def npm_lifecycle_script(blob: bytes) -> str | None:
+    """Rebuild npm's pretest/test/posttest sequence from approved package.json bytes.
+
+    Each lifecycle event runs in its own ``sh -c`` process with npm's
+    ``INIT_CWD``, ``npm_lifecycle_event``, ``npm_lifecycle_script``, and
+    flattened ``npm_package_*`` environment, matching ``npm test`` isolation.
+    """
+    parsed = _npm_lifecycle_events(blob)
+    if parsed is None:
+        return None
+    data, events = parsed
     lines = [
-        "#!/bin/sh",
         "set -e",
         'export PATH="$PWD/node_modules/.bin:$PATH"',
+        'export INIT_CWD="${INIT_CWD:-$PWD}"',
     ]
-    for name in ("pretest", "test", "posttest"):
-        script = scripts.get(name)
-        if isinstance(script, str):
-            lines.append(script)
+    for key, value in _flatten_npm_package_env(data).items():
+        lines.append(f"export {key}={_sh_single_quote(value)}")
+    for event, script in events:
+        lines.append(f"export npm_lifecycle_event={_sh_single_quote(event)}")
+        lines.append(f"export npm_lifecycle_script={_sh_single_quote(script)}")
+        lines.append(f"sh -c {_sh_single_quote(script)}")
     return "\n".join(lines) + "\n"
+
+
+def _workspace_side_file(
+    snapshot_dir: Path, workspace: Path | None, blob: bytes, suffix: str
+) -> str:
+    """Write approved bytes under the workspace so toxinidir stays the project root."""
+    archived = snapshot_dir / f"manifest{suffix}"
+    archived.write_bytes(blob)
+    root = workspace if workspace is not None else snapshot_dir
+    fd, path = tempfile.mkstemp(prefix=".gptme-verify-", suffix=suffix, dir=root)
+    os.close(fd)
+    Path(path).write_bytes(blob)
+    bound = snapshot_dir / "BOUND_PATHS"
+    with bound.open("a", encoding="utf-8") as handle:
+        handle.write(path + "\n")
+    return path
+
+
+def _swap_workspace_manifest(
+    snapshot_dir: Path, workspace: Path | None, source: Path, blob: bytes
+) -> None:
+    """Point a live-path runner at approved bytes for the duration of the run.
+
+    Cargo requires the filename ``Cargo.toml`` and uses that file's parent as
+    the package root, so a side-file snapshot cannot be used.
+    """
+    live = (workspace / source.name) if workspace is not None else source
+    backup = snapshot_dir / f"LIVE_{live.name}"
+    try:
+        backup.write_bytes(live.read_bytes())
+    except OSError:
+        (snapshot_dir / f"LIVE_{live.name}.missing").write_text("1", encoding="utf-8")
+    live.write_bytes(blob)
+    (snapshot_dir / "SWAPPED").write_text(str(live) + "\n", encoding="utf-8")
+
+
+def restore_approved_snapshots(snapshot_dir: Path) -> None:
+    """Undo workspace side-effects from :func:`approved_execution_argv`."""
+    swapped = snapshot_dir / "SWAPPED"
+    try:
+        live_s = swapped.read_text(encoding="utf-8").strip()
+    except OSError:
+        live_s = ""
+    if live_s:
+        live = Path(live_s)
+        backup = snapshot_dir / f"LIVE_{live.name}"
+        missing = snapshot_dir / f"LIVE_{live.name}.missing"
+        if missing.is_file():
+            with contextlib.suppress(OSError):
+                live.unlink()
+        elif backup.is_file():
+            with contextlib.suppress(OSError):
+                live.write_bytes(backup.read_bytes())
+    bound = snapshot_dir / "BOUND_PATHS"
+    try:
+        extras = bound.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        extras = []
+    for extra in extras:
+        with contextlib.suppress(OSError):
+            Path(extra).unlink()
+
+
+def _ini_section(name: str, opts: dict) -> bytes:
+    lines = [f"[{name}]"]
+    for key, value in opts.items():
+        if isinstance(value, dict):
+            continue
+        if isinstance(value, list):
+            rendered = "\n    ".join(str(item) for item in value)
+            lines.append(f"{key} =\n    {rendered}")
+        elif isinstance(value, bool):
+            lines.append(f"{key} = {'true' if value else 'false'}")
+        else:
+            lines.append(f"{key} = {value}")
+    return ("\n".join(lines) + "\n").encode()
+
+
+def _pytest_ini_from_blob(name: str, blob: bytes) -> bytes:
+    if name == "pytest.ini":
+        return blob
+    text = blob.decode("utf-8", errors="replace")
+    if name == "pyproject.toml":
+        try:
+            data = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            return b"[pytest]\n"
+        tool = data.get("tool") if isinstance(data, dict) else None
+        pytest_tbl = tool.get("pytest") if isinstance(tool, dict) else None
+        if not isinstance(pytest_tbl, dict):
+            return b"[pytest]\n"
+        opts = pytest_tbl.get("ini_options", pytest_tbl)
+        if not isinstance(opts, dict):
+            return b"[pytest]\n"
+        return _ini_section("pytest", opts)
+    parser = configparser.RawConfigParser(interpolation=None)
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return b"[pytest]\n"
+    for section in ("pytest", "tool:pytest"):
+        if parser.has_section(section):
+            return _ini_section("pytest", dict(parser.items(section)))
+    return b"[pytest]\n"
+
+
+def _npm_snapshot_argv(snapshot_dir: Path, blob: bytes) -> tuple[str, ...] | None:
+    parsed = _npm_lifecycle_events(blob)
+    if parsed is None:
+        return None
+    data, events = parsed
+    if os.name == "nt":
+        wrapper = snapshot_dir / "npm-test.cmd"
+        lines = [
+            "@echo off",
+            "setlocal EnableExtensions",
+            'set "PATH=%CD%\\node_modules\\.bin;%PATH%"',
+            'if not defined INIT_CWD set "INIT_CWD=%CD%"',
+        ]
+        for key, value in _flatten_npm_package_env(data).items():
+            lines.append(_cmd_set(key, value))
+        for event, script in events:
+            fragment = snapshot_dir / f"npm-{event}.cmd"
+            fragment.write_text(script + "\r\n", encoding="utf-8")
+            lines.append(_cmd_set("npm_lifecycle_event", event))
+            lines.append(_cmd_set("npm_lifecycle_script", script))
+            lines.append(f'cmd /d /s /c "{fragment}"')
+            lines.append("if errorlevel 1 exit /b 1")
+        wrapper.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+        comspec = os.environ.get("COMSPEC", "cmd.exe")
+        return (comspec, "/d", "/s", "/c", str(wrapper))
+    wrapper = snapshot_dir / "npm-test.sh"
+    body = npm_lifecycle_script(blob)
+    if body is None:
+        return None
+    wrapper.write_text(body, encoding="utf-8")
+    wrapper.chmod(0o700)
+    sh = shutil.which("sh") or "/bin/sh"
+    return (sh, str(wrapper))
 
 
 def approved_execution_argv(
@@ -276,22 +627,28 @@ def approved_execution_argv(
     if name in {"Makefile", "makefile", "GNUmakefile"}:
         return ("make", "-f", str(snap), "test")
     if name == "package.json":
-        wrapper = snapshot_dir / "npm-test.sh"
-        body = npm_lifecycle_script(blob)
-        if body is None:
-            return command.argv
-        wrapper.write_text(body)
-        wrapper.chmod(0o700)
-        return (str(wrapper),)
-    if name == "pytest.ini":
+        argv = _npm_snapshot_argv(snapshot_dir, blob)
+        return command.argv if argv is None else argv
+    if "pytest" in command.argv:
+        ini_path = snapshot_dir / "pytest.ini"
+        ini_path.write_bytes(_pytest_ini_from_blob(name, blob))
         parts = list(command.argv)
         try:
             idx = parts.index("pytest")
         except ValueError:
             return command.argv
         return tuple(
-            parts[: idx + 1] + ["-c", str(snap), "--rootdir", root] + parts[idx + 1 :]
+            parts[: idx + 1]
+            + ["-c", str(ini_path), "--rootdir", root]
+            + parts[idx + 1 :]
         )
+    if command.argv[:1] == ("tox",):
+        suffix = Path(name).suffix or ".ini"
+        bound = _workspace_side_file(snapshot_dir, workspace, blob, suffix)
+        return ("tox", "-c", bound)
+    if name == "Cargo.toml":
+        _swap_workspace_manifest(snapshot_dir, workspace, source, blob)
+        return command.argv
     return command.argv
 
 
