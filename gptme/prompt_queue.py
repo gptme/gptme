@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from .message import Message
+from .message import Message, MessageMetadata
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -50,7 +50,13 @@ def _prompt_queue_lock(logdir: Path):
                 fcntl.flock(fd, fcntl.LOCK_UN)
 
 
-def queue_prompt(logdir: Path, content: str, *, steer: bool = False) -> None:
+def queue_prompt(
+    logdir: Path,
+    content: str,
+    *,
+    steer: bool = False,
+    skill_invocation_id: str | None = None,
+) -> None:
     """Append a prompt to a conversation queue.
 
     Args:
@@ -58,6 +64,7 @@ def queue_prompt(logdir: Path, content: str, *, steer: bool = False) -> None:
             hook.  Regular (non-steer) prompts are drained between turns; steer
             prompts are drained at each STEP_PRE checkpoint so the next LLM call
             in the same turn sees them immediately.
+        skill_invocation_id: Correlate a queued skill prompt with its invocation.
     """
     queue_path = get_prompt_queue_path(logdir)
     record: dict = {
@@ -66,6 +73,8 @@ def queue_prompt(logdir: Path, content: str, *, steer: bool = False) -> None:
     }
     if steer:
         record["steer"] = True
+    if skill_invocation_id is not None:
+        record["skill_invocation_id"] = skill_invocation_id
 
     with _prompt_queue_lock(logdir), queue_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
@@ -115,7 +124,11 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
                 logger.warning("Skipping empty queued prompt in %s", queue_path)
                 continue
 
-            drained.append(Message("user", content, quiet=True))
+            metadata: MessageMetadata | None = None
+            skill_invocation_id = record.get("skill_invocation_id")
+            if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
+                metadata = {"skill_invocation_id": skill_invocation_id}
+            drained.append(Message("user", content, quiet=True, metadata=metadata))
 
         if remaining:
             queue_path.write_text("\n".join(remaining) + "\n", encoding="utf-8")

@@ -175,6 +175,7 @@ class MessageMetadata(TypedDict, total=False):
     # Identifies one generated startup-prompt generation. A newer generation
     # supersedes older ones in provider context while all remain on disk.
     prompt_generation: str
+    skill_invocation_id: str  # Explicit skill invocation that queued this prompt
 
 
 _TOKEN_KEYS = (

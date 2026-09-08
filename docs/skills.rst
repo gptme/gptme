@@ -216,6 +216,31 @@ argument (curly braces are required for positional references to avoid
 ambiguity with literal dollar amounts like ``$100`` in skill prose).
 Use ``/skills read <name>`` to view a skill without invoking it.
 
+Invocation evidence
+~~~~~~~~~~~~~~~~~~~
+
+Explicit slash-command invocations append versioned records to
+``<conversation>/skill-events.jsonl``. Each invocation gets a UUID, carried through
+the prompt queue into message metadata as ``skill_invocation_id``. The ledger
+records skill identity, source path, invocation surface, run identity, timestamp,
+and phase. It does not record arguments or skill contents. Ambient skill matching
+and injection do not create invocation events.
+
+``started`` means the prompt was built; ``queued`` means it was admitted to the
+queue. Queue errors record ``failed`` with the exception class, without its text.
+Neither admission nor a normal turn/session hook establishes skill completion.
+The explicit ``record_skill_phase`` API accepts a later ``completed`` or ``failed``
+event from a caller with execution evidence; terminal transitions are idempotent.
+
+On CLI exit, unresolved invocations from that run become ``abandoned``. This means
+no completion evidence was recorded, and does not establish that the skill's work
+failed. Nested and resumed runs have separate UUIDs. Server/TUI terminal adapters,
+automatic completion evidence, abrupt-process recovery, cost attribution, and OTEL
+metrics remain future work; server/TUI command records currently retain the
+conversation path as their session identity. Storage failures are logged and never
+prevent skill execution. Malformed ledgers are preserved and refuse further writes
+until repaired, rather than risking duplicate terminal events.
+
 Creating Skills
 ---------------
 

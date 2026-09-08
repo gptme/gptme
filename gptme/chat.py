@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable, Generator
+from contextlib import ExitStack
 from pathlib import Path
 
 from .commands import execute_cmd
@@ -94,6 +95,7 @@ def chat(
     # Save the caller's format so nested chat() calls (inline subagents) can
     # restore it on exit instead of unconditionally resetting to "text".
     _prev_output_format = get_output_format()
+    skill_lifecycle = ExitStack()
     try:
         set_output_format(output_format)
 
@@ -133,6 +135,10 @@ def chat(
         if not is_output_json() and not is_output_quiet():
             console.log(f"Using logdir: {path_with_tilde(logdir)}")
         manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+
+        from .lessons.skill_events import skill_session
+
+        skill_lifecycle.enter_context(skill_session(logdir))
 
         # Note: todo replay is now handled via SESSION_START hook
 
@@ -186,6 +192,7 @@ def chat(
             for msg in session_end_msgs:
                 manager.append(msg)
     finally:
+        skill_lifecycle.close()
         # Safety-net sentinel write.  The primary writes happen inside
         # _run_chat_loop at the actual break/raise points so the window between
         # the final _drain_external_prompt_queue() call and the sentinel being

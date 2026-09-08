@@ -85,6 +85,7 @@ def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
 
     def handler(ctx: CommandContext) -> Generator[Message, None, None]:
         from ..prompt_queue import queue_prompt  # fmt: skip
+        from .skill_events import record_skill_phase, start_skill_invocation
 
         # Build the prompt first; only undo the command message on success so a
         # broken skill leaves the log intact instead of silently disappearing.
@@ -94,7 +95,15 @@ def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
             logger.warning("Failed to build prompt for skill %r: %s", name, e)
             yield from ()
             return
-        queue_prompt(ctx.manager.logdir, content)
+        invocation_id = start_skill_invocation(ctx.manager.logdir, name, skill.path)
+        try:
+            queue_prompt(ctx.manager.logdir, content, skill_invocation_id=invocation_id)
+        except Exception as e:
+            record_skill_phase(
+                ctx.manager.logdir, invocation_id, "failed", error_type=type(e).__name__
+            )
+            raise
+        record_skill_phase(ctx.manager.logdir, invocation_id, "queued")
         # Remove the "/skill:<name>" command message from the log after queuing,
         # like built-in commands do; the queued prompt carries its own header.
         ctx.manager.undo(1, quiet=True)

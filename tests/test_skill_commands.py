@@ -320,6 +320,117 @@ def test_handler_undo_not_called_when_build_fails(
     # manager.undo must NOT have been called — the log stays intact so the user
     # can see the failed invocation instead of a silent disappear.
     manager.undo.assert_not_called()
+    assert not (manager.logdir / "skill-events.jsonl").exists()
+
+
+def test_skill_handler_records_admission_not_completion(skills_root: Path, manager):
+    from gptme.lessons.skill_events import read_skill_events, skill_session
+
+    skill_path = _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+    register_skill_commands()
+    with skill_session(manager.logdir) as session_id:
+        list(handle_cmd("/skill:demo private-argument", manager))
+        events = read_skill_events(manager.logdir)
+        assert [event.phase for event in events] == ["started", "queued"]
+        assert {event.session_id for event in events} == {session_id}
+        assert {event.skill_path for event in events} == {str(skill_path)}
+        queued = drain_prompt_queue(manager.logdir)
+        assert queued[0].metadata is not None
+        assert queued[0].metadata["skill_invocation_id"] == events[0].invocation_id
+    events = read_skill_events(manager.logdir)
+    assert [event.phase for event in events] == ["started", "queued", "abandoned"]
+    assert "private-argument" not in (manager.logdir / "skill-events.jsonl").read_text()
+
+
+def test_queue_failure_records_failure_and_preserves_command(
+    skills_root: Path, manager, monkeypatch
+):
+    from gptme.lessons.skill_events import read_skill_events, skill_session
+
+    _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+    register_skill_commands()
+
+    def fail_queue(*args, **kwargs):
+        raise OSError("private queue error")
+
+    monkeypatch.setattr("gptme.prompt_queue.queue_prompt", fail_queue)
+    with (
+        skill_session(manager.logdir),
+        pytest.raises(OSError, match="private queue error"),
+    ):
+        list(_command_registry["skill:demo"](_ctx(manager)))
+    events = read_skill_events(manager.logdir)
+    assert [event.phase for event in events] == ["started", "failed"]
+    assert events[-1].error_type == "OSError"
+    manager.undo.assert_not_called()
+    assert (
+        "private queue error" not in (manager.logdir / "skill-events.jsonl").read_text()
+    )
+
+
+def test_ledger_failure_does_not_prevent_skill_queueing(skills_root: Path, manager):
+    _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+    register_skill_commands()
+    (manager.logdir / "skill-events.jsonl").write_text("malformed existing history\n")
+    list(_command_registry["skill:demo"](_ctx(manager)))
+    assert len(drain_prompt_queue(manager.logdir)) == 1
+    manager.undo.assert_called_once_with(1, quiet=True)
+
+
+@pytest.mark.parametrize("exit_kind", ["normal", "error", "complete"])
+def test_chat_finalizes_only_its_own_invocations(
+    skills_root: Path, manager, monkeypatch, exit_kind: str
+):
+    import sys
+
+    from gptme.chat import chat
+    from gptme.lessons.skill_events import read_skill_events, start_skill_invocation
+    from gptme.tools.complete import SessionCompleteException
+
+    skill_path = _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+    register_skill_commands()
+    old_id = start_skill_invocation(
+        manager.logdir, "demo", skill_path, session_id="previous-run"
+    )
+    chat_module = sys.modules["gptme.chat"]
+    monkeypatch.chdir(skills_root)
+    monkeypatch.setattr(chat_module, "init", lambda *args: None)
+    monkeypatch.setattr(chat_module, "trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat_module.LogManager, "load", lambda *args, **kwargs: manager)
+
+    def run(*args, **kwargs):
+        list(handle_cmd("/skill:demo", manager))
+        if exit_kind == "error":
+            raise RuntimeError("provider failed")
+        if exit_kind == "complete":
+            raise SessionCompleteException("stuck-loop exit is not skill success")
+
+    monkeypatch.setattr(chat_module, "_run_chat_loop", run)
+
+    def invoke():
+        chat(
+            [],
+            [],
+            manager.logdir,
+            skills_root,
+            "openai/gpt-4o",
+            interactive=False,
+            tool_format="markdown",
+            output_format="quiet",
+        )
+
+    if exit_kind == "error":
+        with pytest.raises(RuntimeError, match="provider failed"):
+            invoke()
+    else:
+        invoke()
+    events = read_skill_events(manager.logdir)
+    assert [event.phase for event in events if event.invocation_id == old_id] == [
+        "started"
+    ]
+    new_events = [event for event in events if event.invocation_id != old_id]
+    assert [event.phase for event in new_events] == ["started", "queued", "abandoned"]
+    assert len({event.session_id for event in new_events}) == 1
 
 
 def test_two_pass_registration_skill_named_with_prefix(skills_root: Path, manager):
