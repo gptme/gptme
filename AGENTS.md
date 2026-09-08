@@ -80,6 +80,54 @@ CI benchmarks enforce startup thresholds.
 
 See [docs/glossary.md](docs/glossary.md) for full terminology.
 
+## Memory
+
+gptme uses a cross-harness memory store that is shared between gptme, Claude
+Code, and Codex sessions. Memories are Claude Code–compatible Markdown files
+written to the CC per-project directory and optionally to a `memory/` folder
+at the workspace root.
+
+### Recall at session start
+
+Run recall once to surface the entries most relevant to the current task:
+
+```bash
+gptme-util memory recall "<one-line task description>" -k 5
+```
+
+If `gptme-rag` (with the `lexical` extra) is installed the TF-IDF backend is
+used automatically; a deterministic token-overlap fallback is used otherwise.
+The output line always names the backend that ran.
+
+### Save a memory
+
+When you learn something worth keeping across sessions — a user preference, a
+project decision, a recurring pattern — persist it:
+
+```bash
+gptme-util memory save <slug> "<one-line description>" --type <type> <<'EOF'
+<body — as many lines as useful>
+EOF
+```
+
+Valid `--type` values: `user`, `feedback`, `project`, `reference`.
+
+The entry is written to the nearest writable root (project `memory/` when
+present, else the CC per-project directory) and indexed automatically by both
+gptme and Claude Code in their next session.
+
+### Inspect and manage
+
+```bash
+gptme-util memory roots          # Which roots are active for this workspace
+gptme-util memory list           # All living entries across all roots
+gptme-util memory show <slug>    # Full text of one entry
+gptme-util memory index --write  # Regenerate MEMORY.md (auto-loaded by CC)
+```
+
+See [docs/memory.rst](docs/memory.rst) or <https://gptme.org/docs/memory.html>
+for the full reference.
+
 ## Subsystem Guides
 
 - [webui/AGENTS.md](webui/AGENTS.md) - Web UI architecture and gotchas

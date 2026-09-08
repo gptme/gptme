@@ -64,3 +64,35 @@ returns a valid ``additionalContext`` response:
 The hook is read-only and returns empty ``additionalContext`` when there is no
 relevant memory. Keep the executable on Claude Code's hook ``PATH``; if the
 workspace uses an isolated environment, call its absolute ``gptme-util`` path.
+
+Codex / AGENTS.md integration
+------------------------------
+
+Codex has no hook mechanism, so memory access is driven by instructions in
+``AGENTS.md``. The gptme repository's own ``AGENTS.md`` already contains a
+``## Memory`` section; copy or adapt it for any workspace that runs Codex
+sessions.
+
+The two key patterns for Codex agents:
+
+**Recall at session start** — surface memories relevant to the current task:
+
+.. code-block:: bash
+
+   gptme-util memory recall "<one-line task description>" -k 5
+
+**Save a memory** — persist something worth keeping across sessions:
+
+.. code-block:: bash
+
+   gptme-util memory save <slug> "<one-line description>" --type <type> <<'EOF'
+   <body>
+   EOF
+
+Valid ``--type`` values match Claude Code's memory taxonomy: ``user``,
+``feedback``, ``project``, ``reference``.
+
+The entry is written to the nearest writable root (project ``memory/`` if it
+exists, otherwise ``~/.claude/projects/<workspace-hash>/memory/``) and will
+be picked up automatically by Claude Code and gptme in their next session —
+completing the write path for cross-harness memory sharing.
