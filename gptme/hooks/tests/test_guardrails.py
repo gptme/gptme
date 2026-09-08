@@ -441,6 +441,7 @@ class TestExecuteReadInvokesGuardrail:
     def test_execute_read_does_not_prompt_in_shadow(self, monkeypatch, tmp_path):
         """Shadow must execute the read and never enter the TOOL_CONFIRM chain."""
         monkeypatch.setenv("GPTME_GUARDRAILS", "shadow")
+        import importlib
         from unittest.mock import patch
 
         from gptme.hooks import clear_hooks
@@ -450,8 +451,12 @@ class TestExecuteReadInvokesGuardrail:
         register()
         pem = tmp_path / "server.pem"
         pem.write_text("pem-secret\n")
-        with patch(
-            "gptme.hooks.confirm.get_confirmation",
+        # gptme.hooks re-exports `confirm` as a function, so a dotted patch
+        # path or `import gptme.hooks.confirm` resolves to that function.
+        confirm_mod = importlib.import_module("gptme.hooks.confirm")
+        with patch.object(
+            confirm_mod,
+            "get_confirmation",
             side_effect=AssertionError(
                 "TOOL_CONFIRM chain must not run in shadow mode"
             ),
@@ -464,6 +469,7 @@ class TestExecuteReadInvokesGuardrail:
     def test_execute_read_does_not_prompt_in_off(self, monkeypatch, tmp_path):
         """Off mode is a no-op: execute the read, never enter TOOL_CONFIRM."""
         monkeypatch.setenv("GPTME_GUARDRAILS", "off")
+        import importlib
         from unittest.mock import patch
 
         from gptme.hooks import clear_hooks
@@ -473,8 +479,10 @@ class TestExecuteReadInvokesGuardrail:
         register()
         pem = tmp_path / "server.pem"
         pem.write_text("pem-secret\n")
-        with patch(
-            "gptme.hooks.confirm.get_confirmation",
+        confirm_mod = importlib.import_module("gptme.hooks.confirm")
+        with patch.object(
+            confirm_mod,
+            "get_confirmation",
             side_effect=AssertionError("TOOL_CONFIRM chain must not run in off mode"),
         ):
             msgs = list(execute_read(None, [str(pem)], None))
