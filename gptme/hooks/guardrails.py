@@ -167,8 +167,13 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
 
     for token in tokens:
         token = token.strip("'\"")
-        # Skip option flags
+        # Option flags: skip unless they carry a value after '='
+        # (`python script.py --aws_key=~/.aws/credentials`).
         if token.startswith("-"):
+            if "=" in token:
+                value = token.split("=", 1)[1].strip("'\"")
+                if value and _is_secret_path(value):
+                    return value
             continue
         # Skip command names (heuristic: no path separators and no home marker)
         if (
@@ -303,6 +308,21 @@ def guardrail_hook(
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
+
+
+def is_guardrail_active() -> bool:
+    """True when the guardrail is registered and enabled in the hook registry.
+
+    Built-in reads skip ``execute_with_confirmation()``, so they must consult
+    the registry before invoking ``guardrail_hook`` directly. Otherwise
+    ``HOOK_ALLOWLIST`` exclusion and ``disable_hook`` would be ignored for
+    reads while shell still honors them.
+    """
+    from . import HookType, get_hooks
+
+    return any(
+        h.name == "guardrails" and h.enabled for h in get_hooks(HookType.TOOL_CONFIRM)
+    )
 
 
 def register() -> None:

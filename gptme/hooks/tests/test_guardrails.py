@@ -15,6 +15,7 @@ from ..guardrails import (
     _get_mode,
     _is_secret_path,
     guardrail_hook,
+    is_guardrail_active,
     register,
 )
 
@@ -141,6 +142,22 @@ class TestFindSecretPathInCmd:
     def test_braced_home_in_cmd(self):
         result = _find_secret_path_in_cmd("cat ${HOME}/.aws/credentials")
         assert result is not None
+
+    def test_option_equals_secret_path(self):
+        result = _find_secret_path_in_cmd(
+            "python myscript.py --aws_key=~/.aws/credentials"
+        )
+        assert result is not None
+        assert "credentials" in result or "aws" in result
+
+    def test_option_equals_quoted_secret_path(self):
+        result = _find_secret_path_in_cmd(
+            "python myscript.py --file='$HOME/.ssh/id_rsa'"
+        )
+        assert result is not None
+
+    def test_option_equals_safe_path(self):
+        assert _find_secret_path_in_cmd("python myscript.py --file=README.md") is None
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +385,17 @@ class TestRegister:
         assert guardrail_hooks
         assert guardrail_hooks[0].priority >= 200  # above server_confirm (100)
 
+    def test_active_when_registered(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from .. import clear_hooks, disable_hook
+
+        clear_hooks()
+        assert not is_guardrail_active()
+        register()
+        assert is_guardrail_active()
+        disable_hook("guardrails")
+        assert not is_guardrail_active()
+
 
 # ---------------------------------------------------------------------------
 # execute_read wiring — TOOL_CONFIRM must actually run for the read tool
@@ -452,4 +480,34 @@ class TestExecuteReadInvokesGuardrail:
             msgs = list(execute_read(None, [str(pem)], None))
         assert any("pem-secret" in m.content for m in msgs), (
             f"Off mode must execute the read; got: {[m.content for m in msgs]}"
+        )
+
+    def test_execute_read_skips_when_hook_not_registered(self, monkeypatch, tmp_path):
+        """Direct invocation must not enforce when the hook is not registered."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from gptme.hooks import clear_hooks
+        from gptme.tools.read import execute_read
+
+        clear_hooks()
+        pem = tmp_path / "server.pem"
+        pem.write_text("pem-secret\n")
+        msgs = list(execute_read(None, [str(pem)], None))
+        assert any("pem-secret" in m.content for m in msgs), (
+            f"Unregistered guardrail must not block reads; got: {[m.content for m in msgs]}"
+        )
+
+    def test_execute_read_skips_when_hook_disabled(self, monkeypatch, tmp_path):
+        """disable_hook must apply to reads the same way it applies to shell."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from gptme.hooks import clear_hooks, disable_hook
+        from gptme.tools.read import execute_read
+
+        clear_hooks()
+        register()
+        disable_hook("guardrails")
+        pem = tmp_path / "server.pem"
+        pem.write_text("pem-secret\n")
+        msgs = list(execute_read(None, [str(pem)], None))
+        assert any("pem-secret" in m.content for m in msgs), (
+            f"Disabled guardrail must not block reads; got: {[m.content for m in msgs]}"
         )
