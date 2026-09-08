@@ -506,6 +506,17 @@ class TestCompleteHookVerification:
         assert "characters omitted" in failure.content
         assert "x" * 100 not in failure.content
 
+    def test_invalid_output_limit_still_bounds_output(self, monkeypatch):
+        """A non-positive override cannot disable the context safety bound."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_OUTPUT_CHARS", "0")
+        output = "x" * 80_000
+
+        from gptme.tools.complete import _bound_verifier_output
+
+        bounded = _bound_verifier_output(output)
+        assert len(bounded) < len(output)
+        assert "characters omitted" in bounded
+
     def test_discovered_command_manifest_change_forces_rediscovery(
         self, monkeypatch, tmp_path
     ):

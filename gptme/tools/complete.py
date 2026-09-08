@@ -106,7 +106,9 @@ def _bound_verifier_output(output: str) -> str:
     limit = _env_int(
         "GPTME_VERIFY_COMPLETION_OUTPUT_CHARS", _DEFAULT_VERIFY_OUTPUT_CHARS
     )
-    if limit <= 0 or len(output) <= limit:
+    if limit <= 0:
+        limit = _DEFAULT_VERIFY_OUTPUT_CHARS
+    if len(output) <= limit:
         return output
     head = limit // 2
     tail = limit - head
