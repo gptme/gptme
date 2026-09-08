@@ -70,14 +70,18 @@ jest.mock('@/stores/conversations', () => {
   };
 });
 
+const mockSaveDefaultModel = jest.fn();
+let mockDefaultModel = '';
+
 jest.mock('@/hooks/useModels', () => ({
   useModels: () => ({
     models: [],
-    defaultModel: '',
+    defaultModel: mockDefaultModel,
     availableModels: [],
     recommendedModels: [],
     isLoading: false,
     error: null,
+    saveDefaultModel: mockSaveDefaultModel,
   }),
 }));
 
@@ -134,6 +138,9 @@ describe('ChatInput', () => {
         },
       ],
     });
+    mockSaveDefaultModel.mockReset();
+    mockSaveDefaultModel.mockResolvedValue({ ok: true, restartRequired: false });
+    mockDefaultModel = '';
     window.localStorage.clear();
     mockConversation$.set({
       isGenerating: false,
@@ -459,5 +466,48 @@ describe('Model selector (gptme#3440)', () => {
     // Badge must remain enabled — user should be able to change model mid-stream
     // for the next turn (isDisabled is tied to isReadOnly/!isConnected, not isGenerating)
     expect(screen.getByTestId('model-selector')).not.toBeDisabled();
+  });
+});
+
+// Regression suite for gptme/gptme#3768 — set-default footer must not reuse the
+// Star icon (that's the per-model favorites toggle in ModelPicker).
+describe('Set-default footer (gptme#3768)', () => {
+  beforeEach(() => {
+    mockSaveDefaultModel.mockReset();
+    mockSaveDefaultModel.mockResolvedValue({ ok: true, restartRequired: false });
+    mockDefaultModel = '';
+    mockConversation$.set({
+      isGenerating: false,
+      executingTool: null,
+      chatConfig: { chat: { model: 'openai/gpt-4o' } },
+    });
+  });
+
+  async function openModelPicker() {
+    const autoFocus$ = observable(false);
+    render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
+    fireEvent.click(screen.getByTestId('model-selector'));
+    return waitFor(() => screen.getByTestId('set-default-model'));
+  }
+
+  it('uses a Bookmark icon, not Star, for set-default', async () => {
+    const footer = await openModelPicker();
+    expect(footer.querySelector('svg.lucide-bookmark')).toBeInTheDocument();
+    expect(footer.querySelector('svg.lucide-star')).not.toBeInTheDocument();
+    expect(footer).toHaveTextContent('Set as default for new chats');
+    expect(footer).not.toBeDisabled();
+  });
+
+  it('keeps the already-default tooltip on a hoverable wrapper', async () => {
+    mockDefaultModel = 'openai/gpt-4o';
+    const footer = await openModelPicker();
+    expect(footer).toBeDisabled();
+    expect(footer.querySelector('svg.lucide-bookmark-check')).toBeInTheDocument();
+    expect(footer.querySelector('svg.lucide-star')).not.toBeInTheDocument();
+    expect(footer).toHaveTextContent('Default for new chats');
+    // Button is disabled (pointer-events-none). Title must live on a wrapper
+    // that can still receive hover — otherwise the new tooltip is unreachable.
+    expect(footer).not.toHaveAttribute('title');
+    expect(footer.parentElement).toHaveAttribute('title', 'This is already your default model');
   });
 });

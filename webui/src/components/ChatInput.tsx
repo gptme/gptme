@@ -406,23 +406,29 @@ const SetDefaultModelFooter: FC<{ model: string }> = ({ model }) => {
   // Use Bookmark/BookmarkCheck (distinct from the Star used for favorites)
   // so users can tell the two controls apart at a glance.
   const DefaultIcon = isDefault ? BookmarkCheck : Bookmark;
+  const title = isDefault ? 'This is already your default model' : 'Set as default for new chats';
 
   return (
     <div className="border-t p-1">
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 w-full justify-start text-xs font-normal"
-        disabled={isDefault || saving}
-        title={isDefault ? 'This is already your default model' : 'Set as default for new chats'}
-        onClick={() => void handleSetDefault()}
-      >
-        <DefaultIcon
-          className={`mr-2 h-3.5 w-3.5 ${isDefault ? 'fill-current text-primary' : ''}`}
-        />
-        {isDefault ? 'Default for new chats' : 'Set as default for new chats'}
-      </Button>
+      {/* Title lives on a non-disabled wrapper. Button uses
+          `disabled:pointer-events-none`, so a title on the button itself
+          cannot appear when this model is already the default. */}
+      <span className="block w-full" title={title}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 w-full justify-start text-xs font-normal"
+          disabled={isDefault || saving}
+          data-testid="set-default-model"
+          onClick={() => void handleSetDefault()}
+        >
+          <DefaultIcon
+            className={`mr-2 h-3.5 w-3.5 ${isDefault ? 'fill-current text-primary' : ''}`}
+          />
+          {isDefault ? 'Default for new chats' : 'Set as default for new chats'}
+        </Button>
+      </span>
     </div>
   );
 };
