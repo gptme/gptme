@@ -25,7 +25,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gptme.completion_verification import VerificationCommand
 from gptme.hooks.confirm import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.complete import (
@@ -41,6 +40,7 @@ from gptme.tools.complete import (
     stuck_detect_hook,
     tool,
 )
+from gptme.util.completion_verification import VerificationCommand
 
 
 @pytest.fixture(autouse=True)
@@ -365,7 +365,7 @@ class TestCompleteHookVerification:
         ]
 
         with (
-            patch("gptme.completion_verification.shutil.which", return_value=None),
+            patch("gptme.util.completion_verification.shutil.which", return_value=None),
             patch(
                 "gptme.tools.complete.get_confirmation",
                 return_value=ConfirmationResult.confirm(),
@@ -488,7 +488,7 @@ class TestCompleteHookVerification:
         output = "HEAD" + ("x" * 200) + "FAILURE-TAIL"
 
         with (
-            patch("gptme.completion_verification.shutil.which", return_value=None),
+            patch("gptme.util.completion_verification.shutil.which", return_value=None),
             patch(
                 "gptme.tools.complete.get_confirmation",
                 return_value=ConfirmationResult.confirm(),

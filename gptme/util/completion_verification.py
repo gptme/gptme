@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from .tools.base import ToolUse
+from ..tools.base import ToolUse
 
 if sys.version_info >= (3, 11):
     import tomllib

@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from gptme.completion_verification import (
+from gptme.tools.base import ToolUse
+from gptme.util.completion_verification import (
     VerificationCommand,
     approved_execution_argv,
     classify_authoring_tool_use,
@@ -18,7 +19,6 @@ from gptme.completion_verification import (
     restore_approved_snapshots,
     uses_approved_snapshot,
 )
-from gptme.tools.base import ToolUse
 
 
 def _tool(
@@ -147,7 +147,7 @@ def test_discovers_uv_pytest_from_explicit_pytest_config(
     config = tmp_path / "pytest.ini"
     config.write_text("[pytest]\n")
     monkeypatch.setattr(
-        "gptme.completion_verification.shutil.which",
+        "gptme.util.completion_verification.shutil.which",
         lambda cmd: "/bin/uv" if cmd == "uv" else None,
     )
 
@@ -170,7 +170,9 @@ def test_runner_precedence_is_deterministic(
         "[package]\nname = 'demo'\nversion = '0.1.0'\n"
     )
     (tmp_path / "Makefile").write_text("test:\n\t@true\n")
-    monkeypatch.setattr("gptme.completion_verification.shutil.which", lambda _cmd: None)
+    monkeypatch.setattr(
+        "gptme.util.completion_verification.shutil.which", lambda _cmd: None
+    )
 
     command = discover_verification_command(tmp_path)
 
