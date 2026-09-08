@@ -84,8 +84,8 @@ See [docs/glossary.md](docs/glossary.md) for full terminology.
 
 gptme uses a cross-harness memory store that is shared between gptme, Claude
 Code, and Codex sessions. Memories are Claude Code–compatible Markdown files
-written to the CC per-project directory and optionally to a `memory/` folder
-at the workspace root.
+in layered roots: project `memory/` when that directory exists, then the
+Claude Code per-project directory, then agent/user roots.
 
 ### Recall at session start
 
@@ -97,7 +97,8 @@ gptme-util memory recall "<one-line task description>" -k 5
 
 If `gptme-rag` (with the `lexical` extra) is installed the TF-IDF backend is
 used automatically; a deterministic token-overlap fallback is used otherwise.
-The output line always names the backend that ran.
+The output line always names the backend that ran (`backend=tfidf` or
+`backend=overlap`). Recall searches every layered root.
 
 ### Save a memory
 
@@ -112,9 +113,13 @@ EOF
 
 Valid `--type` values: `user`, `feedback`, `project`, `reference`.
 
-The entry is written to the nearest writable root (project `memory/` when
-present, else the CC per-project directory) and indexed automatically by both
-gptme and Claude Code in their next session.
+Default write root is project `memory/` if that directory exists, else
+`~/.claude/projects/<workspace-hash>/memory/`. Existence is the only check —
+an unwritable project directory is an error, not a fallback. `recall` (and
+the Claude Code hook) search every layered root, so other harnesses see the
+entry on their next recall. gptme's session-start workspace prompt and
+Claude Code's native `MEMORY.md` auto-load only the CC root; pass
+`--scope cc` when that auto-load path is required.
 
 ### Inspect and manage
 
@@ -122,7 +127,7 @@ gptme and Claude Code in their next session.
 gptme-util memory roots          # Which roots are active for this workspace
 gptme-util memory list           # All living entries across all roots
 gptme-util memory show <slug>    # Full text of one entry
-gptme-util memory index --write  # Regenerate MEMORY.md (auto-loaded by CC)
+gptme-util memory index --write  # Regenerate MEMORY.md in the write root
 ```
 
 See [docs/memory.rst](docs/memory.rst) or <https://gptme.org/docs/memory.html>

@@ -92,7 +92,14 @@ The two key patterns for Codex agents:
 Valid ``--type`` values match Claude Code's memory taxonomy: ``user``,
 ``feedback``, ``project``, ``reference``.
 
-The entry is written to the nearest writable root (project ``memory/`` if it
-exists, otherwise ``~/.claude/projects/<workspace-hash>/memory/``) and will
-be picked up automatically by Claude Code and gptme in their next session —
-completing the write path for cross-harness memory sharing.
+The entry is written to project ``memory/`` when that directory exists,
+otherwise to ``~/.claude/projects/<workspace-hash>/memory/``. The selector
+checks existence, not writability: an unwritable project directory makes
+``save`` fail rather than falling back.
+
+``gptme-util memory recall`` (and the Claude Code hook) search every
+layered root, so other harnesses see the entry on their next recall.
+gptme's session-start workspace prompt and Claude Code's native
+``MEMORY.md`` auto-load only the Claude Code root. Pass ``--scope cc``
+when the memory must appear on that auto-load path without running
+recall.

@@ -596,11 +596,11 @@ class TestCodexAgentsMdPattern:
                 "which provider for sensitive code review",
                 "-k",
                 "5",
-                "--backend",
-                "overlap",
             ],
         )
         assert r.exit_code == 0, r.output
+        # Documented no-flag command names the backend that actually ran
+        assert "backend=tfidf" in r.output or "backend=overlap" in r.output
         # Plain text output must contain the matched entry name and body text
         assert "provider-policy" in r.output
         assert "private code" in r.output
@@ -623,7 +623,7 @@ class TestCodexAgentsMdPattern:
         )
         assert r.exit_code == 0, r.output
 
-        # Verify the entry is visible to list (what gptme prompt_workspace would read)
+        # Verify the entry is visible to list (recall searches every layered root)
         r = runner.invoke(util_main, ["memory", "list"])
         assert r.exit_code == 0 and "xharness" in r.output
 
