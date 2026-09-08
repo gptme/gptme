@@ -54,6 +54,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    acp
    lessons
    skills
+   memory
 
 .. toctree::
    :maxdepth: 2
