@@ -1,6 +1,7 @@
 """Tests for gptme.memory: schema round-trip, layered roots, store, index, CLI."""
 
 import importlib
+import os
 from pathlib import Path
 
 import pytest
@@ -599,16 +600,34 @@ class TestCodexAgentsMdPattern:
             ],
         )
         assert r.exit_code == 0, r.output
-        # Documented no-flag command names the backend that actually ran
-        assert "backend=tfidf" in r.output or "backend=overlap" in r.output
+        # Documented no-flag command names the backend that actually ran.
+        # Mirror recall()'s auto path: try the optional TF-IDF import, else overlap.
+        try:
+            import gptme_rag.lexical  # noqa: F401
+        except ImportError:
+            expected_backend = "overlap"
+        else:
+            expected_backend = "tfidf"
+        assert f"backend={expected_backend}" in r.output
         # Plain text output must contain the matched entry name and body text
         assert "provider-policy" in r.output
         assert "private code" in r.output
 
-    def test_cross_harness_roundtrip(self, mem_env):
-        """Memory saved by Codex (via CLI) appears in index readable by CC/gptme."""
+    def test_cross_harness_roundtrip(self, tmp_path, monkeypatch):
+        """Codex-written memory is reachable from a reader whose write root differs.
+
+        Save lands on the Codex write root. A second harness then lists/recalls
+        with its own root first and the Codex root still in the layer list —
+        the lookup that would miss if list/recall only searched the write root.
+        """
+        write_root = tmp_path / "codex"
+        reader_root = tmp_path / "cc"
+        write_root.mkdir()
+        reader_root.mkdir()
+        monkeypatch.setenv(
+            "GPTME_MEMORY_DIRS", os.pathsep.join((str(write_root), str(reader_root)))
+        )
         runner = CliRunner()
-        # Codex saves a memory
         r = runner.invoke(
             util_main,
             [
@@ -622,19 +641,23 @@ class TestCodexAgentsMdPattern:
             input="Written by a Codex session to test cross-harness sharing.\n",
         )
         assert r.exit_code == 0, r.output
+        assert (write_root / "xharness.md").exists()
+        assert not (reader_root / "xharness.md").exists()
 
-        # Verify the entry is visible to list (recall searches every layered root)
+        # Reader harness: own root first, Codex write root still layered in
+        monkeypatch.setenv(
+            "GPTME_MEMORY_DIRS", os.pathsep.join((str(reader_root), str(write_root)))
+        )
         r = runner.invoke(util_main, ["memory", "list"])
         assert r.exit_code == 0 and "xharness" in r.output
 
-        # Index the memories (what CC's Stop hook calls via `memory index --write`)
-        r = runner.invoke(util_main, ["memory", "index", "--write"])
-        assert r.exit_code == 0
-
-        # The generated MEMORY.md contains the Codex-written entry
-        index_file = mem_env / "MEMORY.md"
-        assert index_file.exists()
-        assert "xharness" in index_file.read_text()
+        r = runner.invoke(
+            util_main,
+            ["memory", "recall", "Cross-harness test entry", "-k", "5"],
+        )
+        assert r.exit_code == 0, r.output
+        assert "xharness" in r.output
+        assert "Written by a Codex session to test cross-harness sharing." in r.output
 
     def test_save_all_valid_types(self, mem_env):
         """All four types documented in AGENTS.md are accepted without error."""
