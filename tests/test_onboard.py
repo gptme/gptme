@@ -3,6 +3,8 @@
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from gptme.cli.onboard import (
     _detect_providers,
     _get_default_model,
@@ -130,7 +132,7 @@ class TestDetectProviders:
 
     @patch(
         "gptme.cli.onboard.list_available_providers",
-        side_effect=RuntimeError("token file corrupted"),
+        side_effect=OSError("permission denied"),
     )
     def test_oauth_lookup_failure_logs_warning(self, _mock_providers, caplog):
         """OAuth credential lookup failures emit a warning rather than silently passing."""
@@ -145,6 +147,18 @@ class TestDetectProviders:
         messages = " ".join(r.message for r in caplog.records)
         assert "OAuth credential check failed" in messages
         assert "gptme auth" in messages
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=RuntimeError("token file corrupted"),
+    )
+    def test_unexpected_oauth_lookup_error_propagates(self, _mock_providers):
+        """Programming errors in credential enumeration are not swallowed."""
+        with (
+            patch("gptme.config.get_config", return_value=_mock_empty_config()),
+            pytest.raises(RuntimeError, match="token file corrupted"),
+        ):
+            _detect_providers()
 
 
 class TestTestProvider:
@@ -203,6 +217,15 @@ class TestTestProvider:
         messages = " ".join(r.message for r in caplog.records)
         assert "OAuth credential check failed" in messages
         assert "gptme auth openai-subscription" in messages
+
+    @patch(
+        "gptme.cli.onboard.list_available_providers",
+        side_effect=RuntimeError("token file corrupted"),
+    )
+    def test_unexpected_oauth_error_in_test_provider_propagates(self, _mock_providers):
+        """Programming errors in _test_provider OAuth lookup are not swallowed."""
+        with pytest.raises(RuntimeError, match="token file corrupted"):
+            _test_provider("openai-subscription")
 
 
 class TestShowProviderStatus:

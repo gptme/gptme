@@ -68,7 +68,7 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         for provider, source in list_available_providers():
             if provider in OAUTH_PROVIDERS:
                 results[provider] = (True, source)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.warning(
             "OAuth credential check failed: %s — run `gptme auth` to re-authenticate", e
         )
@@ -108,7 +108,7 @@ def _test_provider(provider: str) -> tuple[bool, str]:
     if provider in OAUTH_PROVIDERS:
         try:
             available = {name for name, _ in list_available_providers()}
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(
                 "OAuth credential check failed: %s — run `gptme auth %s` to re-authenticate",
                 e,
