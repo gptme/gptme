@@ -821,24 +821,54 @@ def _json_blocks(text: str) -> Iterator[object]:
         yield value
 
 
-def _assistant_output_from_jsonl(output: str) -> str | None:
+def _assistant_output_from_jsonl(
+    output: str, *, diagnostic: dict[str, object] | None = None
+) -> str | None:
     """Return assistant text from gptme's JSONL output.
 
     JSON output gives the subprocess a trust boundary: user messages contain
     untrusted PR metadata and diffs, while only assistant messages can contain
     review findings. If any non-empty line is not valid JSONL, fail closed
     rather than falling back to scanning mixed terminal output.
+
+    This strictness is deliberate and must not be relaxed to "skip bad
+    lines" — a contaminated stdout (e.g. a stray telemetry banner ahead of
+    the JSONL stream) must not be silently tolerated. What it *should* be is
+    diagnosable: on failure, the offending line is logged at WARNING with its
+    line number and a truncated snippet, and — if the caller passed a
+    ``diagnostic`` dict — the same info is written into it under ``"line"``
+    and ``"snippet"`` so the caller can surface it in its own error message.
     """
     assistant_parts: list[str] = []
     saw_event = False
-    for line in output.splitlines():
+    for line_number, line in enumerate(output.splitlines(), start=1):
         if not line.strip():
             continue
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
+            snippet = line[:160]
+            logger.warning(
+                "review pr: child stdout line %d is not JSONL "
+                "(output-format json contract broken): %r",
+                line_number,
+                snippet,
+            )
+            if diagnostic is not None:
+                diagnostic["line"] = line_number
+                diagnostic["snippet"] = snippet
             return None
         if not isinstance(event, dict):
+            snippet = line[:160]
+            logger.warning(
+                "review pr: child stdout line %d is not a JSON object "
+                "(output-format json contract broken): %r",
+                line_number,
+                snippet,
+            )
+            if diagnostic is not None:
+                diagnostic["line"] = line_number
+                diagnostic["snippet"] = snippet
             return None
         saw_event = True
         if event.get("type") == "message" and event.get("role") == "assistant":
@@ -855,14 +885,20 @@ def _extract_findings_from_output(
     output: str,
     *,
     output_marker: str = _REVIEW_OUTPUT_MARKER,
+    diagnostic: dict[str, object] | None = None,
 ) -> tuple[list[ReviewFinding] | None, int]:
     """Parse reviewer JSONL output and extract :class:`ReviewFinding` objects.
 
     Returns ``(findings, validation_error_count)`` where:
     - findings: list of extracted findings, or None if no valid JSON block found
     - validation_error_count: number of finding entries skipped due to validation errors
+
+    If ``diagnostic`` is passed, it is populated with ``"line"``/``"snippet"``
+    when ``findings is None`` because the child's stdout was not clean JSONL
+    (as opposed to being valid JSONL with no findings block) — see
+    :func:`_assistant_output_from_jsonl`.
     """
-    assistant_output = _assistant_output_from_jsonl(output)
+    assistant_output = _assistant_output_from_jsonl(output, diagnostic=diagnostic)
     if assistant_output is None:
         return None, 0
 
@@ -1212,8 +1248,11 @@ def review_pr(
     # ------------------------------------------------------------------
     # Parse findings
     # ------------------------------------------------------------------
+    jsonl_diagnostic: dict[str, object] = {}
     findings, validation_errors = _extract_findings_from_output(
-        stdout, output_marker=summary.get("output_marker", _REVIEW_OUTPUT_MARKER)
+        stdout,
+        output_marker=summary.get("output_marker", _REVIEW_OUTPUT_MARKER),
+        diagnostic=jsonl_diagnostic,
     )
     if findings is None:
         click.echo(
@@ -1226,6 +1265,14 @@ def review_pr(
         # means we cannot distinguish "nothing to fix" from a broken review.
         # Emitting an empty artifact would cause review-watch to silently treat
         # this as a clean review.  Fail loudly instead.
+        if "line" in jsonl_diagnostic:
+            raise SystemExit(
+                "review pr: child stdout line "
+                f"{jsonl_diagnostic['line']} is not valid JSONL "
+                "(output-format json contract broken), so the assistant's "
+                "output could not be parsed — refusing to emit a "
+                f"clean-looking empty artifact: {jsonl_diagnostic['snippet']!r}"
+            )
         raise SystemExit(
             "review pr: session produced no valid findings block — "
             "refusing to emit a clean-looking empty artifact"

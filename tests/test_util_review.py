@@ -945,6 +945,80 @@ class TestArtifactMode:
 
 
 # ---------------------------------------------------------------------------
+# _assistant_output_from_jsonl (cmd_review_pr)
+# ---------------------------------------------------------------------------
+
+
+class TestAssistantOutputFromJsonl:
+    """Failure diagnostics for ``_assistant_output_from_jsonl``.
+
+    Regression coverage for a defect that twice misdirected real review
+    sessions (gptme#3732, seen live 2026-09-07/08): the child gptme process
+    can print a plain-text banner (e.g. an OTLP telemetry notice) to stdout
+    before its JSONL stream starts. The parser must still fail closed on
+    that first bad line — the strictness is a deliberate trust boundary, not
+    a bug — but the failure must name the offending line and its content so
+    the caller doesn't read as an unexplained "no findings" result.
+    """
+
+    _BANNER = "Using OTLP to send metrics and traces to http://x"
+
+    @staticmethod
+    def _assistant_event(content: str) -> str:
+        return json.dumps({"type": "message", "role": "assistant", "content": content})
+
+    def _valid_jsonl_with_findings(self) -> str:
+        from gptme.cli.cmd_review_pr import _REVIEW_OUTPUT_MARKER
+
+        review = (
+            f"{_REVIEW_OUTPUT_MARKER}\n"
+            "```json\n"
+            '{"findings": [{"body": "a real finding"}]}\n'
+            "```\n"
+        )
+        return self._assistant_event(review)
+
+    def test_banner_before_jsonl_returns_none_and_names_the_line(self, caplog):
+        """A pre-JSONL banner fails closed, and the warning names line 1."""
+        from gptme.cli.cmd_review_pr import _assistant_output_from_jsonl
+
+        output = f"{self._BANNER}\n{self._valid_jsonl_with_findings()}\n"
+
+        with caplog.at_level("WARNING", logger="gptme.cli.cmd_review_pr"):
+            result = _assistant_output_from_jsonl(output)
+
+        assert result is None
+        assert any(
+            "line 1" in record.getMessage() and self._BANNER in record.getMessage()
+            for record in caplog.records
+        ), caplog.text
+
+    def test_banner_before_jsonl_populates_diagnostic(self):
+        """The optional diagnostic dict records the line number and snippet."""
+        from gptme.cli.cmd_review_pr import _assistant_output_from_jsonl
+
+        output = f"{self._BANNER}\n{self._valid_jsonl_with_findings()}\n"
+        diagnostic: dict[str, object] = {}
+
+        result = _assistant_output_from_jsonl(output, diagnostic=diagnostic)
+
+        assert result is None
+        assert diagnostic["line"] == 1
+        assert diagnostic["snippet"] == self._BANNER[:160]
+
+    def test_clean_jsonl_still_returns_assistant_text(self):
+        """Without contamination, the findings-bearing JSONL still parses."""
+        from gptme.cli.cmd_review_pr import _assistant_output_from_jsonl
+
+        output = f"{self._valid_jsonl_with_findings()}\n"
+
+        result = _assistant_output_from_jsonl(output)
+
+        assert result is not None
+        assert "a real finding" in result
+
+
+# ---------------------------------------------------------------------------
 # gptme-util review pr (cmd_review_pr)
 # ---------------------------------------------------------------------------
 
