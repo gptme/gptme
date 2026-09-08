@@ -420,47 +420,148 @@ def test_dir_to_listing_truncation(tmp_path):
 
 
 def test_dir_to_listing_bounds_rglob_walk(tmp_path):
-    """rglob fallback must stop walking once max_entries files are collected."""
+    """Fallback must stop once max_entries accepted files are collected."""
     from unittest.mock import MagicMock, patch
 
     from gptme.util.context import _dir_to_listing
 
-    walked = {"n": 0}
-
-    class FakePath:
-        def __init__(self, name: str):
-            self._name = name
-
-        def is_file(self) -> bool:
-            return True
-
-        def relative_to(self, _path):
-            from pathlib import Path
-
-            return Path(self._name)
-
-    def fake_rglob(_pattern):
-        while True:
-            walked["n"] += 1
-            if walked["n"] > 200:
-                raise AssertionError("unbounded rglob walk")
-            yield FakePath(f"file_{walked['n']:03d}.txt")
-
     bigdir = tmp_path / "big"
     bigdir.mkdir()
+    for i in range(80):
+        (bigdir / f"file_{i:03d}.txt").write_text("x")
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = ""
+
+    with patch("subprocess.run", return_value=mock_result):
+        result = _dir_to_listing(bigdir, str(bigdir), max_entries=50)
+
+    assert result is not None
+    assert "listing truncated at 50 files" in result
+    assert result.count(".txt") == 50
+
+
+def test_dir_to_listing_bounds_directory_heavy_walk(tmp_path):
+    """Visit budget stops a tree of directories with almost no files."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.util.context import _dir_to_listing
+
+    tree = tmp_path / "dirs"
+    tree.mkdir()
+    cursor = tree
+    for i in range(80):
+        cursor = cursor / f"d{i:02d}"
+        cursor.mkdir()
+    (cursor / "deep.txt").write_text("late")
+    (tree / "early.txt").write_text("early")
+
+    scandir_calls: list[str] = []
+    real_scandir = __import__("os").scandir
+
+    def spy_scandir(path):
+        scandir_calls.append(str(path))
+        if len(scandir_calls) > 40:
+            raise AssertionError("visit budget did not bound directory traversal")
+        return real_scandir(path)
+
     mock_result = MagicMock()
     mock_result.returncode = 1
     mock_result.stdout = ""
 
     with (
         patch("subprocess.run", return_value=mock_result),
-        patch.object(type(bigdir), "rglob", lambda self, pattern: fake_rglob(pattern)),
+        patch("os.scandir", side_effect=spy_scandir),
     ):
-        result = _dir_to_listing(bigdir, str(bigdir), max_entries=50)
+        result = _dir_to_listing(
+            tree, str(tree), max_entries=50, max_visited=12, max_seconds=2.0
+        )
 
     assert result is not None
-    assert "listing truncated at 50 files" in result
-    assert walked["n"] == 51
+    assert "deep.txt" not in result
+    assert len(scandir_calls) < 40
+
+
+def test_dir_to_listing_prunes_git_before_recursion(tmp_path):
+    """`.git` is counted as an excluded entry and never descended into."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.util.context import _dir_to_listing
+
+    project = tmp_path / "repo"
+    project.mkdir()
+    (project / "readme.txt").write_text("ok")
+    git_objects = project / ".git" / "objects" / "aa"
+    git_objects.mkdir(parents=True)
+    for i in range(80):
+        (git_objects / f"{i:02d}").write_text("blob")
+
+    scandir_paths: list[str] = []
+    real_scandir = __import__("os").scandir
+
+    def spy_scandir(path):
+        scandir_paths.append(str(path))
+        return real_scandir(path)
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = ""
+
+    with (
+        patch("subprocess.run", return_value=mock_result),
+        patch("os.scandir", side_effect=spy_scandir),
+    ):
+        result = _dir_to_listing(project, str(project), max_entries=50, max_visited=20)
+
+    assert "readme.txt" in result
+    assert ".git/" not in result
+    assert not any(".git" in path.split("/") for path in scandir_paths)
+
+
+def test_dir_to_listing_bounds_excluded_entries(tmp_path):
+    """Directory entries consume the visit budget even when they yield no files."""
+    from gptme.util.context import _fallback_dir_listing
+
+    tree = tmp_path / "mixed"
+    tree.mkdir()
+    cursor = tree
+    for i in range(30):
+        cursor = cursor / f"dir_{i:02d}"
+        cursor.mkdir()
+    (cursor / "late.txt").write_text("late")
+    (tree / "only.txt").write_text("one")
+
+    entries, truncated = _fallback_dir_listing(
+        tree, max_entries=50, max_visited=10, max_seconds=2.0
+    )
+    assert truncated
+    assert "late.txt" not in entries
+    assert all(not name.endswith("late.txt") for name in entries)
+
+
+def test_dir_to_listing_time_budget(tmp_path):
+    """A zero-second deadline stops the walk without collecting the tree."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.util.context import _dir_to_listing
+
+    tree = tmp_path / "timed"
+    tree.mkdir()
+    nested = tree / "a" / "b" / "c"
+    nested.mkdir(parents=True)
+    (nested / "late.txt").write_text("late")
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = ""
+
+    with patch("subprocess.run", return_value=mock_result):
+        result = _dir_to_listing(
+            tree, str(tree), max_entries=50, max_visited=1000, max_seconds=0.0
+        )
+
+    assert result is not None
+    assert "late.txt" not in result
 
 
 def test_dir_to_listing_nested(tmp_path):
@@ -638,12 +739,31 @@ def test_is_too_broad_directory_root_and_home():
     assert _is_too_broad_directory(Path.home())
 
 
+def test_is_too_broad_directory_temp_roots():
+    """Temp roots are blocked by resolved identity, not path depth.
+
+    On macOS /tmp resolves to /private/tmp (three parts), which the old
+    len(parts) < 3 heuristic treated as a project directory.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from gptme.util.context import _is_too_broad_directory
+
+    assert _is_too_broad_directory(Path("/tmp"))
+    assert _is_too_broad_directory(Path("/private/tmp"))
+    assert _is_too_broad_directory(Path("/var/tmp"))
+    assert _is_too_broad_directory(Path(tempfile.gettempdir()))
+
+
 def test_is_too_broad_directory_allows_project_subdir(tmp_path):
     from gptme.util.context import _is_too_broad_directory
 
     sub = tmp_path / "src"
     sub.mkdir()
     assert not _is_too_broad_directory(sub)
+    # Nested temp workspaces must remain attachable.
+    assert not _is_too_broad_directory(tmp_path)
 
 
 def test_include_paths_does_not_scan_root(monkeypatch):

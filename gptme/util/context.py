@@ -6,6 +6,8 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+import time
 import urllib
 import urllib.parse
 from collections import Counter
@@ -806,35 +808,127 @@ def _human_readable_size(size_bytes: int) -> str:
     return f"{size:.1f} TB"
 
 
-def _is_too_broad_directory(path: Path) -> bool:
-    """True for filesystem roots and other implicit broad directory attachments.
+def _resolved_or_none(path: Path) -> Path | None:
+    try:
+        return path.expanduser().resolve()
+    except OSError:
+        return None
 
-    Casual mentions like ``/`` must not trigger recursive listing. Project
-    subdirectories (three or more path parts, and not the user's home) remain
-    eligible so explicit directory context still works.
+
+def _broad_temp_directories() -> tuple[Path, ...]:
+    """Resolved temp roots that must never be attached as directory context.
+
+    Includes macOS ``/tmp`` → ``/private/tmp`` so a 3-part resolved temp path
+    is still treated as too broad. Nested temp workspaces remain eligible.
     """
-    try:
-        resolved = path.expanduser().resolve()
-    except OSError:
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for raw in (tempfile.gettempdir(), "/tmp", "/var/tmp", "/private/tmp"):
+        resolved = _resolved_or_none(Path(raw))
+        if resolved is None or resolved in seen:
+            continue
+        seen.add(resolved)
+        out.append(resolved)
+    return tuple(out)
+
+
+def _is_too_broad_directory(path: Path) -> bool:
+    """True for filesystem roots, home, and temp roots.
+
+    Casual mentions like ``/`` or ``/tmp`` must not trigger recursive listing.
+    Uses explicit resolved paths rather than a path-depth heuristic: on macOS
+    ``/tmp`` resolves to ``/private/tmp`` (three parts) and would otherwise
+    be treated as a project directory. Nested directories under temp/home
+    remain eligible.
+    """
+    resolved = _resolved_or_none(path)
+    if resolved is None:
         return True
-    if len(resolved.parts) < 3:
+    if resolved.parent == resolved:
         return True
-    try:
-        if resolved == Path.home().resolve():
+    home = _resolved_or_none(Path.home())
+    if home is not None and resolved == home:
+        return True
+    return resolved in _broad_temp_directories()
+
+
+def _fallback_dir_listing(
+    path: Path,
+    max_entries: int,
+    max_visited: int,
+    max_seconds: float,
+) -> tuple[list[str], bool]:
+    """Walk *path* for regular files, budgeting visits and wall time.
+
+    Counts every scandir entry (directories, files, excluded names, stat
+    failures), prunes ``.git`` before descending, and does not follow
+    symlinks. Returns ``(relative_paths, truncated)``.
+    """
+    entries: list[str] = []
+    visited = 0
+    truncated = False
+    deadline = time.monotonic() + max_seconds
+
+    def rec(current: Path) -> bool:
+        nonlocal visited, truncated
+        if time.monotonic() >= deadline:
+            truncated = True
             return True
-    except OSError:
-        pass
-    return False
+        try:
+            with os.scandir(current) as iterator:
+                children = list(iterator)
+        except OSError:
+            visited += 1
+            if visited >= max_visited:
+                truncated = True
+            return visited >= max_visited
+
+        for entry in children:
+            visited += 1
+            if visited > max_visited or time.monotonic() >= deadline:
+                truncated = True
+                return True
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+                is_file = entry.is_file(follow_symlinks=False)
+            except OSError:
+                continue
+            if is_dir:
+                if entry.name == ".git":
+                    continue
+                if rec(Path(entry.path)):
+                    return True
+            elif is_file:
+                try:
+                    rel = Path(entry.path).relative_to(path)
+                except ValueError:
+                    continue
+                entries.append(str(rel))
+                if len(entries) >= max_entries:
+                    truncated = True
+                    return True
+        return False
+
+    rec(path)
+    entries.sort()
+    return entries, truncated
 
 
-def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str:
+def _dir_to_listing(
+    path: Path,
+    prompt: str,
+    max_entries: int = 50,
+    max_visited: int | None = None,
+    max_seconds: float = 2.0,
+) -> str:
     """Generate a file listing for a directory, returned as a codeblock.
 
     Uses ``git ls-files`` when inside a git repo (respects .gitignore),
-    falls back to a bounded ``Path.rglob()`` otherwise. Traversal itself is
-    capped at *max_entries*; the output limit is not applied after walking
-    the entire tree.
+    falls back to a visit/time-bounded scandir walk otherwise. The fallback
+    budgets accepted files *and* visited entries so directory-heavy or
+    excluded-entry trees cannot walk unboundedly.
     """
+    visit_budget = max_visited if max_visited is not None else max(max_entries * 4, 200)
     entries: list[str] | None = None
     known_total: int | None = None
     try:
@@ -861,30 +955,13 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str:
         pass
 
     if entries is None:
-        # Fallback: list directory recursively, stopping once we have enough.
-        # Only exclude .git/ internals to avoid noise; dotfiles like
-        # .pre-commit-config.yaml, .github/, .env etc. are legitimate project files.
-        entries = []
-        saw_more = False
-        try:
-            for p in path.rglob("*"):
-                try:
-                    rel = p.relative_to(path)
-                    if ".git" in rel.parts:
-                        continue
-                    if not p.is_file():
-                        continue
-                except (OSError, ValueError):
-                    continue
-                entries.append(str(rel))
-                if len(entries) > max_entries:
-                    saw_more = True
-                    break
-        except PermissionError:
-            pass
-        entries.sort()
-        if saw_more:
-            entries = entries[:max_entries]
+        # Fallback: list directory recursively with visit/time budgets.
+        # Only skip .git/ internals; dotfiles like .pre-commit-config.yaml,
+        # .github/, .env etc. are legitimate project files.
+        entries, truncated = _fallback_dir_listing(
+            path, max_entries, visit_budget, max_seconds
+        )
+        if truncated:
             known_total = None  # remaining count unknown; walk was bounded
         else:
             known_total = len(entries)
