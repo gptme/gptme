@@ -339,6 +339,19 @@ def get_toolchain(
     return tools
 
 
+def _enable_hint_for_disabled_tool(tool_name: str) -> str:
+    """Hint how to enable a disabled-by-default tool, if we already know it.
+
+    Reads the available-tools cache only. Must not rediscover: this runs on
+    the unpaired-tool error path, which has to keep the tool_use/tool_result
+    pairing valid even when discovery would be slow or fail.
+    """
+    cached = _get_available_tools_cache() or []
+    if any(t.name == tool_name and t.disabled_by_default for t in cached):
+        return f" Add --tools +{tool_name} to enable it."
+    return ""
+
+
 @trace_function(name="tools.execute_msg", attributes={"component": "tools"})
 def execute_msg(
     msg: Message,
@@ -413,17 +426,10 @@ def execute_msg(
                 "the tool_use/tool_result pairing valid.",
                 tooluse.tool,
             )
-            error_msg = f"Tool '{tooluse.tool}' is not available for execution."
-            disabled_tool = next(
-                (
-                    t
-                    for t in get_available_tools(include_mcp=False)
-                    if t.name == tooluse.tool and t.disabled_by_default
-                ),
-                None,
+            error_msg = (
+                f"Tool '{tooluse.tool}' is not available for execution."
+                + _enable_hint_for_disabled_tool(tooluse.tool)
             )
-            if disabled_tool:
-                error_msg += f" Add --tools +{tooluse.tool} to enable it."
             yield Message(
                 "system",
                 error_msg,

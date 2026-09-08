@@ -134,6 +134,39 @@ def test_disabled_by_default_tool_error_includes_enable_hint():
     assert "--tools +read" in results[0].content
 
 
+def test_disabled_tool_hint_uses_cache_not_rediscovery(monkeypatch):
+    """Unavailable-tool errors must not rediscover tools (can raise or stall)."""
+    clear_tools()
+    set_tool_format("tool")
+    init_tools(allowlist=["shell"])
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("must not rediscover on the unavailable-tool path")
+
+    monkeypatch.setattr("gptme.tools._discover_tools", boom)
+
+    results = list(
+        execute_msg(Message("assistant", '@read(call-read): {"path": "x.txt"}'))
+    )
+
+    assert len(results) == 1
+    assert results[0].call_id == "call-read"
+    assert "--tools +read" in results[0].content
+
+
+def test_unavailable_tool_error_pairs_when_cache_empty():
+    """Structured tool_use still pairs if the available-tools cache is empty."""
+    clear_tools()
+    set_tool_format("tool")
+
+    results = list(execute_msg(Message("assistant", '@unknown(call-x): {"x": 1}')))
+
+    assert len(results) == 1
+    assert results[0].call_id == "call-x"
+    assert "not available for execution" in results[0].content
+    assert "--tools +" not in results[0].content
+
+
 def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
     clear_tools()
 
