@@ -6,16 +6,19 @@ Covers:
 - Command handlers (bg, jobs, output, kill)
 """
 
+import os
 import re
 import subprocess
 import sys
 import time
+from unittest.mock import Mock, patch
 
 import pytest
 
 from gptme.tools.shell_background import (
     _MAX_BUFFER_SIZE,
     BackgroundJob,
+    _wait_readable,
     cleanup_finished_jobs,
     execute_bg_command,
     execute_jobs_command,
@@ -187,6 +190,120 @@ class TestOutputCapture:
         time.sleep(0.5)
         stdout, _ = job.get_output()
         assert len(stdout) >= 100_000
+
+    def test_reader_does_not_use_select_select_while_running(self):
+        """Streaming capture must not go through select.select (#3715 leftover).
+
+        Pre-fix the POSIX reader called ``select.select`` and treated
+        ``ValueError: filedescriptor out of range in select()`` as a stop
+        condition, so output was only flushed in the final ``.read()`` after
+        the process exited. A live job would therefore look silent.
+        """
+        pytest.importorskip("fcntl", reason="POSIX-only path")
+
+        def boom(*args, **kwargs):
+            raise ValueError("filedescriptor out of range in select()")
+
+        with patch("gptme.tools.shell_background.select.select", boom):
+            job = start_background_job("echo bg-high-fd-safe; sleep 5")
+            stdout = ""
+            deadline = time.time() + 2.0
+            try:
+                while time.time() < deadline:
+                    stdout, _ = job.get_output()
+                    if "bg-high-fd-safe" in stdout:
+                        break
+                    time.sleep(0.05)
+                assert "bg-high-fd-safe" in stdout
+            finally:
+                job.kill()
+
+
+# ---------------------------------------------------------------------------
+# _wait_readable — poll() instead of select() (gptme/gptme#3715)
+# ---------------------------------------------------------------------------
+
+# Anything at or above FD_SETSIZE is unrepresentable in an fd_set.
+_FD_SETSIZE = 1024
+_FD_SCAN_WINDOW = 256
+
+
+def _find_free_fd(start: int) -> int:
+    """Return an unused descriptor >= `start` without clobbering a live fd."""
+    fcntl = pytest.importorskip("fcntl", reason="POSIX-only test")
+    for candidate in range(start, start + _FD_SCAN_WINDOW):
+        try:
+            fcntl.fcntl(candidate, fcntl.F_GETFD)
+        except OSError:
+            return candidate
+    pytest.skip(f"no free descriptor in [{start}, {start + _FD_SCAN_WINDOW})")
+
+
+class TestWaitReadable:
+    def test_empty_fds(self):
+        assert _wait_readable([], 0.01) == []
+
+    def test_reports_only_ready_fds(self):
+        pytest.importorskip("fcntl", reason="POSIX-only test")
+        idle_r, idle_w = os.pipe()
+        ready_r, ready_w = os.pipe()
+        try:
+            os.write(ready_w, b"x")
+            assert _wait_readable([idle_r, ready_r], 0.1) == [ready_r]
+        finally:
+            for fd in (idle_r, idle_w, ready_r, ready_w):
+                os.close(fd)
+
+    def test_times_out_with_no_data(self):
+        pytest.importorskip("fcntl", reason="POSIX-only test")
+        read_fd, write_fd = os.pipe()
+        try:
+            assert _wait_readable([read_fd], 0.05) == []
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+
+    def test_rounds_positive_submillisecond_timeout_up(self):
+        poller = Mock()
+        poller.poll.return_value = []
+        with patch("gptme.tools.shell_background.select.poll", return_value=poller):
+            assert _wait_readable([7], 0.0001) == []
+        poller.poll.assert_called_once_with(1)
+
+    def test_preserves_zero_timeout(self):
+        poller = Mock()
+        poller.poll.return_value = []
+        with patch("gptme.tools.shell_background.select.poll", return_value=poller):
+            assert _wait_readable([7], 0) == []
+        poller.poll.assert_called_once_with(0)
+
+    def test_handles_fd_above_fd_setsize(self):
+        """A readable descriptor >= FD_SETSIZE must be reported, not raise."""
+        resource = pytest.importorskip("resource", reason="POSIX-only test")
+        pytest.importorskip("fcntl", reason="POSIX-only test")
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        needed = _FD_SETSIZE + _FD_SCAN_WINDOW + 16
+        if soft < needed:
+            if hard != resource.RLIM_INFINITY and hard < needed:
+                pytest.skip(f"RLIMIT_NOFILE hard limit {hard} < {needed}")
+            resource.setrlimit(resource.RLIMIT_NOFILE, (needed, hard))
+        read_fd, write_fd = os.pipe()
+        high_read_fd = None
+        try:
+            high_read_fd = _find_free_fd(_FD_SETSIZE)
+            os.dup2(read_fd, high_read_fd)
+            assert high_read_fd >= _FD_SETSIZE
+            os.write(write_fd, b"payload")
+            assert _wait_readable([high_read_fd], 1.0) == [high_read_fd]
+            assert os.read(high_read_fd, 16) == b"payload"
+        finally:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+            for fd in (high_read_fd, read_fd, write_fd):
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
 
 
 # ---------------------------------------------------------------------------

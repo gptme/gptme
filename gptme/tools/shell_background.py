@@ -36,6 +36,33 @@ logger = logging.getLogger(__name__)
 _MAX_BUFFER_SIZE = 1024 * 1024
 
 
+def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
+    """Return the subset of `fds` that are readable, waiting up to `timeout` seconds.
+
+    Uses `poll()` rather than `select()`. `select()` is backed by `fd_set`, which
+    cannot represent a descriptor >= FD_SETSIZE (1024) and raises
+    `ValueError: filedescriptor out of range in select()` instead of degrading.
+    Background jobs in long-lived processes and parallel test runs
+    (`pytest -n 16`) routinely push descriptors past that line. `poll()` has no
+    such ceiling. See gptme/gptme#3715.
+    """
+    if not fds:
+        return []
+    assert select is not None
+    poller = select.poll()
+    for fd in fds:
+        # POLLHUP/POLLERR are reported regardless of the requested mask, so EOF
+        # still wakes the poll — matching select(), which reports EOF as readable.
+        poller.register(fd, select.POLLIN)
+    # select() takes seconds (None == block forever); poll() takes integer
+    # milliseconds (negative == block forever). Round positive sub-millisecond
+    # waits up so they do not become busy-spinning non-blocking polls.
+    timeout_ms = (
+        -1 if timeout is None else max(0 if timeout == 0 else 1, int(timeout * 1000))
+    )
+    return [fd for fd, _event in poller.poll(timeout_ms)]
+
+
 @dataclass
 class BackgroundJob:
     """Tracks a background process with its output."""
@@ -95,7 +122,7 @@ class BackgroundJob:
             assert select is not None
             while not self._stop_event.is_set() and self.process.poll() is None:
                 try:
-                    readable, _, _ = select.select(fds, [], [], 0.1)
+                    readable = _wait_readable(fds, 0.1)
                     for fd in readable:
                         data = os.read(fd, 4096).decode("utf-8", errors="replace")
                         if data:
