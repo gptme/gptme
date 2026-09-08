@@ -313,12 +313,12 @@ def execute_read(
         yield Message("system", "No path provided")
         return
 
-    # Built-in read skips execute_with_confirmation() (it is read_only), so
-    # TOOL_CONFIRM never runs on this path unless we invoke it here. Only fire
-    # the chain for paths that look sensitive — otherwise server_confirm would
-    # prompt on every ordinary file open.
-    from ..hooks.confirm import ConfirmAction, get_confirmation
-    from ..hooks.guardrails import _is_secret_path
+    # Built-in read skips execute_with_confirmation() (it is read_only). Invoke
+    # the guardrail hook directly — not the full TOOL_CONFIRM chain. Falling
+    # through to server_confirm/cli_confirm would prompt (and in server mode
+    # wait up to an hour) in shadow/off, which those modes promise never to do.
+    from ..hooks.confirm import ConfirmAction
+    from ..hooks.guardrails import _is_secret_path, guardrail_hook
 
     if any(_is_secret_path(str(p)) for p in paths):
         tool_use = get_current_tool_use() or ToolUse(
@@ -326,11 +326,11 @@ def execute_read(
             args=[str(paths[0])] if len(paths) == 1 else None,
             content="\n".join(str(p) for p in paths) if len(paths) != 1 else "",
         )
-        result = get_confirmation(
+        result = guardrail_hook(
             tool_use=tool_use,
             preview="\n".join(str(p) for p in paths),
         )
-        if result.action == ConfirmAction.SKIP:
+        if result is not None and result.action == ConfirmAction.SKIP:
             yield Message(
                 "system",
                 result.message or "Read blocked by guardrail",

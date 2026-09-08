@@ -377,8 +377,10 @@ class TestRegister:
 class TestExecuteReadInvokesGuardrail:
     """The read tool does not go through execute_with_confirmation().
 
-    execute_read() must invoke the TOOL_CONFIRM chain itself, otherwise
-    GPTME_GUARDRAILS=enforce never sees built-in reads.
+    execute_read() must invoke the guardrail hook itself — not the full
+    TOOL_CONFIRM chain. The chain would fall through to server_confirm in
+    shadow/off and prompt on sensitive reads, breaking those modes' zero
+    behavior-change guarantee. Enforce still blocks.
     """
 
     def test_execute_read_blocks_secret_path_in_enforce(self, monkeypatch):
@@ -406,4 +408,48 @@ class TestExecuteReadInvokesGuardrail:
         msgs = list(execute_read(None, [str(safe)], None))
         assert any("hello" in m.content for m in msgs), (
             f"Safe read should succeed; got: {[m.content for m in msgs]}"
+        )
+
+    def test_execute_read_does_not_prompt_in_shadow(self, monkeypatch, tmp_path):
+        """Shadow must execute the read and never enter the TOOL_CONFIRM chain."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "shadow")
+        from unittest.mock import patch
+
+        from gptme.hooks import clear_hooks
+        from gptme.tools.read import execute_read
+
+        clear_hooks()
+        register()
+        pem = tmp_path / "server.pem"
+        pem.write_text("pem-secret\n")
+        with patch(
+            "gptme.hooks.confirm.get_confirmation",
+            side_effect=AssertionError(
+                "TOOL_CONFIRM chain must not run in shadow mode"
+            ),
+        ):
+            msgs = list(execute_read(None, [str(pem)], None))
+        assert any("pem-secret" in m.content for m in msgs), (
+            f"Shadow mode must execute the read; got: {[m.content for m in msgs]}"
+        )
+
+    def test_execute_read_does_not_prompt_in_off(self, monkeypatch, tmp_path):
+        """Off mode is a no-op: execute the read, never enter TOOL_CONFIRM."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "off")
+        from unittest.mock import patch
+
+        from gptme.hooks import clear_hooks
+        from gptme.tools.read import execute_read
+
+        clear_hooks()
+        register()
+        pem = tmp_path / "server.pem"
+        pem.write_text("pem-secret\n")
+        with patch(
+            "gptme.hooks.confirm.get_confirmation",
+            side_effect=AssertionError("TOOL_CONFIRM chain must not run in off mode"),
+        ):
+            msgs = list(execute_read(None, [str(pem)], None))
+        assert any("pem-secret" in m.content for m in msgs), (
+            f"Off mode must execute the read; got: {[m.content for m in msgs]}"
         )
