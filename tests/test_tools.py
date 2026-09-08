@@ -117,6 +117,23 @@ def test_read_only_tool_preset_allows_read_tool(tmp_path):
     assert "hello audit mode" in results[0].content
 
 
+def test_disabled_by_default_tool_error_includes_enable_hint():
+    """Error for a disabled-by-default tool should tell the user how to enable it."""
+    clear_tools()
+    set_tool_format("tool")
+    # Init without 'read' — it's disabled_by_default and not in the allowlist
+    init_tools(allowlist=["shell"])
+
+    results = list(
+        execute_msg(Message("assistant", '@read(call-read): {"path": "x.txt"}'))
+    )
+
+    assert len(results) == 1
+    assert results[0].call_id == "call-read"
+    assert "not available for execution" in results[0].content
+    assert "--tools +read" in results[0].content
+
+
 def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
     clear_tools()
 
