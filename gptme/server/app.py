@@ -112,6 +112,7 @@ def create_app(
     from .auth import auth_api  # fmt: skip
     from .computer_api import computer_api  # fmt: skip
     from .panels_api import panels_api  # fmt: skip
+    from .preview_proxy_api import preview_proxy_api  # fmt: skip
     from .skills_api import skills_api  # fmt: skip
     from .tasks_api import tasks_api  # fmt: skip
     from .tools_api import tools_api  # fmt: skip
@@ -129,6 +130,7 @@ def create_app(
     app.register_blueprint(tools_api)
     app.register_blueprint(tts_api)
     app.register_blueprint(computer_api)
+    app.register_blueprint(preview_proxy_api)
 
     # Register OpenAPI documentation
     from .openapi_docs import docs_api  # fmt: skip

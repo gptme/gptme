@@ -4,8 +4,28 @@ import { Button } from '@/components/ui/button';
 import { useApi } from '@/contexts/ApiContext';
 import type { FC } from 'react';
 
-const VNC_URL = 'http://localhost:6080/vnc.html';
+// noVNC port used by the computer-use Docker stack (websockify on :6080).
+const VNC_PORT = 6080;
 const DEFAULT_POLL_INTERVAL_MS = 2000;
+
+/**
+ * Build the noVNC URL for a given server base URL.
+ *
+ * In the cloud deployment the gptme-server is reachable at a path-based URL
+ * such as ``https://fleet.gptme.ai/api/v1/instances/{id}``.  The preview proxy
+ * (gptme-cloud#910) exposes in-pod ports under ``{baseUrl}/preview/{port}/``,
+ * so noVNC is served from a server-relative path that Traefik's ForwardAuth
+ * already covers — no extra infra changes required.
+ *
+ * Locally (baseUrl = "http://localhost:5700") the URL becomes
+ * ``http://localhost:5700/preview/6080/vnc.html`` which the preview proxy also
+ * serves.  This replaces the old hard-coded ``http://localhost:6080/vnc.html``
+ * which only ever worked on a local Docker-based install.
+ */
+function buildVncUrl(baseUrl: string): string {
+  const base = baseUrl.replace(/\/+$/, '');
+  return `${base}/preview/${VNC_PORT}/vnc.html`;
+}
 
 interface BackendStatus {
   screenshot_available: boolean;
@@ -191,7 +211,7 @@ export const ComputerPreview: FC = () => {
           <span className="text-xs text-muted-foreground">VNC mode (requires Docker)</span>
         </div>
         <iframe
-          src={VNC_URL}
+          src={buildVncUrl(baseUrl)}
           className="h-full w-full rounded-md border-0"
           allow="clipboard-read; clipboard-write"
           title="VNC Viewer"
