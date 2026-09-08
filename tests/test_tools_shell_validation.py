@@ -395,6 +395,20 @@ class TestIsDenylisted:
         denied, _, _ = is_denylisted("git commit -am x")
         assert denied
 
+    def test_git_bulk_with_separators_still_denied(self):
+        for cmd in (
+            "git add -A; git commit",
+            "git commit --all&&git push",
+            "git commit -am|cat",
+        ):
+            denied, _, matched = is_denylisted(cmd)
+            assert denied, (cmd, matched)
+
+    def test_git_commit_message_value_starting_with_a_ok(self):
+        for cmd in ("git commit -ma", "git commit -mabc"):
+            denied, _, matched = is_denylisted(cmd)
+            assert not denied, (cmd, matched)
+
     # --- Destructive git operations ---
 
     def test_git_reset_hard(self):
@@ -469,6 +483,11 @@ class TestIsDenylisted:
 
     def test_rm_rf_quoted_root_denied(self):
         for cmd in ("rm -rf '/'", 'rm -rf "/"'):
+            denied, _, matched = is_denylisted(cmd)
+            assert denied, (cmd, matched)
+
+    def test_rm_rf_root_aliases_denied(self):
+        for cmd in ("rm -rf /./", "rm -rf /..", 'rm -rf /""', "rm -rf /''"):
             denied, _, matched = is_denylisted(cmd)
             assert denied, (cmd, matched)
 
