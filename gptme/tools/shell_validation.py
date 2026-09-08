@@ -84,14 +84,15 @@ allowlist_commands = [
 deny_groups = [
     (
         [
-            # Token boundary includes shell separators so `git add -A; ...`
-            # still matches. `-a` must be the first short-option letter so
-            # `-am` is denied but `-ma` / `-mabc` (message values) are not.
-            r"git\s+add\s+\.(?:\s|$|[;&|])",  # Match 'git add .' but not '.gitignore'
-            r"git\s+add\s+-A(?:\s|$|[;&|])",
-            r"git\s+add\s+--all(?:\s|$|[;&|])",
-            r"git\s+commit\s+-a[a-zA-Z]*(?:\s|$|[;&|])",  # -a / -am, not -ma / --amend
-            r"git\s+commit\s+--all(?:\s|$|[;&|])",
+            # Token boundary includes shell separators and `)` so
+            # `git add -A; ...` and `(git add -A)` still match. `-a` must
+            # be the first short-option letter so `-am` is denied but
+            # `-ma` / `-mabc` (message values) are not.
+            r"git\s+add\s+\.(?:\s|$|[;&|)])",  # Match 'git add .' but not '.gitignore'
+            r"git\s+add\s+-A(?:\s|$|[;&|)])",
+            r"git\s+add\s+--all(?:\s|$|[;&|)])",
+            r"git\s+commit\s+-a[a-zA-Z]*(?:\s|$|[;&|)])",  # -a / -am, not -ma / --amend
+            r"git\s+commit\s+--all(?:\s|$|[;&|)])",
         ],
         "Instead of bulk git operations, use selective commands: `git add <specific-files>` to stage only intended files, then `git commit`.",
     ),
@@ -110,8 +111,8 @@ deny_groups = [
             # Root-equivalent operand: `/`, `/./`, `/..`, `//`, `/*`, `'/'`,
             # `/""`. Quotes and `.`/`*` after `/` may repeat; a real path
             # component such as `/tmp/foo` does not match.
-            r"rm\s+-rf\s+['\"]*(?:/(?:\.{1,2}|\*)?)+['\"]*(?:\s|$|[;&|])",
-            r"sudo\s+rm\s+-rf\s+['\"]*(?:/(?:\.{1,2}|\*)?)+['\"]*(?:\s|$|[;&|])",
+            r"rm\s+-rf\s+['\"]*(?:/(?:\.{1,2}|\*)?)+['\"]*(?:\s|$|[;&|)])",
+            r"sudo\s+rm\s+-rf\s+['\"]*(?:/(?:\.{1,2}|\*)?)+['\"]*(?:\s|$|[;&|)])",
             r"rm\s+-rf\s+\*",
         ],
         "Destructive file operations are blocked. Specify exact paths and avoid operations that could delete system files or entire directories.",

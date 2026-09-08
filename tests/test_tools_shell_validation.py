@@ -404,6 +404,16 @@ class TestIsDenylisted:
             denied, _, matched = is_denylisted(cmd)
             assert denied, (cmd, matched)
 
+    def test_git_bulk_grouped_commands_still_denied(self):
+        for cmd in (
+            "(git add -A)",
+            "$(git commit --all)",
+            "(git add .)",
+            "$(git commit -am x)",
+        ):
+            denied, _, matched = is_denylisted(cmd)
+            assert denied, (cmd, matched)
+
     def test_git_commit_message_value_starting_with_a_ok(self):
         for cmd in ("git commit -ma", "git commit -mabc"):
             denied, _, matched = is_denylisted(cmd)
@@ -480,6 +490,15 @@ class TestIsDenylisted:
         for cmd in ("rm -rf /;", "rm -rf / && echo x", "rm -rf /|true"):
             denied, _, matched = is_denylisted(cmd)
             assert denied, (cmd, matched)
+
+    def test_rm_rf_grouped_root_denied(self):
+        for cmd in ("(rm -rf /)", "$(sudo rm -rf /)", "(sudo rm -rf /)"):
+            denied, _, matched = is_denylisted(cmd)
+            assert denied, (cmd, matched)
+
+    def test_rm_rf_grouped_tmp_ok(self):
+        denied, _, matched = is_denylisted("(rm -rf /tmp/gptme-fp-example)")
+        assert not denied, matched
 
     def test_rm_rf_quoted_root_denied(self):
         for cmd in ("rm -rf '/'", 'rm -rf "/"'):
