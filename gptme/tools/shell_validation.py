@@ -85,10 +85,10 @@ deny_groups = [
     (
         [
             r"git\s+add\s+\.(?:\s|$)",  # Match 'git add .' but not '.gitignore'
-            r"git\s+add\s+-A",
-            r"git\s+add\s+--all",
-            r"git\s+commit\s+-a",
-            r"git\s+commit\s+--all",
+            r"git\s+add\s+-A(?:\s|$)",
+            r"git\s+add\s+--all(?:\s|$)",
+            r"git\s+commit\s+-[a-zA-Z]*a[a-zA-Z]*(?:\s|$)",  # -a / -am / -ma, not --amend
+            r"git\s+commit\s+--all(?:\s|$)",
         ],
         "Instead of bulk git operations, use selective commands: `git add <specific-files>` to stage only intended files, then `git commit`.",
     ),
@@ -104,8 +104,10 @@ deny_groups = [
     ),
     (
         [
-            r"rm\s+-rf\s+/",
-            r"sudo\s+rm\s+-rf\s+/",
+            # Root operand only: `/`, `/.`, `/..`, `//`, `/*`, optionally quoted.
+            # Do not prefix-match longer absolute paths such as `/tmp/foo`.
+            r"rm\s+-rf\s+['\"]?/(?:(?:\.){1,2}|/|\*)?['\"]?(?:\s|$|[;&|])",
+            r"sudo\s+rm\s+-rf\s+['\"]?/(?:(?:\.){1,2}|/|\*)?['\"]?(?:\s|$|[;&|])",
             r"rm\s+-rf\s+\*",
         ],
         "Destructive file operations are blocked. Specify exact paths and avoid operations that could delete system files or entire directories.",
