@@ -361,7 +361,12 @@ describe('ApiProvider auth code exchange', () => {
     });
     expect(getByTestId('gate')).toHaveTextContent('false');
 
+    // Let connect() run to completion before teardown so its state updates
+    // (setConnected, invalidateQueries, toast) don't fire after unmount.
     resolveConnection(true);
+    await waitFor(() => {
+      expect(mockSetConnected).toHaveBeenCalledWith(true);
+    });
     window.history.replaceState(null, '', '/');
   });
 });
