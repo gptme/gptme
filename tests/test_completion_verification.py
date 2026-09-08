@@ -278,7 +278,7 @@ def test_approved_make_argv_binds_snapshot(tmp_path: Path) -> None:
     assert uses_approved_snapshot(command)
     snapshot_dir = tmp_path / "snap"
     snapshot_dir.mkdir()
-    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    argv, _bind = approved_execution_argv(command, snapshot_dir, tmp_path)
     assert argv[:2] == ("make", "-f")
     assert argv[-1] == "test"
     assert Path(argv[2]).read_bytes() == b"test:\n\t@true\n"
@@ -312,7 +312,7 @@ def test_approved_npm_argv_invokes_shell_wrapper(tmp_path: Path) -> None:
     assert command is not None
     snapshot_dir = tmp_path / "snap"
     snapshot_dir.mkdir()
-    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    argv, _bind = approved_execution_argv(command, snapshot_dir, tmp_path)
     wrapper = Path(argv[-1])
     assert wrapper.exists()
     if os.name == "nt":
@@ -333,7 +333,7 @@ def test_approved_pytest_pyproject_binds_ini_snapshot(tmp_path: Path) -> None:
     assert uses_approved_snapshot(command)
     snapshot_dir = tmp_path / "snap"
     snapshot_dir.mkdir()
-    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    argv, _bind = approved_execution_argv(command, snapshot_dir, tmp_path)
     assert "-c" in argv
     assert "--rootdir" in argv
     ini = Path(argv[argv.index("-c") + 1])
@@ -347,13 +347,13 @@ def test_approved_tox_argv_binds_workspace_side_file(tmp_path: Path) -> None:
     assert command is not None
     snapshot_dir = tmp_path / "snap"
     snapshot_dir.mkdir()
-    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    argv, bind = approved_execution_argv(command, snapshot_dir, tmp_path)
     assert argv[:2] == ("tox", "-c")
     bound = Path(argv[2])
     assert bound.read_bytes() == b"[tox]\nenvlist = py\n"
     tox_ini.write_text("[tox]\nenvlist = evil\n")
     assert bound.read_bytes() == b"[tox]\nenvlist = py\n"
-    restore_approved_snapshots(snapshot_dir)
+    restore_approved_snapshots(bind)
     assert not bound.exists()
 
 
@@ -365,8 +365,50 @@ def test_approved_cargo_swaps_manifest_then_restores(tmp_path: Path) -> None:
     snapshot_dir = tmp_path / "snap"
     snapshot_dir.mkdir()
     cargo.write_text("[package]\nname = 'evil'\nversion = '0.1.0'\n")
-    argv = approved_execution_argv(command, snapshot_dir, tmp_path)
+    argv, bind = approved_execution_argv(command, snapshot_dir, tmp_path)
     assert argv == ("cargo", "test")
     assert b"name = 'demo'" in cargo.read_bytes()
-    restore_approved_snapshots(snapshot_dir)
+    restore_approved_snapshots(bind)
     assert b"name = 'evil'" in cargo.read_bytes()
+
+
+def test_cargo_restore_leaves_intervening_edits(tmp_path: Path) -> None:
+    cargo = tmp_path / "Cargo.toml"
+    cargo.write_text("[package]\nname = 'demo'\nversion = '0.1.0'\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    snapshot_dir = tmp_path / "snap"
+    snapshot_dir.mkdir()
+    _argv, bind = approved_execution_argv(command, snapshot_dir, tmp_path)
+    cargo.write_text("[package]\nname = 'concurrent'\nversion = '0.1.0'\n")
+    restore_approved_snapshots(bind)
+    assert b"name = 'concurrent'" in cargo.read_bytes()
+
+
+def test_cargo_restore_does_not_recreate_deleted_manifest(tmp_path: Path) -> None:
+    cargo = tmp_path / "Cargo.toml"
+    cargo.write_text("[package]\nname = 'demo'\nversion = '0.1.0'\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    snapshot_dir = tmp_path / "snap"
+    snapshot_dir.mkdir()
+    _argv, bind = approved_execution_argv(command, snapshot_dir, tmp_path)
+    cargo.unlink()
+    restore_approved_snapshots(bind)
+    assert not cargo.exists()
+
+
+def test_cleanup_ignores_child_rewritten_bound_paths(tmp_path: Path) -> None:
+    tox_ini = tmp_path / "tox.ini"
+    tox_ini.write_text("[tox]\nenvlist = py\n")
+    victim = tmp_path / "must-survive"
+    victim.write_text("keep\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    snapshot_dir = tmp_path / "snap"
+    snapshot_dir.mkdir()
+    argv, bind = approved_execution_argv(command, snapshot_dir, tmp_path)
+    (snapshot_dir / "BOUND_PATHS").write_text(str(victim) + "\n")
+    restore_approved_snapshots(bind)
+    assert victim.exists()
+    assert not Path(argv[2]).exists()

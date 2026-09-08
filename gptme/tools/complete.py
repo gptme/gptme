@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from xml.sax.saxutils import escape as xml_escape
 
 from ..completion_verification import (
+    ApprovedBind,
     VerificationCommand,
     approved_execution_argv,
     discover_verification_command,
@@ -125,16 +126,18 @@ class StaleManifestError(RuntimeError):
 
 
 def _cleanup_verify_snapshot(
-    snapshot_dir: str | None, snapshot_path: str | None
+    snapshot_dir: str | None,
+    snapshot_path: str | None,
+    bind: ApprovedBind | None = None,
 ) -> None:
     """Restore swapped manifests, then drop private snapshot files."""
     if snapshot_path is not None:
         with contextlib.suppress(OSError):
             os.unlink(snapshot_path)
-    if snapshot_dir is None:
-        return
-    restore_approved_snapshots(Path(snapshot_dir))
-    shutil.rmtree(snapshot_dir, ignore_errors=True)
+    if bind is not None:
+        restore_approved_snapshots(bind)
+    if snapshot_dir is not None:
+        shutil.rmtree(snapshot_dir, ignore_errors=True)
 
 
 def _run_verify_cmd(
@@ -159,6 +162,7 @@ def _run_verify_cmd(
     popen_kwargs: dict = {} if _is_windows else {"start_new_session": True}
     snapshot_path: str | None = None
     snapshot_dir: str | None = None
+    bind: ApprovedBind | None = None
     process_env: dict[str, str] | None = None
     command: str | list[str]
     if argv is None and discovered is not None:
@@ -166,8 +170,11 @@ def _run_verify_cmd(
     if argv is not None:
         try:
             if discovered is not None and uses_approved_snapshot(discovered):
-                snapshot_dir = tempfile.mkdtemp(prefix="gptme-verify-manifest-")
-                argv = approved_execution_argv(
+                snapshot_dir = tempfile.mkdtemp(
+                    prefix=".gptme-verify-manifest-",
+                    dir=str(workspace) if workspace is not None else None,
+                )
+                argv, bind = approved_execution_argv(
                     discovered, Path(snapshot_dir), workspace
                 )
             elif discovered is not None and not fingerprints_match(discovered):
@@ -184,7 +191,7 @@ def _run_verify_cmd(
             process_env = build_env(sandbox)
             shell = False
         except BaseException:
-            _cleanup_verify_snapshot(snapshot_dir, None)
+            _cleanup_verify_snapshot(snapshot_dir, None, bind)
             raise
     elif script_content is not None:
         fd, snapshot_path = tempfile.mkstemp(prefix="gptme-verify-", suffix=".sh")
@@ -216,7 +223,7 @@ def _run_verify_cmd(
             **popen_kwargs,
         )
     except BaseException:
-        _cleanup_verify_snapshot(snapshot_dir, snapshot_path)
+        _cleanup_verify_snapshot(snapshot_dir, snapshot_path, bind)
         raise
 
     try:
@@ -261,7 +268,7 @@ def _run_verify_cmd(
         if proc.returncode is None:
             with contextlib.suppress(subprocess.TimeoutExpired, OSError):
                 proc.wait(timeout=1)
-        _cleanup_verify_snapshot(snapshot_dir, snapshot_path)
+        _cleanup_verify_snapshot(snapshot_dir, snapshot_path, bind)
 
 
 class SessionCompleteException(Exception):

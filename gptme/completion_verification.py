@@ -12,7 +12,7 @@ import shlex
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -69,6 +69,20 @@ class VerificationCommand:
     trust: Literal["repository_controlled"] = "repository_controlled"
     preview: str | None = None
     source_blobs: tuple[tuple[Path, bytes], ...] = ()
+
+
+@dataclass
+class ApprovedBind:
+    """In-memory side effects of binding a run to approved manifest bytes.
+
+    Cleanup must use this object, never files the child process can rewrite.
+    """
+
+    extra_cleanup: list[Path] = field(default_factory=list)
+    swapped_live: Path | None = None
+    swapped_backup: bytes | None = None
+    swapped_missing: bool = False
+    swapped_approved: bytes | None = None
 
 
 def _payload(tool_use: ToolUse) -> str:
@@ -476,63 +490,55 @@ def npm_lifecycle_script(blob: bytes) -> str | None:
 
 def _workspace_side_file(
     snapshot_dir: Path, workspace: Path | None, blob: bytes, suffix: str
-) -> str:
+) -> Path:
     """Write approved bytes under the workspace so toxinidir stays the project root."""
     archived = snapshot_dir / f"manifest{suffix}"
     archived.write_bytes(blob)
     root = workspace if workspace is not None else snapshot_dir
     fd, path = tempfile.mkstemp(prefix=".gptme-verify-", suffix=suffix, dir=root)
     os.close(fd)
-    Path(path).write_bytes(blob)
-    bound = snapshot_dir / "BOUND_PATHS"
-    with bound.open("a", encoding="utf-8") as handle:
-        handle.write(path + "\n")
-    return path
+    bound = Path(path)
+    bound.write_bytes(blob)
+    return bound
 
 
 def _swap_workspace_manifest(
-    snapshot_dir: Path, workspace: Path | None, source: Path, blob: bytes
-) -> None:
+    workspace: Path | None, source: Path, blob: bytes
+) -> tuple[Path, bytes | None, bool]:
     """Point a live-path runner at approved bytes for the duration of the run.
 
     Cargo requires the filename ``Cargo.toml`` and uses that file's parent as
     the package root, so a side-file snapshot cannot be used.
     """
     live = (workspace / source.name) if workspace is not None else source
-    backup = snapshot_dir / f"LIVE_{live.name}"
     try:
-        backup.write_bytes(live.read_bytes())
+        backup = live.read_bytes()
+        missing = False
     except OSError:
-        (snapshot_dir / f"LIVE_{live.name}.missing").write_text("1", encoding="utf-8")
+        backup = None
+        missing = True
     live.write_bytes(blob)
-    (snapshot_dir / "SWAPPED").write_text(str(live) + "\n", encoding="utf-8")
+    return live, backup, missing
 
 
-def restore_approved_snapshots(snapshot_dir: Path) -> None:
-    """Undo workspace side-effects from :func:`approved_execution_argv`."""
-    swapped = snapshot_dir / "SWAPPED"
-    try:
-        live_s = swapped.read_text(encoding="utf-8").strip()
-    except OSError:
-        live_s = ""
-    if live_s:
-        live = Path(live_s)
-        backup = snapshot_dir / f"LIVE_{live.name}"
-        missing = snapshot_dir / f"LIVE_{live.name}.missing"
-        if missing.is_file():
-            with contextlib.suppress(OSError):
-                live.unlink()
-        elif backup.is_file():
-            with contextlib.suppress(OSError):
-                live.write_bytes(backup.read_bytes())
-    bound = snapshot_dir / "BOUND_PATHS"
-    try:
-        extras = bound.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        extras = []
-    for extra in extras:
+def restore_approved_snapshots(bind: ApprovedBind) -> None:
+    """Undo workspace side-effects using in-memory bind metadata only."""
+    live = bind.swapped_live
+    if live is not None:
+        try:
+            current = live.read_bytes()
+        except OSError:
+            current = None
+        if current is not None and current == bind.swapped_approved:
+            if bind.swapped_missing:
+                with contextlib.suppress(OSError):
+                    live.unlink()
+            elif bind.swapped_backup is not None:
+                with contextlib.suppress(OSError):
+                    live.write_bytes(bind.swapped_backup)
+    for extra in bind.extra_cleanup:
         with contextlib.suppress(OSError):
-            Path(extra).unlink()
+            extra.unlink()
 
 
 def _ini_section(name: str, opts: dict) -> bytes:
@@ -615,20 +621,21 @@ def _npm_snapshot_argv(snapshot_dir: Path, blob: bytes) -> tuple[str, ...] | Non
 
 def approved_execution_argv(
     command: VerificationCommand, snapshot_dir: Path, workspace: Path | None
-) -> tuple[str, ...]:
-    """Return argv that executes the approved snapshot rather than a live manifest."""
+) -> tuple[tuple[str, ...], ApprovedBind]:
+    """Return argv plus in-memory bind metadata for the approved snapshot."""
+    bind = ApprovedBind()
     if not command.source_blobs:
-        return command.argv
+        return command.argv, bind
     source, blob = command.source_blobs[0]
     name = source.name
     snap = snapshot_dir / name
     snap.write_bytes(blob)
     root = str(workspace) if workspace is not None else "."
     if name in {"Makefile", "makefile", "GNUmakefile"}:
-        return ("make", "-f", str(snap), "test")
+        return ("make", "-f", str(snap), "test"), bind
     if name == "package.json":
         argv = _npm_snapshot_argv(snapshot_dir, blob)
-        return command.argv if argv is None else argv
+        return (command.argv if argv is None else argv), bind
     if "pytest" in command.argv:
         ini_path = snapshot_dir / "pytest.ini"
         ini_path.write_bytes(_pytest_ini_from_blob(name, blob))
@@ -636,20 +643,28 @@ def approved_execution_argv(
         try:
             idx = parts.index("pytest")
         except ValueError:
-            return command.argv
-        return tuple(
-            parts[: idx + 1]
-            + ["-c", str(ini_path), "--rootdir", root]
-            + parts[idx + 1 :]
+            return command.argv, bind
+        return (
+            tuple(
+                parts[: idx + 1]
+                + ["-c", str(ini_path), "--rootdir", root]
+                + parts[idx + 1 :]
+            ),
+            bind,
         )
     if command.argv[:1] == ("tox",):
         suffix = Path(name).suffix or ".ini"
         bound = _workspace_side_file(snapshot_dir, workspace, blob, suffix)
-        return ("tox", "-c", bound)
+        bind.extra_cleanup.append(bound)
+        return ("tox", "-c", str(bound)), bind
     if name == "Cargo.toml":
-        _swap_workspace_manifest(snapshot_dir, workspace, source, blob)
-        return command.argv
-    return command.argv
+        live, backup, missing = _swap_workspace_manifest(workspace, source, blob)
+        bind.swapped_live = live
+        bind.swapped_backup = backup
+        bind.swapped_missing = missing
+        bind.swapped_approved = blob
+        return command.argv, bind
+    return command.argv, bind
 
 
 def discover_verification_command(workspace: Path) -> VerificationCommand | None:
