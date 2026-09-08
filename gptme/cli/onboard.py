@@ -108,8 +108,13 @@ def _test_provider(provider: str) -> tuple[bool, str]:
     if provider in OAUTH_PROVIDERS:
         try:
             available = {name for name, _ in list_available_providers()}
-        except Exception:
-            available = set()
+        except Exception as e:
+            logger.warning(
+                "OAuth credential check failed: %s — run `gptme auth %s` to re-authenticate",
+                e,
+                provider,
+            )
+            return False, f"Could not read OAuth credentials: {e}"
         if provider in available:
             return True, "OAuth credentials found (not validated during onboarding)"
         return False, f"Not authenticated (run gptme auth {provider})"

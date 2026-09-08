@@ -189,12 +189,20 @@ class TestTestProvider:
         "gptme.cli.onboard.list_available_providers",
         side_effect=ValueError("malformed credentials"),
     )
-    def test_oauth_lookup_failure_in_test_provider(self, _mock_providers):
-        """Credential lookup failure in _test_provider returns (False, message)."""
-        is_valid, message = _test_provider("openai-subscription")
+    def test_oauth_lookup_failure_in_test_provider(self, _mock_providers, caplog):
+        """Lookup failure is distinct from missing credentials and is logged."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="gptme.cli.onboard"):
+            is_valid, message = _test_provider("openai-subscription")
 
         assert not is_valid
-        assert "Not authenticated" in message
+        assert "Could not read OAuth credentials" in message
+        assert "malformed credentials" in message
+        assert "Not authenticated" not in message
+        messages = " ".join(r.message for r in caplog.records)
+        assert "OAuth credential check failed" in messages
+        assert "gptme auth openai-subscription" in messages
 
 
 class TestShowProviderStatus:
