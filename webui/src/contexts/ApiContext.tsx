@@ -355,6 +355,13 @@ export function ApiProvider({
       try {
         const config = await processConnectionFromHash(currentHash);
         console.log('[ApiContext] Auth code exchange successful, connecting');
+        // The exchange is the only step the UI must block on: once the token is
+        // registered, the chat shell can render while the connection probe runs
+        // in the background (isConnecting$/isConnected$ drive the indicators).
+        // Keeping the bootstrap gate up through connect() holds a blank
+        // "signing in" screen for the full probe round-trips — or many seconds
+        // against a waking instance.
+        setIsExchangingAuthCode(false);
         await connect(config);
       } catch (error) {
         console.error('[ApiContext] Auth code exchange failed:', error);

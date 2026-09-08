@@ -2,7 +2,7 @@ import '@testing-library/jest-dom';
 import { render, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { QueryClient } from '@tanstack/react-query';
-import { ApiProvider, shouldSkipHostedLoopbackAutoConnect } from '../ApiContext';
+import { ApiProvider, shouldSkipHostedLoopbackAutoConnect, useApi } from '../ApiContext';
 import type { ConnectionProbeResult } from '@/utils/api';
 
 const mockCheckConnection = jest.fn();
@@ -300,6 +300,69 @@ describe('ApiProvider mobile auto-connect', () => {
       },
       { timeout: 2000 }
     );
+  });
+});
+
+describe('ApiProvider auth code exchange', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    isConnected$.set(false);
+    lastConnectionResult$.set(null);
+    setActiveServerBaseUrl('http://127.0.0.1:5700');
+    mockGetPrimaryClient.mockReturnValue(mockClient);
+    mockGetClientForServer.mockReturnValue(mockClient);
+    mockGetActiveServer.mockReturnValue(null);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: false,
+      serverStatus: null,
+    });
+    mockIsTauriEnvironment.mockReturnValue(false);
+  });
+
+  function GateProbe() {
+    const { isExchangingAuthCode } = useApi();
+    return <div data-testid="gate">{String(isExchangingAuthCode)}</div>;
+  }
+
+  it('drops the bootstrap gate after the exchange, before the connection probe finishes', async () => {
+    window.history.replaceState(null, '', '/#code=test-code');
+
+    // Connection probe that never resolves on its own — simulates the slow
+    // round-trips to a (possibly waking) instance.
+    let resolveConnection!: (value: boolean) => void;
+    mockCheckConnection.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConnection = resolve;
+        })
+    );
+    mockProcessConnectionFromHash.mockImplementation(async () => {
+      // Real implementation cleans the code fragment from the URL.
+      window.history.replaceState(null, '', '/');
+      return {
+        baseUrl: 'https://instance.example.com',
+        authToken: 'user-token',
+        useAuthToken: true,
+      };
+    });
+
+    const queryClient = new QueryClient();
+    const { getByTestId } = render(
+      <ApiProvider queryClient={queryClient}>
+        <GateProbe />
+      </ApiProvider>
+    );
+
+    // Once connect() starts probing, the gate must already be down: the chat
+    // shell renders while the probe runs in the background.
+    await waitFor(() => {
+      expect(mockCheckConnection).toHaveBeenCalled();
+    });
+    expect(getByTestId('gate')).toHaveTextContent('false');
+
+    resolveConnection(true);
+    window.history.replaceState(null, '', '/');
   });
 });
 
