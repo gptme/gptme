@@ -613,7 +613,7 @@ Run 'gptme-util --help' for all utility commands."""
     "-r",
     "--resume",
     is_flag=True,
-    help="Load most recent conversation.",
+    help="Load the most recent conversation in this workspace. Use --name ID to select one.",
 )
 @click.option(
     "-y",
@@ -902,6 +902,32 @@ def main(
     # (observed to occur in some Click versions when --name "" is passed)
     if not name or not name.strip():
         name = "random"
+
+    # --resume is a flag, not an option taking an ID. A positional session
+    # name would otherwise be sent as a new prompt to the *latest* conversation.
+    # Keep ordinary continuation prompts and explicit "--" literals working.
+    if (
+        resume
+        and name == "random"
+        and prompts
+        and not dispatch_suppressed
+        and not show_version
+    ):
+        import re
+
+        from ..logmanager import conversation_name_error
+
+        candidate = prompts[0]
+        if not conversation_name_error(candidate) and (
+            re.fullmatch(r"\d{4}-\d{2}-\d{2}-[\w-]+", candidate)
+            or (get_logs_dir() / candidate / "conversation.jsonl").is_file()
+        ):
+            raise click.UsageError(
+                "--resume does not take a conversation ID as a positional argument. "
+                f"Use --resume --name {shlex.quote(candidate)} to select that conversation. "
+                "To send the ID as a literal prompt to the latest conversation, "
+                f"use --resume -- {shlex.quote(candidate)}."
+            )
 
     if no_workspace and context_include:
         raise click.UsageError(

@@ -60,8 +60,19 @@ Give a conversation an explicit name so you can return to it later:
     # Resume that same conversation in a future session
     gptme --name my-refactor
 
-    # Resume the most recently modified conversation (any name)
+    # Resume the most recently modified conversation in the current workspace
     gptme -r
+
+``--resume`` (or ``-r``) is a flag, not an option taking a conversation ID.
+Use ``gptme --resume --name my-refactor`` to select a specific existing
+conversation and fail if it does not exist. Positional arguments are new
+prompts: ``gptme --resume "continue"`` sends a follow-up to the latest
+conversation. An apparent positional conversation ID is rejected with
+guidance instead of silently sending it to a different conversation; use
+``gptme --resume -- my-refactor`` if you really intend the ID as prompt text.
+
+Separate invocations in the same terminal can create separate conversations.
+Check the startup ``Using logdir`` line when choosing which history to resume.
 
 Without ``--name``, gptme assigns a random name (e.g. ``hopping-blue-robot``).
 

@@ -2061,3 +2061,106 @@ class TestPluginDiscovery:
 def _record_subprocess_call(args, calls: list[list[str]]) -> int:
     calls.append(list(args))
     return 0
+
+
+@pytest.mark.parametrize("extra_prompts", [[], ["continue"]])
+def test_resume_rejects_positional_conversation_id_before_setup(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, extra_prompts: list[str]
+) -> None:
+    """A session ID must not silently become a prompt in the latest session."""
+    target = _write_conversation("resume-positional-target", workspace=Path.cwd())
+    _write_conversation("resume-positional-newer", workspace=Path.cwd())
+    before = (target / "conversation.jsonl").read_bytes()
+    monkeypatch.setattr(
+        "gptme.telemetry.init_telemetry",
+        lambda **kwargs: pytest.fail("ambiguous resume reached setup"),
+    )
+    result = runner.invoke(
+        cli.main, ["--resume", target.name, *extra_prompts, "--non-interactive"]
+    )
+    assert result.exit_code == 2, result.output
+    assert "--resume does not take a conversation ID" in result.output
+    assert f"--resume --name {target.name}" in result.output
+    assert (target / "conversation.jsonl").read_bytes() == before
+
+
+def test_resume_rejects_missing_generated_positional_id(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "gptme.telemetry.init_telemetry",
+        lambda **kwargs: pytest.fail("ambiguous resume reached setup"),
+    )
+    result = runner.invoke(
+        cli.main, ["--resume", "2026-01-02-running-blue-cat", "--non-interactive"]
+    )
+    assert result.exit_code == 2, result.output
+    assert "--resume --name 2026-01-02-running-blue-cat" in result.output
+
+
+@pytest.mark.parametrize(
+    "mode", ["named", "named-latest", "named-prompt", "prompt", "literal"]
+)
+def test_resume_selection_loads_complete_history(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str
+) -> None:
+    """Selection + real loader preserve late messages, not just the first turn."""
+    from gptme.logmanager import Log, LogManager
+
+    workspace = tmp_path / "workspace"
+    older = _write_conversation("resume-full-older", workspace=workspace)
+    latest = _write_conversation("resume-full-latest", workspace=workspace)
+    histories = {}
+    for logdir, count in [(older, 4), (latest, 270)]:
+        messages = [
+            Message("user" if i % 2 == 0 else "assistant", f"{logdir.name}: {i}")
+            for i in range(count)
+        ]
+        Log(messages).write_jsonl(logdir / "conversation.jsonl")
+        histories[logdir] = [m.content for m in messages]
+    os.utime(older / "conversation.jsonl", (1, 1))
+    os.utime(latest / "conversation.jsonl", (2, 2))
+    snapshots = {p: (p / "conversation.jsonl").read_bytes() for p in [older, latest]}
+    seen = []
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    def fake_chat(
+        prompt_msgs: list[Message],
+        initial_msgs: list[Message],
+        logdir: Path,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        # Exercise actual disk loading, while stopping before any LLM request.
+        manager = LogManager.load(logdir, initial_msgs=initial_msgs, lock=False)
+        seen.append(
+            (logdir, [m.content for m in manager.log], [m.content for m in prompt_msgs])
+        )
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", fake_chat)
+    expected_prompts: list[str]
+    if mode == "named":
+        # Explicit --name always wins, even with a newer session in the same cwd.
+        args = ["--name", older.name]
+        expected_dir, expected_prompts = older, []
+    elif mode == "named-latest":
+        args = ["--name", latest.name]
+        expected_dir, expected_prompts = latest, []
+    elif mode == "named-prompt":
+        args = ["--name", older.name, latest.name]
+        expected_dir, expected_prompts = older, [latest.name]
+    elif mode == "literal":
+        args = ["--", older.name]
+        expected_dir, expected_prompts = latest, [older.name]
+    else:
+        args = ["continue"]
+        expected_dir, expected_prompts = latest, ["continue"]
+    result = runner.invoke(
+        cli.main,
+        ["--resume", "--workspace", str(workspace), "--non-interactive", *args],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert seen == [(expected_dir, histories[expected_dir], expected_prompts)]
+    for path, before in snapshots.items():
+        assert (path / "conversation.jsonl").read_bytes() == before
