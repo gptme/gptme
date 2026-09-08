@@ -226,8 +226,12 @@ class MemoryStore:
         if not old.is_living and old.superseded_by != new.name:
             raise ValueError(f"entry {old.name!r} is not living")
 
-        old_original = old.to_markdown()
-        new_original = new.to_markdown()
+        old_original = old_path.read_text(encoding="utf-8")
+        new_original = new_path.read_text(encoding="utf-8")
+        index_path = self.index_path(root.scope)
+        index_original = (
+            index_path.read_text(encoding="utf-8") if index_path.is_file() else None
+        )
         old = replace(old, status="superseded", superseded_by=new.name)
         new_supersedes = list(new.supersedes)
         if old.name not in new_supersedes:
@@ -239,14 +243,18 @@ class MemoryStore:
         # Validate both complete serializations before the first write.
         entry_from_text(old_text, path=old_path, scope=root.scope, strict=True)
         entry_from_text(new_text, path=new_path, scope=root.scope, strict=True)
-        old_path.write_text(old_text, encoding="utf-8")
         try:
+            old_path.write_text(old_text, encoding="utf-8")
             new_path.write_text(new_text, encoding="utf-8")
+            self.write_index(root.scope)
         except OSError:
             old_path.write_text(old_original, encoding="utf-8")
             new_path.write_text(new_original, encoding="utf-8")
+            if index_original is None:
+                index_path.unlink(missing_ok=True)
+            else:
+                index_path.write_text(index_original, encoding="utf-8")
             raise
-        self.write_index(root.scope)
         return old, new
 
     def audit(self, *, scope: str | None = None) -> list[AuditIssue]:
@@ -266,6 +274,15 @@ class MemoryStore:
                 continue
             except (MemoryParseError, OSError, UnicodeDecodeError) as exc:
                 issues.append(AuditIssue("invalid-entry", path.name, str(exc)))
+                continue
+            if entry.name in entries:
+                issues.append(
+                    AuditIssue(
+                        "duplicate-name",
+                        path.name,
+                        f"name {entry.name!r} is also used by {entries[entry.name].path}",
+                    )
+                )
                 continue
             entries[entry.name] = entry
 

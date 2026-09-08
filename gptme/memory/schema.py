@@ -192,11 +192,19 @@ def parse_frontmatter(raw: str, *, strict: bool = False) -> dict[str, Any]:
     return loaded
 
 
-def _as_list(value: Any) -> list[str]:
+def _as_list(
+    value: Any, *, field_name: str = "value", strict: bool = False
+) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
         return [value]
+    if strict and (
+        not isinstance(value, list) or not all(isinstance(v, str) for v in value)
+    ):
+        raise MemoryFrontmatterError(f"invalid {field_name}: expected string list")
+    if not isinstance(value, list):
+        return [str(value)]
     return [str(v) for v in value]
 
 
@@ -215,22 +223,39 @@ def entry_from_text(
     if not data:
         raise MemoryParseError(f"empty frontmatter: {path or '<text>'}")
 
-    metadata = data.get("metadata")
-    metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    raw_metadata = data.get("metadata")
+    if strict and raw_metadata is not None and not isinstance(raw_metadata, dict):
+        raise MemoryFrontmatterError("invalid metadata: expected mapping")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
     type_ = metadata.pop("type", None) or data.get("type") or DEFAULT_TYPE
+    if strict and not isinstance(type_, str):
+        raise MemoryFrontmatterError("invalid type: expected string")
 
     name = data.get("name") or (path.stem if path is not None else None)
     if not name:
         raise MemoryParseError(f"entry has no name: {path or '<text>'}")
+    if strict and not isinstance(name, str):
+        raise MemoryFrontmatterError("invalid name: expected string")
 
     confidence = data.get("confidence")
     try:
         confidence = float(confidence) if confidence is not None else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        if strict:
+            raise MemoryFrontmatterError("invalid confidence: expected number") from exc
         confidence = None
+    if strict and confidence is not None and not 0 <= confidence <= 1:
+        raise MemoryFrontmatterError("invalid confidence: expected 0..1")
 
     provenance = data.get("provenance")
-    status = str(data.get("status") or DEFAULT_STATUS)
+    if strict and provenance is not None and not isinstance(provenance, dict):
+        raise MemoryFrontmatterError("invalid provenance: expected mapping")
+    raw_status = data.get("status") or DEFAULT_STATUS
+    if strict and (not isinstance(raw_status, str) or raw_status not in STATUSES):
+        raise MemoryFrontmatterError(
+            f"invalid status: expected one of {', '.join(STATUSES)}"
+        )
+    status = str(raw_status)
 
     return MemoryEntry(
         name=str(name),
@@ -239,11 +264,13 @@ def entry_from_text(
         body=body.strip("\n"),
         title=str(data["title"]) if data.get("title") else None,
         status=status if status in STATUSES else DEFAULT_STATUS,
-        supersedes=_as_list(data.get("supersedes")),
+        supersedes=_as_list(
+            data.get("supersedes"), field_name="supersedes", strict=strict
+        ),
         superseded_by=str(data["superseded_by"]) if data.get("superseded_by") else None,
         provenance=dict(provenance) if isinstance(provenance, dict) else {},
         confidence=confidence,
-        keywords=_as_list(data.get("keywords")),
+        keywords=_as_list(data.get("keywords"), field_name="keywords", strict=strict),
         recheck=str(data["recheck"]) if data.get("recheck") else None,
         metadata=metadata,
         path=path,

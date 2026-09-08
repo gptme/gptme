@@ -186,6 +186,24 @@ class TestStore:
 
         assert "status: superseded" not in (root / "old.md").read_text()
 
+    def test_supersede_rolls_back_entries_when_index_write_fails(
+        self, tmp_path, monkeypatch
+    ):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="project")
+        root = tmp_path / "project"
+        before = {path.name: path.read_text() for path in root.glob("*.md")}
+
+        def fail_index(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(store, "write_index", fail_index)
+        with pytest.raises(OSError, match="disk full"):
+            store.supersede("old", "new", scope="project")
+
+        assert {path.name: path.read_text() for path in root.glob("*.md")} == before
+
     def test_supersede_rejects_cross_root_entries(self, tmp_path):
         store = self._store(tmp_path)
         store.save("old", "old", scope="project")
@@ -209,6 +227,42 @@ class TestStore:
             store.supersede("three", "one", scope="project")
         with pytest.raises(ValueError, match="not living"):
             store.supersede("one", "three", scope="project")
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "status: bogus",
+            "confidence: nope",
+            "confidence: 2",
+            "metadata: nope",
+            "provenance: nope",
+            "supersedes: 42",
+            "keywords: [fine, 42]",
+        ],
+    )
+    def test_audit_reports_invalid_field_types(self, tmp_path, field):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "invalid",
+            f"---\nname: invalid\ndescription: invalid\n{field}\n---\nbody\n",
+        )
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert len(issues) == 1
+        assert issues[0].code == "invalid-yaml"
+
+    def test_audit_reports_duplicate_names(self, tmp_path):
+        root = tmp_path / "project"
+        _write(root, "a", "---\nname: same\ndescription: first\n---\n")
+        _write(root, "z", "---\nname: same\ndescription: second\n---\n")
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert [(issue.code, issue.entry) for issue in issues] == [
+            ("duplicate-name", "z.md")
+        ]
 
     def test_audit_reports_invalid_yaml_and_broken_supersession(self, tmp_path):
         root = tmp_path / "project"
