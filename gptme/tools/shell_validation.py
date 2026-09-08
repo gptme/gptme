@@ -85,9 +85,10 @@ deny_groups = [
     (
         [
             # Token boundary includes shell separators and `)` so
-            # `git add -A; ...` and `(git add -A)` still match. `-a` must
-            # be the first short-option letter so `-am` is denied but
-            # `-ma` / `-mabc` (message values) are not.
+            # `git add -A; ...` and `(git add -A)` still match. Quoted
+            # `)` is data, not a delimiter — `is_denylisted()` skips it.
+            # `-a` must be the first short-option letter so `-am` is
+            # denied but `-ma` / `-mabc` (message values) are not.
             r"git\s+add\s+\.(?:\s|$|[;&|)])",  # Match 'git add .' but not '.gitignore'
             r"git\s+add\s+-A(?:\s|$|[;&|)])",
             r"git\s+add\s+--all(?:\s|$|[;&|)])",
@@ -625,13 +626,20 @@ def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:
     # We don't normalize because it would break heredoc detection
     for patterns, reason in deny_groups:
         for pattern in patterns:
-            match = re.search(pattern, cmd, re.IGNORECASE)
-            if match:
-                # Check if the match is within a safe region (quoted or heredoc)
-                match_start = match.start()
-                if not _is_in_quoted_region(match_start, safe_regions):
-                    # Return the matched text to show in error message
-                    return True, reason, match.group(0)
+            for match in re.finditer(pattern, cmd, re.IGNORECASE):
+                # Skip quoted/heredoc text. Keep scanning so a later
+                # unquoted occurrence (echo '...'; rm -rf /) still matches.
+                if _is_in_quoted_region(match.start(), safe_regions):
+                    continue
+                # `)` is a grouping delimiter only when unquoted. Quoted
+                # data such as echo '(rm -rf /)' is skipped via match.start()
+                # above; this also rejects mixed cases where the command is
+                # unquoted but the `)` that completed the match is data.
+                if match.group(0).endswith(")") and _is_in_quoted_region(
+                    match.end() - 1, safe_regions
+                ):
+                    continue
+                return True, reason, match.group(0)
 
     return False, None, None
 

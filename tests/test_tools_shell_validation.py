@@ -595,6 +595,28 @@ class TestIsDenylisted:
         denied, _, _ = is_denylisted('echo "rm -rf /"')
         assert not denied
 
+    def test_quoted_closing_paren_is_data_not_delimiter(self):
+        # `)` is a grouping delimiter only when unquoted. Inert text that
+        # merely looks protected must not hard-deny.
+        for cmd in (
+            "printf '%s\\n' 'git commit --all)'",
+            "echo '(rm -rf /)'",
+            "echo '(git add -A)'",
+            "echo '(git commit --all)'",
+        ):
+            denied, _, matched = is_denylisted(cmd)
+            assert not denied, (cmd, matched)
+
+    def test_quoted_then_real_dangerous_command_still_denied(self):
+        # Skipping a quoted match must not hide a later unquoted command.
+        for cmd in (
+            "echo '(rm -rf /)'; rm -rf /",
+            "echo 'git commit --all)'; git commit --all",
+            'echo "rm -rf /"; rm -rf /',
+        ):
+            denied, _, matched = is_denylisted(cmd)
+            assert denied, (cmd, matched)
+
     def test_dangerous_in_heredoc(self):
         cmd = "cat << EOF\ngit add .\nrm -rf /\nEOF"
         denied, _, _ = is_denylisted(cmd)
