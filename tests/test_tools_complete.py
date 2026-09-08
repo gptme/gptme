@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.completion_verification import VerificationCommand
 from gptme.hooks.confirm import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.complete import (
@@ -299,8 +300,256 @@ class TestCompleteHookVerification:
     def test_no_verify_cmd_raises_as_normal(self, monkeypatch):
         """Without a verify command the hook raises SessionCompleteException as usual."""
         monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION_AUTO", raising=False)
         with pytest.raises(SessionCompleteException):
             list(complete_hook(self._COMPLETE_MSG))
+
+    def test_auto_discovery_is_off_by_default(self, monkeypatch, tmp_path):
+        """A conventional runner is ignored until auto discovery is opted in."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION_AUTO", raising=False)
+        (tmp_path / "pytest.ini").write_text("[pytest]\n")
+        messages = [
+            _user("implement it"),
+            _assistant("```save src/example.py\nvalue = 1\n```"),
+            _system("saved"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        with (
+            patch(
+                "gptme.tools.complete._run_verify_cmd",
+                side_effect=AssertionError("discovery must remain default-off"),
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(messages, workspace=tmp_path))
+
+    def test_auto_discovery_requires_authoring_mutation(self, monkeypatch, tmp_path):
+        """Read-only work and test commands do not trigger a redundant test run."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        (tmp_path / "pytest.ini").write_text("[pytest]\n")
+        messages = [
+            _user("inspect the tests"),
+            _assistant("```shell\npytest -q\n```"),
+            _system("1 passed"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        with (
+            patch(
+                "gptme.tools.complete._run_verify_cmd",
+                side_effect=AssertionError(
+                    "test execution is not an authoring mutation"
+                ),
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(messages, workspace=tmp_path))
+
+    def test_auto_discovery_runs_after_authoring_mutation(self, monkeypatch, tmp_path):
+        """Opt-in discovery proposes the detected runner after source authoring."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        config = tmp_path / "pytest.ini"
+        config.write_text("[pytest]\n")
+        messages = [
+            _user("implement it"),
+            _assistant("```save src/example.py\nvalue = 1\n```"),
+            _system("saved"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        with (
+            patch("gptme.completion_verification.shutil.which", return_value=None),
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=ConfirmationResult.confirm(),
+            ) as confirm,
+            patch(
+                "gptme.tools.complete._run_verify_cmd",
+                return_value=subprocess.CompletedProcess(
+                    ["pytest", "-x", "-q"], 0, stdout="1 passed", stderr=""
+                ),
+            ) as run,
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(messages, workspace=tmp_path))
+
+        preview = confirm.call_args.kwargs["preview"]
+        assert "pytest.ini" in preview
+        assert "pytest -x -q" in preview
+        run.assert_called_once()
+        assert run.call_args.args[0] == "pytest -x -q"
+        assert run.call_args.kwargs["argv"] == ("pytest", "-x", "-q")
+
+    def test_explicit_command_beats_workspace_script_and_discovery(
+        self, monkeypatch, tmp_path
+    ):
+        """The operator command remains the highest-precedence verifier."""
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "echo explicit")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\nexit 99\n")
+        script.chmod(0o755)
+        (tmp_path / "pytest.ini").write_text("[pytest]\n")
+
+        with patch("gptme.tools.complete._run_verify_cmd") as run:
+            run.return_value = subprocess.CompletedProcess(
+                "echo explicit", 0, stdout="explicit", stderr=""
+            )
+            with pytest.raises(SessionCompleteException):
+                list(complete_hook(self._COMPLETE_MSG, workspace=tmp_path))
+
+        run.assert_called_once()
+        assert run.call_args.args[0] == "echo explicit"
+
+    def test_workspace_script_beats_discovery(self, monkeypatch, tmp_path):
+        """An executable repository verifier remains above inferred runners."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        script = tmp_path / ".gptme" / "verify-completion.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+        (tmp_path / "pytest.ini").write_text("[pytest]\n")
+        messages = [
+            _user("implement it"),
+            _assistant("```save src/example.py\nvalue = 1\n```"),
+            _system("saved"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        with (
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=ConfirmationResult.confirm(),
+            ),
+            patch("gptme.tools.complete._run_verify_cmd") as run,
+        ):
+            run.return_value = subprocess.CompletedProcess(
+                str(script), 0, stdout="", stderr=""
+            )
+            with pytest.raises(SessionCompleteException):
+                list(complete_hook(messages, workspace=tmp_path))
+
+        assert run.call_args.args[0] == str(script)
+        assert run.call_args.kwargs["script_content"] == "#!/bin/sh\nexit 0\n"
+
+    def test_discovered_command_uses_shell_sandbox_policy(self, monkeypatch, tmp_path):
+        """Inferred argv is wrapped by the same sandbox policy as shell."""
+        monkeypatch.setenv("GPTME_SANDBOX", "bwrap")
+        monkeypatch.setenv("SECRET_THAT_MUST_NOT_LEAK", "secret")
+
+        with (
+            patch("gptme.tools.complete.SandboxConfig.check_available") as available,
+            patch("gptme.tools.complete.subprocess.Popen") as popen,
+        ):
+            available.return_value = (True, "available")
+            proc = popen.return_value
+            proc.communicate.return_value = ("ok", "")
+            proc.returncode = 0
+            proc.stdout = None
+            proc.stderr = None
+            proc.stdin = None
+            result = _run_verify_cmd(
+                "pytest -x -q",
+                tmp_path,
+                argv=("pytest", "-x", "-q"),
+            )
+
+        assert result.returncode == 0
+        spawned = popen.call_args.args[0]
+        assert spawned[0] == "bwrap"
+        assert spawned[-3:] == ["pytest", "-x", "-q"]
+        assert "SECRET_THAT_MUST_NOT_LEAK" not in popen.call_args.kwargs["env"]
+
+    def test_discovered_failure_output_is_bounded(self, monkeypatch, tmp_path):
+        """Large inferred-runner output preserves useful head and failure tail."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_OUTPUT_CHARS", "80")
+        (tmp_path / "pytest.ini").write_text("[pytest]\n")
+        messages = [
+            _user("implement it"),
+            _assistant("```save src/example.py\nvalue = 1\n```"),
+            _system("saved"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+        output = "HEAD" + ("x" * 200) + "FAILURE-TAIL"
+
+        with (
+            patch("gptme.completion_verification.shutil.which", return_value=None),
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=ConfirmationResult.confirm(),
+            ),
+            patch(
+                "gptme.tools.complete._run_verify_cmd",
+                return_value=subprocess.CompletedProcess(
+                    ["pytest", "-x", "-q"], 1, stdout=output, stderr=""
+                ),
+            ),
+        ):
+            [failure] = list(complete_hook(messages, workspace=tmp_path))
+
+        assert isinstance(failure, Message)
+        assert "HEAD" in failure.content
+        assert "FAILURE-TAIL" in failure.content
+        assert "characters omitted" in failure.content
+        assert "x" * 100 not in failure.content
+
+    def test_discovered_command_manifest_change_forces_rediscovery(
+        self, monkeypatch, tmp_path
+    ):
+        """Approval never executes a command derived from a changed manifest."""
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "1")
+        package = tmp_path / "package.json"
+        package.write_text('{"scripts":{"test":"vitest run"}}')
+        command = VerificationCommand(
+            argv=("npm", "test"),
+            display="npm test",
+            reason="package.json defines an exact test script",
+            source_fingerprints=((package, "stale"),),
+            trust="repository_controlled",
+            preview="test: vitest run",
+        )
+        messages = [
+            _user("implement it"),
+            _assistant("```save src/example.ts\nexport const x = 1\n```"),
+            _system("saved"),
+            _assistant("Done.\n```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        with (
+            patch(
+                "gptme.tools.complete._select_verify_command",
+                return_value=(command.display, False, command),
+            ),
+            patch(
+                "gptme.tools.complete.get_confirmation",
+                return_value=ConfirmationResult.confirm(),
+            ),
+            patch(
+                "gptme.tools.complete.discover_verification_command",
+                return_value=None,
+            ),
+            patch(
+                "gptme.tools.complete._run_verify_cmd",
+                side_effect=AssertionError("stale approved command must not run"),
+            ),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(complete_hook(messages, workspace=tmp_path))
 
     # ── verify command succeeds ────────────────────────────────────────────
 
