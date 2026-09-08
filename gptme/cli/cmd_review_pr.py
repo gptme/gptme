@@ -848,6 +848,7 @@ def _assistant_output_from_jsonl(
             event = json.loads(line)
         except json.JSONDecodeError:
             snippet = line[:160]
+            kind = "is not valid JSONL"
             logger.warning(
                 "review pr: child stdout line %d is not JSONL "
                 "(output-format json contract broken): %r",
@@ -857,9 +858,11 @@ def _assistant_output_from_jsonl(
             if diagnostic is not None:
                 diagnostic["line"] = line_number
                 diagnostic["snippet"] = snippet
+                diagnostic["kind"] = kind
             return None
         if not isinstance(event, dict):
             snippet = line[:160]
+            kind = "is not a JSON object"
             logger.warning(
                 "review pr: child stdout line %d is not a JSON object "
                 "(output-format json contract broken): %r",
@@ -869,6 +872,7 @@ def _assistant_output_from_jsonl(
             if diagnostic is not None:
                 diagnostic["line"] = line_number
                 diagnostic["snippet"] = snippet
+                diagnostic["kind"] = kind
             return None
         saw_event = True
         if event.get("type") == "message" and event.get("role") == "assistant":
@@ -1266,9 +1270,10 @@ def review_pr(
         # Emitting an empty artifact would cause review-watch to silently treat
         # this as a clean review.  Fail loudly instead.
         if "line" in jsonl_diagnostic:
+            kind = jsonl_diagnostic.get("kind", "is not valid JSONL")
             raise SystemExit(
                 "review pr: child stdout line "
-                f"{jsonl_diagnostic['line']} is not valid JSONL "
+                f"{jsonl_diagnostic['line']} {kind} "
                 "(output-format json contract broken), so the assistant's "
                 "output could not be parsed — refusing to emit a "
                 f"clean-looking empty artifact: {jsonl_diagnostic['snippet']!r}"

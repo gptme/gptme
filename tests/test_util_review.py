@@ -1005,6 +1005,26 @@ class TestAssistantOutputFromJsonl:
         assert result is None
         assert diagnostic["line"] == 1
         assert diagnostic["snippet"] == self._BANNER[:160]
+        assert diagnostic["kind"] == "is not valid JSONL"
+
+    def test_non_object_json_populates_diagnostic(self, caplog):
+        """Valid JSON that is not an object is labeled as shape, not syntax."""
+        from gptme.cli.cmd_review_pr import _assistant_output_from_jsonl
+
+        output = f"[]\n{self._valid_jsonl_with_findings()}\n"
+        diagnostic: dict[str, object] = {}
+
+        with caplog.at_level("WARNING", logger="gptme.cli.cmd_review_pr"):
+            result = _assistant_output_from_jsonl(output, diagnostic=diagnostic)
+
+        assert result is None
+        assert diagnostic["line"] == 1
+        assert diagnostic["snippet"] == "[]"
+        assert diagnostic["kind"] == "is not a JSON object"
+        assert any(
+            "JSON object" in record.getMessage() and "JSONL" not in record.getMessage()
+            for record in caplog.records
+        ), caplog.text
 
     def test_clean_jsonl_still_returns_assistant_text(self):
         """Without contamination, the findings-bearing JSONL still parses."""
