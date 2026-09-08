@@ -594,10 +594,19 @@ gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor<span clas
 <span class="c1"># Resume that same conversation in a future session</span>
 gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor
 
-<span class="c1"># Resume the most recently modified conversation (any name)</span>
+<span class="c1"># Resume the most recently modified conversation in the current workspace</span>
 gptme<span class="w"> </span>-r
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">--resume</span></code> (or <code class="docutils literal notranslate"><span class="pre">-r</span></code>) is a flag, not an option taking a conversation ID.
+Use <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--resume</span> <span class="pre">--name</span> <span class="pre">my-refactor</span></code> to select a specific existing
+conversation and fail if it does not exist. Positional arguments are new
+prompts: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--resume</span> <span class="pre">&quot;continue&quot;</span></code> sends a follow-up to the latest
+conversation. An apparent positional conversation ID is rejected with
+guidance instead of silently sending it to a different conversation; use
+<code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--resume</span> <span class="pre">--</span> <span class="pre">my-refactor</span></code> if you really intend the ID as prompt text.</p>
+<p>Separate invocations in the same terminal can create separate conversations.
+Check the startup <code class="docutils literal notranslate"><span class="pre">Using</span> <span class="pre">logdir</span></code> line when choosing which history to resume.</p>
 <p>Without <code class="docutils literal notranslate"><span class="pre">--name</span></code>, gptme assigns a random name (e.g. <code class="docutils literal notranslate"><span class="pre">hopping-blue-robot</span></code>).</p>
 <p><strong>List and search conversations</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># List the 20 most recent conversations</span>
