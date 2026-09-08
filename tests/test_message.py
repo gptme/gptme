@@ -316,8 +316,6 @@ def test_native_ipython_highlight_preserves_literal_source(monkeypatch):
 @pytest.mark.parametrize(
     "arguments",
     [
-        '{"kernel": "[bold]literal[/bold]"}',
-        '{"code": ["not source"]}',
         '{"code": "unterminated',
         '{"code": "print(1)", broken}',
     ],
@@ -328,6 +326,66 @@ def test_native_ipython_unrenderable_arguments_remain_raw(arguments):
     raw = "@ipython(call_3): " + arguments
     msg = Message("assistant", raw)
     assert format_msgs([msg])[0] == "Assistant: " + raw
+    assert msg.content == raw
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        '{"kernel": "[bold]literal[/bold]"}',
+        '{"code": ["not source"]}',
+    ],
+)
+def test_native_tool_without_string_body_uses_json_fallback(arguments):
+    from gptme.message import format_msgs
+
+    raw = "@ipython(call_3): " + arguments
+    msg = Message("assistant", raw)
+    display = format_msgs([msg])[0]
+    assert "@ipython(call_3):" in display
+    assert "[bold]literal[/bold]" in display or "not source" in display
+    assert msg.content == raw
+
+
+def test_native_shell_display_highlights_command():
+    from gptme.message import format_msgs
+
+    command = 'pwd && echo "done"'
+    raw = "@shell(call_2): " + json.dumps({"command": command})
+    msg = Message("assistant", "Before\n" + raw + "\nAfter")
+    original = msg.to_dict()
+    (display,) = format_msgs([msg])
+    assert "@shell(call_2):" in display
+    assert command in display
+    assert '"command":' not in display
+    assert display.index("Before") < display.index("pwd") < display.index("After")
+    assert msg.to_dict() == original
+    assert raw in format_msgs([msg], terminal_projection=False)[0]
+
+
+def test_native_save_keeps_path_argument_and_projects_content():
+    from gptme.message import format_msgs
+
+    source = "def x():\n    return 1\n"
+    raw = "@save(s1): " + json.dumps({"path": "foo.py", "content": source})
+    msg = Message("assistant", raw)
+    (display,) = format_msgs([msg])
+    assert "@save(s1):" in display
+    assert "foo.py" in display
+    assert "def x():" in display
+    assert '"content":' not in display
+    assert msg.content == raw
+
+
+def test_native_read_without_body_uses_json_fallback():
+    from gptme.message import format_msgs
+
+    raw = "@read(r1): " + json.dumps({"path": "README.md", "start_line": 1})
+    msg = Message("assistant", raw)
+    (display,) = format_msgs([msg])
+    assert "@read(r1):" in display
+    assert "README.md" in display
+    assert "start_line" in display
     assert msg.content == raw
 
 

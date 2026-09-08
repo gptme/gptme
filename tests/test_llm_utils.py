@@ -469,8 +469,8 @@ def test_reply_stream_ipython_terminal_projection(
     assert "\x1b[" in captured.getvalue()
 
 
-def test_reply_stream_tool_display_preserves_prose_and_other_tools(monkeypatch):
-    """Ordinary text and non-code calls still reach the terminal each chunk."""
+def test_reply_stream_tool_display_projects_shell_and_streams_prose(monkeypatch):
+    """Prose streams immediately; complete native shell calls are projected."""
     import io
 
     from rich.console import Console
@@ -479,15 +479,14 @@ def test_reply_stream_tool_display_preserves_prose_and_other_tools(monkeypatch):
     from gptme.message import Message
 
     captured = io.StringIO()
-    terminal = Console(file=captured, width=160)
+    terminal = Console(file=captured, width=160, force_terminal=True, record=True)
     monkeypatch.setattr("gptme.llm.rprint", terminal.print)
-    ordinary = 'Hello\n@shell(call-2): {"command": "pwd"}\n'
+    ordinary = 'Hello\n@shell(call-2): {"command": "pwd"}\nAfter\n'
 
     def chunks():
         yield "Hello"
         assert "Hello" in captured.getvalue()
         yield ordinary[len("Hello") :]
-        assert ordinary in captured.getvalue()
 
     monkeypatch.setattr(
         "gptme.llm._stream",
@@ -497,6 +496,12 @@ def test_reply_stream_tool_display_preserves_prose_and_other_tools(monkeypatch):
         [Message("user", "hi")], "mock/echo", None, break_on_tooluse=False
     )
     assert result.content == ordinary
+    rendered = terminal.export_text()
+    assert "Hello" in rendered
+    assert "@shell(call-2):" in rendered
+    assert "pwd" in rendered
+    assert "After" in rendered
+    assert '"command":' not in rendered
 
 
 @pytest.mark.parametrize("error", [None, KeyboardInterrupt, RuntimeError])
