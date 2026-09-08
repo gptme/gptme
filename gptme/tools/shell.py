@@ -570,8 +570,10 @@ class ShellSession:
 
             # Use threads to drain stdout and stderr concurrently — the same
             # mechanism as communicate(), but with real-time printing as data
-            # arrives. select() alone is unreliable when /dev/tty is the child's
-            # stdin and the process produces no output before exiting.
+            # arrives. A blocking read on a quiet stream is unreliable when
+            # /dev/tty is the child's stdin and the process produces no output
+            # before exiting. Poll via `_wait_readable` (not `select.select`)
+            # so descriptors >= FD_SETSIZE still work; see gptme/gptme#3715.
             data_q: Queue[tuple[str, bytes] | None] = Queue()
 
             stop_readers = threading.Event()
@@ -580,7 +582,7 @@ class ShellSession:
                 fd = src.fileno()
                 try:
                     while True:
-                        readable, _, _ = select.select([fd], [], [], 0.1)
+                        readable = _wait_readable([fd], 0.1)
                         if not readable:
                             if stop_readers.is_set():
                                 break

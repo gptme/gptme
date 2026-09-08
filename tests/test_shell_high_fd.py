@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gptme.tools.shell import _wait_readable
+from gptme.tools.shell import ShellSession, _wait_readable
 
 fcntl = pytest.importorskip("fcntl", reason="POSIX-only test")
 resource = pytest.importorskip("resource", reason="POSIX-only test")
@@ -114,3 +114,27 @@ def test_wait_readable_preserves_zero_timeout():
     with patch("gptme.tools.shell.select.poll", return_value=poller):
         assert _wait_readable([7], 0) == []
     poller.poll.assert_called_once_with(0)
+
+
+def test_run_with_tty_reader_does_not_use_select_select():
+    """_run_with_tty must not call select.select (FD_SETSIZE leftover, #3715).
+
+    Pre-fix the reader threads raised ``ValueError: filedescriptor out of range
+    in select()`` and the main thread still returned success with empty output
+    (each reader sent its sentinel from ``finally``). After the fix, output is
+    collected via ``_wait_readable`` / ``poll()``.
+    """
+
+    def boom(*args, **kwargs):
+        raise ValueError("filedescriptor out of range in select()")
+
+    session = ShellSession()
+    try:
+        with patch("gptme.tools.shell.select.select", boom):
+            ret, out, _err = session._run_with_tty(
+                "echo tty-high-fd-safe", output=False
+            )
+        assert ret == 0
+        assert "tty-high-fd-safe" in out
+    finally:
+        session.close()
