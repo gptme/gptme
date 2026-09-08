@@ -195,6 +195,9 @@ def init_hooks(
         "context_scout": lambda: __import__(
             "gptme.context.scout", fromlist=["register"]
         ).register(),
+        "guardrails": lambda: __import__(
+            "gptme.hooks.guardrails", fromlist=["register"]
+        ).register(),
         # Tool confirmation hooks (mode-specific, not registered by default)
         "cli_confirm": lambda: __import__(
             "gptme.hooks.cli_confirm", fromlist=["register"]
