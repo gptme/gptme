@@ -87,8 +87,11 @@ export interface ConversationState {
 // Central store for all conversations
 export const conversations$ = observable(new Map<string, ConversationState>());
 
-// Currently selected conversation
-export const selectedConversation$ = observable<string>(demoConversations[0].id);
+// Currently selected conversation. Starts empty (no selection) so a normal
+// user never has a demo fixture selected before their instance connects.
+// MainLayout resolves the real selection from the URL on mount; in demo mode
+// the demo conversations are still selectable from the sidebar.
+export const selectedConversation$ = observable<string>('');
 
 // Helper functions
 export function updateConversation(id: string, update: Partial<ConversationState>) {

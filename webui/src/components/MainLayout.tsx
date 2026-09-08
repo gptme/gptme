@@ -26,6 +26,7 @@ import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversat
 import { useApi } from '@/contexts/ApiContext';
 import { serverRegistry$ } from '@/stores/servers';
 import { demoConversations, getDemoMessages } from '@/democonversations';
+import { shouldShowDemoContent } from '@/utils/connectionConfig';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { Loader2, GitBranch, Columns2 } from 'lucide-react';
@@ -102,17 +103,22 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   // Initialize demo conversations and handle selection on mount
   useEffect(() => {
-    demoConversations.forEach((conv) => {
-      const messages = getDemoMessages(conv.id);
-      initConversation(conv.id, {
-        id: conv.id,
-        name: conv.name,
-        log: messages,
-        logfile: conv.name,
-        branches: {},
-        workspace: conv.workspace || '/demo/workspace',
+    // Only hydrate demo fixtures when demo content is explicitly enabled — a
+    // normal signed-in user must never see them, not even briefly while their
+    // instance is still connecting.
+    if (shouldShowDemoContent()) {
+      demoConversations.forEach((conv) => {
+        const messages = getDemoMessages(conv.id);
+        initConversation(conv.id, {
+          id: conv.id,
+          name: conv.name,
+          log: messages,
+          logfile: conv.name,
+          branches: {},
+          workspace: conv.workspace || '/demo/workspace',
+        });
       });
-    });
+    }
 
     // Handle initial conversation/task selection
     if (conversationId && selectedConversation$.get() !== conversationId) {
@@ -214,7 +220,12 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     console.error('Conversation query error:', error);
   }
 
-  const demoItems: ConversationSummary[] = useMemo(() => demoConversations, []);
+  // Demo fixtures are merged into the sidebar list only in explicit demo mode
+  // (or the dev server); otherwise this is empty so nothing flashes on connect.
+  const demoItems: ConversationSummary[] = useMemo(
+    () => (shouldShowDemoContent() ? demoConversations : []),
+    []
+  );
 
   const apiItems: ConversationSummary[] = useMemo(() => {
     if (!isConnected) return [];

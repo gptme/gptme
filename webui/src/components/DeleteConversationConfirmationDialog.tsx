@@ -12,7 +12,6 @@ import { Loader2 } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { useQueryClient } from '@tanstack/react-query';
-import { demoConversations } from '@/democonversations';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 
 interface Props {
@@ -58,7 +57,10 @@ export function DeleteConversationConfirmationDialog({
     queryClient.invalidateQueries({
       queryKey: conversationsQueryKey(connectionConfig.baseUrl),
     });
-    selectedConversation$.set(demoConversations[0].name);
+    // Clear selection after delete. (Previously reset to a demo conversation,
+    // which surfaced demo content to real users — and used the demo's name
+    // rather than its id, so it never actually selected anything.)
+    selectedConversation$.set('');
 
     // Reset state
     await onDelete();
