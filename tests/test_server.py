@@ -1240,11 +1240,13 @@ def test_auth_cookie_set(auth_client):
     data = response.get_json()
     assert data["ok"] is True
 
-    # Verify Set-Cookie header properties
-    set_cookie = response.headers.get("Set-Cookie", "")
-    assert cookie_name in set_cookie
-    assert "HttpOnly" in set_cookie
-    assert "Path=/api/" in set_cookie
+    # Dual-path cookies: /api/ for capability routes, /preview/ for iframes.
+    cookies = response.headers.getlist("Set-Cookie")
+    joined = "\n".join(cookies)
+    assert cookie_name in joined
+    assert "HttpOnly" in joined
+    assert any("Path=/api/" in cookie for cookie in cookies)
+    assert any("Path=/preview/" in cookie for cookie in cookies)
 
 
 def test_auth_cookie_rejected_without_token(auth_client):

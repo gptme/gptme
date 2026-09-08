@@ -1,23 +1,24 @@
 """
 Preview port proxy for gptme-server.
 
-Exposes in-pod TCP ports under the authenticated ``/preview/{port}/`` and
-``/api/v2/preview/{port}/`` paths so that the browser (and noVNC) can reach
-agent-started services without any infrastructure changes.
+Exposes in-pod TCP ports under the authenticated ``/preview/{port}/`` path
+so that the browser (and noVNC) can reach agent-started services without
+any infrastructure changes.
 
-The ``/api/v2/preview/`` alias sits under the auth-cookie path (``/api/``)
-so iframe and WebSocket clients can authenticate without an Authorization
-header — browsers cannot attach bearer tokens to iframe navigations.
+Preview content is intentionally **not** mounted under ``/api/``. Serving
+agent-controlled HTML on the cookie-authenticated API path would give that
+document the gptme-server origin *and* the ``gptme_auth`` cookie scope, so
+preview JavaScript could invoke protected API routes as the user. Iframe
+and WebSocket clients authenticate with the ``Path=/preview/`` auth cookie
+(set alongside ``Path=/api/``) or via Traefik ForwardAuth in the cloud.
 
 Route (HTTP)::
 
     ANY /preview/<port>/[<path>]           →  http://127.0.0.1:<port>/[<path>]
-    ANY /api/v2/preview/<port>/[<path>]    →  http://127.0.0.1:<port>/[<path>]
 
 Route (WebSocket)::
 
     WS  /preview/<port>/[<path>]           →  ws://127.0.0.1:<port>/[<path>]
-    WS  /api/v2/preview/<port>/[<path>]    →  ws://127.0.0.1:<port>/[<path>]
     (detected by ``Upgrade: websocket`` request header)
 
 The path is reachable via the existing Traefik-authenticated ``/api/v1/instances/{id}``
@@ -32,6 +33,10 @@ Security
 - A small set of well-known ports are explicitly blocked (e.g. gptme-server
   itself on 5700, raw x11vnc on 5900).
 - ``require_auth`` applied to every route.
+- HTML-like responses get ``Content-Security-Policy: sandbox`` *without*
+  ``allow-same-origin``, so preview documents run in an opaque origin and
+  cannot inherit API privileges. Upstream CSP is stripped so a malicious
+  listener cannot opt back into ``allow-same-origin``.
 
 noVNC / VNC
 -----------
@@ -115,6 +120,35 @@ _DECODED_RESPONSE_STRIP: frozenset[str] = frozenset(
     }
 )
 
+# Upstream isolation headers are replaced — a malicious listener must not
+# weaken or remove our sandbox CSP.
+_ISOLATION_STRIP: frozenset[str] = frozenset(
+    {
+        "content-security-policy",
+        "content-security-policy-report-only",
+        "x-content-type-options",
+    }
+)
+
+# Documents that can execute script.  Unique-origin sandbox them so they
+# cannot call cookie-authenticated /api/ routes as the user.
+_HTML_LIKE_MIME: frozenset[str] = frozenset(
+    {
+        "text/html",
+        "application/xhtml+xml",
+        "image/svg+xml",
+        "text/xml",
+        "application/xml",
+    }
+)
+
+# No allow-same-origin: that flag plus allow-scripts restores the parent
+# origin and reopens the API-privilege hole this header exists to close.
+PREVIEW_CSP_SANDBOX = (
+    "sandbox allow-scripts allow-forms allow-modals "
+    "allow-pointer-lock allow-popups allow-popups-to-escape-sandbox"
+)
+
 
 def _is_identity_header(name: str) -> bool:
     """Return True for credentials or trusted-identity headers."""
@@ -172,12 +206,22 @@ def _forward_request_headers(
 
 
 def _forward_response_headers(headers: Any) -> list[tuple[str, str]]:
-    """Copy upstream response headers, dropping hop-by-hop and decoded-body fields."""
-    return [
-        (key, value)
-        for key, value in headers.items()
-        if key.lower() not in _HOP_BY_HOP and key.lower() not in _DECODED_RESPONSE_STRIP
-    ]
+    """Copy upstream response headers, dropping hop-by-hop, decoded-body, isolation."""
+    skip = _HOP_BY_HOP | _DECODED_RESPONSE_STRIP | _ISOLATION_STRIP
+    return [(key, value) for key, value in headers.items() if key.lower() not in skip]
+
+
+def _isolation_headers(content_type: str | None) -> list[tuple[str, str]]:
+    """Return origin-isolation headers for a proxied response.
+
+    HTML-like documents are unique-origin sandboxed so preview JavaScript
+    cannot exercise the user's ``gptme_auth`` cookie against ``/api/``.
+    """
+    headers: list[tuple[str, str]] = [("X-Content-Type-Options", "nosniff")]
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    if mime in _HTML_LIKE_MIME:
+        headers.append(("Content-Security-Policy", PREVIEW_CSP_SANDBOX))
+    return headers
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +424,11 @@ def _http_stream_proxy(port: int, subpath: str) -> flask.Response:
         return _json_error("upstream timed out", 504)
 
     response_headers = _forward_response_headers(upstream.headers)
+    content_type = next(
+        (value for key, value in response_headers if key.lower() == "content-type"),
+        upstream.headers.get("Content-Type"),
+    )
+    response_headers.extend(_isolation_headers(content_type))
 
     def _generate() -> Iterator[bytes]:
         try:
@@ -404,23 +453,6 @@ def _http_stream_proxy(port: int, subpath: str) -> flask.Response:
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 
-def _preview_proxy_impl(port: int, subpath: str) -> flask.Response:
-    """Shared implementation for both ``/preview/`` and ``/api/v2/preview/``.
-
-    Two Flask endpoints are required: registering both URL prefixes on the
-    same view function makes Werkzeug treat one as an alias and 308-redirect
-    the other (``/preview/6080/`` → ``/api/v2/preview/6080/``).
-    """
-    err = _check_port(port)
-    if err:
-        return _json_error(err, 400)
-
-    if _is_websocket_upgrade(flask.request):
-        return _websocket_tunnel(port, subpath, flask.request.environ)
-
-    return _http_stream_proxy(port, subpath)
-
-
 @preview_proxy_api.route(
     "/preview/<int:port>/",
     defaults={"subpath": ""},
@@ -433,19 +465,11 @@ def _preview_proxy_impl(port: int, subpath: str) -> flask.Response:
 @require_auth
 def preview_proxy(port: int, subpath: str) -> flask.Response:
     """Proxy HTTP/WebSocket to a loopback port (Traefik Option A path)."""
-    return _preview_proxy_impl(port, subpath)
+    err = _check_port(port)
+    if err:
+        return _json_error(err, 400)
 
+    if _is_websocket_upgrade(flask.request):
+        return _websocket_tunnel(port, subpath, flask.request.environ)
 
-@preview_proxy_api.route(
-    "/api/v2/preview/<int:port>/",
-    defaults={"subpath": ""},
-    methods=_PROXY_METHODS,
-)
-@preview_proxy_api.route(
-    "/api/v2/preview/<int:port>/<path:subpath>",
-    methods=_PROXY_METHODS,
-)
-@require_auth
-def preview_proxy_v2(port: int, subpath: str) -> flask.Response:
-    """Cookie-auth alias under ``/api/`` so iframes send the auth cookie."""
-    return _preview_proxy_impl(port, subpath)
+    return _http_stream_proxy(port, subpath)

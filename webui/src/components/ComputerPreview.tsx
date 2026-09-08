@@ -11,9 +11,10 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
 /**
  * Build the noVNC URL for a given server base URL.
  *
- * Mounted under ``/api/v2/preview/`` so the HttpOnly auth cookie (path=/api/)
- * is sent with both the iframe document request and the noVNC WebSocket.
- * Iframes cannot attach the API client's Authorization header.
+ * Mounted under ``/preview/`` — never under ``/api/``. Agent-controlled HTML
+ * on the API cookie path would inherit gptme-server origin privileges.
+ * Same-origin iframe auth uses the ``Path=/preview/`` auth cookie; cloud
+ * deployments authenticate at Traefik. Iframes cannot attach a bearer header.
  *
  * noVNC 1.5.0 defaults its WebSocket path to root-relative ``/websockify``.
  * The ``path`` query param points it at the proxied websockify endpoint,
@@ -21,7 +22,7 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
  */
 export function buildVncUrl(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '');
-  const previewPrefix = `/api/v2/preview/${VNC_PORT}`;
+  const previewPrefix = `/preview/${VNC_PORT}`;
   const pageUrl = `${base}${previewPrefix}/vnc.html`;
   const wsPath = new URL(`${base}${previewPrefix}/websockify`).pathname.replace(/^\//, '');
   const params = new URLSearchParams({
@@ -219,6 +220,7 @@ export const ComputerPreview: FC = () => {
           src={buildVncUrl(baseUrl)}
           className="h-full w-full rounded-md border-0"
           allow="clipboard-read; clipboard-write"
+          sandbox="allow-scripts allow-forms allow-pointer-lock allow-popups allow-popups-to-escape-sandbox"
           title="VNC Viewer"
         />
       </div>

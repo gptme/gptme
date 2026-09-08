@@ -96,25 +96,25 @@ describe('ComputerPreview', () => {
     expect(iframe).toBeInTheDocument();
     expect(iframe.tagName).toBe('IFRAME');
     const src = iframe.getAttribute('src') ?? '';
-    expect(src).toContain('/api/v2/preview/6080/vnc.html');
+    expect(src).toContain('/preview/6080/vnc.html');
+    expect(src).not.toContain('/api/v2/preview/');
     expect(src).toContain('path=');
     expect(src).toContain('autoconnect=1');
-    // Cookie path is /api/; a root-level /preview/ URL would 401.
-    expect(src).not.toMatch(/:5700\/preview\//);
+    // Unique-origin sandbox: allow-scripts without allow-same-origin so
+    // preview JS cannot invoke cookie-authenticated /api/ routes.
+    expect(iframe.getAttribute('sandbox')).toContain('allow-scripts');
+    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin');
   });
 
   it('buildVncUrl points noVNC WebSocket at the proxied prefix', () => {
     const local = buildVncUrl('http://127.0.0.1:5700');
-    expect(local).toContain('http://127.0.0.1:5700/api/v2/preview/6080/vnc.html');
-    expect(local).toContain(encodeURIComponent('api/v2/preview/6080/websockify'));
+    expect(local).toContain('http://127.0.0.1:5700/preview/6080/vnc.html');
+    expect(local).toContain(encodeURIComponent('preview/6080/websockify'));
+    expect(local).not.toContain('/api/v2/preview/');
 
     const cloud = buildVncUrl('https://fleet.gptme.ai/api/v1/instances/abc');
-    expect(cloud).toContain(
-      'https://fleet.gptme.ai/api/v1/instances/abc/api/v2/preview/6080/vnc.html'
-    );
-    expect(cloud).toContain(
-      encodeURIComponent('api/v1/instances/abc/api/v2/preview/6080/websockify')
-    );
+    expect(cloud).toContain('https://fleet.gptme.ai/api/v1/instances/abc/preview/6080/vnc.html');
+    expect(cloud).toContain(encodeURIComponent('api/v1/instances/abc/preview/6080/websockify'));
   });
 
   it('returns to screenshot view when back button is clicked in VNC mode', async () => {

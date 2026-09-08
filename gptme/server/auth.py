@@ -38,6 +38,10 @@ _DEFAULT_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 # Cookie configuration
 AUTH_COOKIE_NAME = "gptme_auth"
 AUTH_COOKIE_MAX_AGE = 86400  # 24 hours
+# Dual path: /api/ for SSE and capability routes; /preview/ for iframe
+# document/WebSocket requests. Preview HTML is never served under /api/
+# (that would grant untrusted content the API cookie scope).
+AUTH_COOKIE_PATHS: tuple[str, ...] = ("/api/", "/preview/")
 
 # Blueprint for auth endpoints
 auth_api = flask.Blueprint("auth_api", __name__)
@@ -363,15 +367,16 @@ def set_auth_cookie():
         return jsonify({"error": "Authentication system error"}), 500
 
     response = jsonify({"ok": True, "message": "Auth cookie set"})
-    response.set_cookie(
-        AUTH_COOKIE_NAME,
-        server_token,
-        max_age=AUTH_COOKIE_MAX_AGE,
-        httponly=True,
-        samesite="Lax",
-        secure=request.is_secure,
-        path="/api/",
-    )
+    for cookie_path in AUTH_COOKIE_PATHS:
+        response.set_cookie(
+            AUTH_COOKIE_NAME,
+            server_token,
+            max_age=AUTH_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="Lax",
+            secure=request.is_secure,
+            path=cookie_path,
+        )
     logger.info("Auth cookie set for client")
     return response
 
@@ -384,11 +389,12 @@ def clear_auth_cookie():
         200 with success message and expired Set-Cookie header.
     """
     response = jsonify({"ok": True, "message": "Auth cookie cleared"})
-    response.delete_cookie(
-        AUTH_COOKIE_NAME,
-        path="/api/",
-        secure=request.is_secure,
-        samesite="Lax",
-    )
+    for cookie_path in AUTH_COOKIE_PATHS:
+        response.delete_cookie(
+            AUTH_COOKIE_NAME,
+            path=cookie_path,
+            secure=request.is_secure,
+            samesite="Lax",
+        )
     logger.info("Auth cookie cleared for client")
     return response

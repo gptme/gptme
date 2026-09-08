@@ -22,6 +22,7 @@ from flask.testing import FlaskClient  # fmt: skip
 from gptme.server.preview_proxy_api import (  # fmt: skip
     _BLOCKED_PORTS,
     _MIN_ALLOWED_PORT,
+    PREVIEW_CSP_SANDBOX,
     _check_port,
     _forward_request_headers,
     _is_websocket_upgrade,
@@ -214,12 +215,10 @@ class TestPreviewProxyHTTP:
         assert received == ["/some/path?foo=bar"]
         srv.server_close()
 
-    def test_api_v2_alias_proxies(self, client: FlaskClient):
-        """The /api/v2/preview/ alias (auth-cookie path) forwards the same way."""
-        with _loopback_http_server(b"via-api") as port:
-            resp = client.get(f"/api/v2/preview/{port}/")
-            assert resp.status_code == 200
-            assert resp.data == b"via-api"
+    def test_api_v2_preview_is_not_mounted(self, client: FlaskClient):
+        """Untrusted preview content must not live under the /api/ cookie path."""
+        resp = client.get("/api/v2/preview/6080/")
+        assert resp.status_code == 404
 
     def test_does_not_forward_authorization_or_cookie(self, client: FlaskClient):
         """Bearer tokens and auth cookies must not leak to loopback listeners."""
@@ -318,6 +317,50 @@ class TestPreviewProxyHTTP:
         assert resp.data == raw
         assert "Content-Encoding" not in resp.headers
         assert resp.headers.get("Content-Encoding") is None
+
+    def test_html_response_is_unique_origin_sandboxed(self, client: FlaskClient):
+        """HTML previews must not inherit gptme-server origin privileges."""
+        html = (
+            b"<html><body><script>fetch('/api/v2/conversations')</script></body></html>"
+        )
+
+        class _HtmlHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(html)))
+                self.send_header(
+                    "Content-Security-Policy",
+                    "sandbox allow-scripts allow-same-origin",
+                )
+                self.end_headers()
+                self.wfile.write(html)
+
+            def log_message(self, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), _HtmlHandler)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+
+        resp = client.get(f"/preview/{port}/index.html")
+        t.join(timeout=3)
+        srv.server_close()
+
+        assert resp.status_code == 200
+        csp = resp.headers.get("Content-Security-Policy", "")
+        assert csp == PREVIEW_CSP_SANDBOX
+        assert "allow-same-origin" not in csp
+        assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+
+    def test_plain_text_does_not_get_csp_sandbox(self, client: FlaskClient):
+        """Non-document responses only get nosniff, not a document sandbox."""
+        with _loopback_http_server(b"hello") as port:
+            resp = client.get(f"/preview/{port}/")
+        assert resp.status_code == 200
+        assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+        assert "Content-Security-Policy" not in resp.headers
 
 
 class TestHeaderHelpers:
