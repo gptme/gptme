@@ -11,20 +11,25 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
 /**
  * Build the noVNC URL for a given server base URL.
  *
- * In the cloud deployment the gptme-server is reachable at a path-based URL
- * such as ``https://fleet.gptme.ai/api/v1/instances/{id}``.  The preview proxy
- * (gptme-cloud#910) exposes in-pod ports under ``{baseUrl}/preview/{port}/``,
- * so noVNC is served from a server-relative path that Traefik's ForwardAuth
- * already covers — no extra infra changes required.
+ * Mounted under ``/api/v2/preview/`` so the HttpOnly auth cookie (path=/api/)
+ * is sent with both the iframe document request and the noVNC WebSocket.
+ * Iframes cannot attach the API client's Authorization header.
  *
- * Locally (baseUrl = "http://localhost:5700") the URL becomes
- * ``http://localhost:5700/preview/6080/vnc.html`` which the preview proxy also
- * serves.  This replaces the old hard-coded ``http://localhost:6080/vnc.html``
- * which only ever worked on a local Docker-based install.
+ * noVNC 1.5.0 defaults its WebSocket path to root-relative ``/websockify``.
+ * The ``path`` query param points it at the proxied websockify endpoint,
+ * including any cloud instance prefix on ``baseUrl``.
  */
-function buildVncUrl(baseUrl: string): string {
+export function buildVncUrl(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '');
-  return `${base}/preview/${VNC_PORT}/vnc.html`;
+  const previewPrefix = `/api/v2/preview/${VNC_PORT}`;
+  const pageUrl = `${base}${previewPrefix}/vnc.html`;
+  const wsPath = new URL(`${base}${previewPrefix}/websockify`).pathname.replace(/^\//, '');
+  const params = new URLSearchParams({
+    path: wsPath,
+    autoconnect: '1',
+    resize: 'scale',
+  });
+  return `${pageUrl}?${params.toString()}`;
 }
 
 interface BackendStatus {

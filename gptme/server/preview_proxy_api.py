@@ -1,17 +1,23 @@
 """
 Preview port proxy for gptme-server.
 
-Exposes in-pod TCP ports under the authenticated ``/preview/{port}/`` path so
-that the browser (and noVNC) can reach agent-started services without any
-infrastructure changes.
+Exposes in-pod TCP ports under the authenticated ``/preview/{port}/`` and
+``/api/v2/preview/{port}/`` paths so that the browser (and noVNC) can reach
+agent-started services without any infrastructure changes.
+
+The ``/api/v2/preview/`` alias sits under the auth-cookie path (``/api/``)
+so iframe and WebSocket clients can authenticate without an Authorization
+header — browsers cannot attach bearer tokens to iframe navigations.
 
 Route (HTTP)::
 
-    ANY /preview/<port>/[<path>]  →  http://127.0.0.1:<port>/[<path>]
+    ANY /preview/<port>/[<path>]           →  http://127.0.0.1:<port>/[<path>]
+    ANY /api/v2/preview/<port>/[<path>]    →  http://127.0.0.1:<port>/[<path>]
 
 Route (WebSocket)::
 
-    WS  /preview/<port>/[<path>]  →  ws://127.0.0.1:<port>/[<path>]
+    WS  /preview/<port>/[<path>]           →  ws://127.0.0.1:<port>/[<path>]
+    WS  /api/v2/preview/<port>/[<path>]    →  ws://127.0.0.1:<port>/[<path>]
     (detected by ``Upgrade: websocket`` request header)
 
 The path is reachable via the existing Traefik-authenticated ``/api/v1/instances/{id}``
@@ -47,6 +53,7 @@ import select
 import socket
 import threading
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlencode
 
 import flask
 import requests as req_lib
@@ -86,6 +93,91 @@ _HOP_BY_HOP: frozenset[str] = frozenset(
         "upgrade",
     }
 )
+
+# Auth / identity headers must never be forwarded to loopback listeners.
+# Local processes are untrusted; the server token authorizes every protected
+# route.  Also drop Traefik ForwardAuth identity headers.
+_IDENTITY_HEADERS: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "proxy-authorization",
+    }
+)
+
+# Response headers that become invalid once requests.iter_content() has
+# decoded a compressed body.  Flask recomputes Content-Length as needed.
+_DECODED_RESPONSE_STRIP: frozenset[str] = frozenset(
+    {
+        "content-encoding",
+        "content-length",
+        "content-md5",
+    }
+)
+
+
+def _is_identity_header(name: str) -> bool:
+    """Return True for credentials or trusted-identity headers."""
+    lower = name.lower()
+    if lower in _IDENTITY_HEADERS:
+        return True
+    return lower.startswith(("x-forwarded-", "x-auth-request-"))
+
+
+def _json_error(message: str, status: int) -> flask.Response:
+    """Build a JSON error Response with an explicit status code.
+
+    Returning ``(jsonify(...), status)`` is a tuple, which mypy rejects
+    when the function is annotated as ``-> flask.Response``.
+    """
+    response = flask.jsonify({"error": message})
+    response.status_code = status
+    return response
+
+
+def _sanitize_query_string(qs: str) -> str:
+    """Drop the deprecated ``token`` auth query param before forwarding."""
+    if not qs:
+        return ""
+    pairs = [
+        (key, value)
+        for key, value in parse_qsl(qs, keep_blank_values=True)
+        if key.lower() != "token"
+    ]
+    return urlencode(pairs)
+
+
+def _forward_request_headers(
+    headers: Any,
+    *,
+    drop_accept_encoding: bool = False,
+) -> dict[str, str]:
+    """Copy request headers, stripping hop-by-hop, Host, and identity."""
+    forwarded: dict[str, str] = {}
+    for key, value in headers:
+        lower = key.lower()
+        if lower in _HOP_BY_HOP or lower == "host":
+            continue
+        if drop_accept_encoding and lower == "accept-encoding":
+            continue
+        if _is_identity_header(key):
+            continue
+        forwarded[key] = value
+    if drop_accept_encoding:
+        # Prevent requests from injecting Accept-Encoding: gzip, which would
+        # make iter_content() decode a body whose Content-Encoding we must
+        # then strip.  identity asks the upstream not to compress.
+        forwarded["Accept-Encoding"] = "identity"
+    return forwarded
+
+
+def _forward_response_headers(headers: Any) -> list[tuple[str, str]]:
+    """Copy upstream response headers, dropping hop-by-hop and decoded-body fields."""
+    return [
+        (key, value)
+        for key, value in headers.items()
+        if key.lower() not in _HOP_BY_HOP and key.lower() not in _DECODED_RESPONSE_STRIP
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -155,15 +247,14 @@ def _build_upstream_request_line(
     """
     method = environ.get("REQUEST_METHOD", "GET")
     path = "/" + subpath.lstrip("/")
-    qs = environ.get("QUERY_STRING", "")
+    qs = _sanitize_query_string(environ.get("QUERY_STRING", ""))
     if qs:
         path = f"{path}?{qs}"
     http_version = environ.get("SERVER_PROTOCOL", "HTTP/1.1")
 
     lines: list[str] = [f"{method} {path} {http_version}"]
-    for key, value in flask.request.headers:
-        if key.lower() not in _HOP_BY_HOP and key.lower() != "host":
-            lines.append(f"{key}: {value}")
+    for key, value in _forward_request_headers(flask.request.headers).items():
+        lines.append(f"{key}: {value}")
     lines.append(f"Host: 127.0.0.1:{port}")
     lines.append("Connection: Upgrade")
     lines.append("Upgrade: websocket")
@@ -232,14 +323,11 @@ def _websocket_tunnel(
             "does not expose a raw socket — falling back to 501",
             port,
         )
-        return flask.jsonify(
-            {
-                "error": (
-                    "WebSocket tunnelling is not supported by this server transport. "
-                    "Run gptme-server under gunicorn-gevent or Werkzeug."
-                )
-            }
-        ), 501
+        return _json_error(
+            "WebSocket tunnelling is not supported by this server transport. "
+            "Run gptme-server under gunicorn-gevent or Werkzeug.",
+            501,
+        )
 
     raw_request = _build_upstream_request_line(port, subpath, environ)
 
@@ -247,7 +335,7 @@ def _websocket_tunnel(
         target_sock = socket.create_connection(("127.0.0.1", port), timeout=5)
     except OSError as exc:
         logger.warning("preview_proxy: cannot connect to 127.0.0.1:%d — %s", port, exc)
-        return flask.jsonify({"error": f"target unreachable: {exc}"}), 502
+        return _json_error(f"target unreachable: {exc}", 502)
 
     target_sock.sendall(raw_request)
     _pump_bidirectional(client_sock, target_sock)
@@ -261,17 +349,19 @@ def _websocket_tunnel(
 
 def _http_stream_proxy(port: int, subpath: str) -> flask.Response:
     """Forward an HTTP request to ``127.0.0.1:{port}`` and stream the response."""
-    qs = flask.request.query_string.decode("latin-1")
+    qs = _sanitize_query_string(flask.request.query_string.decode("latin-1"))
     target_path = "/" + subpath.lstrip("/")
     if qs:
         target_path = f"{target_path}?{qs}"
     target_url = f"http://127.0.0.1:{port}{target_path}"
 
-    fwd_headers = {
-        k: v
-        for k, v in flask.request.headers
-        if k.lower() not in _HOP_BY_HOP and k.lower() != "host"
-    }
+    # Drop Accept-Encoding so we prefer an uncompressed upstream body.
+    # iter_content() still decodes if the upstream gzips anyway; response
+    # Content-Encoding / Content-Length are stripped below so the browser
+    # never sees a decoded body labeled as compressed.
+    fwd_headers = _forward_request_headers(
+        flask.request.headers, drop_accept_encoding=True
+    )
 
     try:
         upstream = req_lib.request(
@@ -285,19 +375,19 @@ def _http_stream_proxy(port: int, subpath: str) -> flask.Response:
         )
     except req_lib.exceptions.ConnectionError as exc:
         logger.debug("preview_proxy: upstream %s unreachable: %s", target_url, exc)
-        return flask.jsonify({"error": f"target unreachable: {exc}"}), 502
+        return _json_error(f"target unreachable: {exc}", 502)
     except req_lib.exceptions.Timeout:
-        return flask.jsonify({"error": "upstream timed out"}), 504
+        return _json_error("upstream timed out", 504)
 
-    # Strip hop-by-hop headers from upstream response before forwarding.
-    response_headers = [
-        (k, v) for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP
-    ]
+    response_headers = _forward_response_headers(upstream.headers)
 
     def _generate() -> Iterator[bytes]:
-        for chunk in upstream.iter_content(chunk_size=65536):
-            if chunk:
-                yield chunk
+        try:
+            for chunk in upstream.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
 
     return flask.Response(
         _generate(),
@@ -314,6 +404,23 @@ def _http_stream_proxy(port: int, subpath: str) -> flask.Response:
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 
+def _preview_proxy_impl(port: int, subpath: str) -> flask.Response:
+    """Shared implementation for both ``/preview/`` and ``/api/v2/preview/``.
+
+    Two Flask endpoints are required: registering both URL prefixes on the
+    same view function makes Werkzeug treat one as an alias and 308-redirect
+    the other (``/preview/6080/`` → ``/api/v2/preview/6080/``).
+    """
+    err = _check_port(port)
+    if err:
+        return _json_error(err, 400)
+
+    if _is_websocket_upgrade(flask.request):
+        return _websocket_tunnel(port, subpath, flask.request.environ)
+
+    return _http_stream_proxy(port, subpath)
+
+
 @preview_proxy_api.route(
     "/preview/<int:port>/",
     defaults={"subpath": ""},
@@ -325,36 +432,20 @@ _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 )
 @require_auth
 def preview_proxy(port: int, subpath: str) -> flask.Response:
-    """Proxy HTTP and WebSocket requests to an in-pod loopback port.
+    """Proxy HTTP/WebSocket to a loopback port (Traefik Option A path)."""
+    return _preview_proxy_impl(port, subpath)
 
-    This exposes an arbitrary pod-local TCP port under the authenticated
-    ``/preview/{port}/`` path so browser clients can reach agent-started
-    services (Vite dev server, noVNC/websockify, etc.) without any
-    infrastructure changes.
 
-    **Security**: only ``127.0.0.1`` targets are allowed (SSRF guard).
-    Ports below 1024 and a small set of explicitly blocked ports are
-    rejected with 400.  Authentication is required via ``require_auth``.
-
-    **WebSocket**: detected via ``Upgrade: websocket`` header.  The proxy
-    opens a raw TCP tunnel to the target and forwards the full upgrade
-    handshake plus subsequent frames bidirectionally.  Requires the WSGI
-    transport to expose the raw client socket (Werkzeug dev server and
-    gunicorn-gevent are supported).
-
-    **noVNC**: interactive desktop access through::
-
-        /preview/6080/vnc.html           (noVNC HTML page)
-        /preview/6080/websockify         (WebSocket ↔ VNC bridge)
-
-    The webui ``ComputerPreview`` component should build these URLs from
-    the server-relative ``baseUrl + /preview/6080/`` path.
-    """
-    err = _check_port(port)
-    if err:
-        return flask.jsonify({"error": err}), 400
-
-    if _is_websocket_upgrade(flask.request):
-        return _websocket_tunnel(port, subpath, flask.request.environ)
-
-    return _http_stream_proxy(port, subpath)
+@preview_proxy_api.route(
+    "/api/v2/preview/<int:port>/",
+    defaults={"subpath": ""},
+    methods=_PROXY_METHODS,
+)
+@preview_proxy_api.route(
+    "/api/v2/preview/<int:port>/<path:subpath>",
+    methods=_PROXY_METHODS,
+)
+@require_auth
+def preview_proxy_v2(port: int, subpath: str) -> flask.Response:
+    """Cookie-auth alias under ``/api/`` so iframes send the auth cookie."""
+    return _preview_proxy_impl(port, subpath)

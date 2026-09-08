@@ -23,7 +23,9 @@ from gptme.server.preview_proxy_api import (  # fmt: skip
     _BLOCKED_PORTS,
     _MIN_ALLOWED_PORT,
     _check_port,
+    _forward_request_headers,
     _is_websocket_upgrade,
+    _sanitize_query_string,
 )
 
 pytestmark = [pytest.mark.timeout(10)]
@@ -211,3 +213,137 @@ class TestPreviewProxyHTTP:
 
         assert received == ["/some/path?foo=bar"]
         srv.server_close()
+
+    def test_api_v2_alias_proxies(self, client: FlaskClient):
+        """The /api/v2/preview/ alias (auth-cookie path) forwards the same way."""
+        with _loopback_http_server(b"via-api") as port:
+            resp = client.get(f"/api/v2/preview/{port}/")
+            assert resp.status_code == 200
+            assert resp.data == b"via-api"
+
+    def test_does_not_forward_authorization_or_cookie(self, client: FlaskClient):
+        """Bearer tokens and auth cookies must not leak to loopback listeners."""
+        captured: list[dict[str, str]] = []
+
+        class _CaptureHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                captured.append({k.lower(): v for k, v in self.headers.items()})
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), _CaptureHandler)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+
+        client.get(
+            f"/preview/{port}/",
+            headers={
+                "Authorization": "Bearer super-secret-token",
+                "Cookie": "gptme_token=super-secret-token",
+                "X-Forwarded-User": "erik",
+                "X-Auth-Request-Access-Token": "traefik-token",
+            },
+        )
+        t.join(timeout=3)
+        srv.server_close()
+
+        assert captured, "upstream should have received the proxied request"
+        headers = captured[0]
+        assert "authorization" not in headers
+        assert "cookie" not in headers
+        assert "x-forwarded-user" not in headers
+        assert "x-auth-request-access-token" not in headers
+
+    def test_strips_token_query_param(self, client: FlaskClient):
+        """Deprecated ?token= auth must not be forwarded upstream."""
+        received: list[str] = []
+
+        class _CaptureHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                received.append(self.path)
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), _CaptureHandler)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+
+        client.get(f"/preview/{port}/page?token=secret&foo=bar")
+        t.join(timeout=3)
+        srv.server_close()
+
+        assert received == ["/page?foo=bar"]
+
+    def test_decoded_gzip_does_not_keep_content_encoding(self, client: FlaskClient):
+        """Decoded gzip bodies must not keep Content-Encoding: gzip."""
+        import gzip
+
+        raw = b"hello gzip body"
+        compressed = gzip.compress(raw)
+
+        class _GzipHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Content-Length", str(len(compressed)))
+                self.end_headers()
+                self.wfile.write(compressed)
+
+            def log_message(self, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), _GzipHandler)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+
+        resp = client.get(
+            f"/preview/{port}/",
+            headers={"Accept-Encoding": "gzip"},
+        )
+        t.join(timeout=3)
+        srv.server_close()
+
+        assert resp.status_code == 200
+        assert resp.data == raw
+        assert "Content-Encoding" not in resp.headers
+        assert resp.headers.get("Content-Encoding") is None
+
+
+class TestHeaderHelpers:
+    def test_sanitize_drops_token(self):
+        assert _sanitize_query_string("token=secret&foo=bar") == "foo=bar"
+        assert _sanitize_query_string("token=secret") == ""
+        assert _sanitize_query_string("") == ""
+
+    def test_forward_request_headers_strips_identity(self):
+        headers = [
+            ("Authorization", "Bearer abc"),
+            ("Cookie", "gptme_token=abc"),
+            ("X-Forwarded-User", "bob"),
+            ("X-Auth-Request-Email", "a@b.c"),
+            ("Accept", "text/html"),
+            ("Host", "example.com"),
+            ("Connection", "keep-alive"),
+            ("Accept-Encoding", "gzip"),
+        ]
+        forwarded = _forward_request_headers(headers, drop_accept_encoding=True)
+        lower = {k.lower() for k in forwarded}
+        assert "authorization" not in lower
+        assert "cookie" not in lower
+        assert "x-forwarded-user" not in lower
+        assert "x-auth-request-email" not in lower
+        assert "host" not in lower
+        assert "connection" not in lower
+        assert forwarded.get("Accept-Encoding") == "identity"
+        assert forwarded["Accept"] == "text/html"

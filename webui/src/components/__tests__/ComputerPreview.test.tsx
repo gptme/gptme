@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ComputerPreview } from '../ComputerPreview';
+import { buildVncUrl, ComputerPreview } from '../ComputerPreview';
 
 // Mock useApi so we don't need the full ApiContext tree
 jest.mock('@/contexts/ApiContext', () => ({
@@ -92,8 +92,29 @@ describe('ComputerPreview', () => {
     const vncButton = screen.getByTitle(/vnc viewer/i);
     await user.click(vncButton);
 
-    expect(screen.getByTitle('VNC Viewer')).toBeInTheDocument();
-    expect(screen.getByTitle('VNC Viewer').tagName).toBe('IFRAME');
+    const iframe = screen.getByTitle('VNC Viewer');
+    expect(iframe).toBeInTheDocument();
+    expect(iframe.tagName).toBe('IFRAME');
+    const src = iframe.getAttribute('src') ?? '';
+    expect(src).toContain('/api/v2/preview/6080/vnc.html');
+    expect(src).toContain('path=');
+    expect(src).toContain('autoconnect=1');
+    // Cookie path is /api/; a root-level /preview/ URL would 401.
+    expect(src).not.toMatch(/:5700\/preview\//);
+  });
+
+  it('buildVncUrl points noVNC WebSocket at the proxied prefix', () => {
+    const local = buildVncUrl('http://127.0.0.1:5700');
+    expect(local).toContain('http://127.0.0.1:5700/api/v2/preview/6080/vnc.html');
+    expect(local).toContain(encodeURIComponent('api/v2/preview/6080/websockify'));
+
+    const cloud = buildVncUrl('https://fleet.gptme.ai/api/v1/instances/abc');
+    expect(cloud).toContain(
+      'https://fleet.gptme.ai/api/v1/instances/abc/api/v2/preview/6080/vnc.html'
+    );
+    expect(cloud).toContain(
+      encodeURIComponent('api/v1/instances/abc/api/v2/preview/6080/websockify')
+    );
   });
 
   it('returns to screenshot view when back button is clicked in VNC mode', async () => {
