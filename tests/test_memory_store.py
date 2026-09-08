@@ -536,6 +536,126 @@ class TestCli:
         assert r.exit_code == 0 and "explicit" in r.output and "(missing)" in r.output
 
 
+class TestCodexAgentsMdPattern:
+    """Exercises the Codex / AGENTS.md integration pattern.
+
+    Codex has no hook mechanism; it drives memory via shell commands listed in
+    AGENTS.md. These tests verify that the exact CLI patterns documented there
+    and in docs/memory.rst produce the expected round-trip behaviour.
+    """
+
+    @pytest.fixture
+    def mem_env(self, tmp_path, monkeypatch):
+        """Isolated memory root so tests don't interact with real user memory."""
+        root = tmp_path / "mem"
+        monkeypatch.setenv("GPTME_MEMORY_DIRS", str(root))
+        return root
+
+    def test_save_from_agents_md_pattern(self, mem_env):
+        """gptme-util memory save <slug> "<desc>" --type feedback <<'EOF' ... EOF"""
+        runner = CliRunner()
+        r = runner.invoke(
+            util_main,
+            [
+                "memory",
+                "save",
+                "codex-pref",
+                "Prefer succinct responses.",
+                "--type",
+                "feedback",
+            ],
+            input="Keep answers short and code-first.\n",
+        )
+        assert r.exit_code == 0, r.output
+        # File written to the explicit root
+        assert (mem_env / "codex-pref.md").exists()
+        content = (mem_env / "codex-pref.md").read_text()
+        assert "name: codex-pref" in content
+        assert "Prefer succinct responses." in content
+        assert "Keep answers short and code-first." in content
+
+    def test_recall_plain_text_from_agents_md_pattern(self, mem_env):
+        """gptme-util memory recall "<query>" -k 5  (AGENTS.md session-start pattern)."""
+        _write(
+            mem_env,
+            "provider-policy",
+            "---\n"
+            "name: provider-policy\n"
+            'description: "Route sensitive code through private providers"\n'
+            "metadata:\n"
+            "  type: feedback\n"
+            "---\n"
+            "Never send private code to public training providers.\n",
+        )
+        runner = CliRunner()
+        r = runner.invoke(
+            util_main,
+            [
+                "memory",
+                "recall",
+                "which provider for sensitive code review",
+                "-k",
+                "5",
+                "--backend",
+                "overlap",
+            ],
+        )
+        assert r.exit_code == 0, r.output
+        # Plain text output must contain the matched entry name and body text
+        assert "provider-policy" in r.output
+        assert "private code" in r.output
+
+    def test_cross_harness_roundtrip(self, mem_env):
+        """Memory saved by Codex (via CLI) appears in index readable by CC/gptme."""
+        runner = CliRunner()
+        # Codex saves a memory
+        r = runner.invoke(
+            util_main,
+            [
+                "memory",
+                "save",
+                "xharness",
+                "Cross-harness test entry.",
+                "--type",
+                "project",
+            ],
+            input="Written by a Codex session to test cross-harness sharing.\n",
+        )
+        assert r.exit_code == 0, r.output
+
+        # Verify the entry is visible to list (what gptme prompt_workspace would read)
+        r = runner.invoke(util_main, ["memory", "list"])
+        assert r.exit_code == 0 and "xharness" in r.output
+
+        # Index the memories (what CC's Stop hook calls via `memory index --write`)
+        r = runner.invoke(util_main, ["memory", "index", "--write"])
+        assert r.exit_code == 0
+
+        # The generated MEMORY.md contains the Codex-written entry
+        index_file = mem_env / "MEMORY.md"
+        assert index_file.exists()
+        assert "xharness" in index_file.read_text()
+
+    def test_save_all_valid_types(self, mem_env):
+        """All four types documented in AGENTS.md are accepted without error."""
+        runner = CliRunner()
+        for type_ in ("user", "feedback", "project", "reference"):
+            r = runner.invoke(
+                util_main,
+                [
+                    "memory",
+                    "save",
+                    f"test-{type_}",
+                    f"Test {type_} entry.",
+                    "--type",
+                    type_,
+                ],
+                input=f"Body for {type_}.\n",
+            )
+            assert r.exit_code == 0, f"--type {type_} failed: {r.output}"
+            assert (mem_env / f"test-{type_}.md").exists()
+
+
 @pytest.mark.skipif(
     not Path("/home/bob/bob/memory").is_dir(), reason="Bob's memory dir not present"
 )
