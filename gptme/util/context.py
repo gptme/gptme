@@ -806,14 +806,37 @@ def _human_readable_size(size_bytes: int) -> str:
     return f"{size:.1f} TB"
 
 
+def _is_too_broad_directory(path: Path) -> bool:
+    """True for filesystem roots and other implicit broad directory attachments.
+
+    Casual mentions like ``/`` must not trigger recursive listing. Project
+    subdirectories (three or more path parts, and not the user's home) remain
+    eligible so explicit directory context still works.
+    """
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        return True
+    if len(resolved.parts) < 3:
+        return True
+    try:
+        if resolved == Path.home().resolve():
+            return True
+    except OSError:
+        pass
+    return False
+
+
 def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str:
     """Generate a file listing for a directory, returned as a codeblock.
 
     Uses ``git ls-files`` when inside a git repo (respects .gitignore),
-    falls back to ``Path.iterdir()`` otherwise.  Output is truncated to
-    *max_entries* to prevent context bloat.
+    falls back to a bounded ``Path.rglob()`` otherwise. Traversal itself is
+    capped at *max_entries*; the output limit is not applied after walking
+    the entire tree.
     """
     entries: list[str] | None = None
+    known_total: int | None = None
     try:
         # Try git ls-files first (respects .gitignore, lists tracked + untracked)
         result = subprocess.run(
@@ -831,31 +854,49 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str:
             check=False,
         )
         if result.returncode == 0:
-            entries = sorted(result.stdout.strip().splitlines())
+            git_entries = sorted(line for line in result.stdout.splitlines() if line)
+            known_total = len(git_entries)
+            entries = git_entries[:max_entries]
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
     if entries is None:
-        # Fallback: list directory recursively.
+        # Fallback: list directory recursively, stopping once we have enough.
         # Only exclude .git/ internals to avoid noise; dotfiles like
         # .pre-commit-config.yaml, .github/, .env etc. are legitimate project files.
+        entries = []
+        saw_more = False
         try:
-            entries = sorted(
-                str(p.relative_to(path))
-                for p in path.rglob("*")
-                if p.is_file() and ".git" not in p.relative_to(path).parts
-            )
+            for p in path.rglob("*"):
+                try:
+                    rel = p.relative_to(path)
+                    if ".git" in rel.parts:
+                        continue
+                    if not p.is_file():
+                        continue
+                except (OSError, ValueError):
+                    continue
+                entries.append(str(rel))
+                if len(entries) > max_entries:
+                    saw_more = True
+                    break
         except PermissionError:
-            entries = []
+            pass
+        entries.sort()
+        if saw_more:
+            entries = entries[:max_entries]
+            known_total = None  # remaining count unknown; walk was bounded
+        else:
+            known_total = len(entries)
 
-    total = len(entries)
-    if total == 0:
+    if not entries:
         return md_codeblock(prompt, "(empty directory)")
 
-    truncated = entries[:max_entries]
-    listing = "\n".join(truncated)
-    if total > max_entries:
-        listing += f"\n... ({total - max_entries} more files)"
+    listing = "\n".join(entries)
+    if known_total is not None and known_total > max_entries:
+        listing += f"\n... ({known_total - max_entries} more files)"
+    elif known_total is None:
+        listing += f"\n... (listing truncated at {max_entries} files)"
 
     return md_codeblock(prompt, listing)
 
@@ -881,6 +922,9 @@ def _resource_to_codeblock(
             file_content = _check_content_size(file_content, str(f))
             return md_codeblock(prompt, file_content)
         if f.exists() and f.is_dir():
+            if _is_too_broad_directory(f):
+                logger.debug("skipping broad directory attachment: %s", f)
+                return None
             return _dir_to_listing(f, prompt)
     except OSError as oserr:
         # some prompts are too long to be a path, so we can't read them

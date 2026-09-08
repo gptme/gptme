@@ -398,20 +398,69 @@ def test_dir_to_listing_all_gitignored(tmp_path, monkeypatch):
 
 
 def test_dir_to_listing_truncation(tmp_path):
-    """Test that large directories are truncated."""
+    """git ls-files listings are truncated after the known total is computed."""
+    from unittest.mock import MagicMock, patch
+
     from gptme.util.context import _dir_to_listing
 
     bigdir = tmp_path / "big"
     bigdir.mkdir()
-    for i in range(60):
-        (bigdir / f"file_{i:03d}.txt").write_text(f"content {i}")
+    files = [f"file_{i:03d}.txt" for i in range(60)]
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "\n".join(files) + "\n"
 
-    result = _dir_to_listing(bigdir, str(bigdir), max_entries=50)
+    with patch("subprocess.run", return_value=mock_result):
+        result = _dir_to_listing(bigdir, str(bigdir), max_entries=50)
     assert result is not None
     assert "10 more files" in result
-    # First 50 should be included
     assert "file_000.txt" in result
     assert "file_049.txt" in result
+    assert "file_059.txt" not in result
+
+
+def test_dir_to_listing_bounds_rglob_walk(tmp_path):
+    """rglob fallback must stop walking once max_entries files are collected."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.util.context import _dir_to_listing
+
+    walked = {"n": 0}
+
+    class FakePath:
+        def __init__(self, name: str):
+            self._name = name
+
+        def is_file(self) -> bool:
+            return True
+
+        def relative_to(self, _path):
+            from pathlib import Path
+
+            return Path(self._name)
+
+    def fake_rglob(_pattern):
+        while True:
+            walked["n"] += 1
+            if walked["n"] > 200:
+                raise AssertionError("unbounded rglob walk")
+            yield FakePath(f"file_{walked['n']:03d}.txt")
+
+    bigdir = tmp_path / "big"
+    bigdir.mkdir()
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = ""
+
+    with (
+        patch("subprocess.run", return_value=mock_result),
+        patch.object(type(bigdir), "rglob", lambda self, pattern: fake_rglob(pattern)),
+    ):
+        result = _dir_to_listing(bigdir, str(bigdir), max_entries=50)
+
+    assert result is not None
+    assert "listing truncated at 50 files" in result
+    assert walked["n"] == 51
 
 
 def test_dir_to_listing_nested(tmp_path):
@@ -578,3 +627,44 @@ def test_include_paths_pre_confirmed_urls_empty_skips_all(tmp_path, monkeypatch)
     mock_confirm.assert_not_called()
     # URL should not be fetched — result content is unchanged (just the original text)
     assert result.content == msg.content
+
+
+def test_is_too_broad_directory_root_and_home():
+    from pathlib import Path
+
+    from gptme.util.context import _is_too_broad_directory
+
+    assert _is_too_broad_directory(Path("/"))
+    assert _is_too_broad_directory(Path.home())
+
+
+def test_is_too_broad_directory_allows_project_subdir(tmp_path):
+    from gptme.util.context import _is_too_broad_directory
+
+    sub = tmp_path / "src"
+    sub.mkdir()
+    assert not _is_too_broad_directory(sub)
+
+
+def test_include_paths_does_not_scan_root(monkeypatch):
+    """A standalone slash must not trigger recursive root listing.
+
+    Do not enumerate the real root filesystem; mock the listing helper.
+    """
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    with patch(
+        "gptme.util.context._dir_to_listing",
+        return_value="[listing suppressed]",
+    ) as listing:
+        include_paths(
+            Message("user", "also file the rm -rf / false-positive"),
+            Path.cwd(),
+        )
+        called_paths = [Path(c.args[0]).resolve() for c in listing.call_args_list]
+        assert Path("/") not in called_paths

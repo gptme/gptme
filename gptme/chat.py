@@ -602,7 +602,14 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
                 + truncation_suffix
             )
         msg = Message("user", inquiry, quiet=True)
-        msg = include_paths(msg, workspace)
+        # prompt_user() clears interruptible on return. Path inclusion can walk
+        # the filesystem, so Ctrl-C must cancel it instead of printing the
+        # Ctrl-D hint.
+        set_interruptible()
+        try:
+            msg = include_paths(msg, workspace)
+        finally:
+            clear_interruptible()
         return msg
     except (EOFError, KeyboardInterrupt):
         return None
