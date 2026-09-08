@@ -2485,10 +2485,8 @@ class TestContextWindowValidation:
     def test_context_window_zero_is_valid(self, monkeypatch, tmp_path):
         """context_window=0 must not raise — it is the minimal-context mode.
 
-        This validates the synchronous guard in subagent() (line 159) accepts
-        context_window=0. Forwarding to _create_subagent_thread happens in a
-        daemon thread and requires thread synchronization to test — that is
-        covered at the integration level.
+        Keep the executor mocked until the daemon thread exits: a real executor
+        can lazy-import provider modules after teardown and race the next test.
         """
         import importlib
 
@@ -2501,15 +2499,23 @@ class TestContextWindowValidation:
         monkeypatch.setattr(
             exec_mod, "get_slot_sem", lambda: __import__("threading").Semaphore(10)
         )
+        create_thread = MagicMock()
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", create_thread)
 
         from gptme.tools.subagent.api import subagent
         from gptme.tools.subagent.types import _subagents, _subagents_lock
 
         subagent("isolation-test", "do something", context_window=0)
 
-        # Clean up registered subagent
+        # Join inside the mock window, and leave the agent registered so the
+        # autouse cleanup can still find it if this assertion fails.
         with _subagents_lock:
-            _subagents[:] = [s for s in _subagents if s.agent_id != "isolation-test"]
+            sa = next(s for s in _subagents if s.agent_id == "isolation-test")
+        assert sa.thread is not None
+        sa.thread.join(timeout=5)
+        assert not sa.thread.is_alive(), "subagent must finish before mocks revert"
+        create_thread.assert_called_once()
+        assert create_thread.call_args.kwargs["context_window"] == 0
 
 
 class TestWorkdir:
