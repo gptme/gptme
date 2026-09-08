@@ -134,6 +134,10 @@ class LazyGroup(click.Group):
         return command
 
 
+if _parent_prog := os.environ.get("GPTME_PARENT_PROG"):
+    sys.argv[0] = _parent_prog
+
+
 @click.group(cls=LazyGroup)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose output.")
 def main(verbose: bool = False):

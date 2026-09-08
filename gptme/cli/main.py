@@ -874,7 +874,8 @@ def main(
 
         if prompts[0] in UTIL_SUBCOMMANDS and not dispatch_suppressed:
             if util_exec := shutil.which("gptme-util"):
-                sys.exit(subprocess.call([util_exec, *prompts]))
+                env = {**os.environ, "GPTME_PARENT_PROG": "gptme"}
+                sys.exit(subprocess.call([util_exec, *prompts], env=env))
             else:
                 print(
                     f"Error: '{prompts[0]}' is a gptme-util subcommand but gptme-util is not installed.\n"
