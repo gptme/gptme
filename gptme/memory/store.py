@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import stat
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -31,16 +32,28 @@ INDEX_FILENAME = "MEMORY.md"
 INDEX_HEADER = "# Persistent Memory"
 
 
+def _preserve_mode(tmp: Path, dest: Path) -> None:
+    """Copy dest's permission bits onto tmp so ``os.replace`` does not widen access."""
+    try:
+        mode = stat.S_IMODE(dest.stat().st_mode)
+    except FileNotFoundError:
+        return
+    os.chmod(tmp, mode)
+
+
 def _atomic_write(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` via a same-directory temp file and ``os.replace``.
 
     Staging the content first means ENOSPC cannot truncate the destination.
     ``os.replace`` is atomic on POSIX when source and dest share a filesystem.
+    Existing destination permission bits are copied onto the staged file so a
+    private ``0600`` memory file is not rewritten as world-readable.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         tmp.write_text(text, encoding="utf-8")
+        _preserve_mode(tmp, path)
         os.replace(tmp, path)
     except OSError:
         tmp.unlink(missing_ok=True)
@@ -53,6 +66,7 @@ def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
     All payloads land in sibling temp files before any destination is renamed
     into place, so a disk-full error during staging leaves originals untouched.
     Destinations already renamed are restored from the in-memory snapshot.
+    Existing destination modes are copied onto each staged file before replace.
     """
     staged: list[tuple[Path, Path, str | None]] = []
     replaced: list[tuple[Path, str | None]] = []
@@ -62,6 +76,7 @@ def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
             dest.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
             tmp.write_text(text, encoding="utf-8")
+            _preserve_mode(tmp, dest)
             staged.append((dest, tmp, original))
         for dest, tmp, original in staged:
             os.replace(tmp, dest)

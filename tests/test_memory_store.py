@@ -2,6 +2,7 @@
 
 import importlib
 import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -224,6 +225,37 @@ class TestStore:
             store.supersede("old", "new", scope="project")
 
         assert {path.name: path.read_text() for path in root.glob("*.md")} == before
+
+    def test_supersede_preserves_existing_file_mode(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="project")
+        root = tmp_path / "project"
+        for name in ("old.md", "new.md", "MEMORY.md"):
+            (root / name).chmod(0o600)
+
+        previous = os.umask(0o022)
+        try:
+            store.supersede("old", "new", scope="project")
+        finally:
+            os.umask(previous)
+
+        for name in ("old.md", "new.md", "MEMORY.md"):
+            assert stat.S_IMODE((root / name).stat().st_mode) == 0o600
+
+    def test_write_index_preserves_existing_file_mode(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("fact", "fact", scope="project")
+        index = tmp_path / "project" / "MEMORY.md"
+        index.chmod(0o600)
+
+        previous = os.umask(0o022)
+        try:
+            store.write_index(scope="project")
+        finally:
+            os.umask(previous)
+
+        assert stat.S_IMODE(index.stat().st_mode) == 0o600
 
     def test_supersede_rejects_cross_root_entries(self, tmp_path):
         store = self._store(tmp_path)
