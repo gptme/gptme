@@ -250,7 +250,7 @@ class TestStore:
 
         def fail_second(src, dst, *args, **kwargs):
             calls["n"] += 1
-            if calls["n"] >= 2:
+            if calls["n"] == 2:
                 raise OSError("rename failed")
             return real_replace(src, dst, *args, **kwargs)
 

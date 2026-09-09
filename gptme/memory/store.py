@@ -44,7 +44,7 @@ def _preserve_mode(tmp: Path, dest: Path) -> None:
     os.chmod(tmp, mode)
 
 
-def _atomic_write(path: Path, text: str) -> None:
+def _atomic_write(path: Path, text: str | bytes) -> None:
     """Write ``text`` to ``path`` via a same-directory temp file and ``os.replace``.
 
     Staging the content first means ENOSPC cannot truncate the destination.
@@ -62,7 +62,7 @@ def _atomic_write(path: Path, text: str) -> None:
     try:
         fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as f:
-            f.write(text.encode("utf-8"))
+            f.write(text.encode("utf-8") if isinstance(text, str) else text)
         _preserve_mode(tmp, path)
         os.replace(tmp, path)
     except OSError:
@@ -78,11 +78,11 @@ def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
     Destinations already renamed are restored from the in-memory snapshot.
     Existing destination modes are copied onto each staged file before replace.
     """
-    staged: list[tuple[Path, Path, str | None]] = []
-    replaced: list[tuple[Path, str | None]] = []
+    staged: list[tuple[Path, Path, bytes | None]] = []
+    replaced: list[tuple[Path, bytes | None]] = []
     try:
         for dest, text in pairs:
-            original = dest.read_text(encoding="utf-8") if dest.is_file() else None
+            original = dest.read_bytes() if dest.is_file() else None
             dest.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
             fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
@@ -102,7 +102,7 @@ def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
                 if original is None:
                     dest.unlink(missing_ok=True)
                 else:
-                    dest.write_text(original, encoding="utf-8")
+                    _atomic_write(dest, original)
             except OSError as restore_exc:
                 restore_errors.append(restore_exc)
         if restore_errors:

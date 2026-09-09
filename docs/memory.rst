@@ -51,7 +51,11 @@ invocation, but cannot raise it. Edit the policy to change the persistent cap.
 In a managed root, ``save`` regenerates the selected view. New entries stay
 unselected until explicitly added to the policy. Updating an entry preserves
 its lifecycle, provenance, and omitted title/type/metadata; supplied description
-and body replace the previous values. ``supersede`` transfers a selected old
+and body replace the previous values. Updating an existing entry requires valid
+frontmatter, including in a legacy root. Lenient parsing remains available for
+reads, but writes refuse malformed YAML instead of silently discarding fields
+while attempting a repair. Correct that file's frontmatter before saving again.
+``supersede`` transfers a selected old
 filename to its replacement, deduplicating the list, and commits both entries,
 the policy, and the view together. Ordinary write failures roll back these
 replacements; this is not a crash-recovery transaction log.

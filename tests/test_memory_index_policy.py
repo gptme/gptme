@@ -436,3 +436,67 @@ def test_managed_supersede_index_matches_serialized_entry(tmp_path: Path) -> Non
     store.supersede("old", "new")
     assert store.check_index()
     assert (tmp_path / "MEMORY.md").read_text() == store.render_root_index()
+
+
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_managed_save_rolls_back_readonly_entry_after_index_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, newline: bytes
+) -> None:
+    import os
+    import stat
+
+    if os.name != "posix" or os.geteuid() == 0:
+        pytest.skip("requires POSIX file permissions and an unprivileged user")
+    store = _store(tmp_path)
+    entry = store.save("kept", "Original description", "Original body")
+    entry.write_bytes(entry.read_bytes().replace(b"\n", newline))
+    _policy(tmp_path, ["kept.md"])
+    store.write_index()
+    entry.chmod(0o444)
+    before = _snapshot(tmp_path)
+    real_replace = os.replace
+
+    def fail_index_replace(src: Path, dest: Path) -> None:
+        if dest.name == "MEMORY.md":
+            raise OSError("index publication failed")
+        real_replace(src, dest)
+
+    monkeypatch.setattr("gptme.memory.store.os.replace", fail_index_replace)
+    try:
+        with pytest.raises(
+            OSError, match="index publication failed|rollback incomplete"
+        ):
+            store.save("kept", "Changed description", "Changed body")
+        assert _snapshot(tmp_path) == before
+        assert stat.S_IMODE(entry.stat().st_mode) == 0o444
+    finally:
+        entry.chmod(0o600)
+
+
+@pytest.mark.parametrize("managed", [False, True])
+def test_save_rejects_malformed_existing_yaml_without_losing_metadata(
+    tmp_path: Path, managed: bool
+) -> None:
+    store = _store(tmp_path)
+    store.save("kept", "Original")
+    path = tmp_path / "kept.md"
+    path.write_text(
+        "---\nname: kept\ndescription: unquoted: colon\n"
+        "metadata:\n  type: feedback\n  originSessionId: source-session\n"
+        "status: historical\nprovenance:\n  session: source-session\n"
+        "---\nOriginal historical body\n",
+        encoding="utf-8",
+    )
+    if managed:
+        _policy(tmp_path, [])
+        store.write_index()
+    # Compatibility reads remain lenient; mutation must not normalize away
+    # lifecycle/provenance from a file whose YAML cannot be parsed strictly.
+    readable = store.get("kept")
+    assert readable is not None
+    assert readable.status == "historical"
+    assert readable.metadata["originSessionId"] == "source-session"
+    before = _snapshot(tmp_path)
+    with pytest.raises(ValueError, match="invalid YAML"):
+        store.save("kept", "Replacement description", "Replacement body")
+    assert _snapshot(tmp_path) == before
