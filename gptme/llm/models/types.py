@@ -131,6 +131,7 @@ class ModelMeta:
         False  # models that can emit multiple tool calls in a single response
     )
     supports_strict_tools: bool = False  # models that support strict=True in tool schemas (OpenAI structured outputs)
+    supports_mid_system: bool = True  # whether the model/server accepts system messages that are not the first message in the conversation; set False for Qwen3.5 and similar chat templates that raise on non-leading system messages
 
     # price in USD per 1M tokens
     # if price is not set, it is assumed to be 0
@@ -262,6 +263,7 @@ class _ModelDictMeta(TypedDict):
     supports_responses_api: NotRequired[bool]
     supports_parallel_tool_calls: NotRequired[bool]
     supports_strict_tools: NotRequired[bool]
+    supports_mid_system: NotRequired[bool]
 
     knowledge_cutoff: NotRequired[datetime]
     deprecated: NotRequired[bool]

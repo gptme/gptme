@@ -46,6 +46,8 @@ def model_to_dict(model: ModelMeta) -> dict[str, Any]:
         d["default_tool_format"] = model.default_tool_format
     if model.supports_strict_tools:
         d["supports_strict_tools"] = True
+    if not model.supports_mid_system:
+        d["supports_mid_system"] = False
     return d
 
 

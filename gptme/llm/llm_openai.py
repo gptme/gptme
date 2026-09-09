@@ -678,6 +678,40 @@ def _prep_o1(msgs: Iterable[Message]) -> Generator[Message, None, None]:
         yield msg
 
 
+def _fold_mid_system(msgs: list[Message]) -> Generator[Message, None, None]:
+    """Fold non-leading system messages into user messages for models/servers
+    that reject system messages anywhere except the first position.
+
+    The first system message is kept as-is; every subsequent system message
+    (without a call_id — those are tool results handled separately) is wrapped
+    in ``<system>…</system>`` and re-emitted as a user message, exactly like
+    ``_prep_o1`` does.  This handles Qwen3.5 and any other chat template that
+    raises ``System message must be at the beginning`` on non-leading system
+    messages.
+
+    Activation: ``ModelMeta.supports_mid_system = False`` **or** the env var
+    ``GPTME_FOLD_SYSTEM_MESSAGES=1``.
+    """
+    leading_system_seen = False
+    for msg in msgs:
+        if msg.role == "system" and msg.call_id is None:
+            if not leading_system_seen:
+                # Keep the very first system message in place
+                leading_system_seen = True
+                yield msg
+            else:
+                # Fold subsequent system messages into user-role wrapper
+                yield msg.replace(
+                    role="user", content=f"<system>\n{msg.content}\n</system>"
+                )
+        else:
+            if msg.role != "system":
+                # Once we've seen a non-system message, all future system
+                # messages are definitely non-leading
+                leading_system_seen = True
+            yield msg
+
+
 def _merge_consecutive(msgs: Iterable[Message]) -> Generator[Message, None, None]:
     # if consecutive messages from same role, merge them
     last_message = None
@@ -2200,6 +2234,14 @@ def _prepare_messages_for_api(
         or model_meta.supports_reasoning
     ):
         messages = list(_prep_deepseek_reasoner(messages))
+    # For models/servers that only accept system messages at the leading position
+    # (e.g. Qwen3.5 on vLLM), fold non-leading system messages into user messages.
+    # Triggered by ModelMeta.supports_mid_system=False or GPTME_FOLD_SYSTEM_MESSAGES=1.
+    elif (
+        not model_meta.supports_mid_system
+        or os.environ.get("GPTME_FOLD_SYSTEM_MESSAGES") == "1"
+    ):
+        messages = list(_fold_mid_system(messages))
 
     # Process message dicts - _process_msgs handles both regular and tool response messages
     # For tool responses with images, it emits a follow-up user message
