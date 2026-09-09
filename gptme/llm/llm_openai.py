@@ -1370,7 +1370,7 @@ def extra_body(
         # Chat Completions parameter (OpenAI reasoning models, Kimi K3).
         # The Responses API path sets ``reasoning.effort`` in chat()/stream().
         body["reasoning_effort"] = effort
-    if provider == "openrouter":
+    if _uses_openrouter_backend(provider, model_meta):
         # Enable detailed usage info including cached tokens
         # See: https://openrouter.ai/docs/guides/usage-accounting
         body["usage"] = {"include": True}
