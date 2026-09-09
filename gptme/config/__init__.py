@@ -41,7 +41,12 @@ from .models import (
     UserPromptConfig,
 )
 from .project import get_project_config
-from .trust import check_project_shell_trust, compute_shell_hash, is_trusted
+from .trust import (
+    check_project_shell_trust,
+    commands_from_project,
+    compute_shell_hash,
+    is_trusted,
+)
 from .user import (
     config_path,
     default_config,
@@ -86,6 +91,7 @@ __all__ = [
     "save_provider_config",
     # Trust / security
     "check_project_shell_trust",
+    "commands_from_project",
     "compute_shell_hash",
     "is_trusted",
     # Constants

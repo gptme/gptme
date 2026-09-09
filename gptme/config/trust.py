@@ -9,24 +9,44 @@ the same class of risk as a malicious ``package.json`` ``postinstall`` script.
 This module implements a **trust-on-first-use** (TOFU) gate:
 
 * On first encounter the user is shown the exact commands and asked to approve.
-* Approval is stored keyed by the SHA-256 hash of the commands; the same set
-  of commands in the same project is not re-prompted on subsequent sessions.
+* Approval is stored keyed by **(workspace, SHA-256 of the command set)** so
+  the same relative command in a different project is re-prompted.
 * If the ``gptme.toml`` is modified (different hash), the prompt fires again.
 * In non-interactive environments the gate defaults to **deny**.
 * User-global config (``~/.config/gptme/gptme.toml``) is implicitly trusted —
   the guard only applies to project configs found in workspace directories.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .models import ProjectConfig
 
 logger = logging.getLogger(__name__)
 
 # env var that bypasses the prompt (useful for CI / ``--no-confirm`` equivalents)
 _ENV_TRUST_ALL = "GPTME_TRUST_PROJECT_SHELL"
+
+# In-process decisions so init() and prompt construction share one answer.
+_session_decisions: dict[tuple[str, str], bool] = {}
+
+
+def _workspace_key(workspace: Path | None) -> str:
+    """Stable absolute path string for a workspace, or ``""`` if unknown."""
+    if workspace is None:
+        return ""
+    try:
+        return str(workspace.resolve())
+    except OSError:
+        return str(workspace)
 
 
 def _shell_content(context_cmd: str | None, hook_commands: list[str]) -> dict:
@@ -39,6 +59,15 @@ def compute_shell_hash(context_cmd: str | None, hook_commands: list[str]) -> str
     canonical = json.dumps(_shell_content(context_cmd, hook_commands), sort_keys=True)
     digest = hashlib.sha256(canonical.encode()).hexdigest()
     return f"sha256:{digest}"
+
+
+def commands_from_project(project: ProjectConfig) -> tuple[str | None, list[str]]:
+    """Return ``(context_cmd, hook_commands)`` for a project config.
+
+    Both trust-check call sites must use this so they hash the same command set.
+    """
+    hook_commands = [h.command for h in project.hooks.scripts]
+    return project.context_cmd, hook_commands
 
 
 def _trust_db_path() -> Path:
@@ -71,10 +100,11 @@ def _save_db(db: dict) -> None:
         logger.warning("Could not write project trust db %s: %s", p, exc)
 
 
-def is_trusted(shell_hash: str) -> bool:
-    """Return True iff *shell_hash* has a stored ``approved = true`` entry."""
+def is_trusted(shell_hash: str, workspace: Path | None) -> bool:
+    """Return True iff *shell_hash* is approved for *workspace*."""
     db = _load_db()
-    entry = db.get("hashes", {}).get(shell_hash, {})
+    ws_key = _workspace_key(workspace)
+    entry = db.get("workspaces", {}).get(ws_key, {}).get(shell_hash, {})
     return bool(entry.get("approved"))
 
 
@@ -82,10 +112,10 @@ def _record(shell_hash: str, approved: bool, workspace: Path | None) -> None:
     import datetime
 
     db = _load_db()
-    hashes = db.setdefault("hashes", {})
-    hashes[shell_hash] = {
+    workspaces = db.setdefault("workspaces", {})
+    entries = workspaces.setdefault(_workspace_key(workspace), {})
+    entries[shell_hash] = {
         "approved": approved,
-        "workspace": str(workspace) if workspace else "",
         "at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
     }
     _save_db(db)
@@ -101,7 +131,9 @@ def _prompt_user(
     Returns True if approved, False if denied.
     """
     from rich.console import Console
+    from rich.markup import escape
     from rich.panel import Panel
+    from rich.text import Text
 
     console = Console(stderr=True)
 
@@ -110,10 +142,13 @@ def _prompt_user(
         lines.append(f"  context_cmd: {context_cmd}")
     lines.extend(f"  hook: {cmd}" for cmd in hook_commands)
 
-    ws_str = f" in [bold]{workspace}[/bold]" if workspace else ""
+    # Plain Text: project-controlled strings must not be parsed as Rich markup.
+    body = Text("\n".join(lines) if lines else "(no commands)")
+
+    ws_str = f" in [bold]{escape(str(workspace))}[/bold]" if workspace else ""
     console.print(
         Panel(
-            "\n".join(lines),
+            body,
             title=f"[yellow]⚠ Project wants to run shell commands{ws_str}[/yellow]",
             subtitle="[dim]These come from a project-level gptme.toml[/dim]",
             border_style="yellow",
@@ -121,7 +156,7 @@ def _prompt_user(
     )
     console.print(
         "[bold]Trust and run these commands?[/bold] "
-        "([green]y[/green]es / [red]N[/red]o, stored by file hash): ",
+        "([green]y[/green]es / [red]N[/red]o, stored per workspace): ",
         end="",
     )
 
@@ -145,7 +180,7 @@ def check_project_shell_trust(
     Args:
         context_cmd: The ``context_cmd`` string from the project config, or None.
         hook_commands: List of shell command strings from ``hooks.scripts``.
-        workspace: Path to the project workspace (used for display and db record).
+        workspace: Path to the project workspace (used as the trust scope).
         interactive: Whether we are in an interactive session.  If None, auto-
             detected from ``sys.stdin.isatty()``.
 
@@ -163,9 +198,12 @@ def check_project_shell_trust(
         return True
 
     shell_hash = compute_shell_hash(context_cmd, hook_commands)
+    cache_key = (_workspace_key(workspace), shell_hash)
+    if cache_key in _session_decisions:
+        return _session_decisions[cache_key]
 
-    # Already approved?
-    if is_trusted(shell_hash):
+    # Already approved for this workspace?
+    if is_trusted(shell_hash, workspace):
         return True
 
     # Determine interactivity
@@ -180,10 +218,12 @@ def check_project_shell_trust(
             workspace or "unknown workspace",
             _ENV_TRUST_ALL,
         )
+        _session_decisions[cache_key] = False
         return False
 
     approved = _prompt_user(context_cmd, hook_commands, workspace)
     _record(shell_hash, approved, workspace)
+    _session_decisions[cache_key] = approved
 
     if not approved:
         logger.info(

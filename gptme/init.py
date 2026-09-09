@@ -94,13 +94,12 @@ def init(
     user_hooks = list(config.user.hooks.scripts)
     project_hooks = list(config.project.hooks.scripts) if config.project else []
 
-    if project_hooks:
-        from .config.trust import check_project_shell_trust
+    if config.project:
+        from .config.trust import check_project_shell_trust, commands_from_project
 
-        hook_commands = [h.command for h in project_hooks]
-        project_context_cmd = config.project.context_cmd if config.project else None
-        if not check_project_shell_trust(
-            project_context_cmd,
+        context_cmd, hook_commands = commands_from_project(config.project)
+        if (context_cmd or hook_commands) and not check_project_shell_trust(
+            context_cmd,
             hook_commands,
             workspace,
             interactive=interactive,

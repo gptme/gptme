@@ -389,11 +389,15 @@ def _build_prompt_sections(
                 continue
             ws_project = get_project_config(ws)
             if ws_project and ws_project.context_cmd:
-                from ..config.trust import check_project_shell_trust
+                from ..config.trust import (
+                    check_project_shell_trust,
+                    commands_from_project,
+                )
 
+                ctx, hook_commands = commands_from_project(ws_project)
                 if not check_project_shell_trust(
-                    ws_project.context_cmd,
-                    [],
+                    ctx,
+                    hook_commands,
                     ws,
                     interactive=interactive,
                 ):
