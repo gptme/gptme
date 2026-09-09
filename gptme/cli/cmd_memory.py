@@ -266,6 +266,36 @@ def memory_recall(
         click.echo(rendered)
 
 
+@memory.command("supersede")
+@click.argument("old_name")
+@click.argument("new_name")
+@click.option("--scope", help="Root containing both entries (default: write root).")
+def memory_supersede(old_name: str, new_name: str, scope: str | None):
+    """Mark OLD_NAME superseded by NEW_NAME and link both entries."""
+    try:
+        old, new = _store().supersede(old_name, new_name, scope=scope)
+    except (KeyError, OSError, ValueError) as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f"Superseded {old.name} -> {new.name}")
+
+
+@memory.command("audit")
+@click.option("--scope", help="Root to audit (default: write root).")
+@click.option("--quiet", is_flag=True, help="Print nothing when the audit passes.")
+def memory_audit(scope: str | None, quiet: bool):
+    """Check strict YAML parsing and supersession links."""
+    try:
+        issues = _store().audit(scope=scope)
+    except KeyError as e:
+        raise click.ClickException(str(e)) from e
+    for issue in issues:
+        click.echo(f"{issue.code}: {issue.entry}: {issue.detail}")
+    if issues:
+        raise click.exceptions.Exit(1)
+    if not quiet:
+        click.echo("Memory audit passed")
+
+
 @memory.command("index")
 @click.option("--scope", help="Root whose index to generate (default: the write root).")
 @click.option("--write", is_flag=True, help="Write MEMORY.md instead of printing it.")

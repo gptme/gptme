@@ -2,6 +2,7 @@
 
 import importlib
 import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -151,6 +152,230 @@ class TestStore:
                 MemoryRoot("user", tmp_path / "user"),
             ]
         )
+
+    def test_supersede_links_both_entries_and_regenerates_index(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("old-belief", "Old belief", "Old body", scope="project")
+        store.save("new-belief", "New belief", "New body", scope="project")
+
+        old, new = store.supersede("old-belief", "new-belief", scope="project")
+
+        assert old.status == "superseded"
+        assert old.superseded_by == "new-belief"
+        assert new.supersedes == ["old-belief"]
+        assert not old.is_living
+        reparsed_old = parse_entry(tmp_path / "project" / "old-belief.md")
+        reparsed_new = parse_entry(tmp_path / "project" / "new-belief.md")
+        assert reparsed_old.superseded_by == "new-belief"
+        assert reparsed_new.supersedes == ["old-belief"]
+        index = (tmp_path / "project" / "MEMORY.md").read_text()
+        assert "new-belief.md" in index
+        assert "old-belief.md" not in index
+
+    def test_supersede_requires_strict_frontmatter_before_rewriting(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "old",
+            "---\nname: old\ndescription: unquoted: colon\n---\nold body\n",
+        )
+        _write(root, "new", "---\nname: new\ndescription: fine\n---\nnew body\n")
+        store = self._store(tmp_path)
+
+        with pytest.raises(ValueError, match="invalid YAML"):
+            store.supersede("old", "new", scope="project")
+
+        assert "status: superseded" not in (root / "old.md").read_text()
+
+    def test_supersede_rolls_back_entries_when_index_write_fails(
+        self, tmp_path, monkeypatch
+    ):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="project")
+        root = tmp_path / "project"
+        before = {path.name: path.read_text() for path in root.glob("*.md")}
+
+        def fail_commit(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("gptme.memory.store._commit_replacements", fail_commit)
+        with pytest.raises(OSError, match="disk full"):
+            store.supersede("old", "new", scope="project")
+
+        assert {path.name: path.read_text() for path in root.glob("*.md")} == before
+
+    def test_supersede_restores_after_partial_replace(self, tmp_path, monkeypatch):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="project")
+        root = tmp_path / "project"
+        before = {path.name: path.read_text() for path in root.glob("*.md")}
+        real_replace = __import__("os").replace
+        calls = {"n": 0}
+
+        def fail_second(src, dst, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise OSError("rename failed")
+            return real_replace(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr("gptme.memory.store.os.replace", fail_second)
+        with pytest.raises(OSError, match="rename failed"):
+            store.supersede("old", "new", scope="project")
+
+        assert {path.name: path.read_text() for path in root.glob("*.md")} == before
+
+    def test_supersede_preserves_existing_file_mode(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="project")
+        root = tmp_path / "project"
+        for name in ("old.md", "new.md", "MEMORY.md"):
+            (root / name).chmod(0o600)
+
+        previous = os.umask(0o022)
+        try:
+            store.supersede("old", "new", scope="project")
+        finally:
+            os.umask(previous)
+
+        for name in ("old.md", "new.md", "MEMORY.md"):
+            assert stat.S_IMODE((root / name).stat().st_mode) == 0o600
+
+    def test_write_index_preserves_existing_file_mode(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("fact", "fact", scope="project")
+        index = tmp_path / "project" / "MEMORY.md"
+        index.chmod(0o600)
+
+        previous = os.umask(0o022)
+        try:
+            store.write_index(scope="project")
+        finally:
+            os.umask(previous)
+
+        assert stat.S_IMODE(index.stat().st_mode) == 0o600
+
+    def test_supersede_rejects_cross_root_entries(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="user")
+
+        with pytest.raises(KeyError, match="new"):
+            store.supersede("old", "new", scope="project")
+
+    def test_supersede_rejects_self_and_non_living_replacement(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("one", "one", scope="project")
+        store.save("two", "two", scope="project")
+
+        with pytest.raises(ValueError, match="itself"):
+            store.supersede("one", "one", scope="project")
+        store.supersede("one", "two", scope="project")
+        # Repeating the exact supersession is idempotent.
+        store.supersede("one", "two", scope="project")
+        store.save("three", "three", scope="project")
+        with pytest.raises(ValueError, match="not living"):
+            store.supersede("three", "one", scope="project")
+        with pytest.raises(ValueError, match="not living"):
+            store.supersede("one", "three", scope="project")
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "status: bogus",
+            "status: false",
+            "confidence: nope",
+            "confidence: 2",
+            "confidence: true",
+            "metadata: nope",
+            "provenance: nope",
+            "supersedes: 42",
+            "keywords: [fine, 42]",
+            "superseded_by: 42",
+            "recheck: 42",
+            "title: 42",
+            "description: 42",
+            "name: false",
+            "name: ''",
+        ],
+    )
+    def test_audit_reports_invalid_field_types(self, tmp_path, field):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "invalid",
+            f"---\nname: invalid\ndescription: invalid\n{field}\n---\nbody\n",
+        )
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert len(issues) == 1
+        assert issues[0].code == "invalid-yaml"
+
+    def test_audit_reports_duplicate_names(self, tmp_path):
+        root = tmp_path / "project"
+        _write(root, "a", "---\nname: same\ndescription: first\n---\n")
+        _write(root, "z", "---\nname: same\ndescription: second\n---\n")
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert [(issue.code, issue.entry) for issue in issues] == [
+            ("duplicate-name", "z.md")
+        ]
+
+    def test_audit_reports_invalid_yaml_and_broken_supersession(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "invalid",
+            "---\nname: invalid\ndescription: unquoted: colon\n---\nbody\n",
+        )
+        _write(
+            root,
+            "old",
+            "---\nname: old\ndescription: old\nstatus: superseded\nsuperseded_by: missing\n---\n",
+        )
+        store = self._store(tmp_path)
+
+        issues = store.audit(scope="project")
+
+        assert {(issue.code, issue.entry) for issue in issues} >= {
+            ("invalid-yaml", "invalid.md"),
+            ("dangling-superseded-by", "old"),
+        }
+
+    def test_audit_reports_asymmetric_reverse_link(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "old",
+            "---\nname: old\ndescription: old\nstatus: superseded\nsuperseded_by: new\n---\n",
+        )
+        _write(root, "new", "---\nname: new\ndescription: new\n---\n")
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert {(issue.code, issue.entry) for issue in issues} == {
+            ("asymmetric-supersession", "old")
+        }
+
+    def test_audit_reports_dangling_and_asymmetric_forward_links(self, tmp_path):
+        root = tmp_path / "project"
+        _write(
+            root,
+            "new",
+            "---\nname: new\ndescription: new\nsupersedes: [missing, old]\n---\n",
+        )
+        _write(root, "old", "---\nname: old\ndescription: old\n---\n")
+
+        issues = self._store(tmp_path).audit(scope="project")
+
+        assert {(issue.code, issue.entry) for issue in issues} == {
+            ("dangling-supersedes", "new"),
+            ("asymmetric-supersession", "new"),
+        }
 
     def test_union_and_nearest_wins(self, tmp_path):
         _write(
@@ -481,6 +706,35 @@ class TestCli:
     def test_index_budget_cli_rejects_non_positive(self, env):
         r = CliRunner().invoke(util_main, ["memory", "index", "--budget", "0"])
         assert r.exit_code != 0
+
+    def test_supersede_and_audit_cli(self, env):
+        runner = CliRunner()
+        for name in ("old", "new"):
+            result = runner.invoke(
+                util_main,
+                ["memory", "save", name, f"{name} description"],
+            )
+            assert result.exit_code == 0, result.output
+
+        result = runner.invoke(util_main, ["memory", "supersede", "old", "new"])
+        assert result.exit_code == 0, result.output
+        assert "old -> new" in result.output
+        result = runner.invoke(util_main, ["memory", "audit", "--quiet"])
+        assert result.exit_code == 0, result.output
+        assert result.output == ""
+
+    def test_audit_cli_fails_on_invalid_yaml(self, env):
+        _write(
+            env,
+            "invalid",
+            "---\nname: invalid\ndescription: unquoted: colon\n---\nbody\n",
+        )
+
+        result = CliRunner().invoke(util_main, ["memory", "audit"])
+
+        assert result.exit_code == 1
+        assert "invalid-yaml" in result.output
+        assert "invalid.md" in result.output
 
     def test_recall_hook_json_reads_claude_payload(self, env):
         _write(
