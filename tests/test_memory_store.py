@@ -1,6 +1,7 @@
 """Tests for gptme.memory: schema round-trip, layered roots, store, index, CLI."""
 
 import importlib
+import multiprocessing
 import os
 import stat
 from pathlib import Path
@@ -42,6 +43,35 @@ def _write(dir_: Path, name: str, text: str) -> Path:
     p = dir_ / f"{name}.md"
     p.write_text(text, encoding="utf-8")
     return p
+
+
+def _mp_supersede(root: str, old: str, new: str, started, go, result) -> None:
+    """Spawn-safe worker: wait for ``go``, then supersede ``old`` with ``new``."""
+    from gptme.memory.roots import MemoryRoot
+    from gptme.memory.store import MemoryStore
+
+    started.set()
+    go.wait(timeout=15)
+    store = MemoryStore([MemoryRoot("project", Path(root))])
+    try:
+        store.supersede(old, new, scope="project")
+        result.put(("ok", new))
+    except Exception as exc:
+        result.put(("err", new, type(exc).__name__, str(exc)))
+
+
+def _mp_supersede_now(root: str, old: str, new: str, started, result) -> None:
+    """Spawn-safe worker: signal ready, then supersede immediately."""
+    from gptme.memory.roots import MemoryRoot
+    from gptme.memory.store import MemoryStore
+
+    started.set()
+    store = MemoryStore([MemoryRoot("project", Path(root))])
+    try:
+        store.supersede(old, new, scope="project")
+        result.put(("ok", new))
+    except Exception as exc:
+        result.put(("err", new, type(exc).__name__, str(exc)))
 
 
 class TestSchema:
@@ -280,6 +310,74 @@ class TestStore:
             store.supersede("three", "one", scope="project")
         with pytest.raises(ValueError, match="not living"):
             store.supersede("one", "three", scope="project")
+
+    @pytest.mark.skipif(os.name == "nt", reason="flock is a no-op on Windows")
+    def test_supersede_waits_for_held_root_lock(self, tmp_path):
+        from gptme.memory.store import _locked_root
+
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("new", "new", scope="project")
+        ctx = multiprocessing.get_context("spawn")
+        started = ctx.Event()
+        result = ctx.Queue()
+        proc = ctx.Process(
+            target=_mp_supersede_now,
+            args=(str(tmp_path / "project"), "old", "new", started, result),
+        )
+        with _locked_root(tmp_path / "project"):
+            proc.start()
+            assert started.wait(timeout=10)
+            proc.join(timeout=1.0)
+            assert proc.is_alive(), "supersede returned while the root lock was held"
+            assert result.empty()
+        proc.join(timeout=10)
+        assert not proc.is_alive()
+        assert result.get(timeout=2)[0] == "ok"
+
+    @pytest.mark.skipif(os.name == "nt", reason="flock is a no-op on Windows")
+    def test_concurrent_supersede_keeps_links_consistent(self, tmp_path):
+        store = self._store(tmp_path)
+        store.save("old", "old", scope="project")
+        store.save("a", "a", scope="project")
+        store.save("b", "b", scope="project")
+        ctx = multiprocessing.get_context("spawn")
+        go = ctx.Event()
+        result = ctx.Queue()
+        procs = []
+        for name in ("a", "b"):
+            started = ctx.Event()
+            proc = ctx.Process(
+                target=_mp_supersede,
+                args=(str(tmp_path / "project"), "old", name, started, go, result),
+            )
+            proc.start()
+            assert started.wait(timeout=10)
+            procs.append(proc)
+        go.set()
+        for proc in procs:
+            proc.join(timeout=10)
+            assert not proc.is_alive()
+
+        outcomes = [result.get(timeout=2) for _ in range(2)]
+        oks = [item for item in outcomes if item[0] == "ok"]
+        errs = [item for item in outcomes if item[0] == "err"]
+        assert len(oks) == 1, outcomes
+        assert len(errs) == 1, outcomes
+        assert "not living" in errs[0][-1]
+
+        store = self._store(tmp_path)
+        assert store.audit(scope="project") == []
+        old = store.get("old", scope="project")
+        assert old is not None
+        assert old.superseded_by == oks[0][1]
+        winner = store.get(old.superseded_by, scope="project")
+        assert winner is not None
+        assert "old" in winner.supersedes
+        loser_name = "b" if old.superseded_by == "a" else "a"
+        loser = store.get(loser_name, scope="project")
+        assert loser is not None
+        assert "old" not in loser.supersedes
 
     @pytest.mark.parametrize(
         "field",

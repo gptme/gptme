@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import stat
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 INDEX_FILENAME = "MEMORY.md"
 INDEX_HEADER = "# Persistent Memory"
+LOCK_FILENAME = ".memory.lock"
 
 
 def _preserve_mode(tmp: Path, dest: Path) -> None:
@@ -125,6 +127,24 @@ except ImportError:  # Windows: no flock, best effort
 
     def _unlock(f) -> None:
         pass
+
+
+@contextmanager
+def _locked_root(root_path: Path):
+    """Exclusive lock covering one memory root's read-validate-commit window.
+
+    ``update_index_line`` already flocks ``MEMORY.md`` for single-line upserts.
+    ``supersede`` mutates two entries plus the index and cannot use that file as
+    the lock target: ``os.replace`` of ``MEMORY.md`` would drop the flock onto
+    a replaced inode. A dedicated lock file stays put for the whole window.
+    """
+    root_path.mkdir(parents=True, exist_ok=True)
+    with open(root_path / LOCK_FILENAME, "a+", encoding="utf-8") as f:
+        _lock_exclusive(f)
+        try:
+            yield
+        finally:
+            _unlock(f)
 
 
 def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
@@ -283,59 +303,62 @@ class MemoryStore:
         Supersession is scoped to one root so a project memory can never mutate
         a same-named user memory. Strict parsing prevents the write from
         normalizing malformed frontmatter through the lenient read fallback.
+        A root-scoped lock serializes concurrent supersedes so two replacements
+        cannot both observe the same living entry and corrupt the links.
         """
         root = self.root(scope)
-        old = self.get(old_name, scope=root.scope)
-        new = self.get(new_name, scope=root.scope)
-        if old is None:
-            raise KeyError(f"no memory entry named {old_name!r} in {root.scope}")
-        if new is None:
-            raise KeyError(f"no memory entry named {new_name!r} in {root.scope}")
-        if old.path == new.path:
-            raise ValueError("an entry cannot supersede itself")
-        assert old.path is not None and new.path is not None
-        old_path, new_path = old.path, new.path
-        old = parse_entry(old_path, scope=root.scope, strict=True)
-        new = parse_entry(new_path, scope=root.scope, strict=True)
-        if not new.is_living:
-            raise ValueError(f"replacement entry {new.name!r} is not living")
-        if not old.is_living and old.superseded_by != new.name:
-            raise ValueError(f"entry {old.name!r} is not living")
+        with _locked_root(root.path):
+            old = self.get(old_name, scope=root.scope)
+            new = self.get(new_name, scope=root.scope)
+            if old is None:
+                raise KeyError(f"no memory entry named {old_name!r} in {root.scope}")
+            if new is None:
+                raise KeyError(f"no memory entry named {new_name!r} in {root.scope}")
+            if old.path == new.path:
+                raise ValueError("an entry cannot supersede itself")
+            assert old.path is not None and new.path is not None
+            old_path, new_path = old.path, new.path
+            old = parse_entry(old_path, scope=root.scope, strict=True)
+            new = parse_entry(new_path, scope=root.scope, strict=True)
+            if not new.is_living:
+                raise ValueError(f"replacement entry {new.name!r} is not living")
+            if not old.is_living and old.superseded_by != new.name:
+                raise ValueError(f"entry {old.name!r} is not living")
 
-        old = replace(old, status="superseded", superseded_by=new.name)
-        new_supersedes = list(new.supersedes)
-        if old.name not in new_supersedes:
-            new_supersedes.append(old.name)
-        new = replace(new, supersedes=new_supersedes)
-        old_text = old.to_markdown()
-        new_text = new.to_markdown()
+            old = replace(old, status="superseded", superseded_by=new.name)
+            new_supersedes = list(new.supersedes)
+            if old.name not in new_supersedes:
+                new_supersedes.append(old.name)
+            new = replace(new, supersedes=new_supersedes)
+            old_text = old.to_markdown()
+            new_text = new.to_markdown()
 
-        # Validate both complete serializations before the first write.
-        entry_from_text(old_text, path=old_path, scope=root.scope, strict=True)
-        entry_from_text(new_text, path=new_path, scope=root.scope, strict=True)
+            # Validate both complete serializations before the first write.
+            entry_from_text(old_text, path=old_path, scope=root.scope, strict=True)
+            entry_from_text(new_text, path=new_path, scope=root.scope, strict=True)
 
-        updated_entries = []
-        for entry in self.index_entries(root.scope):
-            if entry.path == old_path:
+            updated_entries = []
+            for entry in self.index_entries(root.scope):
+                if entry.path == old_path:
+                    updated_entries.append(old)
+                elif entry.path == new_path:
+                    updated_entries.append(new)
+                else:
+                    updated_entries.append(entry)
+            seen_paths = {entry.path for entry in updated_entries}
+            if old_path not in seen_paths:
                 updated_entries.append(old)
-            elif entry.path == new_path:
+            if new_path not in seen_paths:
                 updated_entries.append(new)
-            else:
-                updated_entries.append(entry)
-        seen_paths = {entry.path for entry in updated_entries}
-        if old_path not in seen_paths:
-            updated_entries.append(old)
-        if new_path not in seen_paths:
-            updated_entries.append(new)
-        index_text = self.render_index(updated_entries)
-        _commit_replacements(
-            [
-                (old_path, old_text),
-                (new_path, new_text),
-                (self.index_path(root.scope), index_text),
-            ]
-        )
-        return old, new
+            index_text = self.render_index(updated_entries)
+            _commit_replacements(
+                [
+                    (old_path, old_text),
+                    (new_path, new_text),
+                    (self.index_path(root.scope), index_text),
+                ]
+            )
+            return old, new
 
     def audit(self, *, scope: str | None = None) -> list[AuditIssue]:
         """Return parse and supersession consistency issues for one root."""
