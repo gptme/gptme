@@ -10,10 +10,11 @@ from .schema import MemoryEntry, is_index_file
 
 POLICY_FILENAME = ".memory-index.json"
 
-# Minimum budget: the rendered header + blank line ("# Persistent Memory\n\n")
-# that appears even when no entries are selected.  A budget below this makes
-# every index operation fail immediately.
-POLICY_MIN_BUDGET = 22
+# Minimum budget: the rendered header ("# Persistent Memory\n") that appears
+# even when no entries are selected.  The trailing blank line is stripped when
+# the selection is empty, so the actual minimum is 20 bytes, not 22.  A budget
+# below this makes every index operation fail immediately.
+POLICY_MIN_BUDGET = 20
 
 
 @dataclass(frozen=True)

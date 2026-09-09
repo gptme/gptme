@@ -575,6 +575,16 @@ def test_policy_rejects_budget_below_minimum(tmp_path: Path) -> None:
 
     from gptme.memory.policy import POLICY_MIN_BUDGET, IndexPolicy
 
+    # Verify the constant matches the actual rendered byte count for an empty
+    # selection so the constant and the render path can't diverge silently.
+    store = _store(tmp_path)
+    policy = IndexPolicy(budget=POLICY_MIN_BUDGET, selected=())
+    actual_min = len(store._render_with_policy([], policy).encode("utf-8"))
+    assert actual_min == POLICY_MIN_BUDGET, (
+        f"POLICY_MIN_BUDGET ({POLICY_MIN_BUDGET}) does not match the actual "
+        f"rendered byte count for an empty selection ({actual_min})"
+    )
+
     _policy(tmp_path, [], budget=POLICY_MIN_BUDGET - 1)
     with pytest.raises(ValueError, match="at least"):
         IndexPolicy.read(tmp_path)
