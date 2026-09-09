@@ -368,6 +368,17 @@ def pytest_terminal_summary(terminalreporter):
 
 
 @pytest.fixture(autouse=True)
+def trust_project_shell_in_tests(monkeypatch):
+    """Tests author their own gptme.toml; skip the TOFU prompt.
+
+    ``get_prompt()`` defaults to ``interactive=True``, which would otherwise
+    call ``input()`` (pytest OSError) or skip ``context_cmd`` (false denials).
+    Gate-unit tests in ``test_config_trust.py`` unset this env var.
+    """
+    monkeypatch.setenv("GPTME_TRUST_PROJECT_SHELL", "1")
+
+
+@pytest.fixture(autouse=True)
 def reduce_anthropic_retries(monkeypatch):
     """Reduce Anthropic API retries during tests to prevent timeouts.
 

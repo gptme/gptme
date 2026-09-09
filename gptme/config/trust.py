@@ -162,7 +162,8 @@ def _prompt_user(
 
     try:
         answer = input().strip().lower()
-    except EOFError:
+    except (EOFError, OSError):
+        # EOF: piped /dev/null. OSError: pytest capturing stdin (DontReadFromInput).
         answer = ""
 
     return answer in {"y", "yes"}
@@ -206,11 +207,15 @@ def check_project_shell_trust(
     if is_trusted(shell_hash, workspace):
         return True
 
-    # Determine interactivity
+    # Determine interactivity. ``interactive=True`` is not enough on its own:
+    # get_prompt() defaults to True, pytest captures stdin, and piped
+    # invocations cannot actually prompt. Require a real TTY before calling
+    # input().
     if interactive is None:
         interactive = sys.stdin.isatty()
+    can_prompt = bool(interactive) and sys.stdin.isatty()
 
-    if not interactive:
+    if not can_prompt:
         logger.warning(
             "Project gptme.toml in %s contains shell commands (context_cmd / hooks.scripts) "
             "that have not been approved. Skipping them in non-interactive mode. "
