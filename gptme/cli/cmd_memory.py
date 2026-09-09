@@ -125,6 +125,9 @@ def memory_show(name: str, as_json: bool):
 )
 @click.option("--title", help="Index link text (defaults to the name).")
 @click.option(
+    "--metadata", help="JSON object merged into entry metadata (e.g. provenance)."
+)
+@click.option(
     "--body-file",
     type=click.Path(exists=True, dir_okay=False),
     help="Read the body from this file instead of stdin.",
@@ -136,6 +139,7 @@ def memory_save(
     type_: str | None,
     scope: str | None,
     title: str | None,
+    metadata: str | None,
     body_file: str | None,
     as_json: bool,
 ):
@@ -147,6 +151,16 @@ def memory_save(
         gptme-util memory save prefer-short-answers \\
           "User prefers short, direct answers." --type feedback < body.md
     """
+    parsed_metadata = None
+    if metadata is not None:
+        try:
+            parsed_metadata = json.loads(metadata)
+        except ValueError as exc:
+            raise click.BadParameter(
+                "must be a JSON object", param_hint="--metadata"
+            ) from exc
+        if not isinstance(parsed_metadata, dict):
+            raise click.BadParameter("must be a JSON object", param_hint="--metadata")
     if body_file:
         with open(body_file, encoding="utf-8") as f:
             body = f.read()
@@ -156,7 +170,15 @@ def memory_save(
         body = ""
     store = _store()
     try:
-        path = store.save(name, description, body, type=type_, scope=scope, title=title)
+        path = store.save(
+            name,
+            description,
+            body,
+            type=type_,
+            scope=scope,
+            title=title,
+            metadata=parsed_metadata,
+        )
     except (KeyError, OSError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
