@@ -431,3 +431,47 @@ def test_mcp_client_close_waits_for_in_flight_call():
     client.session = MagicMock()
     with pytest.raises(RuntimeError, match="MCP client is closed"):
         client.call_tool("echo", {})
+
+
+def test_mcp_client_close_interrupts_stalled_call():
+    """close() must not hang if call_tool never returns."""
+    import asyncio
+    import threading
+    import time
+    from unittest.mock import MagicMock
+
+    from gptme.mcp.client import MCPClient
+
+    client = MCPClient()
+    started = threading.Event()
+
+    async def stall(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("stalled call resumed")
+
+    client.session = MagicMock()
+    client.session.call_tool = stall
+
+    call_error: list[BaseException] = []
+
+    def do_call() -> None:
+        try:
+            client.call_tool("echo", {})
+        except BaseException as exc:
+            call_error.append(exc)
+
+    caller = threading.Thread(target=do_call)
+    caller.start()
+    assert started.wait(timeout=2)
+
+    t0 = time.monotonic()
+    client.close()
+    elapsed = time.monotonic() - t0
+    caller.join(timeout=2)
+
+    assert elapsed < 2.0, f"close() hung for {elapsed:.2f}s"
+    assert not caller.is_alive()
+    assert client.loop.is_closed()
+    assert call_error
+    assert any("closed" in str(exc).lower() for exc in call_error)

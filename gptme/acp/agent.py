@@ -44,6 +44,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Bound for closing one host-supplied MCP client during cancel/shutdown.
+# MCPClient.close() also interrupts in-flight calls; this is the ACP-side cap
+# so a stuck close cannot block session cancellation indefinitely.
+_MCP_CLIENT_CLOSE_TIMEOUT_S = 5.0
+
 # Lazy imports to avoid dependency issues when acp is not installed
 Agent: type | None = None
 AuthMethodAgent: type | None = None
@@ -1580,7 +1585,12 @@ class GptmeAgent:
         loop = asyncio.get_running_loop()
         for client in clients:
             try:
-                await loop.run_in_executor(None, client.close)
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, client.close),
+                    timeout=_MCP_CLIENT_CLOSE_TIMEOUT_S,
+                )
+            except TimeoutError:
+                logger.warning("Timed out closing session MCP client")
             except Exception:
                 logger.warning("Failed to close session MCP client", exc_info=True)
 
@@ -1605,12 +1615,14 @@ class GptmeAgent:
             session_id: Session to cancel
         """
         logger.info("Cancelling session %s", session_id)
-        # Close owned clients before dropping session state. close() waits for
-        # any in-flight call_tool(); if this await is interrupted, shutdown can
-        # still find the clients in the session registry.
+        # Close owned clients before dropping session state. close() interrupts
+        # in-flight call_tool() and is itself time-bounded; if this await is
+        # interrupted, shutdown can still find the clients in the session registry.
         clients = list(self._session_mcp_clients.get(session_id, {}).values())
-        await self._close_mcp_clients(clients)
-        self._cleanup_session(session_id)
+        try:
+            await self._close_mcp_clients(clients)
+        finally:
+            self._cleanup_session(session_id)
 
     async def list_sessions(
         self,

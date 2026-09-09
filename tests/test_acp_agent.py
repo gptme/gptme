@@ -10,6 +10,7 @@ new test dependency.
 import asyncio
 import builtins
 import threading
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -603,6 +604,28 @@ class TestCleanupSession:
         _run(agent.cancel(session_id=sid))
 
         client.close.assert_called_once_with()
+        assert sid not in agent._session_mcp_clients
+        assert sid not in agent._session_models
+
+    def test_cancel_does_not_hang_on_stalled_mcp_close(self, monkeypatch):
+        """cancel() must drop session state even if MCP close never returns."""
+        monkeypatch.setattr("gptme.acp.agent._MCP_CLIENT_CLOSE_TIMEOUT_S", 0.2)
+        agent = GptmeAgent()
+        sid = "session_cancel_stall"
+        client = MagicMock()
+        # Longer than the cancel timeout so a missing wait_for would fail.
+        # Short enough that asyncio.run can drain the executor thread.
+        client.close.side_effect = lambda: time.sleep(1.0)
+        agent._session_mcp_clients[sid] = {"notebook": client}
+        agent._session_models[sid] = "some-model"
+
+        async def run_cancel() -> float:
+            started = time.monotonic()
+            await agent.cancel(session_id=sid)
+            return time.monotonic() - started
+
+        elapsed = _run(run_cancel())
+        assert elapsed < 0.8, f"cancel() hung for {elapsed:.2f}s"
         assert sid not in agent._session_mcp_clients
         assert sid not in agent._session_models
 
