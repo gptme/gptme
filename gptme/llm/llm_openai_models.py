@@ -20,6 +20,7 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 50,
         "supports_vision": True,
         "supports_reasoning": True,
+        "supports_responses_api": True,
         "supports_parallel_tool_calls": True,
         "supports_strict_tools": True,
         "preferred_edit_format": "diff",

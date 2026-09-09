@@ -158,11 +158,15 @@ def _find_closest_model_properties(
     # Fall back to the recommended model's properties for this provider
     try:
         rec_name = get_recommended_model(provider)
-        if rec_name in provider_models:
+        # Strip provider-routing suffix (e.g. "deepseek/deepseek-v4-flash-0731@deepseek"
+        # → "deepseek/deepseek-v4-flash-0731") before looking up in the registry dict,
+        # whose keys never include an @ suffix.
+        rec_name_bare = rec_name.split("@")[0]
+        if rec_name_bare in provider_models:
             logger.debug(
                 f"Using recommended model {rec_name} as fallback for {model_name}"
             )
-            return provider_models[rec_name]
+            return provider_models[rec_name_bare]
     except ValueError:
         pass
 

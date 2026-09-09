@@ -286,6 +286,11 @@ def test_recommended_models_have_metadata(provider):
 def test_recommended_models_resolve_via_get_model():
     """``gptme -m <provider>`` must resolve every recommended model with real metadata."""
     for provider in RECOMMENDED_MODELS:
+        # "gptme" provider has an empty static registry and falls through to a live
+        # dynamic fetch against the cloud endpoint. Skip it here; it is covered by
+        # test_get_model_gptme_dynamic_fetch_success with a patched _get_models_for_provider.
+        if provider == "gptme":
+            continue
         meta = get_model(provider)
         assert meta.provider == provider
         assert meta.model == RECOMMENDED_MODELS[provider]
