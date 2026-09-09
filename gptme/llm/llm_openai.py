@@ -192,16 +192,23 @@ def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
         # while model suffixes use IDs ("moonshotai"). Compare both their
         # slug and compact forms, while retaining the documented stem match.
         # A multi-pin (``@a,b``) matches when the serving provider is any
-        # entry of the list.
+        # entry of the list.  For a single pin, a match means "no new info"
+        # and we return None.  For a multi-provider allowlist (``@a,b``), even
+        # a match is informative — the caller doesn't know *which* entry
+        # served the request — so we fall through and return the resolved form.
+        suffixes = _parse_provider_list(model.split("@", 1)[1].lower())
         compact_slug = provider_slug.replace("-", "")
-        for user_suffix in _parse_provider_list(model.split("@", 1)[1].lower()):
+        for user_suffix in suffixes:
             compact_suffix = user_suffix.replace("-", "")
             if (
                 provider_slug == user_suffix
                 or provider_slug.startswith(user_suffix + "-")
                 or compact_slug == compact_suffix
             ):
-                return None
+                if len(suffixes) == 1:
+                    return None
+                # Multi-entry allowlist: record which provider actually ran.
+                break
     resolved = f"{base}@{provider_slug}"
     if resolved == model:
         return None

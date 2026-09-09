@@ -3461,6 +3461,33 @@ class TestMakeResolvedModel:
         )
         assert result is None
 
+    def test_multi_pin_first_provider_records_resolved(self):
+        """Multi-provider allowlist: first entry served → record which one ran."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/deepseek/deepseek-v4-flash@together,fireworks", "Together AI"
+        )
+        assert result == "openrouter/deepseek/deepseek-v4-flash@together-ai"
+
+    def test_multi_pin_second_provider_records_resolved(self):
+        """Multi-provider allowlist: fallback entry served → record which one ran."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/deepseek/deepseek-v4-flash@together,fireworks", "Fireworks"
+        )
+        assert result == "openrouter/deepseek/deepseek-v4-flash@fireworks"
+
+    def test_single_pin_still_returns_none_on_match(self):
+        """Single-provider pin: a match still returns None (no new info)."""
+        from gptme.llm.llm_openai import _make_resolved_model
+
+        result = _make_resolved_model(
+            "openrouter/deepseek/deepseek-v4-flash@deepseek", "DeepSeek"
+        )
+        assert result is None
+
 
 class TestIsProxy:
     """Direct unit tests for _is_proxy() URL comparison — regression for #3526."""
