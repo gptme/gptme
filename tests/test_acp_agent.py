@@ -1649,8 +1649,10 @@ class TestHostSuppliedMcpServers:
     """Tests for MCP servers supplied by the ACP host at session creation."""
 
     def test_descriptor_conversion_and_validation(self):
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
         from acp.schema import (
-            AcpMcpServer,
             EnvVariable,
             HttpHeader,
             HttpMcpServer,
@@ -1702,9 +1704,9 @@ class TestHostSuppliedMcpServers:
                 ]
             )
         with pytest.raises(ValueError, match="ACP transport"):
-            _mcp_server_configs(
-                [AcpMcpServer(name="proxied", server_id="server-1", type="acp")]
-            )
+            # Dict form avoids AcpMcpServer field-name churn (id vs server_id
+            # across SDK versions) while still exercising the type=="acp" reject.
+            _mcp_server_configs([{"name": "proxied", "type": "acp"}])
         with pytest.raises(ValueError, match="Malformed ACP MCP server descriptor"):
             _mcp_server_configs([{"name": "broken"}])
 
