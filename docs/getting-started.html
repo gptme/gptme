@@ -508,6 +508,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-examples">Quick Examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subscriptions-chatgpt-plus-pro-supergrok">Subscriptions (ChatGPT Plus/Pro, SuperGrok)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-models-no-api-key-required">Local Models (No API Key Required)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#free-cloud-providers-no-credit-card-required">Free Cloud Providers (No Credit Card Required)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
@@ -563,6 +564,7 @@ For extras, source installation, and system dependencies, see <a class="referenc
 </div>
 <p>This will start an interactive chat session with the AI assistant.</p>
 <p>If you haven’t set a <a class="reference internal" href="providers.html"><span class="doc">LLM provider</span></a> API key in the environment or <a class="reference internal" href="config.html"><span class="doc">configuration</span></a>, you will be prompted for one which will be saved in the configuration file.</p>
+<p>If you already subscribe to ChatGPT Plus/Pro or SuperGrok, you can sign in directly — no separate API key purchase required. See <a class="reference internal" href="#subscriptions"><span class="std std-ref">Subscriptions (ChatGPT Plus/Pro, SuperGrok)</span></a> below.</p>
 <p>For detailed usage instructions, see <a class="reference internal" href="usage.html"><span class="doc">Usage</span></a>.</p>
 <p>You can also try the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a>.</p>
 </section>
@@ -590,6 +592,25 @@ gptme<span class="w"> </span><span class="s1">&#39;make a change&#39;</span><spa
 gptme<span class="w"> </span>-r
 </pre></div>
 </div>
+</section>
+<section id="subscriptions-chatgpt-plus-pro-supergrok">
+<span id="subscriptions"></span><h2>Subscriptions (ChatGPT Plus/Pro, SuperGrok)<a class="headerlink" href="#subscriptions-chatgpt-plus-pro-supergrok" title="Link to this heading">#</a></h2>
+<p>If you already pay for a ChatGPT Plus/Pro or SuperGrok subscription, gptme can
+use it directly — no separate API key purchase needed.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Authenticate with your ChatGPT Plus/Pro subscription (opens browser)</span>
+gptme-auth<span class="w"> </span>openai-subscription
+
+<span class="c1"># Authenticate with your SuperGrok subscription (reuses grok CLI token)</span>
+gptme-auth<span class="w"> </span>grok-subscription
+</pre></div>
+</div>
+<p>After sign-in, gptme automatically uses the subscription as the default provider.
+You can also reach the same flow from the interactive setup wizard:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-onboard
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for the full list of supported subscription providers and
+per-model options.</p>
 </section>
 <section id="local-models-no-api-key-required">
 <span id="local-models"></span><h2>Local Models (No API Key Required)<a class="headerlink" href="#local-models-no-api-key-required" title="Link to this heading">#</a></h2>
@@ -740,6 +761,7 @@ server. Cloud providers receive your prompts on their infrastructure.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-examples">Quick Examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subscriptions-chatgpt-plus-pro-supergrok">Subscriptions (ChatGPT Plus/Pro, SuperGrok)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-models-no-api-key-required">Local Models (No API Key Required)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#free-cloud-providers-no-credit-card-required">Free Cloud Providers (No Credit Card Required)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
