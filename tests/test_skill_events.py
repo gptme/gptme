@@ -64,7 +64,7 @@ def test_queue_is_not_completion_and_terminal_requires_valid_transition(
     assert terminal.skill_name == first.skill_name == "demo"
     assert terminal.skill_path == first.skill_path
     assert terminal.surface == first.surface == "gptme-slash-command"
-    assert terminal.schema_version == first.schema_version == 1
+    assert terminal.schema_version == first.schema_version == 2
     elapsed = (
         datetime.fromisoformat(terminal.timestamp)
         - datetime.fromisoformat(first.timestamp)

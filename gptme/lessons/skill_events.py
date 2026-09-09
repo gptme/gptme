@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, replace
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from ..logmanager.eventlog import _event_log_lock
+from ..util.cost_tracker import CostTracker
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -43,7 +45,45 @@ class SkillEvent:
     timestamp: str
     duration_seconds: float | None = None
     error_type: str | None = None
-    schema_version: int = 1
+    schema_version: int = 2
+    cost_tracker_id: str | None = None
+    cost_baseline: dict[str, int | float] | None = None
+    usage: dict[str, int | float] | None = None
+
+
+def _cost_snapshot(logdir: Path) -> tuple[str | None, dict[str, int | float] | None]:
+    """Unknown accounting is distinct from a measured zero-cost invocation."""
+    costs = CostTracker.get_session_costs()
+    if costs is None or costs.session_id != str(logdir.resolve()):
+        return None, None
+    # Snapshot the entries once so a concurrent append cannot split the totals.
+    entries = list(costs.entries)
+    usage: dict[str, int | float] = {
+        "input_tokens": sum(e.input_tokens for e in entries),
+        "output_tokens": sum(e.output_tokens for e in entries),
+        "cache_read_tokens": sum(e.cache_read_tokens for e in entries),
+        "cache_creation_tokens": sum(e.cache_creation_tokens for e in entries),
+        "cost_usd": sum(e.cost for e in entries),
+        "requests": len(entries),
+    }
+    if not all(math.isfinite(value) and value >= 0 for value in usage.values()):
+        return None, None
+    return costs.tracking_id, usage
+
+
+def _usage_delta(logdir: Path, first: SkillEvent) -> dict[str, int | float] | None:
+    tracker_id, current = _cost_snapshot(logdir)
+    if (
+        first.cost_baseline is None
+        or current is None
+        or tracker_id != first.cost_tracker_id
+        or current.keys() != first.cost_baseline.keys()
+    ):
+        return None
+    delta = {key: value - first.cost_baseline[key] for key, value in current.items()}
+    if not all(math.isfinite(value) and value >= 0 for value in delta.values()):
+        return None
+    return delta
 
 
 def read_skill_events(logdir: Path) -> list[SkillEvent]:
@@ -60,7 +100,7 @@ def read_skill_events(logdir: Path) -> list[SkillEvent]:
         if not line.strip():
             continue
         event = SkillEvent(**json.loads(line))
-        if event.schema_version != 1 or event.phase not in _PHASES:
+        if event.schema_version not in {1, 2} or event.phase not in _PHASES:
             raise ValueError("Unsupported skill event schema or phase")
         events.append(event)
     return events
@@ -76,6 +116,14 @@ def _append(logdir: Path, event: SkillEvent) -> None:
             if stream.read(1) != b"\n":
                 stream.write(b"\n")
         stream.write((json.dumps(asdict(event)) + "\n").encode("utf-8"))
+    # Export only committed transitions. A metric failure must not turn a saved
+    # start into a missing invocation ID or cause a retry to append it twice.
+    try:
+        from ..telemetry import record_skill_event
+
+        record_skill_event(event)
+    except Exception:
+        logger.warning("Could not export skill metrics", exc_info=True)
 
 
 def start_skill_invocation(
@@ -95,6 +143,7 @@ def start_skill_invocation(
                 if current and current[0] == logdir.resolve()
                 else str(logdir.resolve())
             )
+        tracker_id, baseline = _cost_snapshot(logdir)
         event = SkillEvent(
             invocation_id=str(uuid4()),
             session_id=session_id,
@@ -103,6 +152,8 @@ def start_skill_invocation(
             surface=surface,
             phase="started",
             timestamp=datetime.now(timezone.utc).isoformat(),
+            cost_tracker_id=tracker_id,
+            cost_baseline=baseline,
         )
         with _event_log_lock(logdir):
             read_skill_events(logdir)
@@ -133,6 +184,7 @@ def _transition(
     now = datetime.now(timezone.utc)
     event = replace(
         first,
+        schema_version=2,
         phase=phase,
         timestamp=now.isoformat(),
         duration_seconds=(
@@ -141,6 +193,7 @@ def _transition(
             else None
         ),
         error_type=error_type,
+        usage=_usage_delta(logdir, first) if phase in _TERMINAL else None,
     )
     _append(logdir, event)
     events.append(event)
