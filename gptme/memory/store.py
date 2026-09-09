@@ -169,10 +169,16 @@ class MemoryStore:
         metadata: dict[str, Any] | None = None,
     ) -> Path:
         """Write ``<slug>.md`` into the scope's root and upsert its index line."""
+        slug = slugify(name)
+        if slug.upper().startswith("MEMORY"):
+            raise ValueError(
+                f"memory name {name!r} is reserved for memory indexes; "
+                "choose a name that does not start with 'memory'"
+            )
         root = self.root(scope)
         root.path.mkdir(parents=True, exist_ok=True)
         entry = MemoryEntry(
-            name=slugify(name),
+            name=slug,
             description=description.strip(),
             type=type,
             body=body,

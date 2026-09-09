@@ -158,7 +158,7 @@ def memory_save(
     store = _store()
     try:
         path = store.save(name, description, body, type=type_, scope=scope, title=title)
-    except (KeyError, OSError) as e:
+    except (KeyError, OSError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     if as_json:

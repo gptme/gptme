@@ -199,6 +199,15 @@ class TestStore:
         with pytest.raises(KeyError):
             store.save("u", "d", scope="agent")
 
+    @pytest.mark.parametrize("name", ["memory", "MEMORY", "memory archive"])
+    def test_save_rejects_reserved_index_names(self, tmp_path, name):
+        store = self._store(tmp_path)
+
+        with pytest.raises(ValueError, match="reserved for memory indexes"):
+            store.save(name, "description")
+
+        assert not (tmp_path / "project" / "MEMORY.md").exists()
+
     def test_index_groups_by_type_and_is_byte_stable(self, tmp_path):
         store = self._store(tmp_path)
         store.save("b-proj", "B", type="project")
@@ -440,6 +449,14 @@ class TestCli:
         assert r.exit_code == 0
         r = runner.invoke(util_main, ["memory", "index", "--check"])
         assert r.exit_code == 0, r.output
+
+    @pytest.mark.parametrize("name", ["memory", "MEMORY", "memory archive"])
+    def test_save_rejects_reserved_index_names(self, env, name):
+        r = CliRunner().invoke(util_main, ["memory", "save", name, "description"])
+
+        assert r.exit_code == 1
+        assert "reserved for memory indexes" in r.output
+        assert not env.exists()
 
     def test_human_output_strips_controls_but_preserves_lines(self, env):
         _write(
