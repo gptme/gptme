@@ -332,6 +332,57 @@ class TestCcMemoryInWorkspacePrompt:
         assert "cc-fact" in combined
         assert "gptme-fact" in combined
 
+    def test_mixed_roots_entry_files_and_legacy_memory_md(self, tmp_path):
+        """A root with per-entry files and a root with only MEMORY.md are both shown.
+
+        Regression test: before the per-root fallback, when any root had entry
+        files the combined `entries` list was non-empty and the else-branch
+        (MEMORY.md fallback) was skipped entirely, silently dropping the legacy
+        root's content. The fix evaluates each root independently.
+        """
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+
+        # Root A: modern per-entry files (e.g. gptme project root)
+        proj_dir = workspace / "memory"
+        proj_dir.mkdir()
+        _make_entry(proj_dir, "gptme-fact", "Written by gptme", type="project")
+
+        # Root B: legacy CC root with only MEMORY.md, no individual entry files
+        cc_dir = tmp_path / "cc_root"
+        cc_dir.mkdir()
+        (cc_dir / "MEMORY.md").write_text(
+            "# Persistent Memory\n\n- [legacy-note](legacy-note.md) — CC legacy memory\n"
+        )
+
+        roots = [MemoryRoot("project", proj_dir), MemoryRoot("cc", cc_dir)]
+
+        with (
+            patch("gptme.prompts.workspace.resolve_roots", return_value=roots),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" in combined
+        # Per-entry root content is present
+        assert "gptme-fact" in combined
+        # Legacy MEMORY.md root content is also present — not dropped
+        assert "legacy-note" in combined or "CC legacy memory" in combined
+
     def test_no_memory_when_no_roots_exist(self, tmp_path):
         """No memory message is emitted when no memory roots have files."""
         from gptme.prompts.workspace import prompt_workspace
