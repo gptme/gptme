@@ -553,11 +553,11 @@ workspace / harness / model / access distinction.</p>
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic<span class="w">  </span><span class="c1"># will use provider default</span>
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4-pro
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-reasoner
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-v4-flash
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.5-pro
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
@@ -684,8 +684,9 @@ default.</p>
 <p><a class="reference external" href="https://openrouter.ai/">OpenRouter</a> provides access to 100+ models through a single API key. gptme applies sensible defaults for OpenRouter requests:</p>
 <ul class="simple">
 <li><p><strong>Provider routing</strong>: <code class="docutils literal notranslate"><span class="pre">require_parameters</span></code> is enabled, ensuring the routed provider supports all request parameters (tools, response format, etc.). This prevents silent failures when OpenRouter falls back to a provider that doesn’t support function calling.</p></li>
-<li><p><strong>Privacy</strong>: <code class="docutils literal notranslate"><span class="pre">data_collection</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">&quot;deny&quot;</span></code>, preventing providers from training on your data. This aligns with gptme’s privacy-first philosophy.</p></li>
-<li><p><strong>Provider override</strong>: Use <code class="docutils literal notranslate"><span class="pre">model&#64;provider</span></code> syntax to pin a specific backend (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-20250514&#64;anthropic</span></code>).</p></li>
+<li><p><strong>Privacy</strong>: <code class="docutils literal notranslate"><span class="pre">data_collection</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">&quot;deny&quot;</span></code>, preventing providers from training on your data. This aligns with gptme’s privacy-first philosophy. The flag is only sent when extended reasoning is off; for reasoning-capable models (most current open-weight models) pin providers explicitly with the options below, since OpenRouter’s default routing may otherwise pick a provider that trains on prompts.</p></li>
+<li><p><strong>Provider override</strong>: Use <code class="docutils literal notranslate"><span class="pre">model&#64;provider</span></code> syntax to pin a specific backend (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-6&#64;anthropic</span></code>). A comma-separated list (<code class="docutils literal notranslate"><span class="pre">model&#64;together,fireworks</span></code>) is an ordered allowlist: OpenRouter tries the first, falls back to the next on rate limits or outages, and never routes outside the list. Each model page on OpenRouter has a <em>Providers</em> tab listing per-provider pricing, uptime, and data policy (training / prompt retention).</p></li>
+<li><p><strong>Default provider allowlist</strong>: <code class="docutils literal notranslate"><span class="pre">OPENROUTER_PROVIDER_ORDER</span></code> applies the same ordered allowlist to every request that has no <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> pin, so a vetted set of subproviders can be the default for all models.</p></li>
 <li><p><strong>Quantization</strong>: Optionally restrict to specific precision levels (e.g. <code class="docutils literal notranslate"><span class="pre">fp16</span></code> for quality, <code class="docutils literal notranslate"><span class="pre">int4</span></code> for cost savings). Set <code class="docutils literal notranslate"><span class="pre">OPENROUTER_QUANTIZATION</span></code> to a comma-separated list of accepted levels.</p></li>
 </ul>
 <p><strong>Configuration:</strong></p>
@@ -696,6 +697,10 @@ default.</p>
 <span class="c1"># Override data collection preference (default: &quot;deny&quot;)</span>
 <span class="c1"># Set to &quot;allow&quot; if you need providers that require data collection consent</span>
 <span class="n">OPENROUTER_DATA_COLLECTION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span>
+
+<span class="c1"># Default ordered provider allowlist for requests without a model@provider pin.</span>
+<span class="c1"># Slugs are the OpenRouter provider ids shown on each model&#39;s Providers tab.</span>
+<span class="n">OPENROUTER_PROVIDER_ORDER</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;together,fireworks&quot;</span>
 
 <span class="c1"># Restrict to specific quantization levels (optional)</span>
 <span class="c1"># Common values: fp16, bf16, fp8, int8, int4, unknown</span>
@@ -754,17 +759,19 @@ The <code class="docutils literal notranslate"><span class="pre">groq/&lt;model&
 <p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/openai_subscription.json</span></code>.
 Access tokens are automatically refreshed before expiry, so you only need to authenticate once.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.5-pro
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.4
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.6-sol
 </pre></div>
 </div>
 <p>You can also append reasoning levels: <code class="docutils literal notranslate"><span class="pre">:low</span></code>, <code class="docutils literal notranslate"><span class="pre">:medium</span></code>, <code class="docutils literal notranslate"><span class="pre">:high</span></code>, or <code class="docutils literal notranslate"><span class="pre">:xhigh</span></code>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.5-pro:high
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra:high
 </pre></div>
 </div>
 <p><strong>Available Models:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.5-pro</span></code> - Latest flagship with maximum reasoning compute (Responses API only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-6-astra</span></code> - Current flagship (released 2026-09-03). Rolling out to Codex on Plus/Pro; if the endpoint reports that the model needs a newer client, re-authenticate with <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">openai-subscription</span></code> to refresh the token</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.6-sol</span></code> / <code class="docutils literal notranslate"><span class="pre">gpt-5.6-terra</span></code> / <code class="docutils literal notranslate"><span class="pre">gpt-5.6-luna</span></code> - GPT-5.6 family (flagship / balanced / fast)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.5-pro</span></code> - Previous flagship with maximum reasoning compute (Responses API only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.4</span></code> - Previous flagship with reasoning capabilities</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.3-codex</span></code> - Previous code-optimized variant</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.3-codex-spark</span></code> - Faster variant of gpt-5.3-codex</p></li>

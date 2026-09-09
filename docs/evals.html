@@ -505,7 +505,12 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#default-model-per-provider">Default model per provider</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-openrouter-provider">Choosing an OpenRouter provider</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#subscriptions">Subscriptions</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-leaderboard">Model Leaderboard</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>
@@ -529,7 +534,7 @@ document.write(`
 <p>The suite covers fundamental tool use, web browsing, project initialization, and a growing set of <strong>practical programming tasks</strong> that reflect real-world agentic work: building APIs, refactoring code, parsing data formats, writing tests, and more.</p>
 <section id="recommended-model">
 <h2>Recommended Model<a class="headerlink" href="#recommended-model" title="Link to this heading">#</a></h2>
-<p>The recommended model is <strong>Claude Sonnet 4.6</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-6</span></code> and <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-4-6</span></code>) for its:</p>
+<p>The recommended model for API-key use is <strong>Claude Sonnet 4.6</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-6</span></code>, or <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-4-6</span></code>) for its:</p>
 <ul class="simple">
 <li><p>Strong agentic capabilities</p></li>
 <li><p>Strong coder capabilities</p></li>
@@ -537,22 +542,86 @@ document.write(`
 <li><p>Reasoning capabilities</p></li>
 <li><p>Vision &amp; computer use capabilities</p></li>
 </ul>
+<p>If you already pay for a frontier subscription, use it instead of an API key (see <a class="reference internal" href="#subscriptions">Subscriptions</a> below): <strong>GPT-6 Astra</strong> via ChatGPT Plus/Pro (<code class="docutils literal notranslate"><span class="pre">openai-subscription/gpt-6-astra</span></code>) and <strong>Grok 4.6</strong> via SuperGrok (<code class="docutils literal notranslate"><span class="pre">grok-subscription/grok-4.6</span></code>) are both frontier-class and cost nothing per token.</p>
+<p>For high-volume or cost-sensitive work, two open-weight “flash” models hold up well in agentic use for a small fraction of the price:</p>
+<ul class="simple">
+<li><p><strong>DeepSeek V4 Flash</strong> (the 2026-07-31 release: <code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4-flash-0731</span></code>, or <code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-v4-flash</span></code> on the official API)</p></li>
+<li><p><strong>GLM 5.3 Flash</strong> (<code class="docutils literal notranslate"><span class="pre">openrouter/z-ai/glm-5.3-flash</span></code>)</p></li>
+</ul>
+<p>Both are hosted by many providers on OpenRouter with very different reliability, speed, and data policies; see <a class="reference internal" href="#choosing-an-openrouter-provider">Choosing an OpenRouter provider</a> before picking one.</p>
+<section id="default-model-per-provider">
+<h3>Default model per provider<a class="headerlink" href="#default-model-per-provider" title="Link to this heading">#</a></h3>
+<p>This table is generated at docs-build time from the installed gptme, so it always reflects what <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-m</span> <span class="pre">&lt;provider&gt;</span></code> (provider name, no model) resolves to in the current release. The summary model is the cheaper model used for conversation titles and summaries.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ gptme-util models recommended
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| Provider            | Recommended model                                   | Summary model                                       |
++=====================+=====================================================+=====================================================+
+| openai              | openai/gpt-5.6-sol                                  | openai/gpt-5-mini                                   |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| openai-subscription | openai-subscription/gpt-6-astra                     |                                                     |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| anthropic           | anthropic/claude-sonnet-4-6                         | anthropic/claude-haiku-4-5                          |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| openrouter          | openrouter/deepseek/deepseek-v4-flash-0731@deepseek | openrouter/deepseek/deepseek-v4-flash-0731@deepseek |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| gptme               | gptme/claude-sonnet-4-6                             |                                                     |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| gemini              | gemini/gemini-3.1-pro-preview                       | gemini/gemini-2.5-flash                             |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| groq                | groq/llama-3.3-70b-versatile                        |                                                     |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| xai                 | xai/grok-4.6                                        | xai/grok-4-1-fast                                   |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| grok-subscription   | grok-subscription/grok-4.6                          |                                                     |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+| deepseek            | deepseek/deepseek-v4-flash                          | deepseek/deepseek-v4-flash                          |
++---------------------+-----------------------------------------------------+-----------------------------------------------------+
+</pre></div>
+</div>
 <p>Decent alternatives include:</p>
 <ul class="simple">
-<li><p>Gemini 3 Pro (<code class="docutils literal notranslate"><span class="pre">openrouter/google/gemini-3-pro-preview</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini/gemini-3-pro-preview</span></code>)</p></li>
-<li><p>GPT-5, GPT-4o (<code class="docutils literal notranslate"><span class="pre">openai/gpt-5</span></code>, <code class="docutils literal notranslate"><span class="pre">openai/gpt-4o</span></code>)</p></li>
-<li><p>Grok 4 (<code class="docutils literal notranslate"><span class="pre">xai/grok-4</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/x-ai/grok-4</span></code>)</p></li>
-<li><p>Qwen3 Coder 480B A35B (<code class="docutils literal notranslate"><span class="pre">openrouter/qwen/qwen3-coder</span></code>)</p></li>
-<li><p>Kimi K2 (<code class="docutils literal notranslate"><span class="pre">openrouter/moondreamai/kimi-k2-thinking</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/moondreamai/kimi-k2</span></code>)</p></li>
+<li><p>GPT-5.6 Sol / Terra / Luna (<code class="docutils literal notranslate"><span class="pre">openai/gpt-5.6-sol</span></code>, <code class="docutils literal notranslate"><span class="pre">openai-subscription/gpt-5.6-sol</span></code>)</p></li>
+<li><p>Gemini 3.1 Pro (<code class="docutils literal notranslate"><span class="pre">gemini/gemini-3.1-pro-preview</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/google/gemini-3-pro-preview</span></code>)</p></li>
+<li><p>Grok 4.6 via the API (<code class="docutils literal notranslate"><span class="pre">xai/grok-4.6</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/x-ai/grok-4.6</span></code>)</p></li>
+<li><p>DeepSeek V4 Pro (<code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4-pro-0813</span></code>, <code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-v4-pro</span></code>)</p></li>
+<li><p>Kimi K3 / K2.6 (<code class="docutils literal notranslate"><span class="pre">moonshot/kimi-k3</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/moonshotai/kimi-k2.6</span></code>)</p></li>
+<li><p>Qwen3 Max (<code class="docutils literal notranslate"><span class="pre">openrouter/qwen/qwen3-max</span></code>)</p></li>
 <li><p>MiniMax M2 (<code class="docutils literal notranslate"><span class="pre">openrouter/minimax/minimax-m2</span></code>)</p></li>
-<li><p>Llama 3.1 405B (<code class="docutils literal notranslate"><span class="pre">openrouter/meta-llama/llama-3.1-405b-instruct</span></code>)</p></li>
-<li><p>DeepSeek V3 (<code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-chat</span></code>)</p></li>
-<li><p>DeepSeek R1 (<code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-reasoner</span></code>)</p></li>
 </ul>
 <p>Note that some models may perform better or worse with different <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> options (<code class="docutils literal notranslate"><span class="pre">markdown</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">tool</span></code> for native tool-calling). See <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a> for what each format does and how to choose one.</p>
-<p>Note that many providers on OpenRouter have poor performance and reliability, so be sure to test your chosen model/provider combination before committing to it. This is especially true for open weight models which any provider can host at any quality. You can choose a specific provider by appending with <code class="docutils literal notranslate"><span class="pre">:provider</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">openrouter/qwen/qwen3-coder:alibaba/opensource</span></code>.</p>
-<p>Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.</p>
 <p>You can get an overview of actual model usage in the wild from the <a class="reference external" href="https://openrouter.ai/apps?url=https://github.com/gptme/gptme">OpenRouter app analytics for gptme</a>.</p>
+</section>
+<section id="choosing-an-openrouter-provider">
+<h3>Choosing an OpenRouter provider<a class="headerlink" href="#choosing-an-openrouter-provider" title="Link to this heading">#</a></h3>
+<p>Open-weight models are served by many providers on OpenRouter, and the provider matters as much as the model: quality (quantization), latency, uptime, cache pricing, and data policy all differ. Pin a provider with <code class="docutils literal notranslate"><span class="pre">model&#64;provider</span></code>, or an ordered allowlist with <code class="docutils literal notranslate"><span class="pre">model&#64;a,b</span></code> (falls back within the list on rate limits), and set <code class="docutils literal notranslate"><span class="pre">OPENROUTER_PROVIDER_ORDER</span></code> to apply a default allowlist to every request. See <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for details.</p>
+<p>What we have found (verified 2026-09-09; re-check the model’s <em>Providers</em> tab on OpenRouter, this changes often):</p>
+<ul class="simple">
+<li><p><strong>The official model-developer endpoints are the most reliable path</strong> (<code class="docutils literal notranslate"><span class="pre">&#64;deepseek</span></code> for DeepSeek, <code class="docutils literal notranslate"><span class="pre">&#64;z-ai</span></code> for GLM). They have the best uptime, are among the fastest, and have the best cache-read pricing (DeepSeek official charges ~3% of the input price for cached prefixes, which dominates cost in long agent sessions). Both are what gptme’s own automation runs on.</p></li>
+<li><p><strong>Data policy differs.</strong> DeepSeek’s official endpoint retains prompts and trains on them, per its policy. Z.AI’s official endpoint is listed as <em>no training, no prompt retention</em>. Third-party hosts are almost all listed as <em>no training</em>, but a handful retain prompts (Alibaba, Baidu, Cloudflare, GMICloud, StreamLake at the time of writing).</p></li>
+<li><p><strong>Third-party hosts are not battle-tested and rate-limit under load.</strong> In a same-day probe of ten DeepSeek V4 Flash hosts and ten GLM 5.3 Flash hosts, a third of them answered <code class="docutils literal notranslate"><span class="pre">429</span> <span class="pre">rate-limited</span> <span class="pre">upstream</span></code> on a two-request burst, and OpenRouter’s default price-first routing lands on the slowest host. Of the no-training hosts, <code class="docutils literal notranslate"><span class="pre">together</span></code>, <code class="docutils literal notranslate"><span class="pre">fireworks</span></code>, and <code class="docutils literal notranslate"><span class="pre">inceptron</span></code> served DeepSeek V4 Flash correctly with working prompt caching in both probes; <code class="docutils literal notranslate"><span class="pre">fireworks</span></code>, <code class="docutils literal notranslate"><span class="pre">deepinfra</span></code>, <code class="docutils literal notranslate"><span class="pre">siliconflow</span></code>, and <code class="docutils literal notranslate"><span class="pre">sail-research</span></code> did the same for GLM 5.3 Flash. Treat these as a starting allowlist, not a recommendation: gptme’s own sessions have only exercised the official endpoints (and OpenInference and Baidu for DeepSeek) at volume.</p></li>
+<li><p><strong>Prompt caching is what makes these models cheap.</strong> All of the hosts above billed cache hits at the discounted rate on the second request, regardless of what OpenRouter’s <code class="docutils literal notranslate"><span class="pre">supports_implicit_caching</span></code> flag said. Compare <em>cache-read</em> prices, not just input prices.</p></li>
+</ul>
+<p>A privacy-preserving DeepSeek setup therefore looks like:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="o">-</span><span class="n">m</span> <span class="s2">&quot;openrouter/deepseek/deepseek-v4-flash-0731@together,fireworks,inceptron&quot;</span>
+</pre></div>
+</div>
+<p>while GLM 5.3 Flash can simply use its official endpoint:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="o">-</span><span class="n">m</span> <span class="n">openrouter</span><span class="o">/</span><span class="n">z</span><span class="o">-</span><span class="n">ai</span><span class="o">/</span><span class="n">glm</span><span class="o">-</span><span class="mf">5.3</span><span class="o">-</span><span class="n">flash</span><span class="nd">@z</span><span class="o">-</span><span class="n">ai</span>
+</pre></div>
+</div>
+<p>Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.</p>
+</section>
+<section id="subscriptions">
+<h3>Subscriptions<a class="headerlink" href="#subscriptions" title="Link to this heading">#</a></h3>
+<p>Several frontier models are reachable through a consumer subscription instead of a metered API key, which is usually the cheapest way to run gptme on a frontier model:</p>
+<ul class="simple">
+<li><p><strong>ChatGPT Plus/Pro (Codex)</strong> — <code class="docutils literal notranslate"><span class="pre">openai-subscription/gpt-6-astra</span></code> (and the GPT-5.6 family). Authenticate once with <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">openai-subscription</span></code>.</p></li>
+<li><p><strong>SuperGrok (Grok Build)</strong> — <code class="docutils literal notranslate"><span class="pre">grok-subscription/grok-4.6</span></code>. Reuses the grok CLI’s login, or <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">grok-subscription</span></code>.</p></li>
+<li><p><strong>Claude Max</strong> — not available: Anthropic does not permit third-party tools on the consumer subscription; use the <code class="docutils literal notranslate"><span class="pre">anthropic</span></code> provider with an API key.</p></li>
+<li><p><strong>Cursor</strong> — not supported. Cursor exposes no sanctioned endpoint for using a personal subscription from third-party tools (its Cloud Agents API is separately metered and is not a chat-completions API). Unofficial proxies that reuse the Cursor CLI’s login state exist, but gptme does not integrate them.</p></li>
+</ul>
+<p>See <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for setup details.</p>
+</section>
 </section>
 <section id="model-leaderboard">
 <h2>Model Leaderboard<a class="headerlink" href="#model-leaderboard" title="Link to this heading">#</a></h2>
@@ -836,7 +905,12 @@ For authoritative pass/fail results and leaderboard submission, use the official
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#default-model-per-provider">Default model per provider</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-openrouter-provider">Choosing an OpenRouter provider</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#subscriptions">Subscriptions</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-leaderboard">Model Leaderboard</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>

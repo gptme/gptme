@@ -540,6 +540,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models">models</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-info">info</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-recommended">recommended</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-test">test</a></li>
 </ul>
 </li>
@@ -1592,6 +1593,31 @@ Requires conversations to be indexed first with <cite>rag_index_conversations</c
 </dd></dl>
 
 </section>
+<section id="gptme-util-models-recommended">
+<h4>recommended<a class="headerlink" href="#gptme-util-models-recommended" title="Link to this heading">#</a></h4>
+<p>Show the recommended default model per provider.</p>
+<p>This is what <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-m</span> <span class="pre">&lt;provider&gt;</span></code> resolves to when no model is given,
+and what the docs advertise (docs/evals.rst renders this at build time).</p>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>models<span class="w"> </span>recommended<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-models-recommended-format">
+<span class="sig-name descname"><span class="pre">--format</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;fmt&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-models-recommended-format" title="Link to this definition">#</a></dt>
+<dd><p>Output format (rst renders a grid table for the docs build).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">'table'</span></code></p>
+</dd>
+<dt class="field-even">Options<span class="colon">:</span></dt>
+<dd class="field-even"><p>table | rst | markdown | json</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
 <section id="gptme-util-models-test">
 <h4>test<a class="headerlink" href="#gptme-util-models-test" title="Link to this heading">#</a></h4>
 <p>Test connectivity to a model by making a minimal API call.</p>
@@ -1992,6 +2018,7 @@ Use –all to include unavailable tools as well.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models">models</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-info">info</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-recommended">recommended</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-models-test">test</a></li>
 </ul>
 </li>

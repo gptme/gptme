@@ -224,7 +224,7 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set to ``tool`` on 92 of the 111 models in the
+- ``default_tool_format`` is set to ``tool`` on 102 of the 121 models in the
   bundled registry. This is stamped **per provider**, not per model: every
   provider that talks the OpenAI-compatible function-calling API gets it
   (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
@@ -238,7 +238,7 @@ behaviour silently:
   the same ``tool`` default applied at resolution time instead, including on
   dynamic-fetch fallbacks.
 
-- ``supports_parallel_tool_calls`` is set on 51 entries: the Claude Opus/Sonnet
+- ``supports_parallel_tool_calls`` is set on 61 entries: the Claude Opus/Sonnet
   4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5
   families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
   lite and experimental Gemini variants are excluded via
@@ -251,7 +251,7 @@ behaviour silently:
   gpt-oss models (not in this registry) stay unset because provider docs do not
   clearly document parallel tool calls for those IDs.
 
-- ``supports_strict_tools`` is set on 23 entries: the OpenAI models (GPT-4o/4.1/5
+- ``supports_strict_tools`` is set on 24 entries: the OpenAI models (GPT-4o/4.1/5
   families, o-series) and Kimi K3. DeepSeek documents a ``strict`` mode, but it
   requires ``base_url=https://api.deepseek.com/beta``, which gptme does not use,
   so the flag stays unset rather than sending ``strict=True`` on the production

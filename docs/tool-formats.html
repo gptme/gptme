@@ -741,7 +741,7 @@ format; listed here because it is adjacent and equally undocumented.</p></td>
 </div>
 <p><strong>How well populated is this?</strong> Unevenly, and it is worth being explicit about:</p>
 <ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code> is set to <code class="docutils literal notranslate"><span class="pre">tool</span></code> on 92 of the 111 models in the
+<li><p><code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code> is set to <code class="docutils literal notranslate"><span class="pre">tool</span></code> on 102 of the 121 models in the
 bundled registry. This is stamped <strong>per provider</strong>, not per model: every
 provider that talks the OpenAI-compatible function-calling API gets it
 (<code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini</span></code>, <code class="docutils literal notranslate"><span class="pre">xai</span></code>, <code class="docutils literal notranslate"><span class="pre">groq</span></code>,
@@ -754,7 +754,7 @@ ship no static registry entries at all, so there is nothing to stamp; they get
 the same <code class="docutils literal notranslate"><span class="pre">tool</span></code> default applied at resolution time instead, including on
 dynamic-fetch fallbacks.</p>
 </li>
-<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on 51 entries: the Claude Opus/Sonnet
+<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on 61 entries: the Claude Opus/Sonnet
 4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5
 families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
 lite and experimental Gemini variants are excluded via
@@ -766,7 +766,7 @@ carries an explicit comment that it does <em>not</em> emit multiple tool calls p
 response. Moonshot Kimi K2/K2.6, OpenRouter Qwen/Llama/Kimi K2, and Groq’s
 gpt-oss models (not in this registry) stay unset because provider docs do not
 clearly document parallel tool calls for those IDs.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">supports_strict_tools</span></code> is set on 23 entries: the OpenAI models (GPT-4o/4.1/5
+<li><p><code class="docutils literal notranslate"><span class="pre">supports_strict_tools</span></code> is set on 24 entries: the OpenAI models (GPT-4o/4.1/5
 families, o-series) and Kimi K3. DeepSeek documents a <code class="docutils literal notranslate"><span class="pre">strict</span></code> mode, but it
 requires <code class="docutils literal notranslate"><span class="pre">base_url=https://api.deepseek.com/beta</span></code>, which gptme does not use,
 so the flag stays unset rather than sending <code class="docutils literal notranslate"><span class="pre">strict=True</span></code> on the production
