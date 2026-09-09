@@ -91,3 +91,30 @@ def test_metadata_cannot_override_canonical_type(
     assert result.exit_code != 0
     assert "--type" in result.output
     assert path.read_bytes() == before
+
+
+def test_save_over_malformed_existing_entry_shows_friendly_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CLI must not traceback when the existing entry has malformed YAML frontmatter.
+
+    store.save() calls parse_entry(..., strict=True) on the existing path and
+    raises MemoryFrontmatterError (a MemoryParseError subclass, not ValueError).
+    Without the fix, the CLI's except clause silently misses it and the process
+    exits with a raw traceback.
+    """
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    broken = tmp_path / "broken-entry.md"
+    broken.write_text(
+        "---\nname: broken-entry\ntype: [invalid yaml: unclosed\n---\n\nBody.\n"
+    )
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "save", "broken-entry", "New description"],
+        input="New body",
+    )
+    assert result.exit_code != 0
+    # Must be a friendly error message, not a raw Python traceback
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "MemoryFrontmatterError" not in (result.output or "")
+    assert "Traceback" not in (result.output or "")

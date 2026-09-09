@@ -172,6 +172,8 @@ def memory_save(
         body = sys.stdin.read()
     else:
         body = ""
+    from ..memory.schema import MemoryParseError  # fmt: skip
+
     store = _store()
     try:
         path = store.save(
@@ -183,7 +185,7 @@ def memory_save(
             title=title,
             metadata=parsed_metadata,
         )
-    except (KeyError, OSError, ValueError) as e:
+    except (KeyError, OSError, ValueError, MemoryParseError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     if as_json:
@@ -297,9 +299,11 @@ def memory_recall(
 @click.option("--scope", help="Root containing both entries (default: write root).")
 def memory_supersede(old_name: str, new_name: str, scope: str | None):
     """Mark OLD_NAME superseded by NEW_NAME and link both entries."""
+    from ..memory.schema import MemoryParseError  # fmt: skip
+
     try:
         old, new = _store().supersede(old_name, new_name, scope=scope)
-    except (KeyError, OSError, ValueError) as e:
+    except (KeyError, OSError, ValueError, MemoryParseError) as e:
         raise click.ClickException(str(e)) from e
     click.echo(f"Superseded {_clean(old.name)} -> {_clean(new.name)}")
 
@@ -340,6 +344,8 @@ def memory_index(scope: str | None, write: bool, check: bool, budget: int | None
     Prints to stdout by default so a hand-curated MEMORY.md is never
     overwritten by accident; pass --write to replace it, --check to verify.
     """
+    from ..memory.schema import MemoryParseError  # fmt: skip
+
     store = _store()
     try:
         if check:
@@ -357,6 +363,6 @@ def memory_index(scope: str | None, write: bool, check: bool, budget: int | None
             ),
             nl=False,
         )
-    except (KeyError, OSError, ValueError) as e:
+    except (KeyError, OSError, ValueError, MemoryParseError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
