@@ -303,20 +303,23 @@ def _run_wizard(check_only: bool = False) -> int:
     available_providers = [p for p, (has_key, _) in providers.items() if has_key]
 
     if not available_providers:
-        console.print("\n[red]❌ No API keys detected![/red]")
-        console.print("\nTo use gptme, you need at least one API key.")
+        console.print("\n[red]❌ No provider configured![/red]")
+        console.print("\nTo use gptme, sign in with a subscription or set an API key.")
         console.print(
-            "\n[bold]Quick start[/bold] — set one of these environment variables:"
+            "\n[bold]Option 1[/bold] — sign in with a subscription you already pay for:"
         )
+        console.print(
+            "  [cyan]gptme-auth openai-subscription[/cyan]    # ChatGPT Plus/Pro"
+        )
+        console.print("  [cyan]gptme-auth grok-subscription[/cyan]      # SuperGrok")
+        console.print("\n[bold]Option 2[/bold] — set an API key:")
         console.print("  export ANTHROPIC_API_KEY='sk-ant-...'")
         console.print("  export OPENAI_API_KEY='sk-...'")
         console.print("  export OPENROUTER_API_KEY='sk-or-...'")
         console.print(
             "\nThen re-run [bold]gptme-onboard[/bold] or just start with [bold]gptme[/bold]."
         )
-        console.print(
-            "\nFull guide: https://gptme.org/docs/getting-started.html#api-keys"
-        )
+        console.print("\nFull guide: https://gptme.org/docs/getting-started.html")
         return 1
 
     if check_only:

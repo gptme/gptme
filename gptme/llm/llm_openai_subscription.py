@@ -299,8 +299,8 @@ def oauth_authenticate() -> SubscriptionAuth:
     )
     server.timeout = 120  # 2 minutes should be sufficient for browser auth
 
-    print("\n🔐 Opening browser for OpenAI authentication...")
-    print(f"   If browser doesn't open, visit:\n   {auth_url}")
+    print("\n🔐 Opening browser for OpenAI authentication...", flush=True)
+    print(f"   If browser doesn't open, visit:\n   {auth_url}", flush=True)
 
     def open_browser() -> None:
         time.sleep(0.5)
@@ -308,7 +308,10 @@ def oauth_authenticate() -> SubscriptionAuth:
 
     threading.Thread(target=open_browser, daemon=True).start()
 
-    print(f"   Waiting for authentication callback on port {OAUTH_CALLBACK_PORT}...")
+    print(
+        f"   Waiting for authentication callback on port {OAUTH_CALLBACK_PORT}...",
+        flush=True,
+    )
     try:
         while (
             _OAuthCallbackHandler.authorization_code is None
@@ -324,7 +327,7 @@ def oauth_authenticate() -> SubscriptionAuth:
     if not _OAuthCallbackHandler.authorization_code:
         raise ValueError("No authorization code received")
 
-    print("   Exchanging authorization code for tokens...")
+    print("   Exchanging authorization code for tokens...", flush=True)
     token_response = requests.post(
         OAUTH_TOKEN_URL,
         data={
@@ -362,7 +365,7 @@ def oauth_authenticate() -> SubscriptionAuth:
 
     _save_tokens(auth)
 
-    print("✅ Authentication successful!")
+    print("✅ Authentication successful!", flush=True)
     return auth
 
 

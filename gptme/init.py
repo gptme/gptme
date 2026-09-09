@@ -145,8 +145,11 @@ def init_model(
     # fail with actionable guidance
     if not model:
         raise ValueError(
-            "No API key found, couldn't auto-detect provider.\n\n"
-            "To get started, set an API key for one of these providers:\n"
+            "No provider configured, couldn't auto-detect model.\n\n"
+            "Sign in with a subscription you already pay for:\n"
+            "  gptme-auth openai-subscription    # ChatGPT Plus/Pro\n"
+            "  gptme-auth grok-subscription      # SuperGrok (reuses grok CLI login)\n\n"
+            "Or set an API key:\n"
             "  export ANTHROPIC_API_KEY='sk-ant-...'\n"
             "  export OPENAI_API_KEY='sk-...'\n"
             "  export OPENROUTER_API_KEY='sk-or-...'\n\n"

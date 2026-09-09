@@ -53,6 +53,8 @@ This will start an interactive chat session with the AI assistant.
 
 If you haven't set a :doc:`LLM provider <providers>` API key in the environment or :doc:`configuration <config>`, you will be prompted for one which will be saved in the configuration file.
 
+If you already subscribe to ChatGPT Plus/Pro or SuperGrok, you can sign in directly — no separate API key purchase required. See :ref:`subscriptions` below.
+
 For detailed usage instructions, see :doc:`usage`.
 
 You can also try the :doc:`examples`.
@@ -83,6 +85,32 @@ Here are some compelling examples to get you started:
 
     # Resume conversations
     gptme -r
+
+.. _subscriptions:
+
+Subscriptions (ChatGPT Plus/Pro, SuperGrok)
+--------------------------------------------
+
+If you already pay for a ChatGPT Plus/Pro or SuperGrok subscription, gptme can
+use it directly — no separate API key purchase needed.
+
+.. code-block:: bash
+
+    # Authenticate with your ChatGPT Plus/Pro subscription (opens browser)
+    gptme-auth openai-subscription
+
+    # Authenticate with your SuperGrok subscription (reuses grok CLI token)
+    gptme-auth grok-subscription
+
+After sign-in, gptme automatically uses the subscription as the default provider.
+You can also reach the same flow from the interactive setup wizard:
+
+.. code-block:: bash
+
+    gptme-onboard
+
+See :doc:`providers` for the full list of supported subscription providers and
+per-model options.
 
 .. _local-models:
 
