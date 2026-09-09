@@ -246,6 +246,7 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
         ("deepseek", "deepseek-chat"),
         ("groq", "llama-3.3-70b-versatile"),
         ("openai-subscription", "gpt-5.6-sol"),
+        ("grok-subscription", "grok-4.6"),
     ],
 )
 def test_get_recommended_model(provider, expected_model):

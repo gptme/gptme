@@ -461,6 +461,44 @@ class TestInitModelParsing:
     @patch("gptme.init.set_default_model")
     @patch("gptme.init.get_model")
     @patch("gptme.init.init_llm")
+    @patch("gptme.init.guess_provider_from_config", return_value="grok-subscription")
+    @patch("gptme.init.is_custom_provider", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_grok_subscription_auto_detect_uses_recommended_model(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_custom,
+        mock_guess,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """Bare grok-subscription after auth must resolve grok-4.6, not raise.
+
+        Regression: get_recommended_model() had no grok-subscription case, so
+        `gptme` after `gptme-auth grok-subscription` failed with
+        "Provider 'grok-subscription' requires specifying a model".
+        """
+        from gptme.init import init_model
+
+        config = MagicMock()
+        config.user.models.default = None
+        config.chat = MagicMock(model=None)
+        config.get_env.return_value = None
+        mock_config_fn.return_value = config
+        mock_get_model.return_value = dummy_model_meta
+
+        init_model(model=None, interactive=False)
+
+        mock_init_llm.assert_called_once_with("grok-subscription")
+        mock_get_model.assert_called_once_with("grok-subscription/grok-4.6")
+
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
     @patch("gptme.init.get_recommended_model")
     @patch("gptme.init.is_custom_provider", return_value=False)
     @patch("gptme.init.get_config")
@@ -934,8 +972,10 @@ class TestInitModelConfig:
         config.get_env.return_value = None
         mock_config_fn.return_value = config
 
-        with pytest.raises(ValueError, match="No API key found"):
+        with pytest.raises(ValueError, match="No provider configured") as exc:
             init_model(model=None, interactive=False)
+        assert "gptme-auth openai-subscription" in str(exc.value)
+        assert "gptme-auth grok-subscription" in str(exc.value)
 
     @patch("gptme.init.set_default_model")
     @patch("gptme.init.get_model")
@@ -1419,7 +1459,7 @@ class TestInitModelInteractive:
         config.get_env.return_value = None
         mock_config_fn.return_value = config
 
-        with pytest.raises(ValueError, match="No API key found"):
+        with pytest.raises(ValueError, match="No provider configured"):
             init_model(model=None, interactive=False)
 
         mock_ask.assert_not_called()

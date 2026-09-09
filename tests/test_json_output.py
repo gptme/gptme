@@ -397,7 +397,7 @@ class TestJSONRuntimeSuppression:
         monkeypatch.setattr(gptme_init, "set_default_model", lambda _model: None)
 
         # init_model raises ValueError when no keys are available
-        with pytest.raises(ValueError, match="No API key found"):
+        with pytest.raises(ValueError, match="No provider configured"):
             gptme_init.init_model(None, interactive=False)
 
         captured = capfd.readouterr()

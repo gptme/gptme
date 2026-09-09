@@ -402,6 +402,8 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         return "claude-sonnet-4-6"
     if provider == "xai":
         return "grok-4"
+    if provider == "grok-subscription":
+        return "grok-4.6"
     if provider == "gptme":
         return "claude-sonnet-4-6"
     if provider == "deepseek":
