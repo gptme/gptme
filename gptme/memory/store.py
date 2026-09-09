@@ -348,7 +348,7 @@ class MemoryStore:
         with _locked_root(root.path):
             policy = IndexPolicy.read(root.path)
             previous = (
-                parse_entry(path, scope=root.scope, strict=False)
+                parse_entry(path, scope=root.scope, strict=True)
                 if path.exists()
                 else MemoryEntry(name=slug, path=path, scope=root.scope)
             )

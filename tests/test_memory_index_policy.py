@@ -7,7 +7,14 @@ import pytest
 from click.testing import CliRunner
 
 from gptme.cli.util import main as util_main
-from gptme.memory import MemoryEntry, MemoryRoot, MemoryStore, parse_entry, recall
+from gptme.memory import (
+    MemoryEntry,
+    MemoryFrontmatterError,
+    MemoryRoot,
+    MemoryStore,
+    parse_entry,
+    recall,
+)
 
 
 def _store(root: Path) -> MemoryStore:
@@ -474,7 +481,7 @@ def test_managed_save_rolls_back_readonly_entry_after_index_failure(
 
 
 @pytest.mark.parametrize("managed", [False, True])
-def test_save_repairs_malformed_existing_yaml_without_losing_metadata(
+def test_save_rejects_malformed_existing_yaml_without_losing_metadata(
     tmp_path: Path, managed: bool
 ) -> None:
     store = _store(tmp_path)
@@ -490,22 +497,15 @@ def test_save_repairs_malformed_existing_yaml_without_losing_metadata(
     if managed:
         _policy(tmp_path, [])
         store.write_index()
-    # Compatibility reads remain lenient; mutation must not normalize away
-    # lifecycle/provenance from a file whose YAML cannot be parsed strictly.
+    # Compatibility reads remain lenient; mutation must refuse so that lifecycle
+    # fields (supersedes, keywords, provenance) are never silently discarded
+    # by the lossy _lenient_load parser. The user must fix the frontmatter
+    # with `gptme memory audit` before re-saving.
     readable = store.get("kept")
     assert readable is not None
     assert readable.status == "historical"
     assert readable.metadata["originSessionId"] == "source-session"
-    # save() should succeed even when the existing entry has malformed YAML:
-    # it reads leniently (preserving lifecycle/provenance), merges in the new
-    # content, and writes a strictly-valid replacement. This allows users to
-    # overwrite or repair legacy entries via the normal save path.
-    saved_path = store.save("kept", "Replacement description", "Replacement body")
-    assert saved_path is not None
-    updated = store.get("kept")
-    assert updated is not None
-    assert updated.description == "Replacement description"
-    assert updated.status == "historical", "status must be preserved from legacy entry"
-    assert updated.metadata.get("originSessionId") == "source-session", (
-        "originSessionId must survive lenient read → strict write"
-    )
+    before = _snapshot(tmp_path)
+    with pytest.raises(MemoryFrontmatterError, match="invalid YAML"):
+        store.save("kept", "Replacement description", "Replacement body")
+    assert _snapshot(tmp_path) == before
