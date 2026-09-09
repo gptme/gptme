@@ -512,7 +512,10 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-structure">Directory Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-loading-directories">Skill Loading Directories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#discovering-skills">Discovering Skills</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#invoking-skills-as-commands">Invoking Skills as Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#invoking-skills-as-commands">Invoking Skills as Commands</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#invocation-evidence">Invocation evidence</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>
@@ -760,6 +763,28 @@ Claude Code and Codex expose skills. Inside a chat (CLI, TUI, or server/WebUI),
 argument (curly braces are required for positional references to avoid
 ambiguity with literal dollar amounts like <code class="docutils literal notranslate"><span class="pre">$100</span></code> in skill prose).
 Use <code class="docutils literal notranslate"><span class="pre">/skills</span> <span class="pre">read</span> <span class="pre">&lt;name&gt;</span></code> to view a skill without invoking it.</p>
+<section id="invocation-evidence">
+<h3>Invocation evidence<a class="headerlink" href="#invocation-evidence" title="Link to this heading">#</a></h3>
+<p>Explicit slash-command invocations append versioned records to
+<code class="docutils literal notranslate"><span class="pre">&lt;conversation&gt;/skill-events.jsonl</span></code>. Each invocation gets a UUID, carried through
+the prompt queue into message metadata as <code class="docutils literal notranslate"><span class="pre">skill_invocation_id</span></code>. The ledger
+records skill identity, source path, invocation surface, run identity, timestamp,
+and phase. It does not record arguments or skill contents. Ambient skill matching
+and injection do not create invocation events.</p>
+<p><code class="docutils literal notranslate"><span class="pre">started</span></code> means the prompt was built; <code class="docutils literal notranslate"><span class="pre">queued</span></code> means it was admitted to the
+queue. Queue errors record <code class="docutils literal notranslate"><span class="pre">failed</span></code> with the exception class, without its text.
+Neither admission nor a normal turn/session hook establishes skill completion.
+The explicit <code class="docutils literal notranslate"><span class="pre">record_skill_phase</span></code> API accepts a later <code class="docutils literal notranslate"><span class="pre">completed</span></code> or <code class="docutils literal notranslate"><span class="pre">failed</span></code>
+event from a caller with execution evidence; terminal transitions are idempotent.</p>
+<p>On CLI exit, unresolved invocations from that run become <code class="docutils literal notranslate"><span class="pre">abandoned</span></code>. This means
+no completion evidence was recorded, and does not establish that the skill’s work
+failed. Nested and resumed runs have separate UUIDs. Server/TUI terminal adapters,
+automatic completion evidence, abrupt-process recovery, cost attribution, and OTEL
+metrics remain future work; server/TUI command records currently retain the
+conversation path as their session identity. Storage failures are logged and never
+prevent skill execution. Malformed ledgers are preserved and refuse further writes
+until repaired, rather than risking duplicate terminal events.</p>
+</section>
 </section>
 <section id="creating-skills">
 <h2>Creating Skills<a class="headerlink" href="#creating-skills" title="Link to this heading">#</a></h2>
@@ -998,7 +1023,10 @@ For bundled utilities, mention &quot;python-repl&quot; to load helper functions.
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-structure">Directory Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-loading-directories">Skill Loading Directories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#discovering-skills">Discovering Skills</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#invoking-skills-as-commands">Invoking Skills as Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#invoking-skills-as-commands">Invoking Skills as Commands</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#invocation-evidence">Invocation evidence</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>
