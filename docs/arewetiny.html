@@ -553,20 +553,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     114443 | gptme.cli.main
-     127838 |           gptme.tools
-     147477 |         gptme.config.cli_setup
-     178683 |       gptme.config
-     185636 |     gptme.llm
-     274415 |   gptme.commands
-     307917 |     playwright.sync_api._generated
-     316702 |   playwright.sync_api
-     329074 | gptme.tools._browser_playwright
-     387857 | gptme.chat
+      82946 | gptme.cli.main
+      83063 |           gptme.tools
+      94678 |         gptme.config.cli_setup
+     114188 |       gptme.config
+     119436 |     gptme.llm
+     146998 |     playwright.sync_api._generated
+     153822 |   playwright.sync_api
+     163564 | gptme.tools._browser_playwright
+     185843 |   gptme.commands
+     276446 | gptme.chat
 
-real	0m1.752s
-user	0m1.463s
-sys	0m0.186s
+real	0m1.241s
+user	0m1.072s
+sys	0m0.159s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -574,21 +574,23 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     140.1 ms ±   6.6 ms    [User: 119.9 ms, System: 20.2 ms]
-  Range (min … max):   135.2 ms … 157.5 ms    10 runs
+  Time (mean ± σ):     108.1 ms ±   1.9 ms    [User: 90.3 ms, System: 17.8 ms]
+  Range (min … max):   105.3 ms … 110.4 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     578.8 ms ±  16.8 ms    [User: 509.8 ms, System: 68.7 ms]
-  Range (min … max):   563.3 ms … 618.9 ms    10 runs
+  Time (mean ± σ):     424.4 ms ±   2.3 ms    [User: 370.0 ms, System: 54.2 ms]
+  Range (min … max):   421.8 ms … 428.2 ms    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      1.023 s ±  0.039 s    [User: 0.826 s, System: 0.537 s]
-  Range (min … max):    0.990 s …  1.100 s    10 runs
+  Time (mean ± σ):     933.0 ms ± 248.1 ms    [User: 607.5 ms, System: 497.2 ms]
+  Range (min … max):   786.6 ms … 1519.8 ms    10 runs
+ 
+  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the &#39;--warmup&#39; or &#39;--prepare&#39; options.
  
 Summary
   import gptme.cli.main ran
-    4.13 ± 0.23 times faster than gptme --help
-    7.30 ± 0.44 times faster than full start/exit cycle
+    3.92 ± 0.07 times faster than gptme --help
+    8.63 ± 2.30 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -603,7 +605,7 @@ cloc gptme/*.py gptme/llm/*.py gptme/util/*.py gptme/tools/base.py gptme/tools/_
 -----------------------------------------------------------------------------------------------
 File                                                        blank        comment           code
 -----------------------------------------------------------------------------------------------
-gptme/llm/llm_openai.py                                       319            439           1640
+gptme/llm/llm_openai.py                                       326            464           1704
 gptme/util/gh.py                                              243            301           1213
 gptme/llm/llm_anthropic.py                                    225            325            959
 gptme/tools/base.py                                           184            273            886
@@ -706,7 +708,7 @@ gptme/__main__.py                                               2              0
 gptme/util/stdio.py                                             8              9             12
 gptme/llm/constants.py                                          2              6              5
 -----------------------------------------------------------------------------------------------
-SUM:                                                         5941           7926          24670
+SUM:                                                         5948           7951          24734
 -----------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -720,7 +722,7 @@ cloc gptme/llm/*.py --by-file --hide-rate --quiet | tail -n +2
 -----------------------------------------------------------------------------------------------
 File                                                        blank        comment           code
 -----------------------------------------------------------------------------------------------
-gptme/llm/llm_openai.py                                       319            439           1640
+gptme/llm/llm_openai.py                                       326            464           1704
 gptme/llm/llm_anthropic.py                                    225            325            959
 gptme/llm/__init__.py                                         159            292            824
 gptme/llm/llm_openai_subscription.py                          125            122            517
@@ -740,7 +742,7 @@ gptme/llm/llm_mock.py                                          16             22
 gptme/llm/retry_policy.py                                      13             22             28
 gptme/llm/constants.py                                          2              6              5
 -----------------------------------------------------------------------------------------------
-SUM:                                                         1373           1834           6502
+SUM:                                                         1380           1859           6566
 -----------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -904,7 +906,7 @@ File                                                             blank        co
 tests/test_subagent_unit.py                                       1284            626           4678
 tests/test_server_v2.py                                            844            326           3550
 tests/test_tools_subagent.py                                       848            440           2761
-tests/test_llm_openai.py                                           634            371           2524
+tests/test_llm_openai.py                                           683            411           2737
 tests/test_util_review.py                                          478            329           2035
 tests/test_server_v2_sessions.py                                   267            225           1693
 tests/test_init.py                                                 258            147           1599
@@ -1052,6 +1054,7 @@ tests/context/test_adaptive_compressor.py                           58          
 tests/test_eval_swebench.py                                         78             41            294
 tests/test_plugins.py                                              110             85            292
 tests/test_chats_stats.py                                           72             30            291
+tests/test_llm_openai_reasoning_effort.py                           81             19            289
 tests/test_execenv.py                                               76             54            288
 tests/lessons/test_wildcard_matching.py                            114            125            287
 tests/test_cc_memory.py                                             68             65            284
@@ -1059,7 +1062,6 @@ tests/test_server_a2a.py                                            64          
 tests/test_hooks_server_confirm.py                                  78             31            282
 tests/test_server_v2_auto_stepping.py                               56             50            281
 tests/test_tools_patch_anchored.py                                  65             26            278
-tests/test_llm_openai_reasoning_effort.py                           78             13            275
 tests/test_computer_video_frames_cli.py                             67             12            274
 tests/test_tools_restart.py                                         72             49            274
 tests/test_util_tokens.py                                          129             71            273
@@ -1296,7 +1298,7 @@ tests/test_llm_summarize_terminal_projection.py                      9          
 tests/test_screenshot.py                                             9              6             15
 tests/retry_compat.py                                                8             22              6
 ----------------------------------------------------------------------------------------------------
-SUM:                                                             38932          26278         136016
+SUM:                                                             38984          26324         136243
 ----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1340,13 +1342,13 @@ tests/test_subagent_unit.py                                                     
 tests/test_server_v2.py                                                                       844            326           3550
 gptme/server/api_v2.py                                                                        477            425           2824
 tests/test_tools_subagent.py                                                                  848            440           2761
-tests/test_llm_openai.py                                                                      634            371           2524
+tests/test_llm_openai.py                                                                      683            411           2737
 tests/test_util_review.py                                                                     478            329           2035
 gptme/tools/shell.py                                                                          313            464           1761
 gptme/cli/cmd_computer.py                                                                     252            296           1726
+gptme/llm/llm_openai.py                                                                       326            464           1704
 tests/test_server_v2_sessions.py                                                              267            225           1693
 gptme/tools/computer.py                                                                       432            864           1659
-gptme/llm/llm_openai.py                                                                       319            439           1640
 tests/test_init.py                                                                            258            147           1599
 tests/test_cli.py                                                                             427            168           1571
 gptme/cli/main.py                                                                             228            303           1458
@@ -1616,6 +1618,7 @@ tests/test_eval_swebench.py                                                     
 gptme/commands/llm.py                                                                          60             55            292
 tests/test_plugins.py                                                                         110             85            292
 tests/test_chats_stats.py                                                                      72             30            291
+tests/test_llm_openai_reasoning_effort.py                                                      81             19            289
 gptme/server/preview_proxy_api.py                                                              82            125            288
 tests/test_execenv.py                                                                          76             54            288
 gptme/commands/snapshot.py                                                                     43             32            287
@@ -1631,7 +1634,6 @@ tests/test_tools_patch_anchored.py                                              
 gptme/llm/validate.py                                                                          43             64            277
 gptme/tools/save.py                                                                            63             63            276
 gptme/cli/onboard.py                                                                           73             79            275
-tests/test_llm_openai_reasoning_effort.py                                                      78             13            275
 tests/test_computer_video_frames_cli.py                                                        67             12            274
 tests/test_tools_restart.py                                                                    72             49            274
 gptme/cli/cmd_memory.py                                                                        37             27            273
@@ -2213,7 +2215,7 @@ gptme/dataset/__init__.py                                                       
 gptme/oauth/__init__.py                                                                         1              4              0
 gptme/tui/__init__.py                                                                           4             12              0
 -------------------------------------------------------------------------------------------------------------------------------
-SUM:                                                                                        68040          64572         253293
+SUM:                                                                                        68099          64643         253584
 -------------------------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -2228,8 +2230,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 
 Project Overview:
   Files: 880
-  Total blocks: 18979
-  Average complexity: 3.7117867116286423
+  Total blocks: 18998
+  Average complexity: 3.7112327613432994
 
 Most Complex Functions (D+):
   gptme/plugins/__init__.py
@@ -2397,9 +2399,9 @@ Most Complex Functions (D+):
   gptme/llm/llm_openai.py
       F 1076:0 chat - E
       F 520:0 init - E
-      F 1481:0 stream - D
+      F 1551:0 stream - E
       F 793:0 _handle_openai_transient_error - D
-      F 1299:0 extra_body - D
+      F 1350:0 extra_body - D
   gptme/llm/llm_anthropic.py
       F 1362:0 _prepare_messages_for_api - D
       F 752:0 chat - D
@@ -2488,14 +2490,14 @@ Largest Files (&gt;300 SLOC):
   3550 tests/test_server_v2.py
   2824 gptme/server/api_v2.py
   2766 tests/test_tools_subagent.py
-  2535 tests/test_llm_openai.py
+  2748 tests/test_llm_openai.py
   2252 tests/test_eval_behavioral.py
   2075 tests/test_util_review.py
   1939 gptme/tools/computer.py
   1856 gptme/tools/shell.py
   1727 gptme/cli/cmd_computer.py
+  1704 gptme/llm/llm_openai.py
   1695 tests/test_server_v2_sessions.py
-  1640 gptme/llm/llm_openai.py
   1599 tests/test_init.py
   1580 tests/test_cli.py
   1568 tests/test_config.py
@@ -3030,16 +3032,16 @@ Clone found (python)
    llm/llm_mock.py [62:11 - 70:5]
 Clone found (python)
  - llm/llm_openai.py [1076:9 - 1084:5] (9 lines, 52 tokens)
-   llm/llm_openai.py [1481:11 - 1489:5]
+   llm/llm_openai.py [1551:11 - 1559:5]
 Clone found (python)
  - llm/llm_openai.py [1091:5 - 1100:84] (10 lines, 50 tokens)
-   llm/llm_openai.py [1496:5 - 1505:84]
+   llm/llm_openai.py [1566:5 - 1575:84]
 Clone found (python)
  - llm/llm_openai.py [1166:5 - 1180:82] (15 lines, 93 tokens)
-   llm/llm_openai.py [1526:5 - 1540:82]
+   llm/llm_openai.py [1596:5 - 1610:82]
 Clone found (python)
- - llm/llm_openai.py [1993:48 - 2000:52] (8 lines, 50 tokens)
-   llm/llm_openai.py [2010:32 - 2017:52]
+ - llm/llm_openai.py [2089:48 - 2096:52] (8 lines, 50 tokens)
+   llm/llm_openai.py [2106:32 - 2113:52]
 Clone found (python)
  - llm/llm_openai_models.py [326:20 - 335:7] (10 lines, 51 tokens)
    llm/llm_openai_models.py [345:14 - 354:7]
@@ -3308,7 +3310,7 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 482         │ 3220         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 485            │ 186421      │ 884339       │ 176          │ 2132 (1.14%)     │ 12204 (1.38%)     │
+│ python     │ 485            │ 186517      │ 884786       │ 176          │ 2132 (1.14%)     │ 12204 (1.38%)     │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ text       │ 3              │ 915         │ 330          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -3316,10 +3318,10 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 3              │ 750         │ 1503         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 518            │ 193648      │ 912469       │ 176          │ 2132 (1.10%)     │ 12204 (1.34%)     │
+│ Total:     │ 518            │ 193744      │ 912916       │ 176          │ 2132 (1.10%)     │ 12204 (1.34%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 176 clones.
-time: 401.512ms
+time: 336.958ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
