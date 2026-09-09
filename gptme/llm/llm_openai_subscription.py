@@ -710,7 +710,16 @@ def stream(
         usage_data["cache_read_tokens"] = counts.cache_read_tokens
     if isinstance(counts.cache_creation_tokens, int):
         usage_data["cache_creation_tokens"] = counts.cache_creation_tokens
-    return cast(MessageMetadata, {"usage": usage_data}) if usage_data else None
+    if isinstance(counts.reasoning_tokens, int):
+        usage_data["reasoning_tokens"] = counts.reasoning_tokens
+    if not usage_data:
+        return None
+    # Codex always sends an explicit effort (model ``:level`` suffix or the
+    # "medium" default); record it so logs show what was requested.
+    _, reasoning_effort = _codex_model_and_effort(model)
+    return cast(
+        MessageMetadata, {"usage": usage_data, "reasoning_effort": reasoning_effort}
+    )
 
 
 def chat(

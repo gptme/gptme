@@ -899,3 +899,36 @@ def test_message_concat_preserves_images():
     assert len(merged.files) == 1
     assert Path("/path/to/image.png") in merged.files
     assert merged.file_hashes.get("/path/to/image.png") == "abc123"
+
+
+def test_message_metadata_reasoning_fields_roundtrip():
+    """reasoning_effort / usage.reasoning_tokens survive dict + JSON round trips."""
+    import json
+
+    from gptme.message import Message, MessageMetadata
+
+    meta: MessageMetadata = {
+        "model": "openai/gpt-5",
+        "reasoning_effort": "high",
+        "usage": {"input_tokens": 10, "output_tokens": 40, "reasoning_tokens": 25},
+    }
+    from dateutil.parser import isoparse
+
+    msg = Message("assistant", "ok", metadata=meta)
+    d = json.loads(json.dumps(msg.to_dict()))
+    d["timestamp"] = isoparse(d["timestamp"])
+    assert Message(**d).metadata == meta
+    restored = Message.from_toml(msg.to_toml())
+    assert restored.metadata == meta
+    assert restored.metadata["reasoning_effort"] == "high"
+    assert restored.metadata["usage"]["reasoning_tokens"] == 25
+
+
+def test_message_metadata_migration_nests_reasoning_tokens():
+    from gptme.message import _migrate_metadata
+
+    migrated = _migrate_metadata(
+        {"model": "openai/gpt-5", "output_tokens": 40, "reasoning_tokens": 25}
+    )
+    assert migrated["usage"] == {"output_tokens": 40, "reasoning_tokens": 25}
+    assert "reasoning_tokens" not in migrated

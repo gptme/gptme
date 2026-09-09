@@ -282,6 +282,31 @@ def _resolve_effort_level() -> _EffortLevel | None:
     return _normalize_effort_level(effort)
 
 
+def _effective_effort_level(*, use_thinking: bool) -> _EffortLevel | None:
+    """Return the effort level that actually shaped the request, or ``None``.
+
+    The level is effective whenever thinking is on and ``GPTME_THINKING_EFFORT``
+    is set: on SDKs with ``output_config`` it is sent verbatim, on older SDKs
+    it selects the ``budget_tokens`` value. With thinking off (model, tools,
+    or ``max_tokens`` clamping disabled it) the level had no effect.
+    """
+    if not use_thinking:
+        return None
+    return _resolve_effort_level()
+
+
+def _stamp_reasoning_effort(
+    metadata: MessageMetadata | None, model: str, level: _EffortLevel | None
+) -> MessageMetadata | None:
+    """Attach ``reasoning_effort`` to message metadata when a level applied."""
+    if level is None:
+        return metadata
+    if metadata is None:
+        metadata = {"model": model}
+    metadata["reasoning_effort"] = level
+    return metadata
+
+
 class _OutputConfig(TypedDict):
     effort: _EffortLevel
 
@@ -773,7 +798,11 @@ def chat(
         timeout=60,
     )
     content = response.content
-    metadata = _record_usage(response.usage, model)
+    metadata = _stamp_reasoning_effort(
+        _record_usage(response.usage, model),
+        model,
+        _effective_effort_level(use_thinking=use_thinking),
+    )
 
     parsed_block = []
     for block in content:
@@ -979,7 +1008,9 @@ def stream(
                     pass
 
     # Return the captured metadata (accessible via StopIteration.value)
-    return captured_metadata
+    return _stamp_reasoning_effort(
+        captured_metadata, model, _effective_effort_level(use_thinking=use_thinking)
+    )
 
 
 def _extract_thinking_content(

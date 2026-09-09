@@ -199,12 +199,25 @@ def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
 
 
 def _record_usage(
-    usage, model: str, resolved_model: str | None = None
+    usage,
+    model: str,
+    resolved_model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> MessageMetadata | None:
-    """Record usage metrics as telemetry and return MessageMetadata."""
+    """Record usage metrics as telemetry and return MessageMetadata.
+
+    ``reasoning_effort`` is the effective level applied to the request (from
+    ``GPTME_THINKING_EFFORT``); it is stamped on the metadata so session logs
+    record how much reasoning was requested, not just how many tokens came back.
+    """
     if not usage:
-        if resolved_model:
-            return {"model": model, "resolved_model": resolved_model}
+        if resolved_model or reasoning_effort:
+            bare: MessageMetadata = {"model": model}
+            if resolved_model:
+                bare["resolved_model"] = resolved_model
+            if reasoning_effort:
+                bare["reasoning_effort"] = reasoning_effort
+            return bare
         return None
 
     counts = _extract_usage_token_counts(usage)
@@ -262,11 +275,15 @@ def _record_usage(
         usage_data["cache_read_tokens"] = cache_read_tokens
     if cache_creation_tokens is not None:
         usage_data["cache_creation_tokens"] = cache_creation_tokens
+    if counts.reasoning_tokens is not None:
+        usage_data["reasoning_tokens"] = counts.reasoning_tokens
 
     # Return MessageMetadata for attachment to Message
     metadata: MessageMetadata = {"model": model}
     if resolved_model:
         metadata["resolved_model"] = resolved_model
+    if reasoning_effort:
+        metadata["reasoning_effort"] = reasoning_effort
     if usage_data:
         metadata["usage"] = usage_data
     if cost > 0:
@@ -1024,6 +1041,7 @@ def chat(
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = _gptme_api_model(provider, model_meta, is_proxy, model, base_model)
+    reasoning_effort = _resolve_reasoning_effort(provider, model_meta)
 
     if _should_use_responses_api(provider, model_meta, client):
         instructions, input_items, responses_tools = (
@@ -1044,6 +1062,8 @@ def chat(
             response_kwargs["text"] = text_config
         if max_tokens is not None:
             response_kwargs["max_output_tokens"] = max_tokens
+        if reasoning_effort is not None:
+            response_kwargs["reasoning"] = {"effort": reasoning_effort}
         if not is_reasoner:
             response_kwargs["temperature"] = _get_temperature(
                 provider, model_meta, temperature=temperature
@@ -1053,7 +1073,9 @@ def chat(
                 response_kwargs["top_p"] = top_p_value
 
         response = client.responses.create(**response_kwargs)
-        metadata = _record_usage(response.usage, model)
+        metadata = _record_usage(
+            response.usage, model, reasoning_effort=reasoning_effort
+        )
 
         result: list[str] = []
         for item in response.output:
@@ -1114,7 +1136,12 @@ def chat(
         else None
     )
     _resolved = _make_resolved_model(model, _or_provider) if _or_provider else None
-    metadata = _record_usage(response.usage, model, resolved_model=_resolved)
+    metadata = _record_usage(
+        response.usage,
+        model,
+        resolved_model=_resolved,
+        reasoning_effort=reasoning_effort,
+    )
     if not response.choices:
         raise ValueError("OpenAI API returned empty choices list")
     choice = response.choices[0]
@@ -1158,9 +1185,58 @@ def extra_headers(provider: Provider) -> dict[str, str]:
     return headers
 
 
+ENV_THINKING_EFFORT = "GPTME_THINKING_EFFORT"
 _OPENROUTER_REASONING_DEFAULT = 20000
 _VALID_QUANTIZATIONS = {"fp16", "bf16", "fp8", "int8", "int4", "unknown"}
 _KIMI_K3_REASONING_EFFORTS = {"low", "high", "max"}
+# OpenAI ``reasoning_effort`` (Chat Completions) / ``reasoning.effort``
+# (Responses API). Mirrors the openai SDK's ``ReasoningEffort`` literal; which
+# subset a given model accepts is enforced server-side (``none`` needs
+# gpt-5.1+, ``xhigh`` gpt-5.2+ / codex-max, ``max`` the pro tier).
+_OPENAI_REASONING_EFFORTS = {
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+}
+# OpenRouter unified ``reasoning.effort`` levels, translated per upstream.
+# See: https://openrouter.ai/docs/use-cases/reasoning-tokens
+_OPENROUTER_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+
+
+def _resolve_reasoning_effort(provider: Provider, model_meta: ModelMeta) -> str | None:
+    """Return the validated ``GPTME_THINKING_EFFORT`` level for this request, or ``None``.
+
+    ``None`` means the request is left untouched: the env var is unset, the
+    provider has no effort parameter, or the model does not support reasoning
+    (sending an effort to a non-reasoning model is a 400). The returned level
+    is what gets stamped on the message as ``metadata["reasoning_effort"]``.
+
+    Raises ``ValueError`` when the level is not one the provider accepts.
+    """
+    effort = get_config().get_env(ENV_THINKING_EFFORT)
+    if effort is None:
+        return None
+    effort = effort.strip().lower()
+    if provider == "moonshot" and model_meta.model == "kimi-k3":
+        valid_set, label = _KIMI_K3_REASONING_EFFORTS, "Kimi K3"
+    elif not model_meta.supports_reasoning:
+        return None
+    elif provider == "openai":
+        valid_set, label = _OPENAI_REASONING_EFFORTS, "OpenAI"
+    elif provider == "openrouter":
+        valid_set, label = _OPENROUTER_REASONING_EFFORTS, "OpenRouter"
+    else:
+        return None
+    if effort not in valid_set:
+        valid = ", ".join(sorted(valid_set))
+        raise ValueError(
+            f"Invalid {label} reasoning effort: {effort!r}. Must be one of: {valid}."
+        )
+    return effort
 
 
 def extra_body(
@@ -1169,22 +1245,20 @@ def extra_body(
     """Return extra body for the OpenAI API based on the model."""
     body: dict[str, Any] = {}
     _maybe_apply_verbosity(body, model_meta)
-    if provider == "moonshot" and model_meta.model == "kimi-k3":
-        effort = get_config().get_env("GPTME_THINKING_EFFORT")
-        if effort is not None:
-            effort = effort.strip().lower()
-            if effort not in _KIMI_K3_REASONING_EFFORTS:
-                valid = ", ".join(sorted(_KIMI_K3_REASONING_EFFORTS))
-                raise ValueError(
-                    f"Invalid Kimi K3 reasoning effort: {effort!r}. "
-                    f"Must be one of: {valid}."
-                )
-            body["reasoning_effort"] = effort
+    effort = _resolve_reasoning_effort(provider, model_meta)
+    if effort is not None and provider in ("openai", "moonshot"):
+        # Chat Completions parameter (OpenAI reasoning models, Kimi K3).
+        # The Responses API path sets ``reasoning.effort`` in chat()/stream().
+        body["reasoning_effort"] = effort
     if provider == "openrouter":
         # Enable detailed usage info including cached tokens
         # See: https://openrouter.ai/docs/guides/usage-accounting
         body["usage"] = {"include": True}
-        if model_meta.supports_reasoning:
+        if model_meta.supports_reasoning and effort is not None:
+            # Named effort replaces the fixed token budget; OpenRouter derives
+            # the budget from max_tokens per upstream provider.
+            body["reasoning"] = {"effort": effort}
+        elif model_meta.supports_reasoning:
             reasoning_budget = _OPENROUTER_REASONING_DEFAULT
             if max_tokens is not None:
                 available = max_tokens - _MIN_RESPONSE_TOKENS
@@ -1310,6 +1384,9 @@ def _stream_responses(
         kwargs["text"] = text_config
     if max_tokens is not None:
         kwargs["max_output_tokens"] = max_tokens
+    reasoning_effort = _resolve_reasoning_effort(provider, model_meta)
+    if reasoning_effort is not None:
+        kwargs["reasoning"] = {"effort": reasoning_effort}
     if not is_reasoner:
         kwargs["temperature"] = _get_temperature(
             provider, model_meta, temperature=temperature
@@ -1322,11 +1399,18 @@ def _stream_responses(
 
     def _capture_usage(usage: Any) -> None:
         nonlocal captured_metadata
-        captured_metadata = _record_usage(usage, model)
+        captured_metadata = _record_usage(
+            usage, model, reasoning_effort=reasoning_effort
+        )
 
     stream = client.responses.create(**kwargs)
     yield from _stream_responses_events(stream, usage_callback=_capture_usage)
 
+    if captured_metadata is None and reasoning_effort is not None:
+        # No usage event arrived; still record what was requested.
+        captured_metadata = _record_usage(
+            None, model, reasoning_effort=reasoning_effort
+        )
     return captured_metadata
 
 
@@ -1391,6 +1475,7 @@ def stream(
         optional_kwargs["response_format"] = response_format
     if max_tokens is not None:
         optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
+    reasoning_effort = _resolve_reasoning_effort(provider, model_meta)
 
     _stream_obj = client.chat.completions.create(
         model=api_model.split("@")[0],
@@ -1414,7 +1499,12 @@ def stream(
             _or_stream_provider = None
         if _or_stream_provider:
             _or_resolved = _make_resolved_model(model, _or_stream_provider)
-            captured_metadata = _record_usage(None, model, resolved_model=_or_resolved)
+            captured_metadata = _record_usage(
+                None,
+                model,
+                resolved_model=_or_resolved,
+                reasoning_effort=reasoning_effort,
+            )
 
     for chunk_raw in _stream_obj:
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
@@ -1430,7 +1520,10 @@ def stream(
         # and capture metadata for message attachment
         if hasattr(chunk, "usage") and chunk.usage:
             captured_metadata = _record_usage(
-                chunk.usage, model, resolved_model=_or_resolved
+                chunk.usage,
+                model,
+                resolved_model=_or_resolved,
+                reasoning_effort=reasoning_effort,
             )
 
         if not chunk.choices:
@@ -1482,6 +1575,11 @@ def stream(
 
     logger.debug(f"Stop reason: {stop_reason}")
 
+    if captured_metadata is None and reasoning_effort is not None:
+        # No usage chunk arrived; still record what was requested.
+        captured_metadata = _record_usage(
+            None, model, reasoning_effort=reasoning_effort
+        )
     # Return the captured metadata (accessible via StopIteration.value)
     return captured_metadata
 

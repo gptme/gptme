@@ -732,3 +732,25 @@ def test_codex_session_id_prefers_server_context_over_telemetry():
         clear_conversation_context()
 
     assert server != cli
+
+
+def test_stream_records_reasoning_tokens_and_effort():
+    """Codex usage carries output_tokens_details.reasoning_tokens; effort is always explicit."""
+    _, metadata = _drain_stream(
+        [
+            {
+                "type": "response.done",
+                "response": {
+                    "usage": {
+                        "input_tokens": 200,
+                        "output_tokens": 75,
+                        "output_tokens_details": {"reasoning_tokens": 60},
+                    }
+                },
+            }
+        ]
+    )
+    assert metadata is not None
+    assert metadata["usage"]["reasoning_tokens"] == 60
+    # _drain_stream uses bare "gpt-5.4" → default Codex effort
+    assert metadata["reasoning_effort"] == "medium"

@@ -65,6 +65,7 @@ class UsageTokenCounts:
     cache_read_tokens: int | None
     cache_creation_tokens: int | None
     total_tokens: int | None
+    reasoning_tokens: int | None = None
 
 
 def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
@@ -450,6 +451,19 @@ def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
             else None
         )
     total_tokens = _obj_get(usage, "total_tokens", None)
+    # Reasoning tokens: Chat Completions nests them under
+    # completion_tokens_details, the Responses API under output_tokens_details.
+    # OpenRouter (with usage accounting) mirrors the Chat Completions shape.
+    output_details = _obj_get(usage, "completion_tokens_details", None)
+    if output_details is None:
+        output_details = _obj_get(usage, "output_tokens_details", None)
+    reasoning_tokens = (
+        _obj_get(output_details, "reasoning_tokens", None)
+        if output_details is not None
+        else None
+    )
+    if not isinstance(reasoning_tokens, int):
+        reasoning_tokens = None
 
     if isinstance(prompt_tokens, int):
         cache_read = cache_read_tokens if isinstance(cache_read_tokens, int) else 0
@@ -466,4 +480,5 @@ def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
         cache_read_tokens=cache_read_tokens,
         cache_creation_tokens=cache_creation_tokens,
         total_tokens=total_tokens,
+        reasoning_tokens=reasoning_tokens,
     )

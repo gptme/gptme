@@ -79,6 +79,11 @@ class UsageData(TypedDict, total=False):
     output_tokens: int
     cache_read_tokens: int
     cache_creation_tokens: int
+    # Reasoning/thinking tokens, when the provider reports them separately
+    # (OpenAI ``completion_tokens_details.reasoning_tokens`` /
+    # ``output_tokens_details.reasoning_tokens``, OpenRouter usage accounting).
+    # Anthropic bills thinking inside ``output_tokens`` and does not split it out.
+    reasoning_tokens: int
 
 
 class ArtifactDescriptor(TypedDict, total=False):
@@ -169,6 +174,10 @@ class MessageMetadata(TypedDict, total=False):
     resolved_model: str
     cost: float  # Cost in USD
     usage: UsageData
+    # Effective reasoning effort level applied to the request (e.g. "high"),
+    # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
+    # actually shaped the request. Absent means the provider default applied.
+    reasoning_effort: str
     timings: MessageTimings  # Per-step timing breakdown (ttft_ms, gen_ms, tool_ms, …)
     voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
@@ -183,6 +192,7 @@ _TOKEN_KEYS = (
     "output_tokens",
     "cache_read_tokens",
     "cache_creation_tokens",
+    "reasoning_tokens",
 )
 
 

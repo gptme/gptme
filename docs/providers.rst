@@ -45,6 +45,60 @@ You can list the models known to gptme using ``gptme '/models' - '/exit'``.
 Which tool format a model performs best with also varies by provider and model —
 see :doc:`tool-formats` for how to choose one.
 
+.. _reasoning-effort:
+
+Reasoning effort
+----------------
+
+Reasoning models accept a named effort level that trades latency and cost for
+more thinking. gptme exposes one knob, ``GPTME_THINKING_EFFORT``, and maps it
+to each provider's parameter:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Provider
+     - Request parameter
+     - Accepted levels
+   * - Anthropic
+     - ``thinking.budget_tokens`` (and ``output_config.effort`` on SDK >= 0.77)
+     - ``low``, ``medium``, ``high``, ``xhigh``, ``max``
+   * - OpenAI (Chat Completions)
+     - ``reasoning_effort``
+     - ``none``, ``minimal``, ``low``, ``medium``, ``high``, ``xhigh``, ``max``
+   * - OpenAI (Responses API)
+     - ``reasoning.effort``
+     - same as above
+   * - OpenRouter
+     - ``reasoning.effort`` (replaces the default ``reasoning.max_tokens`` budget)
+     - ``none``, ``minimal``, ``low``, ``medium``, ``high``, ``xhigh``
+   * - Moonshot Kimi K3
+     - ``reasoning_effort``
+     - ``low``, ``high``, ``max``
+   * - OpenAI Subscription (Codex)
+     - ``reasoning.effort`` from the model ``:level`` suffix (default ``medium``)
+     - ``low``, ``medium``, ``high``, ``xhigh``
+
+Which subset a specific model accepts (for example ``none`` on gpt-5.1+,
+``xhigh`` on gpt-5.2+) is enforced by the provider; gptme only rejects levels
+the provider never accepts. Models without reasoning support ignore the
+variable, so it is safe to leave set across model switches.
+
+.. code-block:: sh
+
+    GPTME_THINKING_EFFORT=high gptme "prove this" -m openai/gpt-5.5
+    GPTME_THINKING_EFFORT=low gptme "rename the variable" -m openrouter/deepseek/deepseek-r1
+
+Every assistant message records what happened, so session logs are not blind
+to effort:
+
+- ``metadata.reasoning_effort`` - the level that shaped the request (only set
+  when one applied; absent means the provider default).
+
+- ``metadata.usage.reasoning_tokens`` - reasoning tokens reported by the
+  provider (OpenAI, OpenRouter, Codex). Anthropic bills thinking inside
+  ``output_tokens`` and does not report it separately.
+
 Configuring credentials
 -----------------------
 
