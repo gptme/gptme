@@ -328,6 +328,7 @@ def serve(
         error_msg = str(e)
         is_config_error = (
             "No API key found" in error_msg
+            or "No provider configured" in error_msg
             or "No model specified" in error_msg
             or "not set in env or config" in error_msg
         )
