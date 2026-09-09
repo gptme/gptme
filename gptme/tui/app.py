@@ -1556,6 +1556,18 @@ class GptmeApp(App):
                         self._show_info,
                         f"Reached max steps limit ({max_steps}), stopping.",
                     )
+                    # Mirror the natural-exit check: a step-boundary exit on a
+                    # nonempty final response (no pending runnable tools) is a
+                    # completion, not an abandonment.
+                    if (
+                        response is not None
+                        and response.content.strip()
+                        and not any(
+                            t.is_runnable
+                            for t in ToolUse.iter_from_content(response.content)
+                        )
+                    ):
+                        outcome = "completed"
                     break
                 # continue stepping while the last assistant msg has runnable tools
                 if response is None:

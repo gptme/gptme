@@ -68,6 +68,7 @@ async def test_tui_real_command_has_one_terminal_event(tmp_path, monkeypatch):
         ("interrupt", "abandoned"),
         ("declined", "abandoned"),
         ("limit", "abandoned"),
+        ("limit_final", "completed"),
         ("empty", "abandoned"),
     ],
 )
@@ -105,12 +106,17 @@ def test_tui_terminal_evidence(tmp_path: Path, monkeypatch, mode, expected):
         elif mode in ("limit", "tools_then_reply") and calls == 1:
             yield Message("assistant", "```shell\necho 1\n```")
             yield Message("system", "1")
+        elif mode == "limit_final":
+            # Final response (no runnable tools) exactly at the step boundary.
+            yield Message("assistant", "Done.")
         else:
             # The tool-bearing step is not itself completion.
             assert read_skill_events(manager.logdir)[-1].phase == "queued"
             yield Message("assistant", "Done.")
 
     if mode == "limit":
+        monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    elif mode == "limit_final":
         monkeypatch.setenv("GPTME_MAX_STEPS", "1")
     monkeypatch.setattr("gptme.tui.app.step", reply)
     app._generation_body()
