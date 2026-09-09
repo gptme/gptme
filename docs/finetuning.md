@@ -50,16 +50,25 @@ The "agents don't retry" conclusion drawn from the first number was a parser
 artifact. Match both:
 
 ```python
-import re
+from gptme.tools.base import find_json_end, toolcall_re
 
 # fence form (markdown tool format):  ```shell\n<code>\n```
 # native form:                        @shell(abc123): {"command": "ls"}
-# Canonical parser: gptme.tools.base.toolcall_re
+# toolcall_re only finds the START of a call. Its `{.*` capture is DOTALL and
+# greedy, so group(3) is not JSON and finditer() swallows later parallel
+# calls in the same message. Resume from find_json_end after each match.
 # MCP tools are named server.tool (dots). Provider call IDs include
 # hyphens/colons (call_abc, toolu_..., call-123). `\w+` drops those.
-AT_TOOL_RE = re.compile(
-    r"^@([\w.]+)\(([\w\-:.]+)\):\s*({.*)", re.MULTILINE | re.DOTALL
-)
+
+def iter_native_calls(content: str):
+    search_from = 0
+    while match := toolcall_re.search(content, search_from):
+        json_start = match.start(3)
+        json_end = find_json_end(content, json_start)
+        if json_end is None:
+            break
+        yield match.group(1), match.group(2), content[json_start:json_end]
+        search_from = json_end
 ```
 
 If you also mine Claude Code trajectories, note that those are a third shape
@@ -191,6 +200,7 @@ Qwen3.5-0.8B, LoRA, one H100. The keys that matter, with the reasons:
 
 ```yaml
 base_model: Qwen/Qwen3.5-0.8B
+output_dir: /out             # adapter lands here; the merge step reads it
 chat_template: qwen3_5
 freeze_mm_modules: true      # Qwen3.5 is a unified VLM; freeze the vision tower
 
