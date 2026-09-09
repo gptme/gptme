@@ -276,7 +276,7 @@ def memory_supersede(old_name: str, new_name: str, scope: str | None):
         old, new = _store().supersede(old_name, new_name, scope=scope)
     except (KeyError, OSError, ValueError) as e:
         raise click.ClickException(str(e)) from e
-    click.echo(f"Superseded {old.name} -> {new.name}")
+    click.echo(f"Superseded {_clean(old.name)} -> {_clean(new.name)}")
 
 
 @memory.command("audit")

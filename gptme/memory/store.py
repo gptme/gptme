@@ -354,9 +354,18 @@ class MemoryStore:
                 raise KeyError(f"no memory entry named {old_name!r} in {root.scope}")
             if new is None:
                 raise KeyError(f"no memory entry named {new_name!r} in {root.scope}")
+            # Reject cross-root supersession: both entries must live in the locked root.
+            assert old.path is not None and new.path is not None
+            if old.path.parent != root.path:
+                raise KeyError(
+                    f"entry {old_name!r} lives in {old.path.parent}, not the locked root {root.path}"
+                )
+            if new.path.parent != root.path:
+                raise KeyError(
+                    f"entry {new_name!r} lives in {new.path.parent}, not the locked root {root.path}"
+                )
             if old.path == new.path:
                 raise ValueError("an entry cannot supersede itself")
-            assert old.path is not None and new.path is not None
             old_path, new_path = old.path, new.path
             old = parse_entry(old_path, scope=root.scope, strict=True)
             new = parse_entry(new_path, scope=root.scope, strict=True)
@@ -544,7 +553,8 @@ class MemoryStore:
         root = self.root(scope)
         text = self.render_index(self.index_entries(scope), budget=budget)
         path = root.path / INDEX_FILENAME
-        _atomic_write(path, text)
+        with _locked_root(root.path):
+            _atomic_write(path, text)
         return path
 
     def check_index(

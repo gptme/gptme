@@ -243,13 +243,17 @@ def entry_from_text(
         raw_name = data["name"]
         if strict and (not isinstance(raw_name, str) or not raw_name.strip()):
             raise MemoryFrontmatterError("invalid name: expected non-empty string")
+        # Strict mode already rejected non-string names above.
+        # Lenient mode preserves the old behaviour: coerce truthy non-strings
+        # with str() so existing entries with e.g. ``name: 42`` keep their
+        # identity instead of silently switching to the filename stem.
         name = (
             raw_name
             if isinstance(raw_name, str) and raw_name
-            else (path.stem if path is not None else None)
+            else (
+                str(raw_name) if raw_name else (path.stem if path is not None else None)
+            )
         )
-        if name is not None and not isinstance(name, str):
-            name = str(name)
     else:
         name = path.stem if path is not None else None
     if not name:

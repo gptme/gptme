@@ -1046,3 +1046,99 @@ def test_bob_memory_dir_round_trip(tmp_path):
     assert all(e.description for e in entries[:50])
     store.write_index()
     assert store.check_index()
+
+
+# ── regression tests for AI-review findings (2026-09-09) ───────────────────
+
+
+def test_supersede_rejects_cross_root_old_entry(tmp_path):
+    """P1: supersede must reject when old entry lives in a different root.
+
+    A multi-root store with two roots sharing the same scope name lets
+    self.get() find entries in either root.  The locked root is always the
+    *first* root with that scope.  If old is only in the second root,
+    supersede must raise rather than write across the lock boundary.
+    """
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    # Two roots sharing scope "explicit"; save() and root() both resolve to root_a.
+    store = MemoryStore(
+        [MemoryRoot("explicit", root_a), MemoryRoot("explicit", root_b)]
+    )
+    # new-entry goes to root_a (the locked root).
+    store.save("new-entry", "new description", body="new")
+
+    # Write old-entry directly to root_b to simulate an entry from a foreign root.
+    root_b.mkdir(parents=True, exist_ok=True)
+    old_md = MemoryEntry(
+        name="old-entry",
+        description="from root_b",
+        type="reference",
+        body="old",
+        scope="explicit",
+    )
+    old_path = root_b / old_md.filename
+    old_path.write_text(old_md.to_markdown(), encoding="utf-8")
+
+    # supersede locks root_a; get() finds old-entry in root_b → must reject.
+    with pytest.raises(KeyError, match="old-entry"):
+        store.supersede("old-entry", "new-entry")
+
+
+def test_supersede_rejects_cross_root_new_entry(tmp_path):
+    """P1: supersede must reject when *new* entry lives in a different root."""
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    # Two roots sharing scope; old goes to root_a (locked); new only in root_b.
+    store = MemoryStore(
+        [MemoryRoot("explicit", root_a), MemoryRoot("explicit", root_b)]
+    )
+    store.save("old-entry", "old", body="old")
+
+    root_b.mkdir(parents=True, exist_ok=True)
+    new_md = MemoryEntry(
+        name="new-entry",
+        description="from root_b",
+        type="user",
+        body="new",
+        scope="explicit",
+    )
+    new_path = root_b / new_md.filename
+    new_path.write_text(new_md.to_markdown(), encoding="utf-8")
+
+    # new-entry is outside the locked root_a → must reject.
+    with pytest.raises(KeyError, match="new-entry"):
+        store.supersede("old-entry", "new-entry")
+
+
+def test_entry_from_text_lenient_coerces_non_string_name(tmp_path):
+    """P2 (schema.py): lenient mode must coerce numeric names with str(), not fall back to stem.
+
+    Old behaviour (pre-PR): ``name: 42`` in file ``my-note.md`` produced entry
+    name ``"42"`` because the code called ``str(name)`` on the raw value.
+    The PR changed the logic to use ``isinstance(..., str)`` which silently
+    switched the name to ``"my-note"``, breaking recall lookups for existing
+    entries.  The fix restores the old coercion in lenient mode.
+    """
+    note = tmp_path / "my-note.md"
+    note.write_text(
+        "---\nname: 42\ndescription: numeric name test\n---\nBody.\n",
+        encoding="utf-8",
+    )
+    entry = entry_from_text(note.read_text(), path=note, strict=False)
+    assert entry.name == "42", (
+        f"lenient mode should coerce 42 → '42', got {entry.name!r}"
+    )
+
+
+def test_entry_from_text_strict_rejects_non_string_name(tmp_path):
+    """Strict mode rejects numeric names (no coercion there)."""
+    from gptme.memory.schema import MemoryFrontmatterError
+
+    note = tmp_path / "my-note.md"
+    note.write_text(
+        "---\nname: 42\ndescription: numeric name test\n---\nBody.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(MemoryFrontmatterError, match="name"):
+        entry_from_text(note.read_text(), path=note, strict=True)
