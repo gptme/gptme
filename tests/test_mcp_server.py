@@ -447,8 +447,61 @@ class TestMCPServerHandlers:
         )
         assert "guardrail" in text.lower(), f"Expected guardrail skip; got: {text!r}"
 
+    @pytest.mark.asyncio
+    async def test_mcp_confirm_hooks_run_once(
+        self, server_with_mock_tools: GptmeMCPServer
+    ) -> None:
+        """MCP confirms at the boundary; inner tool confirmation must not re-dispatch."""
+        import mcp.types as types
 
-class TestMCPServerCLI:
+        from gptme.hooks import (
+            HookType,
+            get_confirmation,
+            register_hook,
+            unregister_hook,
+        )
+        from gptme.hooks.registry import get_registry
+        from gptme.message import Message
+
+        calls: list[str] = []
+
+        def counting_hook(tool_use, preview=None, workspace=None):
+            calls.append(tool_use.tool)
+
+        register_hook(
+            "count-confirm", HookType.TOOL_CONFIRM, counting_hook, priority=50
+        )
+        server_with_mock_tools._hook_registry = get_registry()
+        try:
+
+            def spy(code, args, kwargs):
+                inner = get_confirmation()
+                assert inner.action.value == "confirm"
+                yield Message("system", "ok")
+
+            server_with_mock_tools._loaded_tools[0] = ToolSpec(
+                name="shell",
+                desc="Shell.",
+                execute=spy,
+                block_types=["shell"],
+                parameters=[Parameter(name="command", type="string", required=True)],
+            )
+
+            req = types.CallToolRequest(
+                method="tools/call",
+                params=types.CallToolRequestParams(
+                    name="shell", arguments={"command": "echo test"}
+                ),
+            )
+            result = await server_with_mock_tools._server.request_handlers[
+                types.CallToolRequest
+            ](req)
+            assert isinstance(result.root, types.CallToolResult)
+            assert not result.root.isError
+            assert calls == ["shell"], f"TOOL_CONFIRM must fire once, got {calls!r}"
+        finally:
+            unregister_hook("count-confirm", HookType.TOOL_CONFIRM)
+
     """Tests for the gptme-mcp-server CLI command."""
 
     def test_cli_help(self) -> None:

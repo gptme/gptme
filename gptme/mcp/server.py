@@ -188,6 +188,7 @@ class GptmeMCPServer:
                 # Same for the hook registry: a fresh thread would otherwise
                 # auto-confirm without running TOOL_CONFIRM (guardrails).
                 from ..hooks import ConfirmAction, get_confirmation
+                from ..hooks.confirm import preconfirmed
                 from ..hooks.registry import set_registry
                 from ..tools.base import ToolUse, using_current_tool_use
                 from ..tools.shell import _shell_var as _shell_ctxvar
@@ -203,13 +204,17 @@ class GptmeMCPServer:
                     )
                     if confirmation.action != ConfirmAction.CONFIRM:
                         return confirmation.message or "Operation aborted"
-                    result = tool.execute(None, None, kwargs)  # type: ignore[misc]
-                    if hasattr(result, "__iter__"):
-                        output = _collect_tool_output(result)  # type: ignore[arg-type]
-                    else:
-                        output = (
-                            str(result.content) if result and result.content else ""
-                        )
+                    # Shell/save/ipython confirm internally via get_confirmation().
+                    # Mark this ToolUse preconfirmed so those nested calls do not
+                    # re-dispatch TOOL_CONFIRM (hooks must fire once per MCP op).
+                    with preconfirmed(tool_use):
+                        result = tool.execute(None, None, kwargs)  # type: ignore[misc]
+                        if hasattr(result, "__iter__"):
+                            output = _collect_tool_output(result)  # type: ignore[arg-type]
+                        else:
+                            output = (
+                                str(result.content) if result and result.content else ""
+                            )
 
                 # Sync back any session replaced during execution (e.g. by set_shell).
                 updated = _shell_ctxvar.get()

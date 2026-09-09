@@ -11,6 +11,8 @@ Usage:
 """
 
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
@@ -32,6 +34,26 @@ logger = logging.getLogger(__name__)
 
 _auto_override: ContextVar[bool] = ContextVar("auto_override", default=False)
 _auto_count: ContextVar[int] = ContextVar("auto_count", default=0)
+# Identity of a ToolUse already confirmed by a direct executor (MCP). Nested
+# get_confirmation() calls from tool.execute() must not re-dispatch hooks.
+_preconfirmed_tool_use: ContextVar["ToolUse | None"] = ContextVar(
+    "preconfirmed_tool_use", default=None
+)
+
+
+@contextmanager
+def preconfirmed(tool_use: "ToolUse") -> Generator[None, None, None]:
+    """Mark *tool_use* as already confirmed for nested get_confirmation() calls.
+
+    Direct executors (the MCP server) confirm once at the boundary, then call
+    ``tool.execute()`` which may confirm again internally. Wrap the execute so
+    TOOL_CONFIRM hooks fire exactly once per operation.
+    """
+    token = _preconfirmed_tool_use.set(tool_use)
+    try:
+        yield
+    finally:
+        _preconfirmed_tool_use.reset(token)
 
 
 def set_auto_confirm(count: int | None = None) -> None:
@@ -194,6 +216,10 @@ def get_confirmation(
                 return ConfirmationResult.confirm()
             logger.debug("No tool_use in context, auto-skipping")
             return ConfirmationResult.skip("No tool context available")
+
+    if _preconfirmed_tool_use.get() is tool_use:
+        logger.debug("ToolUse already confirmed, skipping TOOL_CONFIRM re-dispatch")
+        return ConfirmationResult.confirm()
 
     # Get registered TOOL_CONFIRM hooks
     hooks = get_hooks(HookType.TOOL_CONFIRM)

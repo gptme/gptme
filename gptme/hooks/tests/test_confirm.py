@@ -7,6 +7,7 @@ from gptme.hooks.confirm import (
     ConfirmAction,
     ConfirmationResult,
     get_confirmation,
+    preconfirmed,
 )
 from gptme.tools.base import ToolUse
 
@@ -412,6 +413,52 @@ class TestHookFallthrough:
         finally:
             registry.hooks.clear()
             registry.hooks.update(original_hooks)
+
+
+class TestPreconfirmed:
+    """Nested get_confirmation() must not re-dispatch after a boundary confirm."""
+
+    def test_preconfirmed_skips_hook_redispatch(self):
+        calls: list[str] = []
+
+        def counting_hook(tool_use, preview=None, workspace=None):
+            calls.append(tool_use.tool)
+            return ConfirmationResult.confirm()
+
+        register_hook(
+            "count-confirm", HookType.TOOL_CONFIRM, counting_hook, priority=50
+        )
+        try:
+            tool_use = ToolUse(tool="shell", args=[], content="echo hi")
+            first = get_confirmation(tool_use)
+            assert first.action == ConfirmAction.CONFIRM
+            assert calls == ["shell"]
+            with preconfirmed(tool_use):
+                nested = get_confirmation(tool_use)
+            assert nested.action == ConfirmAction.CONFIRM
+            assert calls == ["shell"]
+        finally:
+            unregister_hook("count-confirm", HookType.TOOL_CONFIRM)
+
+    def test_preconfirmed_does_not_skip_other_tool_use(self):
+        calls: list[str] = []
+
+        def counting_hook(tool_use, preview=None, workspace=None):
+            calls.append(tool_use.tool)
+            return ConfirmationResult.confirm()
+
+        register_hook(
+            "count-confirm", HookType.TOOL_CONFIRM, counting_hook, priority=50
+        )
+        try:
+            first_use = ToolUse(tool="shell", args=[], content="echo hi")
+            other = ToolUse(tool="read", args=["/tmp/x"], content=None)
+            with preconfirmed(first_use):
+                result = get_confirmation(other)
+            assert result.action == ConfirmAction.CONFIRM
+            assert calls == ["read"]
+        finally:
+            unregister_hook("count-confirm", HookType.TOOL_CONFIRM)
 
 
 class TestShellAllowlistHook:
