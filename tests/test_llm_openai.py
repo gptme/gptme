@@ -2627,9 +2627,38 @@ class TestExtraBody:
         # Should still have require_parameters (non-reasoning model)
         assert prov["require_parameters"] is True
 
-    def test_openrouter_no_provider_override(self):
+    def test_openrouter_provider_override_multi_pin(self, monkeypatch):
+        """``model@a,b`` becomes an ordered allowlist with fallbacks disabled."""
         from gptme.llm.llm_openai import extra_body
 
+        monkeypatch.delenv("OPENROUTER_PROVIDER_ORDER", raising=False)
+        meta = self._make_model("deepseek/deepseek-v4-flash-0731@together, fireworks,")
+        prov = extra_body("openrouter", meta)["provider"]
+        assert prov["order"] == ["together", "fireworks"]
+        assert prov["allow_fallbacks"] is False
+
+    def test_openrouter_provider_order_env_default(self, monkeypatch):
+        """OPENROUTER_PROVIDER_ORDER is the default allowlist when no pin is given."""
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "fireworks,together")
+        meta = self._make_model("deepseek/deepseek-v4-flash-0731")
+        prov = extra_body("openrouter", meta)["provider"]
+        assert prov["order"] == ["fireworks", "together"]
+        assert prov["allow_fallbacks"] is False
+
+    def test_openrouter_pin_beats_provider_order_env(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "fireworks,together")
+        meta = self._make_model("deepseek/deepseek-v4-flash-0731@deepseek")
+        prov = extra_body("openrouter", meta)["provider"]
+        assert prov["order"] == ["deepseek"]
+
+    def test_openrouter_no_provider_override(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.delenv("OPENROUTER_PROVIDER_ORDER", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         prov = result["provider"]

@@ -10,6 +10,20 @@ if TYPE_CHECKING:
 # and merged in below. They still work when explicitly requested via --model.
 
 _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
+    # GPT-6 Astra — flagship released 2026-09-03; 1.05M context.
+    # $10/$50 per 1M (cache read $1); ``flex`` tier is half price, ``fast`` 2x.
+    # https://openrouter.ai/openai/gpt-6-astra (pricing verified 2026-09-09)
+    "gpt-6-astra": {
+        "context": 1_050_000,
+        "max_output": 128_000,
+        "price_input": 10,
+        "price_output": 50,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
+        "preferred_edit_format": "diff",
+    },
     # GPT-5.6 — three-tier family released July 2026, 1M context, 128K max output
     # https://developers.openai.com/api/docs/changelog
     # Sol=flagship, Terra=balanced, Luna=fastest/cheapest. Alias gpt-5.6 -> sol.
@@ -219,6 +233,19 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
 # API-equivalent cost for comparison. models.py adds default_tool_format="tool".
 # Reasoning level suffix (e.g., :high) is stripped at lookup time in get_model().
 OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
+    # GPT-6 Astra — flagship (released 2026-09-03), served on ChatGPT Plus/Pro
+    # via Codex OAuth (needs a current token; older tokens report the model
+    # as requiring a newer client). $10/$50 API-equivalent, flat-rate here.
+    "gpt-6-astra": {
+        "context": 1_050_000,
+        "max_output": 128_000,
+        "price_input": 10,
+        "price_output": 50,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+    },
     # GPT-5.6 Sol — flagship tier of the Sol/Terra/Luna family (GA: 2026-07-09)
     # https://openai.com/index/previewing-gpt-5-6-sol/
     # Sol: $5/$30 per 1M; +5.8 pts above GPT-5.5 on Agents' Last Exam (52.7%)

@@ -126,7 +126,7 @@ class TestGetSummaryModel:
             ("openai", "mini"),
             ("anthropic", "haiku"),
             ("gemini", "flash"),
-            ("deepseek", "deepseek-chat"),
+            ("deepseek", "deepseek-v4-flash"),
             ("xai", "fast"),
         ],
     )

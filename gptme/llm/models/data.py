@@ -375,14 +375,50 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     # use — leave supports_strict_tools unset rather than send a flag the
     # production endpoint may reject.
     # https://api-docs.deepseek.com/guides/tool_calls/#strict-mode-beta
+    # https://api-docs.deepseek.com/quick_start/pricing (verified 2026-09-09)
+    # Un-dated ids always point at the latest snapshot: deepseek-v4-flash ->
+    # V4-Flash-0731, deepseek-v4-pro -> V4-Pro-0813. Prices are off-peak
+    # cache-miss; cache hits are ~30x cheaper ($0.007 / $0.022) and peak
+    # hours (01-04 and 06-10 UTC, Mon-Fri) are 2x.
     "deepseek": {
+        "deepseek-v4-flash": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.22,
+            "price_output": 0.66,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+        },
+        "deepseek-v4-pro": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.66,
+            "price_output": 1.98,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+        },
+        # Experimental vision variant of V4 Flash (same pricing).
+        "deepseek-v4-flash-vision-exp": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.22,
+            "price_output": 0.66,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+        },
+        # Legacy V3-era ids, retired by DeepSeek on 2026-07-24 (they briefly
+        # aliased V4 Flash non-thinking/thinking modes before that).
         "deepseek-chat": {
             "context": 128_000,
             "max_output": 8192,
-            # 10x better price for cache hits
             "price_input": 0.14,
             "price_output": 1.1,
             "preferred_edit_format": "diff",
+            "deprecated": True,
         },
         "deepseek-reasoner": {
             "context": 128_000,
@@ -391,6 +427,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 2.19,
             "preferred_edit_format": "diff",
             "supports_reasoning": True,
+            "deprecated": True,
         },
     },
     # https://groq.com/pricing/
@@ -446,6 +483,17 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         }
     ),
     "xai": {
+        # https://docs.x.ai/developers/models/grok-4.6 — 500K context, vision,
+        # reasoning; $2/$6 per 1M below 200K prompt tokens ($0.50 cached).
+        "grok-4.6": {
+            "context": 500_000,
+            "max_output": 128_000,
+            "price_input": 2,
+            "price_output": 6,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
         "grok-4-1-fast": {
             "context": 2_000_000,
             "max_output": 30_000,
@@ -609,6 +657,55 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.1966,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
+            "preferred_edit_format": "diff",
+        },
+        # DeepSeek V4 Flash 0731 (2026-07-31 refresh). Prices are the official
+        # DeepSeek endpoint on OpenRouter (``@deepseek``, verified 2026-09-09):
+        # $0.22/$0.66 per 1M, cache read $0.007 (~97% discount). Third-party
+        # hosts list lower miss prices but 2-7x higher cache-read prices.
+        "deepseek/deepseek-v4-flash-0731": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.22,
+            "price_output": 0.66,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
+            "preferred_edit_format": "diff",
+        },
+        # DeepSeek V4 Pro 0813 (2026-08-13 refresh), official endpoint prices
+        # (``@deepseek``, verified 2026-09-09): $0.66/$1.98, cache read $0.022.
+        "deepseek/deepseek-v4-pro-0813": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.66,
+            "price_output": 1.98,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
+            "preferred_edit_format": "diff",
+        },
+        # GLM 5.3 Flash (Z.AI). List price on the official Z.AI endpoint
+        # (``@z-ai``, https://docs.z.ai/guides/overview/pricing): $0.15/$0.50
+        # per 1M, cache read $0.03 (a 50% launch promo ran until 2026-09-09).
+        # Reasoning is mandatory on the Z.AI endpoint; set
+        # GPTME_THINKING_EFFORT=low to cap the thinking budget.
+        "z-ai/glm-5.3-flash": {
+            "context": 1_000_000,
+            "max_output": 131_072,
+            "price_input": 0.15,
+            "price_output": 0.5,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+        },
+        # https://openrouter.ai/x-ai/grok-4.6 (verified 2026-09-09)
+        "x-ai/grok-4.6": {
+            "context": 500_000,
+            "max_output": 128_000,
+            "price_input": 2,
+            "price_output": 6,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
     },

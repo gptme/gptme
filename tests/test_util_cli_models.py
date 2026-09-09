@@ -216,3 +216,42 @@ class TestModelsInfo:
         # stdout is valid JSON and contains the expected model field.
         data = json.loads(result.stdout)
         assert data["model"] == "bogus/model"
+
+
+class TestModelsRecommended:
+    """Tests for 'models recommended' (rendered into docs/evals.rst at build time)."""
+
+    def test_table_lists_every_recommended_provider(self):
+        from gptme.llm.models import RECOMMENDED_MODELS
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "recommended"])
+        assert result.exit_code == 0, result.output
+        for provider, model in RECOMMENDED_MODELS.items():
+            assert f"{provider}/{model}" in result.output
+
+    def test_rst_is_a_grid_table_with_literals(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "recommended", "--format", "rst"])
+        assert result.exit_code == 0, result.output
+        lines = result.output.strip().splitlines()
+        assert lines[0].startswith("+-") and lines[2].startswith("+=")
+        assert "``anthropic/claude-sonnet-4-6``" in result.output
+        # every row has the same width, or Sphinx rejects the table
+        assert len({len(line) for line in lines}) == 1
+
+    def test_json(self):
+        from gptme.llm.models import RECOMMENDED_MODELS
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "recommended", "--format", "json"])
+        assert result.exit_code == 0, result.output
+        rows = json.loads(result.output)
+        assert {row["provider"] for row in rows} == set(RECOMMENDED_MODELS)
+        assert all({"provider", "model", "summary_model"} <= set(r) for r in rows)
+
+    def test_markdown(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "recommended", "--format", "markdown"])
+        assert result.exit_code == 0, result.output
+        assert result.output.startswith("| Provider | Recommended model |")

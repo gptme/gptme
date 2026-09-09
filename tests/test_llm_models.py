@@ -8,6 +8,8 @@ from gptme.llm import PROVIDER_DEFAULT_MODELS
 from gptme.llm.models import (
     MODEL_ALIASES,
     MODELS,
+    RECOMMENDED_MODELS,
+    SUMMARY_MODELS,
     ModelMeta,
     _find_closest_model_properties,
     _get_models_for_provider,
@@ -30,7 +32,7 @@ def test_get_model_provider_only():
     """Test getting recommended model when only provider is given."""
     model = get_model("openai")
     assert model.provider == "openai"
-    assert model.model == "gpt-5"  # current recommended model
+    assert model.model == "gpt-5.6-sol"  # current recommended model
 
 
 @pytest.mark.parametrize(
@@ -238,14 +240,14 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
 @pytest.mark.parametrize(
     ("provider", "expected_model"),
     [
-        ("openai", "gpt-5"),
+        ("openai", "gpt-5.6-sol"),
         ("anthropic", "claude-sonnet-4-6"),
-        ("gemini", "gemini-2.5-pro"),
-        ("openrouter", "deepseek/deepseek-v4-pro"),
-        ("xai", "grok-4"),
-        ("deepseek", "deepseek-chat"),
+        ("gemini", "gemini-3.1-pro-preview"),
+        ("openrouter", "deepseek/deepseek-v4-flash-0731@deepseek"),
+        ("xai", "grok-4.6"),
+        ("deepseek", "deepseek-v4-flash"),
         ("groq", "llama-3.3-70b-versatile"),
-        ("openai-subscription", "gpt-5.6-sol"),
+        ("openai-subscription", "gpt-6-astra"),
         ("grok-subscription", "grok-4.6"),
     ],
 )
@@ -254,10 +256,40 @@ def test_get_recommended_model(provider, expected_model):
     result = get_recommended_model(provider)
     assert result == expected_model
     # Verify the recommended model actually exists in MODELS
+    # (strip an OpenRouter ``@provider`` pin; it is routing, not identity)
     if MODELS.get(provider):
-        assert result in MODELS[provider], (
+        assert result.split("@")[0] in MODELS[provider], (
             f"Recommended model '{result}' not found in MODELS['{provider}']"
         )
+
+
+@pytest.mark.parametrize("provider", sorted(RECOMMENDED_MODELS))
+def test_recommended_models_have_metadata(provider):
+    """Every recommended/summary model must exist in the static registry.
+
+    The docs render RECOMMENDED_MODELS at build time, so a typo here would
+    ship straight to gptme.org.
+    """
+    if not MODELS.get(provider):
+        pytest.skip(f"{provider} has no static registry (proxy provider)")
+    for table in (RECOMMENDED_MODELS, SUMMARY_MODELS):
+        if provider not in table:
+            continue
+        name = table[provider].split("@")[0]
+        name = MODEL_ALIASES.get(provider, {}).get(name, name)
+        assert name in MODELS[provider], f"{provider}/{name} missing from MODELS"
+        assert not MODELS[provider][name].get("deprecated"), (
+            f"{provider}/{name} is deprecated"
+        )
+
+
+def test_recommended_models_resolve_via_get_model():
+    """``gptme -m <provider>`` must resolve every recommended model with real metadata."""
+    for provider in RECOMMENDED_MODELS:
+        meta = get_model(provider)
+        assert meta.provider == provider
+        assert meta.model == RECOMMENDED_MODELS[provider]
+        assert meta.context > 0
 
 
 @pytest.mark.parametrize("provider", ["azure", "nvidia", "local"])
@@ -268,10 +300,10 @@ def test_get_recommended_model_raises_for_unconfigured(provider):
 
 
 def test_get_model_provider_only_deepseek():
-    """Test that 'gptme -m deepseek' resolves to deepseek-chat."""
+    """Test that 'gptme -m deepseek' resolves to deepseek-v4-flash."""
     model = get_model("deepseek")
     assert model.provider == "deepseek"
-    assert model.model == "deepseek-chat"
+    assert model.model == "deepseek-v4-flash"
 
 
 def test_get_model_provider_only_groq():

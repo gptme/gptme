@@ -16,6 +16,14 @@ from .listing import (
     list_models,
     model_to_dict,
 )
+from .recommended import (
+    RECOMMENDED_MODELS,
+    SUMMARY_MODELS,
+    format_recommended_models,
+    get_recommended_model,
+    get_summary_model,
+    recommended_models_rows,
+)
 from .resolution import (
     _default_model_var,
     _find_base_model_properties,
@@ -23,8 +31,6 @@ from .resolution import (
     get_default_model,
     get_default_model_summary,
     get_model,
-    get_recommended_model,
-    get_summary_model,
     log_warn_once,
     set_default_model,
 )
@@ -58,6 +64,8 @@ __all__ = [
     "MODELS",
     "PROVIDERS",
     "PROVIDERS_OPENAI",
+    "RECOMMENDED_MODELS",
+    "SUMMARY_MODELS",
     # Internal (re-exported for test compatibility)
     "_default_model_var",
     "_find_base_model_properties",
@@ -67,6 +75,7 @@ __all__ = [
     # Functions
     "get_default_model",
     "get_default_model_summary",
+    "format_recommended_models",
     "get_model",
     "get_model_list",
     "get_recommended_model",
@@ -75,5 +84,6 @@ __all__ = [
     "list_models",
     "log_warn_once",
     "model_to_dict",
+    "recommended_models_rows",
     "set_default_model",
 ]

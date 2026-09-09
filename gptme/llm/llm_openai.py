@@ -171,6 +171,13 @@ def _get_top_p(
     return top_p if top_p is not None else TOP_P
 
 
+def _parse_provider_list(value: str | None) -> list[str]:
+    """Split a comma-separated OpenRouter provider list, dropping blanks."""
+    if not value:
+        return []
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
 def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
     """Build resolved model ID with the actual OpenRouter subprovider.
 
@@ -181,18 +188,20 @@ def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
     provider_slug = openrouter_provider.lower().replace(" ", "-")
     base = model.split("@")[0] if "@" in model else model
     if "@" in model:
-        user_suffix = model.split("@", 1)[1].lower()
         # OpenRouter's response header uses display names ("Moonshot AI")
         # while model suffixes use IDs ("moonshotai"). Compare both their
         # slug and compact forms, while retaining the documented stem match.
+        # A multi-pin (``@a,b``) matches when the serving provider is any
+        # entry of the list.
         compact_slug = provider_slug.replace("-", "")
-        compact_suffix = user_suffix.replace("-", "")
-        if (
-            provider_slug == user_suffix
-            or provider_slug.startswith(user_suffix + "-")
-            or compact_slug == compact_suffix
-        ):
-            return None
+        for user_suffix in _parse_provider_list(model.split("@", 1)[1].lower()):
+            compact_suffix = user_suffix.replace("-", "")
+            if (
+                provider_slug == user_suffix
+                or provider_slug.startswith(user_suffix + "-")
+                or compact_slug == compact_suffix
+            ):
+                return None
     resolved = f"{base}@{provider_slug}"
     if resolved == model:
         return None
@@ -1323,9 +1332,15 @@ def extra_body(
         # See: https://openrouter.ai/docs/provider-routing
         provider_prefs: dict[str, Any] = {}
 
-        if "@" in model_meta.model:
-            provider_override = model_meta.model.split("@")[1]
-            provider_prefs["order"] = [provider_override]
+        # ``model@a,b`` pins an ordered allowlist: OpenRouter tries ``a``,
+        # falls back to ``b`` on a 429/5xx, and never leaves the list. With no
+        # pin, OPENROUTER_PROVIDER_ORDER supplies the same list for every
+        # request (a default allowlist of vetted subproviders).
+        provider_order = _parse_provider_list(
+            model_meta.model.split("@", 1)[1] if "@" in model_meta.model else None
+        ) or _parse_provider_list(get_config().get_env("OPENROUTER_PROVIDER_ORDER"))
+        if provider_order:
+            provider_prefs["order"] = provider_order
             provider_prefs["allow_fallbacks"] = False
 
         # Ensure routed provider supports all request parameters (tools,

@@ -31,11 +31,11 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m anthropic  # will use provider default
     gptme "hello" -m openrouter/x-ai/grok-4
     gptme "hello" -m openrouter/deepseek/deepseek-v4-pro
-    gptme "hello" -m deepseek/deepseek-reasoner
+    gptme "hello" -m deepseek/deepseek-v4-flash
     gptme "hello" -m gemini/gemini-2.5-flash
     gptme "hello" -m groq/llama-3.3-70b-versatile
     gptme "hello" -m xai/grok-4
-    gptme "hello" -m openai-subscription/gpt-5.5-pro
+    gptme "hello" -m openai-subscription/gpt-6-astra
     gptme "hello" -m grok-subscription/grok-4.6
     gptme "hello" -m local/llama3.2:1b
     gptme "hello" -m gptme/claude-sonnet-4-6
@@ -172,8 +172,9 @@ OpenRouter
 `OpenRouter <https://openrouter.ai/>`_ provides access to 100+ models through a single API key. gptme applies sensible defaults for OpenRouter requests:
 
 - **Provider routing**: ``require_parameters`` is enabled, ensuring the routed provider supports all request parameters (tools, response format, etc.). This prevents silent failures when OpenRouter falls back to a provider that doesn't support function calling.
-- **Privacy**: ``data_collection`` defaults to ``"deny"``, preventing providers from training on your data. This aligns with gptme's privacy-first philosophy.
-- **Provider override**: Use ``model@provider`` syntax to pin a specific backend (e.g. ``anthropic/claude-sonnet-4-20250514@anthropic``).
+- **Privacy**: ``data_collection`` defaults to ``"deny"``, preventing providers from training on your data. This aligns with gptme's privacy-first philosophy. The flag is only sent when extended reasoning is off; for reasoning-capable models (most current open-weight models) pin providers explicitly with the options below, since OpenRouter's default routing may otherwise pick a provider that trains on prompts.
+- **Provider override**: Use ``model@provider`` syntax to pin a specific backend (e.g. ``anthropic/claude-sonnet-4-6@anthropic``). A comma-separated list (``model@together,fireworks``) is an ordered allowlist: OpenRouter tries the first, falls back to the next on rate limits or outages, and never routes outside the list. Each model page on OpenRouter has a *Providers* tab listing per-provider pricing, uptime, and data policy (training / prompt retention).
+- **Default provider allowlist**: ``OPENROUTER_PROVIDER_ORDER`` applies the same ordered allowlist to every request that has no ``@`` pin, so a vetted set of subproviders can be the default for all models.
 - **Quantization**: Optionally restrict to specific precision levels (e.g. ``fp16`` for quality, ``int4`` for cost savings). Set ``OPENROUTER_QUANTIZATION`` to a comma-separated list of accepted levels.
 
 **Configuration:**
@@ -187,6 +188,10 @@ OpenRouter
     # Override data collection preference (default: "deny")
     # Set to "allow" if you need providers that require data collection consent
     OPENROUTER_DATA_COLLECTION = "allow"
+
+    # Default ordered provider allowlist for requests without a model@provider pin.
+    # Slugs are the OpenRouter provider ids shown on each model's Providers tab.
+    OPENROUTER_PROVIDER_ORDER = "together,fireworks"
 
     # Restrict to specific quantization levels (optional)
     # Common values: fp16, bf16, fp8, int8, int4, unknown
@@ -263,18 +268,20 @@ Access tokens are automatically refreshed before expiry, so you only need to aut
 
 .. code-block:: sh
 
-    gptme "hello" -m openai-subscription/gpt-5.5-pro
-    gptme "hello" -m openai-subscription/gpt-5.4
+    gptme "hello" -m openai-subscription/gpt-6-astra
+    gptme "hello" -m openai-subscription/gpt-5.6-sol
 
 You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xhigh``:
 
 .. code-block:: sh
 
-    gptme "solve this problem" -m openai-subscription/gpt-5.5-pro:high
+    gptme "solve this problem" -m openai-subscription/gpt-6-astra:high
 
 **Available Models:**
 
-- ``gpt-5.5-pro`` - Latest flagship with maximum reasoning compute (Responses API only)
+- ``gpt-6-astra`` - Current flagship (released 2026-09-03). Rolling out to Codex on Plus/Pro; if the endpoint reports that the model needs a newer client, re-authenticate with ``gptme-auth openai-subscription`` to refresh the token
+- ``gpt-5.6-sol`` / ``gpt-5.6-terra`` / ``gpt-5.6-luna`` - GPT-5.6 family (flagship / balanced / fast)
+- ``gpt-5.5-pro`` - Previous flagship with maximum reasoning compute (Responses API only)
 - ``gpt-5.4`` - Previous flagship with reasoning capabilities
 - ``gpt-5.3-codex`` - Previous code-optimized variant
 - ``gpt-5.3-codex-spark`` - Faster variant of gpt-5.3-codex

@@ -38,7 +38,7 @@ import time
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import click
 
@@ -1266,6 +1266,27 @@ def models_list(
         available_only=available,
         json_output=as_json,
     )
+
+
+@models.command("recommended")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["table", "rst", "markdown", "json"]),
+    default="table",
+    show_default=True,
+    help="Output format (rst renders a grid table for the docs build).",
+)
+def models_recommended(fmt: str):
+    """Show the recommended default model per provider.
+
+    This is what ``gptme -m <provider>`` resolves to when no model is given,
+    and what the docs advertise (docs/evals.rst renders this at build time).
+    """
+    from ..llm.models import format_recommended_models  # fmt: skip
+    from ..llm.models.recommended import RecommendedFormat  # fmt: skip
+
+    click.echo(format_recommended_models(cast(RecommendedFormat, fmt)))
 
 
 @models.command("info")
