@@ -15,6 +15,7 @@ from gptme.memory import (
     parse_entry,
     recall,
 )
+from gptme.memory.store import LOCK_FILENAME
 
 
 def _store(root: Path) -> MemoryStore:
@@ -525,6 +526,14 @@ def test_render_and_check_on_readonly_root(tmp_path: Path) -> None:
     _policy(tmp_path, ["entry.md"])
     store.write_index()
 
+    # Remove the pre-existing lock file before restricting permissions.
+    # Without this step the existing lock file is still owner-writable and
+    # ``open(lock_file, "a+b")`` succeeds even when the directory is
+    # read-only, so the OSError fallback in render_root_index/check_index
+    # is never reached.  Deleting the file first forces _locked_root to
+    # attempt creation, which fails on a read-only directory.
+    (tmp_path / LOCK_FILENAME).unlink(missing_ok=True)
+
     # Make the root read-only so lock-file creation fails.
     tmp_path.chmod(stat.S_IRUSR | stat.S_IXUSR)
     try:
@@ -537,3 +546,39 @@ def test_render_and_check_on_readonly_root(tmp_path: Path) -> None:
     finally:
         # Restore write permission so pytest can clean up tmp_path.
         tmp_path.chmod(stat.S_IRWXU)
+
+
+def test_policy_rejects_dot_prefixed_filenames(tmp_path: Path) -> None:
+    """IndexPolicy.read must reject dot-prefixed filenames.
+
+    glob("*.md") does not match hidden files, so a policy that selected
+    ".secret.md" would make every managed operation raise ValueError because
+    the selected entry is never found in the entries list.
+    """
+    import pytest
+
+    _policy(tmp_path, [".hidden.md"])
+    with pytest.raises(ValueError, match="local entry filenames"):
+        from gptme.memory.policy import IndexPolicy
+
+        IndexPolicy.read(tmp_path)
+
+
+def test_policy_rejects_budget_below_minimum(tmp_path: Path) -> None:
+    """IndexPolicy.read must reject budgets too small for the index header.
+
+    A budget below the header size makes every index operation fail with a
+    'selected memory index needs N bytes, exceeds budget M' error, rendering
+    the root unusable until the policy file is hand-edited.
+    """
+    import pytest
+
+    from gptme.memory.policy import POLICY_MIN_BUDGET, IndexPolicy
+
+    _policy(tmp_path, [], budget=POLICY_MIN_BUDGET - 1)
+    with pytest.raises(ValueError, match="at least"):
+        IndexPolicy.read(tmp_path)
+
+    # Exactly at the minimum must be accepted.
+    _policy(tmp_path, [], budget=POLICY_MIN_BUDGET)
+    assert IndexPolicy.read(tmp_path) is not None

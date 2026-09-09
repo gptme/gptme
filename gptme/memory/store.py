@@ -183,8 +183,16 @@ def _locked_root(root_path: Path):
 def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     """Update a legacy pointer, or regenerate a policy-managed root's view.
 
-    In managed roots, entry files remain the source of truth. This compatibility
-    helper cannot append an unselected pointer or bypass the persistent budget.
+    **Legacy root (no .memory-index.json)**: upserts a ``- [title](file) —
+    description`` pointer in ``MEMORY.md``, identical to the old behaviour.
+
+    **Policy-managed root**: regenerates the full selected view from
+    ``.memory-index.json``.  Only the explicitly selected entries appear in the
+    always-on index; ``entry`` is reflected only if its filename is already in
+    the policy's ``selected`` list.  Direct-file writers that want their entry
+    visible in the always-on view must add it to the policy first.  This is
+    intentional: the policy is the authoritative selection list; appending
+    unselected pointers would bypass its byte-budget guarantee.
     """
     with _locked_root(memory_dir):
         policy = IndexPolicy.read(memory_dir)
@@ -302,8 +310,15 @@ class MemoryStore:
         ``entries(scope=...)`` unions every root with that scope name, which
         would put later-directory filenames into the first directory's
         ``MEMORY.md``. Index generation is always per-directory.
+
+        Policy-managed roots reference entries by filename, so every physical
+        file must appear even when two share the same ``name`` field
+        (``deduplicate=False``).  Legacy roots keep the original deduplication
+        behaviour to avoid emitting duplicate lines on upgrade.
         """
-        return self._entries_from_roots([self.root(scope)], deduplicate=False)
+        root = self.root(scope)
+        has_policy = IndexPolicy.read(root.path) is not None
+        return self._entries_from_roots([root], deduplicate=not has_policy)
 
     def get(self, name: str, scope: str | None = None) -> MemoryEntry | None:
         wanted = {name, slugify(name)}

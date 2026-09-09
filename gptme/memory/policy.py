@@ -10,6 +10,11 @@ from .schema import MemoryEntry, is_index_file
 
 POLICY_FILENAME = ".memory-index.json"
 
+# Minimum budget: the rendered header + blank line ("# Persistent Memory\n\n")
+# that appears even when no entries are selected.  A budget below this makes
+# every index operation fail immediately.
+POLICY_MIN_BUDGET = 22
+
 
 @dataclass(frozen=True)
 class IndexPolicy:
@@ -34,10 +39,16 @@ class IndexPolicy:
         budget = data["budget"]
         if type(budget) is not int or budget <= 0:
             raise ValueError("index policy budget must be a positive integer")
+        if budget < POLICY_MIN_BUDGET:
+            raise ValueError(
+                f"index policy budget must be at least {POLICY_MIN_BUDGET} bytes "
+                "(the index header alone requires that many bytes)"
+            )
         selected = data["selected"]
         if not isinstance(selected, list) or any(
             not isinstance(name, str)
             or not name.endswith(".md")
+            or name.startswith(".")
             or "/" in name
             or "\\" in name
             or is_index_file(Path(name))
