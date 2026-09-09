@@ -526,13 +526,17 @@ class TestCcMemoryInWorkspacePrompt:
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
 
-        # Write many large entries
+        # Write entries with long descriptions so their combined index exceeds
+        # _MEMORY_BUDGET_BYTES (~4000 chars × 20 entries ≈ 80 KB > 64 KB cap).
+        # Short bodies + short descriptions (the original) never triggered the
+        # budget limit because only descriptions appear in the rendered index line.
+        long_desc = "x" * 4000
         for i in range(20):
             _make_entry(
                 memory_dir,
                 f"big-entry-{i:02d}",
-                f"Entry {i}",
-                body="x" * 5000,
+                long_desc,
+                body="",
             )
 
         root = MemoryRoot("cc", memory_dir)
@@ -558,6 +562,12 @@ class TestCcMemoryInWorkspacePrompt:
         assert len(memory_msgs) == 1
         # The rendered index (not individual entries) is included — it should be bounded
         injected_bytes = len(memory_msgs[0].content.encode("utf-8"))
-        assert (
-            injected_bytes <= _MEMORY_BUDGET_BYTES + 512
-        )  # small header overhead allowed
+        # Verify the budget cap actually fired: combined raw descriptions are
+        # ~80 KB (20 × 4000 chars), so without truncation we'd far exceed 64 KB.
+        # A passing assertion from a trivially-small index would mean the budget
+        # logic is untested.
+        assert "omitted" in memory_msgs[0].content.lower(), (
+            "expected the index to be truncated and report omitted entries, "
+            "but the 'omitted' marker is absent — budget limit may not have fired"
+        )
+        assert injected_bytes <= _MEMORY_BUDGET_BYTES + 512  # small header overhead
