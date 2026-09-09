@@ -550,6 +550,38 @@ def test_scan_ipython_backslash_continued_ordinary_string_hides_triple():
     )
 
 
+def test_scan_ipython_escaped_quote_in_ordinary_string_does_not_desync():
+    """A backslash-escaped quote inside an ordinary string must not close it.
+
+    Consensus-gate finding on gptme/gptme#3773 claimed ``\"`` would close
+    ordinary-double state prematurely. The scanner already skips the escaped
+    character; this pins that so a later ``\"\"\"`` still opens triple-double.
+    """
+    from gptme.codeblock import _scan_ipython_triple_quote
+
+    # ``"a\""`` is a complete ordinary string containing ``a"``. Then ``"""``
+    # opens triple-double.
+    assert _scan_ipython_triple_quote(r'x = "a\""; y = """', False, False) == (
+        True,
+        False,
+        False,
+        False,
+    )
+    assert _scan_ipython_triple_quote(r"x = 'a\''; y = '''", False, False) == (
+        False,
+        True,
+        False,
+        False,
+    )
+    # Escaped quote with more content before the real closer.
+    assert _scan_ipython_triple_quote(r'x = "hello \" world"', False, False) == (
+        False,
+        False,
+        False,
+        False,
+    )
+
+
 def test_extract_codeblocks_ipython_ordinary_string_does_not_open_triple():
     """Ordinary quoted strings must not be mistaken for triple-quote openers.
 
@@ -613,6 +645,32 @@ def test_extract_codeblocks_ipython_continued_ordinary_string_hides_triple():
     assert blocks == [
         Codeblock("ipython", 's = \'abc \\\n"""\'\nprint(s)'),
         Codeblock("output", "later"),
+    ]
+
+
+def test_extract_codeblocks_ipython_escaped_quote_in_ordinary_string():
+    """An escaped quote inside an ordinary string must not desync fence matching.
+
+    If ``\"`` closed ordinary-double state, the trailing ``"`` of ``"a\\""``
+    would open a new string and a later triple-quoted fence would be treated
+    as a real closer (or the block would never be emitted).
+    """
+    markdown = '''```ipython
+x = "a\\""
+y = """
+```
+inside
+```
+"""
+print(y)
+```
+'''
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock(
+            "ipython",
+            'x = "a\\""\ny = """\n```\ninside\n```\n"""\nprint(y)',
+        ),
     ]
 
 
