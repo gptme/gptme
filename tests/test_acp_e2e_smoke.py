@@ -13,6 +13,7 @@ canonical client implementation.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -22,6 +23,51 @@ pytest.importorskip(
     "acp",
     reason="agent-client-protocol not installed (pip install agent-client-protocol)",
 )
+
+
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_acp_agent_discovers_host_supplied_mcp_tool(tmp_path):
+    """The official ACP client can inject and discover a session-only MCP tool."""
+    from acp.schema import McpServerStdio
+
+    from gptme.acp.client import acp_client
+
+    server = tmp_path / "fixture_mcp.py"
+    server.write_text(
+        """from mcp.server.fastmcp import FastMCP
+
+server = FastMCP(\"fixture\", log_level=\"ERROR\")
+
+@server.tool()
+def echo(value: str) -> str:
+    \"\"\"Echo a value for ACP/MCP discovery tests.\"\"\"
+    return value
+
+server.run(transport=\"stdio\")
+"""
+    )
+    descriptor = McpServerStdio(
+        name="fixture",
+        command=sys.executable,
+        args=[str(server)],
+        env=[],
+    )
+    env = {**os.environ, "GPTME_LOG_LEVEL": "WARNING"}
+    updates: list[str] = []
+
+    async with acp_client(
+        workspace=tmp_path,
+        command="gptme-acp",
+        env=env,
+        auto_confirm=True,
+        on_update=lambda _sid, update: updates.append(str(update)),
+    ) as client:
+        session_id = await client.new_session(cwd=tmp_path, mcp_servers=[descriptor])
+        response = await client.prompt(session_id, "/tools")
+
+    assert response.stop_reason == "end_turn"
+    assert any("fixture.echo" in update for update in updates)
 
 
 @pytest.mark.slow

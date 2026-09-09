@@ -10,7 +10,7 @@ new test dependency.
 import asyncio
 import builtins
 import threading
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1606,6 +1606,236 @@ class TestPromptErrorHandling:
         error_call = agent._conn.session_update.await_args_list[-1]
         update = error_call.kwargs.get("update")
         assert "boom chat import" in str(update)
+
+
+class TestHostSuppliedMcpServers:
+    """Tests for MCP servers supplied by the ACP host at session creation."""
+
+    def test_descriptor_conversion_and_validation(self):
+        from acp.schema import (
+            AcpMcpServer,
+            EnvVariable,
+            HttpHeader,
+            HttpMcpServer,
+            McpServerStdio,
+            SseMcpServer,
+        )
+
+        from gptme.acp.agent import _mcp_server_configs
+
+        configs = _mcp_server_configs(
+            [
+                McpServerStdio(
+                    name="notebook",
+                    command="/usr/bin/python3",
+                    args=["server.py"],
+                    env=[EnvVariable(name="TOKEN", value="secret")],
+                ),
+                HttpMcpServer(
+                    name="artifacts",
+                    url="https://example.test/mcp",
+                    headers=[HttpHeader(name="Authorization", value="Bearer test")],
+                    type="http",
+                ),
+            ]
+        )
+
+        assert configs[0].name == "notebook"
+        assert configs[0].command == "/usr/bin/python3"
+        assert configs[0].args == ["server.py"]
+        assert configs[0].env == {"TOKEN": "secret"}
+        assert configs[1].name == "artifacts"
+        assert configs[1].url == "https://example.test/mcp"
+        assert configs[1].headers == {"Authorization": "Bearer test"}
+
+        duplicate = McpServerStdio(
+            name="notebook", command="/usr/bin/python3", args=[], env=[]
+        )
+        with pytest.raises(ValueError, match="Duplicate ACP MCP server name"):
+            _mcp_server_configs([duplicate, duplicate])
+        with pytest.raises(ValueError, match="SSE transport"):
+            _mcp_server_configs(
+                [
+                    SseMcpServer(
+                        name="events",
+                        url="https://example.test/sse",
+                        headers=[],
+                        type="sse",
+                    )
+                ]
+            )
+        with pytest.raises(ValueError, match="ACP transport"):
+            _mcp_server_configs(
+                [AcpMcpServer(name="proxied", server_id="server-1", type="acp")]
+            )
+        with pytest.raises(ValueError, match="Malformed ACP MCP server descriptor"):
+            _mcp_server_configs([{"name": "broken"}])
+
+    def test_new_session_adds_host_tools_and_cleanup_is_scoped(self, tmp_path):
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from acp.schema import McpServerStdio
+
+        from gptme.message import Message
+        from gptme.tools.base import ToolSpec
+
+        def execute_stub(*_):
+            yield Message("system", "ok")
+
+        base_tool = ToolSpec(name="read", desc="Read", execute=execute_stub)
+        host_tool = ToolSpec(
+            name="notebook.echo", desc="Echo", execute=execute_stub, is_mcp=True
+        )
+        host_client = MagicMock()
+        descriptor = McpServerStdio(
+            name="notebook", command="/bin/echo", args=[], env=[]
+        )
+        agent = GptmeAgent()
+        agent._tools = [base_tool]
+
+        def fake_create_mcp_tools(config, *, servers, clients, strict):
+            assert strict is True
+            assert [server.name for server in servers] == ["notebook"]
+            clients["notebook"] = host_client
+            return [host_tool]
+
+        with (
+            patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path / "logs"),
+            patch("gptme.acp.agent.get_prompt", return_value=[]) as get_prompt,
+            patch("gptme.acp.agent.ChatConfig"),
+            patch(
+                "gptme.acp.agent.create_mcp_tools",
+                side_effect=fake_create_mcp_tools,
+            ),
+        ):
+            result = _run(
+                agent.new_session(cwd=str(tmp_path), mcp_servers=[descriptor])
+            )
+
+        session_id = result.session_id
+        assert agent._session_tools[session_id] == [base_tool, host_tool]
+        assert agent._session_mcp_clients[session_id] == {"notebook": host_client}
+        assert get_prompt.call_args.kwargs["tools"] == [base_tool, host_tool]
+
+        clients = agent._cleanup_session(session_id)
+        for client in clients:
+            client.close()
+
+        host_client.close.assert_called_once_with()
+        assert session_id not in agent._session_tools
+        assert session_id not in agent._session_mcp_clients
+
+    def test_host_tool_execute_uses_the_session_client(self):
+        from gptme.config import Config
+        from gptme.message import Message
+        from gptme.tools.mcp_adapter import create_mcp_execute_function
+
+        client = MagicMock()
+        client.call_tool.return_value = "session result"
+        execute = create_mcp_execute_function(
+            "echo", "notebook", Config(), clients={"notebook": client}
+        )
+
+        with patch(
+            "gptme.tools.mcp_adapter.execute_with_confirmation",
+            side_effect=lambda content, args, kwargs, execute_fn, **unused: execute_fn(
+                content
+            ),
+        ):
+            result = execute('{"value": "hello"}', None, None)
+            assert not isinstance(result, Message)
+            messages = list(result)
+
+        assert [message.content for message in messages] == ["session result"]
+        client.call_tool.assert_called_once_with("echo", {"value": "hello"})
+
+    def test_shutdown_closes_all_host_clients(self):
+        agent = GptmeAgent()
+        first = MagicMock()
+        second = MagicMock()
+        agent._session_mcp_clients = {
+            "first": {"one": first},
+            "second": {"two": second},
+        }
+
+        _run(agent.shutdown())
+
+        first.close.assert_called_once_with()
+        second.close.assert_called_once_with()
+        assert agent._session_mcp_clients == {}
+
+    def test_two_sessions_keep_host_tools_isolated(self, tmp_path):
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from acp.schema import McpServerStdio
+
+        from gptme.message import Message
+        from gptme.tools.base import ToolSpec
+
+        def execute_stub(*_):
+            yield Message("system", "ok")
+
+        agent = GptmeAgent()
+        agent._tools = []
+
+        def fake_create_mcp_tools(config, *, servers, clients, strict):
+            server = servers[0]
+            clients[server.name] = MagicMock()
+            return [
+                ToolSpec(
+                    name=f"{server.name}.echo",
+                    desc="Echo",
+                    execute=execute_stub,
+                    is_mcp=True,
+                )
+            ]
+
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        first.mkdir()
+        second.mkdir()
+        with (
+            patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path / "logs"),
+            patch("gptme.acp.agent.get_prompt", return_value=[]),
+            patch("gptme.acp.agent.ChatConfig"),
+            patch(
+                "gptme.acp.agent.create_mcp_tools",
+                side_effect=fake_create_mcp_tools,
+            ),
+        ):
+            first_result = _run(
+                agent.new_session(
+                    cwd=str(first),
+                    mcp_servers=[
+                        McpServerStdio(
+                            name="first", command="/bin/echo", args=[], env=[]
+                        )
+                    ],
+                )
+            )
+            second_result = _run(
+                agent.new_session(
+                    cwd=str(second),
+                    mcp_servers=[
+                        McpServerStdio(
+                            name="second", command="/bin/echo", args=[], env=[]
+                        )
+                    ],
+                )
+            )
+
+        assert [
+            tool.name for tool in agent._session_tools[first_result.session_id]
+        ] == ["first.echo"]
+        assert [
+            tool.name for tool in agent._session_tools[second_result.session_id]
+        ] == ["second.echo"]
+        assert (
+            agent._session_mcp_clients[first_result.session_id]
+            is not agent._session_mcp_clients[second_result.session_id]
+        )
 
 
 class TestNewSessionResume:

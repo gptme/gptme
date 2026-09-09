@@ -277,6 +277,18 @@ class MCPClient:
         logger.info(f"Tools: {tools}")
         return tools, session
 
+    def close(self) -> None:
+        """Close the MCP session, transport, and private event loop."""
+        try:
+            if self.stack is not None:
+                self.loop.run_until_complete(self.stack.__aexit__(None, None, None))
+        finally:
+            self.stack = None
+            self.session = None
+            self.tools = None
+            if not self.loop.is_closed():
+                self.loop.close()
+
     def call_tool(self, tool_name: str, arguments: dict) -> str:
         """Synchronous tool call method.
 

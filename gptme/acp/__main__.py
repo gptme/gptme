@@ -178,12 +178,16 @@ async def _run_acp(real_stdin: IO[bytes], real_stdout: IO[bytes]) -> None:
     # run_agent params use client perspective:
     #   input_stream = writer (agent writes to client's input)
     #   output_stream = reader (agent reads from client's output)
-    await run_agent(
-        GptmeAgent(),
-        input_stream=writer,
-        output_stream=reader,
-        **connection_kwargs,
-    )
+    agent = GptmeAgent()
+    try:
+        await run_agent(
+            agent,
+            input_stream=writer,
+            output_stream=reader,
+            **connection_kwargs,
+        )
+    finally:
+        await agent.shutdown()
 
 
 def main() -> int:

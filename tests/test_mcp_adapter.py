@@ -299,6 +299,29 @@ def test_unload_mcp_server_success():
     assert "test-server" not in _dynamic_servers
 
 
+def test_session_client_retry_stays_in_session_registry(mock_config):
+    """Connection recovery must replace only the supplied session client."""
+    from gptme.mcp.client import MCPClient
+    from gptme.tools.mcp_adapter import _call_mcp_tool_with_retry
+
+    old_client = MagicMock(spec=MCPClient)
+    old_client.call_tool.side_effect = RuntimeError("connection closed")
+    replacement = MagicMock(spec=MCPClient)
+    replacement.call_tool.return_value = "recovered"
+    clients: dict[str, MCPClient] = {"test-server": old_client}
+
+    with patch("gptme.mcp.client.MCPClient", return_value=replacement):
+        result = _call_mcp_tool_with_retry(
+            "test-server", "test_tool", {}, mock_config, clients=clients
+        )
+
+    assert result == "recovered"
+    old_client.close.assert_called_once_with()
+    replacement.connect.assert_called_once_with("test-server")
+    assert clients == {"test-server": replacement}
+    assert "test-server" not in _mcp_clients
+
+
 def test_restart_mcp_client_survives_cleanup_failure_and_reconnects(mock_config):
     """Test restart tolerates cleanup failures from the old client."""
 

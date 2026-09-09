@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..config import ChatConfig, get_project_config
+from ..config import ChatConfig, MCPServerConfig, get_config, get_project_config
 from ..dirs import get_logs_dir
 from ..init import init
 from ..llm.models import get_default_model, set_default_model
@@ -25,6 +25,7 @@ from ..model_attestation import record_runtime_selection
 from ..prompts import get_prompt
 from ..session import SessionRegistry
 from ..tools import ToolUse, get_tools, set_tools
+from ..tools.mcp_adapter import create_mcp_tools
 from ..util.auto_naming import generate_conversation_id
 from ..util.context import md_codeblock
 from .adapter import acp_content_to_gptme_message, gptme_message_to_acp_content
@@ -149,6 +150,92 @@ def _auth_methods() -> list:
     ]
 
 
+def _descriptor_value(descriptor: Any, name: str) -> Any:
+    """Read one ACP descriptor field from a Pydantic model or mapping."""
+    if isinstance(descriptor, dict):
+        return descriptor.get(name)
+    return getattr(descriptor, name, None)
+
+
+def _name_value_pairs(values: Any, field: str) -> dict[str, str]:
+    """Convert ACP environment/header entries into gptme's mapping shape."""
+    if values is None:
+        return {}
+    if not isinstance(values, list):
+        raise ValueError(f"ACP MCP server {field} must be a list")
+    result: dict[str, str] = {}
+    for item in values:
+        name = _descriptor_value(item, "name")
+        value = _descriptor_value(item, "value")
+        if not isinstance(name, str) or not name or not isinstance(value, str):
+            raise ValueError(
+                f"ACP MCP server {field} entries require string name/value"
+            )
+        if name in result:
+            raise ValueError(f"Duplicate ACP MCP server {field} name: {name!r}")
+        result[name] = value
+    return result
+
+
+def _mcp_server_configs(descriptors: list[Any]) -> list[MCPServerConfig]:
+    """Convert supported ACP MCP descriptors into gptme server configs."""
+    configs: list[MCPServerConfig] = []
+    names: set[str] = set()
+    for descriptor in descriptors:
+        name = _descriptor_value(descriptor, "name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("Malformed ACP MCP server descriptor: missing name")
+        if name in names:
+            raise ValueError(f"Duplicate ACP MCP server name: {name!r}")
+        names.add(name)
+
+        transport = _descriptor_value(descriptor, "type")
+        command = _descriptor_value(descriptor, "command")
+        url = _descriptor_value(descriptor, "url")
+        if transport == "sse":
+            raise ValueError(f"ACP MCP server {name!r} uses unsupported SSE transport")
+        if transport == "acp":
+            raise ValueError(f"ACP MCP server {name!r} uses unsupported ACP transport")
+        if transport == "http":
+            if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"Malformed ACP MCP server descriptor for {name!r}: invalid URL"
+                )
+            configs.append(
+                MCPServerConfig(
+                    name=name,
+                    url=url,
+                    headers=_name_value_pairs(
+                        _descriptor_value(descriptor, "headers"), "headers"
+                    ),
+                )
+            )
+            continue
+        if transport is not None:
+            raise ValueError(
+                f"ACP MCP server {name!r} uses unsupported {transport!r} transport"
+            )
+        if not isinstance(command, str) or not Path(command).is_absolute():
+            raise ValueError(
+                f"Malformed ACP MCP server descriptor for {name!r}: "
+                "stdio command must be absolute"
+            )
+        args = _descriptor_value(descriptor, "args")
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            raise ValueError(
+                f"Malformed ACP MCP server descriptor for {name!r}: args must be strings"
+            )
+        configs.append(
+            MCPServerConfig(
+                name=name,
+                command=command,
+                args=list(args),
+                env=_name_value_pairs(_descriptor_value(descriptor, "env"), "env"),
+            )
+        )
+    return configs
+
+
 def _cwd_session_id(cwd: str) -> str:
     """Derive a deterministic session ID from a workspace path.
 
@@ -176,6 +263,10 @@ class GptmeAgent:
         self._tools: list[Any] | None = None
         # Per-session model overrides (populated from per-project gptme.toml)
         self._session_models: dict[str, str | None] = {}
+        # ACP host-supplied tools and their owned MCP clients. Host definitions
+        # never enter persistent config or the process-global MCP registries.
+        self._session_tools: dict[str, list[Any]] = {}
+        self._session_mcp_clients: dict[str, dict[str, Any]] = {}
         # Per-session mode (default: "default", can be "auto" for no-confirm)
         self._session_modes: dict[str, str] = {}
         # Phase 2: Track active tool calls per session
@@ -590,6 +681,25 @@ class GptmeAgent:
         if self._tools is not None:
             set_tools(self._tools)
 
+        base_tools = list(self._tools or get_tools())
+        server_configs = _mcp_server_configs(mcp_servers)
+        session_clients: dict[str, Any] = {}
+        if server_configs:
+            loop = asyncio.get_running_loop()
+            config = get_config()
+            injected_tools = await loop.run_in_executor(
+                None,
+                lambda: create_mcp_tools(
+                    config,
+                    servers=server_configs,
+                    clients=session_clients,
+                    strict=True,
+                ),
+            )
+        else:
+            injected_tools = []
+        requested_session_tools = [*base_tools, *injected_tools]
+
         # Resolve per-project model from gptme.toml in the session's cwd.
         # Each Zed window may have its own project with a different MODEL in gptme.toml,
         # so we check the project config and override the global model for this session.
@@ -646,7 +756,19 @@ class GptmeAgent:
 
         logdir = logs_dir / session_id
 
-        # Store per-session model for use in prompt() and other handlers
+        existing_tools = self._session_tools.get(session_id)
+        if resumed and existing_tools is not None and not server_configs:
+            session_tools = existing_tools
+        else:
+            session_tools = requested_session_tools
+            old_clients = self._session_mcp_clients.pop(session_id, {})
+            if old_clients:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None, lambda: [client.close() for client in old_clients.values()]
+                )
+            self._session_tools[session_id] = session_tools
+            self._session_mcp_clients[session_id] = session_clients
         self._session_models[session_id] = session_model
 
         # Apply session model to context for this task
@@ -655,9 +777,8 @@ class GptmeAgent:
 
         if not resumed:
             # Get tools and initial prompt for a fresh session
-            tools = get_tools()
             initial_msgs = get_prompt(
-                tools=tools,
+                tools=session_tools,
                 tool_format="markdown",
                 prompt="full",
                 interactive=False,
@@ -1044,7 +1165,9 @@ class GptmeAgent:
         if effective_model:
             set_default_model(effective_model)
             record_runtime_selection(effective_model, "acp_runtime")
-        if self._tools is not None:
+        if session_id in self._session_tools:
+            set_tools(self._session_tools[session_id])
+        elif self._tools is not None:
             set_tools(self._tools)
 
         # Resend AvailableCommandsUpdate if not yet sent for this session.
@@ -1427,19 +1550,41 @@ class GptmeAgent:
 
         return _NewSessionResponse(**response_kwargs)
 
-    def _cleanup_session(self, session_id: str) -> None:
-        """Remove all per-session state for a given session.
+    def _cleanup_session(self, session_id: str) -> list[Any]:
+        """Remove per-session state and return MCP clients that need closing.
 
         Cleans up _session_models, _session_modes, _tool_calls, and
         _permission_policies to prevent unbounded memory growth from
         accumulated sessions.
         """
         self._session_models.pop(session_id, None)
+        self._session_tools.pop(session_id, None)
+        clients = list(self._session_mcp_clients.pop(session_id, {}).values())
         self._session_modes.pop(session_id, None)
         self._tool_calls.pop(session_id, None)
         self._permission_policies.pop(session_id, None)
         self._session_commands_advertised.discard(session_id)
         self._registry.remove(session_id)
+        return clients
+
+    async def _close_mcp_clients(self, clients: list[Any]) -> None:
+        """Close owned MCP clients without blocking the ACP event loop."""
+        loop = asyncio.get_running_loop()
+        for client in clients:
+            try:
+                await loop.run_in_executor(None, client.close)
+            except Exception:
+                logger.warning("Failed to close session MCP client", exc_info=True)
+
+    async def shutdown(self) -> None:
+        """Close host-supplied MCP clients for every active ACP session."""
+        clients = [
+            client
+            for session_clients in self._session_mcp_clients.values()
+            for client in session_clients.values()
+        ]
+        self._session_mcp_clients.clear()
+        await self._close_mcp_clients(clients)
 
     async def cancel(
         self,
@@ -1452,7 +1597,8 @@ class GptmeAgent:
             session_id: Session to cancel
         """
         logger.info("Cancelling session %s", session_id)
-        self._cleanup_session(session_id)
+        clients = self._cleanup_session(session_id)
+        await self._close_mcp_clients(clients)
 
     async def list_sessions(
         self,
