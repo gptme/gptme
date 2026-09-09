@@ -264,6 +264,8 @@ class TestWaitReadable:
             os.close(write_fd)
 
     def test_rounds_positive_submillisecond_timeout_up(self):
+        if not hasattr(__import__("select"), "poll"):
+            pytest.skip("select.poll is POSIX-only")
         poller = Mock()
         poller.poll.return_value = []
         with patch("gptme.tools.shell_background.select.poll", return_value=poller):
@@ -271,11 +273,23 @@ class TestWaitReadable:
         poller.poll.assert_called_once_with(1)
 
     def test_preserves_zero_timeout(self):
+        if not hasattr(__import__("select"), "poll"):
+            pytest.skip("select.poll is POSIX-only")
         poller = Mock()
         poller.poll.return_value = []
         with patch("gptme.tools.shell_background.select.poll", return_value=poller):
             assert _wait_readable([7], 0) == []
         poller.poll.assert_called_once_with(0)
+
+    def test_raises_when_poll_unavailable(self):
+        class _NoPoll:
+            pass
+
+        with (
+            patch("gptme.tools.shell_background.select", _NoPoll()),
+            pytest.raises(OSError, match="select.poll is unavailable"),
+        ):
+            _wait_readable([7], 0)
 
     def test_handles_fd_above_fd_setsize(self):
         """A readable descriptor >= FD_SETSIZE must be reported, not raise."""

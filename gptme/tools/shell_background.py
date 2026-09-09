@@ -39,6 +39,11 @@ _MAX_BUFFER_SIZE = 1024 * 1024
 def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
     """Return the subset of `fds` that are readable, waiting up to `timeout` seconds.
 
+    POSIX-only. `_read_output` never calls this on Windows: the `_is_windows`
+    branch uses non-blocking `os.read` instead. `select.poll` is not available
+    on Windows, and this helper refuses to silently fall back to `select()` —
+    that is the FD_SETSIZE bug this exists to close.
+
     Uses `poll()` rather than `select()`. `select()` is backed by `fd_set`, which
     cannot represent a descriptor >= FD_SETSIZE (1024) and raises
     `ValueError: filedescriptor out of range in select()` instead of degrading.
@@ -49,6 +54,11 @@ def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
     if not fds:
         return []
     assert select is not None
+    if not hasattr(select, "poll"):
+        raise OSError(
+            "select.poll is unavailable; Windows uses the non-blocking "
+            "os.read path in BackgroundJob._read_output"
+        )
     poller = select.poll()
     for fd in fds:
         # POLLHUP/POLLERR are reported regardless of the requested mask, so EOF
