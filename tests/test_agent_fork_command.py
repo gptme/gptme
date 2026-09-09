@@ -26,6 +26,7 @@ from gptme.agent.workspace import (
     [
         DEFAULT_FORK_SCRIPT,
         "./scripts/fork.sh {path} {name}",
+        "./scripts/fork.sh {name} {path}",
         "scripts/fork.sh",
         "./scripts/custom-setup.sh",
     ],
@@ -51,6 +52,22 @@ def test_parse_fork_script_allows_template_scripts(command: str):
 )
 def test_parse_fork_script_rejects_arbitrary_commands(command: str):
     with pytest.raises(WorkspaceError, match="fork_command must be a relative script"):
+        parse_fork_script(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "./scripts/custom.sh --flag value",
+        "./scripts/fork.sh /tmp/agent bob",
+        "./scripts/fork.sh {path}",
+        "./scripts/fork.sh {path} {name} --force",
+        "./scripts/fork.sh {path} {name} {path}",
+        "./scripts/fork.sh {path} {path}",
+    ],
+)
+def test_parse_fork_script_rejects_unsupported_extra_tokens(command: str):
+    with pytest.raises(WorkspaceError, match="extra arguments are not supported"):
         parse_fork_script(command)
 
 

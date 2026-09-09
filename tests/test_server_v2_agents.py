@@ -243,6 +243,35 @@ class TestAgentsPutEndpoint:
         assert "fork_command" in data["error"]
         mock_create_workspace.assert_not_called()
 
+    def test_rejects_unsupported_fork_command_extra_args(
+        self,
+        client: FlaskClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Trailing tokens other than {path} {name} are rejected with 400."""
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
+
+        with patch(
+            "gptme.server.api_v2_agents.create_workspace_from_template"
+        ) as mock_create_workspace:
+            response = client.put(
+                "/api/v2/agents",
+                json=self._make_agent_request(
+                    client,
+                    path=str(tmp_path / "flagged"),
+                    fork_command="./scripts/custom.sh --flag value",
+                ),
+            )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "extra arguments" in data["error"]
+        mock_create_workspace.assert_not_called()
+
     @patch("gptme.server.api_v2_agents.create_workspace_from_template")
     @patch("gptme.server.api_v2_agents.init_conversation")
     def test_webui_default_fork_command_is_normalized(

@@ -51,6 +51,12 @@ _FORK_COMMAND_ERROR = (
     "fork_command must be a relative script under ./scripts/ "
     "(for example ./scripts/fork.sh)"
 )
+_FORK_EXTRA_ARGS_ERROR = (
+    "fork_command extra arguments are not supported; only the legacy "
+    "form './scripts/fork.sh {path} {name}' is accepted. The server "
+    "always invokes [script, dest_path, agent_name]"
+)
+_LEGACY_FORK_PLACEHOLDERS = frozenset({"{path}", "{name}"})
 
 
 class WorkspaceError(Exception):
@@ -60,9 +66,11 @@ class WorkspaceError(Exception):
 def parse_fork_script(fork_command: str) -> str:
     """Return the relative script path from an allowlisted fork command.
 
-    Allowed: a relative path under ``./scripts/`` ending in ``.sh``. Extra
-    tokens (including ``{path}`` / ``{name}`` placeholders) are ignored;
-    execution always uses argv ``[script, dest_path, agent_name]``.
+    Allowed: a relative path under ``./scripts/`` ending in ``.sh``, optionally
+    followed by the legacy ``{path} {name}`` placeholders. Execution always
+    uses argv ``[script, dest_path, agent_name]`` — extra tokens are not
+    forwarded. Unsupported trailing tokens (flags, interpolated paths, etc.)
+    are rejected so callers get a 400 instead of a silently dropped argv.
 
     Interpreters (``bash -c``, ``python -c``), absolute paths, and ``..``
     traversal are rejected.
@@ -78,6 +86,12 @@ def parse_fork_script(fork_command: str) -> str:
     script = parts[0]
     if not _is_allowed_fork_script(script):
         raise WorkspaceError(_FORK_COMMAND_ERROR)
+    extra = parts[1:]
+    if extra and (
+        len(extra) != len(_LEGACY_FORK_PLACEHOLDERS)
+        or set(extra) != _LEGACY_FORK_PLACEHOLDERS
+    ):
+        raise WorkspaceError(_FORK_EXTRA_ARGS_ERROR)
     return script
 
 
@@ -136,9 +150,11 @@ def create_workspace_from_template(
         template_repo: Git URL of the template repository
         template_branch: Branch to clone
         fork_command: Allowlisted relative script under ./scripts/ (default
-            callers pass DEFAULT_FORK_SCRIPT). Extra tokens are ignored.
-            Arbitrary commands are rejected. None skips the fork script and
-            falls back to in-process template string replacement.
+            callers pass DEFAULT_FORK_SCRIPT). The legacy
+            ``./scripts/fork.sh {path} {name}`` form is accepted; other extra
+            tokens are rejected. Arbitrary commands are rejected. None skips
+            the fork script and falls back to in-process template string
+            replacement.
         project_config: Optional ProjectConfig to merge with template config
         timeout: Timeout for git operations in seconds
 
