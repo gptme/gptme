@@ -551,9 +551,9 @@ class MemoryStore:
         self, scope: str | None = None, *, budget: int | None = None
     ) -> Path:
         root = self.root(scope)
-        text = self.render_index(self.index_entries(scope), budget=budget)
         path = root.path / INDEX_FILENAME
         with _locked_root(root.path):
+            text = self.render_index(self.index_entries(scope), budget=budget)
             _atomic_write(path, text)
         return path
 

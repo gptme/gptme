@@ -4,6 +4,10 @@ import importlib
 import multiprocessing
 import os
 import stat
+import threading
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -286,6 +290,50 @@ class TestStore:
             os.umask(previous)
 
         assert stat.S_IMODE(index.stat().st_mode) == 0o600
+
+    @pytest.mark.parametrize("mutation", ["save", "supersede"])
+    def test_write_index_reads_after_acquiring_root_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+    ) -> None:
+        from gptme.memory import store as store_module
+
+        store = self._store(tmp_path)
+        store.save("old", "Old belief", scope="project")
+        store.save("new", "New belief", scope="project")
+        main_thread = threading.current_thread()
+        index_waiting = threading.Event()
+        mutation_done = threading.Event()
+        locked_root = store_module._locked_root
+
+        @contextmanager
+        def pause_before_index_lock(root: Path) -> Iterator[None]:
+            if threading.current_thread() is not main_thread:
+                index_waiting.set()
+                assert mutation_done.wait(10), "concurrent mutation did not finish"
+            with locked_root(root):
+                yield
+
+        monkeypatch.setattr(store_module, "_locked_root", pause_before_index_lock)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(store.write_index, scope="project")
+            try:
+                assert index_waiting.wait(10), "index writer did not reach the lock"
+                # Complete a real mutation in the window before the index writer
+                # acquires its root lock. A pre-lock snapshot would now be stale.
+                if mutation == "save":
+                    store.save("latest", "Latest belief", scope="project")
+                else:
+                    store.supersede("old", "new", scope="project")
+            finally:
+                mutation_done.set()
+            pending.result(timeout=10)
+
+        assert store.check_index(scope="project")
+        index = store.index_path("project").read_text()
+        if mutation == "save":
+            assert "latest.md" in index
+        else:
+            assert "old.md" not in index
 
     def test_supersede_rejects_cross_root_entries(self, tmp_path):
         store = self._store(tmp_path)
