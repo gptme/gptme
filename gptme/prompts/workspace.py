@@ -430,20 +430,37 @@ def prompt_workspace(
                     memory_content = MemoryStore.render_index(
                         entries, budget=_MEMORY_BUDGET_BYTES
                     ).strip()
-                    if memory_content:
-                        root_paths = ", ".join(f"`{r.path}`" for r in existing_roots)
-                        yield Message(
-                            "system",
-                            f"## Persistent Memory\n\n"
-                            f"The following memories are shared across sessions "
-                            f"(from {root_paths}):\n\n{memory_content}",
-                        )
-                        logger.debug(
-                            "Loaded %d memory entries from %d root(s): %s",
-                            len(entries),
-                            len(existing_roots),
-                            [r.scope for r in existing_roots],
-                        )
+                else:
+                    # Fallback for roots that contain only MEMORY.md (no individual
+                    # entry files) — e.g. a CC root written by an older harness or
+                    # hand-authored before the per-entry format was introduced.
+                    # This preserves the behaviour from #3626 so existing CC memories
+                    # are not silently dropped when upgrading.
+                    parts: list[str] = []
+                    remaining = _MEMORY_BUDGET_BYTES
+                    for root in existing_roots:
+                        index_path = root.path / "MEMORY.md"
+                        if index_path.is_file() and remaining > 0:
+                            raw = index_path.read_bytes()[:remaining]
+                            text = raw.decode("utf-8", errors="ignore").strip()
+                            if text:
+                                parts.append(text)
+                                remaining -= len(raw)
+                    memory_content = "\n\n".join(parts).strip()
+                if memory_content:
+                    root_paths = ", ".join(f"`{r.path}`" for r in existing_roots)
+                    yield Message(
+                        "system",
+                        f"## Persistent Memory\n\n"
+                        f"The following memories are shared across sessions "
+                        f"(from {root_paths}):\n\n{memory_content}",
+                    )
+                    logger.debug(
+                        "Loaded %d memory entries from %d root(s): %s",
+                        len(entries),
+                        len(existing_roots),
+                        [r.scope for r in existing_roots],
+                    )
         except Exception as e:
             logger.debug(f"Failed to load layered memory: {e}")
 
