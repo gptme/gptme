@@ -15,6 +15,7 @@ from .types import (
     ModelMeta,
     Provider,
     _ModelDictMeta,
+    infer_supports_mid_system,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,13 @@ def _find_closest_model_properties(
 
 
 def get_model(model: str) -> ModelMeta:
+    meta = _resolve_model(model)
+    if meta.supports_mid_system and not infer_supports_mid_system(meta.model, model):
+        return replace(meta, supports_mid_system=False)
+    return meta
+
+
+def _resolve_model(model: str) -> ModelMeta:
     # Apply provider aliases (e.g. "gptme.ai" -> "gptme")
     if "/" in model:
         prefix, rest = model.split("/", 1)

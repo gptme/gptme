@@ -117,6 +117,20 @@ PROVIDERS_OPENAI = [
 ]
 
 
+def infer_supports_mid_system(*names: str) -> bool:
+    """Whether these model identifiers accept non-leading system messages.
+
+    Qwen3.5's stock chat template raises ``System message must be at the beginning.``
+    Match ``qwen3.5`` / ``qwen3_5`` only — not the earlier Qwen3 family.
+    Returns False if any name looks like Qwen3.5.
+    """
+    for name in names:
+        normalized = name.lower().replace("_", ".")
+        if "qwen3.5" in normalized:
+            return False
+    return True
+
+
 @dataclass(frozen=True)
 class ModelMeta:
     provider: Provider | Literal["unknown"]

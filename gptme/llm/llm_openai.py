@@ -20,6 +20,7 @@ from .models import (
     CustomProvider,
     ModelMeta,
     Provider,
+    infer_supports_mid_system,
     is_custom_provider,
 )
 from .openai_responses import (
@@ -2156,6 +2157,7 @@ def _openai_compatible_model_to_modelmeta(
         supports_streaming=model_data.get("supports_streaming", True),
         supports_vision=supports_vision,
         supports_reasoning=model_data.get("supports_reasoning", False),
+        supports_mid_system=infer_supports_mid_system(model_id),
         price_input=0,  # pricing unknown for dynamically discovered models
         price_output=0,
         default_tool_format="tool",  # custom providers are openai-compat

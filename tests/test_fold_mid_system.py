@@ -163,6 +163,28 @@ def test_model_meta_supports_mid_system_field():
     assert m.supports_mid_system is False
 
 
+def test_get_model_infers_qwen35_does_not_support_mid_system():
+    """Resolving a local Qwen3.5 id sets supports_mid_system=False without mocks.
+
+    This is the activation path for vLLM/local endpoints (gptme/gptme#3779):
+    no static registry entry exists, so inference has to fire on the fallback.
+    """
+    from gptme.llm.models import get_model, infer_supports_mid_system
+
+    assert infer_supports_mid_system("Qwen/Qwen3.5-0.8B") is False
+    assert infer_supports_mid_system("qwen3_5-4b") is False
+    assert infer_supports_mid_system("qwen/qwen3-32b") is True
+    assert infer_supports_mid_system("llama-3") is True
+
+    model = get_model("local/Qwen/Qwen3.5-0.8B")
+    assert model.provider == "local"
+    assert model.supports_mid_system is False
+
+    # Earlier Qwen3 family is unaffected
+    qwen3 = get_model("local/Qwen/Qwen3-8B")
+    assert qwen3.supports_mid_system is True
+
+
 # ---------------------------------------------------------------------------
 # Integration: _prepare_messages_for_api respects the flag and env var
 # ---------------------------------------------------------------------------
@@ -227,6 +249,33 @@ def test_prepare_messages_folds_via_model_meta_flag():
 
     roles = [d["role"] for d in result_dicts]
     assert roles[2] == "user", f"expected user at index 2, got {roles}"
+
+
+def test_prepare_messages_folds_via_real_qwen35_resolution(monkeypatch):
+    """Unmocked get_model('local/Qwen/Qwen3.5-0.8B') activates folding."""
+    from gptme.llm.llm_openai import _prepare_messages_for_api
+
+    monkeypatch.delenv("GPTME_FOLD_SYSTEM_MESSAGES", raising=False)
+    result_dicts, _ = _prepare_messages_for_api(
+        _msgs_with_mid_system(), "local/Qwen/Qwen3.5-0.8B", tools=None
+    )
+
+    roles = [d["role"] for d in result_dicts]
+    assert roles[0] == "system", "leading system kept"
+    assert roles[2] == "user", f"expected folded user at index 2, got {roles}"
+
+
+def test_openai_compat_listing_infers_qwen35_flag():
+    """Dynamic OpenAI-compat listing stamps supports_mid_system from the model id."""
+    from gptme.llm.llm_openai import _openai_compatible_model_to_modelmeta
+
+    qwen = _openai_compatible_model_to_modelmeta(
+        {"id": "Qwen/Qwen3.5-0.8B", "context_length": 32768}, "local"
+    )
+    assert qwen.supports_mid_system is False
+
+    llama = _openai_compatible_model_to_modelmeta({"id": "llama-3"}, "local")
+    assert llama.supports_mid_system is True
 
 
 def test_prepare_messages_no_fold_when_supported(monkeypatch):
