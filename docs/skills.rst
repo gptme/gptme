@@ -10,6 +10,43 @@ tools, and vice versa — the same interop play gptme makes for :doc:`MCP <mcp>`
 Looking for something to install? See the :doc:`skills-gallery` — a curated
 selection of community skills from gptme-contrib.
 
+Explicit invocation telemetry
+-----------------------------
+
+``/skill:<name>`` writes lifecycle evidence to ``skill-events.jsonl`` beside the
+conversation log. Ambient matching and instruction injection do not count as
+invocations. Each invocation has a stable ID; queueing records ``queued``, while
+terminal adapters record ``completed``, ``failed``, or ``abandoned``. Completed
+means the runtime finished responding, not that arbitrary skill instructions
+achieved their intended outcome.
+
+Accounting fields use schema version 2. Readers accept version 1 history without
+rewriting it. Upgrade processes sharing a conversation before resuming writes:
+older version 1 writers reject the newer ledger and stop recording events.
+
+When telemetry is enabled, successful ledger appends also emit
+``gptme_skill_invocations``, ``gptme_skill_completions``,
+``gptme_skill_duration_seconds``, ``gptme_skill_tokens``, and
+``gptme_skill_cost_usd`` through the existing metrics exporter. Labels are limited
+to skill name and surface, plus terminal status, the boolean ``usage_available``
+on completions, and token type on token counters. Session IDs, invocation IDs,
+paths, and error details remain in the ledger. Export failure does not prevent
+invocation; these live metrics are best-effort and are not replayed from history.
+
+Cost and token fields are deltas from the existing ``CostTracker`` over the
+inclusive admission-to-terminal window. They are available only when both ends
+observe the same tracker for the same conversation. A reset, missing tracker, or
+foreign conversation produces ``usage: null`` and ``usage_available=false``;
+it does not produce a zero-cost measurement. Overlapping invocations can have
+overlapping cost windows, so these values must not be summed as exclusive billing.
+
+Frontend accounting coverage remains separate from lifecycle coverage. In
+particular, the TUI does not yet initialize session cost tracking, and native
+server request workers do not consistently retain its ownership. Their lifecycle
+counts and durations remain useful while unmeasurable costs stay unknown. CLI
+invocations can use their existing session tracker. Cross-harness adapters and
+end-to-end accounting parity are separate work.
+
 .. note::
 
    Skills are a **special case of lessons** using the Agent Skills open standard format.

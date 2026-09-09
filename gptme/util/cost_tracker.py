@@ -11,6 +11,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 
 @dataclass
@@ -79,6 +80,8 @@ class SessionCosts:
     # Plugin-provided annotations keyed by plugin name.
     # Each key maps to a list of dicts recorded via record_extra().
     extras: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # A reset/resume of the same log directory is a different accounting window.
+    tracking_id: str = field(default_factory=lambda: str(uuid4()), repr=False)
 
     def record_extra(self, key: str, **kwargs: Any) -> None:
         """Store plugin-level annotations alongside cost data.
