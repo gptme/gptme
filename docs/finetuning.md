@@ -66,7 +66,7 @@ match.
 
 Target [Axolotl]'s `chat_template` dataset type. One JSON object per line:
 
-```json
+```text
 {"messages": [...], "tools": [...]}
 ```
 
