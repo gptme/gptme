@@ -505,11 +505,34 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#data">Data</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-conversations-are">Where the conversations are</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#two-tool-call-encodings-and-why-that-matters">Two tool-call encodings, and why that matters</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-export-format">The export format</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-renderers-and-why-paired-datasets">The three renderers, and why paired datasets</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#masking-truncation-sequence-length">Masking, truncation, sequence length</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#redaction">Redaction</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tooling">Tooling</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training">Training</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-axolotl">Why Axolotl</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-config-that-worked">The config that worked</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#measured-numbers">Measured numbers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-choice">Model choice</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-and-evaluating">Serving and evaluating</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-with-vllm">Serve with vLLM</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-mid-conversation-system-message-gotcha">The mid-conversation system message gotcha</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-gptme-eval">Run gptme-eval</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#grammar-constrained-decoding-experimental">Grammar-constrained decoding (experimental)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#results">Results</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compute">Compute</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reproduce">Reproduce</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>
 </ul>
             </nav>
         </div>
@@ -523,70 +546,676 @@ document.write(`
                   
   <section id="finetuning">
 <h1>Finetuning<a class="headerlink" href="#finetuning" title="Link to this heading">#</a></h1>
-<p>This page documents the experimental fine-tuning support that still exists in
-the repository. It is not a maintained end-to-end training guide.</p>
-<section id="current-scope">
-<h2>Current scope<a class="headerlink" href="#current-scope" title="Link to this heading">#</a></h2>
-<p>Today <code class="docutils literal notranslate"><span class="pre">gptme</span></code> ships one helper for this workflow:
-<code class="docutils literal notranslate"><span class="pre">scripts/train/collect.py</span></code>.</p>
-<p>That script:</p>
-<ul class="simple">
-<li><p>reads local conversation logs from <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/</span></code></p></li>
-<li><p>filters out generated-name/test conversations and low-quality chats</p></li>
-<li><p>strips leading system prompts</p></li>
-<li><p>renders each conversation with the selected Hugging Face chat template</p></li>
-<li><p>writes <code class="docutils literal notranslate"><span class="pre">train.csv</span></code> and <code class="docutils literal notranslate"><span class="pre">train.jsonl</span></code></p></li>
-</ul>
-<p>The files are written to your current working directory, not to a <code class="docutils literal notranslate"><span class="pre">train/</span></code>
-subdirectory in the repo.</p>
+<p>A working recipe for fine-tuning a small open model on your own gptme
+conversations, in gptme’s own tool formats, and then measuring whether it
+actually got better with <code class="docutils literal notranslate"><span class="pre">gptme-eval</span></code>.</p>
+<p>Everything below was run end to end on 2026-09-08/09 against a real corpus of
+agent sessions. The numbers, the config keys and the gotchas are measured, not
+sketched. Where something was not measured, this page says so.</p>
+<p><strong>What this is not.</strong> It is not a cost-optimization guide — fine-tuning a 0.8B
+model will not make gptme cheaper than a frontier API, and that is not why you
+would do this. It is not a production pipeline either: there is no scheduler,
+no data versioning, no retraining loop. It is a recipe you can follow once, in
+an afternoon, for about $15 of rented GPU, to find out what your own
+trajectories are worth as training data.</p>
+<p>The single most useful result from the run: <strong>one epoch of SFT on your own
+sessions rendered in gptme’s <code class="docutils literal notranslate"><span class="pre">markdown</span></code> format took a Qwen3.5-0.8B from 10% to
+19% on gptme-eval, and the gain transferred to native tool calling (15% → 22%)</strong>.
+The full table, and the caveats it needs, are in <em>Results</em> below.</p>
+<section id="data">
+<h2>Data<a class="headerlink" href="#data" title="Link to this heading">#</a></h2>
+<section id="where-the-conversations-are">
+<h3>Where the conversations are<a class="headerlink" href="#where-the-conversations-are" title="Link to this heading">#</a></h3>
+<p>gptme stores every conversation as <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/&lt;name&gt;/conversation.jsonl</span></code>,
+one JSON object per line: <code class="docutils literal notranslate"><span class="pre">{role,</span> <span class="pre">content,</span> <span class="pre">timestamp}</span></code>. That is your corpus.
+There is no separate export step and no telemetry — the logs are already on
+disk.</p>
 </section>
-<section id="collect-local-conversations">
-<h2>Collect local conversations<a class="headerlink" href="#collect-local-conversations" title="Link to this heading">#</a></h2>
-<p>From the repository root, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/train/collect.py<span class="w"> </span>--model<span class="w"> </span><span class="s2">&quot;HuggingFaceH4/zephyr-7b-beta&quot;</span>
+<section id="two-tool-call-encodings-and-why-that-matters">
+<h3>Two tool-call encodings, and why that matters<a class="headerlink" href="#two-tool-call-encodings-and-why-that-matters" title="Link to this heading">#</a></h3>
+<p>Tool calls appear in <code class="docutils literal notranslate"><span class="pre">conversation.jsonl</span></code> in <strong>two different text encodings</strong>,
+and a parser that matches only one will silently drop whole sessions:</p>
+<ol class="arabic simple">
+<li><p><strong>Markdown fences</strong> — the default <code class="docutils literal notranslate"><span class="pre">markdown</span></code> tool format. The assistant
+message contains a fenced block whose language tag is a tool name
+(<code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">ipython</span></code>, <code class="docutils literal notranslate"><span class="pre">patch</span> <span class="pre">&lt;path&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">save</span> <span class="pre">&lt;path&gt;</span></code>), and the result arrives
+as the <em>following</em> <code class="docutils literal notranslate"><span class="pre">system</span></code> message.</p></li>
+<li><p><strong>The native form</strong> — <code class="docutils literal notranslate"><span class="pre">&#64;tool_name(call_id):</span> <span class="pre">{json}</span></code> at the start of a line,
+which is how gptme renders provider-side tool calls back into the log (see
+<a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a>).</p></li>
+</ol>
+<p>Both live in the same corpus, often in the same directory tree. A previous
+analysis pass that grepped only for fences reported 17 loop patterns across 50
+sessions; adding the <code class="docutils literal notranslate"><span class="pre">&#64;tool(id):</span> <span class="pre">{json}</span></code> branch took the same corpus to 341.
+The “agents don’t retry” conclusion drawn from the first number was a parser
+artifact. Match both:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">find_json_end</span><span class="p">,</span> <span class="n">toolcall_re</span>
+
+<span class="c1"># fence form (markdown tool format):  ```shell\n&lt;code&gt;\n```</span>
+<span class="c1"># native form:                        @shell(abc123): {&quot;command&quot;: &quot;ls&quot;}</span>
+<span class="c1"># toolcall_re only finds the START of a call. Its `{.*` capture is DOTALL and</span>
+<span class="c1"># greedy, so group(3) is not JSON and finditer() swallows later parallel</span>
+<span class="c1"># calls in the same message. Resume from find_json_end after each match.</span>
+<span class="c1"># MCP tools are named server.tool (dots). Provider call IDs include</span>
+<span class="c1"># hyphens/colons (call_abc, toolu_..., call-123). `\w+` drops those.</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">iter_native_calls</span><span class="p">(</span><span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="n">search_from</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">match</span> <span class="o">:=</span> <span class="n">toolcall_re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">search_from</span><span class="p">):</span>
+        <span class="n">json_start</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">json_end</span> <span class="o">=</span> <span class="n">find_json_end</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">json_start</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">json_end</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="k">yield</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">content</span><span class="p">[</span><span class="n">json_start</span><span class="p">:</span><span class="n">json_end</span><span class="p">]</span>
+        <span class="n">search_from</span> <span class="o">=</span> <span class="n">json_end</span>
 </pre></div>
 </div>
-<p>Pick a model whose chat template matches the format you want in the resulting
-training data. The script uses <code class="docutils literal notranslate"><span class="pre">transformers.pipeline(...)</span></code> and
-<code class="docutils literal notranslate"><span class="pre">tokenizer.apply_chat_template(...)</span></code> to turn stored chats into prompt text.
-Run it in an environment where <code class="docutils literal notranslate"><span class="pre">torch</span></code> and <code class="docutils literal notranslate"><span class="pre">transformers</span></code> are already
-installed.</p>
+<p>If you also mine Claude Code trajectories, note that those are a third shape
+entirely — structured <code class="docutils literal notranslate"><span class="pre">tool_use</span></code> / <code class="docutils literal notranslate"><span class="pre">tool_result</span></code> content blocks in
+<code class="docutils literal notranslate"><span class="pre">~/.claude/projects/&lt;slug&gt;/*.jsonl</span></code> — and need their own parser, not a text
+match.</p>
 </section>
-<section id="what-is-not-maintained-here">
-<h2>What is not maintained here<a class="headerlink" href="#what-is-not-maintained-here" title="Link to this heading">#</a></h2>
-<p>This page intentionally does <strong>not</strong> claim a supported workflow for:</p>
+<section id="the-export-format">
+<h3>The export format<a class="headerlink" href="#the-export-format" title="Link to this heading">#</a></h3>
+<p>Target <a class="reference external" href="https://docs.axolotl.ai/">Axolotl</a>’s <code class="docutils literal notranslate"><span class="pre">chat_template</span></code> dataset type. One JSON object per line:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>{&quot;messages&quot;: [...], &quot;tools&quot;: [...]}
+</pre></div>
+</div>
 <ul class="simple">
-<li><p>mixing in OpenAssistant or other public datasets</p></li>
-<li><p>importing exported ChatGPT conversations</p></li>
-<li><p>splitting train and validation sets</p></li>
-<li><p>training with a specific stack such as Axolotl, Transformers, or OpenPipe</p></li>
-</ul>
-<p>Older revisions of this page sketched those steps, but they were incomplete and
-had drifted out of sync with the repo. Until <code class="docutils literal notranslate"><span class="pre">gptme</span></code> grows a maintained
-fine-tuning pipeline again, treat this document as a narrow note about the
-collector script rather than a full recipe.</p>
-</section>
-<section id="training-stack-pointers">
-<h2>Training stack pointers<a class="headerlink" href="#training-stack-pointers" title="Link to this heading">#</a></h2>
-<p>If you want to take the exported data further, start with upstream docs for the
-training stack you actually plan to use:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://github.com/OpenAccess-AI-Collective/axolotl">Axolotl</a></p></li>
-<li><p><a class="reference external" href="https://huggingface.co/docs/transformers/training">Hugging Face Transformers</a></p></li>
-<li><p><a class="reference external" href="https://ai.meta.com/llama/get-started/#fine-tuning">Examples for Llama fine-tuning</a></p></li>
-<li><p><a class="reference external" href="https://openpipe.ai/">OpenPipe</a></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">messages</span></code> uses the OpenAI shape. Assistant tool calls go in
+<code class="docutils literal notranslate"><span class="pre">tool_calls[].function</span></code>, tool results are
+<code class="docutils literal notranslate"><span class="pre">{&quot;role&quot;:</span> <span class="pre">&quot;tool&quot;,</span> <span class="pre">&quot;tool_call_id&quot;,</span> <span class="pre">&quot;name&quot;,</span> <span class="pre">&quot;content&quot;}</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tools</span></code> is the JSON-schema tool list, only needed for the native format.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">arguments</span></code> must be a JSON <em>string</em>, not an object.</strong> If you nest a real
+object there, Hugging Face <code class="docutils literal notranslate"><span class="pre">datasets</span></code> fails to cast the column and the run
+dies during preprocessing, not during training — so you pay for the box
+first. This is the single most common export bug.</p></li>
 </ul>
 </section>
-<section id="model-suggestions">
-<h2>Model suggestions<a class="headerlink" href="#model-suggestions" title="Link to this heading">#</a></h2>
+<section id="the-three-renderers-and-why-paired-datasets">
+<h3>The three renderers, and why paired datasets<a class="headerlink" href="#the-three-renderers-and-why-paired-datasets" title="Link to this heading">#</a></h3>
+<p>gptme has three tool formats, and they are genuinely different token
+distributions, not cosmetic variants. So the exporter should be able to render
+the <em>same</em> sessions into each of them:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Renderer</p></th>
+<th class="head"><p>Assistant turn</p></th>
+<th class="head"><p>Tool result</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">markdown</span></code></p></td>
+<td><p>fenced block with the tool name as the language tag</p></td>
+<td><p>following <code class="docutils literal notranslate"><span class="pre">system</span></code> message with gptme’s own framing (<code class="docutils literal notranslate"><span class="pre">Ran</span> <span class="pre">command:</span> <span class="pre">…</span></code> + a <code class="docutils literal notranslate"><span class="pre">stdout</span></code> block, <code class="docutils literal notranslate"><span class="pre">Saved</span> <span class="pre">to</span> <span class="pre">X</span> <span class="pre">(overwritten)</span></code>, <code class="docutils literal notranslate"><span class="pre">Patch</span> <span class="pre">successfully</span> <span class="pre">applied</span> <span class="pre">to</span> <span class="pre">`X`</span> </code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">xml</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;tool-use&gt;&lt;name</span> <span class="pre">args=&quot;…&quot;&gt;…&lt;/name&gt;&lt;/tool-use&gt;</span></code></p></td>
+<td><p>same, as a <code class="docutils literal notranslate"><span class="pre">system</span></code> message</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tool</span></code></p></td>
+<td><p>OpenAI <code class="docutils literal notranslate"><span class="pre">tool_calls</span></code> with gptme’s tool names and the schemas gptme itself sends (from <code class="docutils literal notranslate"><span class="pre">ToolSpec.parameters</span></code>)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;role&quot;:</span> <span class="pre">&quot;tool&quot;,</span> <span class="pre">…}</span></code>, plus a <code class="docutils literal notranslate"><span class="pre">tools</span></code> column</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Emit all three <strong>from the same sessions with the same train/holdout split</strong>.
+That is what makes a format comparison meaningful: a markdown-trained adapter
+must not be judged on xml output, and without paired datasets you cannot tell a
+format effect from a data effect.</p>
+</section>
+<section id="masking-truncation-sequence-length">
+<h3>Masking, truncation, sequence length<a class="headerlink" href="#masking-truncation-sequence-length" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">HuggingFaceH4/zephyr-7b-beta</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">teknium/Replit-v2-CodeInstruct-3B</span></code></p>
-<ul>
-<li><p>This was previously used for testing/debugging, but availability and local
-hardware support may vary.</p></li>
+<li><p><strong>Assistant-only loss.</strong> Train on assistant turns only
+(<code class="docutils literal notranslate"><span class="pre">roles_to_train:</span> <span class="pre">[&quot;assistant&quot;]</span></code>, which is Axolotl’s default). On this data
+shape roughly <strong>9% of tokens end up trainable</strong> — the system prompt and every
+tool result are masked. That is expected, not a bug in your masking.</p></li>
+<li><p><strong>The gptme system prompt is large</strong>: <strong>~7–8.5k tokens</strong> for a normal tool
+allowlist (7.7k in the run below). It is a constant shared by every row, so
+do not count it against your per-conversation truncation budget — but <em>do</em>
+size <code class="docutils literal notranslate"><span class="pre">sequence_len</span></code> as <strong>conversation budget + system prompt</strong>. An 8k
+conversation budget wants <code class="docutils literal notranslate"><span class="pre">sequence_len:</span> <span class="pre">16384</span></code>, not 8192, or every row is
+silently truncated to system prompt plus a couple of turns.</p></li>
+<li><p><strong>End every row on an assistant turn.</strong> A row that ends on a tool result has
+no trainable final token and teaches the model to stop mid-call. In the run
+below this hit <strong>1 in 8 rows</strong> before it was caught.</p></li>
+<li><p><strong>Hold out by time, not at random.</strong> Use later months as the holdout. A
+random split over agent sessions leaks: the same task, the same repo and
+often near-identical tool sequences appear on both sides, and the eval
+measures memorization.</p></li>
+<li><p><strong>Strip per-row <code class="docutils literal notranslate"><span class="pre">meta</span></code>.</strong> Any bookkeeping block you attach per row (grades,
+session ids, model names) will eventually contain a column that is <code class="docutils literal notranslate"><span class="pre">null</span></code> in
+the first rows and a float later — HF <code class="docutils literal notranslate"><span class="pre">datasets</span></code> cannot cast that and the job
+fails at preprocess time. Keep the metadata in a separate sidecar file, or
+emit the training JSONL with metadata off.</p></li>
 </ul>
-</li>
+</section>
+<section id="redaction">
+<h3>Redaction<a class="headerlink" href="#redaction" title="Link to this heading">#</a></h3>
+<p>Agent trajectories are full of secrets: API keys echoed by a <code class="docutils literal notranslate"><span class="pre">shell</span></code> call,
+tokens in environment dumps, credentials in config files the agent <code class="docutils literal notranslate"><span class="pre">cat</span></code>ed.
+Redact before the data leaves the machine, and treat these three findings as
+load-bearing:</p>
+<ul class="simple">
+<li><p><strong>Scrub decoded leaf strings, never the serialized <code class="docutils literal notranslate"><span class="pre">arguments</span></code> blob.</strong>
+Running a regex over the JSON string corrupts escaping and produces rows that
+no longer parse. Walk the structure, redact the leaves, re-serialize.</p></li>
+<li><p><strong>Allowlist your own workspace paths.</strong> Blanket path redaction destroys the
+thing you are training on — the model needs to learn that files live at real
+paths. Redact everything <em>except</em> an explicit allowlist (e.g. <code class="docutils literal notranslate"><span class="pre">/home/you/</span></code>).</p></li>
+<li><p><strong>A secret scanner’s “blocked” verdict is not fail-closed.</strong> The <code class="docutils literal notranslate"><span class="pre">openai_key</span></code>
+rule false-positives on any filename containing <code class="docutils literal notranslate"><span class="pre">sk-</span></code>, so a fail-closed
+policy would have silently dropped good sessions. Review the findings; do not
+wire the scanner straight to a drop filter.</p></li>
+</ul>
+<p>Validate after export: zero call/result pairing violations, zero non-string
+<code class="docutils literal notranslate"><span class="pre">arguments</span></code>, zero residual secrets, zero holdout-month leakage. All four are
+cheap to check and all four have been violated in practice.</p>
+</section>
+<section id="tooling">
+<h3>Tooling<a class="headerlink" href="#tooling" title="Link to this heading">#</a></h3>
+<p>gptme ships <code class="docutils literal notranslate"><span class="pre">scripts/train/collect.py</span></code>, the <strong>legacy collector</strong>: it reads the
+same logs, filters generated-name and low-quality chats, strips leading system
+prompts, and renders each conversation through a Hugging Face chat template to
+<code class="docutils literal notranslate"><span class="pre">train.csv</span></code> / <code class="docutils literal notranslate"><span class="pre">train.jsonl</span></code> in the current working directory. It predates
+gptme’s tool formats and native tool calling, so it does not emit <code class="docutils literal notranslate"><span class="pre">tool_calls</span></code>,
+does not emit a <code class="docutils literal notranslate"><span class="pre">tools</span></code> column, and cannot render the three formats. It is fine
+for a plain chat-style SFT and wrong for anything tool-shaped.</p>
+<p>The run below used a private exporter that implements <em>Data</em> above — it is
+not in this repository. Reimplement from that section; <code class="docutils literal notranslate"><span class="pre">collect.py</span></code> is not a
+substitute for tool-shaped SFT. The exporter that produced these numbers
+reads gptme logs and Claude Code trajectories, joins session-level labels,
+does the redaction pass, and writes paired <code class="docutils literal notranslate"><span class="pre">markdown</span></code>/<code class="docutils literal notranslate"><span class="pre">xml</span></code>/<code class="docutils literal notranslate"><span class="pre">tool</span></code> JSONL
+from the same sessions with no per-row metadata (the HF-datasets problem
+above).</p>
+</section>
+</section>
+<section id="training">
+<h2>Training<a class="headerlink" href="#training" title="Link to this heading">#</a></h2>
+<section id="why-axolotl">
+<h3>Why Axolotl<a class="headerlink" href="#why-axolotl" title="Link to this heading">#</a></h3>
+<p><a class="reference external" href="https://docs.axolotl.ai/">Axolotl</a> (v0.18.0 at time of writing), on this data shape:</p>
+<ul class="simple">
+<li><p><strong>Axolotl</strong> — native OpenAI-style <code class="docutils literal notranslate"><span class="pre">messages</span></code> with <code class="docutils literal notranslate"><span class="pre">tool_calls</span></code> plus a <code class="docutils literal notranslate"><span class="pre">tools</span></code>
+column, assistant-only loss by default, char-offset masking if you need it,
+and a cloud image that ships SSH and tmux for rented boxes. Best fit.</p></li>
+<li><p><strong>TRL</strong> — a strong second, “less magic”. <code class="docutils literal notranslate"><span class="pre">assistant_only_loss=True</span></code> needs
+<code class="docutils literal notranslate"><span class="pre">{%</span> <span class="pre">generation</span> <span class="pre">%}</span></code> markers in the chat template; TRL auto-patches Qwen3/3.5,
+Gemma 3, Llama 3, gpt-oss and others, but you hand-patch anything else.</p></li>
+<li><p><strong>LLaMA-Factory</strong> — popular, but forces strict human/assistant alternation,
+which is lossy for agent trajectories full of tool turns.</p></li>
+<li><p><strong>torchtune</strong> — wound down in 2025 and tombstoned in 2026. Do not start here.
+(Judge a repo by its default-branch commits; <code class="docutils literal notranslate"><span class="pre">pushed_at</span></code> lies.)</p></li>
+<li><p><strong>Unsloth</strong> — the fastest single-GPU LoRA engine, and fine <em>underneath</em>
+either of the first two.</p></li>
+</ul>
+</section>
+<section id="the-config-that-worked">
+<h3>The config that worked<a class="headerlink" href="#the-config-that-worked" title="Link to this heading">#</a></h3>
+<p>Qwen3.5-0.8B, LoRA, one H100. The keys that matter, with the reasons:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">base_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Qwen/Qwen3.5-0.8B</span>
+<span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/out</span><span class="w">             </span><span class="c1"># adapter lands here; the merge step reads it</span>
+<span class="nt">chat_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3_5</span>
+<span class="nt">freeze_mm_modules</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">      </span><span class="c1"># Qwen3.5 is a unified VLM; freeze the vision tower</span>
+
+<span class="nt">adapter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lora</span>
+<span class="nt">lora_r</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
+<span class="nt">lora_alpha</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span>
+<span class="nt">lora_dropout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+<span class="nt">lora_target_modules</span><span class="p">:</span><span class="w">         </span><span class="c1"># all projections, listed explicitly:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">q_proj</span><span class="w">                   </span><span class="c1"># lora_target_linear: true would sweep the</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k_proj</span><span class="w">                   </span><span class="c1"># vision tower&#39;s linears in too</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v_proj</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">o_proj</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gate_proj</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">up_proj</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">down_proj</span>
+
+<span class="nt">datasets</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/train.jsonl</span>
+<span class="w">    </span><span class="nt">ds_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">json</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chat_template</span>
+<span class="w">    </span><span class="nt">field_messages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">messages</span>
+<span class="w">    </span><span class="nt">field_tools</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tools</span>
+<span class="w">    </span><span class="nt">roles_to_train</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;assistant&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">train_on_eos</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">turn</span>
+<span class="nt">test_datasets</span><span class="p">:</span><span class="w">               </span><span class="c1"># a real time-based holdout, not a random slice</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/holdout.jsonl</span>
+<span class="w">    </span><span class="nt">ds_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">json</span>
+<span class="w">    </span><span class="nt">split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">train</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chat_template</span>
+<span class="w">    </span><span class="nt">field_messages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">messages</span>
+<span class="w">    </span><span class="nt">field_tools</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tools</span>
+<span class="w">    </span><span class="nt">roles_to_train</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;assistant&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">train_on_eos</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">turn</span>
+<span class="nt">val_set_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span><span class="w">              </span><span class="c1"># required when test_datasets is set</span>
+
+<span class="nt">sequence_len</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16384</span><span class="w">          </span><span class="c1"># 8k conversation budget + ~8k gptme system prompt</span>
+<span class="nt">sample_packing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">eval_sample_packing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="nt">pad_to_sequence_len</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">bf16</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">attn_implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">flash_attention_2</span>
+<span class="nt">gradient_checkpointing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">num_epochs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="nt">micro_batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">          </span><span class="c1"># REQUIRED with packing on Qwen3.5 (see below)</span>
+<span class="nt">gradient_accumulation_steps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
+<span class="nt">learning_rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2e-4</span>
+<span class="nt">lr_scheduler</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cosine</span>
+<span class="nt">warmup_ratio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.03</span>
+<span class="nt">optimizer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">adamw_torch_fused</span>
+</pre></div>
+</div>
+<p>The non-obvious ones, three of which cost real money to discover:</p>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">micro_batch_size:</span> <span class="pre">1</span></code> is mandatory</strong> with <code class="docutils literal notranslate"><span class="pre">sample_packing:</span> <span class="pre">true</span></code> +
+<code class="docutils literal notranslate"><span class="pre">flash_attention_2</span></code> on Qwen3.5. Anything else dies with <em>“The batch size is
+expected to be 1 rather than N when using <code class="docutils literal notranslate"><span class="pre">cu_seqlens</span></code>”</em>. Packing already
+fills each 16k sequence; scale with gradient accumulation instead.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">freeze_mm_modules:</span> <span class="pre">true</span></code></strong> because Qwen3.5 loads as a multimodal model
+even for text-only training. Without it you also need
+<code class="docutils literal notranslate"><span class="pre">ddp_find_unused_parameters</span></code>.</p></li>
+<li><p><strong>Do not enable the LoRA kernels</strong> (<code class="docutils literal notranslate"><span class="pre">lora_mlp_kernel</span></code> and friends). Their
+supported base list stops at gemma3; qwen3 and qwen3_5 are not on it.</p></li>
+<li><p>QLoRA is not worth it here — a 0.8–4B bf16 LoRA fits comfortably on one
+80 GB card.</p></li>
+</ul>
+</section>
+<section id="measured-numbers">
+<h3>Measured numbers<a class="headerlink" href="#measured-numbers" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">q08b-markdown-v5</span></code> — Qwen3.5-0.8B, LoRA r16, 3,080 sessions rendered in the
+<code class="docutils literal notranslate"><span class="pre">markdown</span></code> format, ~33M tokens, 1 epoch, one H100 SXM on RunPod:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Metric</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Training wall clock</p></td>
+<td><p><strong>1,170 s</strong> (19.5 min)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Cost, all-in incl. setup, eval, upload</p></td>
+<td><p><strong>~$3</strong></p></td>
+</tr>
+<tr class="row-even"><td><p>Train loss</p></td>
+<td><p>0.70</p></td>
+</tr>
+<tr class="row-odd"><td><p>Held-out eval loss</p></td>
+<td><p><strong>1.918 → 1.721</strong> (ppl 6.81 → 5.59)</p></td>
+</tr>
+<tr class="row-even"><td><p>Trainable token fraction</p></td>
+<td><p>~9%</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The paired <code class="docutils literal notranslate"><span class="pre">xml</span></code> and <code class="docutils literal notranslate"><span class="pre">tool</span></code> adapters on the same 3,080 sessions took 609 s and
+1,465 s and reached eval loss 1.656 and 1.722. <strong>Do not compare loss across
+formats</strong> — the token mixes differ. <code class="docutils literal notranslate"><span class="pre">gptme-eval</span></code> is the comparison.</p>
+<p>Public artifacts for <code class="docutils literal notranslate"><span class="pre">q08b-markdown-v5</span></code> (adapter weights plus the generated
+model card that embeds the Axolotl config):
+https://s3.bob.gptme.org/training/runs/q08b-markdown-v5/README.md</p>
+<p>It took five paid attempts (~$5 of debugging) to get one clean run, and every
+single failure was plumbing, not learning: a missing tmux in the training
+image, the HF-datasets <code class="docutils literal notranslate"><span class="pre">meta</span></code> cast, the packing/micro-batch constraint above,
+an archive format the object-store client could not unpack, and a wall-clock
+cap that killed a run at step 33 of 71. Budget the first $5 as integration
+testing.</p>
+</section>
+<section id="model-choice">
+<h3>Model choice<a class="headerlink" href="#model-choice" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Why / why not</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Qwen3.5-0.8B</strong></p></td>
+<td><p>The smallest rung and what was tested here. Weak in absolute terms — useful because the <em>deltas</em> are cheap to measure. There is <strong>no 1B in Qwen3.5</strong>; 0.8B is the floor.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Qwen3.5-2B</strong></p></td>
+<td><p>Next rung up, same config.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Qwen3.5-4B</strong></p></td>
+<td><p>The reference pick. Apache-2.0, ungated, native <code class="docutils literal notranslate"><span class="pre">tools</span></code> in the chat template, 256k context, best agentic scores in the 24 GB class, bf16 LoRA around 10 GB, and it has a <code class="docutils literal notranslate"><span class="pre">-Base</span></code> twin. Unified VLM, so <code class="docutils literal notranslate"><span class="pre">freeze_mm_modules</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>SmolLM3-3B</strong></p></td>
+<td><p>The no-drama fallback: dense, text-only, and it ships native <code class="docutils literal notranslate"><span class="pre">{%</span> <span class="pre">generation</span> <span class="pre">%}</span></code> markers, so TRL’s assistant-only loss works without patching the template.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Qwen3-4B-Instruct-2507</strong></p></td>
+<td><p>Dense text-only, and the well-trodden vLLM-colocate path if you go on to RL/GRPO. Also the escape hatch if the unified-VLM path fights you: swap the base and set <code class="docutils literal notranslate"><span class="pre">chat_template:</span> <span class="pre">qwen3</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="serving-and-evaluating">
+<h2>Serving and evaluating<a class="headerlink" href="#serving-and-evaluating" title="Link to this heading">#</a></h2>
+<section id="serve-with-vllm">
+<h3>Serve with vLLM<a class="headerlink" href="#serve-with-vllm" title="Link to this heading">#</a></h3>
+<p>Axolotl’s <code class="docutils literal notranslate"><span class="pre">output_dir</span></code> with <code class="docutils literal notranslate"><span class="pre">adapter:</span> <span class="pre">lora</span></code> contains only
+<code class="docutils literal notranslate"><span class="pre">adapter_config.json</span></code> + <code class="docutils literal notranslate"><span class="pre">adapter_model.safetensors</span></code>. <strong>vLLM serves full
+checkpoints</strong>, so merge the adapter into the base first. Then:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>vllm<span class="w"> </span>serve<span class="w"> </span>/path/to/merged-checkpoint<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--served-model-name<span class="w"> </span>tool-format-experiment<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--enable-auto-tool-choice<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--tool-call-parser<span class="w"> </span>qwen3_xml<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--structured-outputs-config.backend<span class="w"> </span>xgrammar<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--default-chat-template-kwargs<span class="w"> </span><span class="s1">&#39;{&quot;enable_thinking&quot;: false}&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--chat-template<span class="w"> </span>/path/to/qwen3_5_midsystem.jinja<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max-model-len<span class="w"> </span><span class="m">32768</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--port<span class="w"> </span><span class="m">8000</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--enable-auto-tool-choice</span></code> is <strong>mandatory</strong> for the <code class="docutils literal notranslate"><span class="pre">tool</span></code> format.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--tool-call-parser</span></code>: <code class="docutils literal notranslate"><span class="pre">qwen3_xml</span></code> for Qwen3.5 and Qwen3-Coder (XML-style
+<code class="docutils literal notranslate"><span class="pre">&lt;function=…&gt;</span></code> template), <code class="docutils literal notranslate"><span class="pre">hermes</span></code> for plain Qwen3 instruct/thinking. Verify
+against the checkpoint’s own <code class="docutils literal notranslate"><span class="pre">tokenizer_config.json</span></code> rather than guessing
+from the name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--default-chat-template-kwargs</span> <span class="pre">'{&quot;enable_thinking&quot;:</span> <span class="pre">false}'</span></code>: Qwen3.5 thinks
+by default. In the first eval attempt every generation ended at
+<code class="docutils literal notranslate"><span class="pre">Assistant:</span> <span class="pre">Thinking...</span></code> — the per-task timeout expired inside the think
+block — and both arms scored 0/116. Turn thinking off at serve time (or
+raise the timeout a lot).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--chat-template</span></code> in the command above is the <strong>2026-09-08/09 serve path</strong>
+(see the next section). On gptme with
+<a class="reference external" href="https://github.com/gptme/gptme/pull/3780">#3780</a>, drop it and fold on
+the client instead.</p></li>
+</ul>
+</section>
+<section id="the-mid-conversation-system-message-gotcha">
+<h3>The mid-conversation system message gotcha<a class="headerlink" href="#the-mid-conversation-system-message-gotcha" title="Link to this heading">#</a></h3>
+<p><strong>Qwen3.5’s stock chat template raises <code class="docutils literal notranslate"><span class="pre">System</span> <span class="pre">message</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">at</span> <span class="pre">the</span> <span class="pre">beginning</span></code>.</strong> gptme injects context as non-leading <code class="docutils literal notranslate"><span class="pre">system</span></code> messages
+(tool results go out as <code class="docutils literal notranslate"><span class="pre">tool</span></code> and are not the problem). On the
+2026-09-08/09 run this burned two entire evals (580/580 requests failed,
+both arms 0/116). It reads like a broken model or a timeout; only the
+vLLM server log gives it away.</p>
+<p><strong>Fixed in gptme as of <a class="reference external" href="https://github.com/gptme/gptme/pull/3780">#3780</a></strong>
+(merged 2026-09-09, closes
+<a class="reference external" href="https://github.com/gptme/gptme/issues/3779">#3779</a>). <code class="docutils literal notranslate"><span class="pre">_fold_mid_system</span></code> in
+<code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_openai.py</span></code> keeps the first system message and re-emits
+every later system message without a <code class="docutils literal notranslate"><span class="pre">call_id</span></code> as a <em>separate user</em>
+message wrapped in <code class="docutils literal notranslate"><span class="pre">&lt;system&gt;…&lt;/system&gt;</span></code> — the same transform <code class="docutils literal notranslate"><span class="pre">_prep_o1</span></code>
+already used for the o-series. It activates when the model id contains
+<code class="docutils literal notranslate"><span class="pre">qwen3.5</span></code> / <code class="docutils literal notranslate"><span class="pre">qwen3_5</span></code>, or when <code class="docutils literal notranslate"><span class="pre">GPTME_FOLD_SYSTEM_MESSAGES=1</span></code>. Tool-result
+messages (<code class="docutils literal notranslate"><span class="pre">system</span></code> + <code class="docutils literal notranslate"><span class="pre">call_id</span></code>) stay for <code class="docutils literal notranslate"><span class="pre">_handle_tools</span></code> to convert to
+<code class="docutils literal notranslate"><span class="pre">tool</span></code>.</p>
+<p>This recipe’s <code class="docutils literal notranslate"><span class="pre">--served-model-name</span></code> values (<code class="docutils literal notranslate"><span class="pre">tool-format-experiment</span></code>,
+<code class="docutils literal notranslate"><span class="pre">sft</span></code>) do <strong>not</strong> contain <code class="docutils literal notranslate"><span class="pre">qwen3.5</span></code>, so name inference will not fire.
+On a gptme that includes #3780, either put <code class="docutils literal notranslate"><span class="pre">qwen3.5</span></code> in the served name
+(<code class="docutils literal notranslate"><span class="pre">--served-model-name</span> <span class="pre">qwen3.5-sft</span></code>, then <code class="docutils literal notranslate"><span class="pre">gptme-eval</span> <span class="pre">--model</span> <span class="pre">local/qwen3.5-sft&#64;markdown</span></code>) or <code class="docutils literal notranslate"><span class="pre">export</span> <span class="pre">GPTME_FOLD_SYSTEM_MESSAGES=1</span></code> for
+the eval process.</p>
+<p>The 2026-09-08/09 numbers were collected <strong>before</strong> #3780, by serving
+with a <strong>copy of the chat template</strong> that renders non-leading system
+messages as ordinary ChatML system turns instead of raising. That is
+also the shape the SFT data was rendered in, so training and those
+eval numbers agree. The client-side fold is a different transform
+(role becomes <code class="docutils literal notranslate"><span class="pre">user</span></code> with a <code class="docutils literal notranslate"><span class="pre">&lt;system&gt;</span></code> wrapper). To reproduce the
+table below, keep the template copy; to eval a Qwen3.5 on current
+gptme, use the fold.</p>
+<p>The template patch, for the historical serve path. In the message loop,
+replace the <code class="docutils literal notranslate"><span class="pre">raise_exception</span></code> branch with:</p>
+<div class="highlight-jinja notranslate"><div class="highlight"><pre><span></span><span class="cp">{%</span>- <span class="k">if</span> <span class="nv">message.role</span> <span class="o">==</span> <span class="s2">&quot;system&quot;</span> <span class="cp">%}</span>
+<span class="x">    </span><span class="cp">{%</span>- <span class="k">if</span> <span class="k">not</span> <span class="nb">loop</span><span class="nv">.first</span> <span class="cp">%}</span>
+<span class="x">        </span><span class="cp">{{</span><span class="o">-</span> <span class="s1">&#39;&lt;|im_start|&gt;system\n&#39;</span> <span class="o">+</span> <span class="nv">content</span> <span class="o">+</span> <span class="s1">&#39;&lt;|im_end|&gt;&#39;</span> <span class="o">+</span> <span class="s1">&#39;\n&#39;</span> <span class="cp">}}</span>
+<span class="x">    </span><span class="cp">{%</span>- <span class="k">endif</span> <span class="cp">%}</span>
+<span class="cp">{%</span>- <span class="k">endif</span> <span class="cp">%}</span>
+</pre></div>
+</div>
+<p>Copy the checkpoint’s own <code class="docutils literal notranslate"><span class="pre">chat_template</span></code> (from <code class="docutils literal notranslate"><span class="pre">tokenizer_config.json</span></code>)
+and apply that replacement; the rest of the template stays stock.</p>
+</section>
+<section id="run-gptme-eval">
+<h3>Run gptme-eval<a class="headerlink" href="#run-gptme-eval" title="Link to this heading">#</a></h3>
+<p>gptme-eval reaches a self-hosted server through the <code class="docutils literal notranslate"><span class="pre">local</span></code> provider. The model
+spec carries the tool format after an <code class="docutils literal notranslate"><span class="pre">&#64;</span></code>, and it <strong>wins over <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code></strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span>http://localhost:8000/v1
+<span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span>vllm<span class="w">          </span><span class="c1"># required, ignored by a keyless vLLM</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">EVAL_RESULTS_DIR</span><span class="o">=</span>~/evals/my-run
+
+gptme-eval<span class="w"> </span>--model<span class="w"> </span>local/tool-format-experiment@markdown<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--parallel<span class="w"> </span><span class="m">8</span><span class="w"> </span>--timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>basic<span class="w"> </span>all-practical
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">basic</span></code> (18 tests) + <code class="docutils literal notranslate"><span class="pre">all-practical</span></code> (98) = <strong>116 tests</strong> on this repo as
+of 2026-09-09, which is the cheapest suite pair that still discriminates.
+Recount from <code class="docutils literal notranslate"><span class="pre">gptme.eval.suites</span></code> if you need the denominator to match a
+later revision. See <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> for the full suite list.</p></li>
+<li><p>Repeat with <code class="docutils literal notranslate"><span class="pre">&#64;xml</span></code> and <code class="docutils literal notranslate"><span class="pre">&#64;tool</span></code> for the other formats. With no <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> suffix,
+gptme-eval runs the model once per format.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--timeout</span></code> is the generation budget per eval, and the default is far too
+tight for a small model doing 10–15 agent turns. 600 s is generous; 60 s
+produced a wall of zeros.</p></li>
+<li><p>gptme-eval <strong>does not sandbox</strong>: each test runs its <code class="docutils literal notranslate"><span class="pre">run</span></code> command with
+<code class="docutils literal notranslate"><span class="pre">/bin/bash</span> <span class="pre">-c</span></code> in the agent’s workspace, inheriting the environment. The box
+therefore needs <code class="docutils literal notranslate"><span class="pre">bash</span></code>, <code class="docutils literal notranslate"><span class="pre">git</span></code>, coreutils, <code class="docutils literal notranslate"><span class="pre">python3</span></code>, and <code class="docutils literal notranslate"><span class="pre">pytest</span></code> + <code class="docutils literal notranslate"><span class="pre">mypy</span></code> +
+<code class="docutils literal notranslate"><span class="pre">requests</span></code> + <code class="docutils literal notranslate"><span class="pre">pytest-mock</span></code> <em>in the interpreter the tasks resolve</em>, plus a
+global git identity. Get any of that wrong and you get uniformly failing
+tests that read like a bad model. Install <code class="docutils literal notranslate"><span class="pre">gptme</span></code>, not <code class="docutils literal notranslate"><span class="pre">gptme[eval]</span></code> — that
+extra is for the external benchmark lanes and pulls gigabytes these suites
+never touch.</p></li>
+<li><p>Don’t put <code class="docutils literal notranslate"><span class="pre">init_projects</span></code> (needs cargo), <code class="docutils literal notranslate"><span class="pre">browser</span></code>/<code class="docutils literal notranslate"><span class="pre">computer</span></code> (need
+Playwright + Chromium) or <code class="docutils literal notranslate"><span class="pre">subagent</span></code> (nested LLM calls) in the suite list
+unless you have provisioned for them.</p></li>
+</ul>
+</section>
+<section id="grammar-constrained-decoding-experimental">
+<h3>Grammar-constrained decoding (experimental)<a class="headerlink" href="#grammar-constrained-decoding-experimental" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">tool</span></code> format gets constrained decoding for free — schemas go to the
+server, the server constrains the arguments. <code class="docutils literal notranslate"><span class="pre">markdown</span></code> and <code class="docutils literal notranslate"><span class="pre">xml</span></code> get nothing;
+they are parsed heuristically out of free text. A self-hosted vLLM can
+constrain those too, given a context-free grammar for the fenced-block and
+<code class="docutils literal notranslate"><span class="pre">&lt;tool-use&gt;</span></code> shapes.</p>
+<p>gptme does <strong>not</strong> ship a grammar passthrough for <code class="docutils literal notranslate"><span class="pre">markdown</span></code>/<code class="docutils literal notranslate"><span class="pre">xml</span></code>. The
+grammar columns in <em>Results</em> are from a local experiment that sent GBNF as
+<code class="docutils literal notranslate"><span class="pre">structured_outputs.grammar</span></code> on self-hosted vLLM only — they are <strong>not part
+of this recipe</strong>. Skip that arm unless you have your own wiring. If you do:</p>
+<ul class="simple">
+<li><p>Send GBNF-flavoured <strong>EBNF</strong> with a rule named <code class="docutils literal notranslate"><span class="pre">root</span></code>. vLLM hands the string
+to <code class="docutils literal notranslate"><span class="pre">xgrammar.Grammar.from_ebnf</span></code>; its Lark detection is a one-line heuristic
+that routes non-<code class="docutils literal notranslate"><span class="pre">::=</span></code> grammars through a lossy converter.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">structured_outputs.grammar</span></code> needs vLLM ≥ 0.11.0. The legacy
+<code class="docutils literal notranslate"><span class="pre">guided_grammar</span></code> field was removed in 0.12.0 and is <strong>silently ignored</strong>
+since — so a stale client returns unconstrained text with no error. Probe it:
+constrain a request to the single literal <code class="docutils literal notranslate"><span class="pre">GRAMMAR_OK</span></code> and refuse to run if
+the answer differs.</p></li>
+<li><p>Pin <code class="docutils literal notranslate"><span class="pre">--structured-outputs-config.backend</span> <span class="pre">xgrammar</span></code> so an invalid grammar
+fails loudly instead of quietly falling back to another engine.</p></li>
+</ul>
+</section>
+</section>
+<section id="results">
+<h2>Results<a class="headerlink" href="#results" title="Link to this heading">#</a></h2>
+<p>Base Qwen3.5-0.8B versus the <strong>markdown-trained</strong> adapter, 116 tasks
+(<code class="docutils literal notranslate"><span class="pre">basic</span></code> + <code class="docutils literal notranslate"><span class="pre">all-practical</span></code>), thinking off, one A40 for ~4 h (~$2):</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>format</p></th>
+<th class="head"><p>base, free</p></th>
+<th class="head"><p>base, grammar</p></th>
+<th class="head"><p>SFT, free</p></th>
+<th class="head"><p>SFT, grammar</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">markdown</span></code></p></td>
+<td><p>12/116 (10%)</p></td>
+<td><p>13/116 (11%)</p></td>
+<td><p><strong>22/116 (19%)</strong></p></td>
+<td><p>19/116 (16%)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">xml</span></code></p></td>
+<td><p>9/116 (8%)</p></td>
+<td><p>12/116 (10%)</p></td>
+<td><p>5/116 (4%)</p></td>
+<td><p>4/116 (3%)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tool</span></code> (native)</p></td>
+<td><p>17/116 (15%)</p></td>
+<td><p>n/a</p></td>
+<td><p><strong>26/116 (22%)</strong></p></td>
+<td><p>n/a</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">tool</span></code> + grammar is <code class="docutils literal notranslate"><span class="pre">n/a</span></code> by construction: gptme skips the grammar for the
+native format because the provider already constrains against the tool schemas,
+so that cell would be a byte-for-byte rerun.</p>
+<p>What this says, honestly:</p>
+<ul class="simple">
+<li><p><strong>Format SFT works.</strong> markdown 10% → 19% from <em>one epoch</em> of your own
+sessions rendered in that format. That is the headline.</p></li>
+<li><p><strong>It transfers to native tool calling</strong> (15% → 22%). The adapter learned
+<em>what to do with gptme’s tools</em>, not just the fence syntax. That was not
+obvious in advance.</p></li>
+<li><p><strong>It hurts the untrained format.</strong> xml went 8% → 4%: the model now
+confidently emits fences, and in <code class="docutils literal notranslate"><span class="pre">xml</span></code> mode gptme does not parse markdown
+code blocks at all, so those calls are silently not executed (a documented
+weakness — see <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a>). <strong>Format training is format-specific.</strong>
+Train the format you intend to run.</p></li>
+<li><p><strong>Grammar is not a substitute for training.</strong> It is a small help for the
+untrained model (+1 / +3 pp) and a small <em>harm</em> on the SFT model (−3 pp,
+within noise). Syntax was not the bottleneck; semantics were.</p></li>
+<li><p><strong>n = 116</strong>, so the binomial standard error is 3–4 pp. <strong>Treat ±4 pp as
+noise.</strong> The markdown and tool gains clear that bar; nothing else in the
+table does.</p></li>
+<li><p><strong>A 0.8B is weak in absolute terms.</strong> 19% is not a usable agent. The point of
+the smallest rung is that the <em>deltas</em> cost $2 to measure; scale the model
+once the pipeline works, not before.</p></li>
+</ul>
+</section>
+<section id="compute">
+<h2>Compute<a class="headerlink" href="#compute" title="Link to this heading">#</a></h2>
+<p>Rent bare GPUs by the hour. No managed fine-tuning API is needed for any of
+this, and the whole experiment above — three adapters, several evals, five
+failed plumbing attempts and one idle cluster — came to <strong>about $16</strong>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Job</p></th>
+<th class="head"><p>Hardware</p></th>
+<th class="head"><p>Rate</p></th>
+<th class="head"><p>Wall</p></th>
+<th class="head"><p>Cost</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>LoRA SFT, 3k sessions / ~33M tokens</p></td>
+<td><p>1× H100</p></td>
+<td><p>~$2.89/h</p></td>
+<td><p>~20 min</p></td>
+<td><p>~$3</p></td>
+</tr>
+<tr class="row-odd"><td><p>Full eval, 2 arms × 5 cells × 116 tests</p></td>
+<td><p>1× A40</p></td>
+<td><p>~$0.49/h</p></td>
+<td><p>~3.5 h</p></td>
+<td><p>~$2</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The eval is bound on <strong>agent turns, not GPU throughput</strong>, so do not pay for an
+H100 to run it — an A40 costs a quarter as much and finishes at the same time.
+If the budget tightens, cut tasks per cell before cutting cells: a missing cell
+kills a hypothesis, fewer tasks just widens the confidence interval.</p>
+<p><strong>A forgotten H100 costs about $70/day</strong>, which is more than this entire
+experiment. Orchestrate with <a class="reference external" href="https://docs.skypilot.co/">SkyPilot</a>, whose autostop daemon runs <em>on the
+remote cluster</em> and therefore fires even if your laptop dies — neither RunPod
+nor Vast has a native idle timeout of its own:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">resources</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">autostop</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">idle_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
+<span class="w">    </span><span class="nt">down</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># terminate; `stop` keeps the disk and keeps billing</span>
+<span class="w">    </span><span class="nt">wait_for</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span><span class="w">      </span><span class="c1"># the load-bearing part</span>
+<span class="w">  </span><span class="nt">max_hourly_cost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.6</span><span class="w">  </span><span class="c1"># refuses to provision anything pricier</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">wait_for:</span> <span class="pre">none</span></code> is what turns <code class="docutils literal notranslate"><span class="pre">idle_minutes</span></code> into a <strong>hard wall clock</strong>. The
+default is <code class="docutils literal notranslate"><span class="pre">jobs_and_ssh</span></code>, which resets the timer while a job runs <em>or an SSH
+session is open</em> — so <code class="docutils literal notranslate"><span class="pre">sky</span> <span class="pre">launch</span> <span class="pre">--down</span> <span class="pre">-i</span> <span class="pre">15</span></code> alone does <strong>not</strong> tear the box
+down after your job, and an open terminal will keep an H100 alive indefinitely.
+Set the cap explicitly, and note SkyPilot’s own documented exception: <em>if errors
+occur during provisioning or setup, the cluster is not torn down</em> — precisely
+the case where a forgotten box costs money. Run <code class="docutils literal notranslate"><span class="pre">sky</span> <span class="pre">down</span> <span class="pre">-y</span></code> from an
+<code class="docutils literal notranslate"><span class="pre">EXIT</span></code>/<code class="docutils literal notranslate"><span class="pre">INT</span></code>/<code class="docutils literal notranslate"><span class="pre">TERM</span></code> trap, verify with <code class="docutils literal notranslate"><span class="pre">sky</span> <span class="pre">status</span> <span class="pre">--refresh</span></code> (without
+<code class="docutils literal notranslate"><span class="pre">--refresh</span></code> SkyPilot answers from a local cache and will happily report a
+cluster down while the provider bills it), and back all of it with a <strong>prepaid,
+hard-capped account</strong>. That last one is the only cap that survives a wedged
+daemon or a bug in your own launcher.</p>
+</section>
+<section id="reproduce">
+<h2>Reproduce<a class="headerlink" href="#reproduce" title="Link to this heading">#</a></h2>
+<p>The training, merge, serve, and eval commands below are what ran.
+<strong>The exporter is not in this repository.</strong> Reimplement it from <em>Data</em>
+above. The patched Qwen3.5 chat template is also not in-tree: it is
+only needed to reproduce the 2026-09-08/09 numbers, or if you are on
+a gptme without <a class="reference external" href="https://github.com/gptme/gptme/pull/3780">#3780</a>. Make
+it by copying the checkpoint’s <code class="docutils literal notranslate"><span class="pre">chat_template</span></code> and applying the six-line
+replacement in
+<em>The mid-conversation system message gotcha</em>. On current gptme, skip
+the template and fold on the client (<code class="docutils literal notranslate"><span class="pre">GPTME_FOLD_SYSTEM_MESSAGES=1</span></code>,
+or put <code class="docutils literal notranslate"><span class="pre">qwen3.5</span></code> in <code class="docutils literal notranslate"><span class="pre">--served-model-name</span></code>). Nothing here needs a GPU
+until step 3.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Export paired datasets yourself (see Data). Hold out the last two months;</span>
+<span class="c1">#    render markdown/xml/tool from the same sessions and split; omit per-row</span>
+<span class="c1">#    metadata so HF datasets can cast the columns. Write</span>
+<span class="c1">#    ~/data/sft/run.markdown.train.jsonl (and the xml/tool twins).</span>
+
+<span class="c1"># 2. Validate before renting anything: this is where a bad `arguments` column</span>
+<span class="c1">#    or a null-then-float field fails, and it costs nothing on your own box.</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+<span class="s2">from datasets import load_dataset</span>
+<span class="s2">d = load_dataset(&#39;json&#39;, data_files=&#39;</span><span class="nv">$HOME</span><span class="s2">/data/sft/run.markdown.train.jsonl&#39;)</span>
+<span class="s2">print(d)&quot;</span>
+
+<span class="c1"># 3. Train (on the rented box; ~20 min on one H100 for ~33M tokens).</span>
+axolotl<span class="w"> </span>preprocess<span class="w"> </span>qwen3.5-0.8b-lora.yaml
+axolotl<span class="w"> </span>train<span class="w"> </span>qwen3.5-0.8b-lora.yaml
+
+<span class="c1"># 4. Merge the adapter into the base (vLLM serves full checkpoints, and step 3</span>
+<span class="c1">#    produces only an adapter), then serve. --chat-template is the 2026-09-08/09</span>
+<span class="c1">#    path (stock Qwen3.5 400s every gptme request without it). On gptme with</span>
+<span class="c1">#    #3780, drop --chat-template and export GPTME_FOLD_SYSTEM_MESSAGES=1 (this</span>
+<span class="c1">#    served name does not contain qwen3.5, so name inference will not fire).</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+<span class="s2">from peft import AutoPeftModelForCausalLM</span>
+<span class="s2">from transformers import AutoTokenizer</span>
+<span class="s2">AutoPeftModelForCausalLM.from_pretrained(&#39;/out&#39;).merge_and_unload().save_pretrained(&#39;/merged&#39;)</span>
+<span class="s2">AutoTokenizer.from_pretrained(&#39;Qwen/Qwen3.5-0.8B&#39;).save_pretrained(&#39;/merged&#39;)&quot;</span>
+vllm<span class="w"> </span>serve<span class="w"> </span>/merged<span class="w"> </span>--served-model-name<span class="w"> </span>sft<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--enable-auto-tool-choice<span class="w"> </span>--tool-call-parser<span class="w"> </span>qwen3_xml<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--default-chat-template-kwargs<span class="w"> </span><span class="s1">&#39;{&quot;enable_thinking&quot;: false}&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--chat-template<span class="w"> </span>./qwen3_5_midsystem.jinja<span class="w"> </span>--port<span class="w"> </span><span class="m">8000</span>
+
+<span class="c1"># 5. Score it — and score the *base* model the same way, or you have one number</span>
+<span class="c1">#    and no verdict.</span>
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span>http://localhost:8000/v1<span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span>vllm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>gptme-eval<span class="w"> </span>--model<span class="w"> </span>local/sft@markdown<span class="w"> </span>--parallel<span class="w"> </span><span class="m">8</span><span class="w"> </span>--timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>basic<span class="w"> </span>all-practical
+</pre></div>
+</div>
+<p>Step 5 is the whole point. A fine-tuned model’s score on its own is not a
+result; the base-versus-SFT diff is.</p>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a> — what <code class="docutils literal notranslate"><span class="pre">markdown</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code> and <code class="docutils literal notranslate"><span class="pre">tool</span></code> actually do, and the
+xml-ignores-fences weakness that shows up in the results table</p></li>
+<li><p><a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> — the eval suites, the leaderboard, and per-model best formats</p></li>
+<li><p><a class="reference external" href="https://docs.axolotl.ai/">Axolotl</a> — the training stack used here</p></li>
+<li><p><a class="reference external" href="https://docs.skypilot.co/">SkyPilot</a> — burst GPU orchestration with a remote-side autostop</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">scripts/train/collect.py</span></code> in this repo — the legacy chat-only collector</p></li>
 </ul>
 </section>
 </section>
@@ -636,11 +1265,34 @@ hardware support may vary.</p></li>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#data">Data</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-conversations-are">Where the conversations are</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#two-tool-call-encodings-and-why-that-matters">Two tool-call encodings, and why that matters</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-export-format">The export format</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-renderers-and-why-paired-datasets">The three renderers, and why paired datasets</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#masking-truncation-sequence-length">Masking, truncation, sequence length</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#redaction">Redaction</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tooling">Tooling</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training">Training</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-axolotl">Why Axolotl</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-config-that-worked">The config that worked</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#measured-numbers">Measured numbers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-choice">Model choice</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-and-evaluating">Serving and evaluating</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-with-vllm">Serve with vLLM</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-mid-conversation-system-message-gotcha">The mid-conversation system message gotcha</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-gptme-eval">Run gptme-eval</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#grammar-constrained-decoding-experimental">Grammar-constrained decoding (experimental)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#results">Results</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compute">Compute</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reproduce">Reproduce</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>
 </ul>
   </nav></div>
 
