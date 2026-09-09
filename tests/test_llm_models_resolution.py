@@ -687,6 +687,21 @@ class TestModelToDict:
         d = model_to_dict(m)
         assert d["supports_reasoning"] is True
 
+    def test_supports_mid_system_excluded_when_true(self):
+        m = ModelMeta(provider="openai", model="test", context=128_000)
+        d = model_to_dict(m)
+        assert "supports_mid_system" not in d
+
+    def test_supports_mid_system_included_when_false(self):
+        m = ModelMeta(
+            provider="local",
+            model="Qwen/Qwen3.5-0.8B",
+            context=32_000,
+            supports_mid_system=False,
+        )
+        d = model_to_dict(m)
+        assert d["supports_mid_system"] is False
+
 
 # ── _apply_model_filters ─────────────────────────────────────────────────
 
