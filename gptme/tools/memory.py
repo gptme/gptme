@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ..dirs import get_cc_memory_dir, get_workspace
 from ..memory import MemoryEntry, MemoryRoot, MemoryStore, slugify, update_index_line
+from ..memory.schema import MemoryParseError
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import ToolSpec, ToolUse
@@ -132,7 +133,7 @@ def execute_memory(
         try:
             file_path = save_memory(name, save_content)
             yield Message("system", f"Memory '{name}' saved to `{file_path}`.")
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, MemoryParseError) as e:
             yield Message("system", f"Error saving memory '{name}': {e}")
 
     target_path = _get_path(code, args, kwargs)
