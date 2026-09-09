@@ -1,10 +1,12 @@
 """Tests for Claude Code memory integration in gptme workspace context."""
 
 import re
+import textwrap
 from pathlib import Path
 from unittest.mock import patch
 
 from gptme.dirs import _claude_project_dirname, get_cc_memory_dir, get_cc_memory_file
+from gptme.memory import MemoryRoot
 
 
 class TestClaudeProjectDirname:
@@ -171,29 +173,63 @@ class TestGetCcMemoryFile:
         assert cc_file.parent == get_cc_memory_dir(workspace)
 
 
+def _make_entry(
+    memory_dir: Path, name: str, description: str, body: str = "", type: str = "project"
+) -> Path:
+    """Write a minimal CC-compatible memory entry file and return its path."""
+    slug = name.replace(" ", "-").lower()
+    path = memory_dir / f"{slug}.md"
+    content = textwrap.dedent(f"""\
+        ---
+        name: {slug}
+        description: "{description}"
+        metadata:
+          type: {type}
+        ---
+
+        {body or description}
+    """)
+    path.write_text(content)
+    return path
+
+
+def _common_patches(mock_roots=None):
+    """Return context manager stack for workspace prompt unit tests.
+
+    Patches out external I/O (git, config) and optionally mocks resolve_roots
+    to return a controlled set of MemoryRoot objects.
+    """
+    patches = [
+        patch("gptme.prompts.workspace.get_config"),
+        patch("gptme.prompts.workspace.get_project_config", return_value=None),
+        patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+        patch("gptme.prompts.workspace._get_git_status", return_value=None),
+        patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+    ]
+    if mock_roots is not None:
+        patches.insert(
+            0, patch("gptme.prompts.workspace.resolve_roots", return_value=mock_roots)
+        )
+    return patches
+
+
 class TestCcMemoryInWorkspacePrompt:
-    """Tests for CC memory loading in prompt_workspace."""
+    """Tests for layered memory loading in prompt_workspace (gptme/gptme#3625)."""
 
     def test_loads_cc_memory_when_present(self, tmp_path):
-        """CC memory is included in workspace context when MEMORY.md exists."""
+        """CC-scoped memory entries are included in workspace context."""
         from gptme.prompts.workspace import prompt_workspace
 
-        # Create a fake CC memory file
         workspace = tmp_path / "myproject"
         workspace.mkdir()
-        workspace_hash = str(workspace.resolve()).replace("/", "-")
-        cc_memory_dir = (
-            tmp_path / "home" / ".claude" / "projects" / workspace_hash / "memory"
-        )
-        cc_memory_dir.mkdir(parents=True)
-        cc_memory_file = cc_memory_dir / "MEMORY.md"
-        cc_memory_file.write_text("# Memory\n\n- Key insight about this project\n")
+        memory_dir = tmp_path / "cc_memory"
+        memory_dir.mkdir()
+        _make_entry(memory_dir, "key-insight", "Key insight about this project")
+
+        cc_root = MemoryRoot("cc", memory_dir)
 
         with (
-            patch(
-                "gptme.prompts.workspace.get_cc_memory_file",
-                return_value=cc_memory_file,
-            ),
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[cc_root]),
             patch("gptme.prompts.workspace.get_config") as mock_config,
             patch("gptme.prompts.workspace.get_project_config", return_value=None),
             patch("gptme.prompts.workspace.get_tree_output", return_value=None),
@@ -209,23 +245,28 @@ class TestCcMemoryInWorkspacePrompt:
                 )
             )
 
-        contents = [m.content for m in messages]
-        combined = "\n".join(contents)
+        combined = "\n".join(m.content for m in messages)
         assert "Persistent Memory" in combined
-        assert "Key insight about this project" in combined
+        assert "key-insight" in combined
 
-    def test_no_memory_when_file_missing(self, tmp_path):
-        """No memory message is emitted when CC MEMORY.md doesn't exist."""
+    def test_loads_from_project_memory_dir(self, tmp_path):
+        """Project-scoped memory/ entries are auto-loaded into workspace context.
+
+        This is the core feature of #3625: memories written by any harness to
+        the project memory/ dir become visible in the next gptme session.
+        """
         from gptme.prompts.workspace import prompt_workspace
 
         workspace = tmp_path / "myproject"
         workspace.mkdir()
-        nonexistent = tmp_path / "nonexistent" / "MEMORY.md"
+        memory_dir = workspace / "memory"
+        memory_dir.mkdir()
+        _make_entry(memory_dir, "project-fact", "A key project fact", type="project")
+
+        project_root = MemoryRoot("project", memory_dir)
 
         with (
-            patch(
-                "gptme.prompts.workspace.get_cc_memory_file", return_value=nonexistent
-            ),
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[project_root]),
             patch("gptme.prompts.workspace.get_config") as mock_config,
             patch("gptme.prompts.workspace.get_project_config", return_value=None),
             patch("gptme.prompts.workspace.get_tree_output", return_value=None),
@@ -241,24 +282,97 @@ class TestCcMemoryInWorkspacePrompt:
                 )
             )
 
-        contents = [m.content for m in messages]
-        combined = "\n".join(contents)
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" in combined
+        assert "project-fact" in combined
+
+    def test_cross_harness_both_roots_visible(self, tmp_path):
+        """Memories from project and CC roots both appear in a single session.
+
+        This verifies the cross-harness round-trip: CC writes to cc root, gptme
+        writes to project root, both are visible in a subsequent gptme session.
+        """
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+
+        # Simulate CC writing to its root
+        cc_dir = tmp_path / "cc_root"
+        cc_dir.mkdir()
+        _make_entry(cc_dir, "cc-fact", "Written by Claude Code", type="feedback")
+
+        # Simulate gptme writing to project root
+        proj_dir = workspace / "memory"
+        proj_dir.mkdir()
+        _make_entry(proj_dir, "gptme-fact", "Written by gptme", type="project")
+
+        roots = [MemoryRoot("project", proj_dir), MemoryRoot("cc", cc_dir)]
+
+        with (
+            patch("gptme.prompts.workspace.resolve_roots", return_value=roots),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" in combined
+        # Both harnesses' entries are present
+        assert "cc-fact" in combined
+        assert "gptme-fact" in combined
+
+    def test_no_memory_when_no_roots_exist(self, tmp_path):
+        """No memory message is emitted when no memory roots have files."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        # No roots — resolve_roots returns empty list
+
+        with (
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[]),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
         assert "Persistent Memory" not in combined
 
     def test_skips_memory_when_include_user_context_false(self, tmp_path):
-        """CC memory is not loaded when include_user_context=False (e.g. eval mode)."""
+        """Layered memory is not loaded when include_user_context=False (e.g. eval mode)."""
         from gptme.prompts.workspace import prompt_workspace
 
         workspace = tmp_path / "myproject"
         workspace.mkdir()
-        cc_memory_file = tmp_path / "MEMORY.md"
-        cc_memory_file.write_text("# Memory\n\n- Some insight\n")
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        _make_entry(memory_dir, "some-fact", "Some insight")
+        root = MemoryRoot("cc", memory_dir)
 
         with (
-            patch(
-                "gptme.prompts.workspace.get_cc_memory_file",
-                return_value=cc_memory_file,
-            ),
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[root]),
             patch("gptme.prompts.workspace.get_config") as mock_config,
             patch("gptme.prompts.workspace.get_project_config", return_value=None),
             patch("gptme.prompts.workspace.get_tree_output", return_value=None),
@@ -274,24 +388,24 @@ class TestCcMemoryInWorkspacePrompt:
                 )
             )
 
-        contents = [m.content for m in messages]
-        combined = "\n".join(contents)
+        combined = "\n".join(m.content for m in messages)
         assert "Persistent Memory" not in combined
 
-    def test_skips_empty_memory_file(self, tmp_path):
-        """Empty MEMORY.md produces no memory message."""
+    def test_skips_dir_with_no_parseable_entries(self, tmp_path):
+        """A memory dir containing only the index file produces no memory message."""
         from gptme.prompts.workspace import prompt_workspace
 
         workspace = tmp_path / "myproject"
         workspace.mkdir()
-        cc_memory_file = tmp_path / "MEMORY.md"
-        cc_memory_file.write_text("   \n   ")  # whitespace only
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        # Only MEMORY.md — no actual entry files
+        (memory_dir / "MEMORY.md").write_text("# Persistent Memory\n\n")
+
+        root = MemoryRoot("cc", memory_dir)
 
         with (
-            patch(
-                "gptme.prompts.workspace.get_cc_memory_file",
-                return_value=cc_memory_file,
-            ),
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[root]),
             patch("gptme.prompts.workspace.get_config") as mock_config,
             patch("gptme.prompts.workspace.get_project_config", return_value=None),
             patch("gptme.prompts.workspace.get_tree_output", return_value=None),
@@ -307,30 +421,31 @@ class TestCcMemoryInWorkspacePrompt:
                 )
             )
 
-        contents = [m.content for m in messages]
-        combined = "\n".join(contents)
+        combined = "\n".join(m.content for m in messages)
         assert "Persistent Memory" not in combined
 
-    def test_non_utf8_memory_drops_invalid_bytes(self, tmp_path):
-        """Non-UTF-8 bytes in MEMORY.md are silently dropped (errors='ignore').
-
-        Using errors='replace' would expand each invalid byte to 3-byte U+FFFD,
-        allowing 64KB of input to produce ~192KB of decoded text — exceeding the
-        intended size cap. errors='ignore' keeps the decoded size bounded.
-        """
-        from gptme.prompts.workspace import prompt_workspace
+    def test_budget_limits_injected_content(self, tmp_path):
+        """render_index budget caps the memory block to _MEMORY_BUDGET_BYTES."""
+        from gptme.prompts.workspace import _MEMORY_BUDGET_BYTES, prompt_workspace
 
         workspace = tmp_path / "myproject"
         workspace.mkdir()
-        cc_memory_file = tmp_path / "MEMORY.md"
-        # Latin-1 encoded text: "café" — 0xe9 is invalid UTF-8 lead byte
-        cc_memory_file.write_bytes(b"# Memory\n\ncaf\xe9\n")
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+
+        # Write many large entries
+        for i in range(20):
+            _make_entry(
+                memory_dir,
+                f"big-entry-{i:02d}",
+                f"Entry {i}",
+                body="x" * 5000,
+            )
+
+        root = MemoryRoot("cc", memory_dir)
 
         with (
-            patch(
-                "gptme.prompts.workspace.get_cc_memory_file",
-                return_value=cc_memory_file,
-            ),
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[root]),
             patch("gptme.prompts.workspace.get_config") as mock_config,
             patch("gptme.prompts.workspace.get_project_config", return_value=None),
             patch("gptme.prompts.workspace.get_tree_output", return_value=None),
@@ -348,70 +463,8 @@ class TestCcMemoryInWorkspacePrompt:
 
         memory_msgs = [m for m in messages if "Persistent Memory" in m.content]
         assert len(memory_msgs) == 1
-        content = memory_msgs[0].content
-        # The invalid byte is dropped; valid prefix survives
-        assert "caf" in content
-        # No U+FFFD replacement chars (that would indicate errors='replace')
-        assert "�" not in content
-
-    def test_oversized_memory_is_truncated(self, tmp_path):
-        """Memory files exceeding the size cap are truncated before injection.
-
-        Critically, the file must NOT be fully read — only _CC_MEMORY_MAX_BYTES+1
-        bytes should be consumed so that multi-MB MEMORY.md files cannot stall
-        prompt construction.
-        """
-        from gptme.prompts.workspace import _CC_MEMORY_MAX_BYTES, prompt_workspace
-
-        workspace = tmp_path / "myproject"
-        workspace.mkdir()
-        cc_memory_file = tmp_path / "MEMORY.md"
-        big_content = "# Memory\n\n" + ("x" * (_CC_MEMORY_MAX_BYTES + 10_000))
-        cc_memory_file.write_text(big_content, encoding="utf-8")
-
-        max_bytes_read = []
-
-        real_open = open
-
-        def tracking_open(path, mode="r", **kw):
-            fh = real_open(path, mode, **kw)
-            if str(path) == str(cc_memory_file) and "b" in mode:
-                real_read = fh.read
-
-                def bounded_read(n=-1):
-                    data = real_read(n)
-                    max_bytes_read.append(len(data))
-                    return data
-
-                fh.read = bounded_read
-            return fh
-
-        with (
-            patch(
-                "gptme.prompts.workspace.get_cc_memory_file",
-                return_value=cc_memory_file,
-            ),
-            patch("gptme.prompts.workspace.get_config") as mock_config,
-            patch("gptme.prompts.workspace.get_project_config", return_value=None),
-            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
-            patch("gptme.prompts.workspace._get_git_status", return_value=None),
-            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
-            patch("builtins.open", side_effect=tracking_open),
-        ):
-            mock_config.return_value.user = None
-            messages = list(
-                prompt_workspace(
-                    workspace=workspace,
-                    include_user_context=True,
-                    include_context_cmd=False,
-                )
-            )
-
-        memory_msgs = [m for m in messages if "Persistent Memory" in m.content]
-        assert len(memory_msgs) == 1
-        injected = memory_msgs[0].content.encode("utf-8")
-        # Output is bounded
-        assert len(injected) <= _CC_MEMORY_MAX_BYTES * 2
-        # The file was read with a size bound, not in full
-        assert max_bytes_read, "open() was not called on the memory file in binary mode"
-        assert max(max_bytes_read) <= _CC_MEMORY_MAX_BYTES + 1
+        # The rendered index (not individual entries) is included — it should be bounded
+        injected_bytes = len(memory_msgs[0].content.encode("utf-8"))
+        assert (
+            injected_bytes <= _MEMORY_BUDGET_BYTES + 512
+        )  # small header overhead allowed
