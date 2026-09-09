@@ -239,7 +239,7 @@ warmup_ratio: 0.03
 optimizer: adamw_torch_fused
 ```
 
-Three of those cost real money to discover:
+The non-obvious ones, three of which cost real money to discover:
 
 - **`micro_batch_size: 1` is mandatory** with `sample_packing: true` +
   `flash_attention_2` on Qwen3.5. Anything else dies with *"The batch size is
@@ -313,9 +313,9 @@ vllm serve /path/to/merged-checkpoint \
   against the checkpoint's own `tokenizer_config.json` rather than guessing
   from the name.
 - `--default-chat-template-kwargs '{"enable_thinking": false}'`: Qwen3.5 thinks
-  by default. In the first eval attempt, all 1,160 generations ended at
-  `Assistant: Thinking...` because the per-task timeout expired inside the
-  think block, and both arms scored 0/116. Turn thinking off at serve time (or
+  by default. In the first eval attempt every generation ended at
+  `Assistant: Thinking...` — the per-task timeout expired inside the think
+  block — and both arms scored 0/116. Turn thinking off at serve time (or
   raise the timeout a lot).
 
 ### The mid-conversation system message gotcha
@@ -490,7 +490,7 @@ daemon or a bug in your own launcher.
 
 ## Reproduce
 
-Five commands, in order.
+The whole loop, in order. Nothing here needs a GPU until step 3.
 
 ```bash
 # 1. Export paired datasets from your own conversations, holding out the last
@@ -510,8 +510,14 @@ print(d)"
 axolotl preprocess qwen3.5-0.8b-lora.yaml
 axolotl train qwen3.5-0.8b-lora.yaml
 
-# 4. Merge the adapter and serve it. The chat-template override is what stops
-#    every gptme request from 400ing on Qwen3.5.
+# 4. Merge the adapter into the base (vLLM serves full checkpoints, and step 3
+#    produces only an adapter), then serve. The chat-template override is what
+#    stops every gptme request from 400ing on Qwen3.5.
+python3 -c "
+from peft import AutoPeftModelForCausalLM
+from transformers import AutoTokenizer
+AutoPeftModelForCausalLM.from_pretrained('/out').merge_and_unload().save_pretrained('/merged')
+AutoTokenizer.from_pretrained('Qwen/Qwen3.5-0.8B').save_pretrained('/merged')"
 vllm serve /merged --served-model-name sft \
     --enable-auto-tool-choice --tool-call-parser qwen3_xml \
     --default-chat-template-kwargs '{"enable_thinking": false}' \
