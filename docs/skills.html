@@ -778,12 +778,25 @@ The explicit <code class="docutils literal notranslate"><span class="pre">record
 event from a caller with execution evidence; terminal transitions are idempotent.</p>
 <p>On CLI exit, unresolved invocations from that run become <code class="docutils literal notranslate"><span class="pre">abandoned</span></code>. This means
 no completion evidence was recorded, and does not establish that the skill’s work
-failed. Nested and resumed runs have separate UUIDs. Server/TUI terminal adapters,
-automatic completion evidence, abrupt-process recovery, cost attribution, and OTEL
-metrics remain future work; server/TUI command records currently retain the
-conversation path as their session identity. Storage failures are logged and never
-prevent skill execution. Malformed ledgers are preserved and refuse further writes
-until repaired, rather than risking duplicate terminal events.</p>
+failed. Nested and resumed CLI runs and each TUI app have separate UUIDs.</p>
+<p>The TUI records <code class="docutils literal notranslate"><span class="pre">completed</span></code> when its worker produces a nonempty final response
+with no runnable tools, or receives the explicit session-complete signal. Errors
+record <code class="docutils literal notranslate"><span class="pre">failed</span></code>; interruption, declined tools, step limits, cancellation, and
+app exit abandon unfinished invocations. A response containing tools keeps the
+invocation open until the tool loop reaches a final response.</p>
+<p>The native V2 server tracks invocation ownership per conversation session across
+generation and tool-confirmation workers. A nonempty, tool-free response completes
+an invocation only after pending and executing tools have drained. Generation/tool
+exceptions fail it; skipped tools, interrupts, session removal, and expiry abandon
+it. Revoked generation epochs cannot finalize a replacement worker’s invocation.
+Server admission records retain the conversation path as their session identity;
+execution ownership is scoped to the invocation IDs in the latest user turn.</p>
+<p><code class="docutils literal notranslate"><span class="pre">completed</span></code> describes the runtime response boundary, not independent verification
+that the skill achieved its goal. ACP execution, queued server commands that never
+reach a step, abrupt-process recovery, cost attribution, and OTEL metrics remain
+follow-up work. Storage failures are logged and never prevent skill execution.
+Malformed ledgers are preserved and refuse further writes until repaired, rather
+than risking duplicate terminal events.</p>
 </section>
 </section>
 <section id="creating-skills">

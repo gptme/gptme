@@ -234,12 +234,28 @@ event from a caller with execution evidence; terminal transitions are idempotent
 
 On CLI exit, unresolved invocations from that run become ``abandoned``. This means
 no completion evidence was recorded, and does not establish that the skill's work
-failed. Nested and resumed runs have separate UUIDs. Server/TUI terminal adapters,
-automatic completion evidence, abrupt-process recovery, cost attribution, and OTEL
-metrics remain future work; server/TUI command records currently retain the
-conversation path as their session identity. Storage failures are logged and never
-prevent skill execution. Malformed ledgers are preserved and refuse further writes
-until repaired, rather than risking duplicate terminal events.
+failed. Nested and resumed CLI runs and each TUI app have separate UUIDs.
+
+The TUI records ``completed`` when its worker produces a nonempty final response
+with no runnable tools, or receives the explicit session-complete signal. Errors
+record ``failed``; interruption, declined tools, step limits, cancellation, and
+app exit abandon unfinished invocations. A response containing tools keeps the
+invocation open until the tool loop reaches a final response.
+
+The native V2 server tracks invocation ownership per conversation session across
+generation and tool-confirmation workers. A nonempty, tool-free response completes
+an invocation only after pending and executing tools have drained. Generation/tool
+exceptions fail it; skipped tools, interrupts, session removal, and expiry abandon
+it. Revoked generation epochs cannot finalize a replacement worker's invocation.
+Server admission records retain the conversation path as their session identity;
+execution ownership is scoped to the invocation IDs in the latest user turn.
+
+``completed`` describes the runtime response boundary, not independent verification
+that the skill achieved its goal. ACP execution, queued server commands that never
+reach a step, abrupt-process recovery, cost attribution, and OTEL metrics remain
+follow-up work. Storage failures are logged and never prevent skill execution.
+Malformed ledgers are preserved and refuse further writes until repaired, rather
+than risking duplicate terminal events.
 
 Creating Skills
 ---------------
