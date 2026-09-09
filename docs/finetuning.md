@@ -336,20 +336,49 @@ vllm serve /path/to/merged-checkpoint \
   `Assistant: Thinking...` — the per-task timeout expired inside the think
   block — and both arms scored 0/116. Turn thinking off at serve time (or
   raise the timeout a lot).
+- `--chat-template` in the command above is the **2026-09-08/09 serve path**
+  (see the next section). On gptme with
+  [#3780](https://github.com/gptme/gptme/pull/3780), drop it and fold on
+  the client instead.
 
 ### The mid-conversation system message gotcha
 
 **Qwen3.5's stock chat template raises `System message must be at the
-beginning`. gptme sends tool results and injected context as non-leading
-`system` messages. So every single request returns HTTP 400.**
+beginning`.** gptme injects context as non-leading `system` messages
+(tool results go out as `tool` and are not the problem). On the
+2026-09-08/09 run this burned two entire evals (580/580 requests failed,
+both arms 0/116). It reads like a broken model or a timeout; only the
+vLLM server log gives it away.
 
-This burned two entire eval runs (580/580 requests failed, both arms 0/116).
-It reads exactly like a broken model or a timeout; only the vLLM server log
-gives it away. If you serve Qwen3.5 to gptme, you will hit it.
+**Fixed in gptme as of [#3780](https://github.com/gptme/gptme/pull/3780)**
+(merged 2026-09-09, closes
+[#3779](https://github.com/gptme/gptme/issues/3779)). `_fold_mid_system` in
+`gptme/llm/llm_openai.py` keeps the first system message and re-emits
+every later system message without a `call_id` as a *separate user*
+message wrapped in `<system>…</system>` — the same transform `_prep_o1`
+already used for the o-series. It activates when the model id contains
+`qwen3.5` / `qwen3_5`, or when `GPTME_FOLD_SYSTEM_MESSAGES=1`. Tool-result
+messages (`system` + `call_id`) stay for `_handle_tools` to convert to
+`tool`.
 
-The fix that works today is to serve with a **copy of the chat template** that
-renders non-leading system messages as ordinary ChatML system turns instead of
-raising. In the message loop, replace the `raise_exception` branch with:
+This recipe's `--served-model-name` values (`tool-format-experiment`,
+`sft`) do **not** contain `qwen3.5`, so name inference will not fire.
+On a gptme that includes #3780, either put `qwen3.5` in the served name
+(`--served-model-name qwen3.5-sft`, then `gptme-eval --model
+local/qwen3.5-sft@markdown`) or `export GPTME_FOLD_SYSTEM_MESSAGES=1` for
+the eval process.
+
+The 2026-09-08/09 numbers were collected **before** #3780, by serving
+with a **copy of the chat template** that renders non-leading system
+messages as ordinary ChatML system turns instead of raising. That is
+also the shape the SFT data was rendered in, so training and those
+eval numbers agree. The client-side fold is a different transform
+(role becomes `user` with a `<system>` wrapper). To reproduce the
+table below, keep the template copy; to eval a Qwen3.5 on current
+gptme, use the fold.
+
+The template patch, for the historical serve path. In the message loop,
+replace the `raise_exception` branch with:
 
 ```jinja
 {%- if message.role == "system" %}
@@ -359,22 +388,8 @@ raising. In the message loop, replace the `raise_exception` branch with:
 {%- endif %}
 ```
 
-That is also the shape the SFT data was rendered in, so training and serving
-agree. Copy the checkpoint's own `chat_template` (from
-`tokenizer_config.json`) and apply that replacement; the rest of the
-template stays stock.
-
-The proper fix belongs in gptme: rewrite non-leading `system` messages for
-providers whose templates reject them. `_prep_o1` in
-`gptme/llm/llm_openai.py` is the closest existing transform, but it does
-something different — it converts each eligible system message (no
-`call_id`) into a *separate user* message wrapped in `<system>` tags,
-because the o-series and gpt-5 do not support the system role at all.
-Merging consecutive same-role messages is `_merge_consecutive`, and it is
-composed with `_prep_o1` only on the DeepSeek path. Qwen3.5 still wants a
-leading system message; it just cannot see another one later. Until gptme
-rewrites those mid-conversation system turns on the client, use the
-template copy.
+Copy the checkpoint's own `chat_template` (from `tokenizer_config.json`)
+and apply that replacement; the rest of the template stays stock.
 
 ### Run gptme-eval
 
@@ -518,11 +533,16 @@ daemon or a bug in your own launcher.
 ## Reproduce
 
 The training, merge, serve, and eval commands below are what ran.
-**The exporter and the patched Qwen3.5 chat template are not in this
-repository.** Reimplement the exporter from *Data* above; make the template
-by copying the checkpoint's `chat_template` and applying the six-line
-replacement in *The mid-conversation system message gotcha*. Nothing here
-needs a GPU until step 3.
+**The exporter is not in this repository.** Reimplement it from *Data*
+above. The patched Qwen3.5 chat template is also not in-tree: it is
+only needed to reproduce the 2026-09-08/09 numbers, or if you are on
+a gptme without [#3780](https://github.com/gptme/gptme/pull/3780). Make
+it by copying the checkpoint's `chat_template` and applying the six-line
+replacement in
+*The mid-conversation system message gotcha*. On current gptme, skip
+the template and fold on the client (`GPTME_FOLD_SYSTEM_MESSAGES=1`,
+or put `qwen3.5` in `--served-model-name`). Nothing here needs a GPU
+until step 3.
 
 ```bash
 # 1. Export paired datasets yourself (see Data). Hold out the last two months;
@@ -542,8 +562,10 @@ axolotl preprocess qwen3.5-0.8b-lora.yaml
 axolotl train qwen3.5-0.8b-lora.yaml
 
 # 4. Merge the adapter into the base (vLLM serves full checkpoints, and step 3
-#    produces only an adapter), then serve. Point --chat-template at the
-#    patched copy from the section above — stock Qwen3.5 400s every gptme request.
+#    produces only an adapter), then serve. --chat-template is the 2026-09-08/09
+#    path (stock Qwen3.5 400s every gptme request without it). On gptme with
+#    #3780, drop --chat-template and export GPTME_FOLD_SYSTEM_MESSAGES=1 (this
+#    served name does not contain qwen3.5, so name inference will not fire).
 python3 -c "
 from peft import AutoPeftModelForCausalLM
 from transformers import AutoTokenizer
