@@ -388,6 +388,16 @@ def _build_prompt_sections(
             if ws is None:
                 continue
             ws_project = get_project_config(ws)
+            if ws_project and ws_project.context_cmd:
+                from ..config.trust import check_project_shell_trust
+
+                if not check_project_shell_trust(
+                    ws_project.context_cmd,
+                    [],
+                    ws,
+                    interactive=interactive,
+                ):
+                    continue
             if (
                 ws_project
                 and ws_project.context_cmd

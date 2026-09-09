@@ -86,13 +86,32 @@ def init(
     init_hooks(interactive=interactive, no_confirm=no_confirm, server=server)
 
     config = get_config()
-    if script_hooks := config.get_script_hooks():
+    workspace = config.chat.workspace if config.chat is not None else None
+    if workspace is None and config.project is not None:
+        workspace = config.project._workspace
+
+    # User-global hooks are always trusted; project hooks need a TOFU check.
+    user_hooks = list(config.user.hooks.scripts)
+    project_hooks = list(config.project.hooks.scripts) if config.project else []
+
+    if project_hooks:
+        from .config.trust import check_project_shell_trust
+
+        hook_commands = [h.command for h in project_hooks]
+        project_context_cmd = config.project.context_cmd if config.project else None
+        if not check_project_shell_trust(
+            project_context_cmd,
+            hook_commands,
+            workspace,
+            interactive=interactive,
+        ):
+            project_hooks = []  # denied — skip project-level shell hooks
+
+    all_hooks = user_hooks + project_hooks
+    if all_hooks:
         from .hooks.script import register_script_hooks
 
-        workspace = config.chat.workspace if config.chat is not None else None
-        if workspace is None and config.project is not None:
-            workspace = config.project._workspace
-        register_script_hooks(script_hooks, workspace or Path.cwd())
+        register_script_hooks(all_hooks, workspace or Path.cwd())
 
     init_commands()
     # Expose skills as /skill:<name> commands (after both tools and built-in
