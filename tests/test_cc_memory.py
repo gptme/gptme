@@ -391,16 +391,58 @@ class TestCcMemoryInWorkspacePrompt:
         combined = "\n".join(m.content for m in messages)
         assert "Persistent Memory" not in combined
 
-    def test_skips_dir_with_no_parseable_entries(self, tmp_path):
-        """A memory dir containing only the index file produces no memory message."""
+    def test_falls_back_to_memory_md_when_no_entry_files(self, tmp_path):
+        """A CC root with only MEMORY.md (no individual entry files) still shows
+        its content via the legacy fallback path.
+
+        Regression test: the layered-store path (MemoryStore.entries()) skips
+        MEMORY.md by design; without the fallback, existing CC memories written
+        by older harnesses or hand-authored indexes are silently dropped.
+        """
         from gptme.prompts.workspace import prompt_workspace
 
         workspace = tmp_path / "myproject"
         workspace.mkdir()
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
-        # Only MEMORY.md — no actual entry files
-        (memory_dir / "MEMORY.md").write_text("# Persistent Memory\n\n")
+        # Only MEMORY.md — no individual entry files (legacy CC format)
+        (memory_dir / "MEMORY.md").write_text(
+            "# Persistent Memory\n\n- [my-note](my-note.md) — a legacy memory\n"
+        )
+
+        root = MemoryRoot("cc", memory_dir)
+
+        with (
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[root]),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
+        assert "Persistent Memory" in combined
+        assert "legacy memory" in combined
+
+    def test_skips_dir_with_empty_memory_md(self, tmp_path):
+        """A memory dir whose MEMORY.md contains only whitespace produces no output."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        # Blank MEMORY.md and no individual entry files
+        (memory_dir / "MEMORY.md").write_text("\n\n")
 
         root = MemoryRoot("cc", memory_dir)
 
