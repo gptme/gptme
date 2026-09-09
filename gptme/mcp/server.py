@@ -123,6 +123,11 @@ class GptmeMCPServer:
         # on first use; injected into each executor thread via _shell_var so that
         # stateful tools (shell, ipython) retain state between MCP requests.
         self._shell_session: ShellSession | None = None
+        # Hook registry from _init_tools. run_in_executor threads get a fresh
+        # ContextVar default (empty registry), so we inject this object there
+        # the same way we inject _shell_session. Without it, TOOL_CONFIRM
+        # hooks never run and get_confirmation auto-confirms.
+        self._hook_registry: Any = None
         # Serialize tool calls to prevent concurrent access to stateful tools
         # (shell subprocess, IPython REPL) from racing on shared session state.
         self._tool_call_lock = asyncio.Lock()
@@ -168,22 +173,43 @@ class GptmeMCPServer:
 
             # Call tool.execute() directly with kwargs — avoids thread-local registry
             # lookup in ToolUse.execute(). Auto-confirm is handled by the registered
-            # hook (register_auto_confirm called in _init_tools).
+            # hook (register_auto_confirm called in _init_tools). Bind a ToolUse so
+            # TOOL_CONFIRM hooks (guardrails) still dispatch instead of auto-confirming.
+            from ..hooks.registry import get_registry
+
+            hook_registry = self._hook_registry or get_registry()
+
             def _run_tool() -> str:
                 # run_in_executor copies the async context via copy_context(), so
                 # _shell_var resets to None in each new thread — every call would
                 # spawn a fresh subprocess, breaking the advertised shell persistence.
                 # Pre-seed the ContextVar with the server's persistent session so
                 # get_shell() reuses it instead of creating a new one.
+                # Same for the hook registry: a fresh thread would otherwise
+                # auto-confirm without running TOOL_CONFIRM (guardrails).
+                from ..hooks import ConfirmAction, get_confirmation
+                from ..hooks.registry import set_registry
+                from ..tools.base import ToolUse, using_current_tool_use
                 from ..tools.shell import _shell_var as _shell_ctxvar
 
+                set_registry(hook_registry)
                 _shell_ctxvar.set(self._get_or_create_shell_session())
 
-                result = tool.execute(None, None, kwargs)  # type: ignore[misc]
-                if hasattr(result, "__iter__"):
-                    output = _collect_tool_output(result)  # type: ignore[arg-type]
-                else:
-                    output = str(result.content) if result and result.content else ""
+                tool_use = ToolUse(tool=name, args=None, content=None, kwargs=kwargs)
+                with using_current_tool_use(tool_use):
+                    preview = "\n".join(kwargs.values()) or None
+                    confirmation = get_confirmation(
+                        tool_use=tool_use, preview=preview, default_confirm=True
+                    )
+                    if confirmation.action != ConfirmAction.CONFIRM:
+                        return confirmation.message or "Operation aborted"
+                    result = tool.execute(None, None, kwargs)  # type: ignore[misc]
+                    if hasattr(result, "__iter__"):
+                        output = _collect_tool_output(result)  # type: ignore[arg-type]
+                    else:
+                        output = (
+                            str(result.content) if result and result.content else ""
+                        )
 
                 # Sync back any session replaced during execution (e.g. by set_shell).
                 updated = _shell_ctxvar.get()
@@ -205,8 +231,15 @@ class GptmeMCPServer:
     def _init_tools(self) -> None:
         """Initialize gptme tools and register auto-confirm for non-interactive use."""
         from ..hooks.auto_confirm import register as register_auto_confirm
+        from ..hooks.guardrails import register as register_guardrails
 
+        # Guardrails (priority 200) must run before auto_confirm (priority 0)
+        # so MCP's non-interactive path still enforces GPTME_GUARDRAILS.
+        register_guardrails()
         register_auto_confirm()
+        from ..hooks.registry import get_registry
+
+        self._hook_registry = get_registry()
         self._loaded_tools = init_tools(self._tool_names)
         logger.info(
             "Loaded tools: %s", [t.name for t in self._loaded_tools if t.execute]

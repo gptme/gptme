@@ -10,6 +10,7 @@ import re
 import types
 import xml.etree.ElementTree as _ElementTree
 from collections.abc import Callable, Generator, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -148,6 +149,22 @@ _current_tool_use: ContextVar[ToolUse | None] = ContextVar(
 def get_current_tool_use() -> ToolUse | None:
     """Get the currently executing ToolUse from context."""
     return _current_tool_use.get()
+
+
+@contextmanager
+def using_current_tool_use(tool_use: ToolUse) -> Generator[ToolUse, None, None]:
+    """Bind *tool_use* as the currently executing ToolUse for this context.
+
+    Direct executors (the MCP server, tests) that call ``tool.execute()``
+    instead of ``ToolUse.execute()`` must wrap the call so
+    ``get_confirmation()`` dispatches TOOL_CONFIRM instead of auto-confirming
+    when no ToolUse is in context.
+    """
+    token = _current_tool_use.set(tool_use)
+    try:
+        yield tool_use
+    finally:
+        _current_tool_use.reset(token)
 
 
 def set_tool_format(new_format: ToolFormat):
