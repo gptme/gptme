@@ -44,9 +44,74 @@ logger = logging.getLogger(__name__)
 DEFAULT_TEMPLATE_REPO = "https://github.com/gptme/gptme-agent-template"
 DEFAULT_TEMPLATE_BRANCH = "master"
 
+# Template fork script. Callers (CLI and API) must not pass a free-form command;
+# only a relative ./scripts/*.sh from the cloned template is executed, as argv.
+DEFAULT_FORK_SCRIPT = "./scripts/fork.sh"
+_FORK_COMMAND_ERROR = (
+    "fork_command must be a relative script under ./scripts/ "
+    "(for example ./scripts/fork.sh)"
+)
+
 
 class WorkspaceError(Exception):
     """Error during workspace creation or management."""
+
+
+def parse_fork_script(fork_command: str) -> str:
+    """Return the relative script path from an allowlisted fork command.
+
+    Allowed: a relative path under ``./scripts/`` ending in ``.sh``. Extra
+    tokens (including ``{path}`` / ``{name}`` placeholders) are ignored;
+    execution always uses argv ``[script, dest_path, agent_name]``.
+
+    Interpreters (``bash -c``, ``python -c``), absolute paths, and ``..``
+    traversal are rejected.
+    """
+    if not fork_command or not fork_command.strip():
+        raise WorkspaceError(_FORK_COMMAND_ERROR)
+    try:
+        parts = shlex.split(fork_command)
+    except ValueError as e:
+        raise WorkspaceError(_FORK_COMMAND_ERROR) from e
+    if not parts:
+        raise WorkspaceError(_FORK_COMMAND_ERROR)
+    script = parts[0]
+    if not _is_allowed_fork_script(script):
+        raise WorkspaceError(_FORK_COMMAND_ERROR)
+    return script
+
+
+def _is_allowed_fork_script(script: str) -> bool:
+    """True iff *script* is a relative path under scripts/ ending in .sh."""
+    if not script or script.startswith(("/", "~")):
+        return False
+    path = Path(script)
+    if path.is_absolute():
+        return False
+    parts = path.parts
+    if ".." in parts:
+        return False
+    if parts and parts[0] == ".":
+        parts = parts[1:]
+    if len(parts) < 2 or parts[0] != "scripts":
+        return False
+    if not parts[-1].endswith(".sh"):
+        return False
+    return all(re.fullmatch(r"[A-Za-z0-9._-]+", part) is not None for part in parts)
+
+
+def _fork_script_argv(
+    script: str, dest_path: Path, agent_name: str, clone_dir: Path
+) -> list[str]:
+    """Resolve an allowlisted script inside *clone_dir* to an argv list."""
+    resolved = (clone_dir / script).resolve()
+    try:
+        resolved.relative_to(clone_dir.resolve())
+    except ValueError as e:
+        raise WorkspaceError("fork script must be inside the cloned template") from e
+    if not resolved.is_file():
+        raise WorkspaceError(f"fork script not found: {script}")
+    return [str(resolved), str(dest_path), agent_name]
 
 
 def create_workspace_from_template(
@@ -70,7 +135,10 @@ def create_workspace_from_template(
         agent_name: Name of the agent
         template_repo: Git URL of the template repository
         template_branch: Branch to clone
-        fork_command: Command to run after cloning (use {path} and {name} placeholders)
+        fork_command: Allowlisted relative script under ./scripts/ (default
+            callers pass DEFAULT_FORK_SCRIPT). Extra tokens are ignored.
+            Arbitrary commands are rejected. None skips the fork script and
+            falls back to in-process template string replacement.
         project_config: Optional ProjectConfig to merge with template config
         timeout: Timeout for git operations in seconds
 
@@ -84,6 +152,11 @@ def create_workspace_from_template(
 
     if path.exists():
         raise WorkspaceError(f"Destination path already exists: {path}")
+
+    # Validate before cloning so a rejected payload never reaches subprocess.
+    fork_script: str | None = None
+    if fork_command:
+        fork_script = parse_fork_script(fork_command)
 
     # Clone to temp directory first
     temp_dir = Path(tempfile.gettempdir()) / str(uuid.uuid4())
@@ -118,11 +191,10 @@ def create_workspace_from_template(
                 f"Failed to update submodules: {result.stderr.decode()}"
             )
 
-        # Run fork command if provided
-        if fork_command:
-            # Format the command with path and name
-            formatted_cmd = fork_command.format(path=str(path), name=agent_name)
-            logger.info(f"Running fork command: {formatted_cmd}")
+        # Run the allowlisted template fork script if provided
+        if fork_script:
+            argv = _fork_script_argv(fork_script, path, agent_name, temp_dir)
+            logger.info(f"Running fork command: {argv}")
 
             # Ensure git identity is configured (fork.sh makes commits;
             # CI environments and containers often lack user.name/email)
@@ -133,7 +205,7 @@ def create_workspace_from_template(
             env.setdefault("GIT_COMMITTER_EMAIL", "agent@gptme.org")
 
             result = subprocess.run(
-                shlex.split(formatted_cmd),
+                argv,
                 capture_output=True,
                 check=False,
                 cwd=temp_dir,

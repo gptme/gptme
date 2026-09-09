@@ -73,10 +73,9 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
       return;
     }
 
-    // Generate fork_command if not explicitly set.
-    // Use {path} and {name} as server-side format placeholders — the server
-    // substitutes these with the actual (possibly auto-generated) values via
-    // fork_command.format(path=..., name=...) before running the command.
+    // Default to the template fork script. The server allowlists a relative
+    // ./scripts/*.sh from the clone and always invokes it as argv
+    // [script, path, name]; extra tokens such as {path}/{name} are ignored.
     const processedData = { ...data };
     if (!processedData.fork_command.trim()) {
       processedData.fork_command = `./scripts/fork.sh {path} {name}`;
@@ -295,9 +294,9 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
                             />
                           </FormControl>
                           <FormDescription>
-                            Command to run after cloning the template. Leave empty to use the
-                            default command. This should execute a script that properly copies over
-                            the template files to the agent's workspace.
+                            Relative script under ./scripts/ in the cloned template (default:{' '}
+                            ./scripts/fork.sh). Arbitrary commands are rejected; the server always
+                            runs the script as argv with the workspace path and agent name.
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

@@ -552,7 +552,13 @@ class AgentCreateRequest(BaseModel):
     name: str = Field(..., description="Agent name")
     template_repo: str = Field(..., description="Template repository URL")
     template_branch: str = Field(..., description="Template repository branch")
-    fork_command: str = Field(..., description="Fork command to execute")
+    fork_command: str | None = Field(
+        None,
+        description=(
+            "Optional relative script under ./scripts/ in the cloned template "
+            "(default: ./scripts/fork.sh). Arbitrary commands are rejected."
+        ),
+    )
     path: str = Field(..., description="Path where the agent will be created")
     project_config: dict | None = Field(
         None, description="Optional project configuration"

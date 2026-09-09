@@ -16,6 +16,7 @@ pytest.importorskip(
 
 from flask.testing import FlaskClient  # fmt: skip
 
+from gptme.agent.workspace import DEFAULT_FORK_SCRIPT  # fmt: skip
 from gptme.server import api_v2_agents  # fmt: skip
 from gptme.server.api_v2_agents import slugify_name  # fmt: skip
 
@@ -76,7 +77,7 @@ class TestAgentsPutEndpoint:
         name: str = "test-agent",
         template_repo: str = "https://github.com/gptme/gptme-agent-template",
         template_branch: str = "master",
-        fork_command: str = "echo fork",
+        fork_command: str | None = DEFAULT_FORK_SCRIPT,
         path: str | None = None,
     ) -> dict:
         """Helper to construct agent creation request body."""
@@ -84,8 +85,9 @@ class TestAgentsPutEndpoint:
             "name": name,
             "template_repo": template_repo,
             "template_branch": template_branch,
-            "fork_command": fork_command,
         }
+        if fork_command is not None:
+            body["fork_command"] = fork_command
         if path is not None:
             body["path"] = path
         return body
@@ -106,7 +108,7 @@ class TestAgentsPutEndpoint:
             json={
                 "template_repo": "https://example.com/repo",
                 "template_branch": "main",
-                "fork_command": "echo fork",
+                "fork_command": DEFAULT_FORK_SCRIPT,
             },
         )
         assert response.status_code == 400
@@ -121,7 +123,7 @@ class TestAgentsPutEndpoint:
             json={
                 "name": "test-agent",
                 "template_branch": "main",
-                "fork_command": "echo fork",
+                "fork_command": DEFAULT_FORK_SCRIPT,
             },
         )
         assert response.status_code == 400
@@ -136,7 +138,7 @@ class TestAgentsPutEndpoint:
             json={
                 "name": "test-agent",
                 "template_repo": "https://example.com/repo",
-                "fork_command": "echo fork",
+                "fork_command": DEFAULT_FORK_SCRIPT,
             },
         )
         assert response.status_code == 400
@@ -144,8 +146,22 @@ class TestAgentsPutEndpoint:
         assert data is not None
         assert "template_branch" in data["error"]
 
-    def test_missing_fork_command(self, client: FlaskClient):
-        """PUT without fork_command returns 400."""
+    @patch("gptme.server.api_v2_agents.create_workspace_from_template")
+    @patch("gptme.server.api_v2_agents.init_conversation")
+    def test_missing_fork_command_defaults_to_template_script(
+        self,
+        mock_init_conv: MagicMock,
+        mock_create_workspace: MagicMock,
+        client: FlaskClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """PUT without fork_command uses the default template fork script."""
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
+        mock_init_conv.return_value = "conv-default-fork"
+
         response = client.put(
             "/api/v2/agents",
             json={
@@ -154,10 +170,12 @@ class TestAgentsPutEndpoint:
                 "template_branch": "main",
             },
         )
-        assert response.status_code == 400
-        data = response.get_json()
-        assert data is not None
-        assert "fork_command" in data["error"]
+        assert response.status_code == 200
+        mock_create_workspace.assert_called_once()
+        assert (
+            mock_create_workspace.call_args.kwargs["fork_command"]
+            == DEFAULT_FORK_SCRIPT
+        )
 
     @patch("gptme.server.api_v2_agents.create_workspace_from_template")
     @patch("gptme.server.api_v2_agents.init_conversation")
@@ -191,6 +209,70 @@ class TestAgentsPutEndpoint:
 
         mock_create_workspace.assert_called_once()
         mock_init_conv.assert_called_once()
+        assert (
+            mock_create_workspace.call_args.kwargs["fork_command"]
+            == DEFAULT_FORK_SCRIPT
+        )
+
+    def test_rejects_bash_c_fork_command(
+        self,
+        client: FlaskClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Arbitrary fork_command payloads such as bash -c are rejected."""
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
+
+        with patch(
+            "gptme.server.api_v2_agents.create_workspace_from_template"
+        ) as mock_create_workspace:
+            response = client.put(
+                "/api/v2/agents",
+                json=self._make_agent_request(
+                    client,
+                    path=str(tmp_path / "pwned"),
+                    fork_command="bash -c 'touch pwned'",
+                ),
+            )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "fork_command" in data["error"]
+        mock_create_workspace.assert_not_called()
+
+    @patch("gptme.server.api_v2_agents.create_workspace_from_template")
+    @patch("gptme.server.api_v2_agents.init_conversation")
+    def test_webui_default_fork_command_is_normalized(
+        self,
+        mock_init_conv: MagicMock,
+        mock_create_workspace: MagicMock,
+        client: FlaskClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """The webui default './scripts/fork.sh {path} {name}' is accepted."""
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
+        mock_init_conv.return_value = "conv-webui-fork"
+
+        response = client.put(
+            "/api/v2/agents",
+            json=self._make_agent_request(
+                client,
+                path=str(tmp_path / "webui-agent"),
+                fork_command="./scripts/fork.sh {path} {name}",
+            ),
+        )
+
+        assert response.status_code == 200
+        assert (
+            mock_create_workspace.call_args.kwargs["fork_command"]
+            == DEFAULT_FORK_SCRIPT
+        )
 
     @patch("gptme.server.api_v2_agents.create_workspace_from_template")
     @patch("gptme.server.api_v2_agents.init_conversation")

@@ -14,9 +14,11 @@ from gptme.config import ProjectConfig
 
 # Import shared workspace functions
 from ..agent.workspace import (
+    DEFAULT_FORK_SCRIPT,
     WorkspaceError,
     create_workspace_from_template,
     init_conversation,
+    parse_fork_script,
 )
 from .auth import require_auth
 from .openapi_docs import (
@@ -80,9 +82,14 @@ def api_agents_put():
 
     fork_command = req_json.get("fork_command")
     if fork_command is None or fork_command == "":
-        return flask.jsonify({"error": "fork_command is required"}), 400
-    if not isinstance(fork_command, str):
+        fork_command = DEFAULT_FORK_SCRIPT
+    elif not isinstance(fork_command, str):
         return flask.jsonify({"error": "fork_command must be a string"}), 400
+    else:
+        try:
+            fork_command = parse_fork_script(fork_command)
+        except WorkspaceError as e:
+            return flask.jsonify({"error": str(e)}), 400
 
     path = req_json.get("path")
     if path is not None and not isinstance(path, str):

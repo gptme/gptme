@@ -457,7 +457,7 @@ class TestAgentCreationPathValidation:
             "name": "test-agent",
             "template_repo": "https://github.com/gptme/gptme-agent-template",
             "template_branch": "master",
-            "fork_command": "echo ok",
+            "fork_command": "./scripts/fork.sh",
         }
         if path is not None:
             payload["path"] = path
@@ -548,7 +548,7 @@ class TestAgentCreationPathValidation:
             "name": "@#$%",
             "template_repo": "https://github.com/gptme/gptme-agent-template",
             "template_branch": "master",
-            "fork_command": "echo ok",
+            "fork_command": "./scripts/fork.sh",
         }
         response = client.put(
             "/api/v2/agents",

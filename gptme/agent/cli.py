@@ -14,7 +14,6 @@ Usage:
 """
 
 import logging
-import shlex
 import sys
 from pathlib import Path
 
@@ -24,6 +23,7 @@ from ..cli.cmd_agents import run_scan
 from .doctor import run_doctor
 from .service import ServiceStatus, detect_service_manager, get_service_manager
 from .workspace import (
+    DEFAULT_FORK_SCRIPT,
     DEFAULT_TEMPLATE_BRANCH,
     DEFAULT_TEMPLATE_REPO,
     DetectedWorkspace,
@@ -326,15 +326,13 @@ def create_cmd(
             click.echo(f"📦 Cloning template from {template_repo}...")
             click.echo(f"   Branch: {template_branch}")
 
-            # The fork.sh in gptme-agent-template expects: ./fork.sh <path> <name>
-            fork_command = f"./scripts/fork.sh {shlex.quote(str(workspace))} {shlex.quote(agent_name)}"
-
+            # Template fork.sh is invoked as argv: ./scripts/fork.sh <path> <name>
             create_workspace_from_template(
                 path=workspace,
                 agent_name=agent_name,
                 template_repo=template_repo,
                 template_branch=template_branch,
-                fork_command=fork_command,
+                fork_command=DEFAULT_FORK_SCRIPT,
             )
             click.echo("✓ Template cloned and customized")
         else:
