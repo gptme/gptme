@@ -475,6 +475,95 @@ output
     ]
 
 
+def test_scan_ipython_ordinary_string_hides_triple_quotes():
+    """Ordinary quoted strings must not be mistaken for triple-quote openers."""
+    from gptme.codeblock import _scan_ipython_triple_quote
+
+    assert _scan_ipython_triple_quote('value = \'"""\'', False, False) == (
+        False,
+        False,
+    )
+    assert _scan_ipython_triple_quote('prefix = "#"; text = """', False, False) == (
+        True,
+        False,
+    )
+    assert _scan_ipython_triple_quote('x = """hello"""', False, False) == (False, False)
+    assert _scan_ipython_triple_quote("value = \"'''\"", False, False) == (False, False)
+
+
+def test_extract_codeblocks_ipython_ordinary_string_does_not_open_triple():
+    """Ordinary quoted strings must not be mistaken for triple-quote openers.
+
+    Regression for gptme/gptme#3773 (Greptile P1): ``value = '\"\"\"'`` used
+    to open triple-double state, so the real block closer was retained as
+    source and later Markdown was swallowed.
+    """
+    markdown = '''```ipython
+value = '"""'
+print(value)
+```
+
+```output
+"""
+```
+'''
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("ipython", 'value = \'"""\'\nprint(value)'),
+        Codeblock("output", '"""'),
+    ]
+
+
+def test_extract_codeblocks_ipython_hash_in_string_does_not_hide_triple_opener():
+    """A ``#`` inside an ordinary string must not stop the triple-quote scan.
+
+    Regression for gptme/gptme#3773 (Greptile P1): ``prefix = "#"; text = \"\"\"``
+    used to treat ``#`` as a comment, never see the real opener, then close
+    the IPython block at the first fence inside that string.
+    """
+    markdown = '''```ipython
+prefix = "#"; text = """
+```
+inside
+```
+"""
+print(text)
+```
+'''
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock(
+            "ipython",
+            'prefix = "#"; text = """\n```\ninside\n```\n"""\nprint(text)',
+        ),
+    ]
+
+
+def test_extract_codeblocks_ipython_tagged_fence_inside_triple_quote_is_literal():
+    """A language-tagged fence inside a triple-quoted string is literal content.
+
+    Regression for gptme/gptme#3773 (Greptile P1): `` ```python `` inside
+    ``\"\"\"...\"\"\"`` incremented nesting_depth, but the matching bare
+    closer was treated as literal, so the IPython block was never emitted.
+    """
+    markdown = '''```ipython
+text = """
+```python
+print("hi")
+```
+"""
+print(text)
+```
+'''
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock(
+            "ipython",
+            'text = """\n```python\nprint("hi")\n```\n"""\nprint(text)',
+        ),
+    ]
+
+
 def test_extract_codeblocks_ipython_fence_outside_triple_quote_still_closes():
     """A bare fence that is NOT inside a triple-quoted string still closes the block."""
     markdown = """```ipython

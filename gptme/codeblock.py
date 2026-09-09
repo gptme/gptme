@@ -235,42 +235,89 @@ def _scan_ipython_triple_quote(
     """Scan one line of IPython content and return updated triple-quote state.
 
     IPython embeds Python, which supports triple-single-quote and
-    triple-double-quote strings spanning multiple lines.  A bare fence
-    (`` ``` ``) inside such a string is literal Python source, not a markdown
-    block delimiter.
+    triple-double-quote strings spanning multiple lines.  A fence
+    (bare `` ``` `` or language-tagged) inside such a string is literal
+    Python source, not a markdown block delimiter.
 
-    The scanner handles the common cases: triple-quote openers/closers,
-    backslash escaping within strings, and ``#`` line comments (outside
-    strings).  It does not attempt to resolve f-string expressions ``{...}``,
-    all string prefix variants (``rb``, ``u``, …), or deeply nested escape
-    sequences — cases that almost never appear in the triple-quoted-string-
-    wrapping-a-fence failure scenario this targets.
+    Ordinary ``'...'`` / ``"..."`` strings are tracked within the line so
+    ``value = '\"\"\"'`` does not open triple-double state and
+    ``prefix = "#"; text = \"\"\"`` does not treat the ``#`` as a comment
+    that hides the real opener.  Backslash escapes skip the next character
+    inside any string.  ``#`` starts a comment only at top-level.
+
+    It does not attempt to resolve f-string expressions ``{...}``, raw /
+    bytes prefixes as a distinct mode, or ``\\`` line continuation that
+    would carry an ordinary quote across lines — cases that almost never
+    appear in the triple-quoted-string-wrapping-a-fence failure scenario
+    this targets.
 
     Returns ``(in_triple_double, in_triple_single)`` after processing the line.
     """
     i = 0
     n = len(line)
+    # Ordinary quotes are tracked within the line only: Python non-triple
+    # strings do not span lines (without ``\\`` continuation, which we ignore).
+    in_single = False
+    in_double = False
     while i < n:
-        # Skip rest of line when inside a comment (only outside strings).
-        if not in_triple_double and not in_triple_single and line[i] == "#":
+        c = line[i]
+
+        # Inside a triple-quoted string: only look for closer and escapes.
+        if in_triple_double or in_triple_single:
+            if c == "\\":
+                i += 2
+                continue
+            if in_triple_double and i + 2 < n and line[i : i + 3] == '"""':
+                in_triple_double = False
+                i += 3
+                continue
+            if in_triple_single and i + 2 < n and line[i : i + 3] == "'''":
+                in_triple_single = False
+                i += 3
+                continue
+            i += 1
+            continue
+
+        # Inside an ordinary quoted string: skip until closer. Triple-quote
+        # characters and ``#`` are literal content here.
+        if in_single:
+            if c == "\\":
+                i += 2
+                continue
+            if c == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_double = False
+            i += 1
+            continue
+
+        # Top-level: comments, string openers.
+        if c == "#":
             break
 
-        # Backslash escape: skip the next character (only inside a string).
-        if (in_triple_double or in_triple_single) and line[i] == "\\":
-            i += 2
+        # Triple quotes before single (``"""`` is not ``"`` + ``""``).
+        if i + 2 < n and line[i : i + 3] == '"""':
+            in_triple_double = True
+            i += 3
             continue
-
-        # Triple-double-quote — checked before single to avoid mis-parsing
-        # ``"`` followed by ``""`` as two separate events.
-        if i + 2 < n and line[i : i + 3] == '"""' and not in_triple_single:
-            in_triple_double = not in_triple_double
+        if i + 2 < n and line[i : i + 3] == "'''":
+            in_triple_single = True
             i += 3
             continue
 
-        # Triple-single-quote.
-        if i + 2 < n and line[i : i + 3] == "'''" and not in_triple_double:
-            in_triple_single = not in_triple_single
-            i += 3
+        if c == "'":
+            in_single = True
+            i += 1
+            continue
+        if c == '"':
+            in_double = True
+            i += 1
             continue
 
         i += 1
@@ -729,6 +776,15 @@ def _extract_codeblocks(
                                 # This closes a nested block, add to content
                                 content_lines.append(line)
                     else:
+                        # Language-tagged fence. Inside a Python triple-quoted
+                        # string this is literal source, not a nested markdown
+                        # opener — incrementing nesting_depth here would leave
+                        # the depth elevated because the matching bare closer
+                        # is also treated as literal (see gptme/gptme#3773).
+                        if _ipython_in_triple_double or _ipython_in_triple_single:
+                            content_lines.append(line)
+                            i += 1
+                            continue
                         # Line has content after backticks - check if it looks like a valid language tag
                         # to determine if it opens a nested block or is just content
                         potential_lang = line[line_fence_len:].strip()
