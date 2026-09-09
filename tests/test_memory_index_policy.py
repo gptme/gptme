@@ -509,3 +509,31 @@ def test_save_rejects_malformed_existing_yaml_without_losing_metadata(
     with pytest.raises(MemoryFrontmatterError, match="invalid YAML"):
         store.save("kept", "Replacement description", "Replacement body")
     assert _snapshot(tmp_path) == before
+
+
+def test_render_and_check_on_readonly_root(tmp_path: Path) -> None:
+    """render_root_index and check_index must not crash on a read-only root.
+
+    Regression for the P1 found in AI review: _locked_root unconditionally
+    creates the root directory and .memory.lock file, so any read-only root
+    raised OSError before any data was read.
+    """
+    import stat
+
+    store = _store(tmp_path)
+    store.save("entry", "Description")
+    _policy(tmp_path, ["entry.md"])
+    store.write_index()
+
+    # Make the root read-only so lock-file creation fails.
+    tmp_path.chmod(stat.S_IRUSR | stat.S_IXUSR)
+    try:
+        # Neither call must raise; they fall back to an unlocked read.
+        text = store.render_root_index()
+        assert "Description" in text
+
+        ok = store.check_index()
+        assert ok
+    finally:
+        # Restore write permission so pytest can clean up tmp_path.
+        tmp_path.chmod(stat.S_IRWXU)

@@ -616,8 +616,16 @@ class MemoryStore:
     def render_root_index(
         self, scope: str | None = None, *, budget: int | None = None
     ) -> str:
-        """Render one root using its persistent selection and budget, if present."""
-        with _locked_root(self.root(scope).path):
+        """Render one root using its persistent selection and budget, if present.
+
+        Falls back to an unlocked read on read-only roots: no concurrent writer
+        can mutate a read-only root, so the TOCTOU race is not a concern there.
+        """
+        root_path = self.root(scope).path
+        try:
+            with _locked_root(root_path):
+                return self._render_root_index(scope, budget=budget)
+        except OSError:
             return self._render_root_index(scope, budget=budget)
 
     def _render_root_index(
@@ -645,8 +653,16 @@ class MemoryStore:
     def check_index(
         self, scope: str | None = None, *, budget: int | None = None
     ) -> bool:
-        """True when the on-disk index equals the regenerated one byte for byte."""
+        """True when the on-disk index equals the regenerated one byte for byte.
+
+        Falls back to an unlocked read on read-only roots (same reasoning as
+        ``render_root_index``).
+        """
         path = self.root(scope).path / INDEX_FILENAME
-        with _locked_root(path.parent):
+        try:
+            with _locked_root(path.parent):
+                expected = self._render_root_index(scope, budget=budget)
+                return path.is_file() and path.read_text(encoding="utf-8") == expected
+        except OSError:
             expected = self._render_root_index(scope, budget=budget)
             return path.is_file() and path.read_text(encoding="utf-8") == expected
