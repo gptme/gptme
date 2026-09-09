@@ -111,7 +111,10 @@ jobs:
         # Thresholds in seconds (with margin for CI variability).
         # History: warm import was ~1.5-2s (threshold 2.5) before gptme.cli.main
         # was made lazy; it should now stay well under 0.5s.
-        COLD_THRESHOLD: "6.0"
+        # Cold startup clears .pyc caches and drops OS page cache — IO-bound
+        # with high variance on shared GH Actions runners (observed stddev ~1.6s).
+        # Raised 6.0 → 8.0 to stop flaky failures from runner noise (2026-09-09).
+        COLD_THRESHOLD: "8.0"
         WARM_THRESHOLD: "1.0"
         HELP_THRESHOLD: "2.0"
         CYCLE_THRESHOLD: "3.0"
