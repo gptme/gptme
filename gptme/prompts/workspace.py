@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from ..config import config_path, get_config, get_project_config
 from ..memory import MemoryStore, resolve_roots
+from ..memory.policy import POLICY_FILENAME
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.context_dedup import _content_hash
@@ -424,40 +425,45 @@ def prompt_workspace(
             roots = resolve_roots(workspace_resolved)
             existing_roots = [r for r in roots if r.exists]
             if existing_roots:
-                # Evaluate each root independently: use per-entry files when
-                # present, fall back to MEMORY.md for roots that have none.
-                # This prevents a mixed workspace (one root with entry files,
-                # another with only MEMORY.md) from silently dropping the
-                # legacy root's memories.
-                all_entries: list = []
                 parts: list[str] = []
                 remaining = _MEMORY_BUDGET_BYTES
                 for root in existing_roots:
-                    if remaining <= 0:
+                    # Separators count against the shared prompt budget too.
+                    separator_bytes = 2 if parts else 0
+                    available = remaining - separator_bytes
+                    if available <= 0:
                         break
-                    root_store = MemoryStore([root])
-                    root_entries = list(root_store.entries())
-                    if root_entries:
-                        all_entries.extend(root_entries)
-                        root_content = MemoryStore.render_index(
-                            root_entries, budget=remaining
-                        ).strip()
-                        if root_content:
-                            parts.append(root_content)
-                            remaining -= len(root_content.encode("utf-8"))
-                    else:
-                        # Fallback for roots that contain only MEMORY.md (no
-                        # individual entry files) — e.g. a CC root written by
-                        # an older harness or hand-authored index.  Preserves
-                        # the behaviour from #3626 on a per-root basis so that
-                        # a mixed workspace doesn't silently drop these roots.
-                        index_path = root.path / "MEMORY.md"
-                        if index_path.is_file():
-                            raw = index_path.read_bytes()[:remaining]
-                            text = raw.decode("utf-8", errors="ignore").strip()
-                            if text:
-                                parts.append(text)
-                                remaining -= len(raw)
+                    try:
+                        root_store = MemoryStore([root])
+                        policy_path = root.path / POLICY_FILENAME
+                        if policy_path.is_symlink():
+                            raise ValueError(
+                                "memory index policy must not be a symlink"
+                            )
+                        if policy_path.exists() or any(root_store.entries()):
+                            # A policy is authoritative even with no entries.
+                            # Missing selections or overflow must never revive
+                            # an obsolete on-disk MEMORY.md through fallback.
+                            root_content = root_store.render_root_index(
+                                budget=available
+                            ).strip()
+                        else:
+                            # Keep legacy index-only roots compatible, bounding
+                            # the read itself rather than slicing a full read.
+                            index_path = root.path / "MEMORY.md"
+                            if not index_path.is_file():
+                                continue
+                            with index_path.open("rb") as index_file:
+                                raw = index_file.read(available)
+                            root_content = raw.decode("utf-8", errors="ignore").strip()
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to load memory root %s: %s", root.path, e
+                        )
+                        continue
+                    if root_content:
+                        parts.append(root_content)
+                        remaining -= separator_bytes + len(root_content.encode("utf-8"))
                 memory_content = "\n\n".join(parts).strip()
                 if memory_content:
                     root_paths = ", ".join(f"`{r.path}`" for r in existing_roots)
@@ -468,8 +474,8 @@ def prompt_workspace(
                         f"(from {root_paths}):\n\n{memory_content}",
                     )
                     logger.debug(
-                        "Loaded %d memory entries from %d root(s): %s",
-                        len(all_entries),
+                        "Loaded %d memory indexes from %d root(s): %s",
+                        len(parts),
                         len(existing_roots),
                         [r.scope for r in existing_roots],
                     )
