@@ -22,7 +22,7 @@ Inspect and write memory
 selected root's ``MEMORY.md`` with a generated index.
 
 Persistent index selection and budget
-------------------------------------
+-------------------------------------
 
 A large memory root can keep a small, curated always-on view without removing
 living entries from recall. To opt in, create ``.memory-index.json`` inside
