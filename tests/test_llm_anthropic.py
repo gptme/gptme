@@ -832,3 +832,41 @@ class TestReasoningEffortStamp:
         # no level → untouched
         assert _stamp_reasoning_effort(None, "claude-sonnet-4-6", None) is None
         assert _stamp_reasoning_effort(dict(base), "claude-sonnet-4-6", None) == base  # type: ignore[arg-type]
+
+    def test_partial_stream_metadata_includes_effort_and_usage(self):
+        """message_start fallback must carry the request's effort, not just usage."""
+        from types import SimpleNamespace
+
+        from gptme.llm.llm_anthropic import _partial_stream_metadata
+
+        os.environ["GPTME_THINKING_EFFORT"] = "high"
+        usage = SimpleNamespace(
+            input_tokens=12,
+            cache_read_input_tokens=3,
+            cache_creation_input_tokens=None,
+        )
+        stamped = _partial_stream_metadata(
+            "claude-sonnet-4-6", usage, use_thinking=True
+        )
+        assert stamped["model"] == "claude-sonnet-4-6"
+        assert stamped["usage"] == {"input_tokens": 12, "cache_read_tokens": 3}
+        assert stamped["reasoning_effort"] == "high"
+
+    def test_partial_stream_metadata_effort_without_usage(self):
+        from gptme.llm.llm_anthropic import _partial_stream_metadata
+
+        os.environ["GPTME_THINKING_EFFORT"] = "low"
+        stamped = _partial_stream_metadata("claude-sonnet-4-6", None, use_thinking=True)
+        assert stamped == {"model": "claude-sonnet-4-6", "reasoning_effort": "low"}
+
+    def test_partial_stream_metadata_omits_effort_when_thinking_off(self):
+        from gptme.llm.llm_anthropic import _partial_stream_metadata
+
+        os.environ["GPTME_THINKING_EFFORT"] = "high"
+        stamped = _partial_stream_metadata(
+            "claude-sonnet-4-6",
+            None,
+            use_thinking=False,
+        )
+        assert stamped == {"model": "claude-sonnet-4-6"}
+        assert "reasoning_effort" not in stamped

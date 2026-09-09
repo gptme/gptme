@@ -307,6 +307,35 @@ def _stamp_reasoning_effort(
     return metadata
 
 
+def _partial_stream_metadata(
+    model: str, usage: Any, *, use_thinking: bool
+) -> MessageMetadata:
+    """Fallback metadata for callers that close the stream before ``message_delta``.
+
+    Anthropic's ``message_start`` carries input/cache counts; the request's
+    reasoning effort is known locally and must be recorded here too, otherwise
+    ``break_on_tooluse`` drops it when ``_StreamWithMetadata`` falls back to
+    this partial dict.
+    """
+    metadata: MessageMetadata = {"model": model}
+    if usage:
+        partial_usage: UsageData = {}
+        if (v := getattr(usage, "input_tokens", None)) is not None:
+            partial_usage["input_tokens"] = v
+        if (v := getattr(usage, "cache_read_input_tokens", None)) is not None:
+            partial_usage["cache_read_tokens"] = v
+        if (v := getattr(usage, "cache_creation_input_tokens", None)) is not None:
+            partial_usage["cache_creation_tokens"] = v
+        if partial_usage:
+            metadata["usage"] = partial_usage
+    return (
+        _stamp_reasoning_effort(
+            metadata, model, _effective_effort_level(use_thinking=use_thinking)
+        )
+        or metadata
+    )
+
+
 class _OutputConfig(TypedDict):
     effort: _EffortLevel
 
@@ -974,28 +1003,17 @@ def stream(
                         anthropic.types.MessageStartEvent,
                         chunk,
                     )
-                    # Capture input/cache token counts now as a fallback for
-                    # callers that break the stream before message_delta arrives
-                    # (e.g. break_on_tooluse).  Written into the shared _partial
+                    # Capture input/cache token counts (and the request's
+                    # reasoning effort) as a fallback for callers that break
+                    # the stream before message_delta arrives (e.g.
+                    # break_on_tooluse).  Written into the shared _partial
                     # dict; _StreamWithMetadata reads it in its finally block.
-                    if _partial is not None and chunk.message.usage:
-                        usage = chunk.message.usage
-                        partial_usage: dict = {}
-                        if (v := getattr(usage, "input_tokens", None)) is not None:
-                            partial_usage["input_tokens"] = v
-                        if (
-                            v := getattr(usage, "cache_read_input_tokens", None)
-                        ) is not None:
-                            partial_usage["cache_read_tokens"] = v
-                        if (
-                            v := getattr(usage, "cache_creation_input_tokens", None)
-                        ) is not None:
-                            partial_usage["cache_creation_tokens"] = v
-                        if partial_usage:
-                            _partial["metadata"] = {
-                                "model": model,
-                                "usage": partial_usage,
-                            }
+                    if _partial is not None:
+                        _partial["metadata"] = _partial_stream_metadata(
+                            model,
+                            chunk.message.usage,
+                            use_thinking=use_thinking,
+                        )
                 case "message_delta":
                     chunk = cast(anthropic.types.MessageDeltaEvent, chunk)
                     # Record usage from message_delta which contains the final/cumulative usage

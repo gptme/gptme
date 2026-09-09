@@ -537,10 +537,16 @@ def test_stream_returns_usage_from_response_done():
     assert metadata.get("usage", {}).get("output_tokens") == 50
 
 
-def test_stream_returns_none_when_response_done_has_no_usage():
-    """response.done without usage must return None so the caller falls back."""
+def test_stream_records_effort_when_response_done_has_no_usage():
+    """response.done without usage still records the explicit Codex effort."""
     _, metadata = _drain_stream([{"type": "response.done"}])
-    assert metadata is None
+    assert metadata == {"reasoning_effort": "medium"}
+
+
+def test_stream_records_effort_when_usage_has_no_counts():
+    """Empty usage object is treated as no usage, but effort stays on the record."""
+    _, metadata = _drain_stream([{"type": "response.done", "response": {"usage": {}}}])
+    assert metadata == {"reasoning_effort": "medium"}
 
 
 def test_stream_captures_usage_without_cache_fields():

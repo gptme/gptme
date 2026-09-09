@@ -698,8 +698,13 @@ def stream(
 
     # Return usage metadata so _StreamWithMetadata can attach it to the message.
     # _StreamWithMetadata adds the full provider-prefixed model name automatically.
+    # Codex always sends an explicit effort (model ``:level`` suffix or the
+    # "medium" default); record it even when ``response.done`` omits usage so
+    # the session still shows what was requested.
+    _, reasoning_effort = _codex_model_and_effort(model)
+    effort_meta: MessageMetadata = {"reasoning_effort": reasoning_effort}
     if not _usage_holder:
-        return None
+        return effort_meta
     counts = _extract_usage_token_counts(_usage_holder[0])
     usage_data: dict[str, int] = {}
     if isinstance(counts.input_tokens, int):
@@ -713,13 +718,8 @@ def stream(
     if isinstance(counts.reasoning_tokens, int):
         usage_data["reasoning_tokens"] = counts.reasoning_tokens
     if not usage_data:
-        return None
-    # Codex always sends an explicit effort (model ``:level`` suffix or the
-    # "medium" default); record it so logs show what was requested.
-    _, reasoning_effort = _codex_model_and_effort(model)
-    return cast(
-        MessageMetadata, {"usage": usage_data, "reasoning_effort": reasoning_effort}
-    )
+        return effort_meta
+    return cast(MessageMetadata, {**effort_meta, "usage": usage_data})
 
 
 def chat(
