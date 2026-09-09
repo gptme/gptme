@@ -424,29 +424,41 @@ def prompt_workspace(
             roots = resolve_roots(workspace_resolved)
             existing_roots = [r for r in roots if r.exists]
             if existing_roots:
-                store = MemoryStore(existing_roots)
-                entries = list(store.entries())
-                if entries:
-                    memory_content = MemoryStore.render_index(
-                        entries, budget=_MEMORY_BUDGET_BYTES
-                    ).strip()
-                else:
-                    # Fallback for roots that contain only MEMORY.md (no individual
-                    # entry files) — e.g. a CC root written by an older harness or
-                    # hand-authored before the per-entry format was introduced.
-                    # This preserves the behaviour from #3626 so existing CC memories
-                    # are not silently dropped when upgrading.
-                    parts: list[str] = []
-                    remaining = _MEMORY_BUDGET_BYTES
-                    for root in existing_roots:
+                # Evaluate each root independently: use per-entry files when
+                # present, fall back to MEMORY.md for roots that have none.
+                # This prevents a mixed workspace (one root with entry files,
+                # another with only MEMORY.md) from silently dropping the
+                # legacy root's memories.
+                all_entries: list = []
+                parts: list[str] = []
+                remaining = _MEMORY_BUDGET_BYTES
+                for root in existing_roots:
+                    if remaining <= 0:
+                        break
+                    root_store = MemoryStore([root])
+                    root_entries = list(root_store.entries())
+                    if root_entries:
+                        all_entries.extend(root_entries)
+                        root_content = MemoryStore.render_index(
+                            root_entries, budget=remaining
+                        ).strip()
+                        if root_content:
+                            parts.append(root_content)
+                            remaining -= len(root_content.encode("utf-8"))
+                    else:
+                        # Fallback for roots that contain only MEMORY.md (no
+                        # individual entry files) — e.g. a CC root written by
+                        # an older harness or hand-authored index.  Preserves
+                        # the behaviour from #3626 on a per-root basis so that
+                        # a mixed workspace doesn't silently drop these roots.
                         index_path = root.path / "MEMORY.md"
-                        if index_path.is_file() and remaining > 0:
+                        if index_path.is_file():
                             raw = index_path.read_bytes()[:remaining]
                             text = raw.decode("utf-8", errors="ignore").strip()
                             if text:
                                 parts.append(text)
                                 remaining -= len(raw)
-                    memory_content = "\n\n".join(parts).strip()
+                memory_content = "\n\n".join(parts).strip()
                 if memory_content:
                     root_paths = ", ".join(f"`{r.path}`" for r in existing_roots)
                     yield Message(
@@ -457,7 +469,7 @@ def prompt_workspace(
                     )
                     logger.debug(
                         "Loaded %d memory entries from %d root(s): %s",
-                        len(entries),
+                        len(all_entries),
                         len(existing_roots),
                         [r.scope for r in existing_roots],
                     )
