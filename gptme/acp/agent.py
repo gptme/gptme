@@ -687,15 +687,23 @@ class GptmeAgent:
         if server_configs:
             loop = asyncio.get_running_loop()
             config = get_config()
-            injected_tools = await loop.run_in_executor(
-                None,
-                lambda: create_mcp_tools(
-                    config,
-                    servers=server_configs,
-                    clients=session_clients,
-                    strict=True,
-                ),
-            )
+            try:
+                injected_tools = await loop.run_in_executor(
+                    None,
+                    lambda: create_mcp_tools(
+                        config,
+                        servers=server_configs,
+                        clients=session_clients,
+                        strict=True,
+                    ),
+                )
+            except Exception:
+                # Defense in depth: create_mcp_tools(strict=True) already closes
+                # clients it owned, but if anything is still in the registry
+                # (or a future caller stores before raising), do not leak them.
+                await self._close_mcp_clients(list(session_clients.values()))
+                session_clients.clear()
+                raise
         else:
             injected_tools = []
         requested_session_tools = [*base_tools, *injected_tools]
@@ -1597,8 +1605,12 @@ class GptmeAgent:
             session_id: Session to cancel
         """
         logger.info("Cancelling session %s", session_id)
-        clients = self._cleanup_session(session_id)
+        # Close owned clients before dropping session state. close() waits for
+        # any in-flight call_tool(); if this await is interrupted, shutdown can
+        # still find the clients in the session registry.
+        clients = list(self._session_mcp_clients.get(session_id, {}).values())
         await self._close_mcp_clients(clients)
+        self._cleanup_session(session_id)
 
     async def list_sessions(
         self,

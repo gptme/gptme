@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import threading
 from collections.abc import Callable, Coroutine
 from contextlib import AsyncExitStack
 from typing import Any
@@ -58,6 +59,10 @@ class MCPClient:
         """Initialize the client with optional config"""
         self.config = config or get_config()
         self.loop = asyncio.new_event_loop()
+        # Serializes _run_async() with close() so a cancel/shutdown thread cannot
+        # run_until_complete (or close) the private loop while a tool call is
+        # already using it.
+        self._op_lock = threading.Lock()
         # Don't call asyncio.set_event_loop() — each client owns its own loop
         # and uses it exclusively via self.loop.run_until_complete() in _run_async().
         # Setting it as the thread-global loop would cause multiple MCPClient
@@ -76,36 +81,42 @@ class MCPClient:
         """Run a coroutine in the event loop.
 
         Handles KeyboardInterrupt gracefully to avoid killing the MCP server
-        when the user interrupts a conversation.
+        when the user interrupts a conversation. Serialized with close() so
+        ACP cancel cannot race this loop from another thread.
         """
-        try:
-            logger.debug(f"_run_async start - Loop ID: {id(self.loop)}")
-            result = self.loop.run_until_complete(coro)
-            logger.debug(f"_run_async end - Loop ID: {id(self.loop)}")
-            return result
-        except KeyboardInterrupt:
-            # Cancel the pending task gracefully instead of letting the interrupt
-            # propagate and potentially kill the MCP server process
-            logger.info("MCP operation interrupted by user")
-            # Cancel any pending tasks in the event loop
-            for task in asyncio.all_tasks(self.loop):
-                if not task.done():
-                    task.cancel()
-            # Give tasks a chance to clean up
+        with self._op_lock:
+            if self.loop.is_closed():
+                if hasattr(coro, "close"):
+                    coro.close()
+                raise RuntimeError("MCP client is closed")
             try:
-                self.loop.run_until_complete(asyncio.sleep(0.1))
-            except (asyncio.CancelledError, KeyboardInterrupt):
-                pass
-            # Raise a regular exception instead of re-raising KeyboardInterrupt
-            # This prevents the interrupt from propagating to the stdio_client
-            # context manager and killing the server process
-            raise MCPInterruptedError("MCP operation interrupted by user") from None
-        except Exception as e:
-            if _is_connection_error(e):
-                logger.info(f"MCP connection error (will retry): {e}")
-            else:
-                logger.error(f"Unexpected MCP error: {e}")
-            raise
+                logger.debug(f"_run_async start - Loop ID: {id(self.loop)}")
+                result = self.loop.run_until_complete(coro)
+                logger.debug(f"_run_async end - Loop ID: {id(self.loop)}")
+                return result
+            except KeyboardInterrupt:
+                # Cancel the pending task gracefully instead of letting the interrupt
+                # propagate and potentially kill the MCP server process
+                logger.info("MCP operation interrupted by user")
+                # Cancel any pending tasks in the event loop
+                for task in asyncio.all_tasks(self.loop):
+                    if not task.done():
+                        task.cancel()
+                # Give tasks a chance to clean up
+                try:
+                    self.loop.run_until_complete(asyncio.sleep(0.1))
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    pass
+                # Raise a regular exception instead of re-raising KeyboardInterrupt
+                # This prevents the interrupt from propagating to the stdio_client
+                # context manager and killing the server process
+                raise MCPInterruptedError("MCP operation interrupted by user") from None
+            except Exception as e:
+                if _is_connection_error(e):
+                    logger.info(f"MCP connection error (will retry): {e}")
+                else:
+                    logger.error(f"Unexpected MCP error: {e}")
+                raise
 
     async def _read_stderr(self, stderr):
         """Read stderr without blocking the main flow"""
@@ -278,16 +289,21 @@ class MCPClient:
         return tools, session
 
     def close(self) -> None:
-        """Close the MCP session, transport, and private event loop."""
-        try:
-            if self.stack is not None:
-                self.loop.run_until_complete(self.stack.__aexit__(None, None, None))
-        finally:
-            self.stack = None
-            self.session = None
-            self.tools = None
-            if not self.loop.is_closed():
-                self.loop.close()
+        """Close the MCP session, transport, and private event loop.
+
+        Waits for any in-flight ``_run_async()`` call (tool execution, connect)
+        so cancel/shutdown cannot close a loop that is already running.
+        """
+        with self._op_lock:
+            try:
+                if self.stack is not None and not self.loop.is_closed():
+                    self.loop.run_until_complete(self.stack.__aexit__(None, None, None))
+            finally:
+                self.stack = None
+                self.session = None
+                self.tools = None
+                if not self.loop.is_closed():
+                    self.loop.close()
 
     def call_tool(self, tool_name: str, arguments: dict) -> str:
         """Synchronous tool call method.

@@ -364,3 +364,70 @@ def test_mcp_client_event_loop_isolation():
     client_a.loop.close()
     client_b.loop.close()
     client_c.loop.close()
+
+
+def test_mcp_client_close_waits_for_in_flight_call():
+    """close() must not run_until_complete while call_tool owns the private loop."""
+    import threading
+    from unittest.mock import MagicMock
+
+    from gptme.mcp.client import MCPClient
+
+    client = MCPClient()
+    client.session = MagicMock()
+    order: list[str] = []
+    in_run = threading.Event()
+    finish_run = threading.Event()
+
+    def fake_run_until_complete(coro):
+        order.append("run-start")
+        in_run.set()
+        assert finish_run.wait(timeout=2)
+        order.append("run-end")
+        if hasattr(coro, "close"):
+            coro.close()
+        return "ok"
+
+    client.loop.run_until_complete = fake_run_until_complete  # type: ignore[method-assign]
+
+    call_error: list[BaseException] = []
+
+    def do_call() -> None:
+        try:
+            client.call_tool("echo", {})
+        except BaseException as exc:
+            call_error.append(exc)
+
+    caller = threading.Thread(target=do_call)
+    caller.start()
+    assert in_run.wait(timeout=2)
+
+    closed = threading.Event()
+
+    def do_close() -> None:
+        client.close()
+        order.append("close")
+        closed.set()
+
+    closer = threading.Thread(target=do_close)
+    closer.start()
+    closer.join(timeout=0.2)
+    assert closer.is_alive(), "close() must wait for the in-flight call_tool"
+    assert not closed.is_set()
+
+    finish_run.set()
+    caller.join(timeout=2)
+    closer.join(timeout=2)
+    assert not caller.is_alive()
+    assert not closer.is_alive()
+    assert call_error == []
+    assert order == ["run-start", "run-end", "close"]
+    assert client.loop.is_closed()
+
+    with pytest.raises(RuntimeError, match="Not connected to MCP server"):
+        client.call_tool("echo", {})
+
+    # Reconstruct a session handle so the closed-loop guard is the one that fires.
+    client.session = MagicMock()
+    with pytest.raises(RuntimeError, match="MCP client is closed"):
+        client.call_tool("echo", {})

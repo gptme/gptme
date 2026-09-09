@@ -230,6 +230,10 @@ def create_mcp_tools(
         client_config.user = replace(config.user)
         client_config.user.mcp = MCPConfig(enabled=True, servers=server_configs)
 
+    # Names stored in client_registry during this call. On strict failure we
+    # close these so a later server's exception cannot leak earlier connections.
+    owned_this_call: list[str] = []
+
     # Initialize connections to all servers
     for server_config in server_configs:
         client: MCPClient | None = None
@@ -241,6 +245,7 @@ def create_mcp_tools(
 
             # Store the client in the caller-selected registry for execution/restart.
             client_registry[server_config.name] = client
+            owned_this_call.append(server_config.name)
 
             # Create tool specs for each tool
             for mcp_tool in tools.tools:
@@ -318,6 +323,16 @@ def create_mcp_tools(
                 except Exception:
                     logger.debug("Failed to close rejected MCP client", exc_info=True)
             if strict:
+                for name in owned_this_call:
+                    leftover = client_registry.pop(name, None)
+                    if leftover is not None and leftover is not client:
+                        try:
+                            leftover.close()
+                        except Exception:
+                            logger.debug(
+                                "Failed to close leftover MCP client after strict setup failure",
+                                exc_info=True,
+                            )
                 raise RuntimeError(
                     f"Failed to connect to MCP server {server_config.name!r}: {e}"
                 ) from e

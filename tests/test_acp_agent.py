@@ -592,6 +592,20 @@ class TestCleanupSession:
         assert sid not in agent._tool_calls
         assert sid not in agent._permission_policies
 
+    def test_cancel_closes_mcp_clients_before_dropping_session(self):
+        """cancel() must close owned MCP clients, then drop session state."""
+        agent = GptmeAgent()
+        sid = "session_cancel_mcp"
+        client = MagicMock()
+        agent._session_mcp_clients[sid] = {"notebook": client}
+        agent._session_models[sid] = "some-model"
+
+        _run(agent.cancel(session_id=sid))
+
+        client.close.assert_called_once_with()
+        assert sid not in agent._session_mcp_clients
+        assert sid not in agent._session_models
+
 
 class TestPerSessionModel:
     """Tests for per-session model override behavior.
@@ -1725,6 +1739,42 @@ class TestHostSuppliedMcpServers:
         host_client.close.assert_called_once_with()
         assert session_id not in agent._session_tools
         assert session_id not in agent._session_mcp_clients
+
+    def test_new_session_strict_failure_closes_partial_clients(self, tmp_path):
+        """new_session must close leftover host clients if strict setup raises."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from acp.schema import McpServerStdio
+
+        leftover = MagicMock()
+
+        def fake_create_mcp_tools(config, *, servers, clients, strict):
+            clients["ok"] = leftover
+            raise RuntimeError("Failed to connect to MCP server 'bad': boom")
+
+        agent = GptmeAgent()
+        with (
+            patch("gptme.acp.agent.get_logs_dir", return_value=tmp_path / "logs"),
+            patch("gptme.acp.agent.get_prompt", return_value=[]),
+            patch("gptme.acp.agent.ChatConfig"),
+            patch(
+                "gptme.acp.agent.create_mcp_tools",
+                side_effect=fake_create_mcp_tools,
+            ),
+            pytest.raises(RuntimeError, match="Failed to connect"),
+        ):
+            _run(
+                agent.new_session(
+                    cwd=str(tmp_path),
+                    mcp_servers=[
+                        McpServerStdio(name="ok", command="/bin/echo", args=[], env=[])
+                    ],
+                )
+            )
+
+        leftover.close.assert_called_once_with()
+        assert agent._session_mcp_clients == {}
 
     def test_host_tool_execute_uses_the_session_client(self):
         from gptme.config import Config

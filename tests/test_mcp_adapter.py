@@ -143,6 +143,35 @@ def test_create_mcp_tools_connection_error(mock_config):
         assert isinstance(tools, list)
 
 
+def test_create_mcp_tools_strict_closes_earlier_clients():
+    """A later strict-setup failure must close servers that already connected."""
+    config = Config()
+    servers = [
+        MCPServerConfig(name="ok", enabled=True, command="ok-cmd"),
+        MCPServerConfig(name="bad", enabled=True, command="bad-cmd"),
+    ]
+    config.user.mcp = MCPConfig(enabled=True, servers=servers)
+
+    ok_client = MagicMock()
+    ok_tools = MagicMock()
+    ok_tools.tools = []
+    ok_client.connect.return_value = (ok_tools, MagicMock())
+
+    bad_client = MagicMock()
+    bad_client.connect.side_effect = Exception("boom")
+
+    registry: dict = {}
+    with (
+        patch("gptme.mcp.client.MCPClient", side_effect=[ok_client, bad_client]),
+        pytest.raises(RuntimeError, match="Failed to connect to MCP server 'bad'"),
+    ):
+        create_mcp_tools(config, servers=servers, clients=registry, strict=True)
+
+    ok_client.close.assert_called_once_with()
+    bad_client.close.assert_called_once_with()
+    assert registry == {}
+
+
 def test_create_mcp_execute_function(mock_config):
     """Test create_mcp_execute_function creates valid execute function."""
     mock_client = MagicMock()
