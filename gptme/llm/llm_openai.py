@@ -1196,13 +1196,15 @@ def chat(
     try:
         raw_response = _chat_create()
     except Exception as _e:
-        if _is_openrouter_no_endpoints_error(_e):
+        if _uses_openrouter_backend(
+            provider, model_meta
+        ) and _is_openrouter_no_endpoints_error(_e):
             logger.warning(
-                "OpenRouter: no endpoints matched privacy constraints "
-                "(data_collection=deny + require_parameters) for %s — "
-                "retrying without privacy constraints. "
-                "Set OPENROUTER_PROVIDER_ORDER or use model@provider to pin "
-                "a no-training host and restore the default privacy guarantees.",
+                "OpenRouter: no endpoints matched the strict constraints "
+                "(require_parameters=True + data_collection=deny) for %s — "
+                "retrying with only the capability guard dropped (data_collection "
+                "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
+                "or use model@provider to pin a no-training host.",
                 model_meta.model,
             )
             raw_response = _chat_create(relaxed_privacy=True)
@@ -1319,16 +1321,19 @@ def _resolve_reasoning_effort(provider: Provider, model_meta: ModelMeta) -> str 
 
 
 def _is_openrouter_no_endpoints_error(e: Exception) -> bool:
-    """Return True when OpenRouter returns 404 because no provider matched the constraints.
+    """Return True when OpenRouter reports no provider matched the constraints.
 
-    OpenRouter returns a 404 with "No endpoints found" in the body when the
-    combination of provider preferences (data_collection, require_parameters,
-    provider order, etc.) eliminates every available host.  This is distinct
-    from a genuine model-not-found 404.
+    OpenRouter returns a 4xx (404 "No endpoints found", or 400 in some routing
+    configurations) when the combination of provider preferences
+    (data_collection, require_parameters, provider order, etc.) eliminates every
+    available host.  Matching both 404 and 400 covers the range documented in
+    the original code comment (the triple constraint "eliminates all available
+    providers and causes 400 errors").  The message check keeps this distinct
+    from a genuine model-not-found or other 4xx error.
     """
     from openai import APIStatusError  # fmt: skip
 
-    if not isinstance(e, APIStatusError) or e.status_code != 404:
+    if not isinstance(e, APIStatusError) or e.status_code not in (400, 404):
         return False
     error_text = " ".join(
         [
@@ -1348,11 +1353,13 @@ def extra_body(
 ) -> dict[str, Any]:
     """Return extra body for the OpenAI API based on the model.
 
-    ``relaxed_privacy=True`` omits ``data_collection`` and ``require_parameters``
-    from the OpenRouter provider preferences.  This is used as a one-shot
-    fallback when the strict defaults cause a 404 "No endpoints found" error —
-    we fail toward privacy (always send the constraints on the first attempt) and
-    only relax them when OpenRouter explicitly tells us no provider survives.
+    ``relaxed_privacy=True`` drops the ``require_parameters`` capability guard
+    (routing to providers that may not support every request parameter) as a
+    one-shot fallback when the strict defaults cause a 404 "No endpoints found"
+    error.  The deny-by-default ``data_collection`` policy is **preserved** even
+    in the relaxed path — prompts are never silently routed to a training host.
+    Relaxing ``data_collection`` requires an explicit
+    ``OPENROUTER_DATA_COLLECTION`` override, which is honoured in both modes.
     """
     body: dict[str, Any] = {}
     _maybe_apply_verbosity(body, model_meta)
@@ -1429,8 +1436,12 @@ def extra_body(
             # and retries once with relaxed_privacy=True (see chat()/stream()).
             data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
         else:
-            # Relaxed fallback: no require_parameters, honour explicit env override only.
-            data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION")
+            # Relaxed fallback: drop only the require_parameters capability guard.
+            # The deny-by-default data_collection policy is PRESERVED so a retry
+            # can never silently route prompts to a training host.  To genuinely
+            # relax data_collection, the user must set an explicit
+            # OPENROUTER_DATA_COLLECTION override (e.g. "allow"), honoured below.
+            data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
         if data_collection:
             provider_prefs["data_collection"] = data_collection
 
@@ -1616,13 +1627,15 @@ def stream(
     try:
         _stream_obj = _stream_create()
     except Exception as _e:
-        if _is_openrouter_no_endpoints_error(_e):
+        if _uses_openrouter_backend(
+            provider, model_meta
+        ) and _is_openrouter_no_endpoints_error(_e):
             logger.warning(
-                "OpenRouter: no endpoints matched privacy constraints "
-                "(data_collection=deny + require_parameters) for %s — "
-                "retrying without privacy constraints. "
-                "Set OPENROUTER_PROVIDER_ORDER or use model@provider to pin "
-                "a no-training host and restore the default privacy guarantees.",
+                "OpenRouter: no endpoints matched the strict constraints "
+                "(require_parameters=True + data_collection=deny) for %s — "
+                "retrying with only the capability guard dropped (data_collection "
+                "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
+                "or use model@provider to pin a no-training host.",
                 model_meta.model,
             )
             _stream_obj = _stream_create(relaxed_privacy=True)

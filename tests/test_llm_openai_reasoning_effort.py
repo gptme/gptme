@@ -132,8 +132,14 @@ def test_openrouter_effort_replaces_budget(monkeypatch):
     assert body["provider"]["data_collection"] == "deny"
 
 
-def test_openrouter_effort_relaxed_privacy_skips_constraints(monkeypatch):
-    """relaxed_privacy=True omits data_collection and require_parameters (404-fallback path)."""
+def test_openrouter_effort_relaxed_privacy_keeps_deny(monkeypatch):
+    """relaxed_privacy=True drops require_parameters but PRESERVES data_collection=deny.
+
+    The relaxed 404-fallback path only drops the require_parameters capability
+    guard.  The deny-by-default data_collection policy is kept so a retry can
+    never silently route prompts to a training host; relaxing data_collection
+    requires an explicit OPENROUTER_DATA_COLLECTION override.
+    """
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
     monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
     monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
@@ -144,7 +150,7 @@ def test_openrouter_effort_relaxed_privacy_skips_constraints(monkeypatch):
         relaxed_privacy=True,
     )
     assert "require_parameters" not in body["provider"]
-    assert "data_collection" not in body["provider"]
+    assert body["provider"]["data_collection"] == "deny"
 
 
 def test_openrouter_non_reasoning_model_ignores_effort(monkeypatch):
