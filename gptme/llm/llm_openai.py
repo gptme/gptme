@@ -1199,12 +1199,14 @@ def chat(
         if _uses_openrouter_backend(
             provider, model_meta
         ) and _is_openrouter_no_endpoints_error(_e):
+            _dc_configured = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
             logger.warning(
                 "OpenRouter: no endpoints matched the strict constraints "
-                "(require_parameters=True + data_collection=deny) for %s — "
+                "(require_parameters=True + data_collection=%s) for %s — "
                 "retrying with only the capability guard dropped (data_collection "
                 "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
                 "or use model@provider to pin a no-training host.",
+                _dc_configured,
                 model_meta.model,
             )
             raw_response = _chat_create(relaxed_privacy=True)
@@ -1630,12 +1632,14 @@ def stream(
         if _uses_openrouter_backend(
             provider, model_meta
         ) and _is_openrouter_no_endpoints_error(_e):
+            _dc_configured = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
             logger.warning(
                 "OpenRouter: no endpoints matched the strict constraints "
-                "(require_parameters=True + data_collection=deny) for %s — "
+                "(require_parameters=True + data_collection=%s) for %s — "
                 "retrying with only the capability guard dropped (data_collection "
                 "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
                 "or use model@provider to pin a no-training host.",
+                _dc_configured,
                 model_meta.model,
             )
             _stream_obj = _stream_create(relaxed_privacy=True)
