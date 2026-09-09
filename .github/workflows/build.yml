@@ -207,10 +207,11 @@ jobs:
     - name: Install system dependencies (Ubuntu)
       if: runner.os == 'Linux'
       run: |
-        # GitHub's Ubuntu runner image can ship stale apt sources with hash mismatches.
-        # Remove known-flaky sources (Microsoft, Azure CLI, Google Chrome) before update.
+        # GitHub's Ubuntu runner image can ship stale apt sources/caches with hash mismatches.
+        # Remove known-flaky sources and clear the stale lists cache before update.
         sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
-        sudo rm -f /etc/apt/sources.list.d/google-chrome*.list /etc/apt/sources.list.d/google*.list
+        sudo find /etc/apt/sources.list.d/ -name "*google*" -o -name "*chrome*" | xargs sudo rm -f || true
+        sudo rm -rf /var/lib/apt/lists/*
         sudo apt-get update
         sudo apt-get install -y python3-dev build-essential libffi-dev
 
