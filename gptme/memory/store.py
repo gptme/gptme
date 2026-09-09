@@ -51,11 +51,20 @@ def _atomic_write(path: Path, text: str) -> None:
     ``os.replace`` is atomic on POSIX when source and dest share a filesystem.
     Existing destination permission bits are copied onto the staged file so a
     private ``0600`` memory file is not rewritten as world-readable.
+
+    The temp file is opened with a restrictive mode (0o600) so that a private
+    destination is never readable by other users even during the staging window.
+    ``_preserve_mode`` then adjusts the mode to match the destination before the
+    atomic rename, restoring broader read bits when the destination is public.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, text.encode("utf-8"))
+        finally:
+            os.close(fd)
         _preserve_mode(tmp, path)
         os.replace(tmp, path)
     except OSError:
@@ -78,7 +87,11 @@ def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
             original = dest.read_text(encoding="utf-8") if dest.is_file() else None
             dest.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
-            tmp.write_text(text, encoding="utf-8")
+            fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, text.encode("utf-8"))
+            finally:
+                os.close(fd)
             _preserve_mode(tmp, dest)
             staged.append((dest, tmp, original))
         for dest, tmp, original in staged:
@@ -295,7 +308,13 @@ class MemoryStore:
         title: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Path:
-        """Write ``<slug>.md`` into the scope's root and upsert its index line."""
+        """Write ``<slug>.md`` into the scope's root and upsert its index line.
+
+        The root lock serialises this write against concurrent ``supersede`` calls.
+        ``supersede`` replaces ``MEMORY.md`` via ``os.replace``, which would drop
+        a POSIX flock held on the old inode by a concurrent ``update_index_line``.
+        Acquiring ``_locked_root`` here prevents that interleaving.
+        """
         slug = slugify(name)
         if slug.upper().startswith("MEMORY"):
             raise ValueError(
@@ -314,8 +333,9 @@ class MemoryStore:
             scope=root.scope,
         )
         entry.path = root.path / entry.filename
-        entry.path.write_text(entry.to_markdown(), encoding="utf-8")
-        update_index_line(root.path, entry)
+        with _locked_root(root.path):
+            entry.path.write_text(entry.to_markdown(), encoding="utf-8")
+            update_index_line(root.path, entry)
         logger.debug("saved memory %s to %s", entry.name, entry.path)
         return entry.path
 
