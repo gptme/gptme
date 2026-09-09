@@ -482,13 +482,72 @@ def test_scan_ipython_ordinary_string_hides_triple_quotes():
     assert _scan_ipython_triple_quote('value = \'"""\'', False, False) == (
         False,
         False,
+        False,
+        False,
     )
     assert _scan_ipython_triple_quote('prefix = "#"; text = """', False, False) == (
         True,
         False,
+        False,
+        False,
     )
-    assert _scan_ipython_triple_quote('x = """hello"""', False, False) == (False, False)
-    assert _scan_ipython_triple_quote("value = \"'''\"", False, False) == (False, False)
+    assert _scan_ipython_triple_quote('x = """hello"""', False, False) == (
+        False,
+        False,
+        False,
+        False,
+    )
+    assert _scan_ipython_triple_quote("value = \"'''\"", False, False) == (
+        False,
+        False,
+        False,
+        False,
+    )
+
+
+def test_scan_ipython_backslash_continued_ordinary_string_hides_triple():
+    """A backslash-continued ordinary string must not open triple-quote state.
+
+    Regression for gptme/gptme#3773 (Greptile P1): after ``s = 'abc \\`` the
+    next line's ``\"\"\"`` is still ordinary-string content.
+    """
+    from gptme.codeblock import _scan_ipython_triple_quote
+
+    # Trailing unescaped backslash keeps ordinary-single state.
+    assert _scan_ipython_triple_quote("s = 'abc \\", False, False) == (
+        False,
+        False,
+        True,
+        False,
+    )
+    # Carried ordinary-single makes ``"""`` literal; no closer → reset after line.
+    assert _scan_ipython_triple_quote('"""', False, False, True, False) == (
+        False,
+        False,
+        False,
+        False,
+    )
+    # Same, but the continuation line closes the ordinary string.
+    assert _scan_ipython_triple_quote('"""\'', False, False, True, False) == (
+        False,
+        False,
+        False,
+        False,
+    )
+    # Unterminated ordinary string WITHOUT continuation must not persist.
+    assert _scan_ipython_triple_quote("s = 'hello", False, False) == (
+        False,
+        False,
+        False,
+        False,
+    )
+    # Even number of trailing backslashes is a literal backslash, not continuation.
+    assert _scan_ipython_triple_quote("s = 'abc \\\\", False, False) == (
+        False,
+        False,
+        False,
+        False,
+    )
 
 
 def test_extract_codeblocks_ipython_ordinary_string_does_not_open_triple():
@@ -536,6 +595,24 @@ print(text)
             "ipython",
             'prefix = "#"; text = """\n```\ninside\n```\n"""\nprint(text)',
         ),
+    ]
+
+
+def test_extract_codeblocks_ipython_continued_ordinary_string_hides_triple():
+    """A backslash-continued ordinary string must not open triple-quote state.
+
+    Regression for gptme/gptme#3773 (Greptile P1): after ``s = 'abc \\`` the
+    next line's ``\"\"\"`` is still ordinary-string content. Treating it as a
+    triple-double opener used to retain the real closer as source (the IPython
+    block was never emitted) and swallow later Markdown.
+    """
+    markdown = (
+        '```ipython\ns = \'abc \\\n"""\'\nprint(s)\n```\n\n```output\nlater\n```\n'
+    )
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock("ipython", 's = \'abc \\\n"""\'\nprint(s)'),
+        Codeblock("output", "later"),
     ]
 
 

@@ -227,38 +227,50 @@ def _find_heredoc_terminator(
     return None, in_single, in_double, in_ansi_c
 
 
+def _line_ends_with_continuation(line: str) -> bool:
+    """True if ``line`` ends with an unescaped backslash (Python line continuation)."""
+    n = 0
+    i = len(line) - 1
+    while i >= 0 and line[i] == "\\":
+        n += 1
+        i -= 1
+    return n % 2 == 1
+
+
 def _scan_ipython_triple_quote(
     line: str,
     in_triple_double: bool,
     in_triple_single: bool,
-) -> tuple[bool, bool]:
-    """Scan one line of IPython content and return updated triple-quote state.
+    in_single: bool = False,
+    in_double: bool = False,
+) -> tuple[bool, bool, bool, bool]:
+    """Scan one line of IPython content and return updated quote state.
 
     IPython embeds Python, which supports triple-single-quote and
     triple-double-quote strings spanning multiple lines.  A fence
     (bare `` ``` `` or language-tagged) inside such a string is literal
     Python source, not a markdown block delimiter.
 
-    Ordinary ``'...'`` / ``"..."`` strings are tracked within the line so
+    Ordinary ``'...'`` / ``"..."`` strings are tracked so
     ``value = '\"\"\"'`` does not open triple-double state and
     ``prefix = "#"; text = \"\"\"`` does not treat the ``#`` as a comment
     that hides the real opener.  Backslash escapes skip the next character
     inside any string.  ``#`` starts a comment only at top-level.
 
-    It does not attempt to resolve f-string expressions ``{...}``, raw /
-    bytes prefixes as a distinct mode, or ``\\`` line continuation that
-    would carry an ordinary quote across lines — cases that almost never
-    appear in the triple-quoted-string-wrapping-a-fence failure scenario
-    this targets.
+    Ordinary strings persist across a physical line break only when the
+    line ends in an unescaped backslash (Python line continuation).  An
+    unterminated quote without continuation is a syntax error and must
+    not poison the next line — otherwise ``s = 'abc \\`` followed by
+    ``\"\"\"`` falsely opens triple-double state.
 
-    Returns ``(in_triple_double, in_triple_single)`` after processing the line.
+    It does not attempt to resolve f-string expressions ``{...}`` or raw /
+    bytes prefixes as a distinct mode.
+
+    Returns ``(in_triple_double, in_triple_single, in_single, in_double)``
+    after processing the line.
     """
     i = 0
     n = len(line)
-    # Ordinary quotes are tracked within the line only: Python non-triple
-    # strings do not span lines (without ``\\`` continuation, which we ignore).
-    in_single = False
-    in_double = False
     while i < n:
         c = line[i]
 
@@ -322,7 +334,12 @@ def _scan_ipython_triple_quote(
 
         i += 1
 
-    return in_triple_double, in_triple_single
+    # Ordinary strings do not span lines unless this line is backslash-continued.
+    if (in_single or in_double) and not _line_ends_with_continuation(line):
+        in_single = False
+        in_double = False
+
+    return in_triple_double, in_triple_single, in_single, in_double
 
 
 def _extract_codeblocks(
@@ -477,8 +494,12 @@ def _extract_codeblocks(
             # For IPython blocks: track whether we are inside a Python triple-quoted
             # string (``"""`` or ``'''``).  A bare fence inside such a string is
             # literal Python source, not a markdown block delimiter.
+            # Ordinary quote flags persist only across backslash-continued lines
+            # so ``s = 'abc \\`` + ``\"\"\"`` does not open triple-double state.
             _ipython_in_triple_double: bool = False
             _ipython_in_triple_single: bool = False
+            _ipython_in_single: bool = False
+            _ipython_in_double: bool = False
 
             # Collect content until we find the matching closing ```
             while i < len(lines):
@@ -567,12 +588,17 @@ def _extract_codeblocks(
                     # Update triple-quoted-string state line-by-line so that
                     # bare fences inside ``"""..."""`` or ``'''...'''`` are
                     # treated as literal Python content rather than block closers.
-                    _ipython_in_triple_double, _ipython_in_triple_single = (
-                        _scan_ipython_triple_quote(
-                            line,
-                            _ipython_in_triple_double,
-                            _ipython_in_triple_single,
-                        )
+                    (
+                        _ipython_in_triple_double,
+                        _ipython_in_triple_single,
+                        _ipython_in_single,
+                        _ipython_in_double,
+                    ) = _scan_ipython_triple_quote(
+                        line,
+                        _ipython_in_triple_double,
+                        _ipython_in_triple_single,
+                        _ipython_in_single,
+                        _ipython_in_double,
                     )
 
                 # Check if this line starts with backticks (potential opening or closing)
