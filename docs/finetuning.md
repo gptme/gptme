@@ -167,13 +167,13 @@ gptme's tool formats and native tool calling, so it does not emit `tool_calls`,
 does not emit a `tools` column, and cannot render the three formats. It is fine
 for a plain chat-style SFT and wrong for anything tool-shaped.
 
-The exporter used for the run below is
-`scripts/research/trajectory_to_sft.py` in Bob's agent workspace
-(`ErikBjare/bob` — not a public repository; the design is described above in
-enough detail to reimplement). It reads both gptme logs and Claude Code
-trajectories, joins session-level labels, does the redaction pass, and has
-`--gptme-format {native,markdown,xml,tool}` / `--all-formats` to write the
-paired datasets, plus `--no-meta` for the HF-datasets problem above.
+The run below used a private exporter that implements *Data* above — it is
+not in this repository. Reimplement from that section; `collect.py` is not a
+substitute for tool-shaped SFT. The exporter that produced these numbers
+reads gptme logs and Claude Code trajectories, joins session-level labels,
+does the redaction pass, and writes paired `markdown`/`xml`/`tool` JSONL
+from the same sessions with no per-row metadata (the HF-datasets problem
+above).
 
 ## Training
 
@@ -284,6 +284,10 @@ The non-obvious ones, three of which cost real money to discover:
 The paired `xml` and `tool` adapters on the same 3,080 sessions took 609 s and
 1,465 s and reached eval loss 1.656 and 1.722. **Do not compare loss across
 formats** — the token mixes differ. `gptme-eval` is the comparison.
+
+Public artifacts for `q08b-markdown-v5` (adapter weights plus the generated
+model card that embeds the Axolotl config):
+https://s3.bob.gptme.org/training/runs/q08b-markdown-v5/README.md
 
 It took five paid attempts (~$5 of debugging) to get one clean run, and every
 single failure was plumbing, not learning: a missing tmux in the training
@@ -415,10 +419,10 @@ they are parsed heuristically out of free text. A self-hosted vLLM can
 constrain those too, given a context-free grammar for the fenced-block and
 `<tool-use>` shapes.
 
-A `GPTME_TOOL_FORMAT_GRAMMAR` passthrough exists on the
-`feat/tool-format-grammar` branch of a gptme fork and sends the grammar as
-`structured_outputs.grammar` for `markdown`/`xml` on self-hosted providers
-only. **It is not merged into gptme.** If you want to reproduce that arm, note:
+gptme does **not** ship a grammar passthrough for `markdown`/`xml`. The
+grammar columns in *Results* are from a local experiment that sent GBNF as
+`structured_outputs.grammar` on self-hosted vLLM only — they are **not part
+of this recipe**. Skip that arm unless you have your own wiring. If you do:
 
 - Send GBNF-flavoured **EBNF** with a rule named `root`. vLLM hands the string
   to `xgrammar.Grammar.from_ebnf`; its Lark detection is a one-line heuristic
@@ -515,11 +519,10 @@ daemon or a bug in your own launcher.
 
 The training, merge, serve, and eval commands below are what ran.
 **The exporter and the patched Qwen3.5 chat template are not in this
-repository** (they live in a private agent workspace). Reimplement the
-exporter from *Data* above; make the template by copying the checkpoint's
-`chat_template` and applying the six-line replacement in *The
-mid-conversation system message gotcha*. Nothing here needs a GPU until
-step 3.
+repository.** Reimplement the exporter from *Data* above; make the template
+by copying the checkpoint's `chat_template` and applying the six-line
+replacement in *The mid-conversation system message gotcha*. Nothing here
+needs a GPU until step 3.
 
 ```bash
 # 1. Export paired datasets yourself (see Data). Hold out the last two months;
