@@ -61,10 +61,8 @@ def _atomic_write(path: Path, text: str) -> None:
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-        try:
-            os.write(fd, text.encode("utf-8"))
-        finally:
-            os.close(fd)
+        with os.fdopen(fd, "wb") as f:
+            f.write(text.encode("utf-8"))
         _preserve_mode(tmp, path)
         os.replace(tmp, path)
     except OSError:
@@ -88,10 +86,8 @@ def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
             dest.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
             fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-            try:
-                os.write(fd, text.encode("utf-8"))
-            finally:
-                os.close(fd)
+            with os.fdopen(fd, "wb") as f:
+                f.write(text.encode("utf-8"))
             _preserve_mode(tmp, dest)
             staged.append((dest, tmp, original))
         for dest, tmp, original in staged:
