@@ -227,6 +227,57 @@ def _find_heredoc_terminator(
     return None, in_single, in_double, in_ansi_c
 
 
+def _scan_ipython_triple_quote(
+    line: str,
+    in_triple_double: bool,
+    in_triple_single: bool,
+) -> tuple[bool, bool]:
+    """Scan one line of IPython content and return updated triple-quote state.
+
+    IPython embeds Python, which supports triple-single-quote and
+    triple-double-quote strings spanning multiple lines.  A bare fence
+    (`` ``` ``) inside such a string is literal Python source, not a markdown
+    block delimiter.
+
+    The scanner handles the common cases: triple-quote openers/closers,
+    backslash escaping within strings, and ``#`` line comments (outside
+    strings).  It does not attempt to resolve f-string expressions ``{...}``,
+    all string prefix variants (``rb``, ``u``, …), or deeply nested escape
+    sequences — cases that almost never appear in the triple-quoted-string-
+    wrapping-a-fence failure scenario this targets.
+
+    Returns ``(in_triple_double, in_triple_single)`` after processing the line.
+    """
+    i = 0
+    n = len(line)
+    while i < n:
+        # Skip rest of line when inside a comment (only outside strings).
+        if not in_triple_double and not in_triple_single and line[i] == "#":
+            break
+
+        # Backslash escape: skip the next character (only inside a string).
+        if (in_triple_double or in_triple_single) and line[i] == "\\":
+            i += 2
+            continue
+
+        # Triple-double-quote — checked before single to avoid mis-parsing
+        # ``"`` followed by ``""`` as two separate events.
+        if i + 2 < n and line[i : i + 3] == '"""' and not in_triple_single:
+            in_triple_double = not in_triple_double
+            i += 3
+            continue
+
+        # Triple-single-quote.
+        if i + 2 < n and line[i : i + 3] == "'''" and not in_triple_double:
+            in_triple_single = not in_triple_single
+            i += 3
+            continue
+
+        i += 1
+
+    return in_triple_double, in_triple_single
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -376,6 +427,11 @@ def _extract_codeblocks(
             _qs_in_single: bool = False
             _qs_in_double: bool = False
             _qs_in_ansi_c: bool = False
+            # For IPython blocks: track whether we are inside a Python triple-quoted
+            # string (``"""`` or ``'''``).  A bare fence inside such a string is
+            # literal Python source, not a markdown block delimiter.
+            _ipython_in_triple_double: bool = False
+            _ipython_in_triple_single: bool = False
 
             # Collect content until we find the matching closing ```
             while i < len(lines):
@@ -460,6 +516,17 @@ def _extract_codeblocks(
                         _qs_in_single = False
                         _qs_in_double = False
                         _qs_in_ansi_c = False
+                elif lang == "ipython":
+                    # Update triple-quoted-string state line-by-line so that
+                    # bare fences inside ``"""..."""`` or ``'''...'''`` are
+                    # treated as literal Python content rather than block closers.
+                    _ipython_in_triple_double, _ipython_in_triple_single = (
+                        _scan_ipython_triple_quote(
+                            line,
+                            _ipython_in_triple_double,
+                            _ipython_in_triple_single,
+                        )
+                    )
 
                 # Check if this line starts with backticks (potential opening or closing)
                 line_fence_match = re.match(r"^(`{3,})", line)
@@ -472,9 +539,16 @@ def _extract_codeblocks(
                     is_outer_close = is_bare_fence and line_fence_len == fence_len
                     if is_outer_close or (is_bare_fence and nesting_depth > 1):
                         # Bare fence - determine if opening or closing based on context
-                        # A fence inside an open quoted string is literal content,
-                        # not a markdown delimiter (same rationale as heredoc bodies).
-                        if _qs_in_single or _qs_in_double or _qs_in_ansi_c:
+                        # A fence inside an open quoted string or a Python
+                        # triple-quoted string is literal content, not a markdown
+                        # delimiter (same rationale as heredoc bodies).
+                        if (
+                            _qs_in_single
+                            or _qs_in_double
+                            or _qs_in_ansi_c
+                            or _ipython_in_triple_double
+                            or _ipython_in_triple_single
+                        ):
                             content_lines.append(line)
                             i += 1
                             continue
@@ -605,6 +679,8 @@ def _extract_codeblocks(
                                 and not _qs_in_single
                                 and not _qs_in_double
                                 and not _qs_in_ansi_c
+                                and not _ipython_in_triple_double
+                                and not _ipython_in_triple_single
                             ):
                                 yield Codeblock(
                                     lang,

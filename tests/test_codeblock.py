@@ -409,6 +409,89 @@ output here
     ]
 
 
+def test_extract_codeblocks_ipython_triple_double_quote_contains_fence():
+    """A bare fence inside an IPython triple-double-quoted string is literal content.
+
+    Regression for gptme/gptme#3704: before this fix the closing ``` of the
+    triple-quoted string was treated as the block closer, so the ipython command
+    was truncated and the trailing print + closing fence were lost.
+    """
+    markdown = '''```ipython
+text = """
+```
+some markdown
+```
+"""
+print(text)
+```
+'''
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock(
+            "ipython",
+            'text = """\n```\nsome markdown\n```\n"""\nprint(text)',
+        )
+    ]
+
+
+def test_extract_codeblocks_ipython_triple_single_quote_contains_fence():
+    """A bare fence inside an IPython triple-single-quoted string is literal content."""
+    markdown = """```ipython
+text = '''
+```
+markdown here
+```
+'''
+result = text
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    assert blocks == [
+        Codeblock(
+            "ipython",
+            "text = '''\n```\nmarkdown here\n```\n'''\nresult = text",
+        )
+    ]
+
+
+def test_extract_codeblocks_ipython_triple_quote_single_line_does_not_keep_open():
+    """A triple-quoted string that opens and closes on the same line leaves state clean.
+
+    After ``x = \"\"\"hello\"\"\"`` the parser must NOT treat subsequent bare fences
+    as inside a triple-quoted string — the string closed on the same line.
+    """
+    markdown = '''```ipython
+x = """hello"""
+```
+output
+```
+'''
+    blocks = Codeblock.iter_from_markdown(markdown)
+    # The ipython block closes at the first bare ```, then "output" is prose and
+    # the trailing ``` opens a block with no closing fence → only the ipython
+    # block is emitted.
+    assert blocks == [
+        Codeblock("ipython", 'x = """hello"""'),
+    ]
+
+
+def test_extract_codeblocks_ipython_fence_outside_triple_quote_still_closes():
+    """A bare fence that is NOT inside a triple-quoted string still closes the block."""
+    markdown = """```ipython
+x = 1 + 1
+```
+prose after
+```
+"""
+    blocks = Codeblock.iter_from_markdown(markdown)
+    # The ipython block closes correctly at the bare ```.  "prose after" is
+    # prose; the trailing ``` opens a block with no closing fence so it is not
+    # emitted.
+    assert blocks == [
+        Codeblock("ipython", "x = 1 + 1"),
+    ]
+
+
 def test_extract_codeblocks_shift_operand_alone_is_not_a_heredoc():
     """A shift operand that later appears alone on a line must not mint a
     phantom heredoc terminator and swallow the closing fence.
