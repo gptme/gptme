@@ -440,7 +440,17 @@ def prompt_workspace(
                             raise ValueError(
                                 "memory index policy must not be a symlink"
                             )
-                        if policy_path.exists() or any(root_store.entries()):
+                        # Check for individual entry files (any .md that isn't
+                        # the index or policy). When entries() silently returns []
+                        # due to parse errors, this prevents the legacy MEMORY.md
+                        # fallback from injecting stale content: render_root_index()
+                        # will return empty for a broken root, which is correct.
+                        _has_entry_files = any(
+                            f.is_file() and not f.is_symlink()
+                            for f in root.path.glob("*.md")
+                            if f.name not in ("MEMORY.md", POLICY_FILENAME)
+                        )
+                        if policy_path.exists() or _has_entry_files:
                             # A policy is authoritative even with no entries.
                             # Missing selections or overflow must never revive
                             # an obsolete on-disk MEMORY.md through fallback.
@@ -451,7 +461,7 @@ def prompt_workspace(
                             # Keep legacy index-only roots compatible, bounding
                             # the read itself rather than slicing a full read.
                             index_path = root.path / "MEMORY.md"
-                            if not index_path.is_file():
+                            if not index_path.is_file() or index_path.is_symlink():
                                 continue
                             with index_path.open("rb") as index_file:
                                 raw = index_file.read(available)
