@@ -172,10 +172,16 @@ def _get_top_p(
 
 
 def _parse_provider_list(value: str | None) -> list[str]:
-    """Split a comma-separated OpenRouter provider list, dropping blanks."""
+    """Split a comma-separated OpenRouter provider list, dropping blanks.
+
+    Provider IDs are lowercased: OpenRouter expects lowercase IDs
+    (e.g. "together", not "Together"), so we normalise at parse time
+    regardless of whether the value came from a @-suffix or the
+    OPENROUTER_PROVIDER_ORDER env var.
+    """
     if not value:
         return []
-    return [part.strip() for part in value.split(",") if part.strip()]
+    return [part.strip().lower() for part in value.split(",") if part.strip()]
 
 
 def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
