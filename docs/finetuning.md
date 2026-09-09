@@ -54,7 +54,12 @@ import re
 
 # fence form (markdown tool format):  ```shell\n<code>\n```
 # native form:                        @shell(abc123): {"command": "ls"}
-AT_TOOL_RE = re.compile(r"^@(\w+)\((\w+)\):\s*(\{.*\})", re.MULTILINE)
+# Canonical parser: gptme.tools.base.toolcall_re
+# MCP tools are named server.tool (dots). Provider call IDs include
+# hyphens/colons (call_abc, toolu_..., call-123). `\w+` drops those.
+AT_TOOL_RE = re.compile(
+    r"^@([\w.]+)\(([\w\-:.]+)\):\s*({.*)", re.MULTILINE | re.DOTALL
+)
 ```
 
 If you also mine Claude Code trajectories, note that those are a third shape
@@ -341,14 +346,21 @@ raising. In the message loop, replace the `raise_exception` branch with:
 ```
 
 That is also the shape the SFT data was rendered in, so training and serving
-agree. A working copy is at
-`scripts/research/training/eval/templates/qwen3_5_midsystem.jinja` in Bob's
-workspace.
+agree. Copy the checkpoint's own `chat_template` (from
+`tokenizer_config.json`) and apply that replacement; the rest of the
+template stays stock.
 
-The proper fix belongs in gptme: fold non-leading `system` messages into the
-adjacent user turn for providers whose templates reject them, the way
-`_prep_o1` in `gptme/llm/llm_openai.py` already does for the o-series. That is
-planned but not yet shipped — until it lands, use the template copy.
+The proper fix belongs in gptme: rewrite non-leading `system` messages for
+providers whose templates reject them. `_prep_o1` in
+`gptme/llm/llm_openai.py` is the closest existing transform, but it does
+something different — it converts each eligible system message (no
+`call_id`) into a *separate user* message wrapped in `<system>` tags,
+because the o-series and gpt-5 do not support the system role at all.
+Merging consecutive same-role messages is `_merge_consecutive`, and it is
+composed with `_prep_o1` only on the DeepSeek path. Qwen3.5 still wants a
+leading system message; it just cannot see another one later. Until gptme
+rewrites those mid-conversation system turns on the client, use the
+template copy.
 
 ### Run gptme-eval
 
@@ -364,9 +376,10 @@ gptme-eval --model local/tool-format-experiment@markdown \
     --parallel 8 --timeout 600 basic all-practical
 ```
 
-- `basic` (18 tests) + `all-practical` (98) = **116 tests**, which is the
-  cheapest suite pair that still discriminates. See {doc}`evals` for the full
-  suite list.
+- `basic` (18 tests) + `all-practical` (98) = **116 tests** on this repo as
+  of 2026-09-09, which is the cheapest suite pair that still discriminates.
+  Recount from `gptme.eval.suites` if you need the denominator to match a
+  later revision. See {doc}`evals` for the full suite list.
 - Repeat with `@xml` and `@tool` for the other formats. With no `@` suffix,
   gptme-eval runs the model once per format.
 - `--timeout` is the generation budget per eval, and the default is far too
@@ -490,14 +503,19 @@ daemon or a bug in your own launcher.
 
 ## Reproduce
 
-The whole loop, in order. Nothing here needs a GPU until step 3.
+The training, merge, serve, and eval commands below are what ran.
+**The exporter and the patched Qwen3.5 chat template are not in this
+repository** (they live in a private agent workspace). Reimplement the
+exporter from *Data* above; make the template by copying the checkpoint's
+`chat_template` and applying the six-line replacement in *The
+mid-conversation system message gotcha*. Nothing here needs a GPU until
+step 3.
 
 ```bash
-# 1. Export paired datasets from your own conversations, holding out the last
-#    two months. --all-formats writes markdown/xml/tool from the same sessions
-#    and the same split; --no-meta keeps HF datasets happy.
-python3 trajectory_to_sft.py --out ~/data/sft/run --all-formats \
-    --holdout-months 2026-08 2026-09 --max-tokens 8192 --no-meta
+# 1. Export paired datasets yourself (see Data). Hold out the last two months;
+#    render markdown/xml/tool from the same sessions and split; omit per-row
+#    metadata so HF datasets can cast the columns. Write
+#    ~/data/sft/run.markdown.train.jsonl (and the xml/tool twins).
 
 # 2. Validate before renting anything: this is where a bad `arguments` column
 #    or a null-then-float field fails, and it costs nothing on your own box.
@@ -511,8 +529,8 @@ axolotl preprocess qwen3.5-0.8b-lora.yaml
 axolotl train qwen3.5-0.8b-lora.yaml
 
 # 4. Merge the adapter into the base (vLLM serves full checkpoints, and step 3
-#    produces only an adapter), then serve. The chat-template override is what
-#    stops every gptme request from 400ing on Qwen3.5.
+#    produces only an adapter), then serve. Point --chat-template at the
+#    patched copy from the section above — stock Qwen3.5 400s every gptme request.
 python3 -c "
 from peft import AutoPeftModelForCausalLM
 from transformers import AutoTokenizer
@@ -521,7 +539,7 @@ AutoTokenizer.from_pretrained('Qwen/Qwen3.5-0.8B').save_pretrained('/merged')"
 vllm serve /merged --served-model-name sft \
     --enable-auto-tool-choice --tool-call-parser qwen3_xml \
     --default-chat-template-kwargs '{"enable_thinking": false}' \
-    --chat-template qwen3_5_midsystem.jinja --port 8000
+    --chat-template ./qwen3_5_midsystem.jinja --port 8000
 
 # 5. Score it — and score the *base* model the same way, or you have one number
 #    and no verdict.
