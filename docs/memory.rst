@@ -184,4 +184,5 @@ Harness wrappers can preserve their session identity through the shared writer::
 
 ``--metadata`` accepts a JSON object and merges its keys into existing entry
 metadata. Omitted keys survive updates; lifecycle fields and root index policy
-remain governed by the store. Invalid JSON or a non-object fails before writing.
+remain governed by the store. The reserved ``type`` key must use ``--type``
+instead. Invalid JSON, a non-object, or a reserved key fails before writing.

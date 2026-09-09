@@ -65,3 +65,29 @@ def test_invalid_metadata_does_not_write(
     assert result.exit_code != 0
     assert "--metadata" in result.output and "JSON object" in result.output
     assert not root.exists()
+
+
+def test_metadata_cannot_override_canonical_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    store = MemoryStore([MemoryRoot("explicit", tmp_path)])
+    path = store.save("kept", "Original", type="feedback")
+    before = path.read_bytes()
+    result = CliRunner().invoke(
+        util_main,
+        [
+            "memory",
+            "save",
+            "kept",
+            "Changed",
+            "--type",
+            "feedback",
+            "--metadata",
+            '{"type":"project"}',
+        ],
+        input="Changed body",
+    )
+    assert result.exit_code != 0
+    assert "--type" in result.output
+    assert path.read_bytes() == before

@@ -161,6 +161,10 @@ def memory_save(
             ) from exc
         if not isinstance(parsed_metadata, dict):
             raise click.BadParameter("must be a JSON object", param_hint="--metadata")
+        if "type" in parsed_metadata:
+            raise click.BadParameter(
+                "type is reserved; use --type", param_hint="--metadata"
+            )
     if body_file:
         with open(body_file, encoding="utf-8") as f:
             body = f.read()
