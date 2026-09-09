@@ -15,9 +15,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
 
+from .policy import POLICY_FILENAME, IndexPolicy
 from .roots import MemoryRoot, default_write_root, resolve_roots
 from .schema import (
-    DEFAULT_TYPE,
     TYPE_ORDER,
     MemoryEntry,
     MemoryFrontmatterError,
@@ -181,6 +181,22 @@ def _locked_root(root_path: Path):
 
 
 def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
+    """Update a legacy pointer, or regenerate a policy-managed root's view.
+
+    In managed roots, entry files remain the source of truth. This compatibility
+    helper cannot append an unselected pointer or bypass the persistent budget.
+    """
+    with _locked_root(memory_dir):
+        policy = IndexPolicy.read(memory_dir)
+        if policy is None:
+            _upsert_index_line(memory_dir, entry)
+        else:
+            store = MemoryStore([MemoryRoot("explicit", memory_dir)])
+            text = store._render_with_policy(store.index_entries(), policy)
+            _atomic_write(store.index_path(), text)
+
+
+def _upsert_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     """Upsert one ``- [title](file) — description`` line in ``MEMORY.md``.
 
     This is the Claude Code convention: append a pointer line, never rewrite
@@ -240,7 +256,9 @@ class MemoryStore:
         available = ", ".join(r.scope for r in self.roots) or "none"
         raise KeyError(f"no memory root for scope {scope!r} (available: {available})")
 
-    def _entries_from_roots(self, roots: Iterable[MemoryRoot]) -> list[MemoryEntry]:
+    def _entries_from_roots(
+        self, roots: Iterable[MemoryRoot], *, deduplicate: bool = True
+    ) -> list[MemoryEntry]:
         self.errors = []
         seen: dict[str, MemoryEntry] = {}
         for r in roots:
@@ -254,7 +272,10 @@ class MemoryStore:
                 except (MemoryParseError, OSError, UnicodeDecodeError) as e:
                     self.errors.append((path, str(e)))
                     continue
-                seen.setdefault(entry.name, entry)  # nearest root wins
+                # Layered retrieval shadows by name; a physical index must
+                # retain every filename, including entries with duplicate names.
+                key = entry.name if deduplicate else str(path)
+                seen.setdefault(key, entry)
         return list(seen.values())
 
     def entries(
@@ -282,7 +303,7 @@ class MemoryStore:
         would put later-directory filenames into the first directory's
         ``MEMORY.md``. Index generation is always per-directory.
         """
-        return self._entries_from_roots([self.root(scope)])
+        return self._entries_from_roots([self.root(scope)], deduplicate=False)
 
     def get(self, name: str, scope: str | None = None) -> MemoryEntry | None:
         wanted = {name, slugify(name)}
@@ -299,12 +320,16 @@ class MemoryStore:
         description: str,
         body: str = "",
         *,
-        type: str = DEFAULT_TYPE,
+        type: str | None = None,
         scope: str | None = None,
         title: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Path:
-        """Write ``<slug>.md`` into the scope's root and upsert its index line.
+        """Write an entry, preserving existing lifecycle and omitted metadata.
+
+        A policy-managed root regenerates its selected view within the stored
+        budget, committing entry and index together. New entries remain available
+        to recall but are not selected automatically. Legacy roots upsert a line.
 
         The root lock serialises this write against concurrent ``supersede`` calls.
         ``supersede`` replaces ``MEMORY.md`` via ``os.replace``, which would drop
@@ -319,21 +344,36 @@ class MemoryStore:
             )
         root = self.root(scope)
         root.path.mkdir(parents=True, exist_ok=True)
-        entry = MemoryEntry(
-            name=slug,
-            description=description.strip(),
-            type=type,
-            body=body,
-            title=title,
-            metadata=dict(metadata or {}),
-            scope=root.scope,
-        )
-        entry.path = root.path / entry.filename
+        path = root.path / f"{slug}.md"
         with _locked_root(root.path):
-            entry.path.write_text(entry.to_markdown(), encoding="utf-8")
-            update_index_line(root.path, entry)
+            policy = IndexPolicy.read(root.path)
+            previous = (
+                parse_entry(path, scope=root.scope, strict=True)
+                if path.exists()
+                else MemoryEntry(name=slug, path=path, scope=root.scope)
+            )
+            entry = replace(
+                previous,
+                description=description.strip(),
+                body=body,
+                type=type if type is not None else previous.type,
+                title=title if title is not None else previous.title,
+                metadata={**previous.metadata, **(metadata or {})},
+            )
+            text = entry.to_markdown()
+            entry = entry_from_text(text, path=path, scope=root.scope, strict=True)
+            if policy is None:
+                _atomic_write(path, text)
+                _upsert_index_line(root.path, entry)
+            else:
+                entries = [e for e in self.index_entries(scope) if e.path != path]
+                entries.append(entry)
+                index_text = self._render_with_policy(entries, policy)
+                _commit_replacements(
+                    [(path, text), (self.index_path(scope), index_text)]
+                )
         logger.debug("saved memory %s to %s", entry.name, entry.path)
-        return entry.path
+        return path
 
     def supersede(
         self, old_name: str, new_name: str, *, scope: str | None = None
@@ -348,6 +388,7 @@ class MemoryStore:
         """
         root = self.root(scope)
         with _locked_root(root.path):
+            policy = IndexPolicy.read(root.path)
             old = self.get(old_name, scope=root.scope)
             new = self.get(new_name, scope=root.scope)
             if old is None:
@@ -383,8 +424,12 @@ class MemoryStore:
             new_text = new.to_markdown()
 
             # Validate both complete serializations before the first write.
-            entry_from_text(old_text, path=old_path, scope=root.scope, strict=True)
-            entry_from_text(new_text, path=new_path, scope=root.scope, strict=True)
+            old = entry_from_text(
+                old_text, path=old_path, scope=root.scope, strict=True
+            )
+            new = entry_from_text(
+                new_text, path=new_path, scope=root.scope, strict=True
+            )
 
             updated_entries = []
             for entry in self.index_entries(root.scope):
@@ -399,14 +444,17 @@ class MemoryStore:
                 updated_entries.append(old)
             if new_path not in seen_paths:
                 updated_entries.append(new)
-            index_text = self.render_index(updated_entries)
-            _commit_replacements(
-                [
-                    (old_path, old_text),
-                    (new_path, new_text),
-                    (self.index_path(root.scope), index_text),
-                ]
-            )
+            if policy is not None:
+                policy = policy.supersede(old.filename, new.filename)
+            index_text = self._render_with_policy(updated_entries, policy)
+            replacements = [
+                (old_path, old_text),
+                (new_path, new_text),
+            ]
+            if policy is not None:
+                replacements.append((root.path / POLICY_FILENAME, policy.to_json()))
+            replacements.append((self.index_path(root.scope), index_text))
+            _commit_replacements(replacements)
             return old, new
 
     def audit(self, *, scope: str | None = None) -> list[AuditIssue]:
@@ -544,6 +592,43 @@ class MemoryStore:
                 raise ValueError(f"budget {budget} is too small for the index header")
             n -= 1
 
+    def _render_with_policy(
+        self,
+        entries: list[MemoryEntry],
+        policy: IndexPolicy | None,
+        *,
+        budget: int | None = None,
+    ) -> str:
+        if policy is None:
+            return self.render_index(entries, budget=budget)
+        # Required selection is never truncated. A one-shot CLI budget may
+        # tighten the stored cap, but cannot bypass it.
+        limit = min(policy.budget, budget) if budget is not None else policy.budget
+        text = self.render_index(policy.entries(entries))
+        size = len(text.encode("utf-8"))
+        if size > limit:
+            raise ValueError(
+                f"selected memory index needs {size} bytes, exceeds budget {limit}; "
+                "shorten descriptions or revise .memory-index.json before writing"
+            )
+        return text
+
+    def render_root_index(
+        self, scope: str | None = None, *, budget: int | None = None
+    ) -> str:
+        """Render one root using its persistent selection and budget, if present."""
+        with _locked_root(self.root(scope).path):
+            return self._render_root_index(scope, budget=budget)
+
+    def _render_root_index(
+        self, scope: str | None = None, *, budget: int | None = None
+    ) -> str:
+        """Caller holds the root lock across the entries/policy snapshot."""
+        root = self.root(scope)
+        return self._render_with_policy(
+            self.index_entries(scope), IndexPolicy.read(root.path), budget=budget
+        )
+
     def index_path(self, scope: str | None = None) -> Path:
         return self.root(scope).path / INDEX_FILENAME
 
@@ -553,7 +638,7 @@ class MemoryStore:
         root = self.root(scope)
         path = root.path / INDEX_FILENAME
         with _locked_root(root.path):
-            text = self.render_index(self.index_entries(scope), budget=budget)
+            text = self._render_root_index(scope, budget=budget)
             _atomic_write(path, text)
         return path
 
@@ -562,5 +647,6 @@ class MemoryStore:
     ) -> bool:
         """True when the on-disk index equals the regenerated one byte for byte."""
         path = self.root(scope).path / INDEX_FILENAME
-        expected = self.render_index(self.index_entries(scope), budget=budget)
-        return path.is_file() and path.read_text(encoding="utf-8") == expected
+        with _locked_root(path.parent):
+            expected = self._render_root_index(scope, budget=budget)
+            return path.is_file() and path.read_text(encoding="utf-8") == expected

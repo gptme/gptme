@@ -132,7 +132,7 @@ def execute_memory(
         try:
             file_path = save_memory(name, save_content)
             yield Message("system", f"Memory '{name}' saved to `{file_path}`.")
-        except OSError as e:
+        except (OSError, ValueError) as e:
             yield Message("system", f"Error saving memory '{name}': {e}")
 
     target_path = _get_path(code, args, kwargs)

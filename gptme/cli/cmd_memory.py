@@ -117,9 +117,8 @@ def memory_show(name: str, as_json: bool):
 @click.option(
     "--type",
     "type_",
-    default="general",
-    show_default=True,
-    help="Entry type (user, feedback, project, reference, general, …).",
+    default=None,
+    help="Entry type (preserve existing; new entries default to general).",
 )
 @click.option(
     "--scope", help="Root to write to (default: project when present, else cc)."
@@ -134,7 +133,7 @@ def memory_show(name: str, as_json: bool):
 def memory_save(
     name: str,
     description: str,
-    type_: str,
+    type_: str | None,
     scope: str | None,
     title: str | None,
     body_file: str | None,
@@ -327,11 +326,11 @@ def memory_index(scope: str | None, write: bool, check: bool, budget: int | None
             return
         click.echo(
             _clean(
-                store.render_index(store.index_entries(scope), budget=budget),
+                store.render_root_index(scope, budget=budget),
                 keep_newlines=True,
             ),
             nl=False,
         )
-    except (KeyError, ValueError) as e:
+    except (KeyError, OSError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
