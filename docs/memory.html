@@ -506,8 +506,10 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#codex-agents-md-integration">Codex / AGENTS.md integration</a></li>
 </ul>
             </nav>
         </div>
@@ -537,6 +539,23 @@ Claude Code, agent, and user); the nearest entry wins when names collide.</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">index</span></code> prints by default. Pass <code class="docutils literal notranslate"><span class="pre">--write</span></code> only when you want to replace the
 selected root’s <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> with a generated index.</p>
+</section>
+<section id="supersession-and-audit">
+<h2>Supersession and audit<a class="headerlink" href="#supersession-and-audit" title="Link to this heading">#</a></h2>
+<p>Replace an obsolete entry with an already-existing living entry, then check the
+root’s strict YAML and bidirectional supersession links:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>supersede<span class="w"> </span>old-belief<span class="w"> </span>new-belief
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>audit
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>audit<span class="w"> </span>--quiet
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">supersede</span></code> updates both entries (<code class="docutils literal notranslate"><span class="pre">superseded_by</span></code> on the old entry and
+<code class="docutils literal notranslate"><span class="pre">supersedes</span></code> on the replacement) and regenerates the selected root’s index.
+Both entries must be in the same root; use <code class="docutils literal notranslate"><span class="pre">--scope</span></code> when needed. The command
+refuses malformed YAML and invalid field types rather than rewriting them
+through the lenient read fallback. <code class="docutils literal notranslate"><span class="pre">audit</span></code> exits non-zero for malformed
+entries, duplicate names, dangling targets, or asymmetric links, making
+<code class="docutils literal notranslate"><span class="pre">audit</span> <span class="pre">--quiet</span></code> suitable for lifecycle hooks.</p>
 </section>
 <section id="recall">
 <h2>Recall<a class="headerlink" href="#recall" title="Link to this heading">#</a></h2>
@@ -575,6 +594,36 @@ returns a valid <code class="docutils literal notranslate"><span class="pre">add
 <p>The hook is read-only and returns empty <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code> when there is no
 relevant memory. Keep the executable on Claude Code’s hook <code class="docutils literal notranslate"><span class="pre">PATH</span></code>; if the
 workspace uses an isolated environment, call its absolute <code class="docutils literal notranslate"><span class="pre">gptme-util</span></code> path.</p>
+</section>
+<section id="codex-agents-md-integration">
+<h2>Codex / AGENTS.md integration<a class="headerlink" href="#codex-agents-md-integration" title="Link to this heading">#</a></h2>
+<p>Codex has no hook mechanism, so memory access is driven by instructions in
+<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>. The gptme repository’s own <code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code> already contains a
+<code class="docutils literal notranslate"><span class="pre">##</span> <span class="pre">Memory</span></code> section; copy or adapt it for any workspace that runs Codex
+sessions.</p>
+<p>The two key patterns for Codex agents:</p>
+<p><strong>Recall at session start</strong> — surface memories relevant to the current task:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>memory<span class="w"> </span>recall<span class="w"> </span><span class="s2">&quot;&lt;one-line task description&gt;&quot;</span><span class="w"> </span>-k<span class="w"> </span><span class="m">5</span>
+</pre></div>
+</div>
+<p><strong>Save a memory</strong> — persist something worth keeping across sessions:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>memory<span class="w"> </span>save<span class="w"> </span>&lt;slug&gt;<span class="w"> </span><span class="s2">&quot;&lt;one-line description&gt;&quot;</span><span class="w"> </span>--type<span class="w"> </span>&lt;type&gt;<span class="w"> </span><span class="s">&lt;&lt;&#39;EOF&#39;</span>
+<span class="s">&lt;body&gt;</span>
+<span class="s">EOF</span>
+</pre></div>
+</div>
+<p>Valid <code class="docutils literal notranslate"><span class="pre">--type</span></code> values match Claude Code’s memory taxonomy: <code class="docutils literal notranslate"><span class="pre">user</span></code>,
+<code class="docutils literal notranslate"><span class="pre">feedback</span></code>, <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">reference</span></code>.</p>
+<p>The entry is written to project <code class="docutils literal notranslate"><span class="pre">memory/</span></code> when that directory exists,
+otherwise to <code class="docutils literal notranslate"><span class="pre">~/.claude/projects/&lt;workspace-hash&gt;/memory/</span></code>. The selector
+checks existence, not writability: an unwritable project directory makes
+<code class="docutils literal notranslate"><span class="pre">save</span></code> fail rather than falling back.</p>
+<p><code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span> <span class="pre">recall</span></code> (and the Claude Code hook) search every
+layered root, so other harnesses see the entry on their next recall.
+gptme’s session-start workspace prompt and Claude Code’s native
+<code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> auto-load only the Claude Code root. Pass <code class="docutils literal notranslate"><span class="pre">--scope</span> <span class="pre">cc</span></code>
+when the memory must appear on that auto-load path without running
+recall.</p>
 </section>
 </section>
 
@@ -624,8 +673,10 @@ workspace uses an isolated environment, call its absolute <code class="docutils 
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#codex-agents-md-integration">Codex / AGENTS.md integration</a></li>
 </ul>
   </nav></div>
 
