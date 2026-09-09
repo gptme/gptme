@@ -21,6 +21,7 @@ except ImportError:
 import threading
 from pathlib import Path
 from typing import IO, cast
+from uuid import uuid4
 
 from rich.console import Console as RichConsole
 from rich.control import Control
@@ -53,6 +54,12 @@ from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, trigger_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
+from ..lessons.skill_events import (
+    SkillPhase,
+    abandon_skill_invocations,
+    record_skill_phase,
+    skill_invocation_owner,
+)
 from ..llm.models import ModelMeta, get_default_model
 from ..logmanager import LogManager
 from ..message import Message
@@ -1046,6 +1053,8 @@ class GptmeApp(App):
         # (exclusive=True), so reusing one Context is safe, and mutations
         # (e.g. /model-style changes) persist across turns.
         self._chat_ctx = contextvars.copy_context()
+        self._skill_session_id = str(uuid4())
+        self._active_skill_invocation_id: str | None = None
         self.prompt_queue: list[str | Message] = []
         self._queued_widgets: list[Widget] = []
         self.generating = False
@@ -1129,6 +1138,12 @@ class GptmeApp(App):
         self.set_interval(0.5, self._restore_terminal)
 
     def on_unmount(self) -> None:
+        self._quitting = True
+        self._interrupt_event.set()
+        abandon_skill_invocations(self.manager.logdir, self._skill_session_id)
+        record_skill_phase(
+            self.manager.logdir, self._active_skill_invocation_id, "abandoned"
+        )
         unregister_hook("tui_confirm", HookType.TOOL_CONFIRM)
         if self._real_stdout is not None:
             sys.stdout = self._real_stdout
@@ -1373,7 +1388,13 @@ class GptmeApp(App):
             with contextlib.redirect_stdout(buf):
                 # run inside the chat context so state changes (e.g. /model
                 # switching the default-model ContextVar) are seen by workers
-                handled = self._chat_ctx.run(execute_cmd, msg, self.manager)
+                def execute_owned_command() -> bool:
+                    with skill_invocation_owner(
+                        self.manager.logdir, self._skill_session_id
+                    ):
+                        return execute_cmd(msg, self.manager)
+
+                handled = self._chat_ctx.run(execute_owned_command)
         except SystemExit:  # /exit
             self.exit()
             return
@@ -1457,6 +1478,13 @@ class GptmeApp(App):
 
     def _start_generation(self) -> None:
         logger.debug("starting generation worker")
+        # Snapshot the submitted prompt before hooks or generation mutate the log.
+        prompt = next((m for m in reversed(self.manager.log) if m.role == "user"), None)
+        self._active_skill_invocation_id = (
+            prompt.metadata.get("skill_invocation_id")
+            if prompt and prompt.metadata
+            else None
+        )
         self.generating = True
         self._interrupt_event.clear()
         self._set_state("generating")
@@ -1476,6 +1504,9 @@ class GptmeApp(App):
             with contextlib.suppress(ValueError):
                 max_steps = int(max_steps_str)
         step_count = 0
+        invocation_id = self._active_skill_invocation_id
+        outcome: SkillPhase = "abandoned"
+        error_type: str | None = None
         try:
             # Same boundary as the CLI chat loop: TURN_PRE after the user
             # prompt is in the log, before the first generation step.
@@ -1486,6 +1517,7 @@ class GptmeApp(App):
                 self.call_from_thread(self._begin_stream)
                 interrupted = False
                 declined = False
+                response: Message | None = None
                 try:
                     for msg in step(
                         manager.log,
@@ -1502,6 +1534,8 @@ class GptmeApp(App):
                         # confirmations in the same step get a sane terminal
                         self._restore_terminal()
                         manager.append(msg)
+                        if msg.role == "assistant":
+                            response = msg
                         if msg.content == DECLINED_CONTENT:
                             declined = True
                         self.call_from_thread(self._on_step_message, msg)
@@ -1524,21 +1558,30 @@ class GptmeApp(App):
                     )
                     break
                 # continue stepping while the last assistant msg has runnable tools
-                last_content = next(
-                    (m.content for m in reversed(manager.log) if m.role == "assistant"),
-                    "",
-                )
+                if response is None:
+                    break
                 if not any(
-                    t.is_runnable for t in ToolUse.iter_from_content(last_content)
+                    t.is_runnable for t in ToolUse.iter_from_content(response.content)
                 ):
+                    if response.content.strip():
+                        outcome = "completed"
                     break
         except SessionCompleteException:
             # complete tool is filtered out in interactive TUI mode, but a
             # resumed autonomous conversation may still have it loaded
+            outcome = "completed"
             self.call_from_thread(self._show_info, "Session marked complete.")
         except Exception as e:
+            outcome = "failed"
+            error_type = type(e).__name__
             logger.exception("Error in generation worker")
             self.call_from_thread(self._show_info, f"Error: {e}", True)
+        finally:
+            if self._interrupt_event.is_set() or self._quitting:
+                outcome = "abandoned"
+            record_skill_phase(
+                manager.logdir, invocation_id, outcome, error_type=error_type
+            )
         # NOTE: completion handling (queue dispatch etc.) happens in
         # on_worker_state_changed, which fires only after this thread has
         # fully exited self._chat_ctx — dispatching from here would make the
@@ -1644,6 +1687,12 @@ class GptmeApp(App):
             await self._generation_done()
 
     async def _generation_done(self) -> None:
+        # Cancellation can prevent the worker body from running at all. Successful
+        # and failed turns already have a terminal event; this is then a no-op.
+        record_skill_phase(
+            self.manager.logdir, self._active_skill_invocation_id, "abandoned"
+        )
+        self._active_skill_invocation_id = None
         self.generating = False
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
@@ -1651,6 +1700,13 @@ class GptmeApp(App):
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
             text = "\n".join(_queued_prompt_text(item) for item in self.prompt_queue)
+            for item in self.prompt_queue:
+                if isinstance(item, Message) and item.metadata:
+                    record_skill_phase(
+                        self.manager.logdir,
+                        item.metadata.get("skill_invocation_id"),
+                        "abandoned",
+                    )
             self.prompt_queue.clear()
             for w in self._queued_widgets:
                 w.remove()

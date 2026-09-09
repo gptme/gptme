@@ -40,6 +40,7 @@ from .session_models import (
 )
 
 if TYPE_CHECKING:
+    from ..lessons.skill_events import SkillPhase
     from .acp_session_runtime import AcpSessionRuntime
 
 logger = logging.getLogger(__name__)
@@ -689,6 +690,10 @@ def step(
     # this line could see the epoch of a replacement step if interrupt + /step
     # ran while the thread was descheduled.
     my_step_seq = step_seq if step_seq is not None else session.step_seq
+    with session.step_lock:
+        if session.step_seq != my_step_seq or session.interrupted:
+            return
+        session.track_skill_turn(manager.logdir, branch, manager.log.messages)
 
     # Fail cleanly if the configured workspace is missing (e.g. an external
     # symlinked workspace that was moved/deleted). step() runs in a daemon
@@ -704,6 +709,7 @@ def step(
         session.last_error = str(e)
         with session.step_lock:
             if session.step_seq == my_step_seq:
+                session.finish_skill_turn("failed")
                 session.generating = False
                 session.generating_since = None
         return
@@ -790,6 +796,7 @@ def step(
         SessionManager.add_event(conversation_id, error_event)
         with session.step_lock:
             if session.step_seq == my_step_seq:
+                session.finish_skill_turn("failed")
                 session.generating = False
                 session.generating_since = None
         return
@@ -802,6 +809,8 @@ def step(
     if tool_format == "tool":
         tools = [t for t in get_tools() if t.is_runnable]
 
+    skill_outcome: SkillPhase | None = None
+    skill_error_type = None
     try:
         # Stream tokens from the model
         output = ""
@@ -851,7 +860,11 @@ def step(
 
         for token in (char for chunk in chunks for char in chunk):
             # check if interrupted
-            if not session.generating:
+            if (
+                not session.generating
+                or session.interrupted
+                or session.step_seq != my_step_seq
+            ):
                 output += " [INTERRUPTED]"
                 break
 
@@ -964,6 +977,11 @@ def step(
                 if first_auto_id is None:
                     first_auto_id = tool_id
 
+        # A tool-free response ends the invocation only after prior tools have
+        # drained. TURN_POST and generation_complete happen before this boundary.
+        if not tooluses and not session.pending_tools and not session._executing_tools:
+            skill_outcome = "completed" if output.strip() else "abandoned"
+
         # Start execution for only the first auto-confirm tool.
         # execute_tool_thread will chain remaining auto-confirm tools serially.
         if first_auto_id is not None:
@@ -978,6 +996,8 @@ def step(
             )
 
     except Exception as e:
+        skill_outcome = "failed"
+        skill_error_type = type(e).__name__
         logger.exception(f"Error during step execution: {e}")
         error_message = str(e) or "Generation failed"
         session.last_error = error_message
@@ -998,6 +1018,12 @@ def step(
         # handoff.
         with session.step_lock:
             if session.step_seq == my_step_seq:
+                if session.interrupted or not session.generating:
+                    session.finish_skill_turn("abandoned")
+                elif skill_outcome is not None:
+                    session.finish_skill_turn(
+                        skill_outcome, error_type=skill_error_type
+                    )
                 session.generating = False
                 session.generating_since = None
             else:
@@ -1179,6 +1205,11 @@ def start_tool_execution(
                     except Exception as e:
                         logger.exception(f"Error executing tool {tooluse.tool}: {e}")
                         tool_exec.status = ToolStatus.FAILED
+                        with session.step_lock:
+                            if session.step_seq == my_seq:
+                                session.finish_skill_turn(
+                                    "failed", error_type=type(e).__name__
+                                )
 
                         with SessionManager.conversation_lock(conversation_id):
                             manager = LogManager.load(
@@ -1304,7 +1335,10 @@ def start_tool_execution(
                             session.generating = False
                             session.generating_since = None
                     raise
-        except Exception:
+        except Exception as e:
+            with session.step_lock:
+                if session.step_seq == my_seq:
+                    session.finish_skill_turn("failed", error_type=type(e).__name__)
             logger.exception(
                 f"Unhandled error in tool execution thread for {conversation_id}"
             )
@@ -1388,16 +1422,22 @@ def _start_step_thread(
 
         current_conversation_id.set(conversation_id)
         current_session_id.set(session.id)
-        step(
-            conversation_id=conversation_id,
-            session=session,
-            model=model,
-            workspace=workspace,
-            branch=branch,
-            auto_confirm=auto_confirm,
-            stream=stream,
-            step_seq=step_seq,
-        )
+        try:
+            step(
+                conversation_id=conversation_id,
+                session=session,
+                model=model,
+                workspace=workspace,
+                branch=branch,
+                auto_confirm=auto_confirm,
+                stream=stream,
+                step_seq=step_seq,
+            )
+        except Exception as e:
+            with session.step_lock:
+                if session.step_seq == step_seq:
+                    session.finish_skill_turn("failed", error_type=type(e).__name__)
+            raise
 
     # Propagate ContextVars (model, config) from the caller into the step thread.
     # Each thread gets its own copy so mutations stay isolated between sessions.

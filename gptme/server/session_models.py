@@ -11,9 +11,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..hooks import HookType, trigger_hook
+from ..lessons.skill_events import SkillPhase, record_skill_phase
+from ..message import Message
 from ..session import BaseSession
 from ..tools import ToolUse
 from .api_v2_common import EventType
@@ -102,6 +105,12 @@ class ConversationSession(BaseSession):
     # Tool workers compare their captured epoch before releasing or continuing.
     step_seq: int = 0
 
+    # Invocation ownership follows this session across generation/tool workers.
+    # Access these fields only while holding step_lock.
+    skill_invocation_ids: set[str] = field(default_factory=set)
+    skill_logdir: Path | None = None
+    skill_branch: str | None = None
+
     # ACP-backed subprocess session (opt-in via use_acp=True in step request)
     use_acp: bool = False
     acp_runtime: "AcpSessionRuntime | None" = field(default=None, repr=False)
@@ -114,6 +123,38 @@ class ConversationSession(BaseSession):
     # At ~200 bytes/event, 10K events ≈ 2MB. We trim to keep_last when exceeded.
     _MAX_EVENTS = 10_000
     _KEEP_EVENTS = 1_000
+
+    def track_skill_turn(
+        self, logdir: Path, branch: str, messages: list[Message]
+    ) -> None:
+        """Own only skill prompts in the latest user turn, never the whole ledger."""
+        invocation_ids: set[str] = set()
+        seen_user = False
+        for msg in reversed(messages):
+            if msg.role == "assistant" and seen_user:
+                break
+            if msg.role == "user":
+                seen_user = True
+                if msg.metadata and (
+                    invocation_id := msg.metadata.get("skill_invocation_id")
+                ):
+                    invocation_ids.add(invocation_id)
+        if self.skill_branch != branch or self.skill_invocation_ids != invocation_ids:
+            self.finish_skill_turn("abandoned")
+        self.skill_logdir = logdir
+        self.skill_branch = branch
+        self.skill_invocation_ids = invocation_ids
+
+    def finish_skill_turn(
+        self, phase: SkillPhase, *, error_type: str | None = None
+    ) -> None:
+        """Record evidence for this owner's invocations; caller holds step_lock."""
+        if self.skill_logdir is not None:
+            for invocation_id in self.skill_invocation_ids:
+                record_skill_phase(
+                    self.skill_logdir, invocation_id, phase, error_type=error_type
+                )
+        self.skill_invocation_ids.clear()
 
     @property
     def events_count(self) -> int:
@@ -263,8 +304,10 @@ class SessionManager:
         cutoff = now - timedelta(minutes=max_age_minutes)
         stuck_cutoff = now - timedelta(minutes=cls._STUCK_GENERATING_TIMEOUT_MINUTES)
 
-        # Collect post-lock work: (conversation_id, is_last, acp_runtime)
-        deferred: list[tuple[str, bool, AcpSessionRuntime | None]] = []
+        # Collect post-lock cleanup work, including each session's skill ownership.
+        deferred: list[
+            tuple[str, bool, AcpSessionRuntime | None, ConversationSession]
+        ] = []
 
         with cls._lock:
             to_remove: list[str] = []
@@ -306,10 +349,12 @@ class SessionManager:
 
                 acp_rt = session.acp_runtime
                 del cls._sessions[session_id]
-                deferred.append((conversation_id, is_last, acp_rt))
+                deferred.append((conversation_id, is_last, acp_rt, session))
 
         # Phase 2: outside lock — long-running side-effects
-        for conversation_id, is_last, acp_rt in deferred:
+        for conversation_id, is_last, acp_rt, session in deferred:
+            with session.step_lock:
+                session.finish_skill_turn("abandoned")
             if is_last:
                 try:
                     from ..logmanager import LogManager
@@ -364,6 +409,8 @@ class SessionManager:
             del cls._sessions[session_id]
 
         # Phase 2: outside lock — long-running side-effects
+        with session.step_lock:
+            session.finish_skill_turn("abandoned")
         if is_last_session:
             try:
                 from ..logmanager import LogManager

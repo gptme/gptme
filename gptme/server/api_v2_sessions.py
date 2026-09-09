@@ -735,6 +735,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             skip_step_seq = session.step_seq
             try:
                 current_tool.status = ToolStatus.SKIPPED
+                session.finish_skill_turn("abandoned")
                 session.pending_tools.pop(tool_id)
 
                 # Persist the skip before the continuation can load the log.
@@ -1177,6 +1178,7 @@ def api_conversation_interrupt(conversation_id: str):
                     # Revoke every worker queued under the previous epoch, even
                     # when a later explicit /step clears the boolean marker.
                     sess.step_seq += 1
+                    sess.finish_skill_turn("abandoned")
                     sess.pending_tools.clear()
 
     if not interrupted:

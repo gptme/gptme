@@ -190,14 +190,25 @@ def abandon_skill_invocations(logdir: Path, session_id: str) -> None:
 
 
 @contextmanager
+def skill_invocation_owner(logdir: Path, session_id: str) -> Iterator[None]:
+    """Bind admission to an owner whose lifetime may span threads or requests.
+
+    The owner must reconcile its invocations when it closes. Unlike
+    ``skill_session``, leaving this context does not end the run.
+    """
+    token = _session.set((logdir.resolve(), session_id))
+    try:
+        yield
+    finally:
+        _session.reset(token)
+
+
+@contextmanager
 def skill_session(logdir: Path) -> Iterator[str]:
     """Give CLI invocations a run identity and reconcile them on every exit path."""
     session_id = str(uuid4())
-    token = _session.set((logdir.resolve(), session_id))
-    try:
-        yield session_id
-    finally:
+    with skill_invocation_owner(logdir, session_id):
         try:
-            abandon_skill_invocations(logdir, session_id)
+            yield session_id
         finally:
-            _session.reset(token)
+            abandon_skill_invocations(logdir, session_id)
