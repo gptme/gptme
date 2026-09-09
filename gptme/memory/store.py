@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import re
@@ -112,21 +113,30 @@ class AuditIssue:
 
 
 try:
-    import fcntl as _fcntl
+    _fcntl: Any = importlib.import_module("fcntl")
+except ImportError:  # pragma: no cover - Windows
+    _fcntl = None
 
-    def _lock_exclusive(f) -> None:
+try:
+    _msvcrt: Any = importlib.import_module("msvcrt")
+except ImportError:  # pragma: no cover - POSIX
+    _msvcrt = None
+
+
+def _lock_exclusive(f) -> None:
+    """Lock ``MEMORY.md`` for in-place upserts. Unix flock only.
+
+    Windows first-save opens an empty index; byte-range locking that file is
+    unreliable, so concurrent ``save`` stays best-effort there. ``supersede``
+    serializes through ``_locked_root`` instead.
+    """
+    if _fcntl is not None:
         _fcntl.flock(f, _fcntl.LOCK_EX)
 
-    def _unlock(f) -> None:
+
+def _unlock(f) -> None:
+    if _fcntl is not None:
         _fcntl.flock(f, _fcntl.LOCK_UN)
-
-except ImportError:  # Windows: no flock, best effort
-
-    def _lock_exclusive(f) -> None:
-        pass
-
-    def _unlock(f) -> None:
-        pass
 
 
 @contextmanager
@@ -137,14 +147,28 @@ def _locked_root(root_path: Path):
     ``supersede`` mutates two entries plus the index and cannot use that file as
     the lock target: ``os.replace`` of ``MEMORY.md`` would drop the flock onto
     a replaced inode. A dedicated lock file stays put for the whole window.
+
+    Unix uses ``fcntl.flock``; Windows uses ``msvcrt.locking`` on a 1-byte
+    sidecar (same pattern as ``gptme.logmanager.eventlog``).
     """
     root_path.mkdir(parents=True, exist_ok=True)
-    with open(root_path / LOCK_FILENAME, "a+", encoding="utf-8") as f:
-        _lock_exclusive(f)
+    with open(root_path / LOCK_FILENAME, "a+b") as lock:
+        if _fcntl is not None:
+            _fcntl.flock(lock, _fcntl.LOCK_EX)
+        elif _msvcrt is not None:  # pragma: no cover - Windows
+            if lock.seek(0, os.SEEK_END) == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+            _msvcrt.locking(lock.fileno(), _msvcrt.LK_LOCK, 1)
         try:
             yield
         finally:
-            _unlock(f)
+            if _fcntl is not None:
+                _fcntl.flock(lock, _fcntl.LOCK_UN)
+            elif _msvcrt is not None:  # pragma: no cover - Windows
+                lock.seek(0)
+                _msvcrt.locking(lock.fileno(), _msvcrt.LK_UNLCK, 1)
 
 
 def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:

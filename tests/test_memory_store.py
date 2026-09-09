@@ -311,7 +311,6 @@ class TestStore:
         with pytest.raises(ValueError, match="not living"):
             store.supersede("one", "three", scope="project")
 
-    @pytest.mark.skipif(os.name == "nt", reason="flock is a no-op on Windows")
     def test_supersede_waits_for_held_root_lock(self, tmp_path):
         from gptme.memory.store import _locked_root
 
@@ -335,7 +334,6 @@ class TestStore:
         assert not proc.is_alive()
         assert result.get(timeout=2)[0] == "ok"
 
-    @pytest.mark.skipif(os.name == "nt", reason="flock is a no-op on Windows")
     def test_concurrent_supersede_keeps_links_consistent(self, tmp_path):
         store = self._store(tmp_path)
         store.save("old", "old", scope="project")
@@ -370,8 +368,10 @@ class TestStore:
         assert store.audit(scope="project") == []
         old = store.get("old", scope="project")
         assert old is not None
-        assert old.superseded_by == oks[0][1]
-        winner = store.get(old.superseded_by, scope="project")
+        winner_name = old.superseded_by
+        assert winner_name is not None
+        assert winner_name == oks[0][1]
+        winner = store.get(winner_name, scope="project")
         assert winner is not None
         assert "old" in winner.supersedes
         loser_name = "b" if old.superseded_by == "a" else "a"
