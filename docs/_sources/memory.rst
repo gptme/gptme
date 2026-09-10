@@ -173,3 +173,16 @@ gptme's session-start workspace prompt and Claude Code's native
 ``MEMORY.md`` auto-load only the Claude Code root. Pass ``--scope cc``
 when the memory must appear on that auto-load path without running
 recall.
+
+Writer provenance
+-----------------
+
+Harness wrappers can preserve their session identity through the shared writer::
+
+    gptme-util memory save decision "Reviewed decision" --type reference \
+      --metadata '{"originSessionId":"session-123","node_type":"memory"}' < body.md
+
+``--metadata`` accepts a JSON object and merges its keys into existing entry
+metadata. Omitted keys survive updates; lifecycle fields and root index policy
+remain governed by the store. The reserved ``type`` key must use ``--type``
+instead. Invalid JSON, a non-object, or a reserved key fails before writing.

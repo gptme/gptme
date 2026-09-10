@@ -511,6 +511,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#codex-agents-md-integration">Codex / AGENTS.md integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#writer-provenance">Writer provenance</a></li>
 </ul>
             </nav>
         </div>
@@ -669,6 +670,18 @@ gptme’s session-start workspace prompt and Claude Code’s native
 when the memory must appear on that auto-load path without running
 recall.</p>
 </section>
+<section id="writer-provenance">
+<h2>Writer provenance<a class="headerlink" href="#writer-provenance" title="Link to this heading">#</a></h2>
+<p>Harness wrappers can preserve their session identity through the shared writer:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span><span class="o">-</span><span class="n">util</span> <span class="n">memory</span> <span class="n">save</span> <span class="n">decision</span> <span class="s2">&quot;Reviewed decision&quot;</span> <span class="o">--</span><span class="nb">type</span> <span class="n">reference</span> \
+  <span class="o">--</span><span class="n">metadata</span> <span class="s1">&#39;{&quot;originSessionId&quot;:&quot;session-123&quot;,&quot;node_type&quot;:&quot;memory&quot;}&#39;</span> <span class="o">&lt;</span> <span class="n">body</span><span class="o">.</span><span class="n">md</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--metadata</span></code> accepts a JSON object and merges its keys into existing entry
+metadata. Omitted keys survive updates; lifecycle fields and root index policy
+remain governed by the store. The reserved <code class="docutils literal notranslate"><span class="pre">type</span></code> key must use <code class="docutils literal notranslate"><span class="pre">--type</span></code>
+instead. Invalid JSON, a non-object, or a reserved key fails before writing.</p>
+</section>
 </section>
 
 
@@ -722,6 +735,7 @@ recall.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#codex-agents-md-integration">Codex / AGENTS.md integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#writer-provenance">Writer provenance</a></li>
 </ul>
   </nav></div>
 
