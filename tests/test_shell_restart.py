@@ -176,10 +176,9 @@ def test_timeout_fallback_when_bash_itself_stalls(shell, tmp_path):
 def test_snapshot_failure_does_not_kill_shell_under_set_e(shell):
     """A failing state-snapshot redirect must not take bash down under `set -e`.
 
-    The snapshot runs at the top level after the delimiter. Without ``|| true``,
-    a failed redirect (read-only tmp dir, full disk) returns non-zero and, with
-    sticky ``set -e``, exits the persistent shell — the exact spurious shell
-    death this PR exists to eliminate.
+    Without ``|| true``, a failed redirect (read-only tmp dir, full disk)
+    returns non-zero and, with sticky ``set -e``, exits the persistent shell —
+    the exact spurious shell death this PR exists to eliminate.
     """
     pid = shell.process.pid
     shell._state_path = "/nonexistent-dir-xyz/state"  # redirect will fail
@@ -188,6 +187,16 @@ def test_snapshot_failure_does_not_kill_shell_under_set_e(shell):
     assert rc == 0
     assert shell.process.pid == pid  # same shell, no restart
     assert shell.consume_restart_notice() is None
+
+
+def test_snapshot_is_written_before_run_returns(shell, tmp_path):
+    """A successful run must not expose stale state to an immediate restart."""
+    shell.run(f"cd {tmp_path} && export SNAPSHOT_MARKER=current", output=False)
+    assert shell._state_path
+    with open(shell._state_path) as state_file:
+        snapshot = state_file.read()
+    assert f"cd -- {tmp_path}" in snapshot
+    assert 'SNAPSHOT_MARKER="current"' in snapshot
 
 
 def test_state_file_removed_on_close():

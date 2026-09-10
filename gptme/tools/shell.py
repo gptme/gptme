@@ -1088,14 +1088,19 @@ class ShellSession:
 
         full_command = f"echo {start_marker_pattern}\n"  # Start marker first
         full_command += f"{command}\n"
-        full_command += f"echo ReturnCode:$? {self.delimiter}\n"
         if self._state_path:
-            # Snapshot cwd + exported env after every command so a restart can
-            # restore them (runs after the delimiter, so it never delays output).
+            # Snapshot cwd + exported env before reporting completion. This
+            # closes the race where run() returned and the shell died before
+            # the state from the successful command reached the snapshot.
             full_command += (
+                "_gptme_rc=$?; "
                 "{ printf 'cd -- %q\\n' \"$PWD\"; export -p; } > "
-                f"{shlex.quote(self._state_path)} 2>/dev/null || true\n"
+                f"{shlex.quote(self._state_path)} 2>/dev/null || true; "
+                f"echo ReturnCode:$_gptme_rc {self.delimiter}; "
+                "unset _gptme_rc\n"
             )
+        else:
+            full_command += f"echo ReturnCode:$? {self.delimiter}\n"
 
         try:
             self.process.stdin.write(full_command)
