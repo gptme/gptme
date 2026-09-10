@@ -355,12 +355,14 @@ class TestJobRegistry:
     def test_list_empty(self):
         assert list_background_jobs() == []
 
-    def test_cleanup_removes_finished(self):
-        job = start_background_job("true")
+    def test_cleanup_keeps_finished_output_available(self):
+        job = start_background_job("printf kept")
         job.process.wait(timeout=5)
-        time.sleep(0.3)
+        if job._reader_thread:
+            job._reader_thread.join(timeout=5)
         cleanup_finished_jobs()
-        assert get_background_job(job.id) is None
+        assert get_background_job(job.id) is job
+        assert job.get_output()[0] == "kept"
 
     def test_cleanup_keeps_running(self):
         job = start_background_job("sleep 60")
@@ -641,3 +643,55 @@ def _make_job() -> BackgroundJob:
         process=proc,
         start_time=time.time(),
     )
+
+
+class TestCompletionNotifications:
+    def test_completion_hook_routes_to_own_conversation(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools.shell_background import background_job_completion_hook
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            job = start_background_job("printf notified")
+            job.process.wait(timeout=5)
+            if job._reader_thread:
+                job._reader_thread.join(timeout=5)
+        finally:
+            current_conversation_id.reset(token)
+
+        wrong = list(
+            background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-b"), True, []
+            )
+        )
+        assert wrong == []
+
+        messages = list(
+            background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-a"), True, []
+            )
+        )
+        assert len(messages) == 1
+        assert f"job #{job.id} finished" in messages[0].content
+        assert "notified" in messages[0].content
+
+    def test_registry_is_conversation_scoped(self):
+        from gptme.hooks import current_conversation_id
+
+        token_a = current_conversation_id.set("conversation-a")
+        try:
+            job_a = start_background_job("sleep 60")
+            assert get_background_job(job_a.id) is job_a
+        finally:
+            current_conversation_id.reset(token_a)
+
+        token_b = current_conversation_id.set("conversation-b")
+        try:
+            assert get_background_job(job_a.id) is None
+            job_b = start_background_job("sleep 60")
+            assert job_b.id == 1
+            assert get_background_job(job_b.id) is job_b
+        finally:
+            current_conversation_id.reset(token_b)
