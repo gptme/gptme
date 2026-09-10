@@ -506,6 +506,7 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>
@@ -539,6 +540,49 @@ Claude Code, agent, and user); the nearest entry wins when names collide.</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">index</span></code> prints by default. Pass <code class="docutils literal notranslate"><span class="pre">--write</span></code> only when you want to replace the
 selected root’s <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> with a generated index.</p>
+</section>
+<section id="persistent-index-selection-and-budget">
+<h2>Persistent index selection and budget<a class="headerlink" href="#persistent-index-selection-and-budget" title="Link to this heading">#</a></h2>
+<p>A large memory root can keep a small, curated always-on view without removing
+living entries from recall. To opt in, create <code class="docutils literal notranslate"><span class="pre">.memory-index.json</span></code> inside
+that memory directory:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;budget&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">21000</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;selected&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;prefer-short-answers.md&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;review-policy.md&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">selected</span></code> contains unique local filenames, not entry names. Every selected
+file must exist and be living. The generated view retains type/name grouping;
+the selection list is not a display ordering. Entries omitted from this list
+remain available to <code class="docutils literal notranslate"><span class="pre">recall</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code>, and <code class="docutils literal notranslate"><span class="pre">show</span></code>. An empty list produces
+only the index header.</p>
+<p><code class="docutils literal notranslate"><span class="pre">index</span></code> (print, <code class="docutils literal notranslate"><span class="pre">--write</span></code>, and <code class="docutils literal notranslate"><span class="pre">--check</span></code>), <code class="docutils literal notranslate"><span class="pre">save</span></code>, and <code class="docutils literal notranslate"><span class="pre">supersede</span></code> all
+use the persistent UTF-8 byte budget, including headers and newlines. Required
+entries are never silently dropped: an oversized view fails before changing
+entries, policy, or index. <code class="docutils literal notranslate"><span class="pre">--budget</span></code> can tighten the stored cap for one
+invocation, but cannot raise it. Edit the policy to change the persistent cap.</p>
+<p>In a managed root, <code class="docutils literal notranslate"><span class="pre">save</span></code> regenerates the selected view. New entries stay
+unselected until explicitly added to the policy. Updating an entry preserves
+its lifecycle, provenance, and omitted title/type/metadata; supplied description
+and body replace the previous values. Updating an existing entry requires valid
+frontmatter, including in a legacy root. Lenient parsing remains available for
+reads, but writes refuse malformed YAML instead of silently discarding fields
+while attempting a repair. Correct that file’s frontmatter before saving again.
+<code class="docutils literal notranslate"><span class="pre">supersede</span></code> transfers a selected old
+filename to its replacement, deduplicating the list, and commits both entries,
+the policy, and the view together. Ordinary write failures roll back these
+replacements; this is not a crash-recovery transaction log.</p>
+<p>Before migrating a hand-curated index, copy its link text into entry <code class="docutils literal notranslate"><span class="pre">title</span></code>
+and its instructions into <code class="docutils literal notranslate"><span class="pre">description</span></code>. Validate a copy with <code class="docutils literal notranslate"><span class="pre">index</span></code> and
+review both link coverage and wording before <code class="docutils literal notranslate"><span class="pre">index</span> <span class="pre">--write</span></code>. Preserve any
+archive as history. Direct file writers and harness hooks must adopt the same
+policy; creating the policy does not intercept tools that edit files themselves.
+When editing policy by hand, pause concurrent memory writers for that root.</p>
+<p>Roots without a policy retain legacy behavior: <code class="docutils literal notranslate"><span class="pre">save</span></code> upserts one pointer
+line, and explicit index generation includes living entries with an optional
+one-shot truncating budget.</p>
 </section>
 <section id="supersession-and-audit">
 <h2>Supersession and audit<a class="headerlink" href="#supersession-and-audit" title="Link to this heading">#</a></h2>
@@ -673,6 +717,7 @@ recall.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>

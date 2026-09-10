@@ -21,6 +21,56 @@ Inspect and write memory
 ``index`` prints by default. Pass ``--write`` only when you want to replace the
 selected root's ``MEMORY.md`` with a generated index.
 
+Persistent index selection and budget
+-------------------------------------
+
+A large memory root can keep a small, curated always-on view without removing
+living entries from recall. To opt in, create ``.memory-index.json`` inside
+that memory directory:
+
+.. code-block:: json
+
+   {
+     "version": 1,
+     "budget": 21000,
+     "selected": ["prefer-short-answers.md", "review-policy.md"]
+   }
+
+``selected`` contains unique local filenames, not entry names. Every selected
+file must exist and be living. The generated view retains type/name grouping;
+the selection list is not a display ordering. Entries omitted from this list
+remain available to ``recall``, ``list``, and ``show``. An empty list produces
+only the index header.
+
+``index`` (print, ``--write``, and ``--check``), ``save``, and ``supersede`` all
+use the persistent UTF-8 byte budget, including headers and newlines. Required
+entries are never silently dropped: an oversized view fails before changing
+entries, policy, or index. ``--budget`` can tighten the stored cap for one
+invocation, but cannot raise it. Edit the policy to change the persistent cap.
+
+In a managed root, ``save`` regenerates the selected view. New entries stay
+unselected until explicitly added to the policy. Updating an entry preserves
+its lifecycle, provenance, and omitted title/type/metadata; supplied description
+and body replace the previous values. Updating an existing entry requires valid
+frontmatter, including in a legacy root. Lenient parsing remains available for
+reads, but writes refuse malformed YAML instead of silently discarding fields
+while attempting a repair. Correct that file's frontmatter before saving again.
+``supersede`` transfers a selected old
+filename to its replacement, deduplicating the list, and commits both entries,
+the policy, and the view together. Ordinary write failures roll back these
+replacements; this is not a crash-recovery transaction log.
+
+Before migrating a hand-curated index, copy its link text into entry ``title``
+and its instructions into ``description``. Validate a copy with ``index`` and
+review both link coverage and wording before ``index --write``. Preserve any
+archive as history. Direct file writers and harness hooks must adopt the same
+policy; creating the policy does not intercept tools that edit files themselves.
+When editing policy by hand, pause concurrent memory writers for that root.
+
+Roots without a policy retain legacy behavior: ``save`` upserts one pointer
+line, and explicit index generation includes living entries with an optional
+one-shot truncating budget.
+
 Supersession and audit
 ----------------------
 
