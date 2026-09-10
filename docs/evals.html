@@ -545,37 +545,37 @@ document.write(`
 <p>If you already pay for a frontier subscription, use it instead of an API key (see <a class="reference internal" href="#subscriptions">Subscriptions</a> below): <strong>GPT-6 Astra</strong> via ChatGPT Plus/Pro (<code class="docutils literal notranslate"><span class="pre">openai-subscription/gpt-6-astra</span></code>) and <strong>Grok 4.6</strong> via SuperGrok (<code class="docutils literal notranslate"><span class="pre">grok-subscription/grok-4.6</span></code>) are both frontier-class and cost nothing per token.</p>
 <p>For high-volume or cost-sensitive work, two open-weight “flash” models hold up well in agentic use for a small fraction of the price:</p>
 <ul class="simple">
-<li><p><strong>DeepSeek V4 Flash</strong> (the 2026-07-31 release: <code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4-flash-0731</span></code>, or <code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-v4-flash</span></code> on the official API)</p></li>
+<li><p><strong>DeepSeek V4.1 Flash</strong> (<code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4.1-flash</span></code>, or <code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-flash</span></code> on the official API; the earlier <code class="docutils literal notranslate"><span class="pre">deepseek-v4-flash-0731</span></code> is still hosted by third parties on OpenRouter but no longer by the official endpoint)</p></li>
 <li><p><strong>GLM 5.3 Flash</strong> (<code class="docutils literal notranslate"><span class="pre">openrouter/z-ai/glm-5.3-flash</span></code>)</p></li>
 </ul>
-<p>Both are hosted by many providers on OpenRouter with very different reliability, speed, and data policies; see <a class="reference internal" href="#choosing-an-openrouter-provider">Choosing an OpenRouter provider</a> before picking one.</p>
+<p>When a model has multiple OpenRouter hosts, their reliability, speed, and data policies can vary widely; see <a class="reference internal" href="#choosing-an-openrouter-provider">Choosing an OpenRouter provider</a> before picking one. V4.1 Flash currently has only the official DeepSeek host.</p>
 <section id="default-model-per-provider">
 <h3>Default model per provider<a class="headerlink" href="#default-model-per-provider" title="Link to this heading">#</a></h3>
 <p>This table is generated at docs-build time from the installed gptme, so it always reflects what <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-m</span> <span class="pre">&lt;provider&gt;</span></code> (provider name, no model) resolves to in the current release. The summary model is the cheaper model used for conversation titles and summaries.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ gptme-util models recommended
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| Provider            | Recommended model                                   | Summary model                                       |
-+=====================+=====================================================+=====================================================+
-| openai              | openai/gpt-5.6-sol                                  | openai/gpt-5-mini                                   |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| openai-subscription | openai-subscription/gpt-6-astra                     |                                                     |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| anthropic           | anthropic/claude-sonnet-4-6                         | anthropic/claude-haiku-4-5                          |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| openrouter          | openrouter/deepseek/deepseek-v4-flash-0731@deepseek | openrouter/deepseek/deepseek-v4-flash-0731@deepseek |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| gptme               | gptme/claude-sonnet-4-6                             |                                                     |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| gemini              | gemini/gemini-3.1-pro-preview                       | gemini/gemini-2.5-flash                             |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| groq                | groq/llama-3.3-70b-versatile                        |                                                     |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| xai                 | xai/grok-4.6                                        | xai/grok-4-1-fast                                   |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| grok-subscription   | grok-subscription/grok-4.6                          |                                                     |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
-| deepseek            | deepseek/deepseek-v4-flash                          | deepseek/deepseek-v4-flash                          |
-+---------------------+-----------------------------------------------------+-----------------------------------------------------+
++---------------------+--------------------------------------------+--------------------------------------------+
+| Provider            | Recommended model                          | Summary model                              |
++=====================+============================================+============================================+
+| openai              | openai/gpt-5.6-sol                         | openai/gpt-5-mini                          |
++---------------------+--------------------------------------------+--------------------------------------------+
+| openai-subscription | openai-subscription/gpt-6-astra            |                                            |
++---------------------+--------------------------------------------+--------------------------------------------+
+| anthropic           | anthropic/claude-sonnet-4-6                | anthropic/claude-haiku-4-5                 |
++---------------------+--------------------------------------------+--------------------------------------------+
+| openrouter          | openrouter/deepseek/deepseek-v4-flash-0731 | openrouter/deepseek/deepseek-v4-flash-0731 |
++---------------------+--------------------------------------------+--------------------------------------------+
+| gptme               | gptme/claude-sonnet-4-6                    |                                            |
++---------------------+--------------------------------------------+--------------------------------------------+
+| gemini              | gemini/gemini-3.1-pro-preview              | gemini/gemini-2.5-flash                    |
++---------------------+--------------------------------------------+--------------------------------------------+
+| groq                | groq/llama-3.3-70b-versatile               |                                            |
++---------------------+--------------------------------------------+--------------------------------------------+
+| xai                 | xai/grok-4.6                               | xai/grok-4-1-fast                          |
++---------------------+--------------------------------------------+--------------------------------------------+
+| grok-subscription   | grok-subscription/grok-4.6                 |                                            |
++---------------------+--------------------------------------------+--------------------------------------------+
+| deepseek            | deepseek/deepseek-v4-flash                 | deepseek/deepseek-v4-flash                 |
++---------------------+--------------------------------------------+--------------------------------------------+
 </pre></div>
 </div>
 <p>Decent alternatives include:</p>

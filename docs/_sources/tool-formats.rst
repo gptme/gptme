@@ -224,7 +224,7 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set to ``tool`` on 102 of the 121 models in the
+- ``default_tool_format`` is set to ``tool`` on 104 of the 123 models in the
   bundled registry. This is stamped **per provider**, not per model: every
   provider that talks the OpenAI-compatible function-calling API gets it
   (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
@@ -238,14 +238,15 @@ behaviour silently:
   the same ``tool`` default applied at resolution time instead, including on
   dynamic-fetch fallbacks.
 
-- ``supports_parallel_tool_calls`` is set on 61 entries: the Claude Opus/Sonnet
+- ``supports_parallel_tool_calls`` is set on 63 entries: the Claude Opus/Sonnet
   4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5
   families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
   lite and experimental Gemini variants are excluded via
   ``PARALLEL_TOOL_CALL_EXCEPTIONS``), xAI Grok (excluding the older
   ``grok-2-vision-1212``; including ``grok-subscription``), Groq's
-  ``llama-3.3-70b-versatile``, DeepSeek chat/reasoner, and the OpenRouter
-  DeepSeek V4 aliases. Deliberate omissions are meaningful: Claude Haiku 4.5
+  ``llama-3.3-70b-versatile``, DeepSeek chat/reasoner/Flash, and the
+  OpenRouter DeepSeek V4 aliases including the new V4.1 Flash. Deliberate
+  omissions are meaningful: Claude Haiku 4.5
   carries an explicit comment that it does *not* emit multiple tool calls per
   response. Moonshot Kimi K2/K2.6, OpenRouter Qwen/Llama/Kimi K2, and Groq's
   gpt-oss models (not in this registry) stay unset because provider docs do not
