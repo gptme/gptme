@@ -940,6 +940,13 @@ class TestSensitiveArgs:
         """Non-path glob patterns used by find remain safe to auto-approve."""
         assert is_allowlisted("find . -name '*.py'")
 
+    @pytest.mark.parametrize(
+        "command", ["ls *.py", "grep foo *.txt", "find . -name '*.py'"]
+    )
+    def test_search_pattern_with_effective_cwd_still_allowlisted(self, command: str):
+        """Resolving cwd must not turn non-path glob patterns into path globs."""
+        assert is_allowlisted(command, cwd=Path("/tmp"))
+
     def test_relative_read_uses_effective_cwd(self):
         """Relative operands are resolved from the persistent shell's cwd."""
         ssh_dir = Path.home() / ".ssh"

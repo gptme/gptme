@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import gptme.tools.shell as shell_module
 from gptme.tools.pruner import PrunePlan
 from gptme.tools.shell import (
     ShellSession,
@@ -1992,6 +1993,23 @@ def test_shell_cwd_parameter(tmp_path):
         assert out.strip() == str(target_dir)
     finally:
         shell.close()
+
+
+def test_shell_context_local_cwd_does_not_change_process_cwd(tmp_path):
+    """Server contexts track shell cwd without mutating process-global cwd."""
+    original_cwd = Path.cwd()
+    cwd_token = shell_module._workspace_cwd.set(str(tmp_path))
+    shell = ShellSession(cwd=str(tmp_path))
+    try:
+        child = tmp_path / "child"
+        child.mkdir()
+        ret, _, _ = shell.run("cd child")
+        assert ret == 0
+        assert shell.get_cwd() == child
+        assert Path.cwd() == original_cwd
+    finally:
+        shell.close()
+        shell_module._workspace_cwd.reset(cwd_token)
 
 
 def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
