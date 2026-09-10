@@ -439,6 +439,7 @@ class TestCcMemoryInWorkspacePrompt:
             "dot-relative",
             "angled",
             "anchored",
+            "subdirectory",
             "external",
             "missing",
         ):
@@ -449,6 +450,7 @@ class TestCcMemoryInWorkspacePrompt:
             "- [dot](./dot-relative.md) — dot-relative link\n"
             "- [angle](<angled.md>) — angle-delimited link\n"
             "- [anchor](anchored.md#detail) — link with an anchor\n"
+            "- [nested](nested/subdirectory.md) — different file in a subdirectory\n"
             "- [external](https://example.com/external.md) — unrelated URL\n"
             "\nOperator guidance that is not represented by an entry.\n"
         )
@@ -477,6 +479,9 @@ class TestCcMemoryInWorkspacePrompt:
             assert f"]({name}.md)" not in generated_index
         # The URL does not point at the local entry despite sharing its basename:
         # both the external URL and a generated local pointer must be present.
+        assert "nested/subdirectory.md" in combined
+        assert "](subdirectory.md)" in generated_index
+        assert combined.count("subdirectory.md") == 2
         assert "https://example.com/external.md" in combined
         assert "](external.md)" in generated_index
         assert combined.count("external.md") == 2

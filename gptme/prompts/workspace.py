@@ -475,17 +475,19 @@ def prompt_workspace(
                                 # paths and optional anchors. Parenthesized destinations,
                                 # URLs, and Markdown titles stay unmatched; parsing arbitrary
                                 # Markdown correctly would require a real parser.
-                                linked_filenames = {
-                                    match.group("angle") or match.group("plain")
-                                    for match in re.finditer(
-                                        r"]\((?:<(?P<angle>[^<>():]+\.md)>|"
-                                        r"(?P<plain>[^<>():]+\.md))(?:#[^)]+)?\)",
-                                        legacy,
-                                    )
-                                }
-                                linked_filenames = {
-                                    Path(target).name for target in linked_filenames
-                                }
+                                linked_filenames = set()
+                                for match in re.finditer(
+                                    r"]\((?:<(?P<angle>[^<>():]+\.md)>|"
+                                    r"(?P<plain>[^<>():]+\.md))(?:#[^)]+)?\)",
+                                    legacy,
+                                ):
+                                    target = (
+                                        match.group("angle") or match.group("plain")
+                                    ).removeprefix("./")
+                                    # Only root-relative links identify an entry in
+                                    # this root; a subdirectory basename can collide.
+                                    if "/" not in target:
+                                        linked_filenames.add(target.split("#", 1)[0])
                                 missing_entries = [
                                     entry
                                     for entry in entries
