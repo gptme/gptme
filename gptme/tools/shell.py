@@ -21,6 +21,15 @@ Configuration:
     truncation path fire on smaller outputs, which surfaces savings telemetry
     in `context-savings.jsonl` and the `/context` command. Invalid values fall
     back to defaults.
+
+    GPTME_SHELL_MAX_OUTPUT_BYTES: Hard cap on the total bytes (stdout + stderr
+        combined) captured into the in-process buffer before the subprocess is
+        killed and the output is truncated. Accepts a plain byte count or a
+        binary suffix (e.g. "32M", "1G"). Default: 32 MiB. This prevents a
+        runaway ``cat`` of a multi-GiB file from exhausting gptme's RSS.
+        The process receives SIGTERM then SIGKILL; the returned output contains
+        a ``[output truncated at N MiB, process killed]`` marker. Token-level
+        truncation (GPTME_SHELL_TRUNC_*) is applied on top as a second stage.
 """
 
 import atexit
@@ -211,6 +220,10 @@ _TRUNC_STDERR_POST_TOKENS_DEFAULT = 2000
 _GIT_LOG_PREVIEW_LINES = 20
 _GH_LIST_PREVIEW_LINES = 10
 
+# Default byte cap for captured subprocess output (32 MiB). Configurable via
+# GPTME_SHELL_MAX_OUTPUT_BYTES (or [env] SHELL_MAX_OUTPUT_BYTES in config.toml).
+_DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024 * 1024  # 32 MiB
+
 
 candidates = (
     # platform-specific
@@ -250,10 +263,11 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 ### Background Jobs
 
-For long-running commands (dev servers, builds), set `background: true` on the
-shell tool call. It returns a job ID immediately and notifies you when done.
-Use `jobs`, `output <id>`, `wait <id> [timeout]`, or `kill <id>` to inspect or
-control it. These controls are only recognized as standalone shell calls.
+Set `background: true` on a structured shell call to run its whole script as a
+conversation-owned process. The call returns a job ID immediately and completion
+is reported automatically. Exact `jobs`, `output <id> [--new]`, `wait <id>
+[timeout]`, and `kill <id>` calls manage matching harness jobs; otherwise Bash
+owns those commands. Use this for dev servers and long builds.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -389,6 +403,58 @@ def _get_memory_limit() -> int | None:
         )
         return None
     return limit
+
+
+def _get_max_output_bytes() -> int:
+    """Read the output byte cap in bytes (default 32 MiB).
+
+    Knob is ``GPTME_SHELL_MAX_OUTPUT_BYTES`` (env) or
+    ``[env] SHELL_MAX_OUTPUT_BYTES`` (config.toml). Accepts a plain byte count
+    or a binary-suffixed size (e.g. ``"32M"``). Unparseable or non-positive
+    values fall back to the 32 MiB default so a misconfiguration never disables
+    the cap entirely.
+    """
+    from ..config import get_config  # deferred: avoid import cycle
+
+    raw = get_config().get_env("SHELL_MAX_OUTPUT_BYTES")
+    if not raw:
+        return _DEFAULT_MAX_OUTPUT_BYTES
+    try:
+        limit = _parse_size(str(raw))
+    except (ValueError, AttributeError):
+        logger.warning(
+            "Ignoring invalid GPTME_SHELL_MAX_OUTPUT_BYTES=%r (expected e.g. '32M')",
+            raw,
+        )
+        return _DEFAULT_MAX_OUTPUT_BYTES
+    if limit <= 0:
+        logger.warning(
+            "GPTME_SHELL_MAX_OUTPUT_BYTES=%r is not positive; using default 32 MiB",
+            raw,
+        )
+        return _DEFAULT_MAX_OUTPUT_BYTES
+    return limit
+
+
+def _strip_shell_return_marker(raw: bytes, delimiter: str) -> bytes:
+    """Strip the shell-injected return marker from a raw output chunk.
+
+    The marker is echoed on a single line — ``ReturnCode:$? <delimiter>`` —
+    immediately after the command. We remove it (and anything after it) from
+    the byte-accounting stream, but only when both ``ReturnCode:`` and the
+    delimiter share the *same* line. Command output that merely contains
+    ``ReturnCode:`` and later ``END_OF_COMMAND_OUTPUT`` on separate lines must
+    be counted in full, otherwise such output can undercount and bypass the
+    output byte cap (Greptile P1: marker text bypasses cap).
+    """
+    delimiter_pos = raw.rfind(b"ReturnCode:")
+    if delimiter_pos >= 0:
+        rest = raw[delimiter_pos:]
+        line_end = rest.find(b"\n")
+        delimiter_line = rest if line_end < 0 else rest[:line_end]
+        if delimiter.encode() in delimiter_line:
+            return raw[:delimiter_pos]
+    return raw
 
 
 def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
@@ -889,6 +955,7 @@ class ShellSession:
         stderr: list[str] = []
         return_code: int | None = None
         start_time = time.time() if timeout else None
+        max_output_bytes = _get_max_output_bytes()
 
         if _is_windows:
             return self._read_output_windows(
@@ -901,6 +968,7 @@ class ShellSession:
                 start_marker_pattern,
                 start_time,
                 timeout,
+                max_output_bytes,
             )
         return self._read_output_unix(
             command,
@@ -912,6 +980,7 @@ class ShellSession:
             start_marker_pattern,
             start_time,
             timeout,
+            max_output_bytes,
         )
 
     def _read_output_windows(
@@ -925,6 +994,7 @@ class ShellSession:
         start_marker_pattern: str,
         start_time: float | None,
         timeout: float | None,
+        max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
     ) -> tuple[int | None, str, str]:
         """Read command output on Windows using threads with non-blocking I/O."""
         from queue import Empty, Queue
@@ -933,17 +1003,73 @@ class ShellSession:
         stderr_queue: Queue[str] = Queue()
         stop_event = threading.Event()
 
+        # Shared byte counter so the producer threads stop enqueueing once the
+        # cap is reached — otherwise a fast-output command can buffer unbounded
+        # data in the queues ahead of the consumer (Greptile P1). Bytes, not
+        # decoded characters, so multibyte UTF-8 cannot exceed the cap 3-4x.
+        cap_state = {"bytes": 0, "over": False}
+        cap_lock = threading.Lock()
+
+        # Track the start marker for the stdout producer so it does not count
+        # the shell-injected START_OF_COMMAND_OUTPUT line (and any pre-marker
+        # output) against the cap.  Mirrors the Unix path's marker exclusion.
+        # Use a list so the closure can mutate it from the producer thread.
+        _producer_seen_start = [False]
+
         def read_stream(fd: int, queue: Queue[str]) -> None:
             try:
                 os.set_blocking(fd, False)
             except OSError:
                 pass
-            while not stop_event.is_set():
+            while not stop_event.is_set() and not cap_state["over"]:
                 try:
-                    data = os.read(fd, 2**16).decode("utf-8", errors="replace")
-                    if not data:
+                    raw = os.read(fd, 2**16)
+                    if not raw:
                         break
+                    data = raw.decode("utf-8", errors="replace")
+
+                    # Exclude shell protocol markers from byte accounting on
+                    # stdout (mirrors the Unix path).  Pre-marker bytes (e.g.
+                    # leftover output from a prior command, the start-marker
+                    # line itself) are not counted so a command whose real
+                    # output is exactly max_output_bytes does not trip the cap
+                    # on Windows when Unix would not (bob-ai-review P2).
+                    if fd == self.stdout_fd:
+                        countable = raw
+                        if not _producer_seen_start[0]:
+                            if start_marker_pattern in data:
+                                _producer_seen_start[0] = True
+                                raw_marker = start_marker_pattern.encode()
+                                marker_pos = countable.find(raw_marker)
+                                if marker_pos >= 0:
+                                    nl_pos = countable.find(b"\n", marker_pos)
+                                    countable = (
+                                        countable[nl_pos + 1 :] if nl_pos >= 0 else b""
+                                    )
+                            else:
+                                countable = b""  # pre-marker; not user output
+                        countable = _strip_shell_return_marker(
+                            countable, self.delimiter
+                        )
+                        bytes_to_count = len(countable)
+                    else:
+                        bytes_to_count = len(raw)
+
+                    with cap_lock:
+                        cap_state["bytes"] += bytes_to_count
+                        over = cap_state["bytes"] > max_output_bytes
+                        if over:
+                            # Flag the cap BEFORE enqueueing the chunk so the
+                            # consumer cannot dequeue an over-cap chunk that
+                            # carries the delimiter while `over` is still
+                            # False and return the real code (Greptile P1 /
+                            # bob-ai-review P1 race).
+                            cap_state["over"] = True
                     queue.put(data)
+                    if over:
+                        # Stop producing more data; the consumer detects the
+                        # cap and performs the kill + marker.
+                        break
                 except BlockingIOError:
                     time.sleep(0.01)
                 except OSError:
@@ -978,6 +1104,29 @@ class ShellSession:
                 # Drain stdout queue
                 try:
                     data = stdout_queue.get(timeout=0.1)
+                    # Check the cap at the chunk level, before the delimiter
+                    # branch, so a chunk that both exceeds the cap and carries
+                    # the delimiter cannot bypass the cap (Greptile P1).
+                    if cap_state["over"]:
+                        cap_mib = max_output_bytes / (1024 * 1024)
+                        trunc_msg = (
+                            f"\n[output truncated at {cap_mib:.0f} MiB,"
+                            f" process killed]\n"
+                        )
+                        stdout.append(trunc_msg)
+                        if output:
+                            print(trunc_msg, end="", file=sys.stdout)
+                        logger.warning(
+                            "Shell output cap (%d MiB) exceeded; killing process",
+                            int(cap_mib),
+                        )
+                        self._terminate_process()
+                        stop_event.set()
+                        return (
+                            -125,
+                            trim_blank_lines("".join(stdout)),
+                            trim_blank_lines("".join(stderr)),
+                        )
                     lines = data.splitlines(keepends=True)
                     for line in lines:
                         if not seen_start_marker:
@@ -1034,6 +1183,30 @@ class ShellSession:
                                         print(err_data, end="", file=sys.stderr)
                                 except Empty:
                                     break
+                            # If the cap was tripped (producer set the flag) we
+                            # must not return the real code — enforce the cap
+                            # (bob-ai-review P1 ordering race).
+                            if cap_state["over"]:
+                                cap_mib = max_output_bytes / (1024 * 1024)
+                                trunc_msg = (
+                                    f"\n[output truncated at {cap_mib:.0f} MiB,"
+                                    f" process killed]\n"
+                                )
+                                stdout.append(trunc_msg)
+                                if output:
+                                    print(trunc_msg, end="", file=sys.stdout)
+                                logger.warning(
+                                    "Shell output cap (%d MiB) exceeded;"
+                                    " killing process",
+                                    int(cap_mib),
+                                )
+                                self._terminate_process()
+                                stop_event.set()
+                                return (
+                                    -125,
+                                    trim_blank_lines("".join(stdout)),
+                                    trim_blank_lines("".join(stderr)),
+                                )
                             return (
                                 return_code,
                                 trim_blank_lines("".join(stdout)),
@@ -1043,17 +1216,82 @@ class ShellSession:
                         stdout.append(line)
                         if output:
                             print(line, end="", file=sys.stdout)
+                        if cap_state["over"]:
+                            cap_mib = max_output_bytes / (1024 * 1024)
+                            trunc_msg = (
+                                f"\n[output truncated at {cap_mib:.0f} MiB,"
+                                f" process killed]\n"
+                            )
+                            stdout.append(trunc_msg)
+                            if output:
+                                print(trunc_msg, end="", file=sys.stdout)
+                            logger.warning(
+                                "Shell output cap (%d MiB) exceeded; killing process",
+                                int(cap_mib),
+                            )
+                            self._terminate_process()
+                            stop_event.set()
+                            return (
+                                -125,
+                                trim_blank_lines("".join(stdout)),
+                                trim_blank_lines("".join(stderr)),
+                            )
                 except Empty:
                     pass
 
                 # Drain stderr queue
                 try:
                     data = stderr_queue.get_nowait()
+                    if cap_state["over"]:
+                        # Marker is always appended to stdout (consistent with
+                        # the Unix path and documented behavior).
+                        cap_mib = max_output_bytes / (1024 * 1024)
+                        trunc_msg = (
+                            f"\n[output truncated at {cap_mib:.0f} MiB,"
+                            f" process killed]\n"
+                        )
+                        stdout.append(trunc_msg)
+                        if output:
+                            print(trunc_msg, end="", file=sys.stdout)
+                        logger.warning(
+                            "Shell output cap (%d MiB) exceeded; killing process",
+                            int(cap_mib),
+                        )
+                        self._terminate_process()
+                        stop_event.set()
+                        return (
+                            -125,
+                            trim_blank_lines("".join(stdout)),
+                            trim_blank_lines("".join(stderr)),
+                        )
                     lines = data.splitlines(keepends=True)
                     for line in lines:
                         stderr.append(line)
                         if output:
                             print(line, end="", file=sys.stderr)
+                        # Marker is always appended to stdout (consistent with the
+                        # Unix path and documented behavior), even when the cap
+                        # was tripped by a stderr line.
+                        if cap_state["over"]:
+                            cap_mib = max_output_bytes / (1024 * 1024)
+                            trunc_msg = (
+                                f"\n[output truncated at {cap_mib:.0f} MiB,"
+                                f" process killed]\n"
+                            )
+                            stdout.append(trunc_msg)
+                            if output:
+                                print(trunc_msg, end="", file=sys.stdout)
+                            logger.warning(
+                                "Shell output cap (%d MiB) exceeded; killing process",
+                                int(cap_mib),
+                            )
+                            self._terminate_process()
+                            stop_event.set()
+                            return (
+                                -125,
+                                trim_blank_lines("".join(stdout)),
+                                trim_blank_lines("".join(stderr)),
+                            )
                 except Empty:
                     pass
 
@@ -1090,9 +1328,11 @@ class ShellSession:
         start_marker_pattern: str,
         start_time: float | None,
         timeout: float | None,
+        max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
     ) -> tuple[int | None, str, str]:
         """Read command output on Unix using select()."""
         assert select is not None
+        captured_bytes = 0
         try:
             while True:
                 # Calculate remaining timeout
@@ -1136,13 +1376,22 @@ class ShellSession:
                     # spaces at the boundary
                     # 2**12 = 4096
                     # 2**16 = 65536
-                    data = os.read(fd, 2**16).decode("utf-8", errors="replace")
-                    if not data:
-                        # A closed output pipe makes this persistent shell
-                        # unusable even if bash itself remains alive. Restart it
-                        # after collecting output from the other pipe so the next
-                        # command gets a complete, working shell.
-                        self._drain_closed_shell_pipes(stdout, stderr, output)
+                    raw = os.read(fd, 2**16)
+                    if not raw:
+                        # EOF on either output pipe means this persistent shell
+                        # can no longer execute the protocol safely. Drain the
+                        # other pipe within the same byte cap, then restart.
+                        captured_bytes = self._drain_closed_shell_pipes(
+                            stdout,
+                            stderr,
+                            output,
+                            max_output_bytes,
+                            captured_bytes,
+                        )
+                        if captured_bytes > max_output_bytes:
+                            return self._kill_for_byte_cap(
+                                stdout, stderr, output, max_output_bytes
+                            )
                         try:
                             self.process.wait(timeout=1.0)
                         except subprocess.TimeoutExpired:
@@ -1153,7 +1402,17 @@ class ShellSession:
                                 logger.warning(
                                     "Shell process did not exit after termination"
                                 )
-                            self._drain_closed_shell_pipes(stdout, stderr, output)
+                            captured_bytes = self._drain_closed_shell_pipes(
+                                stdout,
+                                stderr,
+                                output,
+                                max_output_bytes,
+                                captured_bytes,
+                            )
+                            if captured_bytes > max_output_bytes:
+                                return self._kill_for_byte_cap(
+                                    stdout, stderr, output, max_output_bytes
+                                )
                             self.restart()
                             stderr.append(
                                 "\n[gptme] The command closed a persistent shell "
@@ -1166,9 +1425,37 @@ class ShellSession:
                                 trim_blank_lines("".join(stdout)),
                                 trim_blank_lines("".join(stderr)),
                             )
-                        return self._handle_shell_exit(stdout, stderr, output)
+                        return self._handle_shell_exit(
+                            stdout,
+                            stderr,
+                            output,
+                            max_output_bytes,
+                            captured_bytes,
+                        )
+                    data = raw.decode("utf-8", errors="replace")
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
+
+                    # Count raw subprocess output bytes, excluding the shell's
+                    # injected start/return markers. A command just below the cap
+                    # must not be killed merely because its delimiter shares the
+                    # final read chunk (bob-ai-review P2).
+                    captured_raw = raw
+                    if fd == self.stdout_fd:
+                        marker_bytes = start_marker_pattern.encode()
+                        marker_pos = captured_raw.find(marker_bytes)
+                        if not seen_start_marker and marker_pos >= 0:
+                            marker_end = captured_raw.find(b"\n", marker_pos)
+                            captured_raw = (
+                                captured_raw[marker_end + 1 :]
+                                if marker_end >= 0
+                                else b""
+                            )
+                        captured_raw = _strip_shell_return_marker(
+                            captured_raw, self.delimiter
+                        )
+                    captured_bytes += len(captured_raw)
+
                     for line in lines:
                         # Issue #408: Skip stdout until we see the start marker
                         # Only apply to stdout - stderr should pass through unfiltered
@@ -1237,25 +1524,43 @@ class ShellSession:
                                 else:
                                     os.chdir(pwd.strip())
 
+                            # If the byte cap was already exceeded in this chunk
+                            # (delimiter line present), do not return the real
+                            # code — enforce the cap (Greptile P1 race).
+                            if captured_bytes > max_output_bytes:
+                                return self._kill_for_byte_cap(
+                                    stdout, stderr, output, max_output_bytes
+                                )
+
                             # Issue #408: Drain any remaining stderr before
                             # returning. Use multiple attempts to ensure stderr
-                            # has time to arrive from bash.
+                            # has time to arrive from bash. Bound the drain by
+                            # the byte cap as well — a command that floods
+                            # stderr after signalling completion must not
+                            # bypass the cap (bob-ai-review P1).
                             drain_empty_count = 0
-                            while drain_empty_count < 2:
+                            while (
+                                drain_empty_count < 2
+                                and captured_bytes <= max_output_bytes
+                            ):
                                 drain_rlist = _wait_readable([self.stderr_fd], 0.1)
                                 if not drain_rlist:
                                     drain_empty_count += 1
                                     continue
-                                drain_data = os.read(self.stderr_fd, 2**16).decode(
-                                    "utf-8", errors="replace"
-                                )
-                                if not drain_data:
+                                drain_raw = os.read(self.stderr_fd, 2**16)
+                                if not drain_raw:
                                     drain_empty_count += 1
                                     continue
                                 drain_empty_count = 0
+                                captured_bytes += len(drain_raw)
+                                drain_data = drain_raw.decode("utf-8", errors="replace")
                                 stderr.append(drain_data)
                                 if output:
                                     print(drain_data, end="", file=sys.stderr)
+                            if captured_bytes > max_output_bytes:
+                                return self._kill_for_byte_cap(
+                                    stdout, stderr, output, max_output_bytes
+                                )
                             return (
                                 return_code,
                                 trim_blank_lines("".join(stdout)),
@@ -1269,6 +1574,11 @@ class ShellSession:
                             stderr.append(line)
                             if output:
                                 print(line, end="", file=sys.stderr)
+
+                        if captured_bytes > max_output_bytes:
+                            return self._kill_for_byte_cap(
+                                stdout, stderr, output, max_output_bytes
+                            )
         except KeyboardInterrupt:
             # Clear line after ^C to avoid leaving a hanging line
             print()
@@ -1279,45 +1589,60 @@ class ShellSession:
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def _drain_closed_shell_pipes(
-        self, stdout: list[str], stderr: list[str], output: bool
-    ) -> None:
-        """Drain output buffered on both pipes after the shell exits."""
+        self,
+        stdout: list[str],
+        stderr: list[str],
+        output: bool,
+        max_output_bytes: int,
+        captured_bytes: int,
+    ) -> int:
+        """Drain both pipes after EOF without bypassing the output byte cap."""
         open_fds = {self.stdout_fd, self.stderr_fd}
         deadline = time.monotonic() + 1.0
-        while open_fds and time.monotonic() < deadline:
+        while (
+            open_fds
+            and captured_bytes <= max_output_bytes
+            and time.monotonic() < deadline
+        ):
             readable = _wait_readable(list(open_fds), 0.1)
             if not readable:
                 continue
             for fd in readable:
                 try:
-                    data = os.read(fd, 2**16).decode("utf-8", errors="replace")
+                    raw = os.read(fd, 2**16)
                 except OSError:
                     open_fds.discard(fd)
                     continue
-                if not data:
+                if not raw:
                     open_fds.discard(fd)
                     continue
+                captured_bytes += len(raw)
+                data = raw.decode("utf-8", errors="replace")
                 target = stdout if fd == self.stdout_fd else stderr
                 stream = sys.stdout if fd == self.stdout_fd else sys.stderr
                 target.append(data)
                 if output:
                     print(data, end="", file=stream)
+        return captured_bytes
 
     def _handle_shell_exit(
-        self, stdout: list[str], stderr: list[str], output: bool
+        self,
+        stdout: list[str],
+        stderr: list[str],
+        output: bool,
+        max_output_bytes: int,
+        captured_bytes: int,
     ) -> tuple[int | None, str, str]:
-        """The persistent shell died mid-command: restart it and report why.
-
-        Returns the shell's own exit status as the command's return code so
-        `exit 3` reads as 3, and appends a note to stderr so the model learns
-        that shell state (cwd, variables, `&` jobs) was reset rather than
-        seeing an empty result.
-        """
+        """Restart a persistent shell that exited during a command."""
         try:
             rc: int | None = self.process.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
             rc = None
-        self._drain_closed_shell_pipes(stdout, stderr, output)
+        captured_bytes = self._drain_closed_shell_pipes(
+            stdout, stderr, output, max_output_bytes, captured_bytes
+        )
+        if captured_bytes > max_output_bytes:
+            return self._kill_for_byte_cap(stdout, stderr, output, max_output_bytes)
         logger.warning(
             "Shell process exited during command (code %s), restarting shell", rc
         )
@@ -1329,6 +1654,79 @@ class ShellSession:
         )
         return (
             rc if rc is not None else -1,
+            trim_blank_lines("".join(stdout)),
+            trim_blank_lines("".join(stderr)),
+        )
+
+    def _kill_for_byte_cap(
+        self,
+        stdout: list[str],
+        stderr: list[str],
+        output: bool,
+        max_output_bytes: int,
+    ) -> tuple[int | None, str, str]:
+        """Kill the process for exceeding the byte cap, drain pipes, return -125.
+
+        Appends the truncation marker to stdout, terminates the process group,
+        drains any remaining output from both pipes (so it does not bleed into
+        the next command), and returns the synthetic -125 tuple.
+        """
+        cap_mib = max_output_bytes / (1024 * 1024)
+        trunc_msg = f"\n[output truncated at {cap_mib:.0f} MiB, process killed]\n"
+        stdout.append(trunc_msg)
+        if output:
+            print(trunc_msg, end="", file=sys.stdout)
+        logger.warning(
+            "Shell output cap (%d MiB) exceeded; killing process",
+            int(cap_mib),
+        )
+        try:
+            pgid = os.getpgid(self.process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            time.sleep(0.1)
+            # SIGKILL the whole process group unconditionally. If the shell
+            # leader exits after SIGTERM while a descendant retains an
+            # inherited output pipe, a descendant could keep emitting and the
+            # unbounded drain below would recreate the memory exhaustion this
+            # cap is meant to prevent (Greptile P1 Security).
+            os.killpg(pgid, signal.SIGKILL)
+        except Exception as e:
+            logger.warning("Error killing process after byte cap exceeded: %s", e)
+        # Drain any remaining data from both pipes so it does not bleed into the
+        # next command's output, BUT keep the drain bounded (Greptile P1).
+        # After a group SIGKILL there is only kernel-buffered data left; guard
+        # both the total drained bytes and the drain duration so a surviving
+        # descendant cannot keep the loop live and grow memory.
+        drain_budget = max_output_bytes  # at most one cap's worth more
+        drain_deadline = time.monotonic() + 1.0  # hard time bound
+        for drain_fd in (self.stdout_fd, self.stderr_fd):
+            drain_empty_count = 0
+            while (
+                drain_empty_count < 2
+                and drain_budget > 0
+                and time.monotonic() < drain_deadline
+            ):
+                drain_rlist = _wait_readable([drain_fd], 0.1)
+                if not drain_rlist:
+                    drain_empty_count += 1
+                    continue
+                drain_raw = os.read(drain_fd, min(2**16, drain_budget))
+                if not drain_raw:
+                    drain_empty_count += 1
+                    continue
+                drain_empty_count = 0
+                drain_budget -= len(drain_raw)
+                drain_data = drain_raw.decode("utf-8", errors="replace")
+                if drain_fd == self.stdout_fd:
+                    stdout.append(drain_data)
+                    if output:
+                        print(drain_data, end="", file=sys.stdout)
+                else:
+                    stderr.append(drain_data)
+                    if output:
+                        print(drain_data, end="", file=sys.stderr)
+        return (
+            -125,
             trim_blank_lines("".join(stdout)),
             trim_blank_lines("".join(stderr)),
         )
@@ -1466,7 +1864,11 @@ def close_conversation_shell(conversation_id: str) -> None:
 def _session_end_shell_cleanup(
     manager: "LogManager", **kwargs
 ) -> "Generator[Message | StopPropagation, None, None]":
-    """Close the persistent shell and background jobs for this conversation."""
+    """Close shell session for a conversation to prevent file descriptor leaks.
+
+    Registered as a SESSION_END hook via ToolSpec.hooks so it's only loaded
+    when the shell tool is active.
+    """
     conversation_id = manager.logdir.name if manager.logdir else None
     if conversation_id:
         close_conversation_shell(conversation_id)
@@ -1740,6 +2142,8 @@ def _format_shell_output(
     timed_out: bool = False,
     timeout_value: float | None = None,
     logdir: Path | None = None,
+    byte_cap_exceeded: bool = False,
+    cap_bytes: int | None = None,
 ) -> str:
     """Format shell command output into a message."""
     # Strip ANSI escape sequences from output
@@ -1753,6 +2157,7 @@ def _format_shell_output(
         and not stderr
         and not interrupted
         and not timed_out
+        and not byte_cap_exceeded
         and _matches_git_log_oneline(cmd)
     ):
         try:
@@ -1766,6 +2171,7 @@ def _format_shell_output(
         and not stderr
         and not interrupted
         and not timed_out
+        and not byte_cap_exceeded
         and _matches_gh_list(cmd)
     ):
         try:
@@ -1774,7 +2180,12 @@ def _format_shell_output(
             logger.warning("Failed to format compact shell output: %s", e)
 
     if compact_stdout is None and (
-        returncode == 0 and stdout and not stderr and not interrupted and not timed_out
+        returncode == 0
+        and stdout
+        and not stderr
+        and not interrupted
+        and not timed_out
+        and not byte_cap_exceeded
     ):
         try:
             compact_stdout = _format_query_pruned_output(cmd, stdout, logdir)
@@ -1811,7 +2222,11 @@ def _format_shell_output(
         )
 
     # Format header
-    if timed_out:
+    if byte_cap_exceeded:
+        cap_bytes = cap_bytes or _DEFAULT_MAX_OUTPUT_BYTES
+        cap_mib = cap_bytes / (1024 * 1024)
+        header = f"Command killed (output exceeded {cap_mib:.0f} MiB cap)"
+    elif timed_out:
         header = (
             f"Command timed out (after {timeout_value}s)"
             if timeout_value
@@ -1843,7 +2258,9 @@ def _format_shell_output(
     if stderr:
         msg += _format_block_smart("", stderr, "stderr").lstrip() + "\n\n"
     if not compact_stdout and not stdout and not stderr:
-        if timed_out:
+        if byte_cap_exceeded:
+            msg += "No output before byte cap\n"
+        elif timed_out:
             msg += "No output before timeout\n"
         elif interrupted:
             msg += "No output before interruption\n"
@@ -1856,6 +2273,8 @@ def _format_shell_output(
             msg += f"Process interrupted (return code: {returncode})\n"
         else:
             msg += "Process interrupted\n"
+    elif byte_cap_exceeded or timed_out:
+        pass  # Header already describes the termination; return code is synthetic
     elif returncode:
         msg += f"Return code: {returncode}\n"
 
@@ -1874,6 +2293,7 @@ def execute_shell_impl(
         returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
         interrupted = False
         timed_out = returncode == -124  # Our timeout return code
+        byte_cap_exceeded = returncode == -125  # Output byte cap return code
     except KeyboardInterrupt as e:
         # Extract partial output and handle subprocess termination
         stdout = stderr = ""
@@ -1885,6 +2305,7 @@ def execute_shell_impl(
         returncode = shell.process.returncode
         interrupted = True
         timed_out = False
+        byte_cap_exceeded = False
     except Exception as e:
         raise ValueError(f"Shell error: {e}") from None
     duration = time.monotonic() - start_time
@@ -1900,6 +2321,8 @@ def execute_shell_impl(
         timed_out,
         timeout_value=timeout,
         logdir=logdir,
+        byte_cap_exceeded=byte_cap_exceeded,
+        cap_bytes=_get_max_output_bytes() if byte_cap_exceeded else None,
     )
     # Workspace-awareness: notify when cd enters a directory with gptme.toml.
     # Append hint text directly to the command output (single yield) so no
@@ -2082,22 +2505,23 @@ def execute_shell(
         and background_value.lower() in {"1", "true", "yes", "on"}
     )
 
-    # Management commands remain available, but only as complete tool calls.
-    # This avoids hijacking ordinary Bash syntax, heredoc data, or executables
-    # that happen to share one of the old overlay's names.
-    if cmd_stripped == "jobs":
+    # Management commands remain available, but only as complete tool calls and
+    # only when they refer to this conversation's harness-owned jobs. Otherwise
+    # Bash owns the command (notably its ``jobs``, ``wait``, and ``kill`` builtins).
+    if cmd_stripped == "jobs" and list_background_jobs():
         yield from execute_jobs_command()
         return
     if match := re.fullmatch(r"output (\d+)( --new)?", cmd_stripped):
-        suffix = " --new" if match.group(2) else ""
-        yield from execute_output_command(f"{match.group(1)}{suffix}")
-        return
+        if get_background_job(int(match.group(1))) is not None:
+            suffix = " --new" if match.group(2) else ""
+            yield from execute_output_command(f"{match.group(1)}{suffix}")
+            return
     if match := re.fullmatch(r"wait (\d+)(?: ([^\s]+))?", cmd_stripped):
-        yield from execute_wait_command(match.group(1), match.group(2))
-        return
+        if get_background_job(int(match.group(1))) is not None:
+            yield from execute_wait_command(match.group(1), match.group(2))
+            return
     if match := re.fullmatch(r"kill (\d+)", cmd_stripped):
-        job_id = int(match.group(1))
-        if get_background_job(job_id) is not None:
+        if get_background_job(int(match.group(1))) is not None:
             yield from execute_kill_command(match.group(1))
             return
 
@@ -2564,7 +2988,7 @@ tool = ToolSpec(
         Parameter(
             name="background",
             type="boolean",
-            description="Run the whole tool call as a background job and return immediately.",
+            description="Run the whole tool call as a background job.",
             required=False,
         ),
     ],
@@ -2572,7 +2996,7 @@ tool = ToolSpec(
     # This auto-confirms allowlisted commands before CLI/server hooks (priority 0)
     hooks={
         "allowlist": ("tool.confirm", shell_allowlist_hook, 10),
-        "completion": ("loop.continue", background_job_completion_hook, 50),
+        "background_completion": ("loop.continue", background_job_completion_hook, 0),
         "session_end": ("session.end", _session_end_shell_cleanup, 0),
     },
     hints=frozenset({"code-exec", "destructive"}),

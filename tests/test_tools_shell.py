@@ -1900,15 +1900,49 @@ def test_bg_text_is_plain_bash_not_an_overlay():
     start.assert_not_called()
 
 
-def test_wait_command_dispatches_timeout():
+@pytest.mark.parametrize(
+    ("command", "handler"),
+    [
+        ("jobs", "execute_jobs_command"),
+        ("output 7", "execute_output_command"),
+        ("wait 7", "execute_wait_command"),
+        ("kill 7", "execute_kill_command"),
+    ],
+)
+def test_control_commands_require_a_matching_background_job(command, handler):
+    """Bash builtins and executables win when no harness job ID matches."""
+    from unittest.mock import patch
+
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import execute_shell
+
+    with (
+        patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.confirm(),
+        ),
+        patch("gptme.tools.shell.execute_shell_impl", return_value=iter([])) as execute,
+        patch(f"gptme.tools.shell.{handler}") as control,
+    ):
+        list(execute_shell(command, [], None))
+
+    execute.assert_called_once()
+    assert execute.call_args.args[0] == command
+    control.assert_not_called()
+
+
+def test_wait_command_dispatches_timeout_for_matching_job():
     """A complete control call passes job ID and timeout to the handler."""
     from unittest.mock import patch
 
     from gptme.tools.shell import execute_shell
 
-    with patch(
-        "gptme.tools.shell.execute_wait_command", return_value=iter([])
-    ) as execute_wait:
+    with (
+        patch("gptme.tools.shell.get_background_job", return_value=object()),
+        patch(
+            "gptme.tools.shell.execute_wait_command", return_value=iter([])
+        ) as execute_wait,
+    ):
         list(execute_shell("wait 7 2m", [], None))
 
     execute_wait.assert_called_once_with("7", "2m")
