@@ -3896,9 +3896,10 @@ def test_handle_tools_demotes_orphan_tool_result_to_user_text():
 
     messages = [
         Message(role="user", content="hi"),
-        # Result whose assistant call was lost (old log / interrupted turn)
+        Message(role="assistant", content='@shell(call_live): {"command": "true"}'),
+        # Result whose assistant call was lost (old log / interrupted turn).
+        # Put it after an unrelated tool call to cover the buffered path.
         Message(role="system", content="stale output", call_id="call_gone"),
-        Message(role="assistant", content="ok"),
     ]
 
     tool_shell = get_tool("shell")
@@ -3906,10 +3907,9 @@ def test_handle_tools_demotes_orphan_tool_result_to_user_text():
     model = get_model("openai/gpt-4o")
     messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_shell])
 
-    roles = [m["role"] for m in messages_dicts]
-    assert "tool" not in roles
+    assert [m["role"] for m in messages_dicts] == ["user", "assistant", "user"]
     assert all("tool_call_id" not in m for m in messages_dicts)
-    demoted = messages_dicts[1]
+    demoted = messages_dicts[-1]
     assert demoted["role"] == "user"
     content = demoted["content"]
     text: str | None
