@@ -16,6 +16,7 @@ A command timeout must kill the command's processes, not bash itself.
 import os
 import signal
 import sys
+import threading
 import time
 from unittest.mock import patch
 
@@ -100,6 +101,31 @@ def test_explicitly_closed_shell_stays_closed(shell):
     shell.close()
     with pytest.raises(RuntimeError, match="Shell session is closed"):
         shell.run("echo back", output=False)
+
+
+def test_close_racing_with_eof_does_not_restart_shell(shell):
+    """SESSION_END must win when an active read sees the pipes close."""
+    command_started = threading.Event()
+    run_finished = threading.Event()
+
+    def run_command():
+        command_started.set()
+        try:
+            shell.run("sleep 30", output=False)
+        finally:
+            run_finished.set()
+
+    thread = threading.Thread(target=run_command)
+    thread.start()
+    assert command_started.wait(timeout=1)
+    time.sleep(0.1)
+
+    shell.close()
+    thread.join(timeout=5)
+
+    assert run_finished.is_set()
+    assert shell._closed
+    assert shell.process.poll() is not None
 
 
 def test_command_that_kills_shell_is_not_rerun(shell, tmp_path):
