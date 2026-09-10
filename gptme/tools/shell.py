@@ -1414,24 +1414,38 @@ class ShellSession:
             pgid = os.getpgid(self.process.pid)
             os.killpg(pgid, signal.SIGTERM)
             time.sleep(0.1)
-            if self.process.poll() is None:
-                os.killpg(pgid, signal.SIGKILL)
+            # SIGKILL the whole process group unconditionally. If the shell
+            # leader exits after SIGTERM while a descendant retains an
+            # inherited output pipe, a descendant could keep emitting and the
+            # unbounded drain below would recreate the memory exhaustion this
+            # cap is meant to prevent (Greptile P1 Security).
+            os.killpg(pgid, signal.SIGKILL)
         except Exception as e:
             logger.warning("Error killing process after byte cap exceeded: %s", e)
         # Drain any remaining data from both pipes so it does not bleed into the
-        # next command's output (Greptile P1).
+        # next command's output, BUT keep the drain bounded (Greptile P1).
+        # After a group SIGKILL there is only kernel-buffered data left; guard
+        # both the total drained bytes and the drain duration so a surviving
+        # descendant cannot keep the loop live and grow memory.
+        drain_budget = max_output_bytes  # at most one cap's worth more
+        drain_deadline = time.monotonic() + 1.0  # hard time bound
         for drain_fd in (self.stdout_fd, self.stderr_fd):
             drain_empty_count = 0
-            while drain_empty_count < 2:
+            while (
+                drain_empty_count < 2
+                and drain_budget > 0
+                and time.monotonic() < drain_deadline
+            ):
                 drain_rlist = _wait_readable([drain_fd], 0.1)
                 if not drain_rlist:
                     drain_empty_count += 1
                     continue
-                drain_raw = os.read(drain_fd, 2**16)
+                drain_raw = os.read(drain_fd, min(2**16, drain_budget))
                 if not drain_raw:
                     drain_empty_count += 1
                     continue
                 drain_empty_count = 0
+                drain_budget -= len(drain_raw)
                 drain_data = drain_raw.decode("utf-8", errors="replace")
                 if drain_fd == self.stdout_fd:
                     stdout.append(drain_data)

@@ -175,3 +175,48 @@ def test_cap_counts_bytes_not_characters(shell):
         f"Multibyte output ({captured} bytes) exceeds byte cap ({cap} bytes) "
         "by more than one chunk"
     )
+
+
+def test_cap_drain_is_byte_bounded(shell, monkeypatch):
+    """The post-kill drain must be byte-bounded (Greptile P1 Security).
+
+    Regression for the unbounded-drain-after-termination finding: when a
+    descendant retains an inherited output pipe and keeps writing, the drain
+    loop must stop at a bounded number of bytes instead of growing memory
+    without limit. We simulate persistent readability on the pipe and assert
+    _kill_for_byte_cap returns promptly with total output bounded by the cap.
+    """
+    from gptme.tools import shell as shell_mod
+
+    # Force the drain to always see readable data: the loop reads a chunk,
+    # drains the "budget", and stops. Without the bound it would loop forever.
+    monkeypatch.setattr(shell_mod, "_wait_readable", lambda fds, timeout: list(fds))
+    # Never report EOF so only the byte/time bound can stop the loop.
+    real_read = os.read
+    monkeypatch.setattr(
+        shell_mod.os,
+        "read",
+        lambda fd, n: (
+            real_read(fd, n)
+            if fd not in (shell.stdout_fd, shell.stderr_fd)
+            else b"x" * n
+        ),
+    )
+
+    cap = 32 * 1024  # 32 KiB — small for a fast unit test
+    with patch("gptme.tools.shell._get_max_output_bytes", return_value=cap):
+        returncode, stdout, stderr = shell._kill_for_byte_cap(
+            [], [], output=False, max_output_bytes=cap
+        )
+
+    assert returncode == -125
+    # Total drained output (excluding the truncation marker) must be at most
+    # one cap's worth — the byte budget. The old code had no bound.
+    total = len(stdout.encode("utf-8", errors="replace")) + len(
+        stderr.encode("utf-8", errors="replace")
+    )
+    # marker is ~50 bytes; allow a small slack
+    assert total < cap + 256, (
+        f"Drain unbounded: captured {total} bytes with a {cap} byte budget"
+    )
+    assert "[output truncated" in stdout
