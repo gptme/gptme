@@ -11,14 +11,13 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..util.context import md_codeblock
 from .shell_flags import flags_permitted
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from .base import ToolUse
 
 logger = logging.getLogger(__name__)
@@ -384,7 +383,7 @@ def _has_file_redirection(cmd: str) -> bool:
     return False
 
 
-def _has_sensitive_args(cmd: str) -> bool:
+def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     """Check whether any argument in the command targets a sensitive system path.
 
     Heredoc delimiters and bodies are shell syntax and stdin data rather than
@@ -475,6 +474,14 @@ def _has_sensitive_args(cmd: str) -> bool:
         # so the sensitive-dir boundary check below fires for those too.
         if re.match(r"^~[^/]+/", normalized) and not normalized.startswith("~/"):
             normalized = "~/" + re.sub(r"^~[^/]+/", "", normalized)
+        # Relative path arguments are interpreted from the persistent shell's
+        # effective cwd. Resolve lexical components here so a confirmed
+        # ``cd ~/.ssh`` cannot make a later ``cat id_rsa`` auto-approved.
+        if cwd is not None and not normalized.startswith(("/", "~")):
+            normalized = str(cwd / normalized)
+            if normalized == home or normalized.startswith(home + "/"):
+                normalized = "~" + normalized[len(home) :]
+
         # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
         # still matches the ~/ prefix boundary after double-slash removal.
         while "//" in normalized:
@@ -656,7 +663,7 @@ def _blank_shell_comments(cmd: str) -> str:
     return "".join(chars)
 
 
-def is_allowlisted(cmd: str) -> bool:
+def is_allowlisted(cmd: str, cwd: Path | None = None) -> bool:
     """Check if a shell command is safe to auto-approve.
 
     Uses a conservative allowlist approach:
@@ -699,7 +706,7 @@ def is_allowlisted(cmd: str) -> bool:
 
     # P1/P4: Check for sensitive path arguments (e.g. /etc/shadow, /root/, /)
     # Allowlisted commands like `cat` must not auto-approve reads of sensitive paths.
-    if _has_sensitive_args(cmd):
+    if _has_sensitive_args(cmd, cwd=cwd):
         return False
 
     # P2: Check for executable shell command substitution. Both backticks and
@@ -812,7 +819,7 @@ def shell_allowlist_hook(
     )
 
     # Check if command is allowlisted
-    if is_allowlisted(check_cmd):
+    if is_allowlisted(check_cmd, cwd=workspace):
         logger.debug(f"Shell command allowlisted, auto-confirming: {cmd[:50]}...")
         return ConfirmationResult.confirm()
 

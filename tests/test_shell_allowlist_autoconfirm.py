@@ -4,10 +4,12 @@ Regression test for issue where read-only commands like `cat file | head -100`
 were requiring confirmation despite being in the allowlist.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.hooks.confirm import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.base import ToolUse
 from gptme.tools.shell import (
@@ -125,6 +127,19 @@ class TestShellAllowlistHook:
         assert result is not None
         assert result.action.value == "confirm"
 
+    def test_relative_path_in_sensitive_cwd_falls_through(self):
+        """A prior ``cd ~/.ssh`` makes a later relative read sensitive."""
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            kwargs={},
+            content="cat id_rsa",
+        )
+
+        result = shell_allowlist_hook(tool_use, workspace=Path.home() / ".ssh")
+
+        assert result is None
+
     def test_non_allowlisted_command_falls_through(self):
         """Test that non-allowlisted commands fall through (return None)."""
         tool_use = ToolUse(
@@ -186,6 +201,24 @@ class TestExecuteShellAllowlist:
         with patch("gptme.tools.shell.get_path_fn") as mock:
             mock.return_value = tmp_path
             yield tmp_path
+
+    def test_relative_path_in_sensitive_cwd_uses_confirmation(
+        self, mock_shell, mock_logdir, tmp_path
+    ):
+        """A prior ``cd`` affects validation of the next shell invocation."""
+        sensitive_cwd = tmp_path / "home" / ".ssh"
+        sensitive_cwd.mkdir(parents=True)
+
+        mock_shell.get_cwd.return_value = sensitive_cwd
+        with patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.skip(),
+        ) as confirm:
+            messages = list(execute_shell("cat id_rsa", [], None))
+
+        assert not mock_shell.run.called
+        assert messages[0].content == "Operation skipped"
+        assert confirm.call_args.kwargs["workspace"] == sensitive_cwd
 
     def test_allowlisted_command_executes_without_confirmation(
         self, mock_shell, mock_logdir

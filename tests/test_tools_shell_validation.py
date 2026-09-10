@@ -4,6 +4,8 @@ Tests the allowlist/denylist logic, quote/heredoc parsing, pipe detection,
 and redirection detection in gptme/tools/shell_validation.py.
 """
 
+from pathlib import Path
+
 import pytest
 
 from gptme.tools.shell_validation import (
@@ -937,6 +939,12 @@ class TestSensitiveArgs:
     def test_search_pattern_without_path_separator_still_allowlisted(self):
         """Non-path glob patterns used by find remain safe to auto-approve."""
         assert is_allowlisted("find . -name '*.py'")
+
+    def test_relative_read_uses_effective_cwd(self):
+        """Relative operands are resolved from the persistent shell's cwd."""
+        ssh_dir = Path.home() / ".ssh"
+        assert not is_allowlisted("cat id_rsa", cwd=ssh_dir)
+        assert is_allowlisted("cat README.md", cwd=Path.home())
 
     def test_safe_file_read_still_allowlisted(self):
         """`cat README.md` should still be auto-approved (no false positive)."""
