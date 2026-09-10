@@ -429,15 +429,20 @@ class TestAllowEdit:
             for message in messages
         )
 
-    def test_standalone_bg_edit_reconfirms_edited_preview(self):
-        """A standalone bg edit must show the exact edited command on reconfirm."""
+    def test_background_flag_edit_reconfirms_edited_preview(self):
+        """A background-tool-call edit must show the exact edited command."""
         from unittest.mock import patch
 
         from gptme.hooks.confirm import ConfirmationResult
         from gptme.tools.base import ToolUse
 
         edited_cmd = "printf edited"
-        tool_use = ToolUse(tool="shell", args=[], content="bg printf original")
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            content=None,
+            kwargs={"command": "printf original", "background": "true"},
+        )
 
         with (
             patch(
@@ -447,14 +452,12 @@ class TestAllowEdit:
                     ConfirmationResult.skip("test stop"),
                 ],
             ) as mock_get_confirmation,
-            patch("gptme.tools.shell.execute_bg_command") as mock_execute,
+            patch("gptme.tools.shell.start_background_job") as mock_execute,
         ):
             list(tool_use.execute())
 
         assert mock_get_confirmation.call_count == 2
-        assert mock_get_confirmation.call_args_list[1].kwargs["preview"] == (
-            f"bg {edited_cmd}"
-        )
+        assert mock_get_confirmation.call_args_list[1].kwargs["preview"] == edited_cmd
         mock_execute.assert_not_called()
 
     def test_guardrail_can_deny_edited_content(self):
@@ -515,13 +518,18 @@ class TestAllowEdit:
         assert any("Command denied" in message.content for message in messages)
 
     def test_background_shell_denylist_rechecks_edited_command(self):
-        """A confirmed bg edit must still pass the shell denylist before execution."""
+        """A confirmed background edit must pass the denylist before execution."""
         from unittest.mock import patch
 
         from gptme.hooks.confirm import ConfirmationResult
         from gptme.tools.base import ToolUse
 
-        tool_use = ToolUse(tool="shell", args=[], content="bg printf safe")
+        tool_use = ToolUse(
+            tool="shell",
+            args=[],
+            content=None,
+            kwargs={"command": "printf safe", "background": "true"},
+        )
         with (
             patch(
                 "gptme.hooks.get_confirmation",
@@ -530,7 +538,7 @@ class TestAllowEdit:
                     ConfirmationResult.confirm(),
                 ],
             ),
-            patch("gptme.tools.shell.execute_bg_command") as mock_execute,
+            patch("gptme.tools.shell.start_background_job") as mock_execute,
         ):
             messages = list(tool_use.execute())
 

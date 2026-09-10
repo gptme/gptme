@@ -385,6 +385,31 @@ class TestJobRegistry:
         assert j.id == 1
         j.process.wait(timeout=5)
 
+    def test_reset_purges_conversation_completion(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools.shell_background import background_job_completion_hook
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            job = start_background_job("true")
+            job.process.wait(timeout=5)
+            if job._reader_thread:
+                job._reader_thread.join(timeout=5)
+            reset_background_jobs("conversation-a", all_conversations=False)
+        finally:
+            current_conversation_id.reset(token)
+
+        assert (
+            list(
+                background_job_completion_hook(
+                    SimpleNamespace(chat_id="conversation-a"), True, []
+                )
+            )
+            == []
+        )
+
 
 # ---------------------------------------------------------------------------
 # Command handlers — execute_bg_command
@@ -721,3 +746,32 @@ class TestCompletionNotifications:
             assert get_background_job(job_b.id) is job_b
         finally:
             current_conversation_id.reset(token_b)
+
+
+def test_session_end_cleans_up_conversation_jobs():
+    from types import SimpleNamespace
+    from typing import cast
+    from unittest.mock import patch
+
+    from gptme.hooks import current_conversation_id
+    from gptme.logmanager import LogManager
+    from gptme.tools.shell import _session_end_shell_cleanup
+
+    token = current_conversation_id.set("conversation-a")
+    try:
+        job = start_background_job("sleep 60")
+    finally:
+        current_conversation_id.reset(token)
+
+    manager = SimpleNamespace(
+        logdir=SimpleNamespace(name="conversation-a"), chat_id="conversation-a"
+    )
+    with patch("gptme.tools.shell.close_conversation_shell"):
+        assert list(_session_end_shell_cleanup(cast(LogManager, manager))) == []
+
+    assert not job.is_running()
+    token = current_conversation_id.set("conversation-a")
+    try:
+        assert get_background_job(job.id) is None
+    finally:
+        current_conversation_id.reset(token)
