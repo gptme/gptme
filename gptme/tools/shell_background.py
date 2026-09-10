@@ -335,16 +335,13 @@ def cleanup_finished_jobs() -> None:
 
 def _purge_completion_queue(conversation_ids: set[str | None]) -> None:
     """Remove queued completions for conversations whose jobs were reset."""
-    retained: list[BackgroundJob] = []
-    while True:
-        try:
-            job = _completion_queue.get_nowait()
-        except queue.Empty:
-            break
-        if job.conversation_id not in conversation_ids:
-            retained.append(job)
-    for job in retained:
-        _completion_queue.put(job)
+    with _completion_queue.mutex:
+        retained = type(_completion_queue.queue)(
+            job
+            for job in _completion_queue.queue
+            if job.conversation_id not in conversation_ids
+        )
+        _completion_queue.queue = retained
 
 
 def reset_background_jobs(
