@@ -290,13 +290,35 @@ describe('createDemoApiClient — page reload / session recovery', () => {
     await expect(client2.forkConversation(logfile, 0)).resolves.toMatch(/^demo\/conv-/);
   });
 
-  it('does not persist non-demo conversations after a message', async () => {
+  it('does not persist non-demo conversations when later saving a demo conversation', async () => {
     const client1 = createDemoApiClient();
     await client1.createConversation('unknown/chat', []);
     await client1.sendMessage('unknown/chat', { role: 'user', content: 'hello' });
+    await client1.createConversation('demo/saved-after-non-demo', []);
 
     const client2 = createDemoApiClient();
     await expect(client2.getConversation('unknown/chat')).rejects.toBeInstanceOf(DemoModeError);
+    await expect(client2.getConversation('demo/saved-after-non-demo')).resolves.toMatchObject({
+      id: 'demo/saved-after-non-demo',
+    });
+  });
+
+  it('ignores non-demo entries already present in persisted storage', async () => {
+    sessionStorage.setItem(
+      'gptme:demo-conversations',
+      JSON.stringify({
+        'unknown/chat': {
+          id: 'unknown/chat',
+          name: 'invalid persisted conversation',
+          logfile: 'unknown/chat',
+          log: [],
+          branches: { main: [] },
+        },
+      })
+    );
+
+    const client = createDemoApiClient();
+    await expect(client.getConversation('unknown/chat')).rejects.toBeInstanceOf(DemoModeError);
   });
 
   it('does NOT apply graceful recovery to non-demo IDs (still throws)', async () => {

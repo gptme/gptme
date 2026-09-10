@@ -49,18 +49,20 @@ function loadDemoSessionStorage(): Map<string, ConversationResponse> {
     const raw = sessionStorage.getItem(DEMO_SESSION_KEY);
     if (!raw) return new Map();
     const parsed = JSON.parse(raw) as Record<string, ConversationResponse>;
-    return new Map(Object.entries(parsed));
+    return new Map(Object.entries(parsed).filter(([id]) => id.startsWith('demo/')));
   } catch {
     return new Map();
   }
 }
 
-/** Persist the current in-memory conversations to sessionStorage (best-effort). */
+/** Persist demo conversations from the in-memory client state (best-effort). */
 function saveDemoSessionStorage(conversations: Map<string, ConversationResponse>): void {
   try {
     const obj: Record<string, ConversationResponse> = {};
-    for (const [k, v] of conversations) {
-      obj[k] = v;
+    for (const [id, conversation] of conversations) {
+      if (id.startsWith('demo/')) {
+        obj[id] = conversation;
+      }
     }
     sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(obj));
   } catch {
