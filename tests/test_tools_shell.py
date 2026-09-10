@@ -1849,8 +1849,8 @@ def test_list_background_jobs():
     reset_background_jobs()
 
 
-def test_bg_command_executes_remaining_commands():
-    """Commands after a bg line are passed back to execute_shell correctly."""
+def test_shell_background_flag_starts_whole_command():
+    """The structured flag backgrounds the complete tool-call script."""
     from unittest.mock import patch
 
     from gptme.hooks.confirm import ConfirmationResult
@@ -1861,17 +1861,47 @@ def test_bg_command_executes_remaining_commands():
             "gptme.hooks.get_confirmation",
             return_value=ConfirmationResult.confirm(),
         ),
-        patch("gptme.tools.shell.execute_bg_command", return_value=iter([])),
-        patch("gptme.tools.shell.execute_shell_impl", return_value=iter([])) as execute,
+        patch("gptme.tools.shell.start_background_job") as start,
     ):
-        list(execute_shell("bg sleep 1\nprintf remaining", [], None))
+        start.return_value.id = 7
+        messages = list(
+            execute_shell(
+                None,
+                None,
+                {"command": "cd /tmp\nprintf ready", "background": "true"},
+            )
+        )
+
+    start.assert_called_once()
+    assert start.call_args.args[0] == "cd /tmp\nprintf ready"
+    assert "background shell job #7" in messages[-1].content
+    assert "automatically" in messages[-1].content
+
+
+def test_bg_text_is_plain_bash_not_an_overlay():
+    """A command beginning with bg is no longer parsed by gptme."""
+    from unittest.mock import patch
+
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import execute_shell
+
+    with (
+        patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.confirm(),
+        ),
+        patch("gptme.tools.shell.execute_shell_impl", return_value=iter([])) as execute,
+        patch("gptme.tools.shell.start_background_job") as start,
+    ):
+        list(execute_shell("bg sleep 1", [], None))
 
     execute.assert_called_once()
-    assert execute.call_args.args[0] == "printf remaining"
+    assert execute.call_args.args[0] == "bg sleep 1"
+    start.assert_not_called()
 
 
 def test_wait_command_dispatches_timeout():
-    """The shell control command passes job ID and timeout to the wait handler."""
+    """A complete control call passes job ID and timeout to the handler."""
     from unittest.mock import patch
 
     from gptme.tools.shell import execute_shell
@@ -1884,44 +1914,45 @@ def test_wait_command_dispatches_timeout():
     execute_wait.assert_called_once_with("7", "2m")
 
 
-def test_execute_bg_command():
-    """Test the bg command handler."""
-    from gptme.tools.shell import execute_bg_command, reset_background_jobs
+def test_control_word_inside_script_is_plain_bash():
+    """Control names do not hijack multi-command scripts or heredoc data."""
+    from unittest.mock import patch
 
-    reset_background_jobs()
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import execute_shell
 
-    # Execute bg command
-    messages = list(execute_bg_command("echo 'test'"))
+    command = "printf before\njobs\nprintf after"
+    with (
+        patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.confirm(),
+        ),
+        patch("gptme.tools.shell.execute_shell_impl", return_value=iter([])) as execute,
+        patch("gptme.tools.shell.execute_jobs_command") as jobs,
+    ):
+        list(execute_shell(command, [], None))
 
-    assert len(messages) == 1
-    assert "Started background job" in messages[0].content
-    assert "#" in messages[0].content  # Check job ID format exists
-
-    # Cleanup
-    reset_background_jobs()
+    execute.assert_called_once()
+    assert execute.call_args.args[0] == command
+    jobs.assert_not_called()
 
 
-def test_execute_jobs_command():
-    """Test the jobs command handler."""
+def test_completed_job_remains_available():
+    """Completion notification must not destroy output before inspection."""
     from gptme.tools.shell import (
-        execute_jobs_command,
+        get_background_job,
         reset_background_jobs,
         start_background_job,
     )
 
     reset_background_jobs()
+    job = start_background_job("printf done")
+    job.process.wait(timeout=5)
+    if job._reader_thread:
+        job._reader_thread.join(timeout=5)
 
-    # No jobs
-    messages = list(execute_jobs_command())
-    assert "No background jobs" in messages[0].content
-
-    # With a job
-    job = start_background_job("sleep 0.1")
-    messages = list(execute_jobs_command())
-    assert f"#{job.id}" in messages[0].content  # Use actual job ID
-    assert "Running" in messages[0].content
-
-    job.kill()
+    assert get_background_job(job.id) is job
+    assert job.get_output()[0] == "done"
     reset_background_jobs()
 
 

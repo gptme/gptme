@@ -63,7 +63,7 @@ from .base import (
 )
 from .pruner import plan_tool_output_prune
 from .shell_background import (
-    execute_bg_command,
+    background_job_completion_hook,
     execute_jobs_command,
     execute_kill_command,
     execute_output_command,
@@ -250,15 +250,10 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 ### Background Jobs
 
-For long-running commands (dev servers, builds):
-- `bg <command>` - start, returns job ID
-- `jobs` - list jobs
-- `output <id>` - accumulated output
-- `output <id> --new` - unread output only; poll while waiting for a log line
-- `wait <id> [timeout]` - wait for completion; timeout leaves the job running
-- `kill <id>` - terminate
-
-Avoids blocking on commands like `npm run dev` that run indefinitely.
+For long-running commands (dev servers, builds), set `background: true` on the
+shell tool call. It returns a job ID immediately and notifies you when done.
+Use `jobs`, `output <id>`, `wait <id> [timeout]`, or `kill <id>` to inspect or
+control it. These controls are only recognized as standalone shell calls.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -1477,14 +1472,11 @@ def close_conversation_shell(conversation_id: str) -> None:
 def _session_end_shell_cleanup(
     manager: "LogManager", **kwargs
 ) -> "Generator[Message | StopPropagation, None, None]":
-    """Close shell session for a conversation to prevent file descriptor leaks.
-
-    Registered as a SESSION_END hook via ToolSpec.hooks so it's only loaded
-    when the shell tool is active.
-    """
+    """Close the persistent shell and background jobs for this conversation."""
     conversation_id = manager.logdir.name if manager.logdir else None
     if conversation_id:
         close_conversation_shell(conversation_id)
+        reset_background_jobs(conversation_id, all_conversations=False)
 
     yield from ()
 
@@ -2065,48 +2057,6 @@ def get_path_fn(*args, **kwargs) -> Path | None:
     return manager.logdir if manager and manager.logdir else None
 
 
-def _execute_preceding_commands(
-    cmds: str,
-) -> Generator[Message, None, None]:
-    """Execute commands that precede a bg command.
-
-    These commands modify shell state (e.g., cd) that the bg command needs.
-    We execute them through the shell session to maintain state.
-
-    Issue #992: Enables patterns like:
-        cd /project
-        bg npm run dev
-    """
-    # Use the stateful shell session to execute preceding commands
-    # so that state changes (like cd) persist for the bg command
-    shell_session = get_shell()
-
-    try:
-        # Run the preceding commands to update shell state
-        returncode, stdout, stderr = shell_session.run(cmds, timeout=30.0)
-
-        # Only report output if there is any
-        output_parts = []
-        if stdout and stdout.strip():
-            output_parts.append(md_codeblock("stdout", stdout))
-        if stderr and stderr.strip():
-            output_parts.append(md_codeblock("stderr", stderr))
-
-        if output_parts:
-            yield Message(
-                "system",
-                "Ran preceding commands:\n" + "\n".join(output_parts),
-            )
-
-        if returncode != 0:
-            yield Message(
-                "system",
-                f"Warning: Preceding commands exited with code {returncode}",
-            )
-    except Exception as e:
-        yield Message("system", f"Error running preceding commands: {e}")
-
-
 def _get_timeout() -> float | None:
     timeout: float | None = 1200.0
     timeout_env = os.environ.get("GPTME_SHELL_TIMEOUT")
@@ -2129,182 +2079,33 @@ def execute_shell(
     args: list[str] | None,
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
-    """Executes a shell command and returns the output."""
+    """Execute a shell command, optionally as a harness-owned background job."""
     cmd = get_shell_command(code, args, kwargs)
-
-    # Handle background job commands (Issue #576, #992)
     cmd_stripped = cmd.strip()
-    cmd_lower = cmd_stripped.lower()
-    cmd_parts = cmd_stripped.split(maxsplit=1)
+    background_value: object = (kwargs or {}).get("background", False)
+    background = background_value is True or (
+        isinstance(background_value, str)
+        and background_value.lower() in {"1", "true", "yes", "on"}
+    )
 
-    # Check for bg command - can be on any line (Issue #992)
-    # Split into lines and find if any line starts with "bg "
-    lines = cmd_stripped.split("\n")
-    bg_line_idx = None
-    for i, line in enumerate(lines):
-        line_stripped = line.strip().lower()
-        if line_stripped.startswith("bg "):
-            bg_line_idx = i
-            break
-
-    if bg_line_idx is not None:
-        # Found a bg command - extract bg_cmd and any surrounding commands
-        _bg_memory_limit = _get_memory_limit()
-        preceding_cmds = ""
-        remaining_cmds = ""
-
-        if bg_line_idx == 0 and len(lines) == 1:
-            # Simple case: bg is the only command
-            bg_cmd = cmd_stripped[3:].strip()
-        elif bg_line_idx > 0:
-            # bg is on a later line - preceding commands modify shell state (Issue #992)
-            preceding_cmds = "\n".join(lines[:bg_line_idx])
-            bg_cmd = lines[bg_line_idx].strip()[3:].strip()  # Remove "bg " prefix
-            if bg_line_idx < len(lines) - 1:
-                remaining_cmds = "\n".join(lines[bg_line_idx + 1 :])
-        else:
-            # bg is first line but there are more lines after it
-            bg_cmd = lines[0].strip()[3:].strip()
-            remaining_cmds = "\n".join(lines[1:])
-
-        # Route bg payload through denylist + TOOL_CONFIRM hook chain before
-        # starting background execution so guardrails can intercept commands
-        # like `bg cat ~/.ssh/id_rsa` (Issue #3598).
-        is_bg_denied, bg_deny_reason, bg_matched_cmd = is_denylisted(bg_cmd)
-        if is_bg_denied:
-            yield Message(
-                "system", f"Command denied: `{bg_matched_cmd}`\n\n{bg_deny_reason}"
-            )
-            return
-
-        # Denylist-check preceding commands too — they run inside execute_fn
-        # and would otherwise bypass this gate even though hooks only see bg_cmd.
-        if preceding_cmds.strip():
-            is_pre_denied, pre_deny_reason, pre_matched_cmd = is_denylisted(
-                preceding_cmds
-            )
-            if is_pre_denied:
-                yield Message(
-                    "system",
-                    f"Command denied (preceding): `{pre_matched_cmd}`\n\n{pre_deny_reason}",
-                )
-                return
-
-        # Denylist-check remaining commands upfront — they execute after the bg
-        # command starts, but pre-checking avoids presenting a partially-dangerous
-        # sequence to the user for approval only to block part of it later.
-        if remaining_cmds.strip():
-            is_rem_denied, rem_deny_reason, rem_matched_cmd = is_denylisted(
-                remaining_cmds
-            )
-            if is_rem_denied:
-                yield Message(
-                    "system",
-                    f"Command denied (remaining): `{rem_matched_cmd}`\n\n{rem_deny_reason}",
-                )
-                return
-
-        # Build full command context so TOOL_CONFIRM hooks see the complete
-        # sequence — not just bg_cmd — when deciding whether to approve.
-        # A hook that should block `cat ~/.ssh/id_rsa` must see it even when
-        # it precedes an innocuous `bg ls`.
-        _full_cmd_parts: list[str] = []
-        if preceding_cmds.strip():
-            _full_cmd_parts.append(preceding_cmds.strip())
-        _full_cmd_parts.append(f"bg {bg_cmd}")
-        if remaining_cmds.strip():
-            _full_cmd_parts.append(remaining_cmds.strip())
-        _full_cmd_context = "\n".join(_full_cmd_parts)
-
-        def _bg_execute_fn(c: str, p: Path | None) -> Generator[Message, None, None]:
-            # When surrounding commands exist, allow_edit=False so c is the full
-            # command context (_full_cmd_context), not just bg_cmd. Use the
-            # captured bg_cmd from the closure directly in that case.
-            # When no surrounding commands, c is the (possibly edited) bg_cmd with
-            # optional 'bg ' prefix that must be stripped before execution.
-            if _has_surrounding:
-                actual_cmd = bg_cmd
-            else:
-                actual_cmd = c.removeprefix("bg ") if c.startswith("bg ") else c
-                is_edited_denied, edited_deny_reason, edited_matched_cmd = (
-                    is_denylisted(actual_cmd)
-                )
-                if is_edited_denied:
-                    yield Message(
-                        "system",
-                        f"Command denied: `{edited_matched_cmd}`\n\n{edited_deny_reason}",
-                    )
-                    return
-            if preceding_cmds.strip():
-                yield from _execute_preceding_commands(preceding_cmds)
-            yield from execute_bg_command(actual_cmd, memory_limit=_bg_memory_limit)
-            if remaining_cmds.strip():
-                yield from execute_shell(remaining_cmds, [], None)
-
-        def _bg_preview_fn(content: str, path: Path | None) -> str | None:
-            if _has_surrounding:
-                return _full_cmd_context
-            actual_cmd = (
-                content.removeprefix("bg ") if content.startswith("bg ") else content
-            )
-            return f"bg {actual_cmd}"
-
-        # Disable editing when surrounding commands exist: _bg_execute_fn only
-        # applies edits to the bg_cmd portion (passed as `c`), not to the
-        # preceding/remaining commands that are captured in the closure.  If the
-        # user edited the full preview sequence those edits to the surrounding
-        # parts would be silently ignored, causing execution to diverge from the
-        # approved content.  Editing is safe only when bg_cmd is the sole command.
-        _has_surrounding = bool(preceding_cmds.strip() or remaining_cmds.strip())
-        # When surrounding commands exist, pass the full context so that
-        # TOOL_CONFIRM hooks (including third-party guardrails) see the complete
-        # command sequence via tool_use.content, not just the isolated bg_cmd.
-        # This ensures hooks checking tool_use.content can block dangerous
-        # preceding commands (e.g. "cat ~/.ssh/id_rsa") even when the bg payload
-        # itself ("ls") is innocuous.  When no surrounding commands exist, pass
-        # bg_cmd directly so the user can edit it cleanly.
-        _confirm_content = _full_cmd_context if _has_surrounding else bg_cmd
-        yield from execute_with_confirmation(
-            _confirm_content,
-            args,
-            kwargs,
-            execute_fn=_bg_execute_fn,
-            get_path_fn=get_path_fn,
-            preview_fn=_bg_preview_fn,
-            preview_lang="bash",
-            confirm_msg="Run command in background?",
-            allow_edit=not _has_surrounding,
-        )
-        return
-
-    if cmd_lower == "jobs":
-        # List background jobs
+    # Management commands remain available, but only as complete tool calls.
+    # This avoids hijacking ordinary Bash syntax, heredoc data, or executables
+    # that happen to share one of the old overlay's names.
+    if cmd_stripped == "jobs":
         yield from execute_jobs_command()
         return
-
-    if cmd_lower.startswith("output "):
-        # Show output from job: output <id>
-        job_id_str = cmd_parts[1] if len(cmd_parts) > 1 else ""
-        yield from execute_output_command(job_id_str)
+    if match := re.fullmatch(r"output (\d+)( --new)?", cmd_stripped):
+        suffix = " --new" if match.group(2) else ""
+        yield from execute_output_command(f"{match.group(1)}{suffix}")
         return
-
-    if cmd_lower.startswith("wait "):
-        wait_parts = cmd_stripped.split()
-        if len(wait_parts) not in (2, 3):
-            yield Message("system", "Usage: `wait <job-id> [timeout]`")
-            return
-        timeout_str = wait_parts[2] if len(wait_parts) == 3 else None
-        yield from execute_wait_command(wait_parts[1], timeout_str)
+    if match := re.fullmatch(r"wait (\d+)(?: ([^\s]+))?", cmd_stripped):
+        yield from execute_wait_command(match.group(1), match.group(2))
         return
-
-    if cmd_lower.startswith("kill ") and len(cmd_parts) == 2:
-        # Check if this looks like a job kill (just a number)
-        # vs a regular kill command (e.g., kill -9 1234)
-        potential_job_id = cmd_parts[1]
-        if potential_job_id.isdigit() and get_background_job(int(potential_job_id)):
-            yield from execute_kill_command(potential_job_id)
+    if match := re.fullmatch(r"kill (\d+)", cmd_stripped):
+        job_id = int(match.group(1))
+        if get_background_job(job_id) is not None:
+            yield from execute_kill_command(match.group(1))
             return
-        # Fall through to regular shell execution for other kill commands
 
     timeout = _get_timeout()
 
@@ -2312,39 +2113,35 @@ def execute_shell(
     has_issues, should_block, shellcheck_msg = check_with_shellcheck(cmd)
     if has_issues:
         yield Message("system", shellcheck_msg)
-        # Block execution if critical shellcheck errors found
         if should_block:
             return
 
-    # Check if command is denylisted - these are blocked entirely
     is_denied, deny_reason, matched_cmd = is_denylisted(cmd)
     if is_denied:
         yield Message("system", f"Command denied: `{matched_cmd}`\n\n{deny_reason}")
         return
 
-    # All non-denied commands go through execute_with_confirmation so that
-    # TOOL_CONFIRM hooks (including third-party guardrail plugins) can intercept
-    # any command — including ones the built-in allowlist would auto-approve.
-    # The shell_allowlist_hook (TOOL_CONFIRM, priority=10) auto-confirms safe
-    # commands; a guardrail registered at priority > 10 runs first and can deny
-    # even "allowlisted" commands such as `cat ~/.ssh/id_rsa`.
-    logger.debug(
-        "Routing shell command through hook chain: %s",
-        cmd[:80],
-    )
+    logger.debug("Routing shell command through hook chain: %s", cmd[:80])
 
-    # Create a wrapper function that rechecks edits against the denylist before
-    # passing the command and timeout to execute_shell_impl. The initial check
-    # above only covers the assistant-authored command; confirmation can replace it.
-    def execute_fn(cmd: str, path: Path | None) -> Generator[Message, None, None]:
-        is_edited_denied, edited_deny_reason, edited_matched_cmd = is_denylisted(cmd)
+    def execute_fn(command: str, path: Path | None) -> Generator[Message, None, None]:
+        is_edited_denied, edited_deny_reason, edited_matched_cmd = is_denylisted(
+            command
+        )
         if is_edited_denied:
             yield Message(
                 "system",
                 f"Command denied: `{edited_matched_cmd}`\n\n{edited_deny_reason}",
             )
             return
-        yield from execute_shell_impl(cmd, path, timeout=timeout)
+        if background:
+            job = start_background_job(command, memory_limit=_get_memory_limit())
+            yield Message(
+                "system",
+                f"Started background shell job #{job.id}: `{command}`\n\n"
+                "Completion will be reported automatically.",
+            )
+            return
+        yield from execute_shell_impl(command, path, timeout=timeout)
 
     yield from execute_with_confirmation(
         cmd,
@@ -2354,7 +2151,7 @@ def execute_shell(
         get_path_fn=get_path_fn,
         preview_fn=preview_shell,
         preview_lang="bash",
-        confirm_msg="Run command?",
+        confirm_msg="Run command in background?" if background else "Run command?",
         allow_edit=True,
     )
 
@@ -2770,11 +2567,18 @@ tool = ToolSpec(
             description="The shell command with arguments to execute.",
             required=True,
         ),
+        Parameter(
+            name="background",
+            type="boolean",
+            description="Run the whole tool call as a background job and return immediately.",
+            required=False,
+        ),
     ],
     # Register shell allowlist hook with high priority (10)
     # This auto-confirms allowlisted commands before CLI/server hooks (priority 0)
     hooks={
         "allowlist": ("tool.confirm", shell_allowlist_hook, 10),
+        "completion": ("loop.continue", background_job_completion_hook, 50),
         "session_end": ("session.end", _session_end_shell_cleanup, 0),
     },
     hints=frozenset({"code-exec", "destructive"}),
