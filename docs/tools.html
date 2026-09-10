@@ -713,6 +713,16 @@ Same overrides for stderr. Defaults: 2000 / 2000. Lowering these makes the
 truncation path fire on smaller outputs, which surfaces savings telemetry
 in <cite>context-savings.jsonl</cite> and the <cite>/context</cite> command. Invalid values fall
 back to defaults.</p>
+<dl class="simple">
+<dt>GPTME_SHELL_MAX_OUTPUT_BYTES: Hard cap on the total bytes (stdout + stderr</dt><dd><p>combined) captured into the in-process buffer before the subprocess is
+killed and the output is truncated. Accepts a plain byte count or a
+binary suffix (e.g. “32M”, “1G”). Default: 32 MiB. This prevents a
+runaway <code class="docutils literal notranslate"><span class="pre">cat</span></code> of a multi-GiB file from exhausting gptme’s RSS.
+The process receives SIGTERM then SIGKILL; the returned output contains
+a <code class="docutils literal notranslate"><span class="pre">[output</span> <span class="pre">truncated</span> <span class="pre">at</span> <span class="pre">N</span> <span class="pre">MiB,</span> <span class="pre">process</span> <span class="pre">killed]</span></code> marker. Token-level
+truncation (GPTME_SHELL_TRUNC_*) is applied on top as a second stage.</p>
+</dd>
+</dl>
 </dd>
 </dl>
 <p class="rubric">Instructions</p>
