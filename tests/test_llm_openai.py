@@ -46,6 +46,15 @@ def reset_default_model():
     set_default_model(default_model)
 
 
+@pytest.fixture(autouse=True)
+def reset_verbosity_warning_flag():
+    """Reset the _verbosity_warned flag before each test to prevent cross-test interference."""
+    original_flag = llm_openai._verbosity_warned
+    llm_openai._verbosity_warned = False
+    yield
+    llm_openai._verbosity_warned = original_flag
+
+
 def _collect_stream_result(generator):
     chunks: list[str] = []
     while True:
