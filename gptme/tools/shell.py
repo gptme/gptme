@@ -969,12 +969,17 @@ class ShellSession:
                     with cap_lock:
                         cap_state["bytes"] += len(raw)
                         over = cap_state["bytes"] > max_output_bytes
+                        if over:
+                            # Flag the cap BEFORE enqueueing the chunk so the
+                            # consumer cannot dequeue an over-cap chunk that
+                            # carries the delimiter while `over` is still
+                            # False and return the real code (Greptile P1 /
+                            # bob-ai-review P1 race).
+                            cap_state["over"] = True
                     queue.put(data)
                     if over:
                         # Stop producing more data; the consumer detects the
                         # cap and performs the kill + marker.
-                        with cap_lock:
-                            cap_state["over"] = True
                         break
                 except BlockingIOError:
                     time.sleep(0.01)
