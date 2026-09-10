@@ -153,6 +153,30 @@ def test_legacy_reads_and_separators_obey_byte_budget(tmp_path: Path) -> None:
     assert len(content.encode("utf-8")) <= 10
 
 
+def test_legacy_read_charges_raw_bytes_after_incomplete_utf8(
+    tmp_path: Path,
+) -> None:
+    first, second, third = [tmp_path / name for name in ("first", "second", "third")]
+    for root in (first, second, third):
+        root.mkdir()
+    (first / "MEMORY.md").write_text("12345", encoding="utf-8")
+    (second / "MEMORY.md").write_text("ééé", encoding="utf-8")
+    (third / "MEMORY.md").write_text("must-not-fit", encoding="utf-8")
+
+    content = _memory_content(
+        tmp_path,
+        [
+            MemoryRoot("project", first),
+            MemoryRoot("cc", second),
+            MemoryRoot("user", third),
+        ],
+        budget=12,
+    )
+
+    assert content == "12345\n\néé"
+    assert "must-not-fit" not in content
+
+
 def test_legacy_only_root_rejects_symlinked_index(tmp_path: Path) -> None:
     root = tmp_path / "memory"
     root.mkdir()
