@@ -414,6 +414,46 @@ class TestJobRegistry:
             == []
         )
 
+    def test_reset_purge_does_not_drop_concurrent_completion(self):
+        from threading import Event, Thread
+
+        from gptme.tools import shell_background
+
+        old_job = _make_job()
+        old_job.conversation_id = "conversation-a"
+        new_job = _make_job()
+        new_job.conversation_id = "conversation-b"
+        shell_background._completion_queue.put(old_job)
+
+        purge_started = Event()
+        producer_done = Event()
+        original_mutex = shell_background._completion_queue.mutex
+
+        class CoordinatedMutex:
+            def __enter__(self) -> None:
+                original_mutex.acquire()
+                purge_started.set()
+                time.sleep(0.05)
+
+            def __exit__(self, *_args: object) -> None:
+                original_mutex.release()
+
+        def producer() -> None:
+            purge_started.wait(timeout=5)
+            shell_background._completion_queue.put(new_job)
+            producer_done.set()
+
+        producer_thread = Thread(target=producer)
+        producer_thread.start()
+        with patch.object(
+            shell_background._completion_queue, "mutex", CoordinatedMutex()
+        ):
+            shell_background._purge_completion_queue({"conversation-a"})
+        producer_thread.join(timeout=5)
+
+        assert producer_done.is_set()
+        assert shell_background._completion_queue.get_nowait() is new_job
+
 
 # ---------------------------------------------------------------------------
 # Command handlers — execute_bg_command
