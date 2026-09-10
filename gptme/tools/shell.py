@@ -1616,12 +1616,17 @@ class ShellSession:
                                 f"Shell functions, aliases, unexported variables "
                                 f"and `&` jobs from the old shell are gone.\n"
                             )
-                            self._restart_notice = (
+                            restart_notice = (
                                 f"Note: the shell exited (closed its output pipe) "
                                 f"during this command, so gptme started a fresh "
                                 f"shell. {note[0].upper() + note[1:]}. Shell functions, "
                                 f"aliases, unexported variables and background jobs "
                                 f"of the old shell are gone."
+                            )
+                            self._restart_notice = (
+                                restart_notice
+                                if not self._restart_notice
+                                else self._restart_notice + "\n" + restart_notice
                             )
                             return (
                                 -1,

@@ -84,6 +84,20 @@ def test_stdout_closed_but_shell_alive_is_restarted(shell, tmp_path):
     assert (pid != old_pid, cwd, marker) == (True, str(tmp_path), "alive")
 
 
+def test_closed_pipe_preserves_existing_restart_notice(shell):
+    """Two shell deaths before notice consumption must both reach the model."""
+    os.kill(shell.process.pid, signal.SIGKILL)
+    shell.process.wait(timeout=5)
+
+    shell.run("exec 1>&-", output=False, timeout=30)
+
+    notice = shell.consume_restart_notice()
+    assert notice
+    assert "before this command" in notice
+    assert "during this command" in notice
+    assert notice.index("before this command") < notice.index("during this command")
+
+
 def test_killed_between_commands_restarts_before_next_command(shell, tmp_path):
     """External kill (OOM killer, registry close from another thread)."""
     os.kill(shell.process.pid, signal.SIGKILL)
