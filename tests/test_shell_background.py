@@ -137,11 +137,15 @@ class TestJobLifecycle:
         assert job.process.returncode is not None
 
     def test_kill_already_finished(self):
-        """Killing a finished job should not raise."""
+        """A finished job must not signal a potentially reused process group."""
+        from unittest.mock import patch
+
         job = start_background_job("true")
         job.process.wait(timeout=5)
         time.sleep(0.3)
-        job.kill()  # should not raise
+        with patch("gptme.tools.shell_background.os.killpg") as killpg:
+            job.kill()
+        killpg.assert_not_called()
         assert not job.is_running()
 
 
