@@ -3891,15 +3891,17 @@ def test_handle_tools_keeps_pairing_for_unavailable_tool_call():
 
 
 def test_handle_tools_demotes_orphan_tool_result_to_user_text():
-    """A tool result with no preceding tool_call is sent as plain text, not role=tool."""
+    """A buffered orphan result is moved after the valid tool-response run."""
     init_tools(allowlist=["shell"])
 
     messages = [
         Message(role="user", content="hi"),
         Message(role="assistant", content='@shell(call_live): {"command": "true"}'),
         # Result whose assistant call was lost (old log / interrupted turn).
-        # Put it after an unrelated tool call to cover the buffered path.
+        # Put it before the valid result to exercise the buffered path without
+        # leaving the live call unanswered in the API transcript.
         Message(role="system", content="stale output", call_id="call_gone"),
+        Message(role="system", content="live output", call_id="call_live"),
     ]
 
     tool_shell = get_tool("shell")
@@ -3907,9 +3909,15 @@ def test_handle_tools_demotes_orphan_tool_result_to_user_text():
     model = get_model("openai/gpt-4o")
     messages_dicts, _ = _prepare_messages_for_api(messages, model.full, [tool_shell])
 
-    assert [m["role"] for m in messages_dicts] == ["user", "assistant", "user"]
-    assert all("tool_call_id" not in m for m in messages_dicts)
+    assert [m["role"] for m in messages_dicts] == [
+        "user",
+        "assistant",
+        "tool",
+        "user",
+    ]
+    assert messages_dicts[2]["tool_call_id"] == "call_live"
     demoted = messages_dicts[-1]
+    assert "tool_call_id" not in demoted
     assert demoted["role"] == "user"
     content = demoted["content"]
     text: str | None
