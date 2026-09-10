@@ -276,7 +276,9 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     delete cleanMessage._error;
     conv.log.push(cleanMessage);
     conv.branches = { ...conv.branches, main: conv.log };
-    saveDemoSessionStorage(localConversations);
+    if (logfile.startsWith('demo/')) {
+      saveDemoSessionStorage(localConversations);
+    }
   };
 
   const notImpl = (method: string): never => {
@@ -372,6 +374,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
         const recovered: ConversationResponse = {
           ...clone(DEMO_CONV_RESPONSE),
           id: logfile,
+          name: 'Recovered demo conversation',
           logfile,
           log: [notice, ...clone(DEMO_MESSAGES)],
           branches: { main: [notice, ...clone(DEMO_MESSAGES)] },
@@ -424,7 +427,9 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       };
       if (!existing) {
         localConversations.set(logfile, conv);
-        saveDemoSessionStorage(localConversations);
+        if (logfile.startsWith('demo/')) {
+          saveDemoSessionStorage(localConversations);
+        }
       }
       sessions$.set(logfile, `demo-session-${logfile}`);
       return { status: 'ok', session_id: logfile };

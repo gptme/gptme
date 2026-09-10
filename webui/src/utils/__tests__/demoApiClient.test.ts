@@ -258,6 +258,7 @@ describe('createDemoApiClient — page reload / session recovery', () => {
     const client1 = createDemoApiClient();
     const recovered = await client1.getConversation(logfile);
     expect(recovered.id).toBe(logfile);
+    expect(recovered.name).toBe('Recovered demo conversation');
     expect(recovered.log.length).toBeGreaterThan(0);
     expect(recovered.log[0].role).toBe('system');
     expect(recovered.log[0].content).toMatch(/not found|expired/i);
@@ -271,6 +272,15 @@ describe('createDemoApiClient — page reload / session recovery', () => {
       expect.objectContaining({ role: 'user', content: 'continue' }),
     ]);
     await expect(client2.forkConversation(logfile, 0)).resolves.toMatch(/^demo\/conv-/);
+  });
+
+  it('does not persist non-demo conversations after a message', async () => {
+    const client1 = createDemoApiClient();
+    await client1.createConversation('unknown/chat', []);
+    await client1.sendMessage('unknown/chat', { role: 'user', content: 'hello' });
+
+    const client2 = createDemoApiClient();
+    await expect(client2.getConversation('unknown/chat')).rejects.toBeInstanceOf(DemoModeError);
   });
 
   it('does NOT apply graceful recovery to non-demo IDs (still throws)', async () => {
