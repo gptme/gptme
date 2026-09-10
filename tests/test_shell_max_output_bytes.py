@@ -17,6 +17,7 @@ from gptme.tools.shell import (
     _DEFAULT_MAX_OUTPUT_BYTES,
     ShellSession,
     _get_max_output_bytes,
+    _strip_shell_return_marker,
 )
 
 # ---------------------------------------------------------------------------
@@ -68,6 +69,45 @@ def test_zero_env_falls_back_to_default():
     with patch("gptme.config.get_config", return_value=mock_cfg):
         result = _get_max_output_bytes()
     assert result == _DEFAULT_MAX_OUTPUT_BYTES
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for _strip_shell_return_marker
+# ---------------------------------------------------------------------------
+
+DELIM = "END_OF_COMMAND_OUTPUT"
+
+
+def test_marker_stripped_when_same_line():
+    """The single-line injected return marker is removed from byte accounting."""
+    chunk = b"hello\nworld\nReturnCode:0 END_OF_COMMAND_OUTPUT\n"
+    assert _strip_shell_return_marker(chunk, DELIM) == b"hello\nworld\n"
+
+
+def test_marker_split_across_lines_not_stripped():
+    """Command output with ReturnCode: and delimiter on SEPARATE lines counts fully.
+
+    Regression for Greptile P1 (marker text bypasses cap): previously anything
+    with ``ReturnCode:`` later followed by the delimiter in the same chunk was
+    stripped from byte accounting, so a command emitting marker-like text on
+    separate lines could undercount and evade the cap.
+    """
+    chunk = b"ReturnCode: 42\nsome output\nEND_OF_COMMAND_OUTPUT here\nmore\n"
+    assert _strip_shell_return_marker(chunk, DELIM) == chunk
+
+
+def test_marker_stripped_only_after_returncode_line():
+    """Command output before the delimiter line is preserved."""
+    chunk = b"data\nReturnCode:0\nEND_OF_COMMAND_OUTPUT\n"
+    # 'ReturnCode:0\n' and 'END_OF_COMMAND_OUTPUT\n' are on separate lines, so
+    # nothing is stripped: this is genuine (non-marker) output text.
+    assert _strip_shell_return_marker(chunk, DELIM) == chunk
+
+
+def test_no_marker_leaves_chunk_untouched():
+    """A chunk without the marker is passed through unchanged."""
+    chunk = b"just stdout data\nwith a ReturnCode: prefix but no delimiter\n"
+    assert _strip_shell_return_marker(chunk, DELIM) == chunk
 
 
 # ---------------------------------------------------------------------------

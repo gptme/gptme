@@ -402,6 +402,27 @@ def _get_max_output_bytes() -> int:
     return limit
 
 
+def _strip_shell_return_marker(raw: bytes, delimiter: str) -> bytes:
+    """Strip the shell-injected return marker from a raw output chunk.
+
+    The marker is echoed on a single line — ``ReturnCode:$? <delimiter>`` —
+    immediately after the command. We remove it (and anything after it) from
+    the byte-accounting stream, but only when both ``ReturnCode:`` and the
+    delimiter share the *same* line. Command output that merely contains
+    ``ReturnCode:`` and later ``END_OF_COMMAND_OUTPUT`` on separate lines must
+    be counted in full, otherwise such output can undercount and bypass the
+    output byte cap (Greptile P1: marker text bypasses cap).
+    """
+    delimiter_pos = raw.rfind(b"ReturnCode:")
+    if delimiter_pos >= 0:
+        rest = raw[delimiter_pos:]
+        line_end = rest.find(b"\n")
+        delimiter_line = rest if line_end < 0 else rest[:line_end]
+        if delimiter.encode() in delimiter_line:
+            return raw[:delimiter_pos]
+    return raw
+
+
 def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
     """Return the subset of `fds` that are readable, waiting up to `timeout` seconds.
 
@@ -1307,12 +1328,9 @@ class ShellSession:
                                 if marker_end >= 0
                                 else b""
                             )
-                        delimiter_pos = captured_raw.rfind(b"ReturnCode:")
-                        if (
-                            delimiter_pos >= 0
-                            and self.delimiter.encode() in captured_raw[delimiter_pos:]
-                        ):
-                            captured_raw = captured_raw[:delimiter_pos]
+                        captured_raw = _strip_shell_return_marker(
+                            captured_raw, self.delimiter
+                        )
                     captured_bytes += len(captured_raw)
 
                     for line in lines:
