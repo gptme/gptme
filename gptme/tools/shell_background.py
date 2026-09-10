@@ -243,7 +243,7 @@ class BackgroundJob:
 # library/tests calls that have no conversation context.
 _background_jobs: dict[str | None, dict[int, BackgroundJob]] = {}
 _next_job_ids: dict[str | None, int] = {}
-_completion_queue: queue.Queue[tuple[str | None, int]] = queue.Queue()
+_completion_queue: queue.Queue[BackgroundJob] = queue.Queue()
 _job_lock: threading.Lock = threading.Lock()
 
 
@@ -263,7 +263,7 @@ def _get_next_job_id_locked(conversation_id: str | None) -> int:
 
 
 def _notify_completion(job: BackgroundJob) -> None:
-    _completion_queue.put((job.conversation_id, job.id))
+    _completion_queue.put(job)
 
 
 def _jobs_for(conversation_id: str | None) -> dict[int, BackgroundJob]:
@@ -375,20 +375,21 @@ def background_job_completion_hook(
     """Deliver completed jobs only to the conversation that started them."""
     del interactive, prompt_queue, no_confirm
     conversation_id = getattr(manager, "chat_id", None)
-    deferred: list[tuple[str | None, int]] = []
+    deferred: list[BackgroundJob] = []
     while True:
         try:
-            queued_conversation_id, job_id = _completion_queue.get_nowait()
+            job = _completion_queue.get_nowait()
         except queue.Empty:
             break
-        if queued_conversation_id != conversation_id:
-            deferred.append((queued_conversation_id, job_id))
+        if job.conversation_id != conversation_id:
+            deferred.append(job)
             continue
-        job = _get_background_job(queued_conversation_id, job_id)
-        if job is not None:
+        # Match object identity as well as the conversation-local ID. A reset can
+        # reuse IDs; an old queued completion must never resolve to the new job.
+        if _get_background_job(conversation_id, job.id) is job:
             yield _completion_message(job)
-    for item in deferred:
-        _completion_queue.put(item)
+    for job in deferred:
+        _completion_queue.put(job)
 
 
 # Background command handlers
