@@ -1,7 +1,10 @@
 """Persistent index selection must survive every writer without losing recall."""
 
 import json
+from contextlib import AbstractContextManager
 from pathlib import Path
+from types import TracebackType
+from typing import BinaryIO, cast
 
 import pytest
 from click.testing import CliRunner
@@ -481,6 +484,52 @@ def test_managed_save_rolls_back_readonly_entry_after_index_failure(
         entry.chmod(0o600)
 
 
+def test_staging_failure_removes_partial_temp_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    store = _store(tmp_path)
+    _policy(tmp_path, [])
+    store.write_index()
+    before = _snapshot(tmp_path)
+    real_fdopen = os.fdopen
+    opened = 0
+
+    class FailingWriter(AbstractContextManager["FailingWriter"]):
+        def __init__(self, wrapped: BinaryIO) -> None:
+            self.wrapped = wrapped
+
+        def __enter__(self) -> "FailingWriter":
+            self.wrapped.__enter__()
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> bool | None:
+            return self.wrapped.__exit__(exc_type, exc_value, traceback)
+
+        def write(self, data: bytes) -> int:
+            self.wrapped.write(data[:1])
+            raise OSError("staging failed")
+
+    def fail_second_write(fd: int, mode: str) -> BinaryIO | FailingWriter:
+        nonlocal opened
+        opened += 1
+        wrapped = cast(BinaryIO, real_fdopen(fd, mode))
+        return FailingWriter(wrapped) if opened == 2 else wrapped
+
+    monkeypatch.setattr("gptme.memory.store.os.fdopen", fail_second_write)
+    with pytest.raises(OSError, match="staging failed"):
+        store.save("new", "Description")
+
+    assert _snapshot(tmp_path) == before
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
 @pytest.mark.parametrize("managed", [False, True])
 def test_save_rejects_malformed_existing_yaml_without_losing_metadata(
     tmp_path: Path, managed: bool
@@ -509,6 +558,24 @@ def test_save_rejects_malformed_existing_yaml_without_losing_metadata(
     before = _snapshot(tmp_path)
     with pytest.raises(MemoryFrontmatterError, match="invalid YAML"):
         store.save("kept", "Replacement description", "Replacement body")
+    assert _snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("managed", [False, True])
+def test_save_rejects_existing_non_entry_without_traceback(
+    tmp_path: Path, managed: bool
+) -> None:
+    store = _store(tmp_path)
+    path = tmp_path / "kept.md"
+    path.write_text("A stray note without frontmatter.\n", encoding="utf-8")
+    if managed:
+        _policy(tmp_path, [])
+        store.write_index()
+    before = _snapshot(tmp_path)
+
+    with pytest.raises(ValueError, match="frontmatter"):
+        store.save("kept", "Replacement description", "Replacement body")
+
     assert _snapshot(tmp_path) == before
 
 

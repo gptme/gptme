@@ -86,10 +86,11 @@ def _commit_replacements(pairs: list[tuple[Path, str]]) -> None:
             dest.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
             fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            # Track the temp before writing so a partial-write failure is cleaned up.
+            staged.append((dest, tmp, original))
             with os.fdopen(fd, "wb") as f:
                 f.write(text.encode("utf-8"))
             _preserve_mode(tmp, dest)
-            staged.append((dest, tmp, original))
         for dest, tmp, original in staged:
             os.replace(tmp, dest)
             replaced.append((dest, original))
