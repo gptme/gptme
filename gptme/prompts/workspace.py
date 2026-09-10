@@ -470,12 +470,20 @@ def prompt_workspace(
                                 # duplicate links in the undisplayed suffix.
                                 root_content = legacy
                             else:
+                                # Match only local .md destinations, including relative
+                                # paths and optional anchors. Parenthesized destinations,
+                                # URLs, and Markdown titles stay unmatched; parsing arbitrary
+                                # Markdown correctly would require a real parser.
                                 linked_filenames = {
-                                    Path(target.split("#", 1)[0].strip("<> ")).name
-                                    for target in re.findall(
-                                        r"\[[^\]]*\]\(([^)]+)\)", legacy
+                                    match.group("angle") or match.group("plain")
+                                    for match in re.finditer(
+                                        r"]\((?:<(?P<angle>[^<>():]+\.md)>|"
+                                        r"(?P<plain>[^<>():]+\.md))(?:#[^)]+)?\)",
+                                        legacy,
                                     )
-                                    if "://" not in target
+                                }
+                                linked_filenames = {
+                                    Path(target).name for target in linked_filenames
                                 }
                                 missing_entries = [
                                     entry

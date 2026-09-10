@@ -483,6 +483,41 @@ class TestCcMemoryInWorkspacePrompt:
         assert "](missing.md)" in generated_index
         assert "Operator guidance" in combined
 
+    def test_parenthesized_markdown_target_does_not_hide_local_entry(self, tmp_path):
+        """A partial parse of a complex target must not suppress an entry."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        _make_entry(memory_dir, "a-b", "Local entry", type="user")
+        (memory_dir / "MEMORY.md").write_text(
+            "- [complex](<a(b).md>) — unrelated complex Markdown target\n"
+        )
+        root = MemoryRoot("cc", memory_dir)
+
+        with (
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[root]),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
+        assert "<a(b).md>" in combined
+        assert "](a-b.md)" in combined
+
     def test_truncated_unmanaged_index_does_not_append_duplicate_pointers(
         self, tmp_path
     ):
