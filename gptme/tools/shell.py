@@ -2492,9 +2492,13 @@ def _bash_syntax_error(script: str, fallback: str) -> str | None:
     executing anything and is the authority.
 
     Returns None when bash accepts the script, bash's own error message when it
-    rejects it, and ``fallback`` when the check could not run.
+    rejects it, and ``fallback`` when the check could not run. Bash is resolved
+    the same way :class:`ShellSession` launches it (via PATH), so the split
+    boundary validation also applies on Windows/Msys2-Git-Bash — otherwise the
+    new splitter would be silently disabled on that supported path and lose
+    stop-on-failure for extended-syntax scripts.
     """
-    bash = None if _is_windows else shutil.which("bash")
+    bash = shutil.which("bash")
     if bash is None:
         return fallback
     try:

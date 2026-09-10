@@ -463,6 +463,27 @@ def test_split_commands_without_bash_rejects_invalid_syntax(monkeypatch):
         split_commands("ls |")
 
 
+def test_split_commands_windows_with_bash_keeps_stop_on_failure(monkeypatch):
+    """On windows, the split boundary validation must still run when Bash is on PATH.
+
+    ShellSession launches ``bash`` via PATH on Windows too (Msys2/Git Bash), so
+    a valid extended-syntax script (``[[ ]]``) must keep stop-on-failure
+    splitting rather than degrade to a single fragment via the bashlex
+    fallback. Regression for the Greptile P1 on gptme/gptme#3808.
+    """
+    import shutil
+
+    import gptme.tools.shell as shell_module
+
+    monkeypatch.setattr(shell_module, "_is_windows", True)
+    bash = shutil.which("bash")
+    assert bash, "test requires a bash on PATH"
+    monkeypatch.setattr(shell_module.shutil, "which", lambda _name: bash)
+
+    script = "false\n[[ -f x ]]\necho after"
+    assert split_commands(script) == ["false", "[[ -f x ]]", "echo after"]
+
+
 def test_split_commands_heredoc_followed_by_redirect_keeps_body():
     """A redirect after the heredoc operator must not drop the heredoc body.
 
