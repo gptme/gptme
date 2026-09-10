@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
@@ -11,8 +12,6 @@ from ..telemetry import trace_function
 from .generate_name import generate_name
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from ..config import ChatConfig
 
 logger = logging.getLogger(__name__)
@@ -308,21 +307,6 @@ def auto_generate_display_name(messages: list[Message], model: str) -> str | Non
     return generate_conversation_name(strategy="llm", messages=messages, model=model)
 
 
-def _config_has_name_on_disk(config: ChatConfig) -> bool:
-    """Re-read *config* from its logdir; True if a name was saved meanwhile."""
-    from pathlib import Path  # runtime use; avoids the config import cycle
-
-    from ..config import ChatConfig as _ChatConfig
-
-    logdir = getattr(config, "_logdir", None)
-    if not logdir:
-        return False
-    try:
-        return bool(_ChatConfig.from_logdir(Path(logdir)).name)
-    except Exception:  # pragma: no cover - never block naming on a read error
-        return False
-
-
 def try_auto_name(
     config: ChatConfig,
     messages: list[Message],
@@ -347,14 +331,22 @@ def try_auto_name(
     try:
         display_name = auto_generate_display_name(messages, model)
         if display_name:
-            # Another caller (a concurrent naming thread, the server, or the
-            # user via /rename) may have named the conversation while the
-            # LLM call was in flight; the first name wins.
-            if _config_has_name_on_disk(config):
-                logger.debug("Conversation was named concurrently; keeping it")
-                return None
-            config.name = display_name
-            config.save()
+            logdir = getattr(config, "_logdir", None)
+            if logdir:
+                from ..config import ChatConfig as _ChatConfig
+                from ..config.chat import chat_config_lock
+
+                with chat_config_lock(Path(logdir)):
+                    current = _ChatConfig.from_logdir(Path(logdir))
+                    if current.name:
+                        logger.debug("Conversation was named concurrently; keeping it")
+                        return None
+                    current.name = display_name
+                    current.save()
+                    config.name = display_name
+            else:
+                config.name = display_name
+                config.save()
             logger.info(f"Auto-generated conversation name: {display_name}")
             return display_name
         logger.debug("Auto-naming returned no result, will retry on next message")

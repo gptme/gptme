@@ -352,11 +352,7 @@ def test_generate_conversation_name_returns_none_on_llm_failure():
 
 
 def test_try_auto_name_keeps_name_saved_concurrently(tmp_path, monkeypatch):
-    """A name saved on disk while the LLM call was in flight wins.
-
-    Several naming threads can race (one per step before the first name
-    lands); the second result must not overwrite the first.
-    """
+    """A name saved on disk while the LLM call was in flight wins."""
     from gptme.config import ChatConfig
     from gptme.message import Message
     from gptme.util import auto_naming
@@ -378,4 +374,5 @@ def test_try_auto_name_keeps_name_saved_concurrently(tmp_path, monkeypatch):
 
     result = auto_naming.try_auto_name(config, messages, "test/model")
     assert result is None
+    assert config.name is None
     assert ChatConfig.from_logdir(tmp_path).name == "First Name"

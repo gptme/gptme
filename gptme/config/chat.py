@@ -4,13 +4,15 @@ ChatConfig manages per-conversation settings including model selection,
 tool configuration, workspace paths, and agent settings.
 """
 
+import importlib
 import logging
 import os
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
@@ -34,6 +36,40 @@ if TYPE_CHECKING:
     from ..tools.base import ToolFormat
 
 logger = logging.getLogger(__name__)
+
+try:
+    fcntl: Any = importlib.import_module("fcntl")
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
+try:
+    msvcrt: Any = importlib.import_module("msvcrt")
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None
+
+
+@contextmanager
+def chat_config_lock(logdir: Path):
+    """Serialize config.toml read-modify-write operations for one chat."""
+    lock_path = logdir / ".config.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        if fcntl is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        elif msvcrt is not None:  # pragma: no cover - Windows
+            if lock.seek(0, os.SEEK_END) == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            elif msvcrt is not None:  # pragma: no cover - Windows
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _coerce_config_path(value: object, field_name: str) -> Path:

@@ -57,6 +57,36 @@ logger = logging.getLogger(__name__)
 
 # logdir -> in-flight auto-naming thread (see the naming block in step loop)
 _naming_threads: dict[Path, threading.Thread] = {}
+_naming_threads_lock = threading.Lock()
+
+
+def _start_auto_naming_thread(
+    logdir: Path,
+    chat_config: ChatConfig,
+    messages: list[Message],
+    model: str,
+) -> None:
+    """Start at most one auto-naming worker for *logdir*."""
+
+    def _run() -> None:
+        try:
+            try_auto_name(chat_config, messages, model)
+        finally:
+            with _naming_threads_lock:
+                if _naming_threads.get(logdir) is threading.current_thread():
+                    del _naming_threads[logdir]
+
+    with _naming_threads_lock:
+        if logdir in _naming_threads:
+            return
+        thread = threading.Thread(target=_run, daemon=True)
+        _naming_threads[logdir] = thread
+        try:
+            thread.start()
+        except Exception:
+            del _naming_threads[logdir]
+            raise
+
 
 # Store an immutable int. copy_context() (server/TUI/ACP step threads) copies
 # the binding, not the value: a list would be shared by reference and a child
@@ -565,19 +595,13 @@ def _process_message_conversation(
             # guard every step before the first name lands spawns another
             # thread and the log shows three "Auto-generated conversation
             # name" lines for one conversation.
-            inflight = _naming_threads.get(manager.logdir)
-            if not chat_config.name and not (inflight and inflight.is_alive()):
-                thread = threading.Thread(
-                    target=try_auto_name,
-                    args=(
-                        chat_config,
-                        copy.deepcopy(manager.log.messages),
-                        current_model.full,
-                    ),
-                    daemon=True,
+            if not chat_config.name:
+                _start_auto_naming_thread(
+                    manager.logdir,
+                    chat_config,
+                    copy.deepcopy(manager.log.messages),
+                    current_model.full,
                 )
-                _naming_threads[manager.logdir] = thread
-                thread.start()
 
         # Check step limit (GPTME_MAX_STEPS)
         step_count += 1

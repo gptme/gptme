@@ -1255,3 +1255,36 @@ def test_get_user_input_cancels_on_include_paths_interrupt(monkeypatch):
     result = _get_user_input(Log(messages=[Message("assistant", "ok")]), None)
     assert result is None
     assert _interruptible_var.get() is False
+
+
+def test_auto_naming_thread_registry_cleans_up_and_deduplicates(tmp_path, monkeypatch):
+    """The registry owns one live worker and drops it after completion."""
+    import threading
+
+    import gptme.chat as chat_module
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def _try_auto_name(*_args):
+        started.set()
+        assert release.wait(timeout=2)
+
+    monkeypatch.setattr(chat_module, "try_auto_name", _try_auto_name)
+    chat_module._naming_threads.clear()
+    config = ChatConfig(_logdir=tmp_path)
+    messages = [Message("assistant", "hello")]
+
+    chat_module._start_auto_naming_thread(tmp_path, config, messages, "test/model")
+    assert started.wait(timeout=2)
+    first = chat_module._naming_threads[tmp_path]
+
+    chat_module._start_auto_naming_thread(tmp_path, config, messages, "test/model")
+    assert chat_module._naming_threads[tmp_path] is first
+
+    release.set()
+    first.join(timeout=2)
+    assert not first.is_alive()
+    assert tmp_path not in chat_module._naming_threads

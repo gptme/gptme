@@ -20,6 +20,7 @@ from typing import Any
 import tomlkit
 
 from ..config import ChatConfig, get_project_config
+from ..config.chat import chat_config_lock
 from ..dirs import get_logs_dir
 from .manager import Log
 
@@ -527,24 +528,24 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
     conv_dir = conv_path.parent
     config_path = conv_dir / "config.toml"
 
-    # Load existing config or create fresh — update only the name field.
-    # We avoid ChatConfig.save() here because it also manages the workspace
-    # symlink, which would create an unintended symlink pointing to cwd for
-    # conversations that have no pre-existing workspace configuration.
-    if config_path.exists():
-        with open(config_path) as f:
-            config_data = tomlkit.load(f)
-    else:
-        config_data = tomlkit.document()
+    # Share the auto-namer's lock so its compare-and-save cannot overwrite a
+    # user rename. Update only the name field: ChatConfig.save() also manages
+    # workspace symlinks, which is unwanted for legacy conversations.
+    with chat_config_lock(conv_dir):
+        if config_path.exists():
+            with open(config_path) as f:
+                config_data = tomlkit.load(f)
+        else:
+            config_data = tomlkit.document()
 
-    if "chat" not in config_data:
-        config_data.add("chat", tomlkit.table())
-    chat_section = config_data["chat"]
-    assert isinstance(chat_section, dict)
-    chat_section["name"] = new_name
+        if "chat" not in config_data:
+            config_data.add("chat", tomlkit.table())
+        chat_section = config_data["chat"]
+        assert isinstance(chat_section, dict)
+        chat_section["name"] = new_name
 
-    with open(config_path, "w") as f:
-        tomlkit.dump(config_data, f)
+        with open(config_path, "w") as f:
+            tomlkit.dump(config_data, f)
 
     return True
 
