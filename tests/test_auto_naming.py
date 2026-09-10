@@ -376,3 +376,30 @@ def test_try_auto_name_keeps_name_saved_concurrently(tmp_path, monkeypatch):
     assert result is None
     assert config.name is None
     assert ChatConfig.from_logdir(tmp_path).name == "First Name"
+
+
+def test_try_auto_name_persists_in_memory_config_overrides(tmp_path, monkeypatch):
+    """Auto-naming preserves unsaved settings on the caller's config."""
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.util import auto_naming
+
+    config = ChatConfig(_logdir=tmp_path, model="test/original")
+    config.save()
+    config.model = "test/override"
+    config.tools = ["shell"]
+    messages = [
+        Message("user", "Help me debug a Python script"),
+        Message("assistant", "Sure, what's the error?"),
+    ]
+    monkeypatch.setattr(
+        auto_naming, "auto_generate_display_name", lambda *_: "Debug Python"
+    )
+
+    result = auto_naming.try_auto_name(config, messages, "test/model")
+
+    assert result == "Debug Python"
+    saved = ChatConfig.from_logdir(tmp_path)
+    assert saved.name == "Debug Python"
+    assert saved.model == "test/override"
+    assert saved.tools == ["shell"]

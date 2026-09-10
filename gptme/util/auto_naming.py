@@ -341,9 +341,8 @@ def try_auto_name(
                     if current.name:
                         logger.debug("Conversation was named concurrently; keeping it")
                         return None
-                    current.name = display_name
-                    current.save()
                     config.name = display_name
+                    config.save()
             else:
                 config.name = display_name
                 config.save()
