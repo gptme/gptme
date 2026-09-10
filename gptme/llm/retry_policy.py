@@ -19,7 +19,7 @@ autonomous session. Override with ``GPTME_LLM_MAX_RETRIES``.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -67,7 +67,7 @@ def retry_delay(attempt: int, base_delay: float = DEFAULT_BASE_DELAY) -> float:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _retry_after_seconds(error: Any) -> float | None:
@@ -87,7 +87,7 @@ def _retry_after_seconds(error: Any) -> float | None:
         except (TypeError, ValueError, OverflowError):
             return None
         if retry_at.tzinfo is None:
-            retry_at = retry_at.replace(tzinfo=UTC)
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
         delay = (retry_at - _utcnow()).total_seconds()
     return delay if delay >= 0 else None
 

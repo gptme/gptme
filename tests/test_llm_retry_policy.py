@@ -53,9 +53,9 @@ def test_retry_after_does_not_shorten_exponential_delay():
 
 
 def test_retry_after_http_date_is_honored(monkeypatch):
-    from datetime import UTC, datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
-    now = datetime(2026, 9, 10, 6, 0, tzinfo=UTC)
+    now = datetime(2026, 9, 10, 6, 0, tzinfo=timezone.utc)
     error = _status_error_with_retry_after(format_datetime(now + timedelta(seconds=23)))
     monkeypatch.setattr("gptme.llm.retry_policy._utcnow", lambda: now)
     assert retry_delay_for_error(error, attempt=0) == 23
