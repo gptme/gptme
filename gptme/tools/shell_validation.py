@@ -251,7 +251,9 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     # A delimiter is a shell word, not necessarily an identifier. Support
     # punctuation commonly used to make delimiters distinctive (for example
     # ``END-TAG``), while stopping unquoted words at shell metacharacters.
-    heredoc_pattern = re.compile(r"<<-?\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))")
+    heredoc_pattern = re.compile(
+        r"<<(\-?)\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))"
+    )
 
     quoted_regions = _find_quotes(cmd)
 
@@ -283,7 +285,8 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
         ):
             continue
 
-        delimiter = next(group for group in match.groups() if group is not None)
+        strip_tabs = match.group(1) == "-"
+        delimiter = next(group for group in match.groups()[1:] if group is not None)
 
         # Find where the content starts (after the first newline after the marker)
         search_start = match.end()
@@ -301,15 +304,20 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
                 # Check if remaining text is the delimiter. Include the
                 # delimiter itself in the safe region: it is shell syntax, not
                 # a command following the heredoc.
-                if cmd[pos:].strip() == delimiter:
+                tail = cmd[pos:].rstrip("\r")
+                if strip_tabs:
+                    tail = tail.lstrip("\t")
+                if tail == delimiter:
                     heredoc_regions.append((content_start, len(cmd)))
                 break
 
             # Check if the line from pos to newline_idx is just the delimiter.
             # Include the terminator line but preserve its newline, so a real
             # command on the following line remains independently visible.
-            line = cmd[pos:newline_idx]
-            if line.strip() == delimiter:
+            line = cmd[pos:newline_idx].rstrip("\r")
+            if strip_tabs:
+                line = line.lstrip("\t")
+            if line == delimiter:
                 heredoc_regions.append((content_start, newline_idx))
                 break
 

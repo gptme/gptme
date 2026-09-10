@@ -135,6 +135,20 @@ class TestFindHeredocRegions:
         regions = _find_heredoc_regions(cmd)
         assert len(regions) == 1
 
+    def test_space_indented_delimiter_is_data_for_plain_heredoc(self):
+        cmd = "cat <<EOF\n  EOF\nbg\nEOF"
+        regions = _find_heredoc_regions(cmd)
+        assert len(regions) == 1
+        content = cmd[regions[0][0] : regions[0][1]]
+        assert "bg" in content
+
+    def test_space_indented_delimiter_is_data_for_tab_stripping_heredoc(self):
+        cmd = "cat <<-EOF\n  EOF\nbg\n\tEOF"
+        regions = _find_heredoc_regions(cmd)
+        assert len(regions) == 1
+        content = cmd[regions[0][0] : regions[0][1]]
+        assert "bg" in content
+
     def test_no_content_after_delimiter(self):
         # Heredoc with no newline after marker
         cmd = "cat << EOF"
