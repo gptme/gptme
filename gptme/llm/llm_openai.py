@@ -1782,15 +1782,38 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
     # and re-emit after the tool responses are flushed.
     pending_system: list[dict] = []
     pending_tool_call_ids: set[str] = set()
+    seen_tool_call_ids: set[str] = set()
     after_tool_calls = False
 
     for message in message_dicts:
         # Format tool result as expected by the model
         if message["role"] == "system" and "call_id" in message:
+            tool_call_id = message["call_id"]
+            if tool_call_id not in seen_tool_call_ids:
+                # Orphan: a tool result whose call never appeared in a
+                # preceding assistant tool_calls list (e.g. an old log where
+                # the assistant turn lost the call). Strict providers reject a
+                # `tool` message without its `tool_calls` parent, so demote it
+                # to plain text instead of poisoning every later request.
+                logger.warning(
+                    "Orphan tool result for call_id %s (no preceding tool_call); "
+                    "sending it as a user message instead of role=tool.",
+                    tool_call_id,
+                )
+                demoted = {k: v for k, v in message.items() if k != "call_id"}
+                demoted["role"] = "user"
+                if after_tool_calls:
+                    pending_system.append(demoted)
+                else:
+                    for buffered in pending_system:
+                        yield buffered
+                    pending_system = []
+                    yield demoted
+                continue
             # Convert system+call_id to tool message (conforms to MessageDict)
             modified_message = dict(message)
             modified_message["role"] = "tool"
-            tool_call_id = modified_message.pop("call_id")
+            modified_message.pop("call_id")
             modified_message["tool_call_id"] = tool_call_id
             yield modified_message
             pending_tool_call_ids.discard(tool_call_id)
@@ -1837,6 +1860,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 modified_message["tool_calls"] = tool_calls
 
             pending_tool_call_ids = {call["id"] for call in tool_calls if call["id"]}
+            seen_tool_call_ids |= pending_tool_call_ids
             after_tool_calls = bool(tool_calls)
             yield modified_message
         else:

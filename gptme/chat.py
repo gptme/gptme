@@ -55,6 +55,9 @@ from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_ti
 
 logger = logging.getLogger(__name__)
 
+# logdir -> in-flight auto-naming thread (see the naming block in step loop)
+_naming_threads: dict[Path, threading.Thread] = {}
+
 # Store an immutable int. copy_context() (server/TUI/ACP step threads) copies
 # the binding, not the value: a list would be shared by reference and a child
 # step() would mutate the parent's running total. Rebinding via .set() keeps
@@ -557,7 +560,13 @@ def _process_message_conversation(
         assistant_count = sum(1 for m in manager.log.messages if m.role == "assistant")
         if current_model and 1 <= assistant_count <= MAX_ASSISTANT_MSGS_FOR_NAMING:
             chat_config = ChatConfig.from_logdir(manager.logdir)
-            if not chat_config.name:
+            # One naming call per conversation: the thread runs across several
+            # loop iterations (each tool step re-enters here), so without this
+            # guard every step before the first name lands spawns another
+            # thread and the log shows three "Auto-generated conversation
+            # name" lines for one conversation.
+            inflight = _naming_threads.get(manager.logdir)
+            if not chat_config.name and not (inflight and inflight.is_alive()):
                 thread = threading.Thread(
                     target=try_auto_name,
                     args=(
@@ -567,6 +576,7 @@ def _process_message_conversation(
                     ),
                     daemon=True,
                 )
+                _naming_threads[manager.logdir] = thread
                 thread.start()
 
         # Check step limit (GPTME_MAX_STEPS)

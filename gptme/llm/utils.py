@@ -51,10 +51,18 @@ def extract_tool_uses_from_assistant_message(
         for line in message_part["text"].split("\n"):
             text += line + "\n"
 
+            # Keep every structured tool call (it has a call_id: the API
+            # actually emitted it as a tool_call), even when the tool is not
+            # loaded. The executor answers such calls with a paired error
+            # tool_result; dropping the call here would leave that result an
+            # orphan and strict providers (DeepSeek) then 400 every later
+            # request: "Messages with role 'tool' must be a response to a
+            # preceding message with 'tool_calls'". Markdown blocks (no
+            # call_id) still require a runnable tool.
             tooluses = [
                 tooluse
                 for tooluse in ToolUse.iter_from_content(text, tool_format_override)
-                if tooluse.is_runnable
+                if tooluse.is_runnable or tooluse.call_id
             ]
             if not tooluses:
                 continue

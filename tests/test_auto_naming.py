@@ -349,3 +349,33 @@ def test_generate_conversation_name_returns_none_on_llm_failure():
         "generate_conversation_name should not fall back to random names when "
         "LLM strategy is explicitly requested."
     )
+
+
+def test_try_auto_name_keeps_name_saved_concurrently(tmp_path, monkeypatch):
+    """A name saved on disk while the LLM call was in flight wins.
+
+    Several naming threads can race (one per step before the first name
+    lands); the second result must not overwrite the first.
+    """
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.util import auto_naming
+
+    config = ChatConfig(_logdir=tmp_path)
+    messages = [
+        Message("user", "Help me debug a Python script"),
+        Message("assistant", "Sure, what's the error?"),
+    ]
+
+    def _slow_name(_messages, _model):
+        # Simulate a sibling thread finishing first
+        other = ChatConfig(_logdir=tmp_path)
+        other.name = "First Name"
+        other.save()
+        return "Second Name"
+
+    monkeypatch.setattr(auto_naming, "auto_generate_display_name", _slow_name)
+
+    result = auto_naming.try_auto_name(config, messages, "test/model")
+    assert result is None
+    assert ChatConfig.from_logdir(tmp_path).name == "First Name"
