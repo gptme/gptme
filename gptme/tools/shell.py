@@ -1094,6 +1094,30 @@ class ShellSession:
                                         print(err_data, end="", file=sys.stderr)
                                 except Empty:
                                     break
+                            # If the cap was tripped (producer set the flag) we
+                            # must not return the real code — enforce the cap
+                            # (bob-ai-review P1 ordering race).
+                            if cap_state["over"]:
+                                cap_mib = max_output_bytes / (1024 * 1024)
+                                trunc_msg = (
+                                    f"\n[output truncated at {cap_mib:.0f} MiB,"
+                                    f" process killed]\n"
+                                )
+                                stdout.append(trunc_msg)
+                                if output:
+                                    print(trunc_msg, end="", file=sys.stdout)
+                                logger.warning(
+                                    "Shell output cap (%d MiB) exceeded;"
+                                    " killing process",
+                                    int(cap_mib),
+                                )
+                                self._terminate_process()
+                                stop_event.set()
+                                return (
+                                    -125,
+                                    trim_blank_lines("".join(stdout)),
+                                    trim_blank_lines("".join(stderr)),
+                                )
                             return (
                                 return_code,
                                 trim_blank_lines("".join(stdout)),
@@ -1349,23 +1373,33 @@ class ShellSession:
 
                             # Issue #408: Drain any remaining stderr before
                             # returning. Use multiple attempts to ensure stderr
-                            # has time to arrive from bash.
+                            # has time to arrive from bash. Bound the drain by
+                            # the byte cap as well — a command that floods
+                            # stderr after signalling completion must not
+                            # bypass the cap (bob-ai-review P1).
                             drain_empty_count = 0
-                            while drain_empty_count < 2:
+                            while (
+                                drain_empty_count < 2
+                                and captured_bytes <= max_output_bytes
+                            ):
                                 drain_rlist = _wait_readable([self.stderr_fd], 0.1)
                                 if not drain_rlist:
                                     drain_empty_count += 1
                                     continue
-                                drain_data = os.read(self.stderr_fd, 2**16).decode(
-                                    "utf-8", errors="replace"
-                                )
-                                if not drain_data:
+                                drain_raw = os.read(self.stderr_fd, 2**16)
+                                if not drain_raw:
                                     drain_empty_count += 1
                                     continue
                                 drain_empty_count = 0
+                                captured_bytes += len(drain_raw)
+                                drain_data = drain_raw.decode("utf-8", errors="replace")
                                 stderr.append(drain_data)
                                 if output:
                                     print(drain_data, end="", file=sys.stderr)
+                            if captured_bytes > max_output_bytes:
+                                return self._kill_for_byte_cap(
+                                    stdout, stderr, output, max_output_bytes
+                                )
                             return (
                                 return_code,
                                 trim_blank_lines("".join(stdout)),

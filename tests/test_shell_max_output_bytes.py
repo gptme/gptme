@@ -210,13 +210,20 @@ def test_cap_drain_is_byte_bounded(shell, monkeypatch):
         )
 
     assert returncode == -125
-    # Total drained output (excluding the truncation marker) must be at most
-    # one cap's worth — the byte budget. The old code had no bound.
-    total = len(stdout.encode("utf-8", errors="replace")) + len(
-        stderr.encode("utf-8", errors="replace")
-    )
-    # marker is ~50 bytes; allow a small slack
-    assert total < cap + 256, (
-        f"Drain unbounded: captured {total} bytes with a {cap} byte budget"
-    )
     assert "[output truncated" in stdout
+    marker = "[output truncated"
+    marker_idx = stdout.find(marker)
+    assert marker_idx >= 0
+    # Everything after the marker was drained from the pipes. The drain must
+    # actually have consumed data (proving the loop ran and was stopped by the
+    # bound, not exited on first pass) AND the total drained output must stay
+    # within the one-cap byte budget (proving it is not unbounded).
+    drained = stdout[marker_idx + len(marker) :] + stderr
+    drained_bytes = len(drained.encode("utf-8", errors="replace"))
+    assert drained_bytes > 0, "Drain consumed no data — bound not exercised"
+    # Bound: total drained output (both pipes, sharing one budget) is at most
+    # one cap's worth. The pre-fix code had no limit and would drain forever.
+    assert drained_bytes <= cap + 256, (
+        f"Drain not bounded by budget: captured {drained_bytes} bytes with a "
+        f"{cap} byte budget"
+    )
