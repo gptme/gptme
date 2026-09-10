@@ -707,16 +707,15 @@ class TestCcMemoryInWorkspacePrompt:
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
 
-        # Write many entries with long descriptions (the index renders name+description,
-        # not the body — so the budget must be stressed via description length, not body).
+        # The rendered index contains descriptions, not bodies. Make their combined
+        # size exceed the 64 KB cap so the omission path must execute.
+        long_desc = "x" * 4000
         for i in range(20):
             _make_entry(
                 memory_dir,
                 f"big-entry-{i:02d}",
-                # Long description so each index_line() is ~250 bytes; 20 entries × 250 = 5 KB
-                # which exceeds a tight budget and exercises render_index(budget=...) trimming.
-                f"Entry {i}: " + "x" * 250,
-                body="short body",
+                long_desc,
+                body="",
             )
 
         root = MemoryRoot("cc", memory_dir)
@@ -740,8 +739,8 @@ class TestCcMemoryInWorkspacePrompt:
 
         memory_msgs = [m for m in messages if "Persistent Memory" in m.content]
         assert len(memory_msgs) == 1
-        # The rendered index (not individual entries) is included — it should be bounded
+        # The rendered index (not individual entries) is included — it should be bounded,
+        # and the omission marker proves this is not a trivially undersized fixture.
         injected_bytes = len(memory_msgs[0].content.encode("utf-8"))
-        assert (
-            injected_bytes <= _MEMORY_BUDGET_BYTES + 512
-        )  # small header overhead allowed
+        assert "omitted" in memory_msgs[0].content.lower()
+        assert injected_bytes <= _MEMORY_BUDGET_BYTES + 512  # header overhead allowed
