@@ -398,12 +398,12 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
-        # Legacy alias, now served by V4.1 Flash (see above).
+        # Legacy alias, now served and billed as V4.1 Flash (see above).
         "deepseek-v4-flash": {
             "context": 1_000_000,
             "max_output": 384_000,
-            "price_input": 0.22,
-            "price_output": 0.66,
+            "price_input": 0.15,
+            "price_output": 0.6,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
@@ -417,13 +417,13 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
-        # Legacy experimental vision alias, now served by V4.1 Flash (same
-        # pricing).
+        # Legacy experimental vision alias, now served and billed as V4.1
+        # Flash.
         "deepseek-v4-flash-vision-exp": {
             "context": 1_000_000,
             "max_output": 384_000,
-            "price_input": 0.22,
-            "price_output": 0.66,
+            "price_input": 0.15,
+            "price_output": 0.6,
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
@@ -691,7 +691,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         # pin ``@deepseek`` with it) to use it today.
         # https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
         "deepseek/deepseek-v4.1-flash": {
-            "context": 1_000_000,
+            "context": 1_048_576,
             "max_output": 384_000,
             "price_input": 0.3,
             "price_output": 1.2,

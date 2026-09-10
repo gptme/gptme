@@ -25,7 +25,7 @@ For high-volume or cost-sensitive work, two open-weight "flash" models hold up w
 - **DeepSeek V4.1 Flash** (``openrouter/deepseek/deepseek-v4.1-flash``, or ``deepseek/deepseek-flash`` on the official API; the earlier ``deepseek-v4-flash-0731`` is still hosted by third parties on OpenRouter but no longer by the official endpoint)
 - **GLM 5.3 Flash** (``openrouter/z-ai/glm-5.3-flash``)
 
-Both are hosted by many providers on OpenRouter with very different reliability, speed, and data policies; see `Choosing an OpenRouter provider`_ before picking one.
+When a model has multiple OpenRouter hosts, their reliability, speed, and data policies can vary widely; see `Choosing an OpenRouter provider`_ before picking one. V4.1 Flash currently has only the official DeepSeek host.
 
 Default model per provider
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
