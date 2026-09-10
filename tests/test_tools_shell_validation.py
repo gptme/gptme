@@ -872,6 +872,23 @@ class TestSensitiveArgs:
         """Quoted or escaped operators are filename characters, not separators."""
         assert not _has_sensitive_args(command)
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cat << /etc/passwd\n~/.ssh/id_rsa\n/etc/passwd",
+            "cat <<EOF\n/etc/passwd\nEOF",
+        ],
+    )
+    def test_heredoc_delimiter_and_body_are_not_sensitive_args(self, command: str):
+        """Heredoc syntax and stdin data are not filesystem arguments."""
+        assert not _has_sensitive_args(command)
+        assert is_allowlisted(command)
+
+    def test_here_string_sensitive_path_remains_sensitive(self):
+        """A here-string operand is data supplied by expansion, not a delimiter."""
+        assert _has_sensitive_args("cat <<< /etc/passwd")
+        assert not is_allowlisted("cat <<< /etc/passwd")
+
     def test_globbed_sensitive_path_not_allowlisted(self):
         """Shell glob expansion must not turn an approved token into /etc/shadow."""
         assert not is_allowlisted("cat /e??/shadow")

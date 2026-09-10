@@ -387,6 +387,9 @@ def _has_file_redirection(cmd: str) -> bool:
 def _has_sensitive_args(cmd: str) -> bool:
     """Check whether any argument in the command targets a sensitive system path.
 
+    Heredoc delimiters and bodies are shell syntax and stdin data rather than
+    filesystem arguments, so blank them before tokenizing.
+
     P1 fix: `is_allowlisted()` previously checked command NAMES only, so
     ``cat /etc/shadow`` was auto-approved because ``cat`` is allowlisted.
     This helper rejects the command when any argument matches a sensitive
@@ -399,12 +402,25 @@ def _has_sensitive_args(cmd: str) -> bool:
     Returns True if a sensitive argument is found (approval should be denied).
     """
     try:
-        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|><()")
+        lexer = shlex.shlex(
+            _blank_heredoc_bodies(cmd), posix=True, punctuation_chars=";&|><()"
+        )
         lexer.whitespace_split = True
         lexer.commenters = ""
-        tokens = list(lexer)
+        raw_tokens = list(lexer)
     except ValueError:
-        tokens = cmd.split()
+        raw_tokens = cmd.split()
+
+    tokens: list[str] = []
+    skip_heredoc_delimiter = False
+    for token in raw_tokens:
+        if skip_heredoc_delimiter:
+            skip_heredoc_delimiter = False
+            continue
+        if token == "<<":
+            skip_heredoc_delimiter = True
+            continue
+        tokens.append(token)
 
     # Walk all tokens after the first (which is the leading command name).
     # punctuation_chars separates unquoted shell operators from adjacent path
