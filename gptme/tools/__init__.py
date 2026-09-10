@@ -324,6 +324,7 @@ def get_toolchain(
             if not explicitly_allowed:
                 continue
         tools.append(tool)
+    tools = _add_required_tools(tools, get_available_tools(include_mcp=include_mcp))
     if skipped_mcp_tools:
         allowlist_key = tuple(allowlist or [])
         with _warned_mcp_allowlists_lock:
@@ -336,6 +337,40 @@ def get_toolchain(
                 "'<server>.*' to include grouped MCP tools.",
                 ", ".join(sorted(skipped_mcp_tools)),
             )
+    return tools
+
+
+def _add_required_tools(
+    tools: list[ToolSpec], available: list[ToolSpec]
+) -> list[ToolSpec]:
+    """Append companion tools named by ``ToolSpec.requires_tools``.
+
+    A tool that documents another tool's usage (hashline_edit → read) is only
+    coherent when both are loaded, so requesting one loads the other, even if
+    the companion is disabled_by_default. Runs to a fixpoint so chains resolve.
+    """
+    by_name = {t.name: t for t in available}
+    loaded = {t.name for t in tools}
+    queue = [t for t in tools if t.requires_tools]
+    while queue:
+        tool = queue.pop()
+        for name in tool.requires_tools:
+            if name in loaded:
+                continue
+            dep = by_name.get(name)
+            if dep is None or not dep.is_available:
+                logger.warning(
+                    "Tool '%s' requires '%s', which is not available; "
+                    "its instructions may reference a missing tool.",
+                    tool.name,
+                    name,
+                )
+                continue
+            logger.info("Loading '%s' because '%s' requires it", name, tool.name)
+            tools.append(dep)
+            loaded.add(name)
+            if dep.requires_tools:
+                queue.append(dep)
     return tools
 
 

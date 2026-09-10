@@ -969,6 +969,7 @@ tool = ToolSpec(
     execute=execute_hashline_edit,
     block_types=["hashline_edit"],
     disabled_by_default=True,
+    requires_tools=["read"],  # snapshot tags come from the read tool
     parameters=[
         Parameter(
             name="path",
