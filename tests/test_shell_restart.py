@@ -95,12 +95,11 @@ def test_killed_between_commands_restarts_before_next_command(shell, tmp_path):
     assert _state(shell)[:2] == (str(tmp_path), "alive")
 
 
-def test_closed_stdin_restarts_instead_of_raising(shell):
-    """close() from another thread must not leave a permanently broken shell."""
+def test_explicitly_closed_shell_stays_closed(shell):
+    """SESSION_END cleanup must not be undone by a stale ContextVar reference."""
     shell.close()
-    rc, out, _ = shell.run("echo back", output=False)
-    assert (rc, out.strip()) == (0, "back")
-    assert "before this command" in (shell.consume_restart_notice() or "")
+    with pytest.raises(RuntimeError, match="Shell session is closed"):
+        shell.run("echo back", output=False)
 
 
 def test_command_that_kills_shell_is_not_rerun(shell, tmp_path):

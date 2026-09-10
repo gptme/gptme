@@ -557,12 +557,14 @@ class ShellSession:
     _state_path: str | None  # cwd + exported-env snapshot, restored on restart
     _restart_notice: str | None  # pending note for the model about a restart
     _restarting: bool
+    _closed: bool
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
         self._memory_limit = _get_memory_limit()
         self._restart_notice = None
         self._restarting = False
+        self._closed = False
         self._state_path = self._create_state_file()
         self._init()
 
@@ -993,9 +995,12 @@ class ShellSession:
         # Diagnostic logging for Issue #408: Log command start
         logger.debug(f"Shell: Running command: {command[:200]}")
 
-        # The shell may have died between commands (external kill, OOM, or
-        # closed by the conversation registry from another thread). Nothing has
-        # been sent yet, so restarting here cannot double-execute anything.
+        # The shell may have died between commands (external kill or OOM).
+        # Nothing has been sent yet, so restarting here cannot double-execute
+        # anything. An explicit close is terminal: reviving a shell removed by
+        # SESSION_END would leak an unregistered process.
+        if self._closed:
+            raise RuntimeError("Shell session is closed")
         if self.process.poll() is not None or self.process.stdin.closed:
             self._restart_after_death(self.process.returncode, "before this command")
             assert self.process.stdin
@@ -1940,6 +1945,9 @@ class ShellSession:
             logger.warning(f"Error terminating process: {e}")
 
     def close(self):
+        if not self._restarting:
+            self._closed = True
+
         # Close stdin to signal no more input
         if self.process.stdin:
             self.process.stdin.close()
@@ -1964,6 +1972,7 @@ class ShellSession:
         try:
             self.close()
             self._init()
+            self._closed = False
         finally:
             self._restarting = False
 
