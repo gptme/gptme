@@ -480,8 +480,6 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     uploadFiles: async () => notImpl('uploadFiles'),
     transcribeAudio: async () => notImpl('transcribeAudio'),
     step: async (logfile) => {
-      pendingInitialSteps.delete(logfile);
-      savePendingInitialSteps(pendingInitialSteps);
       const callbacks = eventCallbacks.get(logfile);
       const intro = makeDemoAssistantMessage(
         'I can show the shape of this without a live backend. First I will run a small local-style Fibonacci check.'
@@ -502,6 +500,8 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       );
       streamAssistant(callbacks, final);
       appendLocalMessage(logfile, final);
+      pendingInitialSteps.delete(logfile);
+      savePendingInitialSteps(pendingInitialSteps);
     },
     confirmTool: async () => {},
     deleteConversation: async () => {},

@@ -227,6 +227,22 @@ describe('createDemoApiClient — page reload / session recovery', () => {
     expect(conversations$.get(logfile)?.peek()).toBeUndefined();
   });
 
+  it('keeps pending initial-step state when generation fails', async () => {
+    const client1 = createDemoApiClient();
+    const logfile = await client1.createConversationWithPlaceholder('What is gptme?');
+    const callbacks = createEventCallbacks();
+    callbacks.onMessageStart.mockImplementation(() => {
+      throw new Error('stream failed');
+    });
+    await client1.subscribeToEvents(logfile, callbacks);
+
+    await expect(client1.step(logfile)).rejects.toThrow('stream failed');
+
+    conversations$.set(new Map());
+    createDemoApiClient();
+    expect(conversations$.get(logfile)?.needsInitialStep.get()).toBe(true);
+  });
+
   it('restores a conversation created via createConversation after client reinit', async () => {
     const client1 = createDemoApiClient();
     await client1.createConversation('demo/my-saved-conv', [
