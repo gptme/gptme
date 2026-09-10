@@ -10,7 +10,9 @@ import atexit
 import importlib
 import logging
 import os
+import queue
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -87,6 +89,7 @@ class BackgroundJob:
     _stderr_buffer_start: int = field(default=0, repr=False)
     _stdout_read_offset: int = field(default=0, repr=False)
     _stderr_read_offset: int = field(default=0, repr=False)
+    conversation_id: str | None = None
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -172,6 +175,8 @@ class BackgroundJob:
             except (OSError, ValueError):
                 pass
 
+        _notify_completion(self)
+
     def _append_to_buffer(self, buffer: list[str], data: str) -> int:
         """Append data to buffer, enforcing size limit."""
         buffer.append(data)
@@ -213,42 +218,70 @@ class BackgroundJob:
         return time.time() - self.start_time
 
     def kill(self) -> None:
-        """Terminate the background job."""
+        """Terminate the background job and its process group."""
         self._stop_event.set()
         try:
-            self.process.terminate()
+            if _is_windows:
+                self.process.terminate()
+            else:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
             self.process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
-            self.process.kill()
+            if _is_windows:
+                self.process.kill()
+            else:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
             self.process.wait()
+        except ProcessLookupError:
+            pass
         # Join reader thread to ensure clean shutdown
         if self._reader_thread and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=1.0)
 
 
-# Global storage for background jobs
-_background_jobs: dict[int, BackgroundJob] = {}
-_next_job_id: int = 1
+# Jobs are scoped to the active conversation. A ``None`` key covers direct
+# library/tests calls that have no conversation context.
+_background_jobs: dict[str | None, dict[int, BackgroundJob]] = {}
+_next_job_ids: dict[str | None, int] = {}
+_completion_queue: queue.Queue[tuple[str | None, int]] = queue.Queue()
 _job_lock: threading.Lock = threading.Lock()
 
 
-def _get_next_job_id() -> int:
-    """Get next available job ID (thread-safe)."""
-    global _next_job_id
+def _current_conversation_id() -> str | None:
+    from ..hooks import current_conversation_id
+    from ..logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    return current_conversation_id.get() or (manager.chat_id if manager else None)
+
+
+def _get_next_job_id_locked(conversation_id: str | None) -> int:
+    """Get the next conversation-local job ID while holding ``_job_lock``."""
+    job_id = _next_job_ids.get(conversation_id, 1)
+    _next_job_ids[conversation_id] = job_id + 1
+    return job_id
+
+
+def _notify_completion(job: BackgroundJob) -> None:
+    _completion_queue.put((job.conversation_id, job.id))
+
+
+def _jobs_for(conversation_id: str | None) -> dict[int, BackgroundJob]:
+    return _background_jobs.setdefault(conversation_id, {})
+
+
+def _get_background_job(
+    conversation_id: str | None, job_id: int
+) -> BackgroundJob | None:
     with _job_lock:
-        job_id = _next_job_id
-        _next_job_id += 1
-        return job_id
+        return _background_jobs.get(conversation_id, {}).get(job_id)
 
 
 def start_background_job(
     command: str, memory_limit: int | None = None
 ) -> BackgroundJob:
     """Start a command as a background job (thread-safe)."""
-    # Proactively clean up finished jobs to prevent memory accumulation
-    cleanup_finished_jobs()
-
-    job_id = _get_next_job_id()
+    conversation_id = _current_conversation_id()
 
     # Start process with separate stdout/stderr pipes
     popen_kwargs: dict = {}
@@ -265,59 +298,97 @@ def start_background_job(
         **popen_kwargs,
     )
 
-    job = BackgroundJob(
-        id=job_id,
-        command=command,
-        process=process,
-        start_time=time.time(),
-    )
-    job.start_reader()
-
     with _job_lock:
-        _background_jobs[job_id] = job
-
+        job_id = _get_next_job_id_locked(conversation_id)
+        job = BackgroundJob(
+            id=job_id,
+            command=command,
+            process=process,
+            start_time=time.time(),
+            conversation_id=conversation_id,
+        )
+        _jobs_for(conversation_id)[job_id] = job
+    job.start_reader()
     return job
 
 
 def get_background_job(job_id: int) -> BackgroundJob | None:
-    """Get a background job by ID."""
+    """Get a background job in the active conversation."""
     with _job_lock:
-        return _background_jobs.get(job_id)
+        return _jobs_for(_current_conversation_id()).get(job_id)
 
 
 def list_background_jobs() -> list[BackgroundJob]:
-    """List all background jobs, cleaning up finished ones first."""
-    cleanup_finished_jobs()
+    """List jobs in the active conversation, including completed jobs."""
     with _job_lock:
-        return list(_background_jobs.values())
+        return list(_jobs_for(_current_conversation_id()).values())
 
 
 def cleanup_finished_jobs() -> None:
-    """Remove finished jobs from tracking (thread-safe)."""
-    with _job_lock:
-        finished = [
-            job_id
-            for job_id, job in _background_jobs.items()
-            if not job.is_running() and job.is_output_complete()
-        ]
-        for job_id in finished:
-            del _background_jobs[job_id]
+    """Compatibility no-op: completed jobs remain available until session end."""
+    return
 
 
-def reset_background_jobs() -> None:
-    """Stop and clean up all background jobs. Called on exit and for testing."""
-    global _next_job_id
+def reset_background_jobs(
+    conversation_id: str | None = None, *, all_conversations: bool = True
+) -> None:
+    """Stop and remove jobs globally, or only for ``conversation_id``."""
     with _job_lock:
-        # Kill any running jobs
-        for job in _background_jobs.values():
+        if all_conversations:
+            groups = list(_background_jobs.values())
+            _background_jobs.clear()
+            _next_job_ids.clear()
+        else:
+            groups = [_background_jobs.pop(conversation_id, {})]
+            _next_job_ids.pop(conversation_id, None)
+    for jobs in groups:
+        for job in jobs.values():
             if job.is_running():
                 job.kill()
-        _background_jobs.clear()
-        _next_job_id = 1
 
 
 # Register cleanup handler to prevent orphaned bg jobs when gptme exits (Issue #993)
 atexit.register(reset_background_jobs)
+
+
+def _completion_message(job: BackgroundJob) -> Message:
+    status = f"exit code {job.process.returncode}"
+    stdout, stderr = job.get_output()
+    details: list[str] = []
+    if stdout:
+        details.append(md_codeblock("stdout", stdout[-8000:]))
+    if stderr:
+        details.append(md_codeblock("stderr", stderr[-2000:]))
+    suffix = "\n\n" + "\n\n".join(details) if details else ""
+    return Message(
+        "system",
+        f"Background shell job #{job.id} finished ({status}): `{job.command}`{suffix}",
+    )
+
+
+def background_job_completion_hook(
+    manager: object,
+    interactive: bool,
+    prompt_queue: object,
+    no_confirm: bool = False,
+) -> Generator[Message, None, None]:
+    """Deliver completed jobs only to the conversation that started them."""
+    del interactive, prompt_queue, no_confirm
+    conversation_id = getattr(manager, "chat_id", None)
+    deferred: list[tuple[str | None, int]] = []
+    while True:
+        try:
+            queued_conversation_id, job_id = _completion_queue.get_nowait()
+        except queue.Empty:
+            break
+        if queued_conversation_id != conversation_id:
+            deferred.append((queued_conversation_id, job_id))
+            continue
+        job = _get_background_job(queued_conversation_id, job_id)
+        if job is not None:
+            yield _completion_message(job)
+    for item in deferred:
+        _completion_queue.put(item)
 
 
 # Background command handlers
