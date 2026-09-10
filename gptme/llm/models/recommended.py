@@ -25,8 +25,10 @@ RECOMMENDED_MODELS: dict[str, str] = {
     # subscription default can be the frontier model without a cost tradeoff.
     "openai-subscription": "gpt-6-astra",
     # Official DeepSeek endpoint pinned with ``@deepseek`` for reliability;
-    # see docs/evals.rst "Choosing an OpenRouter provider".
-    "openrouter": "deepseek/deepseek-v4-flash-0731@deepseek",
+    # see docs/evals.rst "Choosing an OpenRouter provider". V4.1 Flash is the
+    # only DeepSeek Flash id the official endpoint still serves on OpenRouter
+    # (the ``@deepseek`` endpoint for v4-flash-0731 was removed 2026-09-10).
+    "openrouter": "deepseek/deepseek-v4.1-flash@deepseek",
     "gemini": "gemini-3.1-pro-preview",
     "xai": "grok-4.6",
     "grok-subscription": "grok-4.6",
@@ -40,7 +42,7 @@ RECOMMENDED_MODELS: dict[str, str] = {
 SUMMARY_MODELS: dict[str, str] = {
     "anthropic": "claude-haiku-4-5",
     "openai": "gpt-5-mini",
-    "openrouter": "deepseek/deepseek-v4-flash-0731@deepseek",
+    "openrouter": "deepseek/deepseek-v4.1-flash@deepseek",
     "gemini": "gemini-2.5-flash",
     "deepseek": "deepseek-v4-flash",
     "xai": "grok-4-1-fast",

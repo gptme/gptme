@@ -243,7 +243,7 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
         ("openai", "gpt-5.6-sol"),
         ("anthropic", "claude-sonnet-4-6"),
         ("gemini", "gemini-3.1-pro-preview"),
-        ("openrouter", "deepseek/deepseek-v4-flash-0731@deepseek"),
+        ("openrouter", "deepseek/deepseek-v4.1-flash@deepseek"),
         ("xai", "grok-4.6"),
         ("deepseek", "deepseek-v4-flash"),
         ("groq", "llama-3.3-70b-versatile"),

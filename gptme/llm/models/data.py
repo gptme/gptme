@@ -375,12 +375,30 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     # use — leave supports_strict_tools unset rather than send a flag the
     # production endpoint may reject.
     # https://api-docs.deepseek.com/guides/tool_calls/#strict-mode-beta
-    # https://api-docs.deepseek.com/quick_start/pricing (verified 2026-09-09)
-    # Un-dated ids always point at the latest snapshot: deepseek-v4-flash ->
-    # V4-Flash-0731, deepseek-v4-pro -> V4-Pro-0813. Prices are off-peak
-    # cache-miss; cache hits are ~30x cheaper ($0.007 / $0.022) and peak
+    # https://api-docs.deepseek.com/quick_start/pricing (verified 2026-09-10)
+    # ``deepseek-flash`` is the current Flash id (DeepSeek-V4.1-Flash). The
+    # legacy ids ``deepseek-v4-flash`` / ``deepseek-v4-flash-vision-exp`` are
+    # still accepted but their models are retired: requests are served by
+    # V4.1 Flash and billed at the Flash price. ``deepseek-v4-pro`` ->
+    # V4-Pro-0813 until 2026-09-14 12:00 Beijing, after which it is also
+    # routed to V4.1 Flash (until V4.1 Pro ships). Prices are off-peak
+    # cache-miss; cache hits are ~50x cheaper ($0.003 / $0.022) and peak
     # hours (01-04 and 06-10 UTC, Mon-Fri) are 2x.
     "deepseek": {
+        # DeepSeek V4.1 Flash (2026-09-10). 552B total / 8B active prefill /
+        # 16B active decode, MIT, 1M context, thinking on by default, vision.
+        # https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
+        "deepseek-flash": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.15,
+            "price_output": 0.6,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+        },
+        # Legacy alias, now served by V4.1 Flash (see above).
         "deepseek-v4-flash": {
             "context": 1_000_000,
             "max_output": 384_000,
@@ -399,7 +417,8 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
-        # Experimental vision variant of V4 Flash (same pricing).
+        # Legacy experimental vision alias, now served by V4.1 Flash (same
+        # pricing).
         "deepseek-v4-flash-vision-exp": {
             "context": 1_000_000,
             "max_output": 384_000,
@@ -659,10 +678,31 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
             "preferred_edit_format": "diff",
         },
-        # DeepSeek V4 Flash 0731 (2026-07-31 refresh). Prices are the official
-        # DeepSeek endpoint on OpenRouter (``@deepseek``, verified 2026-09-09):
-        # $0.22/$0.66 per 1M, cache read $0.007 (~97% discount). Third-party
-        # hosts list lower miss prices but 2-7x higher cache-read prices.
+        # DeepSeek V4.1 Flash (2026-09-10). Prices are the official DeepSeek
+        # endpoint on OpenRouter (``@deepseek``, the only host at launch,
+        # verified 2026-09-10): $0.30/$1.20 per 1M list (peak), cache read
+        # $0.006 (~98% discount); OpenRouter applies DeepSeek's off-peak
+        # overrides (half price outside 01-04 / 06-10 UTC Mon-Fri).
+        # Reasoning on by default (``reasoning`` param). MIT, 552B total /
+        # 8B active prefill / 16B active decode, 1M context.
+        # https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
+        "deepseek/deepseek-v4.1-flash": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.3,
+            "price_output": 1.2,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
+            "preferred_edit_format": "diff",
+        },
+        # DeepSeek V4 Flash 0731 (2026-07-31 refresh). Prices are the last
+        # quote from the official DeepSeek endpoint on OpenRouter (verified
+        # 2026-09-09): $0.22/$0.66 per 1M, cache read $0.007 (~97% discount).
+        # OpenRouter dropped the official ``@deepseek`` endpoint for this id on
+        # 2026-09-10 (DeepSeek retired V4 Flash in favour of V4.1 Flash); 28
+        # third-party hosts remain, which list lower miss prices but 2-7x
+        # higher cache-read prices. Pin one of them explicitly (see
+        # docs/evals.rst) or use ``deepseek/deepseek-v4.1-flash@deepseek``.
         "deepseek/deepseek-v4-flash-0731": {
             "context": 1_000_000,
             "max_output": 384_000,

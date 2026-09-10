@@ -22,7 +22,7 @@ If you already pay for a frontier subscription, use it instead of an API key (se
 
 For high-volume or cost-sensitive work, two open-weight "flash" models hold up well in agentic use for a small fraction of the price:
 
-- **DeepSeek V4 Flash** (the 2026-07-31 release: ``openrouter/deepseek/deepseek-v4-flash-0731``, or ``deepseek/deepseek-v4-flash`` on the official API)
+- **DeepSeek V4.1 Flash** (``openrouter/deepseek/deepseek-v4.1-flash``, or ``deepseek/deepseek-flash`` on the official API; the earlier ``deepseek-v4-flash-0731`` is still hosted by third parties on OpenRouter but no longer by the official endpoint)
 - **GLM 5.3 Flash** (``openrouter/z-ai/glm-5.3-flash``)
 
 Both are hosted by many providers on OpenRouter with very different reliability, speed, and data policies; see `Choosing an OpenRouter provider`_ before picking one.
