@@ -677,6 +677,32 @@ class TestCompletionNotifications:
         assert f"job #{job.id} finished" in messages[0].content
         assert "notified" in messages[0].content
 
+    def test_stale_completion_does_not_target_reused_job_id(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools.shell_background import background_job_completion_hook
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            old_job = start_background_job("true")
+            old_job.process.wait(timeout=5)
+            if old_job._reader_thread:
+                old_job._reader_thread.join(timeout=5)
+            reset_background_jobs("conversation-a", all_conversations=False)
+            new_job = start_background_job("sleep 60")
+            assert new_job.id == old_job.id
+        finally:
+            current_conversation_id.reset(token)
+
+        messages = list(
+            background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-a"), True, []
+            )
+        )
+        assert messages == []
+        new_job.kill()
+
     def test_registry_is_conversation_scoped(self):
         from gptme.hooks import current_conversation_id
 
