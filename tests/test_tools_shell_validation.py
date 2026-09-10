@@ -908,6 +908,12 @@ class TestSensitiveArgs:
         assert _has_sensitive_args("cat <<< /etc/passwd")
         assert not is_allowlisted("cat <<< /etc/passwd")
 
+    def test_escaped_heredoc_opener_keeps_sensitive_path_visible(self):
+        """An escaped first ``<`` leaves a real input redirection, not a heredoc."""
+        command = r"cat \<< /etc/shadow"
+        assert _has_sensitive_args(command)
+        assert not is_allowlisted(command)
+
     def test_globbed_sensitive_path_not_allowlisted(self):
         """Shell glob expansion must not turn an approved token into /etc/shadow."""
         assert not is_allowlisted("cat /e??/shadow")

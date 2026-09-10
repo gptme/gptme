@@ -601,7 +601,22 @@ def _blank_heredoc_headers(cmd: str) -> str:
     and any further token after it is untouched.
     """
     chars = list(cmd)
+    quoted_regions = _find_quotes(cmd)
     for match in _HEREDOC_HEADER.finditer(cmd):
+        # Keep the same lexical guards as ``_find_heredoc_regions``. Quoted or
+        # escaped apparent openers are data, not heredoc syntax. In particular,
+        # ``cat \<< /etc/shadow`` leaves one real ``<`` redirection whose path
+        # must remain visible to the sensitive-argument scan.
+        if _is_in_quoted_region(match.start(), quoted_regions):
+            continue
+        backslashes = 0
+        pos = match.start() - 1
+        while pos >= 0 and cmd[pos] == "\\":
+            backslashes += 1
+            pos -= 1
+        if backslashes % 2:
+            continue
+
         for i in range(match.start(), match.end()):
             if chars[i] != "\n":
                 chars[i] = " "
