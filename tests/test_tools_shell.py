@@ -464,6 +464,21 @@ def test_split_commands_without_bash_keeps_bashlex_error(monkeypatch):
         split_commands("[[ -f x ]] && ls")
 
 
+def test_split_commands_heredoc_followed_by_redirect_keeps_body():
+    """A redirect after the heredoc operator must not drop the heredoc body.
+
+    bashlex stores the body on the ``<<`` redirect node; with a trailing
+    ``> out`` the command's own span ends before the body, and the shell
+    would hang waiting for the terminator.
+    """
+    script = "cat <<EOF > out.txt\nbody\nEOF"
+    assert split_commands(script) == [script]
+    assert split_commands(script + "\necho x") == [script, "echo x"]
+    assert split_commands("cat <<EOF 2>&1\nbody\nEOF") == ["cat <<EOF 2>&1\nbody\nEOF"]
+    timed = "time cat <<'EOF' > out.txt\nbody\nEOF"
+    assert split_commands(timed) == [timed]
+
+
 def test_redirect_background_stdin_with_time_keyword():
     from gptme.tools.shell import _redirect_background_stdin
 

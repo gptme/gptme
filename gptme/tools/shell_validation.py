@@ -156,11 +156,12 @@ cmd_regex = re.compile(r"(?:^|[|&;]|\|\||&&|\n)\s*([^\s|&;]+)")
 # shapes are recognised; any other option makes the prefix opaque and the
 # command falls through to confirmation. Deliberately absent: ``sudo``
 # (privilege), ``exec`` (replaces the persistent shell), ``xargs``/``watch``
-# (own execution semantics). Variable values may not contain path or
-# expansion characters, so ``env X=~/.ssh cat $X`` stays opaque.
+# (own execution semantics), and every ``NAME=value`` form, bare or via
+# ``env``: variables change what the command *is* (``PATH=. ls`` runs
+# ``./ls``) or what it does (``RIPGREP_CONFIG_PATH`` can inject ``--pre``,
+# ``LD_PRELOAD``), and the set of such names is open-ended.
 _DURATION = r"\d+(?:\.\d+)?[smhd]?"
 _SIGNAL = r"(?:SIG)?[A-Z]+\d*|\d+"
-_PLAIN_VALUE = r"[\w.,:+@%-]*"
 _BUFFER_MODE = r"(?:L|0|\d+[KMG]?)"
 _WRAPPER = rf"""
     time(?:[ \t]+-p)?
@@ -174,8 +175,7 @@ _WRAPPER = rf"""
   | nohup
   | nice(?:[ \t]+(?:-n[ \t]*-?\d+|--adjustment=-?\d+|-\d+))?
   | stdbuf(?:[ \t]+(?:-[ioe][ \t]*{_BUFFER_MODE}|--(?:input|output|error)={_BUFFER_MODE}))+
-  | env(?:[ \t]+(?:-i|--ignore-environment|-u[ \t]+\w+|--unset=\w+))*
-  | \w+={_PLAIN_VALUE}
+  | env(?:[ \t]+(?:-i|--ignore-environment|-u[ \t]+\w+|--unset=\w+))*(?![ \t]+\w+=)
   | command(?:[ \t]+-p)?
   | builtin
 """
@@ -189,8 +189,8 @@ def strip_transparent_wrappers(cmd: str) -> str:
     """Remove transparent wrapper prefixes from every pipeline segment.
 
     ``time ls | timeout 5 grep x`` becomes ``ls | grep x``. A wrapper with
-    nothing after it (``env``, ``time``, ``X=1``) is left in place: it is a
-    command in its own right and must be judged as one.
+    nothing after it (``env``, ``time``) is left in place: it is a command in
+    its own right and must be judged as one.
     """
     return _WRAPPER_PREFIX_RE.sub(lambda m: m.group("lead"), cmd)
 
@@ -594,7 +594,7 @@ def is_allowlisted(cmd: str) -> bool:
 
     Uses a conservative allowlist approach:
     1. All commands in the pipeline must be in the allowlist, after stripping
-       transparent wrappers (``time``, ``timeout N``, ``nohup``, ``env X=1``,
+       transparent wrappers (``time``, ``timeout N``, ``nohup``, ``env -i``,
        ``nice -n N``, ``stdbuf``, ``command``, ``builtin``)
     2. No file redirections (>, >>) - these can write malicious content
     3. No sensitive path arguments (e.g. /etc/shadow, /root/, /proc/)

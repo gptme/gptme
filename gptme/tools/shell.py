@@ -2518,6 +2518,14 @@ def split_commands(script: str) -> list[str]:
     commands = []
     for part in parts:
         if part.kind == "command":
+            # A heredoc body is stored on the redirect node, outside the
+            # command's own span. When another redirect follows the heredoc
+            # operator (``cat <<EOF > out``) the body would be dropped and
+            # the shell left waiting for a terminator; slice through it.
+            max_pos = _find_max_heredoc_pos(part, part.pos[1])
+            if max_pos > part.pos[1]:
+                commands.append(processed_script[part.pos[0] : max_pos])
+                continue
             command_parts = []
             for word in part.parts:
                 start, end = word.pos
