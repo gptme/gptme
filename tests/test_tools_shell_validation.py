@@ -946,6 +946,12 @@ class TestSensitiveArgs:
         assert not is_allowlisted("cat id_rsa", cwd=ssh_dir)
         assert is_allowlisted("cat README.md", cwd=Path.home())
 
+    def test_relative_read_resolves_symlinked_cwd(self, tmp_path: Path):
+        """A logical cwd symlink into a sensitive directory cannot bypass checks."""
+        link = tmp_path / "ssh-link"
+        link.symlink_to(Path.home() / ".ssh", target_is_directory=True)
+        assert not is_allowlisted("cat id_rsa", cwd=link)
+
     def test_safe_file_read_still_allowlisted(self):
         """`cat README.md` should still be auto-approved (no false positive)."""
         assert is_allowlisted("cat README.md")

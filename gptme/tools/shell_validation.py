@@ -478,7 +478,7 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
         # effective cwd. Resolve lexical components here so a confirmed
         # ``cd ~/.ssh`` cannot make a later ``cat id_rsa`` auto-approved.
         if cwd is not None and not normalized.startswith(("/", "~")):
-            normalized = str(cwd / normalized)
+            normalized = str(cwd.resolve() / normalized)
             if normalized == home or normalized.startswith(home + "/"):
                 normalized = "~" + normalized[len(home) :]
 
