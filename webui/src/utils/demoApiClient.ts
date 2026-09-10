@@ -37,6 +37,11 @@ export class DemoModeError extends Error {
 // survive page reload within the same browser tab, but are discarded when the
 // tab is closed (appropriate for ephemeral demo state).
 const DEMO_SESSION_KEY = 'gptme:demo-conversations';
+const DEMO_PENDING_INITIAL_STEPS_KEY = 'gptme:demo-pending-initial-steps';
+
+interface PendingInitialStep {
+  stream?: boolean;
+}
 
 /** Load persisted demo conversations from sessionStorage (best-effort). */
 function loadDemoSessionStorage(): Map<string, ConversationResponse> {
@@ -58,6 +63,28 @@ function saveDemoSessionStorage(conversations: Map<string, ConversationResponse>
       obj[k] = v;
     }
     sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(obj));
+  } catch {
+    // sessionStorage may be unavailable (private browsing, storage quota, test env).
+  }
+}
+
+function loadPendingInitialSteps(): Map<string, PendingInitialStep> {
+  try {
+    const raw = sessionStorage.getItem(DEMO_PENDING_INITIAL_STEPS_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, PendingInitialStep>;
+    return new Map(Object.entries(parsed));
+  } catch {
+    return new Map();
+  }
+}
+
+function savePendingInitialSteps(steps: Map<string, PendingInitialStep>): void {
+  try {
+    sessionStorage.setItem(
+      DEMO_PENDING_INITIAL_STEPS_KEY,
+      JSON.stringify(Object.fromEntries(steps))
+    );
   } catch {
     // sessionStorage may be unavailable (private browsing, storage quota, test env).
   }
@@ -205,6 +232,16 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
   // In-memory store for conversations created during the demo session.
   // Pre-populated from sessionStorage so generated demo URLs survive page reload.
   const localConversations = loadDemoSessionStorage();
+  const pendingInitialSteps = loadPendingInitialSteps();
+  for (const [id, pending] of pendingInitialSteps) {
+    const conversation = localConversations.get(id);
+    if (conversation) {
+      initConversation(id, clone(conversation), {
+        needsInitialStep: true,
+        initialStepStream: pending.stream,
+      });
+    }
+  }
   const eventCallbacks = new Map<string, DemoEventCallbacks>();
 
   const localSummary = (conv: ConversationResponse): ConversationSummary => ({
@@ -409,6 +446,8 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       };
       localConversations.set(logfile, conv);
       saveDemoSessionStorage(localConversations);
+      pendingInitialSteps.set(logfile, { stream: opts?.stream });
+      savePendingInitialSteps(pendingInitialSteps);
       sessions$.set(logfile, `demo-session-${logfile}`);
       initConversation(logfile, clone(conv), {
         needsInitialStep: true,
@@ -436,6 +475,8 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     uploadFiles: async () => notImpl('uploadFiles'),
     transcribeAudio: async () => notImpl('transcribeAudio'),
     step: async (logfile) => {
+      pendingInitialSteps.delete(logfile);
+      savePendingInitialSteps(pendingInitialSteps);
       const callbacks = eventCallbacks.get(logfile);
       const intro = makeDemoAssistantMessage(
         'I can show the shape of this without a live backend. First I will run a small local-style Fibonacci check.'

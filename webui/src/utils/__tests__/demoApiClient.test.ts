@@ -22,6 +22,11 @@ const createEventCallbacks = () => ({
   onConnected: jest.fn(),
 });
 
+beforeEach(() => {
+  sessionStorage.clear();
+  conversations$.set(new Map());
+});
+
 describe('createDemoApiClient', () => {
   it('reports a connected, no-auth offline client', async () => {
     const client = createDemoApiClient();
@@ -198,12 +203,7 @@ describe('createDemoApiClient', () => {
 });
 
 describe('createDemoApiClient — page reload / session recovery', () => {
-  beforeEach(() => {
-    // Each test gets a clean sessionStorage so persistence tests are isolated.
-    sessionStorage.clear();
-  });
-
-  it('restores a conversation created via createConversationWithPlaceholder after client reinit', async () => {
+  it('restores pending initial-step state after client reinit', async () => {
     // First client instance — simulates the original page load where the user
     // typed a prompt and the demo created a generated conversation.
     const client1 = createDemoApiClient();
@@ -213,10 +213,18 @@ describe('createDemoApiClient — page reload / session recovery', () => {
     expect(logfile).toMatch(/^demo\/conv-/);
 
     // Second client instance — simulates a page reload (fresh Map, same sessionStorage).
+    conversations$.set(new Map());
     const client2 = createDemoApiClient();
     const conv = await client2.getConversation(logfile);
     expect(conv.id).toBe(logfile);
     expect(conv.log[0].content).toBe('What is gptme?');
+    expect(conversations$.get(logfile)?.needsInitialStep.get()).toBe(true);
+    expect(conversations$.get(logfile)?.initialStepStream.get()).toBe(false);
+
+    await client2.step(logfile);
+    conversations$.set(new Map());
+    createDemoApiClient();
+    expect(conversations$.get(logfile)?.peek()).toBeUndefined();
   });
 
   it('restores a conversation created via createConversation after client reinit', async () => {
