@@ -483,8 +483,10 @@ class TestCcMemoryInWorkspacePrompt:
         assert "](missing.md)" in generated_index
         assert "Operator guidance" in combined
 
-    def test_truncated_unmanaged_index_deduplicates_links_after_budget(self, tmp_path):
-        """Links beyond displayed legacy content still suppress duplicate pointers."""
+    def test_truncated_unmanaged_index_does_not_append_duplicate_pointers(
+        self, tmp_path
+    ):
+        """A partial compatibility index consumes the remaining root budget."""
         from gptme.prompts.workspace import prompt_workspace
 
         workspace = tmp_path / "myproject"
@@ -519,6 +521,13 @@ class TestCcMemoryInWorkspacePrompt:
         assert "legacy content" in combined
         assert "[late](linked-late.md)" not in combined
         assert combined.count("linked-late.md") == 0
+        memory_message = next(
+            message
+            for message in messages
+            if message.content.startswith("## Persistent Memory")
+        )
+        payload = memory_message.content.split("):\n\n", 1)[1]
+        assert len(payload.encode("utf-8")) <= 50
 
     def test_no_memory_when_no_roots_exist(self, tmp_path):
         """No memory message is emitted when no memory roots have files."""

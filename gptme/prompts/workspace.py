@@ -456,57 +456,53 @@ def prompt_workspace(
                             # rendering every entry before appending that file would
                             # inject those memories twice and consume the shared budget.
                             index_path = root.path / "MEMORY.md"
-                            legacy = ""
-                            linked_filenames: set[str] = set()
+                            raw = b""
                             if index_path.is_file() and not index_path.is_symlink():
-                                with index_path.open(
-                                    encoding="utf-8", errors="ignore"
-                                ) as text_index_file:
-                                    for line in text_index_file:
-                                        if legacy:
-                                            candidate = (
-                                                legacy + "\n" + line.rstrip("\n")
-                                            )
-                                        else:
-                                            candidate = line.rstrip("\n")
-                                        if len(candidate.encode("utf-8")) <= available:
-                                            legacy = candidate
-                                        for target in re.findall(
-                                            r"\[[^\]]*\]\(([^)]+)\)", line
-                                        ):
-                                            if "://" not in target:
-                                                linked_filenames.add(
-                                                    Path(
-                                                        target.split("#", 1)[0].strip(
-                                                            "<> "
-                                                        )
-                                                    ).name
-                                                )
+                                with index_path.open("rb") as binary_index_file:
+                                    raw = binary_index_file.read(available + 1)
+                            legacy = (
+                                raw[:available].decode("utf-8", errors="ignore").strip()
+                            )
 
-                            missing_entries = [
-                                entry
-                                for entry in entries
-                                if entry.filename not in linked_filenames
-                            ]
-                            root_content = legacy.strip()
-                            entry_budget = available - len(root_content.encode("utf-8"))
-                            if root_content:
-                                entry_budget -= 2  # separator before generated entries
-                            if missing_entries and entry_budget > 0:
-                                try:
-                                    generated = root_store.render_index(
-                                        missing_entries, budget=entry_budget
-                                    ).strip()
-                                except ValueError:
-                                    # The preserved legacy view leaves too little room
-                                    # even for the generated index header.
-                                    generated = ""
-                                if generated:
-                                    root_content = (
-                                        root_content + "\n\n" + generated
-                                        if root_content
-                                        else generated
+                            if len(raw) > available:
+                                # The compatibility index consumed this root's budget.
+                                # Do not parse a partial link or append pointers that may
+                                # duplicate links in the undisplayed suffix.
+                                root_content = legacy
+                            else:
+                                linked_filenames = {
+                                    Path(target.split("#", 1)[0].strip("<> ")).name
+                                    for target in re.findall(
+                                        r"\[[^\]]*\]\(([^)]+)\)", legacy
                                     )
+                                    if "://" not in target
+                                }
+                                missing_entries = [
+                                    entry
+                                    for entry in entries
+                                    if entry.filename not in linked_filenames
+                                ]
+                                root_content = legacy
+                                entry_budget = available - len(legacy.encode("utf-8"))
+                                if legacy:
+                                    entry_budget -= (
+                                        2  # separator before generated entries
+                                    )
+                                if missing_entries and entry_budget > 0:
+                                    try:
+                                        generated = root_store.render_index(
+                                            missing_entries, budget=entry_budget
+                                        ).strip()
+                                    except ValueError:
+                                        # The preserved legacy view leaves too little room
+                                        # even for the generated index header.
+                                        generated = ""
+                                    if generated:
+                                        root_content = (
+                                            legacy + "\n\n" + generated
+                                            if legacy
+                                            else generated
+                                        )
                         else:
                             # Keep legacy index-only roots compatible, bounding
                             # the read itself rather than slicing a full read.
