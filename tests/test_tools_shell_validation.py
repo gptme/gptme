@@ -877,6 +877,7 @@ class TestSensitiveArgs:
         [
             "cat << /etc/passwd\n~/.ssh/id_rsa\n/etc/passwd",
             "cat <<EOF\n/etc/passwd\nEOF",
+            "cat <<- /etc/shadow\n\tsecret\n\t/etc/shadow",
         ],
     )
     def test_heredoc_delimiter_and_body_are_not_sensitive_args(self, command: str):

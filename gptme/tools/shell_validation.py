@@ -415,6 +415,8 @@ def _has_sensitive_args(cmd: str) -> bool:
     skip_heredoc_delimiter = False
     for token in raw_tokens:
         if skip_heredoc_delimiter:
+            if token == "-":
+                continue
             skip_heredoc_delimiter = False
             continue
         if token == "<<":
