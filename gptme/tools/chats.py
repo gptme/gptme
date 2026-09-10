@@ -985,8 +985,16 @@ Use chats when the user asks about or wants to reference a past conversation:
 
 Do **not** use chats for:
 - The current conversation — its content is already in the context window.
+{% if tools: shell, read %}
 - Searching files or code — use the shell or read tool instead.
+{% elif tools: shell %}
+- Searching files or code — use the shell tool instead.
+{% elif tools: read %}
+- Searching files or code — use the read tool instead.
+{% endif %}
+{% if tools: browser %}
 - Web or documentation search — use the browser tool.
+{% endif %}
 """.strip()
 
 tool = ToolSpec(
