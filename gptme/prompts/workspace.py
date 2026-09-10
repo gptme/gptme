@@ -507,7 +507,7 @@ def prompt_workspace(
                             # Keep legacy index-only roots compatible, bounding
                             # the read itself rather than slicing a full read.
                             index_path = root.path / "MEMORY.md"
-                            if not index_path.is_file():
+                            if not index_path.is_file() or index_path.is_symlink():
                                 continue
                             with index_path.open("rb") as binary_index_file:
                                 raw = binary_index_file.read(available)

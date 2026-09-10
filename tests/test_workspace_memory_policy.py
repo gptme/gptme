@@ -151,3 +151,15 @@ def test_legacy_reads_and_separators_obey_byte_budget(tmp_path: Path) -> None:
 
     assert content == "12345\n\né"
     assert len(content.encode("utf-8")) <= 10
+
+
+def test_legacy_only_root_rejects_symlinked_index(tmp_path: Path) -> None:
+    root = tmp_path / "memory"
+    root.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("must-not-load", encoding="utf-8")
+    (root / "MEMORY.md").symlink_to(outside)
+
+    content = _memory_content(tmp_path, [MemoryRoot("cc", root)])
+
+    assert content == ""
