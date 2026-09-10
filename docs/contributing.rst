@@ -309,3 +309,65 @@ For new contributors:
   Filter: ``good first issue`` + ``status: ready``
 
 Before starting work on an issue, please comment to indicate you're working on it to avoid duplicate effort.
+
+First Contribution Workflow
+---------------------------
+
+The following workflow is a reliable starting point for a first contribution.
+For details about automation and review expectations after you open a pull
+request, see :doc:`pr-lifecycle`.
+
+1. Choose an issue using the filters above and comment to let others know you
+   are working on it. Small, well-scoped changes are easiest to review.
+
+2. Fork the repository on GitHub, clone your fork, and add the upstream
+   repository:
+
+   .. code-block:: bash
+
+      git clone https://github.com/<your-user>/gptme.git
+      cd gptme
+      git remote add upstream https://github.com/gptme/gptme.git
+
+3. Create a focused branch from the latest ``master``:
+
+   .. code-block:: bash
+
+      git fetch upstream
+      git switch -c docs/first-pr-workflow upstream/master
+
+   Use a ``docs/``, ``fix/``, ``test/``, or ``feat/`` prefix that describes
+   the change.
+
+4. Make the smallest change that solves the issue and add or update tests when
+   behavior changes. Run the most relevant test first, then run the project
+   checks:
+
+   .. code-block:: bash
+
+      make test
+      make typecheck
+      make lint
+
+5. Review and stage only the files that belong to the change:
+
+   .. code-block:: bash
+
+      git status
+      git diff
+      git add path/to/changed-file
+      git commit -m "docs: describe the contributor workflow"
+
+   Use `Conventional Commits <https://www.conventionalcommits.org/>`_ for the
+   commit message. Avoid ``git add .`` and keep unrelated changes out of the
+   branch.
+
+6. Push the branch to your fork and open a pull request against
+   ``gptme/gptme:master``:
+
+   .. code-block:: bash
+
+      git push -u origin docs/first-pr-workflow
+
+   In the pull request description, summarize what changed, explain why, link
+   the issue when applicable, and list the verification commands you ran.
