@@ -242,17 +242,27 @@ describe('createDemoApiClient — page reload / session recovery', () => {
     expect(conv.log.length).toBeGreaterThan(0);
   });
 
-  it('recovers gracefully (no error) for a missing generated demo ID instead of crashing', async () => {
+  it('persists a recovered missing generated demo conversation', async () => {
     // A generated ID that was never created — e.g. the sessionStorage was cleared
-    // or the URL was shared across browsers.  The client must NOT throw here;
-    // it should return a usable demo conversation with an explanatory notice.
-    const client = createDemoApiClient();
-    const conv = await client.getConversation('demo/conv-unknown-1234567890');
-    expect(conv.id).toBe('demo/conv-unknown-1234567890');
-    expect(conv.log.length).toBeGreaterThan(0);
-    // First message should be a system notice explaining the session was lost.
-    expect(conv.log[0].role).toBe('system');
-    expect(conv.log[0].content).toMatch(/not found|expired/i);
+    // or the URL was shared across browsers. The client must not throw here and
+    // the recovered history must survive subsequent mutations and client reinit.
+    const logfile = 'demo/conv-unknown-1234567890';
+    const client1 = createDemoApiClient();
+    const recovered = await client1.getConversation(logfile);
+    expect(recovered.id).toBe(logfile);
+    expect(recovered.log.length).toBeGreaterThan(0);
+    expect(recovered.log[0].role).toBe('system');
+    expect(recovered.log[0].content).toMatch(/not found|expired/i);
+
+    await client1.sendMessage(logfile, { role: 'user', content: 'continue' });
+
+    const client2 = createDemoApiClient();
+    const restored = await client2.getConversation(logfile);
+    expect(restored.log).toEqual([
+      ...recovered.log,
+      expect.objectContaining({ role: 'user', content: 'continue' }),
+    ]);
+    await expect(client2.forkConversation(logfile, 0)).resolves.toMatch(/^demo\/conv-/);
   });
 
   it('does NOT apply graceful recovery to non-demo IDs (still throws)', async () => {

@@ -339,7 +339,9 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
           log: [notice, ...clone(DEMO_MESSAGES)],
           branches: { main: [notice, ...clone(DEMO_MESSAGES)] },
         };
-        return recovered;
+        localConversations.set(logfile, recovered);
+        saveDemoSessionStorage(localConversations);
+        return clone(recovered);
       }
       throw new DemoModeError(`getConversation(${logfile})`);
     },
