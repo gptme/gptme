@@ -391,6 +391,8 @@ def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
 
     def _taken(names: str) -> bool:
         wanted = [n.strip().lower() for n in names.split(",") if n.strip()]
+        if not wanted:
+            raise ValueError("{% if tools %} requires at least one tool name")
         if loaded_set is None:
             return True
         return all(n in loaded_set for n in wanted)
@@ -439,7 +441,10 @@ def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
         pos = end
     if state is not None:
         raise ValueError("unterminated {% if tools %} block")
-    out.append(text[pos:])
+    trailing = text[pos:]
+    if "{%" in trailing:
+        raise ValueError("invalid {% if tools %} conditional marker")
+    out.append(trailing)
     return "".join(out)
 
 

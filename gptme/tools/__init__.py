@@ -67,8 +67,8 @@ _available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
 )
 # Effective operator allowlist from the last init_tools() in this context.
 # None means unrestricted (default session); a list is a hard cap for model
-# enablement via request_tool_change. /tools load still uses load_tool()
-# directly and is not gated here.
+# enablement via request_tool_change. Explicit user actions such as /tools load
+# may intentionally widen the active set without mutating this boundary.
 _session_allowlist_var: ContextVar[list[str] | None] = ContextVar(
     "session_allowlist", default=None
 )
@@ -210,16 +210,22 @@ def init_tools(
             else:
                 tool_names.append(item)
 
-        # Load tools from file paths first
+        # Load tools from file paths first. All specs exported by explicitly
+        # named files are permitted; named built-ins may satisfy dependencies.
+        file_tools: list[ToolSpec] = []
         if file_paths:
             from .base import load_from_file
 
             for file_path in file_paths:
                 path = Path(file_path).expanduser()
-                for tool in load_from_file(path):
-                    if not has_tool(tool.name):
-                        tool = _init_single_tool(tool)
-                        loaded_tools.append(tool)
+                file_tools.extend(load_from_file(path))
+            available = [*file_tools, *get_available_tools(include_mcp=include_mcp)]
+            permitted = [*(tool.name for tool in file_tools), *tool_names]
+            file_tools = _add_required_tools(file_tools, available, allowlist=permitted)
+            for tool in file_tools:
+                if not has_tool(tool.name):
+                    tool = _init_single_tool(tool)
+                    loaded_tools.append(tool)
 
         # Load built-in tools by name
         # When file paths are present, only load explicitly named built-in tools
@@ -324,7 +330,11 @@ def get_toolchain(
             if not explicitly_allowed:
                 continue
         tools.append(tool)
-    tools = _add_required_tools(tools, get_available_tools(include_mcp=include_mcp))
+    tools = _add_required_tools(
+        tools,
+        get_available_tools(include_mcp=include_mcp),
+        allowlist=allowlist,
+    )
     if skipped_mcp_tools:
         allowlist_key = tuple(allowlist or [])
         with _warned_mcp_allowlists_lock:
@@ -341,13 +351,16 @@ def get_toolchain(
 
 
 def _add_required_tools(
-    tools: list[ToolSpec], available: list[ToolSpec]
+    tools: list[ToolSpec],
+    available: list[ToolSpec],
+    *,
+    allowlist: list[str] | None = None,
 ) -> list[ToolSpec]:
-    """Append companion tools named by ``ToolSpec.requires_tools``.
+    """Append available companions while preserving the capability boundary.
 
-    A tool that documents another tool's usage (hashline_edit → read) is only
-    coherent when both are loaded, so requesting one loads the other, even if
-    the companion is disabled_by_default. Runs to a fixpoint so chains resolve.
+    ``None`` means unrestricted. With an explicit allowlist, every companion
+    must match it; requiring a tool never silently grants an unlisted capability.
+    Runs to a fixpoint so dependency chains resolve.
     """
     by_name = {t.name: t for t in available}
     loaded = {t.name for t in tools}
@@ -366,6 +379,13 @@ def _add_required_tools(
                     name,
                 )
                 continue
+            if allowlist is not None and not tool_matches_allowlist(
+                dep.name, allowlist, dep.hints
+            ):
+                raise ValueError(
+                    f"Tool '{tool.name}' requires '{name}', which is not permitted "
+                    "by the tool allowlist"
+                )
             logger.info("Loading '%s' because '%s' requires it", name, tool.name)
             tools.append(dep)
             loaded.add(name)
@@ -661,11 +681,13 @@ def notify_file_read(path: str, content: str) -> str | None:
     return tag if has_tool("hashline_edit") else None
 
 
-def load_tool(tool_name: str) -> ToolSpec:
-    """Load a single tool by name mid-conversation.
+def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
+    """Load a tool and its required companions mid-conversation.
 
-    Finds the tool in available tools, initializes it, registers hooks/commands,
-    and adds it to the loaded tools list.
+    Finds the tool in available tools, resolves its companion closure, initializes
+    each tool, registers hooks/commands, and adds them to the loaded tools list.
+    Required tools must remain inside the session allowlist unless ``allow_required``
+    is set by an explicit user action such as ``/tools load``.
 
     Thread-safe: uses _tools_init_lock to match init_tools() behavior.
 
@@ -686,11 +708,18 @@ def load_tool(tool_name: str) -> ToolSpec:
         if not tool.is_available:
             raise ValueError(_unavailable_message(tool_name, [tool]))
 
-        # Initialize, register hooks/commands (shared logic)
-        tool = _init_single_tool(tool)
+        to_load = _add_required_tools(
+            [tool],
+            list(available.values()),
+            allowlist=None if allow_required else get_session_allowlist(),
+        )
+        initialized: dict[str, ToolSpec] = {}
+        for spec in to_load:
+            if has_tool(spec.name):
+                continue
+            initialized_spec = _init_single_tool(spec)
+            _get_loaded_tools().append(initialized_spec)
+            initialized[spec.name] = initialized_spec
+            logger.info("Loaded tool '%s' mid-conversation", spec.name)
 
-        # Add to loaded tools
-        _get_loaded_tools().append(tool)
-        logger.info("Loaded tool '%s' mid-conversation", tool_name)
-
-        return tool
+        return initialized[tool_name]

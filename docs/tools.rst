@@ -787,7 +787,10 @@ renders every branch as if all tools were loaded.
 **Companion tools** are declared with ``requires_tools`` on the ``ToolSpec``.
 Enabling ``hashline_edit`` loads ``read`` as well (its edits are anchored to
 ``read``'s snapshot tags), even though ``read`` is disabled by default on its
-own::
+own. A startup allowlist must include every required companion; otherwise
+initialization fails rather than widening the configured capability boundary.
+An explicit ``/tools load`` user action may load the requested tool and its
+companions together::
 
     tool = ToolSpec(
         name="hashline_edit",

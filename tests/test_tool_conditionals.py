@@ -1,8 +1,17 @@
 """Conditional tool docs ({% if tools: ... %}) and companion tools (requires_tools)."""
 
+from unittest.mock import patch
+
 import pytest
 
-from gptme.tools import get_toolchain, init_tools
+from gptme.tools import (
+    clear_tools,
+    get_toolchain,
+    get_tools,
+    init_tools,
+    load_tool,
+    set_session_allowlist,
+)
 from gptme.tools.base import ToolSpec, render_tool_conditionals
 
 
@@ -40,6 +49,8 @@ def test_render_text_without_markers_is_untouched():
         "{% if tools: a %}x",
         "x{% endif %}",
         "{% if tools: a %}{% if tools: b %}{% endif %}{% endif %}",
+        "{% if tools: %}x{% endif %}",
+        "{% unknown %}",
     ],
 )
 def test_render_rejects_malformed_blocks(text):
@@ -79,13 +90,101 @@ def test_doc_rendering_assumes_every_tool_loaded():
     assert "after read" in spec.get_doc("")
 
 
-def test_requires_tools_loads_companion_even_if_disabled_by_default():
-    tools = get_toolchain(["shell", "hashline_edit"])
+def test_requires_tools_respects_explicit_allowlist():
+    with pytest.raises(ValueError, match="hashline_edit.*requires.*read.*allowlist"):
+        get_toolchain(["shell", "hashline_edit"])
+
+
+def test_requires_tools_loads_explicitly_allowed_companion():
+    tools = get_toolchain(["shell", "hashline_edit", "read"])
     names = {t.name for t in tools}
     assert "hashline_edit" in names
-    assert "read" in names, "hashline_edit requires read; loader must add it"
+    assert "read" in names
 
 
 def test_requires_tools_does_not_load_read_without_hashline():
     tools = get_toolchain(["shell"])
     assert "read" not in {t.name for t in tools}
+
+
+def test_load_tool_loads_required_companions():
+    companion = ToolSpec(name="companion", desc="companion", disabled_by_default=True)
+    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+
+    clear_tools()
+    set_session_allowlist(None)
+    with patch("gptme.tools.get_available_tools", return_value=[primary, companion]):
+        loaded = load_tool("primary")
+
+    assert loaded.name == "primary"
+    assert {tool.name for tool in get_tools()} == {"primary", "companion"}
+
+
+def test_explicit_load_can_add_required_companion_outside_session_allowlist():
+    companion = ToolSpec(name="companion", desc="companion", disabled_by_default=True)
+    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+
+    clear_tools()
+    set_session_allowlist(["primary"])
+    with patch("gptme.tools.get_available_tools", return_value=[primary, companion]):
+        loaded = load_tool("primary", allow_required=True)
+
+    assert loaded.name == "primary"
+    assert {tool.name for tool in get_tools()} == {"primary", "companion"}
+
+
+def test_load_tool_rejects_required_companion_outside_allowlist():
+    companion = ToolSpec(name="companion", desc="companion", disabled_by_default=True)
+    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+
+    clear_tools()
+    set_session_allowlist(["primary"])
+    with (
+        patch("gptme.tools.get_available_tools", return_value=[primary, companion]),
+        pytest.raises(ValueError, match="primary.*requires.*companion.*allowlist"),
+    ):
+        load_tool("primary")
+
+    assert get_tools() == []
+
+
+def test_file_tool_loads_required_companion(tmp_path):
+    tool_file = tmp_path / "companion_tool.py"
+    tool_file.write_text(
+        "from gptme.tools import ToolSpec\n"
+        "companion = ToolSpec(name='file_companion', desc='companion')\n"
+        "primary = ToolSpec(name='file_primary', desc='primary', "
+        "requires_tools=['file_companion'])\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(tool_file)])
+
+    assert {tool.name for tool in tools} == {"file_primary", "file_companion"}
+
+
+def test_file_tool_can_require_explicitly_allowed_builtin(tmp_path):
+    tool_file = tmp_path / "read_consumer.py"
+    tool_file.write_text(
+        "from gptme.tools import ToolSpec\n"
+        "tool = ToolSpec(name='read_consumer', desc='consumer', "
+        "requires_tools=['read'])\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(tool_file), "read"], include_mcp=False)
+
+    assert {tool.name for tool in tools} == {"read_consumer", "read"}
+
+
+def test_file_tool_cannot_require_unlisted_builtin(tmp_path):
+    tool_file = tmp_path / "read_consumer.py"
+    tool_file.write_text(
+        "from gptme.tools import ToolSpec\n"
+        "tool = ToolSpec(name='read_consumer', desc='consumer', "
+        "requires_tools=['read'])\n"
+    )
+
+    clear_tools()
+    with pytest.raises(ValueError, match="read_consumer.*requires.*read.*allowlist"):
+        init_tools(allowlist=[str(tool_file)], include_mcp=False)
