@@ -1288,12 +1288,32 @@ class ShellSession:
                     # 2**12 = 4096
                     # 2**16 = 65536
                     raw = os.read(fd, 2**16)
-                    # Count the raw bytes actually read so multibyte UTF-8 output
-                    # cannot exceed the cap by 3-4x (byte count, not character count).
-                    captured_bytes += len(raw)
                     data = raw.decode("utf-8", errors="replace")
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
+
+                    # Count raw subprocess output bytes, excluding the shell's
+                    # injected start/return markers. A command just below the cap
+                    # must not be killed merely because its delimiter shares the
+                    # final read chunk (bob-ai-review P2).
+                    captured_raw = raw
+                    if fd == self.stdout_fd:
+                        marker_bytes = start_marker_pattern.encode()
+                        marker_pos = captured_raw.find(marker_bytes)
+                        if not seen_start_marker and marker_pos >= 0:
+                            marker_end = captured_raw.find(b"\n", marker_pos)
+                            captured_raw = (
+                                captured_raw[marker_end + 1 :]
+                                if marker_end >= 0
+                                else b""
+                            )
+                        delimiter_pos = captured_raw.rfind(b"ReturnCode:")
+                        if (
+                            delimiter_pos >= 0
+                            and self.delimiter.encode() in captured_raw[delimiter_pos:]
+                        ):
+                            captured_raw = captured_raw[:delimiter_pos]
+                    captured_bytes += len(captured_raw)
 
                     for line in lines:
                         # Issue #408: Skip stdout until we see the start marker

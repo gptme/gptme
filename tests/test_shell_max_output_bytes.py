@@ -138,6 +138,20 @@ def test_normal_output_below_cap_unaffected(shell):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="SIGTERM/SIGKILL are POSIX-only")
+def test_delimiter_bytes_do_not_trip_cap(shell):
+    """The shell's injected return marker is not subprocess output."""
+    command_output = "x" * 4096
+    with patch(
+        "gptme.tools.shell._get_max_output_bytes", return_value=len(command_output)
+    ):
+        returncode, stdout, stderr = shell.run(f"printf %s {command_output}")
+
+    assert returncode == 0, f"stderr: {stderr}"
+    assert stdout == command_output
+    assert "[output truncated" not in stdout
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SIGTERM/SIGKILL are POSIX-only")
 def test_cap_preserves_partial_output(shell):
     """Some output is captured before the cap fires; it must be in stdout."""
     cap = 32 * 1024  # 32 KiB
