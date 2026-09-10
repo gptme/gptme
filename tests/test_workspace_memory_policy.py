@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -151,16 +151,3 @@ def test_legacy_reads_and_separators_obey_byte_budget(tmp_path: Path) -> None:
 
     assert content == "12345\n\né"
     assert len(content.encode("utf-8")) <= 10
-
-
-def test_legacy_fallback_bounds_the_file_read(tmp_path: Path) -> None:
-    root = tmp_path / "memory"
-    root.mkdir()
-    index_path = root / "MEMORY.md"
-    index_path.write_text("legacy", encoding="utf-8")
-    reader = mock_open(read_data=b"legacy")
-
-    with patch.object(Path, "open", reader):
-        _memory_content(tmp_path, [MemoryRoot("cc", root)], budget=10)
-
-    reader().read.assert_called_once_with(10)

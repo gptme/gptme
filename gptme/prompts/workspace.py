@@ -457,26 +457,40 @@ def prompt_workspace(
                             # inject those memories twice and consume the shared budget.
                             index_path = root.path / "MEMORY.md"
                             legacy = ""
+                            linked_filenames: set[str] = set()
                             if index_path.is_file() and not index_path.is_symlink():
-                                with index_path.open("rb") as index_file:
-                                    raw = index_file.read(available)
-                                legacy = raw.decode("utf-8", errors="ignore").strip()
+                                with index_path.open(
+                                    encoding="utf-8", errors="ignore"
+                                ) as text_index_file:
+                                    for line in text_index_file:
+                                        if legacy:
+                                            candidate = (
+                                                legacy + "\n" + line.rstrip("\n")
+                                            )
+                                        else:
+                                            candidate = line.rstrip("\n")
+                                        if len(candidate.encode("utf-8")) <= available:
+                                            legacy = candidate
+                                        for target in re.findall(
+                                            r"\[[^\]]*\]\(([^)]+)\)", line
+                                        ):
+                                            if "://" not in target:
+                                                linked_filenames.add(
+                                                    Path(
+                                                        target.split("#", 1)[0].strip(
+                                                            "<> "
+                                                        )
+                                                    ).name
+                                                )
 
-                            linked_filenames = {
-                                Path(target.split("#", 1)[0].strip("<> ")).name
-                                for target in re.findall(
-                                    r"\[[^\]]*\]\(([^)]+)\)", legacy
-                                )
-                                if "://" not in target
-                            }
                             missing_entries = [
                                 entry
                                 for entry in entries
                                 if entry.filename not in linked_filenames
                             ]
-                            root_content = legacy
-                            entry_budget = available - len(legacy.encode("utf-8"))
-                            if legacy:
+                            root_content = legacy.strip()
+                            entry_budget = available - len(root_content.encode("utf-8"))
+                            if root_content:
                                 entry_budget -= 2  # separator before generated entries
                             if missing_entries and entry_budget > 0:
                                 try:
@@ -489,8 +503,8 @@ def prompt_workspace(
                                     generated = ""
                                 if generated:
                                     root_content = (
-                                        legacy + "\n\n" + generated
-                                        if legacy
+                                        root_content + "\n\n" + generated
+                                        if root_content
                                         else generated
                                     )
                         else:
@@ -499,8 +513,8 @@ def prompt_workspace(
                             index_path = root.path / "MEMORY.md"
                             if not index_path.is_file():
                                 continue
-                            with index_path.open("rb") as index_file:
-                                raw = index_file.read(available)
+                            with index_path.open("rb") as binary_index_file:
+                                raw = binary_index_file.read(available)
                             root_content = raw.decode("utf-8", errors="ignore").strip()
                     except Exception as e:
                         logger.warning(

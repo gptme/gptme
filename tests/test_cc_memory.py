@@ -475,10 +475,50 @@ class TestCcMemoryInWorkspacePrompt:
         generated_index = combined.rsplit("# Persistent Memory", 1)[-1]
         for name in ("plain", "dot-relative", "angled", "anchored"):
             assert f"]({name}.md)" not in generated_index
-        # The URL does not point at the local entry despite sharing its basename.
+        # The URL does not point at the local entry despite sharing its basename:
+        # both the external URL and a generated local pointer must be present.
+        assert "https://example.com/external.md" in combined
         assert "](external.md)" in generated_index
+        assert combined.count("external.md") == 2
         assert "](missing.md)" in generated_index
         assert "Operator guidance" in combined
+
+    def test_truncated_unmanaged_index_deduplicates_links_after_budget(self, tmp_path):
+        """Links beyond displayed legacy content still suppress duplicate pointers."""
+        from gptme.prompts.workspace import prompt_workspace
+
+        workspace = tmp_path / "myproject"
+        workspace.mkdir()
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        _make_entry(memory_dir, "linked-late", "Entry linked late", type="user")
+        (memory_dir / "MEMORY.md").write_text(
+            "legacy content that fills most of the budget\n- [late](linked-late.md)\n"
+        )
+        root = MemoryRoot("cc", memory_dir)
+
+        with (
+            patch("gptme.prompts.workspace.resolve_roots", return_value=[root]),
+            patch("gptme.prompts.workspace.get_config") as mock_config,
+            patch("gptme.prompts.workspace.get_project_config", return_value=None),
+            patch("gptme.prompts.workspace.get_tree_output", return_value=None),
+            patch("gptme.prompts.workspace._get_git_status", return_value=None),
+            patch("gptme.prompts.workspace.find_agent_files_in_tree", return_value=[]),
+            patch("gptme.prompts.workspace._MEMORY_BUDGET_BYTES", 50),
+        ):
+            mock_config.return_value.user = None
+            messages = list(
+                prompt_workspace(
+                    workspace=workspace,
+                    include_user_context=True,
+                    include_context_cmd=False,
+                )
+            )
+
+        combined = "\n".join(m.content for m in messages)
+        assert "legacy content" in combined
+        assert "[late](linked-late.md)" not in combined
+        assert combined.count("linked-late.md") == 0
 
     def test_no_memory_when_no_roots_exist(self, tmp_path):
         """No memory message is emitted when no memory roots have files."""
