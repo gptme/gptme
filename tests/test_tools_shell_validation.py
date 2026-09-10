@@ -11,6 +11,7 @@ from gptme.tools.shell_validation import (
     _find_heredoc_regions,
     _find_quotes,
     _has_file_redirection,
+    _has_sensitive_args,
     _is_in_quoted_region,
     is_allowlisted,
     is_denylisted,
@@ -858,6 +859,18 @@ class TestSensitiveArgs:
     def test_cd_tmp_semicolon_ls_still_allowlisted(self):
         """`cd /tmp; ls` should still be auto-approved — /tmp is not sensitive."""
         assert is_allowlisted("cd /tmp; ls")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'cat "/etc;foo"',
+            "cat '/etc;foo'",
+            r"cat /etc\;foo",
+        ],
+    )
+    def test_literal_operator_in_filename_is_not_sensitive(self, command: str):
+        """Quoted or escaped operators are filename characters, not separators."""
+        assert not _has_sensitive_args(command)
 
     def test_globbed_sensitive_path_not_allowlisted(self):
         """Shell glob expansion must not turn an approved token into /etc/shadow."""
