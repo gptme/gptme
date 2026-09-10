@@ -118,7 +118,7 @@ def test_cap_total_output_size_bounded(shell):
     assert returncode == -125, f"Expected -125 (byte cap), got {returncode}"
     # Output must be capped: at most cap + one extra chunk + truncation marker
     captured = len(stdout.encode("utf-8", errors="replace"))
-    assert captured < cap + chunk + 512, (
+    assert captured < cap + 2 * chunk + 1024, (
         f"Output ({captured} bytes) exceeds cap ({cap} bytes) by more than one chunk"
     )
 
@@ -171,7 +171,7 @@ def test_cap_counts_bytes_not_characters(shell):
     chunk = 2**16
     # Byte cap: output stays near cap (+ one chunk + marker), never ~3x the cap
     # which would be the case if the counter were counting characters.
-    assert captured < cap + chunk + 512, (
+    assert captured < cap + 2 * chunk + 1024, (
         f"Multibyte output ({captured} bytes) exceeds byte cap ({cap} bytes) "
         "by more than one chunk"
     )

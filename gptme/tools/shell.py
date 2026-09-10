@@ -1010,6 +1010,29 @@ class ShellSession:
                 # Drain stdout queue
                 try:
                     data = stdout_queue.get(timeout=0.1)
+                    # Check the cap at the chunk level, before the delimiter
+                    # branch, so a chunk that both exceeds the cap and carries
+                    # the delimiter cannot bypass the cap (Greptile P1).
+                    if cap_state["over"]:
+                        cap_mib = max_output_bytes / (1024 * 1024)
+                        trunc_msg = (
+                            f"\n[output truncated at {cap_mib:.0f} MiB,"
+                            f" process killed]\n"
+                        )
+                        stdout.append(trunc_msg)
+                        if output:
+                            print(trunc_msg, end="", file=sys.stdout)
+                        logger.warning(
+                            "Shell output cap (%d MiB) exceeded; killing process",
+                            int(cap_mib),
+                        )
+                        self._terminate_process()
+                        stop_event.set()
+                        return (
+                            -125,
+                            trim_blank_lines("".join(stdout)),
+                            trim_blank_lines("".join(stderr)),
+                        )
                     lines = data.splitlines(keepends=True)
                     for line in lines:
                         if not seen_start_marker:
@@ -1101,6 +1124,28 @@ class ShellSession:
                 # Drain stderr queue
                 try:
                     data = stderr_queue.get_nowait()
+                    if cap_state["over"]:
+                        # Marker is always appended to stdout (consistent with
+                        # the Unix path and documented behavior).
+                        cap_mib = max_output_bytes / (1024 * 1024)
+                        trunc_msg = (
+                            f"\n[output truncated at {cap_mib:.0f} MiB,"
+                            f" process killed]\n"
+                        )
+                        stdout.append(trunc_msg)
+                        if output:
+                            print(trunc_msg, end="", file=sys.stdout)
+                        logger.warning(
+                            "Shell output cap (%d MiB) exceeded; killing process",
+                            int(cap_mib),
+                        )
+                        self._terminate_process()
+                        stop_event.set()
+                        return (
+                            -125,
+                            trim_blank_lines("".join(stdout)),
+                            trim_blank_lines("".join(stderr)),
+                        )
                     lines = data.splitlines(keepends=True)
                     for line in lines:
                         stderr.append(line)
@@ -1220,6 +1265,7 @@ class ShellSession:
                     data = raw.decode("utf-8", errors="replace")
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
+
                     for line in lines:
                         # Issue #408: Skip stdout until we see the start marker
                         # Only apply to stdout - stderr should pass through unfiltered
@@ -1288,6 +1334,14 @@ class ShellSession:
                                 else:
                                     os.chdir(pwd.strip())
 
+                            # If the byte cap was already exceeded in this chunk
+                            # (delimiter line present), do not return the real
+                            # code — enforce the cap (Greptile P1 race).
+                            if captured_bytes > max_output_bytes:
+                                return self._kill_for_byte_cap(
+                                    stdout, stderr, output, max_output_bytes
+                                )
+
                             # Issue #408: Drain any remaining stderr before
                             # returning. Use multiple attempts to ensure stderr
                             # has time to arrive from bash.
@@ -1322,58 +1376,8 @@ class ShellSession:
                                 print(line, end="", file=sys.stderr)
 
                         if captured_bytes > max_output_bytes:
-                            cap_mib = max_output_bytes / (1024 * 1024)
-                            trunc_msg = (
-                                f"\n[output truncated at {cap_mib:.0f} MiB,"
-                                f" process killed]\n"
-                            )
-                            stdout.append(trunc_msg)
-                            if output:
-                                print(trunc_msg, end="", file=sys.stdout)
-                            logger.warning(
-                                "Shell output cap (%d MiB) exceeded; killing process",
-                                int(cap_mib),
-                            )
-                            try:
-                                pgid = os.getpgid(self.process.pid)
-                                os.killpg(pgid, signal.SIGTERM)
-                                time.sleep(0.1)
-                                if self.process.poll() is None:
-                                    os.killpg(pgid, signal.SIGKILL)
-                            except Exception as e:
-                                logger.warning(
-                                    "Error killing process after byte cap exceeded: %s",
-                                    e,
-                                )
-                            # Drain any remaining data from both pipes so it does
-                            # not bleed into the next command's output (Greptile P1).
-                            for drain_fd in (self.stdout_fd, self.stderr_fd):
-                                drain_empty_count = 0
-                                while drain_empty_count < 2:
-                                    drain_rlist = _wait_readable([drain_fd], 0.1)
-                                    if not drain_rlist:
-                                        drain_empty_count += 1
-                                        continue
-                                    drain_raw = os.read(drain_fd, 2**16)
-                                    if not drain_raw:
-                                        drain_empty_count += 1
-                                        continue
-                                    drain_empty_count = 0
-                                    drain_data = drain_raw.decode(
-                                        "utf-8", errors="replace"
-                                    )
-                                    if drain_fd == self.stdout_fd:
-                                        stdout.append(drain_data)
-                                        if output:
-                                            print(drain_data, end="", file=sys.stdout)
-                                    else:
-                                        stderr.append(drain_data)
-                                        if output:
-                                            print(drain_data, end="", file=sys.stderr)
-                            return (
-                                -125,
-                                trim_blank_lines("".join(stdout)),
-                                trim_blank_lines("".join(stderr)),
+                            return self._kill_for_byte_cap(
+                                stdout, stderr, output, max_output_bytes
                             )
         except KeyboardInterrupt:
             # Clear line after ^C to avoid leaving a hanging line
@@ -1383,6 +1387,65 @@ class ShellSession:
             partial_stdout = trim_blank_lines("".join(stdout))
             partial_stderr = trim_blank_lines("".join(stderr))
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
+
+    def _kill_for_byte_cap(
+        self,
+        stdout: list[str],
+        stderr: list[str],
+        output: bool,
+        max_output_bytes: int,
+    ) -> tuple[int | None, str, str]:
+        """Kill the process for exceeding the byte cap, drain pipes, return -125.
+
+        Appends the truncation marker to stdout, terminates the process group,
+        drains any remaining output from both pipes (so it does not bleed into
+        the next command), and returns the synthetic -125 tuple.
+        """
+        cap_mib = max_output_bytes / (1024 * 1024)
+        trunc_msg = f"\n[output truncated at {cap_mib:.0f} MiB, process killed]\n"
+        stdout.append(trunc_msg)
+        if output:
+            print(trunc_msg, end="", file=sys.stdout)
+        logger.warning(
+            "Shell output cap (%d MiB) exceeded; killing process",
+            int(cap_mib),
+        )
+        try:
+            pgid = os.getpgid(self.process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            time.sleep(0.1)
+            if self.process.poll() is None:
+                os.killpg(pgid, signal.SIGKILL)
+        except Exception as e:
+            logger.warning("Error killing process after byte cap exceeded: %s", e)
+        # Drain any remaining data from both pipes so it does not bleed into the
+        # next command's output (Greptile P1).
+        for drain_fd in (self.stdout_fd, self.stderr_fd):
+            drain_empty_count = 0
+            while drain_empty_count < 2:
+                drain_rlist = _wait_readable([drain_fd], 0.1)
+                if not drain_rlist:
+                    drain_empty_count += 1
+                    continue
+                drain_raw = os.read(drain_fd, 2**16)
+                if not drain_raw:
+                    drain_empty_count += 1
+                    continue
+                drain_empty_count = 0
+                drain_data = drain_raw.decode("utf-8", errors="replace")
+                if drain_fd == self.stdout_fd:
+                    stdout.append(drain_data)
+                    if output:
+                        print(drain_data, end="", file=sys.stdout)
+                else:
+                    stderr.append(drain_data)
+                    if output:
+                        print(drain_data, end="", file=sys.stderr)
+        return (
+            -125,
+            trim_blank_lines("".join(stdout)),
+            trim_blank_lines("".join(stderr)),
+        )
 
     def _terminate_process(self) -> None:
         """Terminate the shell process, platform-aware."""
