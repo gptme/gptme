@@ -966,6 +966,7 @@ class ShellSession:
             "__gptme_rc=$?; __gptme_pwd=$(pwd -P | od -An -v -tx1 | "
             "tr -d ' \n'); __gptme_pwd=${__gptme_pwd%0a}; printf "
             f'"ReturnCode:%s PWDHEX:%s {delimiter_pattern}\\n" '
+
             '"$__gptme_rc" "$__gptme_pwd"\n'
 
         )
@@ -1203,12 +1204,14 @@ class ShellSession:
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
                             cwd_match = re.search(
-                                rf" PWD:(.*?) {re.escape(self.delimiter)}",
+                                rf" PWDHEX:([0-9a-f]*) {re.escape(self.delimiter)}",
                                 line[rc_pos:],
                             )
                             if cwd_match:
                                 self._set_cwd(
-                                    shlex.split(cwd_match.group(1), posix=True)[0]
+                                    bytes.fromhex(cwd_match.group(1)).decode(
+                                        errors="surrogateescape"
+                                    )
                                 )
 
                             # Drain remaining stderr
@@ -1496,12 +1499,14 @@ class ShellSession:
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
                             cwd_match = re.search(
-                                rf" PWD:(.*?) {re.escape(self.delimiter)}",
+                                rf" PWDHEX:([0-9a-f]*) {re.escape(self.delimiter)}",
                                 line[rc_pos:],
                             )
                             if cwd_match:
                                 self._set_cwd(
-                                    shlex.split(cwd_match.group(1), posix=True)[0]
+                                    bytes.fromhex(cwd_match.group(1)).decode(
+                                        errors="surrogateescape"
+                                    )
                                 )
 
                             # If the byte cap was already exceeded in this chunk

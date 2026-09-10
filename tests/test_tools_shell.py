@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -2011,6 +2012,13 @@ def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
         ret, _, _ = shell.run("PWD=/tmp")
         assert ret == 0
         assert shell.get_cwd() == tmp_path.parent
+
+        # Marker encoding must round-trip Bash-special path characters.
+        unusual_cwd = tmp_path / "line\nbreak and space"
+        unusual_cwd.mkdir()
+        ret, _, _ = shell.run(f"cd {shlex.quote(str(unusual_cwd))}")
+        assert ret == 0
+        assert shell.get_cwd() == unusual_cwd
     finally:
         shell.close()
 
