@@ -1583,12 +1583,27 @@ class ShellSession:
                                 return self._kill_for_byte_cap(
                                     stdout, stderr, output, max_output_bytes
                                 )
+                            restored = self._has_state_snapshot()
                             self.restart()
+                            if restored:
+                                note = (
+                                    "cwd and exported variables were restored "
+                                    "from a snapshot"
+                                )
+                            else:
+                                note = "cwd was reset; exported variables are gone"
                             stderr.append(
-                                "\n[gptme] The command closed a persistent shell "
-                                "output pipe, so a fresh shell was started; cwd, "
-                                "variables and `&` jobs from the old shell are "
-                                "gone.\n"
+                                f"\n[gptme] The command closed a persistent shell "
+                                f"output pipe, so a fresh shell was started; {note}. "
+                                f"Shell functions, aliases, unexported variables "
+                                f"and `&` jobs from the old shell are gone.\n"
+                            )
+                            self._restart_notice = (
+                                f"Note: the shell exited (closed its output pipe) "
+                                f"during this command, so gptme started a fresh "
+                                f"shell. {note[0].upper() + note[1:]}. Shell functions, "
+                                f"aliases, unexported variables and background jobs "
+                                f"of the old shell are gone."
                             )
                             return (
                                 -1,
