@@ -1259,11 +1259,14 @@ def test_get_user_input_cancels_on_include_paths_interrupt(monkeypatch):
 
 def test_auto_naming_thread_registry_cleans_up_and_deduplicates(tmp_path, monkeypatch):
     """The registry owns one live worker and drops it after completion."""
+    import sys
     import threading
 
-    import gptme.chat as chat_module
+    import gptme.chat  # noqa: F401
     from gptme.config import ChatConfig
     from gptme.message import Message
+
+    chat_module = sys.modules["gptme.chat"]
 
     started = threading.Event()
     release = threading.Event()
