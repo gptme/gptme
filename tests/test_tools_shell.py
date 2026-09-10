@@ -1996,6 +1996,7 @@ def test_shell_cwd_parameter(tmp_path):
 
 def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
     """A successful compound command must refresh the persistent shell cwd."""
+    original_cwd = Path.cwd()
     shell = ShellSession()
     try:
         ret, _, _ = shell.run(f"printf ready; cd {tmp_path}")
@@ -2021,6 +2022,7 @@ def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
         assert shell.get_cwd() == unusual_cwd
     finally:
         shell.close()
+        os.chdir(original_cwd)
 
 
 # ---------------------------------------------------------------------------
