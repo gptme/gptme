@@ -401,28 +401,22 @@ def _has_sensitive_args(cmd: str) -> bool:
 
     Returns True if a sensitive argument is found (approval should be denied).
     """
+    # Blank heredoc bodies (stdin data) *and* headers (the << / <<- opener and
+    # its delimiter word). Both are shell syntax, not filesystem arguments.
+    # Critically, header blanking is spacing-aware: ``<<-`` (attached) treats
+    # the following word as the delimiter and blanks it, while ``<< -`` (spaced)
+    # is a delimiter literally named ``-`` whose next token is a real argument.
+    # The old token loop could not distinguish these (shlex collapses the
+    # whitespace), so ``cat << - /etc/shadow`` auto-approved a genuine read;
+    # regex-based blanking keeps the real path visible, so it is scanned.
+    cmd_blanked = _blank_heredoc_headers(_blank_heredoc_bodies(cmd))
     try:
-        lexer = shlex.shlex(
-            _blank_heredoc_bodies(cmd), posix=True, punctuation_chars=";&|><()"
-        )
+        lexer = shlex.shlex(cmd_blanked, posix=True, punctuation_chars=";&|><()")
         lexer.whitespace_split = True
         lexer.commenters = ""
-        raw_tokens = list(lexer)
+        tokens = list(lexer)
     except ValueError:
-        raw_tokens = cmd.split()
-
-    tokens: list[str] = []
-    skip_heredoc_delimiter = False
-    for token in raw_tokens:
-        if skip_heredoc_delimiter:
-            if token == "-":
-                continue
-            skip_heredoc_delimiter = False
-            continue
-        if token == "<<":
-            skip_heredoc_delimiter = True
-            continue
-        tokens.append(token)
+        tokens = cmd_blanked.split()
 
     # Walk all tokens after the first (which is the leading command name).
     # punctuation_chars separates unquoted shell operators from adjacent path
@@ -562,6 +556,16 @@ def _has_command_substitution(cmd: str) -> bool:
     return False
 
 
+# Heredoc opener plus optional attached ``-`` (indent) flag plus the delimiter
+# word. ``<<<`` (here-string) is excluded via ``(?<!<)...(?!<)`` because an
+# unquoted here-string takes a real filename operand that must stay visible:
+# for a run ``<<<``, neither ``<<`` start position passes both lookarounds,
+# so nothing is blanked and the operand reaches the sensitive-path scan.
+_HEREDOC_HEADER = re.compile(
+    r"(?<!<)<<(?!<)-?\s*(?:\"[^\"\n]+\"|'[^'\n]+'|[^\s;&|<>]+)"
+)
+
+
 def _blank_heredoc_bodies(cmd: str) -> str:
     """Replace heredoc bodies with blanks, preserving offsets.
 
@@ -576,6 +580,29 @@ def _blank_heredoc_bodies(cmd: str) -> str:
     chars = list(cmd)
     for start, end in regions:
         for i in range(start, min(end, len(chars))):
+            if chars[i] != "\n":
+                chars[i] = " "
+    return "".join(chars)
+
+
+def _blank_heredoc_headers(cmd: str) -> str:
+    """Blank heredoc opener + delimiter words, preserving everything else.
+
+    Heredoc openers (``<<`` / ``<<-`` and the delimiter word) are shell
+    syntax, not filesystem arguments. Blanking them keeps a path-like
+    delimiter (``cat <<- /etc/shadow``) out of the sensitive-path scan.
+
+    Critically, only the *attached* ``<<-`` form treats the following word as
+    a delimiter. In the spaced ``<< -`` form bash treats ``-`` *itself* as the
+    delimiter and the next token as a real argument, so ``cat << - /etc/shadow``
+    genuinely reads ``/etc/shadow`` and must remain visible to the scan. The
+    regex handles this because the optional ``-`` is attached to ``<<`` with no
+    intervening whitespace; a spaced ``-`` is matched only as the delimiter word
+    and any further token after it is untouched.
+    """
+    chars = list(cmd)
+    for match in _HEREDOC_HEADER.finditer(cmd):
+        for i in range(match.start(), match.end()):
             if chars[i] != "\n":
                 chars[i] = " "
     return "".join(chars)

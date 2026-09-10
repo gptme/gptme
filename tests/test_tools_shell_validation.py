@@ -878,12 +878,30 @@ class TestSensitiveArgs:
             "cat << /etc/passwd\n~/.ssh/id_rsa\n/etc/passwd",
             "cat <<EOF\n/etc/passwd\nEOF",
             "cat <<- /etc/shadow\n\tsecret\n\t/etc/shadow",
+            # A quoted delimiter is shell syntax, not an argument.
+            'cat <<"EOF"\n/etc/passwd\nEOF',
         ],
     )
     def test_heredoc_delimiter_and_body_are_not_sensitive_args(self, command: str):
         """Heredoc syntax and stdin data are not filesystem arguments."""
         assert not _has_sensitive_args(command)
         assert is_allowlisted(command)
+
+    def test_spaced_heredoc_dash_is_delimiter_real_arg_stays_visible(self):
+        """``<< -`` treats ``-`` as the delimiter; the next token is a REAL arg.
+
+        Greptile P1: the old token loop collapsed the whitespace between ``<<``
+        and ``-``, so it dropped the following filename as if it were the
+        heredoc delimiter. In bash ``cat << - /etc/shadow`` reads ``/etc/shadow``,
+        so it must NOT auto-approve.
+        """
+        assert _has_sensitive_args("cat << - /etc/shadow\n-\n")
+        assert not is_allowlisted("cat << - /etc/shadow\n-\n")
+
+    def test_spaced_heredoc_dash_non_sensitive_arg_is_allowlisted(self):
+        """A non-sensitive real arg after a spaced ``<< -`` delimiter is fine."""
+        assert not _has_sensitive_args("cat << - /tmp/foo\n-\n")
+        assert is_allowlisted("cat << - /tmp/foo\n-\n")
 
     def test_here_string_sensitive_path_remains_sensitive(self):
         """A here-string operand is data supplied by expansion, not a delimiter."""
