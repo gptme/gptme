@@ -149,3 +149,29 @@ def test_cap_preserves_partial_output(shell):
     # There should be some actual content before the marker
     marker_pos = stdout.find("[output truncated")
     assert marker_pos > 0, "No content before truncation marker"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SIGTERM/SIGKILL are POSIX-only")
+def test_cap_counts_bytes_not_characters(shell):
+    """Multibyte UTF-8 output must be bounded by bytes, not characters.
+
+    Regression for Greptile P1: the cap previously counted decoded Unicode
+    characters, so 3-4 byte UTF-8 output could accumulate ~3-4x the cap before
+    the child was killed. The counter now uses raw bytes read from the pipe.
+    """
+    cap = 64 * 1024  # 64 KiB
+    marker = "\u4e2d" * 100  # 100 three-byte characters → 300 bytes per line
+    # `yes` emits marker repeatedly; at 300 bytes/line the byte counter must
+    # trip the cap at roughly the same point as ASCII-only output.
+    with patch("gptme.tools.shell._get_max_output_bytes", return_value=cap):
+        returncode, stdout, stderr = shell.run(f"yes '{marker}'", timeout=10)
+
+    assert returncode == -125
+    captured = len(stdout.encode("utf-8", errors="replace"))
+    chunk = 2**16
+    # Byte cap: output stays near cap (+ one chunk + marker), never ~3x the cap
+    # which would be the case if the counter were counting characters.
+    assert captured < cap + chunk + 512, (
+        f"Multibyte output ({captured} bytes) exceeds byte cap ({cap} bytes) "
+        "by more than one chunk"
+    )

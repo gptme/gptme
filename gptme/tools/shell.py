@@ -948,17 +948,34 @@ class ShellSession:
         stderr_queue: Queue[str] = Queue()
         stop_event = threading.Event()
 
+        # Shared byte counter so the producer threads stop enqueueing once the
+        # cap is reached — otherwise a fast-output command can buffer unbounded
+        # data in the queues ahead of the consumer (Greptile P1). Bytes, not
+        # decoded characters, so multibyte UTF-8 cannot exceed the cap 3-4x.
+        cap_state = {"bytes": 0, "over": False}
+        cap_lock = threading.Lock()
+
         def read_stream(fd: int, queue: Queue[str]) -> None:
             try:
                 os.set_blocking(fd, False)
             except OSError:
                 pass
-            while not stop_event.is_set():
+            while not stop_event.is_set() and not cap_state["over"]:
                 try:
-                    data = os.read(fd, 2**16).decode("utf-8", errors="replace")
-                    if not data:
+                    raw = os.read(fd, 2**16)
+                    if not raw:
                         break
+                    data = raw.decode("utf-8", errors="replace")
+                    with cap_lock:
+                        cap_state["bytes"] += len(raw)
+                        over = cap_state["bytes"] > max_output_bytes
                     queue.put(data)
+                    if over:
+                        # Stop producing more data; the consumer detects the
+                        # cap and performs the kill + marker.
+                        with cap_lock:
+                            cap_state["over"] = True
+                        break
                 except BlockingIOError:
                     time.sleep(0.01)
                 except OSError:
@@ -974,7 +991,6 @@ class ShellSession:
         t_stderr.start()
 
         re_returncode = re.compile(r"ReturnCode:(\d+)")
-        captured_bytes = 0
 
         try:
             while not stop_event.is_set():
@@ -1057,10 +1073,9 @@ class ShellSession:
                             )
 
                         stdout.append(line)
-                        captured_bytes += len(line)
                         if output:
                             print(line, end="", file=sys.stdout)
-                        if captured_bytes > max_output_bytes:
+                        if cap_state["over"]:
                             cap_mib = max_output_bytes / (1024 * 1024)
                             trunc_msg = (
                                 f"\n[output truncated at {cap_mib:.0f} MiB,"
@@ -1089,18 +1104,20 @@ class ShellSession:
                     lines = data.splitlines(keepends=True)
                     for line in lines:
                         stderr.append(line)
-                        captured_bytes += len(line)
                         if output:
                             print(line, end="", file=sys.stderr)
-                        if captured_bytes > max_output_bytes:
+                        # Marker is always appended to stdout (consistent with the
+                        # Unix path and documented behavior), even when the cap
+                        # was tripped by a stderr line.
+                        if cap_state["over"]:
                             cap_mib = max_output_bytes / (1024 * 1024)
                             trunc_msg = (
                                 f"\n[output truncated at {cap_mib:.0f} MiB,"
                                 f" process killed]\n"
                             )
-                            stderr.append(trunc_msg)
+                            stdout.append(trunc_msg)
                             if output:
-                                print(trunc_msg, end="", file=sys.stderr)
+                                print(trunc_msg, end="", file=sys.stdout)
                             logger.warning(
                                 "Shell output cap (%d MiB) exceeded; killing process",
                                 int(cap_mib),
@@ -1196,7 +1213,11 @@ class ShellSession:
                     # spaces at the boundary
                     # 2**12 = 4096
                     # 2**16 = 65536
-                    data = os.read(fd, 2**16).decode("utf-8", errors="replace")
+                    raw = os.read(fd, 2**16)
+                    # Count the raw bytes actually read so multibyte UTF-8 output
+                    # cannot exceed the cap by 3-4x (byte count, not character count).
+                    captured_bytes += len(raw)
+                    data = raw.decode("utf-8", errors="replace")
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
                     for line in lines:
@@ -1293,12 +1314,10 @@ class ShellSession:
                             )
                         if fd == self.stdout_fd:
                             stdout.append(line)
-                            captured_bytes += len(line)
                             if output:
                                 print(line, end="", file=sys.stdout)
                         elif fd == self.stderr_fd:
                             stderr.append(line)
-                            captured_bytes += len(line)
                             if output:
                                 print(line, end="", file=sys.stderr)
 
@@ -1326,6 +1345,31 @@ class ShellSession:
                                     "Error killing process after byte cap exceeded: %s",
                                     e,
                                 )
+                            # Drain any remaining data from both pipes so it does
+                            # not bleed into the next command's output (Greptile P1).
+                            for drain_fd in (self.stdout_fd, self.stderr_fd):
+                                drain_empty_count = 0
+                                while drain_empty_count < 2:
+                                    drain_rlist = _wait_readable([drain_fd], 0.1)
+                                    if not drain_rlist:
+                                        drain_empty_count += 1
+                                        continue
+                                    drain_raw = os.read(drain_fd, 2**16)
+                                    if not drain_raw:
+                                        drain_empty_count += 1
+                                        continue
+                                    drain_empty_count = 0
+                                    drain_data = drain_raw.decode(
+                                        "utf-8", errors="replace"
+                                    )
+                                    if drain_fd == self.stdout_fd:
+                                        stdout.append(drain_data)
+                                        if output:
+                                            print(drain_data, end="", file=sys.stdout)
+                                    else:
+                                        stderr.append(drain_data)
+                                        if output:
+                                            print(drain_data, end="", file=sys.stderr)
                             return (
                                 -125,
                                 trim_blank_lines("".join(stdout)),
@@ -1751,6 +1795,7 @@ def _format_shell_output(
     timeout_value: float | None = None,
     logdir: Path | None = None,
     byte_cap_exceeded: bool = False,
+    cap_bytes: int | None = None,
 ) -> str:
     """Format shell command output into a message."""
     # Strip ANSI escape sequences from output
@@ -1830,7 +1875,8 @@ def _format_shell_output(
 
     # Format header
     if byte_cap_exceeded:
-        cap_mib = _DEFAULT_MAX_OUTPUT_BYTES / (1024 * 1024)
+        cap_bytes = cap_bytes or _DEFAULT_MAX_OUTPUT_BYTES
+        cap_mib = cap_bytes / (1024 * 1024)
         header = f"Command killed (output exceeded {cap_mib:.0f} MiB cap)"
     elif timed_out:
         header = (
@@ -1928,6 +1974,7 @@ def execute_shell_impl(
         timeout_value=timeout,
         logdir=logdir,
         byte_cap_exceeded=byte_cap_exceeded,
+        cap_bytes=_get_max_output_bytes() if byte_cap_exceeded else None,
     )
     # Workspace-awareness: notify when cd enters a directory with gptme.toml.
     # Append hint text directly to the command output (single yield) so no
