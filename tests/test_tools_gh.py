@@ -763,6 +763,55 @@ class TestExecuteGh:
         assert len(messages) == 1
         assert messages[0].content == "(no output)"
 
+    @patch("gptme.tools.gh._handle_pr_status")
+    def test_command_kwarg_dispatches_native_handler(self, mock_status):
+        """A structured `command` kwarg is split and dispatched natively.
+
+        Regression: native ("tool"-format) callers pass the command as a single
+        kwarg and leave `args` empty; before the fix every such call fell
+        through to the pass-through and failed with "No command provided".
+        """
+        mock_status.return_value = iter([])
+        list(execute_gh(None, None, {"command": "pr status owner/repo#1"}))
+        mock_status.assert_called_once()
+        assert mock_status.call_args[0][0] == ["pr", "status", "owner/repo#1"]
+
+    @patch("gptme.tools.gh._passthrough_gh")
+    def test_command_kwarg_passes_through(self, mock_passthrough):
+        """A structured `command` kwarg is split before reaching the CLI."""
+        mock_passthrough.return_value = iter([])
+        list(execute_gh(None, None, {"command": "issue list --repo owner/repo"}))
+        mock_passthrough.assert_called_once_with(
+            ["issue", "list", "--repo", "owner/repo"], None
+        )
+
+    def test_command_kwarg_unclosed_quote_reports_parse_error(self):
+        """Malformed quoting is reported, not swallowed or crashed on."""
+        messages = list(execute_gh(None, None, {"command": "pr view 'unclosed"}))
+        assert len(messages) == 1
+        assert "Error parsing command" in messages[0].content
+
+    def test_no_args_no_command_reports_usage_error(self):
+        """Empty invocations keep reporting the explicit usage error."""
+        messages = list(execute_gh(None, None, None))
+        assert len(messages) == 1
+        assert messages[0].content == "Error: No command provided"
+
+    def test_tool_spec_exposes_command_parameter(self):
+        """The structured schema advertises `command`, matching execution."""
+        from gptme.tools.gh import tool
+
+        assert [p.name for p in tool.parameters] == ["command"]
+        assert tool.parameters[0].required
+
+    def test_examples_use_command_kwarg_in_tool_format(self):
+        """Tool-format examples render the `command` parameter, not `{}`."""
+        from gptme.tools.gh import examples
+
+        output = examples("tool")
+        assert '"command"' in output
+        assert output.count("@gh:") >= 1
+
 
 # --- _resolve_ref ---
 

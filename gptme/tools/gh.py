@@ -556,6 +556,17 @@ def execute_gh(
     Native handlers for high-value operations (issue view, pr view/status/checks/merge,
     run view).  Everything else passes through to the gh CLI unchanged.
     """
+    # Structured ("tool"-format) callers supply the whole command as a single
+    # ``command`` kwarg and leave ``args`` empty. Recover the positional args so
+    # the native dispatch below works for both invocation styles (markdown
+    # blocks set ``args`` positionally).
+    if not args and kwargs and kwargs.get("command"):
+        try:
+            args = shlex.split(kwargs["command"])
+        except ValueError as e:
+            yield Message("system", f"Error parsing command: {e}")
+            return
+
     if args and len(args) >= 2 and args[0] == "pr" and args[1] == "merge":
         yield from _handle_pr_merge(args, kwargs)
 
@@ -667,22 +678,30 @@ Native paths help avoid hallucination:
 - `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
 - `gh run view <run-id>` extracts failed-job logs
 
-All other `gh` subcommands pass through unchanged."""
+All other `gh` subcommands pass through unchanged.
+
+Structured tool calls pass the whole command as `command`, e.g.
+`{"command": "issue view owner/repo#42"}`."""
 
 
 def examples(tool_format):
+    def render(args: list[str]) -> str:
+        # Native ("tool") calls carry a single `command` string parameter;
+        # markdown/XML carry the command positionally.
+        if tool_format == "tool":
+            return ToolUse("gh", None, None, {"command": shlex.join(args)}).to_output(
+                tool_format
+            )
+        return ToolUse("gh", args, None).to_output(tool_format)
+
     return f"""
 > User: read PR #123 on owner/repo
 > Assistant:
-{ToolUse("gh", ["pr", "view", "owner/repo#123"], None).to_output(tool_format)}
+{render(["pr", "view", "owner/repo#123"])}
 
 > User: check CI status for this PR
 > Assistant:
-{
-        ToolUse(
-            "gh", ["pr", "status", "https://github.com/owner/repo/pull/123"], None
-        ).to_output(tool_format)
-    }
+{render(["pr", "status", "https://github.com/owner/repo/pull/123"])}
 > System:
 PR #123 checks (abc1234):
 Total: 6 checks
@@ -697,37 +716,27 @@ View logs: gh run view <run_id> --log-failed
 
 > User: show me the failed build logs
 > Assistant:
-{ToolUse("gh", ["run", "view", "12345678"], None).to_output(tool_format)}
+{render(["run", "view", "12345678"])}
 
 > User: wait for CI checks to complete on a PR
 > Assistant:
-{
-        ToolUse(
-            "gh", ["pr", "checks", "https://github.com/owner/repo/pull/123"], None
-        ).to_output(tool_format)
-    }
+{render(["pr", "checks", "https://github.com/owner/repo/pull/123"])}
 
 > User: merge PR #123 on owner/repo
 > Assistant:
-{ToolUse("gh", ["pr", "merge", "owner/repo#123"], None).to_output(tool_format)}
+{render(["pr", "merge", "owner/repo#123"])}
 
 > User: auto-merge PR when checks pass, and delete the branch
 > Assistant:
-{
-        ToolUse(
-            "gh",
-            ["pr", "merge", "owner/repo#123", "--squash", "--auto", "--delete-branch"],
-            None,
-        ).to_output(tool_format)
-    }
+{render(["pr", "merge", "owner/repo#123", "--squash", "--auto", "--delete-branch"])}
 
 > User: read issue #42 on owner/repo
 > Assistant:
-{ToolUse("gh", ["issue", "view", "owner/repo#42"], None).to_output(tool_format)}
+{render(["issue", "view", "owner/repo#42"])}
 
 > User: show issues (pass-through to gh CLI)
 > Assistant:
-{ToolUse("gh", ["issue", "list", "--repo", "owner/repo"], None).to_output(tool_format)}
+{render(["issue", "list", "--repo", "owner/repo"])}
 
 > User: post a multi-line comment on issue 42
 > Assistant:
@@ -759,9 +768,12 @@ tool: ToolSpec = ToolSpec(
     block_types=["gh"],
     parameters=[
         Parameter(
-            name="url",
+            name="command",
             type="string",
-            description="GitHub reference: URL, owner/repo#N, #N, or bare number",
+            description=(
+                "The gh command and its arguments, e.g. "
+                "'issue view owner/repo#42' or 'pr checks owner/repo#5'."
+            ),
             required=True,
         ),
     ],
