@@ -404,6 +404,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 384_000,
             "price_input": 0.15,
             "price_output": 0.6,
+            "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
@@ -670,8 +671,8 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "preferred_edit_format": "diff",
         },
         "deepseek/deepseek-v4-flash": {
-            "context": 1_000_000,
-            "max_output": 32_768,
+            "context": 1_048_576,
+            "max_output": 384_000,
             "price_input": 0.0983,
             "price_output": 0.1966,
             "supports_reasoning": True,
