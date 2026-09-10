@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import mock_open, patch
 
 import pytest
 
@@ -143,13 +143,24 @@ def test_legacy_reads_and_separators_obey_byte_budget(tmp_path: Path) -> None:
     second.mkdir()
     (first / "MEMORY.md").write_text("12345", encoding="utf-8")
     (second / "MEMORY.md").write_text("é" * 100000, encoding="utf-8")
-    # The fallback must not materialize the entire file before truncating it.
-    with patch.object(Path, "read_bytes", side_effect=AssertionError("unbounded read")):
-        content = _memory_content(
-            tmp_path,
-            [MemoryRoot("project", first), MemoryRoot("cc", second)],
-            budget=10,
-        )
+    content = _memory_content(
+        tmp_path,
+        [MemoryRoot("project", first), MemoryRoot("cc", second)],
+        budget=10,
+    )
 
     assert content == "12345\n\né"
     assert len(content.encode("utf-8")) <= 10
+
+
+def test_legacy_fallback_bounds_the_file_read(tmp_path: Path) -> None:
+    root = tmp_path / "memory"
+    root.mkdir()
+    index_path = root / "MEMORY.md"
+    index_path.write_text("legacy", encoding="utf-8")
+    reader = mock_open(read_data=b"legacy")
+
+    with patch.object(Path, "open", reader):
+        _memory_content(tmp_path, [MemoryRoot("cc", root)], budget=10)
+
+    reader().read.assert_called_once_with(10)

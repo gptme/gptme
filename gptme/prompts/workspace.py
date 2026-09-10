@@ -467,6 +467,7 @@ def prompt_workspace(
                                 for target in re.findall(
                                     r"\[[^\]]*\]\(([^)]+)\)", legacy
                                 )
+                                if "://" not in target
                             }
                             missing_entries = [
                                 entry

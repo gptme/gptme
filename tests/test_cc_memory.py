@@ -434,7 +434,14 @@ class TestCcMemoryInWorkspacePrompt:
         workspace.mkdir()
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
-        for name in ("plain", "dot-relative", "angled", "anchored", "missing"):
+        for name in (
+            "plain",
+            "dot-relative",
+            "angled",
+            "anchored",
+            "external",
+            "missing",
+        ):
             _make_entry(memory_dir, name, f"Entry {name}", type="user")
         (memory_dir / "MEMORY.md").write_text(
             "# Persistent Memory\n\n"
@@ -442,6 +449,7 @@ class TestCcMemoryInWorkspacePrompt:
             "- [dot](./dot-relative.md) — dot-relative link\n"
             "- [angle](<angled.md>) — angle-delimited link\n"
             "- [anchor](anchored.md#detail) — link with an anchor\n"
+            "- [external](https://example.com/external.md) — unrelated URL\n"
             "\nOperator guidance that is not represented by an entry.\n"
         )
         root = MemoryRoot("cc", memory_dir)
@@ -467,6 +475,8 @@ class TestCcMemoryInWorkspacePrompt:
         generated_index = combined.rsplit("# Persistent Memory", 1)[-1]
         for name in ("plain", "dot-relative", "angled", "anchored"):
             assert f"]({name}.md)" not in generated_index
+        # The URL does not point at the local entry despite sharing its basename.
+        assert "](external.md)" in generated_index
         assert "](missing.md)" in generated_index
         assert "Operator guidance" in combined
 
