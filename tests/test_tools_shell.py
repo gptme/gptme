@@ -2006,6 +2006,11 @@ def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
         ret, _, _ = shell.run("cd ..; false")
         assert ret == 1
         assert shell.get_cwd() == tmp_path.parent
+
+        # PWD is mutable, so validation must use the shell's physical cwd.
+        ret, _, _ = shell.run("PWD=/tmp")
+        assert ret == 0
+        assert shell.get_cwd() == tmp_path.parent
     finally:
         shell.close()
 
