@@ -323,6 +323,29 @@ def test_boundary_keeps_dynamic_context_out_of_static_system_prompt():
 # Updated tests for generator retry behavior
 
 
+def test_anthropic_rate_limit_honors_retry_after():
+    """Anthropic rate-limit retries use the provider's requested cooldown."""
+    from unittest.mock import patch
+
+    from anthropic import RateLimitError
+    from httpx import Request, Response
+
+    from gptme.llm.llm_anthropic import _handle_anthropic_transient_error
+
+    response = Response(
+        429,
+        headers={"Retry-After": "12"},
+        request=Request("POST", "https://api.anthropic.com/v1/messages"),
+    )
+    error = RateLimitError("Rate limit exceeded", response=response, body=None)
+
+    with patch("gptme.llm.llm_anthropic.backoff_wait", return_value=False) as mock_wait:
+        _handle_anthropic_transient_error(
+            error, attempt=0, max_retries=3, base_delay=0.1
+        )
+    mock_wait.assert_called_once_with(12, None)
+
+
 def test_retry_generator_only_retries_before_yield():
     """Test that retry_generator_on_overloaded only retries if no content has been yielded.
 

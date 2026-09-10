@@ -41,7 +41,7 @@ from .retry_policy import (
     DEFAULT_BASE_DELAY,
     SDK_MAX_RETRIES,
     get_max_retries,
-    retry_delay,
+    retry_delay_for_error,
 )
 from .utils import (
     apply_cache_control,
@@ -914,7 +914,7 @@ def _handle_openai_transient_error(
     if not should_retry or attempt == max_retries - 1:
         raise e
 
-    delay = retry_delay(attempt, base_delay)
+    delay = retry_delay_for_error(e, attempt, base_delay)
     status_code = getattr(e, "status_code", "unknown")
     logger.warning(
         f"OpenAI API transient error (status {status_code}), "

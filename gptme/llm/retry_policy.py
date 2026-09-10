@@ -19,6 +19,9 @@ autonomous session. Override with ``GPTME_LLM_MAX_RETRIES``.
 """
 
 import logging
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -61,3 +64,40 @@ def get_max_retries(default: int = DEFAULT_MAX_RETRIES) -> int:
 def retry_delay(attempt: int, base_delay: float = DEFAULT_BASE_DELAY) -> float:
     """Capped exponential backoff delay for a zero-indexed attempt."""
     return min(base_delay * (2**attempt), MAX_RETRY_DELAY)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def _retry_after_seconds(error: Any) -> float | None:
+    """Parse a provider response's Retry-After header, if present and valid."""
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    value = headers.get("Retry-After")
+    if not value:
+        return None
+    try:
+        delay = float(value)
+    except (TypeError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=UTC)
+        delay = (retry_at - _utcnow()).total_seconds()
+    return delay if delay >= 0 else None
+
+
+def retry_delay_for_error(
+    error: Any, attempt: int, base_delay: float = DEFAULT_BASE_DELAY
+) -> float:
+    """Return exponential backoff extended by Retry-After, within the delay cap."""
+    exponential = retry_delay(attempt, base_delay)
+    retry_after = _retry_after_seconds(error)
+    if retry_after is None:
+        return exponential
+    return min(max(exponential, retry_after), MAX_RETRY_DELAY)

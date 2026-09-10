@@ -6,6 +6,9 @@ became sdk_retries * max_retries requests), and the backoff window was too
 short to outlast a brief upstream rate-limit.
 """
 
+from email.utils import format_datetime
+
+import httpx
 import pytest
 
 from gptme.llm.retry_policy import (
@@ -15,6 +18,7 @@ from gptme.llm.retry_policy import (
     SDK_MAX_RETRIES,
     get_max_retries,
     retry_delay,
+    retry_delay_for_error,
 )
 
 
@@ -24,6 +28,48 @@ def test_backoff_is_exponential_then_capped():
     assert retry_delay(2) == 4 * DEFAULT_BASE_DELAY
     # Without a cap, attempt 10 would sleep for over 17 minutes
     assert retry_delay(10) == MAX_RETRY_DELAY
+
+
+def _status_error_with_retry_after(value: str | None):
+    from openai import RateLimitError
+
+    headers = {"Retry-After": value} if value is not None else {}
+    response = httpx.Response(
+        429,
+        headers=headers,
+        request=httpx.Request("POST", "https://example.test/v1/chat/completions"),
+    )
+    return RateLimitError("rate limited", response=response, body=None)
+
+
+def test_retry_after_seconds_overrides_shorter_exponential_delay():
+    error = _status_error_with_retry_after("17")
+    assert retry_delay_for_error(error, attempt=0) == 17
+
+
+def test_retry_after_does_not_shorten_exponential_delay():
+    error = _status_error_with_retry_after("1")
+    assert retry_delay_for_error(error, attempt=5) == 32
+
+
+def test_retry_after_http_date_is_honored(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime(2026, 9, 10, 6, 0, tzinfo=UTC)
+    error = _status_error_with_retry_after(format_datetime(now + timedelta(seconds=23)))
+    monkeypatch.setattr("gptme.llm.retry_policy._utcnow", lambda: now)
+    assert retry_delay_for_error(error, attempt=0) == 23
+
+
+@pytest.mark.parametrize("value", [None, "", "not-a-delay", "-4"])
+def test_missing_or_invalid_retry_after_falls_back_to_exponential(value):
+    error = _status_error_with_retry_after(value)
+    assert retry_delay_for_error(error, attempt=2) == 4
+
+
+def test_retry_after_is_capped_to_the_per_attempt_limit():
+    error = _status_error_with_retry_after("600")
+    assert retry_delay_for_error(error, attempt=0) == MAX_RETRY_DELAY
 
 
 def test_default_retry_window_is_about_five_minutes():

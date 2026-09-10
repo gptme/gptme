@@ -1745,6 +1745,30 @@ class TestOpenAIRetryLogic:
                 error, attempt=0, max_retries=3, base_delay=0.1
             )
 
+    def test_handle_openai_transient_error_honors_retry_after(self):
+        """Rate-limit retries use the provider's requested cooldown."""
+        from unittest.mock import patch
+
+        import httpx
+        from openai import RateLimitError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        response = httpx.Response(
+            429,
+            headers={"Retry-After": "12"},
+            request=httpx.Request("POST", "https://example.test/v1/chat"),
+        )
+        error = RateLimitError("Rate limit exceeded", response=response, body=None)
+
+        with patch(
+            "gptme.llm.llm_openai.backoff_wait", return_value=False
+        ) as mock_wait:
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+        mock_wait.assert_called_once_with(12, None)
+
     def test_handle_openai_transient_error_server_error(self):
         """Test that 5xx server errors trigger retry."""
         from unittest.mock import MagicMock, patch
