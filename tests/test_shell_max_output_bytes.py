@@ -144,10 +144,18 @@ def test_cap_kills_large_output(shell):
 
 @pytest.mark.skipif(os.name == "nt", reason="SIGTERM/SIGKILL are POSIX-only")
 def test_cap_total_output_size_bounded(shell):
-    """The total captured output must not exceed the cap by more than one read chunk.
+    """The total captured output stays within the theoretical maximum.
 
-    Uses a 256 KiB cap and ``yes`` to generate infinite output. The resulting
-    stdout must be well under 1 MiB — proving the cap prevents memory growth.
+    Uses a 256 KiB cap and ``yes`` to generate infinite output.
+
+    The theoretical maximum for captured stdout is:
+      - up to ``cap`` bytes read before the cap was detected, PLUS
+      - up to ``cap`` bytes drained by ``_kill_for_byte_cap`` (drain_budget),
+        PLUS one read chunk that may have already been read.
+
+    The resulting bound is ``2 * cap + chunk``.  This is a tight hermetic bound
+    derived from the implementation, not from the OS pipe-buffer size
+    (bob-ai-review P2: the prior bound was non-hermetic).
     """
     cap = 256 * 1024  # 256 KiB
     chunk = 2**16  # 64 KiB — the read chunk size
@@ -156,10 +164,10 @@ def test_cap_total_output_size_bounded(shell):
         returncode, stdout, stderr = shell.run("yes", timeout=10)
 
     assert returncode == -125, f"Expected -125 (byte cap), got {returncode}"
-    # Output must be capped: at most cap + one extra chunk + truncation marker
+    # Tight hermetic bound: pre-cap output + drain budget + one chunk + marker
     captured = len(stdout.encode("utf-8", errors="replace"))
-    assert captured < cap + 2 * chunk + 1024, (
-        f"Output ({captured} bytes) exceeds cap ({cap} bytes) by more than one chunk"
+    assert captured < 2 * cap + chunk + 1024, (
+        f"Output ({captured} bytes) exceeds 2×cap+chunk bound ({2 * cap + chunk} bytes)"
     )
 
 

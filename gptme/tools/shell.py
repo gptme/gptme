@@ -976,6 +976,12 @@ class ShellSession:
         cap_state = {"bytes": 0, "over": False}
         cap_lock = threading.Lock()
 
+        # Track the start marker for the stdout producer so it does not count
+        # the shell-injected START_OF_COMMAND_OUTPUT line (and any pre-marker
+        # output) against the cap.  Mirrors the Unix path's marker exclusion.
+        # Use a list so the closure can mutate it from the producer thread.
+        _producer_seen_start = [False]
+
         def read_stream(fd: int, queue: Queue[str]) -> None:
             try:
                 os.set_blocking(fd, False)
@@ -987,8 +993,36 @@ class ShellSession:
                     if not raw:
                         break
                     data = raw.decode("utf-8", errors="replace")
+
+                    # Exclude shell protocol markers from byte accounting on
+                    # stdout (mirrors the Unix path).  Pre-marker bytes (e.g.
+                    # leftover output from a prior command, the start-marker
+                    # line itself) are not counted so a command whose real
+                    # output is exactly max_output_bytes does not trip the cap
+                    # on Windows when Unix would not (bob-ai-review P2).
+                    if fd == self.stdout_fd:
+                        countable = raw
+                        if not _producer_seen_start[0]:
+                            if start_marker_pattern in data:
+                                _producer_seen_start[0] = True
+                                raw_marker = start_marker_pattern.encode()
+                                marker_pos = countable.find(raw_marker)
+                                if marker_pos >= 0:
+                                    nl_pos = countable.find(b"\n", marker_pos)
+                                    countable = (
+                                        countable[nl_pos + 1 :] if nl_pos >= 0 else b""
+                                    )
+                            else:
+                                countable = b""  # pre-marker; not user output
+                        countable = _strip_shell_return_marker(
+                            countable, self.delimiter
+                        )
+                        bytes_to_count = len(countable)
+                    else:
+                        bytes_to_count = len(raw)
+
                     with cap_lock:
-                        cap_state["bytes"] += len(raw)
+                        cap_state["bytes"] += bytes_to_count
                         over = cap_state["bytes"] > max_output_bytes
                         if over:
                             # Flag the cap BEFORE enqueueing the chunk so the
