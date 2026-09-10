@@ -88,6 +88,8 @@ from .shell_validation import (
 )
 
 if TYPE_CHECKING:
+    from tree_sitter import Node
+
     from ..hooks import StopPropagation
     from ..logmanager import LogManager
 
@@ -95,6 +97,14 @@ _is_windows = os.name == "nt"
 
 # ANSI escape sequence pattern for stripping terminal formatting
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _parse_bash(source: bytes) -> "Node":
+    """Parse lazily so shell grammar loading does not affect CLI startup."""
+    import tree_sitter_bash
+    from tree_sitter import Language, Parser
+
+    return Parser(Language(tree_sitter_bash.language())).parse(source).root_node
 
 
 def _redirect_background_stdin(command: str) -> str:
@@ -106,6 +116,33 @@ def _redirect_background_stdin(command: str) -> str:
     the asynchronous list has a trailing foreground command, redirect that
     command as well.
     """
+    source = command.encode("utf-8")
+    root = _parse_bash(source)
+    if root.has_error:
+        return _redirect_background_stdin_bashlex(command)
+
+    positions: list[int] = []
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        if (
+            node.type == "&"
+            and not node.is_named
+            and node.parent is not None
+            and node.parent.type != "binary_expression"
+        ):
+            positions.append(node.start_byte)
+        pending.extend(node.children)
+
+    for position in sorted(positions, reverse=True):
+        source = source[:position].rstrip() + b" < /dev/null " + source[position:]
+    if positions and not source.rstrip().endswith(b"&"):
+        source += b" < /dev/null"
+    return source.decode("utf-8")
+
+
+def _redirect_background_stdin_bashlex(command: str) -> str:
+    """Legacy fallback for background operators in tree-sitter grammar gaps."""
     import bashlex
 
     try:
@@ -2479,6 +2516,56 @@ def _bash_syntax_error(script: str, fallback: str) -> str | None:
 
 
 def split_commands(script: str) -> list[str]:
+    """Split at top-level newlines, preserving Bash lists and original source.
+
+    Tree-sitter spans include heredoc bodies and use byte offsets, so slicing
+    UTF-8 source preserves quoted delimiters and non-ASCII text without rewrites.
+    Keep bashlex as a compatibility fallback for one release: tree-sitter's
+    error recovery must never turn an incomplete tree into executable fragments.
+    """
+    source = script.encode("utf-8")
+    root = _parse_bash(source)
+    if root.has_error:
+        return _split_commands_bashlex(script)
+
+    commands: list[str] = []
+    start: int | None = None
+    end = 0
+    after_comment = False
+    for node in root.children:
+        if node.type == "comment":
+            after_comment = True
+            continue
+        # Semicolon/background lists stay together on the same logical line.
+        # Newlines inside compound statements, pipelines, and heredocs are
+        # already contained by their top-level node.
+        gap = source[end : node.start_byte]
+        if not after_comment:
+            gap = gap.replace(b"\\\n", b"")
+        if start is not None and b"\n" in gap:
+            commands.append(source[start:end].decode("utf-8"))
+            start = None
+        if start is None:
+            start = node.start_byte
+        end = node.end_byte
+        after_comment = False
+    if start is not None:
+        commands.append(source[start:end].decode("utf-8"))
+
+    # A clean tree is not proof of correct Bash boundaries. In particular,
+    # tree-sitter can parse `time { ... }` as ordinary words, with no ERROR
+    # node. Let Bash reject incomplete fragments before they reach the shell.
+    if len(commands) > 1 and any(
+        _bash_syntax_error(command, fallback="Cannot validate split boundary")
+        is not None
+        for command in commands
+    ):
+        return _split_commands_bashlex(script)
+    return commands
+
+
+def _split_commands_bashlex(script: str) -> list[str]:
+    """Legacy parser retained temporarily for tree-sitter grammar gaps."""
     import bashlex
 
     # Preprocess script to handle quoted heredoc delimiters that bashlex can't parse

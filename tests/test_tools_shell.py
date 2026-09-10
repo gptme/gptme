@@ -272,7 +272,7 @@ content
 EOF"""
     commands = split_commands(script_space_single)
     assert len(commands) == 1
-    assert "<<'EOF'" in commands[0]
+    assert commands == [script_space_single]
 
     script_space_double = """cat > /tmp/test.sh << "EOF"
 #!/bin/bash
@@ -280,7 +280,7 @@ content
 EOF"""
     commands = split_commands(script_space_double)
     assert len(commands) == 1
-    assert '<<"EOF"' in commands[0]
+    assert commands == [script_space_double]
 
 
 def test_split_commands_bash_reserved_words():
@@ -388,8 +388,7 @@ def test_split_commands_syntax_errors_raise():
 def test_split_commands_mixed_reserved_and_normal():
     """A ``time`` keyword no longer collapses the whole script into one command.
 
-    bashlex cannot parse ``time``; split_commands masks it before parsing so
-    the surrounding commands still split normally.
+    The parser preserves the keyword and splits surrounding commands normally.
     """
     script_mixed = """
 time echo "timed"
@@ -453,15 +452,15 @@ def test_split_commands_syntax_error_uses_bash_message():
         split_commands("ls |")
 
 
-def test_split_commands_without_bash_keeps_bashlex_error(monkeypatch):
-    """When bash cannot be consulted, a bashlex parse error is still a syntax error."""
+def test_split_commands_without_bash_rejects_invalid_syntax(monkeypatch):
+    """A parser error still fails closed when Bash is unavailable."""
     import pytest
 
     from gptme.tools import shell as shell_module
 
     monkeypatch.setattr(shell_module.shutil, "which", lambda _name: None)
-    with pytest.raises(ValueError, match="Shell syntax error: unexpected token"):
-        split_commands("[[ -f x ]] && ls")
+    with pytest.raises(ValueError, match="Shell syntax error: unexpected EOF"):
+        split_commands("ls |")
 
 
 def test_split_commands_heredoc_followed_by_redirect_keeps_body():
