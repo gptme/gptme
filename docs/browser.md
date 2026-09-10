@@ -112,6 +112,43 @@ export GPTME_BROWSER_CDP_URL=http://127.0.0.1:9222
 gptme "read https://example.com"
 ```
 
+### Use Browser Use Cloud
+
+For sites that block local headless Chromium, create a managed Browser Use
+Cloud browser and give its CDP URL to gptme:
+
+```bash
+session=$(curl -fsS https://api.browser-use.com/api/v4/browsers \
+  -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"proxyCountryCode":"us"}')
+
+BROWSER_SESSION_ID=$(echo "$session" | jq -er .id)
+GPTME_BROWSER_CDP_URL=$(echo "$session" | jq -er .cdpUrl)
+export BROWSER_SESSION_ID GPTME_BROWSER_CDP_URL
+
+cleanup_browser() {
+  [ -z "${BROWSER_SESSION_ID:-}" ] && return
+  curl -fsS -X PATCH \
+    "https://api.browser-use.com/api/v4/browsers/$BROWSER_SESSION_ID" \
+    -H "X-Browser-Use-API-Key: $BROWSER_USE_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"action":"stop"}' >/dev/null || true
+  BROWSER_SESSION_ID=
+}
+trap cleanup_browser EXIT INT TERM
+
+gptme "read https://example.com"
+
+cleanup_browser
+trap - EXIT INT TERM
+```
+
+Create an API key on the [Browser Use Cloud API key
+page](https://cloud.browser-use.com/settings?tab=api-keys&new=1) and export it as
+`BROWSER_USE_API_KEY` first. The managed browser includes a hardened Chromium
+build and residential proxy; gptme keeps using its existing Playwright tools.
+
 > **Note:** CDP only works with Chromium-based browsers.  `GPTME_BROWSER_ENGINE`
 > is ignored in CDP mode.
 
