@@ -838,6 +838,27 @@ class TestSensitiveArgs:
         """`ls /tmp/ && cat /etc/passwd` should NOT be auto-approved (P1)."""
         assert not is_allowlisted("ls /tmp/ && cat /etc/passwd")
 
+    # #3806: relative paths bypass sensitive-path check via cd + semicolon
+    def test_cd_ssh_semicolon_cat_not_allowlisted(self):
+        """`cd ~/.ssh; cat id_rsa` must NOT be auto-approved (#3806).
+
+        Python's shlex attaches the semicolon to the preceding token, yielding
+        `~/.ssh;` which previously bypassed the exact-match / prefix check.
+        """
+        assert not is_allowlisted("cd ~/.ssh; cat id_rsa")
+
+    def test_cd_ssh_semicolon_no_space_not_allowlisted(self):
+        """`cd ~/.ssh;cat id_rsa` (no space around semicolon) must NOT be auto-approved."""
+        assert not is_allowlisted("cd ~/.ssh;cat id_rsa")
+
+    def test_cd_aws_semicolon_cat_not_allowlisted(self):
+        """`cd ~/.aws; cat credentials` must NOT be auto-approved (#3806)."""
+        assert not is_allowlisted("cd ~/.aws; cat credentials")
+
+    def test_cd_tmp_semicolon_ls_still_allowlisted(self):
+        """`cd /tmp; ls` should still be auto-approved — /tmp is not sensitive."""
+        assert is_allowlisted("cd /tmp; ls")
+
     def test_globbed_sensitive_path_not_allowlisted(self):
         """Shell glob expansion must not turn an approved token into /etc/shadow."""
         assert not is_allowlisted("cat /e??/shadow")

@@ -407,6 +407,18 @@ def _has_sensitive_args(cmd: str) -> bool:
     # Compound commands (&&, ||, ;) mean subsequent command names also appear
     # in this list, but command names never start with / so they are harmless.
     for token in tokens[1:]:
+        # Shell metacharacters (;, |, &, >, <, (, )) are not whitespace in
+        # Python's shlex, so they can be appended to the preceding path token
+        # in a compound command.  Two forms occur in practice:
+        #   `cd ~/.ssh; cat id_rsa`   → shlex yields `~/.ssh;` (trailing sep)
+        #   `cd ~/.ssh;cat id_rsa`    → shlex yields `~/.ssh;cat` (sep+cmd fused)
+        # In both cases the path portion is the text before the first shell
+        # operator.  Split on the operator and keep only the leading fragment
+        # so the sensitive-path checks are not bypassed by an attached
+        # separator or fused command name.
+        token = re.split(r"[;|&><()]", token)[0]
+        if not token:
+            continue
         # Bare root directory — e.g. `find /` or `ls /`
         if token == "/":
             return True
