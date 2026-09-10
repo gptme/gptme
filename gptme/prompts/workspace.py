@@ -435,6 +435,7 @@ def prompt_workspace(
                         break
                     try:
                         root_store = MemoryStore([root])
+                        charged_bytes: int | None = None
                         policy_path = root.path / POLICY_FILENAME
                         if policy_path.is_symlink():
                             raise ValueError(
@@ -466,6 +467,7 @@ def prompt_workspace(
                             with index_path.open("rb") as index_file:
                                 raw = index_file.read(available)
                             root_content = raw.decode("utf-8", errors="ignore").strip()
+                            charged_bytes = len(raw)
                     except Exception as e:
                         logger.warning(
                             "Failed to load memory root %s: %s", root.path, e
@@ -473,7 +475,11 @@ def prompt_workspace(
                         continue
                     if root_content:
                         parts.append(root_content)
-                        remaining -= separator_bytes + len(root_content.encode("utf-8"))
+                        remaining -= separator_bytes + (
+                            charged_bytes
+                            if charged_bytes is not None
+                            else len(root_content.encode("utf-8"))
+                        )
                 memory_content = "\n\n".join(parts).strip()
                 if memory_content:
                     root_paths = ", ".join(f"`{r.path}`" for r in existing_roots)
