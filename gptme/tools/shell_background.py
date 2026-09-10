@@ -220,6 +220,10 @@ class BackgroundJob:
     def kill(self) -> None:
         """Terminate the background job and its process group."""
         self._stop_event.set()
+        if self.process.poll() is not None:
+            if self._reader_thread and self._reader_thread.is_alive():
+                self._reader_thread.join(timeout=1.0)
+            return
         try:
             if _is_windows:
                 self.process.terminate()
