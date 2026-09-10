@@ -196,3 +196,67 @@ describe('createDemoApiClient', () => {
     expect(client.isConnected$.get()).toBe(false);
   });
 });
+
+describe('createDemoApiClient — page reload / session recovery', () => {
+  beforeEach(() => {
+    // Each test gets a clean sessionStorage so persistence tests are isolated.
+    sessionStorage.clear();
+  });
+
+  it('restores a conversation created via createConversationWithPlaceholder after client reinit', async () => {
+    // First client instance — simulates the original page load where the user
+    // typed a prompt and the demo created a generated conversation.
+    const client1 = createDemoApiClient();
+    const logfile = await client1.createConversationWithPlaceholder('What is gptme?', {
+      stream: false,
+    });
+    expect(logfile).toMatch(/^demo\/conv-/);
+
+    // Second client instance — simulates a page reload (fresh Map, same sessionStorage).
+    const client2 = createDemoApiClient();
+    const conv = await client2.getConversation(logfile);
+    expect(conv.id).toBe(logfile);
+    expect(conv.log[0].content).toBe('What is gptme?');
+  });
+
+  it('restores a conversation created via createConversation after client reinit', async () => {
+    const client1 = createDemoApiClient();
+    await client1.createConversation('demo/my-saved-conv', [
+      { role: 'user', content: 'hello', timestamp: '2026-01-01T00:00:00Z' },
+    ]);
+
+    const client2 = createDemoApiClient();
+    const conv = await client2.getConversation('demo/my-saved-conv');
+    expect(conv.id).toBe('demo/my-saved-conv');
+    expect(conv.log[0].content).toBe('hello');
+  });
+
+  it('restores a forked conversation after client reinit', async () => {
+    const client1 = createDemoApiClient();
+    const forkId = await client1.forkConversation('demo/gptme-intro', 2);
+    expect(forkId).toMatch(/^demo\/conv-/);
+
+    const client2 = createDemoApiClient();
+    const conv = await client2.getConversation(forkId);
+    expect(conv.id).toBe(forkId);
+    expect(conv.log.length).toBeGreaterThan(0);
+  });
+
+  it('recovers gracefully (no error) for a missing generated demo ID instead of crashing', async () => {
+    // A generated ID that was never created — e.g. the sessionStorage was cleared
+    // or the URL was shared across browsers.  The client must NOT throw here;
+    // it should return a usable demo conversation with an explanatory notice.
+    const client = createDemoApiClient();
+    const conv = await client.getConversation('demo/conv-unknown-1234567890');
+    expect(conv.id).toBe('demo/conv-unknown-1234567890');
+    expect(conv.log.length).toBeGreaterThan(0);
+    // First message should be a system notice explaining the session was lost.
+    expect(conv.log[0].role).toBe('system');
+    expect(conv.log[0].content).toMatch(/not found|expired/i);
+  });
+
+  it('does NOT apply graceful recovery to non-demo IDs (still throws)', async () => {
+    const client = createDemoApiClient();
+    await expect(client.getConversation('unknown/chat')).rejects.toBeInstanceOf(DemoModeError);
+  });
+});
