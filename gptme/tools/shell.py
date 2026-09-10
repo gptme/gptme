@@ -43,6 +43,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Generator
@@ -480,6 +481,71 @@ def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
     return [fd for fd, _event in poller.poll(timeout_ms)]
 
 
+def _child_pids(pid: int) -> list[int]:
+    """Return the direct children of ``pid`` (Linux ``/proc``, else ``pgrep``)."""
+    task_dir = f"/proc/{pid}/task"
+    try:
+        children: list[int] = []
+        for tid in os.listdir(task_dir):
+            with open(f"{task_dir}/{tid}/children") as f:
+                children.extend(int(p) for p in f.read().split())
+        return children
+    except (OSError, ValueError):
+        pass
+    try:
+        out = subprocess.run(
+            ["pgrep", "-P", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout
+        return [int(p) for p in out.split()]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+
+def _descendant_pids(pid: int) -> list[int]:
+    """Return every live descendant of ``pid`` (breadth-first), excluding ``pid``."""
+    seen: set[int] = set()
+    queue = [pid]
+    while queue:
+        for child in _child_pids(queue.pop()):
+            if child not in seen:
+                seen.add(child)
+                queue.append(child)
+    return sorted(seen)
+
+
+def _kill_descendants(pid: int) -> None:
+    """SIGTERM then SIGKILL every descendant of ``pid`` without touching ``pid``.
+
+    Used on command timeout so the persistent bash survives: killing the whole
+    process group (bash is its leader) would take the shell down with the
+    command, losing cwd/env and triggering a restart on the next command.
+    """
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for child in _descendant_pids(pid):
+            try:
+                os.kill(child, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if sig == signal.SIGTERM:
+            time.sleep(0.1)
+
+
+def _describe_exit_status(status: int | None) -> str:
+    if status is None:
+        return "closed its stdout/stderr while still running"
+    if status < 0:
+        try:
+            name = signal.Signals(-status).name
+        except ValueError:
+            name = f"signal {-status}"
+        return f"killed by {name}"
+    return f"code {status}"
+
+
 class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
@@ -488,10 +554,16 @@ class ShellSession:
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
     _cwd: str | None  # Workspace directory for this session (thread-safe)
     _memory_limit: int | None  # Address-space ceiling in bytes (None = off)
+    _state_path: str | None  # cwd + exported-env snapshot, restored on restart
+    _restart_notice: str | None  # pending note for the model about a restart
+    _restarting: bool
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
         self._memory_limit = _get_memory_limit()
+        self._restart_notice = None
+        self._restarting = False
+        self._state_path = self._create_state_file()
         self._init()
 
         # close on exit
@@ -546,6 +618,16 @@ class ShellSession:
         self.delimiter = "END_OF_COMMAND_OUTPUT"
         self.start_marker = "START_OF_COMMAND_OUTPUT"
 
+        # After a restart, restore cwd and exported variables from the snapshot
+        # taken after the last command the previous shell completed. Must run
+        # first: every run() below rewrites the snapshot with the new shell's state.
+        if self._restarting and self._has_state_snapshot():
+            assert self._state_path is not None
+            self.run(
+                f"source {shlex.quote(self._state_path)} >/dev/null 2>&1 || true",
+                output=False,
+            )
+
         # set GIT_PAGER=cat
         self.run("export PAGER=")
         self.run("export GH_PAGER=")
@@ -556,6 +638,66 @@ class ShellSession:
         self.run("export VISUAL=true")
         # make Python output unbuffered by default for better UX
         self.run("export PYTHONUNBUFFERED=1")
+
+    @staticmethod
+    def _create_state_file() -> str | None:
+        if _is_windows:
+            return None
+        try:
+            fd, path = tempfile.mkstemp(prefix="gptme-shell-state-", suffix=".sh")
+            os.close(fd)
+            return path
+        except OSError as e:
+            logger.warning(f"Could not create shell state snapshot file: {e}")
+            return None
+
+    def _has_state_snapshot(self) -> bool:
+        if not self._state_path:
+            return False
+        try:
+            return os.path.getsize(self._state_path) > 0
+        except OSError:
+            return False
+
+    def consume_restart_notice(self) -> str | None:
+        """Return (and clear) the pending note about a shell restart, if any."""
+        notice, self._restart_notice = self._restart_notice, None
+        return notice
+
+    def _restart_after_death(self, status: int | None, when: str) -> None:
+        """Restart the shell after it died and queue a note for the model.
+
+        Never re-runs the command that was in flight: it may have partially or
+        fully executed (e.g. ``git commit && kill -9 $$``).
+        """
+        logger.warning(
+            "Warning: shell process died (%s, %s), restarting",
+            _describe_exit_status(status),
+            when,
+        )
+        restored = self._has_state_snapshot()
+        self.restart()
+        _, cwd, _ = self.run("pwd", output=False)
+        cwd = cwd.strip()
+        if restored:
+            state = (
+                f"Working directory ({cwd}) and exported variables were "
+                "restored from a snapshot taken after the last completed "
+                "command."
+            )
+        else:
+            state = (
+                f"Working directory was reset to {cwd}; environment variables "
+                "exported by earlier commands are gone."
+            )
+        notice = (
+            f"Note: the shell exited ({_describe_exit_status(status)}) {when}, "
+            f"so gptme started a fresh shell. {state} Shell functions, aliases, "
+            "unexported variables and background jobs of the old shell are gone."
+        )
+        self._restart_notice = (
+            notice if not self._restart_notice else self._restart_notice + "\n" + notice
+        )
 
     def run(
         self, code: str, output=True, timeout: float | None = None
@@ -851,6 +993,13 @@ class ShellSession:
         # Diagnostic logging for Issue #408: Log command start
         logger.debug(f"Shell: Running command: {command[:200]}")
 
+        # The shell may have died between commands (external kill, OOM, or
+        # closed by the conversation registry from another thread). Nothing has
+        # been sent yet, so restarting here cannot double-execute anything.
+        if self.process.poll() is not None or self.process.stdin.closed:
+            self._restart_after_death(self.process.returncode, "before this command")
+            assert self.process.stdin
+
         # Redirect stdin to /dev/null to prevent commands from inheriting bash's pipe stdin
         # Use shlex to properly parse commands and respect quotes
         # Only add for commands that don't already redirect stdin
@@ -933,20 +1082,28 @@ class ShellSession:
         full_command = f"echo {start_marker_pattern}\n"  # Start marker first
         full_command += f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
+        if self._state_path:
+            # Snapshot cwd + exported env after every command so a restart can
+            # restore them (runs after the delimiter, so it never delays output).
+            full_command += (
+                "{ printf 'cd -- %q\\n' \"$PWD\"; export -p; } > "
+                f"{shlex.quote(self._state_path)} 2>/dev/null || true\n"
+            )
+
         try:
             self.process.stdin.write(full_command)
+            self.process.stdin.flush()
         except BrokenPipeError:
-            # process has died
+            # Died between the liveness check and the write: the command was
+            # never received, so a single retry is safe.
             if tries == 0:
-                # log warning and restart, once
-                logger.warning("Warning: shell process died, restarting")
-                self.restart()
+                self._restart_after_death(
+                    self.process.poll(), "before this command was received"
+                )
                 return self._run_pipe(
                     command, output=output, tries=tries + 1, timeout=timeout
                 )
             raise
-
-        self.process.stdin.flush()
 
         # Issue #408: Track whether we've seen the start marker for this command
         seen_start_marker = False
@@ -1333,25 +1490,38 @@ class ShellSession:
         """Read command output on Unix using select()."""
         assert select is not None
         captured_bytes = 0
+        timed_out = False  # children killed; waiting for bash to emit delimiter
+        grace_deadline = 0.0
         try:
             while True:
                 # Calculate remaining timeout
                 select_timeout = None
                 if timeout and start_time:
                     elapsed = time.time() - start_time
-                    if elapsed >= timeout:
-                        # Timeout exceeded
+                    if elapsed >= timeout and not timed_out:
+                        # Timeout exceeded: kill the command's processes but
+                        # keep bash alive (it is the process-group leader, so
+                        # killpg would take it down and lose cwd/env). Bash
+                        # then reports the kill via the delimiter line.
                         logger.info(f"Command timed out after {timeout} seconds")
-                        # Terminate the entire process group (bash + all child processes)
+                        _kill_descendants(self.process.pid)
+                        timed_out = True
+                        grace_deadline = time.time() + 2.0
+                    elif timed_out and time.time() >= grace_deadline:
+                        # Bash itself is stuck (or the command was a builtin):
+                        # fall back to killing the whole group and restarting.
                         try:
                             pgid = os.getpgid(self.process.pid)
                             os.killpg(pgid, signal.SIGTERM)
                             time.sleep(0.1)  # Give it a moment to terminate
                             if self.process.poll() is None:
                                 os.killpg(pgid, signal.SIGKILL)
+                            self.process.wait(timeout=1.0)
                         except Exception as e:
                             logger.warning(f"Error terminating timed-out process: {e}")
-
+                        self._restart_after_death(
+                            self.process.poll(), "after the command timed out"
+                        )
                         partial_stdout = trim_blank_lines("".join(stdout))
                         partial_stderr = trim_blank_lines("".join(stderr))
                         return (
@@ -1360,8 +1530,8 @@ class ShellSession:
                             partial_stderr,
                         )  # Use timeout exit code (124)
 
-                    select_timeout = min(
-                        1.0, timeout - elapsed
+                    select_timeout = (
+                        0.1 if timed_out else min(1.0, timeout - elapsed)
                     )  # Check at least every second
 
                 rlist = _wait_readable([self.stdout_fd, self.stderr_fd], select_timeout)
@@ -1511,6 +1681,8 @@ class ShellSession:
                             rc_matches = re_returncode.findall(line)
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
+                            if timed_out:
+                                return_code = -124  # timeout exit code
                             # if command is cd, update working directory
                             if (
                                 command == "cd" or command.startswith("cd ")
@@ -1638,19 +1810,19 @@ class ShellSession:
             rc: int | None = self.process.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
             rc = None
+        # Drain output still buffered on the unclosed pipe (a diagnostic can
+        # arrive after the EOF-triggering close), enforcing the same byte cap,
+        # then restart and restore cwd/exported env. Never re-run the command.
         captured_bytes = self._drain_closed_shell_pipes(
             stdout, stderr, output, max_output_bytes, captured_bytes
         )
         if captured_bytes > max_output_bytes:
             return self._kill_for_byte_cap(stdout, stderr, output, max_output_bytes)
-        logger.warning(
-            "Shell process exited during command (code %s), restarting shell", rc
-        )
-        self.restart()
+        self._restart_after_death(rc, "during this command")
         stderr.append(
-            f"\n[gptme] The shell exited (code {rc}), so a fresh shell was "
-            "started; cwd, variables and `&` jobs from the old shell are gone. "
-            "Don't run `exit` in the tool shell — it never needs to be exited.\n"
+            f"\n[gptme] The shell exited ({_describe_exit_status(rc)}), so a "
+            "fresh shell was started (see note below). Don't run `exit` in the "
+            "tool shell — it never needs to be exited.\n"
         )
         return (
             rc if rc is not None else -1,
@@ -1766,9 +1938,19 @@ class ShellSession:
         if self.process.stderr:
             self.process.stderr.close()
 
+        if self._state_path and not self._restarting:
+            try:
+                os.unlink(self._state_path)
+            except OSError:
+                pass
+
     def restart(self):
-        self.close()
-        self._init()
+        self._restarting = True
+        try:
+            self.close()
+            self._init()
+        finally:
+            self._restarting = False
 
 
 _shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
@@ -2338,6 +2520,11 @@ def execute_shell_impl(
             hint = _check_workspace_config()
             if hint:
                 workspace_hint_content = "\n\n" + hint.content
+    # If the shell died and was restarted during this call, tell the model
+    # (same single-yield rule as the workspace hint).
+    restart_notice = shell.consume_restart_notice()
+    if restart_notice:
+        workspace_hint_content += "\n\n" + restart_notice
 
     # stdout/stderr were already streamed live by ShellSession (both the
     # persistent-pipe and the TTY path stream as bytes arrive), so the
