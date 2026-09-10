@@ -208,7 +208,7 @@ def cmd_tools(ctx: CommandContext):
 
         tool_name = args[1]
         try:
-            new_tool = load_tool(tool_name)
+            new_tool = load_tool(tool_name, allow_required=True)
         except ValueError as e:
             print(f"Error: {e}")
             return
