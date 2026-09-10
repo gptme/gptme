@@ -1993,6 +1993,23 @@ def test_shell_cwd_parameter(tmp_path):
         shell.close()
 
 
+def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
+    """A successful compound command must refresh the persistent shell cwd."""
+    shell = ShellSession()
+    try:
+        ret, _, _ = shell.run(f"printf ready; cd {tmp_path}")
+        assert ret == 0
+        assert shell.get_cwd() == tmp_path
+
+        # Track cwd even when a later command fails: Bash keeps a successful
+        # ``cd`` performed before the failing command in a compound list.
+        ret, _, _ = shell.run("cd ..; false")
+        assert ret == 1
+        assert shell.get_cwd() == tmp_path.parent
+    finally:
+        shell.close()
+
+
 # ---------------------------------------------------------------------------
 # Tests for workspace-aware subagent suggestion (issue #554)
 # ---------------------------------------------------------------------------
