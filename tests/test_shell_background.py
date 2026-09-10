@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import time
+from threading import Thread
 from unittest.mock import Mock, patch
 
 import pytest
@@ -745,6 +746,46 @@ class TestCompletionNotifications:
         assert len(messages) == 1
         assert f"job #{job.id} finished" in messages[0].content
         assert "notified" in messages[0].content
+
+    def test_completion_hook_claims_conversation_jobs_atomically(self):
+        from types import SimpleNamespace
+
+        from gptme.tools import shell_background
+
+        job_a = _make_job()
+        job_a.id = 1
+        job_a.conversation_id = "conversation-a"
+        job_b = _make_job()
+        job_b.id = 1
+        job_b.conversation_id = "conversation-b"
+        shell_background._background_jobs.update(
+            {"conversation-a": {1: job_a}, "conversation-b": {1: job_b}}
+        )
+        shell_background._completion_queue.put(job_a)
+        shell_background._completion_queue.put(job_b)
+
+        results: dict[str, list] = {}
+
+        def deliver(conversation_id: str) -> None:
+            results[conversation_id] = list(
+                shell_background.background_job_completion_hook(
+                    SimpleNamespace(chat_id=conversation_id), True, []
+                )
+            )
+
+        threads = [
+            Thread(target=deliver, args=("conversation-a",)),
+            Thread(target=deliver, args=("conversation-b",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert "conversation-a" in results
+        assert "conversation-b" in results
+        assert len(results["conversation-a"]) == 1
+        assert len(results["conversation-b"]) == 1
 
     def test_stale_completion_does_not_target_reused_job_id(self):
         from types import SimpleNamespace

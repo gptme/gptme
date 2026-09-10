@@ -393,21 +393,22 @@ def background_job_completion_hook(
     """Deliver completed jobs only to the conversation that started them."""
     del interactive, prompt_queue, no_confirm
     conversation_id = getattr(manager, "chat_id", None)
-    deferred: list[BackgroundJob] = []
-    while True:
-        try:
-            job = _completion_queue.get_nowait()
-        except queue.Empty:
-            break
-        if job.conversation_id != conversation_id:
-            deferred.append(job)
-            continue
+    with _completion_queue.mutex:
+        own_jobs = [
+            job
+            for job in _completion_queue.queue
+            if job.conversation_id == conversation_id
+        ]
+        _completion_queue.queue = type(_completion_queue.queue)(
+            job
+            for job in _completion_queue.queue
+            if job.conversation_id != conversation_id
+        )
+    for job in own_jobs:
         # Match object identity as well as the conversation-local ID. A reset can
         # reuse IDs; an old queued completion must never resolve to the new job.
         if _get_background_job(conversation_id, job.id) is job:
             yield _completion_message(job)
-    for job in deferred:
-        _completion_queue.put(job)
 
 
 # Background command handlers
