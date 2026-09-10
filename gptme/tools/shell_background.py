@@ -329,18 +329,35 @@ def cleanup_finished_jobs() -> None:
     return
 
 
+def _purge_completion_queue(conversation_ids: set[str | None]) -> None:
+    """Remove queued completions for conversations whose jobs were reset."""
+    retained: list[BackgroundJob] = []
+    while True:
+        try:
+            job = _completion_queue.get_nowait()
+        except queue.Empty:
+            break
+        if job.conversation_id not in conversation_ids:
+            retained.append(job)
+    for job in retained:
+        _completion_queue.put(job)
+
+
 def reset_background_jobs(
     conversation_id: str | None = None, *, all_conversations: bool = True
 ) -> None:
     """Stop and remove jobs globally, or only for ``conversation_id``."""
     with _job_lock:
         if all_conversations:
+            conversation_ids = set(_background_jobs) | set(_next_job_ids)
             groups = list(_background_jobs.values())
             _background_jobs.clear()
             _next_job_ids.clear()
         else:
+            conversation_ids = {conversation_id}
             groups = [_background_jobs.pop(conversation_id, {})]
             _next_job_ids.pop(conversation_id, None)
+        _purge_completion_queue(conversation_ids)
     for jobs in groups:
         for job in jobs.values():
             if job.is_running():
