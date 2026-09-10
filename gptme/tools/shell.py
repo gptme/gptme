@@ -510,8 +510,12 @@ class ShellSession:
         if not cwd:
             logger.warning("pwd returned an empty working directory")
             return
+        changed = cwd != self._cwd
         self._cwd = cwd
-        os.chdir(cwd)
+        # Preserve historical CLI behavior without process-wide chdir calls
+        # after every command; server conversations use context-local cwd.
+        if changed and get_workspace_cwd() is None:
+            os.chdir(cwd)
 
     def _init(self):
         # Choose shell and process group settings based on platform
@@ -963,6 +967,7 @@ class ShellSession:
             "tr -d ' \n'); __gptme_pwd=${__gptme_pwd%0a}; printf "
             f'"ReturnCode:%s PWDHEX:%s {delimiter_pattern}\\n" '
             '"$__gptme_rc" "$__gptme_pwd"\n'
+
         )
         full_command += "builtin set +e\n"
         try:
@@ -1198,10 +1203,13 @@ class ShellSession:
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
                             cwd_match = re.search(
-                                rf" PWD:(.*?) {re.escape(self.delimiter)}", line
+                                rf" PWD:(.*?) {re.escape(self.delimiter)}",
+                                line[rc_pos:],
                             )
                             if cwd_match:
-                                self._set_cwd(cwd_match.group(1))
+                                self._set_cwd(
+                                    shlex.split(cwd_match.group(1), posix=True)[0]
+                                )
 
                             # Drain remaining stderr
                             stop_event.set()
@@ -1488,10 +1496,13 @@ class ShellSession:
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
                             cwd_match = re.search(
-                                rf" PWD:(.*?) {re.escape(self.delimiter)}", line
+                                rf" PWD:(.*?) {re.escape(self.delimiter)}",
+                                line[rc_pos:],
                             )
                             if cwd_match:
-                                self._set_cwd(cwd_match.group(1))
+                                self._set_cwd(
+                                    shlex.split(cwd_match.group(1), posix=True)[0]
+                                )
 
                             # If the byte cap was already exceeded in this chunk
                             # (delimiter line present), do not return the real
