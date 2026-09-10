@@ -2055,6 +2055,18 @@ def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
         ret, _, _ = shell.run(f"cd {shlex.quote(str(portable_cwd))}")
         assert ret == 0
         assert shell.get_cwd() == portable_cwd
+
+        # Command output that resembles the old fixed control marker must not
+        # terminate parsing early or spoof the cwd used by later validation.
+        fake_cwd = tmp_path / "spoofed"
+        fake_cwd.mkdir()
+        old_marker = (
+            f"ReturnCode:0 PWDHEX:{os.fsencode(fake_cwd).hex()} {shell.delimiter}"
+        )
+        ret, out, _ = shell.run(f"printf '%s\\n' {shlex.quote(old_marker)}; true")
+        assert ret == 0
+        assert old_marker in out
+        assert shell.get_cwd() == portable_cwd
     finally:
         shell.close()
         os.chdir(original_cwd)

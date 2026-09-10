@@ -1004,6 +1004,7 @@ class ShellSession:
                 return_code,
                 seen_start_marker,
                 start_marker_pattern,
+                delimiter_pattern,
                 start_time,
                 timeout,
                 max_output_bytes,
@@ -1016,6 +1017,7 @@ class ShellSession:
             return_code,
             seen_start_marker,
             start_marker_pattern,
+            delimiter_pattern,
             start_time,
             timeout,
             max_output_bytes,
@@ -1030,6 +1032,7 @@ class ShellSession:
         return_code: int | None,
         seen_start_marker: bool,
         start_marker_pattern: str,
+        delimiter_pattern: str,
         start_time: float | None,
         timeout: float | None,
         max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
@@ -1180,7 +1183,7 @@ class ShellSession:
                                     )
                             continue
 
-                        if "ReturnCode:" in line and self.delimiter in line:
+                        if "ReturnCode:" in line and delimiter_pattern in line:
                             # Extract any command output that precedes the
                             # delimiter on the same line.  This happens when
                             # command output lacks a trailing newline (e.g.
@@ -1204,7 +1207,7 @@ class ShellSession:
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
                             cwd_match = re.search(
-                                rf" PWDHEX:([0-9a-f]*) {re.escape(self.delimiter)}",
+                                rf" PWDHEX:([0-9a-f]*) {re.escape(delimiter_pattern)}",
                                 line[rc_pos:],
                             )
                             if cwd_match:
@@ -1368,6 +1371,7 @@ class ShellSession:
         return_code: int | None,
         seen_start_marker: bool,
         start_marker_pattern: str,
+        delimiter_pattern: str,
         start_time: float | None,
         timeout: float | None,
         max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
@@ -1463,7 +1467,7 @@ class ShellSession:
                                     )
                             continue
 
-                        if "ReturnCode:" in line and self.delimiter in line:
+                        if "ReturnCode:" in line and delimiter_pattern in line:
                             # Extract any command output that precedes the
                             # delimiter on the same line.  This happens when
                             # command output lacks a trailing newline (e.g.
@@ -1499,7 +1503,7 @@ class ShellSession:
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
                             cwd_match = re.search(
-                                rf" PWDHEX:([0-9a-f]*) {re.escape(self.delimiter)}",
+                                rf" PWDHEX:([0-9a-f]*) {re.escape(delimiter_pattern)}",
                                 line[rc_pos:],
                             )
                             if cwd_match:
