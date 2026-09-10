@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -2217,3 +2218,109 @@ def test_set_e_does_not_persist_across_blocks(shell):
     ret, out, err = shell.run("false; echo block2_done")
     assert ret == 0, f"Expected rc=0 (errexit scoped), got rc={ret}"
     assert "block2_done" in out
+
+
+# Persistent-shell exit/pipe recovery regressions (gptme/gptme#3802)
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize(
+    ("cmd", "code"), [("exit", 0), ("exit 3", 3), ("false || exit 1", 1)]
+)
+def test_shell_exit_returns_promptly_and_restarts(cmd, code):
+    """A command that kills bash must not stall until the command timeout.
+
+    Before the EOF check, `exit` spun on the closed pipe for the full
+    GPTME_SHELL_TIMEOUT (20 min by default), returned -124, and only the next
+    command's BrokenPipeError restarted the shell.
+    """
+    import time
+
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession()
+    try:
+        old_pid = shell.process.pid
+        start = time.monotonic()
+        rc, stdout, stderr = shell.run(cmd, timeout=20.0)
+        assert time.monotonic() - start < 5.0
+        assert rc == code
+        assert stdout == ""
+        assert "shell exited" in stderr
+        assert shell.process.pid != old_pid
+        rc, stdout, _ = shell.run("echo alive")
+        assert (rc, stdout) == (0, "alive")
+    finally:
+        shell.close()
+
+
+@pytest.mark.timeout(30)
+def test_shell_exit_drains_both_output_pipes():
+    """An EOF on one pipe must not discard delayed output from the other."""
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession()
+    try:
+        # The diagnostic arrives after the initial drain deadline, while the
+        # reader is waiting for bash to exit. It still must be drained before
+        # the persistent shell is restarted.
+        rc, stdout, stderr = shell.run(
+            "exec 1>&-; sleep 1.1; printf 'stderr diagnostic\\n' >&2; exit 7",
+            timeout=20.0,
+        )
+        assert rc == 7
+        assert stdout == ""
+        assert "stderr diagnostic" in stderr
+        assert "shell exited" in stderr
+    finally:
+        shell.close()
+
+
+@pytest.mark.timeout(30)
+def test_closing_output_pipe_restart_tolerates_slow_reap():
+    """A failed post-kill wait must not escape the shell recovery path."""
+    from unittest.mock import patch
+
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession()
+    original_wait = shell.process.wait
+    wait_calls = 0
+
+    def delayed_wait(timeout=None):
+        nonlocal wait_calls
+        wait_calls += 1
+        if wait_calls <= 2:
+            raise subprocess.TimeoutExpired(str(shell.process.args), timeout)
+        return original_wait(timeout=timeout)
+
+    try:
+        with patch.object(shell.process, "wait", side_effect=delayed_wait):
+            rc, _stdout, stderr = shell.run(
+                "exec 1>&-; while :; do sleep 1; done", timeout=20.0
+            )
+        assert rc == -1
+        assert "output pipe" in stderr
+        assert wait_calls >= 2
+    finally:
+        shell.close()
+
+
+@pytest.mark.timeout(30)
+def test_closing_output_pipe_restarts_broken_shell():
+    """A live shell with a permanently closed output pipe must be replaced."""
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession()
+    try:
+        old_pid = shell.process.pid
+        rc, _stdout, stderr = shell.run(
+            "exec 1>&-; while :; do sleep 1; done", timeout=20.0
+        )
+        assert rc == -1
+        assert "output pipe" in stderr
+        assert "fresh shell" in stderr
+        assert shell.process.pid != old_pid
+
+        rc, stdout, _stderr = shell.run("echo alive", timeout=5.0)
+        assert (rc, stdout) == (0, "alive")
+    finally:
+        shell.close()
