@@ -248,7 +248,7 @@ class BackgroundJob:
 _background_jobs: dict[str | None, dict[int, BackgroundJob]] = {}
 _next_job_ids: dict[str | None, int] = {}
 _completion_queue: queue.Queue[BackgroundJob] = queue.Queue()
-_job_lock: threading.Lock = threading.Lock()
+_job_lock: threading.RLock = threading.RLock()
 
 
 def _current_conversation_id() -> str | None:
@@ -404,11 +404,15 @@ def background_job_completion_hook(
             for job in _completion_queue.queue
             if job.conversation_id != conversation_id
         )
-    for job in own_jobs:
+    with _job_lock:
         # Match object identity as well as the conversation-local ID. A reset can
         # reuse IDs; an old queued completion must never resolve to the new job.
-        if _get_background_job(conversation_id, job.id) is job:
-            yield _completion_message(job)
+        messages = [
+            _completion_message(job)
+            for job in own_jobs
+            if _get_background_job(conversation_id, job.id) is job
+        ]
+    yield from messages
 
 
 # Background command handlers
