@@ -2038,6 +2038,23 @@ def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
         ret, _, _ = shell.run(f"cd {shlex.quote(str(unusual_cwd))}")
         assert ret == 0
         assert shell.get_cwd() == unusual_cwd
+
+        # macOS/BSD ``head`` has no GNU ``head -c -1``. Cwd tracking must not
+        # depend on it: a PATH entry that rejects ``head`` cannot break a later
+        # cwd update.
+        fake_bin = tmp_path / "fake-bin"
+        fake_bin.mkdir()
+        fake_head = fake_bin / "head"
+        fake_head.write_text("#!/bin/sh\nexit 64\n")
+        fake_head.chmod(0o755)
+        ret, _, _ = shell.run(f"PATH={shlex.quote(str(fake_bin))}:$PATH")
+        assert ret == 0
+
+        portable_cwd = tmp_path / "portable"
+        portable_cwd.mkdir()
+        ret, _, _ = shell.run(f"cd {shlex.quote(str(portable_cwd))}")
+        assert ret == 0
+        assert shell.get_cwd() == portable_cwd
     finally:
         shell.close()
         os.chdir(original_cwd)
