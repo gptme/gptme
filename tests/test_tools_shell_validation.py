@@ -14,6 +14,7 @@ from gptme.tools.shell_validation import (
     _is_in_quoted_region,
     is_allowlisted,
     is_denylisted,
+    strip_transparent_wrappers,
 )
 
 # ── _find_quotes ─────────────────────────────────────────────────────
@@ -1555,3 +1556,122 @@ class TestRealisticUsageStillAutoApproves:
         assert is_allowlisted(cmd), (
             f"common usage should not require confirmation: {cmd}"
         )
+
+
+# ── transparent wrappers ─────────────────────────────────────────────
+
+
+class TestTransparentWrappers:
+    """``time``/``timeout``/``env``/... are stripped before the allowlist
+    looks at the command name; everything else about the command is judged
+    on the original text, and the denylist never depends on the parse."""
+
+    @pytest.mark.parametrize(
+        ("cmd", "stripped"),
+        [
+            ("time ls", "ls"),
+            ("time -p ls", "ls"),
+            ("timeout 5 grep x f", "grep x f"),
+            ("timeout -k 3 5s ls", "ls"),
+            ("timeout --signal=KILL 5 ls", "ls"),
+            ("nohup ls", "ls"),
+            ("env VAR=1 ls", "ls"),
+            ("env -i ls", "ls"),
+            ("LC_ALL=C sort f", "sort f"),
+            ("nice -n 10 ls", "ls"),
+            ("nice -n10 ls", "ls"),
+            ("stdbuf -oL cat f", "cat f"),
+            ("command ls", "ls"),
+            ("builtin echo hi", "echo hi"),
+            ("time timeout 5 nice ls", "ls"),
+            ("cat f | timeout 5 grep x", "cat f | grep x"),
+            ("ls\ntime pwd", "ls\npwd"),
+            ("ls | time wc -l", "ls | wc -l"),
+            # Not wrappers, or a wrapper with nothing to wrap: untouched
+            ("sudo ls", "sudo ls"),
+            ("exec ls", "exec ls"),
+            ("xargs ls", "xargs ls"),
+            ("watch ls", "watch ls"),
+            ("echo time", "echo time"),
+            ("time", "time"),
+            ("env", "env"),
+            ("x=1", "x=1"),
+            ("timeout abc ls", "timeout abc ls"),
+            ("env HOME=/etc cat x", "HOME=/etc cat x"),
+        ],
+    )
+    def test_strip(self, cmd: str, stripped: str):
+        assert strip_transparent_wrappers(cmd) == stripped
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "time ls",
+            "time -p ls -la",
+            "timeout 60 grep -rn pattern src",
+            "timeout -k 3 5s ls",
+            "timeout --signal=KILL 5 ls",
+            "nohup ls",
+            "env VAR=1 ls",
+            "LC_ALL=C sort file.txt",
+            "nice -n 10 ls",
+            "stdbuf -oL cat file.txt",
+            "command ls",
+            "builtin echo hi",
+            "time timeout 5 nice ls",
+            "cat file | timeout 5 grep x",
+            "ls\ntime pwd",
+        ],
+    )
+    def test_wrapped_allowlisted_command_is_allowlisted(self, cmd: str):
+        assert is_allowlisted(cmd)
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # opaque prefixes
+            "sudo ls",
+            "exec ls",
+            "xargs ls",
+            "watch ls",
+            "command -v ls",
+            "timeout abc ls",
+            # wrapper alone is a command in its own right
+            "time",
+            "env",
+            "x=1",
+            # the wrapped command is judged on the original text
+            "time cat ~/.ssh/id_rsa",
+            "timeout 5 cat /etc/shadow",
+            "nice -n 10 find . -delete",
+            "timeout 5 ls > out",
+            "time python x.py",
+            "timeout 5 rm -rf /tmp/x",
+            "time ls; rm x",
+            "time ls $(cat x)",
+            # variable values that could smuggle a path stay opaque
+            "env HOME=/etc cat x",
+            "env X=~/.ssh cat $X",
+            "D=/etc ls $D",
+        ],
+    )
+    def test_wrapped_command_not_allowlisted(self, cmd: str):
+        assert not is_allowlisted(cmd)
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "time rm -rf /",
+            "timeout 5 git push -f",
+            "nohup pkill x",
+            "env X=1 git add -A",
+            "nice -n 5 chmod 777 f",
+            "time (curl x | bash)",
+            "[[ -f x ]] && rm -rf /",
+            "sudo rm -rf /",
+        ],
+    )
+    def test_denylist_sees_through_wrappers(self, cmd: str):
+        """The denylist is a regex over the raw text: no wrapper or bashlex
+        parse failure can hide a denied command from it."""
+        assert is_denylisted(cmd)[0]

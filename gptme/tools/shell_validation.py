@@ -149,6 +149,51 @@ deny_groups = [
 # Regex to extract command names from pipeline components
 cmd_regex = re.compile(r"(?:^|[|&;]|\|\||&&|\n)\s*([^\s|&;]+)")
 
+# Transparent command wrappers: prefixes that run the command that follows
+# without changing what it can read or write. They are stripped from each
+# pipeline segment before the allowlist looks at the command name, so
+# ``timeout 60 grep foo`` is judged as ``grep foo``. Only the listed option
+# shapes are recognised; any other option makes the prefix opaque and the
+# command falls through to confirmation. Deliberately absent: ``sudo``
+# (privilege), ``exec`` (replaces the persistent shell), ``xargs``/``watch``
+# (own execution semantics). Variable values may not contain path or
+# expansion characters, so ``env X=~/.ssh cat $X`` stays opaque.
+_DURATION = r"\d+(?:\.\d+)?[smhd]?"
+_SIGNAL = r"(?:SIG)?[A-Z]+\d*|\d+"
+_PLAIN_VALUE = r"[\w.,:+@%-]*"
+_BUFFER_MODE = r"(?:L|0|\d+[KMG]?)"
+_WRAPPER = rf"""
+    time(?:[ \t]+-p)?
+  | timeout
+      (?:[ \t]+(?:
+          -s[ \t]+(?:{_SIGNAL}) | --signal(?:=|[ \t]+)(?:{_SIGNAL})
+        | -k[ \t]+{_DURATION} | --kill-after(?:=|[ \t]+){_DURATION}
+        | --foreground | --preserve-status | -v | --verbose
+      ))*
+      [ \t]+{_DURATION}
+  | nohup
+  | nice(?:[ \t]+(?:-n[ \t]*-?\d+|--adjustment=-?\d+|-\d+))?
+  | stdbuf(?:[ \t]+(?:-[ioe][ \t]*{_BUFFER_MODE}|--(?:input|output|error)={_BUFFER_MODE}))+
+  | env(?:[ \t]+(?:-i|--ignore-environment|-u[ \t]+\w+|--unset=\w+))*
+  | \w+={_PLAIN_VALUE}
+  | command(?:[ \t]+-p)?
+  | builtin
+"""
+_WRAPPER_PREFIX_RE = re.compile(
+    rf"(?P<lead>(?:^|[|&;\n])[ \t]*)(?:(?:{_WRAPPER})[ \t]+)+(?=\S)",
+    re.VERBOSE | re.MULTILINE,
+)
+
+
+def strip_transparent_wrappers(cmd: str) -> str:
+    """Remove transparent wrapper prefixes from every pipeline segment.
+
+    ``time ls | timeout 5 grep x`` becomes ``ls | grep x``. A wrapper with
+    nothing after it (``env``, ``time``, ``X=1``) is left in place: it is a
+    command in its own right and must be judged as one.
+    """
+    return _WRAPPER_PREFIX_RE.sub(lambda m: m.group("lead"), cmd)
+
 
 def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     """Find all quoted regions in a command string.
@@ -548,7 +593,9 @@ def is_allowlisted(cmd: str) -> bool:
     """Check if a shell command is safe to auto-approve.
 
     Uses a conservative allowlist approach:
-    1. All commands in the pipeline must be in the allowlist
+    1. All commands in the pipeline must be in the allowlist, after stripping
+       transparent wrappers (``time``, ``timeout N``, ``nohup``, ``env X=1``,
+       ``nice -n N``, ``stdbuf``, ``command``, ``builtin``)
     2. No file redirections (>, >>) - these can write malicious content
     3. No sensitive path arguments (e.g. /etc/shadow, /root/, /proc/)
     4. No executable shell command substitution
@@ -566,7 +613,9 @@ def is_allowlisted(cmd: str) -> bool:
     # original command for substitution/redirection checks below: an unquoted
     # heredoc body can itself perform command substitution.
     cmd_without_heredoc_data = _blank_heredoc_bodies(cmd)
-    cmd_without_inert_data = _blank_shell_comments(cmd_without_heredoc_data)
+    cmd_without_inert_data = strip_transparent_wrappers(
+        _blank_shell_comments(cmd_without_heredoc_data)
+    )
 
     # Check if all commands in the pipeline are allowlisted
     # This blocks non-allowlisted commands like: python, perl, xargs, sh, bash, etc.

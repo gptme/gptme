@@ -30,6 +30,7 @@ import os
 import re
 import select
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -108,7 +109,7 @@ def _redirect_background_stdin(command: str) -> str:
     import bashlex
 
     try:
-        nodes = bashlex.parse(command)
+        nodes = bashlex.parse(_mask_time_keyword(command))
     except Exception:
         # split_commands handles unsupported and invalid syntax separately.
         # Avoid rewriting syntax we cannot classify confidently here.
@@ -2430,6 +2431,53 @@ def _find_max_heredoc_pos(node, current_max: int = 0) -> int:
     return max_pos
 
 
+# bashlex tokenizes ``time`` as a reserved word but its grammar action for it is
+# a ``NotImplementedError`` stub, so any script containing ``time <cmd>`` fails
+# to parse. ``TIME`` is an ordinary word to both bash and bashlex, and has the
+# same length, so node positions from the masked parse index the real script.
+# Occurrences that are not the keyword (``$time``, ``time=1``, ``echo time``,
+# heredoc delimiters and their terminators) become the same construct spelled
+# differently, which leaves the parse tree shape unchanged.
+_TIME_KEYWORD_RE = re.compile(r"\btime\b")
+
+
+def _mask_time_keyword(script: str) -> str:
+    """Length-preserving rewrite of ``time`` so bashlex can parse the script."""
+    return _TIME_KEYWORD_RE.sub("TIME", script)
+
+
+def _bash_syntax_error(script: str, fallback: str) -> str | None:
+    """Ask bash itself whether ``script`` is syntactically valid.
+
+    bashlex rejects valid bash it does not model (``[[ ]]``, ``$(( ))``,
+    ``<( )``, ``time`` mid-pipeline, ...), so its parse error alone cannot
+    distinguish "unsupported" from "broken". ``bash -n`` parses without
+    executing anything and is the authority.
+
+    Returns None when bash accepts the script, bash's own error message when it
+    rejects it, and ``fallback`` when the check could not run.
+    """
+    bash = None if _is_windows else shutil.which("bash")
+    if bash is None:
+        return fallback
+    try:
+        result = subprocess.run(
+            [bash, "-n"],
+            input=script,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    if result.returncode == 0:
+        return None
+    # "/usr/bin/bash: line 2: syntax error ..." -> "line 2: syntax error ..."
+    message = re.sub(r"^\S*bash: ", "", result.stderr.strip(), flags=re.MULTILINE)
+    return message or fallback
+
+
 def split_commands(script: str) -> list[str]:
     import bashlex
 
@@ -2437,27 +2485,33 @@ def split_commands(script: str) -> list[str]:
     processed_script = _preprocess_quoted_heredocs(script)
 
     try:
-        parts = bashlex.parse(processed_script)
+        parts = bashlex.parse(_mask_time_keyword(processed_script))
+    except NotImplementedError as e:
+        # bashlex stubs out grammar it never implemented (select, coproc,
+        # [[ ]], arithmetic expansion, ...). That is valid bash, not a syntax
+        # error: run the script whole and let bash parse it. Splitting only
+        # affects per-command stdin redirection and stop-on-failure between
+        # top-level commands; permission checks never depend on it.
+        logger.debug(
+            "bashlex does not support a construct in this script, "
+            "running it as a single command: %s",
+            e,
+        )
+        return [script]
     except Exception as e:
-        # Fall back to treating script as single command if bashlex can't parse it
-        # bashlex (a Python port of GNU bash parser) cannot handle bash reserved words
-        # like 'time', 'coproc', etc. These are special keywords in bash that have
-        # different parsing rules. When bashlex encounters them, it raises an exception.
-        error_msg = str(e)
-
-        # bashlex reserved word errors contain "token =" in the message
-        # These are valid bash syntax that bashlex can't parse - allow them
-        if "token =" in error_msg:
-            logger.warning(
-                f"bashlex cannot parse bash reserved word. "
-                f"Treating script as single command. Error: {e}"
+        # bashlex also raises ParsingError on valid bash it does not model
+        # (``ls | time wc``, process substitution). bash decides; a real
+        # syntax error fails fast with bash's message instead of hanging.
+        bash_error = _bash_syntax_error(script, fallback=str(e))
+        if bash_error is None:
+            logger.debug(
+                "bashlex cannot parse script that bash accepts, "
+                "running it as a single command: %s",
+                e,
             )
             return [script]
-
-        # Other parsing errors are likely syntax errors - fail fast
-        # Common errors: "unexpected EOF", "unexpected token", etc.
         raise ValueError(
-            f"Shell syntax error: {e}\n"
+            f"Shell syntax error: {bash_error}\n"
             f"Please fix the syntax or use a different approach."
         ) from e
 

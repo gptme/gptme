@@ -386,21 +386,88 @@ def test_split_commands_syntax_errors_raise():
 
 
 def test_split_commands_mixed_reserved_and_normal():
-    """Test script with both reserved words and normal commands.
+    """A ``time`` keyword no longer collapses the whole script into one command.
 
-    When a script contains a reserved word, the entire script should be
-    treated as a single command since bashlex can't parse any of it.
+    bashlex cannot parse ``time``; split_commands masks it before parsing so
+    the surrounding commands still split normally.
     """
-    # Script with 'time' and other commands
     script_mixed = """
 time echo "timed"
 echo "normal"
 """
     commands = split_commands(script_mixed)
-    # The entire script is treated as one command due to 'time'
-    assert len(commands) == 1
-    assert "time echo" in commands[0]
-    assert 'echo "normal"' in commands[0]
+    assert commands == ['time echo "timed"', 'echo "normal"']
+
+
+def test_split_commands_time_keyword_variants():
+    """``time`` in every position bash accepts, with the original text preserved."""
+    assert split_commands("ls\ntime pwd") == ["ls", "time pwd"]
+    assert split_commands("time -p ls") == ["time -p ls"]
+    assert split_commands("time { ls; pwd; }") == ["time { ls; pwd; }"]
+    assert split_commands("time (ls | wc -l)") == ["time (ls | wc -l)"]
+    # ``time`` as data, variable, assignment and heredoc delimiter is untouched
+    assert split_commands("echo time\ntime=5\necho $time") == [
+        "echo time",
+        "time=5",
+        "echo $time",
+    ]
+    heredoc = "time cat <<'EOF'\ntime\nEOF\necho done"
+    assert split_commands(heredoc) == ["time cat <<'EOF'\ntime\nEOF", "echo done"]
+    # A heredoc delimited by the word ``time`` still terminates where bash says
+    delimiter = "cat <<'time'\nbody\ntime\necho done"
+    assert split_commands(delimiter) == ["cat <<'time'\nbody\ntime", "echo done"]
+
+
+def test_split_commands_bashlex_gaps_run_as_single_command():
+    """Valid bash that bashlex cannot model is run whole, not reported as a syntax error.
+
+    Regression: ``[[ -f x ]] && ls`` and ``echo $((6*7))`` used to raise
+    "Shell syntax error" to the model even though bash accepts them.
+    """
+    for script in [
+        "[[ -f /etc/hostname ]] && echo yes",
+        "echo $((6*7))",
+        "diff <(ls) <(ls)",
+        "ls | time wc -l",
+        "select x in a b; do echo $x; done",
+        "for ((i=0;i<2;i++)); do echo $i; done",
+    ]:
+        assert split_commands(script) == [script], script
+
+
+def test_split_commands_bashlex_gaps_execute(shell):
+    """The constructs bashlex rejects actually run in the persistent shell."""
+    ret, out, _ = shell.run("[[ -f /etc/hostname ]] && echo cond-ok", output=False)
+    assert ret == 0 and "cond-ok" in out
+    ret, out, _ = shell.run("echo arith-$((6*7))", output=False)
+    assert ret == 0 and "arith-42" in out
+    ret, out, _ = shell.run("echo a\ntime echo b\necho c", output=False)
+    assert ret == 0 and out.replace("\n", "") == "abc"
+
+
+def test_split_commands_syntax_error_uses_bash_message():
+    """Real syntax errors surface bash's own diagnostic."""
+    import pytest
+
+    with pytest.raises(ValueError, match="Shell syntax error: line 2: syntax error"):
+        split_commands("ls |")
+
+
+def test_split_commands_without_bash_keeps_bashlex_error(monkeypatch):
+    """When bash cannot be consulted, a bashlex parse error is still a syntax error."""
+    import pytest
+
+    from gptme.tools import shell as shell_module
+
+    monkeypatch.setattr(shell_module.shutil, "which", lambda _name: None)
+    with pytest.raises(ValueError, match="Shell syntax error: unexpected token"):
+        split_commands("[[ -f x ]] && ls")
+
+
+def test_redirect_background_stdin_with_time_keyword():
+    from gptme.tools.shell import _redirect_background_stdin
+
+    assert _redirect_background_stdin("time sleep 1 &") == "time sleep 1 < /dev/null &"
 
 
 def test_function(shell):
