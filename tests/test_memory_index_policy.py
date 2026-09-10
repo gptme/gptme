@@ -228,6 +228,33 @@ def test_malformed_policy_fails_closed(tmp_path: Path, raw: str) -> None:
         assert _snapshot(tmp_path) == before
 
 
+def test_symlinked_policy_fails_closed_without_mutating_target(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.save("old", "Old")
+    store.save("new", "New")
+    target = tmp_path.parent / f"{tmp_path.name}-external-policy.json"
+    target.write_text(
+        json.dumps({"version": 1, "budget": 4096, "selected": ["old.md"]}),
+        encoding="utf-8",
+    )
+    policy = tmp_path / ".memory-index.json"
+    policy.symlink_to(target)
+    before = _snapshot(tmp_path)
+    target_before = target.read_bytes()
+
+    for operation in (
+        store.render_root_index,
+        store.write_index,
+        store.check_index,
+        lambda: store.save("old", "Changed"),
+        lambda: store.supersede("old", "new"),
+    ):
+        with pytest.raises(ValueError, match="policy.*symlink"):
+            operation()
+        assert _snapshot(tmp_path) == before
+        assert target.read_bytes() == target_before
+
+
 @pytest.mark.parametrize("target", ["missing.md", "historical.md"])
 def test_selected_target_must_exist_and_be_living(tmp_path: Path, target: str) -> None:
     store = _store(tmp_path)

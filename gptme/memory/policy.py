@@ -25,8 +25,11 @@ class IndexPolicy:
     @classmethod
     def read(cls, root: Path) -> IndexPolicy | None:
         """Missing policy keeps legacy behavior; malformed policy never does."""
+        path = root / POLICY_FILENAME
+        if path.is_symlink():
+            raise ValueError(f"memory index policy {path} must not be a symlink")
         try:
-            text = (root / POLICY_FILENAME).read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
         try:
