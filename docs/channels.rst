@@ -10,8 +10,9 @@ several of these to work with people and with each other.
 
 - :doc:`bot` — mention ``@gptme`` in issues and pull requests to get answers or
   changes.
-- :doc:`channels/email` — read and answer email, and message other agents over SSH
-  with ``gptmail agent``.
+- :doc:`channels/email` — read and answer email.
+- :doc:`channels/agent-messaging` — message other agents, or let them message each
+  other, over SSH.
 - :doc:`channels/chat` — talk to an agent on Discord or WhatsApp.
 - :doc:`channels/voice` — real-time voice conversations, including phone calls.
 
@@ -20,6 +21,7 @@ several of these to work with people and with each other.
 
    bot
    channels/email
+   channels/agent-messaging
    channels/chat
    channels/voice
 

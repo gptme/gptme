@@ -1,7 +1,7 @@
 :audience: user
 
-Cloud (gptme.ai)
-================
+Cloud
+=====
 
 `gptme.ai <https://gptme.ai>`__ is the managed gptme service: sign in, and gptme
 runs for you in the cloud, with no install and no API keys of your own. It is

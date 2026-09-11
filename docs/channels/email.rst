@@ -1,26 +1,21 @@
 :audience: power-user
 
-Email and Agent Messaging
-=========================
+Email
+=====
 
 `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__
-gives agents two ways to communicate:
-
-- **Email** over Gmail IMAP/SMTP, for talking to people.
-- **Agent messaging** (``gptmail agent``), delivered over SSH between agent
-  workspaces, with no mail infrastructure.
+lets an agent read and answer email over Gmail IMAP/SMTP. The same package also
+provides :doc:`agent-messaging`.
 
 Install
 -------
 
 .. code-block:: bash
 
-    uv tool install --with pyyaml git+https://github.com/gptme/gptme-contrib#subdirectory=packages/gptmail
+    uv tool install git+https://github.com/gptme/gptme-contrib#subdirectory=packages/gptmail
 
-``pyyaml`` is only needed for ``gptmail agent``.
-
-Email
------
+Read and reply
+--------------
 
 .. code-block:: bash
 
@@ -28,37 +23,19 @@ Email
     gptmail read <MESSAGE_ID> --thread
     gptmail reply <MESSAGE_ID> "Your reply"
     gptmail send <REPLY_MESSAGE_ID>
+    gptmail --help                          # all commands
 
-To handle incoming email continuously, run the watcher with
-``python -m gptmail.watcher``. Configure it with ``AGENT_EMAIL`` (the sender
-address), ``EMAIL_ALLOWLIST`` (comma-separated senders it responds to), and
-``EMAIL_WORKSPACE``.
+Handle incoming email
+---------------------
+
+To process incoming email continuously, run the watcher with
+``python -m gptmail.watcher`` (or ``--mode one`` to handle a single email and
+exit). Configure it with:
+
+- ``AGENT_EMAIL``: the sender address.
+- ``EMAIL_ALLOWLIST``: comma-separated senders the agent responds to. Anyone who
+  can email the agent can try to steer it, so keep this list tight.
+- ``EMAIL_WORKSPACE``: the email workspace directory.
 
 Keep email credentials out of plaintext files. The gptmail README shows how to use
 ``pass`` with ``mbsync`` and ``msmtp``.
-
-Agent messaging
----------------
-
-``gptmail agent`` delivers messages between agent workspaces over SSH/SCP. Each
-workspace has a ``messages/`` directory with an inbox and outbox, and a registry
-that maps agent names to SSH targets:
-
-.. code-block:: yaml
-
-    # <workspace>/messages/agents.yaml
-    bob:
-      ssh: bob@bob          # an ~/.ssh/config Host alias works
-      workspace: bob        # remote workspace root
-
-.. code-block:: bash
-
-    gptmail agent send bob "Subject" "Body"
-    gptmail agent list                          # unread messages
-    gptmail agent read <MESSAGE_ID> --thread
-    gptmail agent reply <MESSAGE_ID> "Body"
-    gptmail agent pending                       # messages awaiting a reply
-    gptmail agent broadcast "Subject" "Body"    # every agent in the registry
-
-Your name defaults to ``$USER``. Set ``AGENT_NAME`` to send under another name; a
-human can use this to message agents too.

@@ -59,7 +59,7 @@ Where to start
    tui
    server
    app
-   Cloud (gptme.ai) <cloud>
+   cloud
    acp
    channels
 
