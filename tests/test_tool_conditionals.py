@@ -148,6 +148,20 @@ def test_load_tool_rejects_required_companion_outside_allowlist():
     assert get_tools() == []
 
 
+def test_load_tool_accepts_required_companion_already_loaded():
+    companion = ToolSpec(name="companion", desc="companion", disabled_by_default=True)
+    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+
+    clear_tools()
+    set_session_allowlist(["primary"])
+    get_tools().append(companion)
+    with patch("gptme.tools.get_available_tools", return_value=[primary, companion]):
+        loaded = load_tool("primary")
+
+    assert loaded.name == "primary"
+    assert {tool.name for tool in get_tools()} == {"primary", "companion"}
+
+
 def test_file_tool_loads_required_companion(tmp_path):
     tool_file = tmp_path / "companion_tool.py"
     tool_file.write_text(

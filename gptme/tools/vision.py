@@ -154,7 +154,7 @@ Do **not** use vision for:
 {% elif tools: browser %}
 - Images at a URL — visit with `browser` instead
 {% endif %}
-{% if tools: read %}
+{% if tools: screenshot %}
 - Taking a new screenshot — use the `screenshot` tool, then pass the path to vision
 {% endif %}
 
