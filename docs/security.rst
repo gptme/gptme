@@ -107,6 +107,10 @@ your model provider, and tools like the shell and browser can send it anywhere e
 - ``GPTME_GUARDRAILS=enforce`` blocks clearly destructive commands (``rm -rf /``,
   ``curl … | bash``) and reads of common secret paths such as ``~/.ssh`` and
   ``.env``. By default it only logs what it would block.
+- With a router such as OpenRouter, "your model provider" can be any of several
+  third-party hosts, with different data policies, jurisdictions, and
+  trustworthiness. Pin hosts you trust for sensitive work; see
+  :ref:`openrouter-hosts`.
 - For data that must not leave your machine, use a :ref:`local model <local-models>`.
 
 Model competence
@@ -116,6 +120,11 @@ Autonomy is only as safe as the model's judgment. Strong frontier models are far
 less likely to take a destructive action by mistake than small or local models,
 which misread instructions and misuse tools more often. Give weaker models
 narrower tools and more review. See :doc:`models`.
+
+A model is also only as trustworthy as whoever serves it. You generally can't
+verify which weights, at what precision, answered a request. For agents with
+privileged access, prefer the model developer's own API or hosts you trust over
+the cheapest available one.
 
 A sensible middle ground
 ------------------------
