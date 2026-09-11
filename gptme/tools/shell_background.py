@@ -281,6 +281,11 @@ def _get_background_job(
         return _background_jobs.get(conversation_id, {}).get(job_id)
 
 
+def _is_current_job(conversation_id: str | None, job: BackgroundJob) -> bool:
+    """Whether ``job`` is still the live instance for its conversation-local ID."""
+    return _get_background_job(conversation_id, job.id) is job
+
+
 def start_background_job(
     command: str, memory_limit: int | None = None
 ) -> BackgroundJob:
@@ -407,10 +412,13 @@ def background_job_completion_hook(
     with _job_lock:
         # Match object identity as well as the conversation-local ID. A reset can
         # reuse IDs; an old queued completion must never resolve to the new job.
+        # ``own_jobs`` only holds live ``BackgroundJob`` instances; comparing the
+        # identity check in a separate expression avoids narrowing ``job`` to the
+        # ``BackgroundJob | None`` return of ``_get_background_job``.
         messages = [
             _completion_message(job)
             for job in own_jobs
-            if _get_background_job(conversation_id, job.id) is job
+            if _is_current_job(conversation_id, job)
         ]
     yield from messages
 
