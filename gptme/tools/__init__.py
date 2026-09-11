@@ -355,6 +355,7 @@ def _add_required_tools(
     available: list[ToolSpec],
     *,
     allowlist: list[str] | None = None,
+    already_loaded: set[str] | None = None,
 ) -> list[ToolSpec]:
     """Append available companions while preserving the capability boundary.
 
@@ -363,7 +364,7 @@ def _add_required_tools(
     Runs to a fixpoint so dependency chains resolve.
     """
     by_name = {t.name: t for t in available}
-    loaded = {t.name for t in tools}
+    loaded = {t.name for t in tools} | (already_loaded or set())
     queue = [t for t in tools if t.requires_tools]
     while queue:
         tool = queue.pop()
@@ -712,6 +713,7 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
             [tool],
             list(available.values()),
             allowlist=None if allow_required else get_session_allowlist(),
+            already_loaded={spec.name for spec in get_tools()},
         )
         initialized: dict[str, ToolSpec] = {}
         for spec in to_load:
