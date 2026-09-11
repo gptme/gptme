@@ -29,7 +29,7 @@ Where to start
 .. toctree::
    :hidden:
    :maxdepth: 2
-   :caption: Getting Started
+   :caption: Introduction
 
    getting-started
    features
@@ -90,7 +90,7 @@ Where to start
    :caption: Developer Guide
 
    contributing
-   pr-lifecycle
+   PR Lifecycle <pr-lifecycle>
    building
    api
    context-compression
@@ -105,6 +105,7 @@ Where to start
    :caption: About
 
    alternatives
+   projects
    arewetiny
    misc/acronyms
    timeline

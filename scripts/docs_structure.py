@@ -260,16 +260,6 @@ def check_nav(
                     f"sidebar entry '{node.title}' links to a missing page",
                 )
             )
-        titles = [c.title for c in node.children]
-        issues.extend(
-            Issue(
-                "warning",
-                "duplicate-nav",
-                node.href or node.title,
-                f"'{title}' appears twice in the sidebar here",
-            )
-            for title in sorted({t for t in titles if titles.count(t) > 1})
-        )
         pages = [c for c in node.children if c.href and not c.is_external]
         if node.href and len(pages) == 1 and node.href not in LONE_CHILD_ALLOWED:
             sections = sum(1 for h in headings.get(node.href, []) if h.level == 2)
@@ -283,6 +273,26 @@ def check_nav(
                         f"'{pages[0].title}', which reads as its only subtopic",
                     )
                 )
+    # The same title in several places is ambiguous in search results and breadcrumbs.
+    # Only a warning: some repetition (e.g. a tool and its guide) is reasonable.
+    places: dict[str, list[str]] = {}
+    titles: dict[str, str] = {}
+    for node in iter_nodes(roots):
+        if node.is_external or not node.title:
+            continue
+        key = node.title.lower()
+        titles.setdefault(key, node.title)
+        places.setdefault(key, []).append(node.href or f"caption '{node.title}'")
+    issues.extend(
+        Issue(
+            "warning",
+            "duplicate-title",
+            where[0],
+            f"'{titles[key]}' appears {len(where)} times in the sidebar: {', '.join(where)}",
+        )
+        for key, where in places.items()
+        if len(where) > 1
+    )
     return issues
 
 

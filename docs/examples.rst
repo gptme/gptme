@@ -5,6 +5,11 @@ Examples
 
 Start with the one-liners below to get a feel for gptme, follow a `how-to guide <How-to guides_>`_ when you have a specific task, and watch the :doc:`demos` to see it in action.
 
+.. toctree::
+   :hidden:
+
+   demos
+
 Quick examples
 --------------
 
@@ -92,18 +97,18 @@ Step-by-step recipes for common tasks, each with a copy-pasteable pattern you ca
 .. toctree::
    :hidden:
 
-   howto/choose-workflow
-   howto/minimal-context
-   howto/edit-files
-   howto/code-review
-   howto/debug-python
-   howto/refactor
-   howto/automate-task
-   howto/parallel-research
-   howto/computer-use
-   howto/skills-workflows
-   howto/custom-tool-plugin
-   howto/tts-setup
+   Choose a Workflow <howto/choose-workflow>
+   Minimal Context <howto/minimal-context>
+   Edit Files <howto/edit-files>
+   Review Code <howto/code-review>
+   Debug Python <howto/debug-python>
+   Refactor Code <howto/refactor>
+   Automate Tasks <howto/automate-task>
+   Parallel Research <howto/parallel-research>
+   Computer Use <howto/computer-use>
+   Reusable Skills <howto/skills-workflows>
+   Custom Tool Plugin <howto/custom-tool-plugin>
+   Text-to-Speech <howto/tts-setup>
 
 Advanced workflows
 ------------------
@@ -245,9 +250,3 @@ Demos and projects
 - :doc:`projects` — things built with and powered by gptme.
 
 Have a cool example? Share it in the `Discussions <https://github.com/gptme/gptme/discussions>`_!
-
-.. toctree::
-   :hidden:
-
-   demos
-   projects

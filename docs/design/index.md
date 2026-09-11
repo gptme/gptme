@@ -11,7 +11,7 @@ behind the code, so check the reference pages for current behavior.
 ```{toctree}
 :maxdepth: 1
 
-hook-based-confirmations
-elicitation
-ptc-tool-interface
+Hook-Based Tool Confirmations <hook-based-confirmations>
+Generalized Elicitation <elicitation>
+Programmatic Tool Calling (PTC) <ptc-tool-interface>
 ```

@@ -81,7 +81,7 @@ Each tool has its own reference page, listed here by category.
    tools/hashline-edit
    tools/python
    tools/shell
-   tools/gh
+   GitHub (gh) <tools/gh>
    tools/precommit
    tools/autocommit
    tools/browser
@@ -98,7 +98,7 @@ Each tool has its own reference page, listed here by category.
    tools/complete
    tools/restart
    tools/vent
-   tools/request-tool-change
+   Request Tool Change <tools/request-tool-change>
    tools/lessons
    tools/todo
    tools/mcp

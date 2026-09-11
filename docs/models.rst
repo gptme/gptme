@@ -92,13 +92,13 @@ configuration details, quantization controls, and provider pinning.
 Set a default model
 -------------------
 
-If you mostly use one model, set it once in ``gptme.toml`` (project) or
-``~/.config/gptme/config.toml`` (global) instead of passing ``--model`` every time:
+If you mostly use one model, set it once in your global config
+(``~/.config/gptme/config.toml``) instead of passing ``--model`` every time:
 
 .. code-block:: toml
 
-    # gptme.toml or ~/.config/gptme/config.toml
-    model = "openrouter/qwen/qwen3-max"
+    [models]
+    default = "openrouter/qwen/qwen3-max"
 
 With a default configured, ``gptme "query"`` uses that model, and ``--model`` still
 overrides it per run when you need something stronger or cheaper.
@@ -116,12 +116,18 @@ without per-call flags:
 .. code-block:: toml
 
     # router-agent/gptme.toml — cheap, fast, handles triage and dispatch
-    model = "openrouter/qwen/qwen3-max"
+    [env]
+    MODEL = "openrouter/qwen/qwen3-max"
 
 .. code-block:: toml
 
     # coder-agent/gptme.toml — frontier model for complex implementation
-    model = "anthropic/claude-sonnet-4-6"
+    [env]
+    MODEL = "anthropic/claude-sonnet-4-6"
+
+To pin a model regardless of other configuration (such as a global
+``[models].default``), pass ``--model`` in the command that runs the agent. See
+:ref:`how-model-selection-works` for how gptme resolves the model.
 
 This is how an agent "brain" pins its default model: configure it once in the
 agent's config, override per session only when a specific task needs a different

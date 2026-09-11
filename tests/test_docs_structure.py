@@ -152,3 +152,16 @@ def test_main_check_exit_codes(build_dir, capsys):
     assert ds.main([str(build_dir), "--check"]) == 0
     assert ds.main([str(build_dir), "--check", "--strict"]) == 1
     assert "lone-child" in capsys.readouterr().out
+
+
+def test_check_nav_flags_duplicate_titles_across_sections(build_dir):
+    html = page("").replace(
+        '<span class="caption-text">External</span>',
+        '<span class="caption-text">Tools</span>',
+    )
+    roots = ds.parse_nav(html)
+    issues = [
+        i for i in ds.check_nav(roots, build_dir, {}) if i.code == "duplicate-title"
+    ]
+    assert len(issues) == 1
+    assert "'Tools' appears 2 times" in issues[0].message
