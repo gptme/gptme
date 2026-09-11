@@ -21,7 +21,7 @@ Where to start
 
 - **New to gptme?** Install it with :doc:`getting-started`, learn the basics in :doc:`usage`, and try the :doc:`examples`.
 - **Choose a model:** pick a :doc:`model <models>`, set up its :doc:`provider <providers>`, and tune gptme with its :doc:`configuration <config>`.
-- **Pick an interface:** the :doc:`CLI <cli>`, the :doc:`TUI <tui>`, the :doc:`web UI <server>`, the :doc:`desktop app <desktop>`, :doc:`gptme.ai in the cloud <cloud>`, your :doc:`editor <acp>`, or :doc:`GitHub <bot>`.
+- **Pick an interface:** the :doc:`CLI <cli>`, the :doc:`TUI <tui>`, the :doc:`web UI <server>`, the :doc:`desktop and Android app <app>`, :doc:`gptme.ai in the cloud <cloud>`, your :doc:`editor <acp>`, or :doc:`GitHub <bot>`.
 - **Give it context:** teach it with :doc:`lessons` and :doc:`skills`, and let it remember across sessions with :doc:`memory`.
 - **Build on it:** run persistent :doc:`agents`, or extend gptme with :doc:`plugins`, :doc:`custom tools <custom_tool>`, :doc:`hooks`, and :doc:`MCP <mcp>`.
 - **Contribute:** see :doc:`contributing`.
@@ -58,7 +58,7 @@ Where to start
    cli
    tui
    server
-   desktop
+   app
    Cloud (gptme.ai) <cloud>
    acp
    bot
