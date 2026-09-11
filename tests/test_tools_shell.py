@@ -2205,9 +2205,9 @@ def test_shell_bare_cd_updates_working_directory(tmp_path):
 
 def test_set_e_does_not_persist_across_blocks(shell):
     """set -e set in one block must not persist to later blocks."""
-    # First block: enable errexit and succeed.  The `set +e` appended by
-    # _run_pipe should clear errexit before the next block.
-    ret, out, err = shell.run("set -e; true; echo block1_done")
+    # Define a function that would defeat a plain `set +e` cleanup, then enable
+    # errexit and succeed. The cleanup must call the Bash builtin explicitly.
+    ret, out, err = shell.run("set() { :; }; set -e; true; echo block1_done")
     assert ret == 0
     assert "block1_done" in out
 

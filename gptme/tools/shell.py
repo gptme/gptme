@@ -942,7 +942,7 @@ class ShellSession:
         full_command = f"echo {start_marker_pattern}\n"  # Start marker first
         full_command += f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
-        full_command += "set +e\n"
+        full_command += "builtin set +e\n"
         try:
             self.process.stdin.write(full_command)
         except BrokenPipeError:
