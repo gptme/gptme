@@ -2201,3 +2201,18 @@ def test_shell_bare_cd_updates_working_directory(tmp_path):
     finally:
         os.chdir(original_cwd)
         shell.close()
+
+
+def test_set_e_does_not_persist_across_blocks(shell):
+    """set -e set in one block must not persist to later blocks."""
+    # First block: enable errexit and succeed.  The `set +e` appended by
+    # _run_pipe should clear errexit before the next block.
+    ret, out, err = shell.run("set -e; true; echo block1_done")
+    assert ret == 0
+    assert "block1_done" in out
+
+    # Second block: `false` alone should NOT kill the shell, because
+    # set -e was scoped to the first block only.
+    ret, out, err = shell.run("false; echo block2_done")
+    assert ret == 0, f"Expected rc=0 (errexit scoped), got rc={ret}"
+    assert "block2_done" in out

@@ -934,9 +934,15 @@ class ShellSession:
         cmd_id = f"{time.time_ns()}"
         start_marker_pattern = f"{self.start_marker}_{cmd_id}"
 
+        # Reset errexit after each block so that `set -e` set by the user does
+        # not persist to later blocks. 41% of shell timeouts involve errexit
+        # left on from a prior command. When errexit causes a failure the shell
+        # process dies and is restarted, so we only need to clear it on the
+        # success path.
         full_command = f"echo {start_marker_pattern}\n"  # Start marker first
         full_command += f"{command}\n"
         full_command += f"echo ReturnCode:$? {self.delimiter}\n"
+        full_command += "set +e\n"
         try:
             self.process.stdin.write(full_command)
         except BrokenPipeError:
