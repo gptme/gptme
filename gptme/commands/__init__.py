@@ -2,6 +2,7 @@
 Commands module for gptme.
 
 This module provides the command system for gptme, including:
+
 - Command registry and decorator
 - Built-in commands (session, llm, export, meta)
 - Plugin command registration

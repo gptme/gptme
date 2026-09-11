@@ -1,14 +1,11 @@
+:audience: user
+
 Features
 ========
 
 gptme is a personal AI agent in your terminal with tools to run shell commands, write code, edit files, browse the web, use vision, and much more. A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work — including running as a **persistent autonomous agent** that operates continuously, learns from experience, and manages its own tasks.
 
 An unconstrained local free and open-source alternative to Claude Code, Codex, Cursor Agents, etc. One of the first agent CLIs created (Spring 2023) — and still in very active development.
-
-.. contents:: Table of Contents
-   :depth: 2
-   :local:
-   :backlinks: none
 
 Core Capabilities
 -----------------
@@ -46,7 +43,7 @@ Search the web and read pages, PDFs, and documentation.
 - **Screenshot** web pages for visual analysis.
 - Full browser automation via Playwright.
 
-See the :ref:`Browser <tools:Browser>` tool.
+See the :doc:`Browser <tools/browser>` tool.
 
 👀 Vision
 ^^^^^^^^^
@@ -58,7 +55,7 @@ Analyze images, screenshots, and visual content.
 - Inspect web page screenshots.
 - Process diagrams, charts, mockups, and more.
 
-See the :ref:`Vision <tools:Vision>` and :ref:`Screenshot <tools:Screenshot>` tools.
+See the :doc:`Vision <tools/vision>` and :doc:`Screenshot <tools/screenshot>` tools.
 
 🖥️ Computer Use
 ^^^^^^^^^^^^^^^
@@ -82,7 +79,7 @@ The primary interface — a powerful terminal chat with:
 - Slash-commands for common actions (``/undo``, ``/edit``, ``/tokens``, etc.)
 - Keyboard shortcuts (Ctrl+X Ctrl+E to edit in ``$EDITOR``, Ctrl+J for newlines)
 
-See :doc:`usage` and :doc:`cli` for the full reference.
+See :doc:`usage` and :doc:`cli/gptme` for the full reference.
 
 🌐 Web UI
 ^^^^^^^^^

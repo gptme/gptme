@@ -1,15 +1,12 @@
+:audience: user
+
 Commands
 ========
 
 This page documents all available slash commands in gptme.
 Commands are entered by typing a forward slash (``/``) followed by the command name.
 
-For CLI arguments and options, see the :doc:`cli` reference.
-
-.. contents:: Table of Contents
-   :depth: 3
-   :local:
-   :backlinks: none
+For CLI arguments and options, see the :doc:`gptme CLI reference <cli/gptme>`.
 
 Overview
 --------
@@ -144,17 +141,24 @@ Model & Token Management
 /model
 ^^^^^^
 
-List available models or switch to a different model.
-
-**Alias:** ``/models``
+Show the current model or switch to a different one.
 
 .. code-block:: text
 
-   /model                    # Show current model info and list available
+   /model                    # Show current model info (price, context, capabilities)
    /model openai/gpt-4o      # Switch to specific model
    /model anthropic          # Switch to provider's default model
 
 The model change is persisted to the conversation's config file.
+
+/models
+^^^^^^^
+
+List the models available from your configured providers.
+
+.. code-block:: text
+
+   /models
 
 /tokens
 ^^^^^^^
@@ -214,6 +218,18 @@ becomes immediately aware of the new capability.
 
 Tab completion is available for tool names.
 
+/rag
+^^^^
+
+Search your RAG index and add the top results to the conversation as context.
+
+Requires `gptme-rag <https://github.com/gptme/gptme-rag>`__ to be installed and an
+indexed workspace. See :ref:`rag`.
+
+.. code-block:: text
+
+   /rag how does authentication work?
+
 /doctor
 ^^^^^^^
 
@@ -256,6 +272,40 @@ wizard to add or change a provider (Anthropic, OpenAI, OpenRouter, etc.).
    /account setup         # Interactive: choose and configure a provider
    /account setup openrouter    # Set up OpenRouter via OAuth
    /account setup anthropic     # Set up Anthropic with an API key
+
+
+Skills
+~~~~~~
+
+/skills
+^^^^^^^
+
+Browse and read the skills and lessons available in the current workspace.
+
+.. code-block:: text
+
+   /skills                     # Show help
+   /skills list                # List available skills
+   /skills all                 # List skills and lessons together
+   /skills read <name>         # Read a skill or lesson without invoking it
+
+/skill:<name>
+^^^^^^^^^^^^^
+
+Invoke a skill: its instructions are sent as your next prompt, and the assistant
+starts working on them right away. Anything after the skill name is passed to the
+skill as arguments.
+
+Each skill is also available as a bare ``/<name>`` shortcut, unless that name is
+already taken by a command or a loaded tool — ``/skill:<name>`` always works.
+
+.. code-block:: text
+
+   /skill:review src/app.py    # Invoke the "review" skill with an argument
+   /review src/app.py          # Same, via the bare shortcut
+
+Tab completion lists available skills. See :doc:`skills` for writing skills and
+how arguments are substituted.
 
 
 Session Control
@@ -527,6 +577,19 @@ Manage Model Context Protocol (MCP) servers.
    /mcp list                  # List loaded servers
    /mcp load <name>           # Load/start an MCP server
    /mcp unload <name>         # Unload/stop an MCP server
+
+Loaded servers can also expose resources, prompts, and roots:
+
+.. code-block:: text
+
+   /mcp resources list <server>          # List a server's resources
+   /mcp resources read <server> <uri>    # Read a resource
+   /mcp templates list <server>          # List resource templates
+   /mcp prompts list <server>            # List a server's prompts
+   /mcp prompts get <server> <prompt>    # Get a prompt
+   /mcp roots list [server]              # List configured roots
+   /mcp roots add <server> <uri> [name]  # Add a root (e.g. file:///path/to/project)
+   /mcp roots remove <server> <uri>      # Remove a root
 
 For more on MCP, see :doc:`mcp`.
 

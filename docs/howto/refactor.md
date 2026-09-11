@@ -1,3 +1,7 @@
+---
+audience: user
+---
+
 # How to Refactor Code
 
 Use gptme to rename symbols, extract functions, and restructure code across multiple files.

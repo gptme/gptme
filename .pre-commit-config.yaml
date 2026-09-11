@@ -24,12 +24,13 @@ repos:
 - repo: local
   hooks:
   - id: check-rst-formatting
-    name: Check RST nested list formatting
-    description: Ensures RST files have proper blank lines between parent/child list items
+    name: Check RST list formatting (docs and autodoc docstrings)
+    description: Ensures RST files and autodoc-rendered docstrings have proper blank lines around lists
     entry: python3 scripts/check_rst_formatting.py
     language: system
-    files: \.rst$
+    files: ^(docs/.*\.rst|gptme/.*\.py|scripts/check_rst_formatting\.py)$
     exclude: docs/_build/
+    pass_filenames: false
     args: [docs/]
   - id: check-poetry-lock-sync
     name: Check poetry.lock is in sync

@@ -39,9 +39,9 @@ PROVIDER_DOCS: dict[str, str] = {
     "nvidia": "https://build.nvidia.com/",
     "requesty": "https://app.requesty.ai/api-keys",
     "moonshot": "https://platform.moonshot.ai/console/api-keys",
-    "local": "https://gptme.org/docs/providers.html#local-models",
-    "openai-subscription": "https://gptme.org/docs/providers.html#openai-subscription",
-    "grok-subscription": "https://gptme.org/docs/providers.html#grok-subscription",
+    "local": "https://gptme.org/docs/getting-started.html#local-models",
+    "openai-subscription": "https://gptme.org/docs/providers-supported.html#openai-subscription",
+    "grok-subscription": "https://gptme.org/docs/providers-supported.html#grok-subscription",
 }
 
 # Providers that use OAuth instead of API keys

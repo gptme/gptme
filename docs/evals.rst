@@ -1,3 +1,5 @@
+:audience: developer
+
 Evals
 =====
 
@@ -7,82 +9,10 @@ To answer these questions, we have created an evaluation suite that tests the ca
 
 The suite covers fundamental tool use, web browsing, project initialization, and a growing set of **practical programming tasks** that reflect real-world agentic work: building APIs, refactoring code, parsing data formats, writing tests, and more.
 
-Recommended Model
------------------
+For which model to use based on these results, see :doc:`models`; for each
+provider's default model, see :ref:`default-models`.
 
-The recommended model for API-key use is **Claude Sonnet 4.6** (``anthropic/claude-sonnet-4-6``, or ``openrouter/anthropic/claude-sonnet-4-6``) for its:
-
-- Strong agentic capabilities
-- Strong coder capabilities
-- Strong performance across all tool types and formats
-- Reasoning capabilities
-- Vision & computer use capabilities
-
-If you already pay for a frontier subscription, use it instead of an API key (see `Subscriptions`_ below): **GPT-6 Astra** via ChatGPT Plus/Pro (``openai-subscription/gpt-6-astra``) and **Grok 4.6** via SuperGrok (``grok-subscription/grok-4.6``) are both frontier-class and cost nothing per token.
-
-For high-volume or cost-sensitive work, two open-weight "flash" models hold up well in agentic use for a small fraction of the price:
-
-- **DeepSeek V4.1 Flash** (``openrouter/deepseek/deepseek-v4.1-flash``, or ``deepseek/deepseek-flash`` on the official API; the earlier ``deepseek-v4-flash-0731`` is still hosted by third parties on OpenRouter but no longer by the official endpoint)
-- **GLM 5.3 Flash** (``openrouter/z-ai/glm-5.3-flash``)
-
-When a model has multiple OpenRouter hosts, their reliability, speed, and data policies can vary widely; see `Choosing an OpenRouter provider`_ before picking one. V4.1 Flash currently has only the official DeepSeek host.
-
-Default model per provider
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-This table is generated at docs-build time from the installed gptme, so it always reflects what ``gptme -m <provider>`` (provider name, no model) resolves to in the current release. The summary model is the cheaper model used for conversation titles and summaries.
-
-.. command-output:: gptme-util models recommended
-   :cwd: ..
-   :shell:
-
-Decent alternatives include:
-
-- GPT-5.6 Sol / Terra / Luna (``openai/gpt-5.6-sol``, ``openai-subscription/gpt-5.6-sol``)
-- Gemini 3.1 Pro (``gemini/gemini-3.1-pro-preview``, ``openrouter/google/gemini-3-pro-preview``)
-- Grok 4.6 via the API (``xai/grok-4.6``, ``openrouter/x-ai/grok-4.6``)
-- DeepSeek V4 Pro (``openrouter/deepseek/deepseek-v4-pro-0813``, ``deepseek/deepseek-v4-pro``)
-- Kimi K3 / K2.6 (``moonshot/kimi-k3``, ``openrouter/moonshotai/kimi-k2.6``)
-- Qwen3 Max (``openrouter/qwen/qwen3-max``)
-- MiniMax M2 (``openrouter/minimax/minimax-m2``)
-
-Note that some models may perform better or worse with different ``--tool-format`` options (``markdown``, ``xml``, or ``tool`` for native tool-calling). See :doc:`tool-formats` for what each format does and how to choose one.
-
-You can get an overview of actual model usage in the wild from the `OpenRouter app analytics for gptme <https://openrouter.ai/apps?url=https://github.com/gptme/gptme>`_.
-
-Choosing an OpenRouter provider
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Open-weight models are served by many providers on OpenRouter, and the provider matters as much as the model: quality (quantization), latency, uptime, cache pricing, and data policy all differ. Pin a provider with ``model@provider``, or an ordered allowlist with ``model@a,b`` (falls back within the list on rate limits), and set ``OPENROUTER_PROVIDER_ORDER`` to apply a default allowlist to every request. See :doc:`providers` for details.
-
-What we have found (verified 2026-09-09; re-check the model's *Providers* tab on OpenRouter, this changes often):
-
-- **The official model-developer endpoints are the most reliable path** (``@deepseek`` for DeepSeek, ``@z-ai`` for GLM). They have the best uptime, are among the fastest, and have the best cache-read pricing (DeepSeek official charges ~3% of the input price for cached prefixes, which dominates cost in long agent sessions). Both are what gptme's own automation runs on.
-- **Data policy differs.** DeepSeek's official endpoint retains prompts and trains on them, per its policy. Z.AI's official endpoint is listed as *no training, no prompt retention*. Third-party hosts are almost all listed as *no training*, but a handful retain prompts (Alibaba, Baidu, Cloudflare, GMICloud, StreamLake at the time of writing).
-- **Third-party hosts are not battle-tested and rate-limit under load.** In a same-day probe of ten DeepSeek V4 Flash hosts and ten GLM 5.3 Flash hosts, a third of them answered ``429 rate-limited upstream`` on a two-request burst, and OpenRouter's default price-first routing lands on the slowest host. Of the no-training hosts, ``together``, ``fireworks``, and ``inceptron`` served DeepSeek V4 Flash correctly with working prompt caching in both probes; ``fireworks``, ``deepinfra``, ``siliconflow``, and ``sail-research`` did the same for GLM 5.3 Flash. Treat these as a starting allowlist, not a recommendation: gptme's own sessions have only exercised the official endpoints (and OpenInference and Baidu for DeepSeek) at volume.
-- **Prompt caching is what makes these models cheap.** All of the hosts above billed cache hits at the discounted rate on the second request, regardless of what OpenRouter's ``supports_implicit_caching`` flag said. Compare *cache-read* prices, not just input prices.
-
-A privacy-preserving DeepSeek setup therefore looks like::
-
-    gptme -m "openrouter/deepseek/deepseek-v4-flash-0731@together,fireworks,inceptron"
-
-while GLM 5.3 Flash can simply use its official endpoint::
-
-    gptme -m openrouter/z-ai/glm-5.3-flash@z-ai
-
-Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.
-
-Subscriptions
-~~~~~~~~~~~~~
-
-Several frontier models are reachable through a consumer subscription instead of a metered API key, which is usually the cheapest way to run gptme on a frontier model:
-
-- **ChatGPT Plus/Pro (Codex)** — ``openai-subscription/gpt-6-astra`` (and the GPT-5.6 family). Authenticate once with ``gptme-auth openai-subscription``.
-- **SuperGrok (Grok Build)** — ``grok-subscription/grok-4.6``. Reuses the grok CLI's login, or ``gptme-auth grok-subscription``.
-- **Claude Max** — not available: Anthropic does not permit third-party tools on the consumer subscription; use the ``anthropic`` provider with an API key.
-- **Cursor** — not supported. Cursor exposes no sanctioned endpoint for using a personal subscription from third-party tools (its Cloud Agents API is separately metered and is not a chat-completions API). Unofficial proxies that reuse the Cursor CLI's login state exist, but gptme does not integrate them.
-
-See :doc:`providers` for setup details.
+.. _model-leaderboard:
 
 Model Leaderboard
 -----------------

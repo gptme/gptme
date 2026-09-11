@@ -1,3 +1,5 @@
+:audience: user
+
 gptme documentation
 ===================
 
@@ -12,76 +14,93 @@ Welcome to the documentation for ``gptme``!
 
 The system can execute python and bash, edit local files, search and browse the web, and much more through its rich set of :doc:`built-in tools <tools>` and extensible :doc:`tool system <custom_tool>`. You can see what's possible in the :doc:`examples` and :doc:`demos`, from creating web apps and games to analyzing data and automating workflows.
 
-**Getting Started:** To begin using gptme, follow the :doc:`getting-started` guide, set up your preferred :doc:`LLM provider <providers>`, and customize your :doc:`configuration <config>` as needed.
-
-The system is designed to be easy to use and extend, and can be used as a library, standalone application, or web service. For detailed usage patterns and features, see the :doc:`usage` guide.
-
 See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file for more general information about the project.
 
-.. note::
-    This documentation site is still under construction.
+Where to start
+--------------
+
+- **New to gptme?** Install it with :doc:`getting-started`, learn the basics in :doc:`usage`, and try the :doc:`examples`.
+- **Choose a model:** pick a :doc:`model <models>`, set up its :doc:`provider <providers>`, and tune gptme with its :doc:`configuration <config>`.
+- **Pick an interface:** the :doc:`CLI <cli>`, the :doc:`TUI <tui>`, the :doc:`web UI <server>`, the :doc:`desktop app <desktop>`, your :doc:`editor <acp>`, or :doc:`GitHub <bot>`.
+- **Give it context:** teach it with :doc:`lessons` and :doc:`skills`, and let it remember across sessions with :doc:`memory`.
+- **Build on it:** run persistent :doc:`agents`, or extend gptme with :doc:`plugins`, :doc:`custom tools <custom_tool>`, :doc:`hooks`, and :doc:`MCP <mcp>`.
+- **Contribute:** see :doc:`contributing`.
 
 .. toctree::
+   :hidden:
    :maxdepth: 2
-   :caption: User Guide
+   :caption: Getting Started
 
    getting-started
-   system-dependencies
+   features
    usage
    examples
-   cookbook
-   howto/index
-   tools
-   commands
-   cli
-   tui
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: Using gptme
+
    config
+   models
    providers
-   provider-integration
-   model-routing
+   tools
+   profiles
+   commands
+   automation
    security
 
 .. toctree::
+   :hidden:
    :maxdepth: 2
-   :caption: Agents & Extensibility
+   :caption: Interfaces
 
-   features
-   concepts
-   glossary
-   agents
+   cli
+   tui
    server
-   mcp
+   desktop
    acp
+   bot
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: Agents & Context
+
+   agents
    lessons
    skills
+   skills-gallery
    memory
 
 .. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: Extending gptme
+
+   concepts
+   plugins
+   custom_tool
+   hooks
+   mcp
+
+.. toctree::
+   :hidden:
    :maxdepth: 2
    :caption: Developer Guide
 
    contributing
    pr-lifecycle
    building
-   custom_tool
-   hooks
-   plugins
-   context-compression
-   prompts
    api
+   context-compression
    evals
-   bot
    finetuning
+   glossary
+   design/index
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Design Documents
-
-   design/hook-based-confirmations
-   design/elicitation
-   design/ptc-tool-interface
-
-.. toctree::
+   :hidden:
    :maxdepth: 1
    :caption: About
 
@@ -92,17 +111,15 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    changelog
 
 .. toctree::
+   :hidden:
    :caption: External
-   :maxdepth: 2
 
    GitHub <https://github.com/gptme/gptme>
    Discord <https://discord.gg/NMaCmmkxWv>
    X <https://x.com/gptmeorg>
 
-
-
 Indices and tables
-==================
+------------------
 
 * :ref:`genindex`
 * :ref:`modindex`

@@ -1,3 +1,5 @@
+:audience: power-user
+
 Custom and Local Providers
 ==========================
 
@@ -5,7 +7,7 @@ This page covers **Ollama**, **LM Studio**, **vLLM**, and any other
 OpenAI-compatible server — plus how to declare a reusable
 ``[[providers]]`` block in your config so gptme can find them by name.
 
-For the full list of built-in providers and API keys, see :doc:`providers`.
+For the full list of built-in providers and API keys, see :doc:`providers-supported`.
 
 Ollama (local)
 --------------

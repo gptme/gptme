@@ -1,3 +1,5 @@
+:audience: developer
+
 Plugin System
 =============
 
@@ -662,7 +664,7 @@ Entry points can reference either a ``GptmePlugin`` instance directly, or a call
 
 .. rubric:: Legacy Provider Entry Points
 
-The older ``gptme.providers`` entry-point group still works for provider-only plugins. For new plugins, prefer ``gptme.plugins`` with a ``provider`` field — it supports all plugin capabilities in a single registration. See :doc:`providers` for details.
+The older ``gptme.providers`` entry-point group still works for provider-only plugins. For new plugins, prefer ``gptme.plugins`` with a ``provider`` field — it supports all plugin capabilities in a single registration. See :doc:`providers-integration` for details.
 
 Migration from TOOL_MODULES
 ----------------------------

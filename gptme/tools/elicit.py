@@ -2,6 +2,7 @@
 Gives the assistant the ability to request structured input from the user.
 
 Elicitation supports multiple input types:
+
 - ``text``: Free-form text input
 - ``choice``: Single selection from options
 - ``multi_choice``: Multiple selections from options

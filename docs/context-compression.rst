@@ -1,12 +1,10 @@
+:audience: developer
+
 ====================
 Context Compression
 ====================
 
 gptme provides a pluggable context compression system that allows conversations to be compacted when they grow too large. This enables long-running sessions while keeping context windows manageable.
-
-.. contents:: Table of Contents
-   :local:
-   :depth: 2
 
 Overview
 ========

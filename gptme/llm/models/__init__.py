@@ -1,6 +1,7 @@
 """Model metadata, resolution, and listing.
 
 Split from the original monolithic models.py into sub-modules:
+
 - types: Provider types, ModelMeta, constants
 - data: Static MODELS dict with per-provider model metadata
 - resolution: Model lookup, alias resolution, default model management

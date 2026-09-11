@@ -49,6 +49,7 @@ Keyboard:
     - type: Type text with realistic delays
 
 Mouse:
+
     - mouse_move: Move mouse to coordinates
     - left_click: Click left mouse button
     - right_click: Click right mouse button
@@ -58,14 +59,17 @@ Mouse:
     - left_click_drag: Click and drag to coordinates
 
 Screen:
+
     - screenshot: Take and view a screenshot
     - cursor_position: Get current mouse position
     - wait_for_change: Poll until screen changes, then return one screenshot
 
 Window management:
+
     - window_focus: Wait for a window matching a name pattern to appear and focus it
 
 Accessibility (cross-platform):
+
     - accessibility_tree: Dump the native accessibility tree for all visible apps.
       On Linux uses AT-SPI2 (role names like "push button", "entry").
       On macOS uses System Events via AppleScript (role names like "AXButton", "AXTextField").
@@ -81,6 +85,7 @@ with LLM vision capabilities.
 For complex operations involving multiple keypresses, you can use semicolon-separated sequences with ``key``:
 
 Examples:
+
     - Filling a login form: ``t:username;kp:tab;t:password;kp:return``
     - Switching applications: ``cmd+tab`` on macOS, ``alt+Tab`` on Linux
     - (macOS) Opening Spotlight and searching: ``cmd+space;t:firefox;return``

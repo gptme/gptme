@@ -5,6 +5,7 @@ This tool provides a lightweight todo list that exists within the current conver
 complementing the existing persistent task management system in gptme-agent-template.
 
 Key principles:
+
 - Working Memory Layer: Ephemeral todos for current conversation context
 - Complements Persistent Tasks: Works alongside existing task files without conflicts
 - Simple State Model: pending, in_progress, completed, paused

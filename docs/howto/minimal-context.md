@@ -1,3 +1,7 @@
+---
+audience: power-user
+---
+
 # Run gptme with minimal context
 
 Use this pattern when you want a cheaper, tighter startup prompt for a

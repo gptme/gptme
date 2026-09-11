@@ -134,6 +134,10 @@ docs: docs/conf.py docs/*.rst docs/.clean check-rst
 		fi \
 	fi
 	poetry run make -C docs html SPHINXOPTS="-W --keep-going"
+	poetry run python scripts/docs_structure.py docs/_build/html --check
+
+docs-structure: ## Show the built docs' sidebar navigation with each page's headings
+	poetry run python scripts/docs_structure.py docs/_build/html --headings
 
 docs-auto:
 	make -C docs livehtml

@@ -1,3 +1,7 @@
+---
+audience: user
+---
+
 # Choose a workflow for your task
 
 Start with the outcome, not a provider or feature name. Most gptme tasks fit one
@@ -13,7 +17,7 @@ job, then increase model capability or tool access only when the task requires i
 | **Create an artifact** | Name the output file and acceptance criteria: a report, image, script, or web page. | General-purpose; use a stronger model when structure or judgment matters. | Write only to a dedicated workspace. Review the artifact before sending or publishing it. |
 | **Change inspectable code** | Run gptme inside a version-controlled checkout; ask it to inspect, edit, test, and show the diff. | Strong coding/reasoning model. | Use confirmations for interactive work or a review-gated branch/PR workflow for autonomous work. Isolate untrusted repositories. |
 
-Model names change faster than these capabilities. See {doc}`../model-routing`
+Model names change faster than these capabilities. See {doc}`../models`
 for current model examples and {ref}`tool-allowlist` for exact tool-selection
 syntax.
 

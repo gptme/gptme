@@ -1,3 +1,5 @@
+:audience: user
+
 Usage
 =====
 
@@ -12,11 +14,6 @@ To start a new chat or select an existing one, run:
 This will show you a list of past chats, allowing you to select one or start a new one.
 
 To get inspiration for your first prompt, see the :doc:`examples`.
-
-.. contents:: Table of Contents
-   :depth: 5
-   :local:
-   :backlinks: none
 
 .. _usage-commands:
 
@@ -123,7 +120,7 @@ Interfaces
 Besides the CLI, gptme can be used through:
 
 - :ref:`server:gptme-webui` - A web-based interface
-- A `desktop app <https://github.com/gptme/gptme-tauri>`_ for Linux, macOS, and Windows (`download <https://github.com/gptme/gptme/releases/latest>`_)
+- :doc:`desktop` - A desktop app for Linux, macOS, and Windows
 - :doc:`bot` - GitHub bot integration
 
 For more detailed information about specific features, check out:
@@ -142,10 +139,10 @@ Here is a very quick overview of the main features of gptme.
 
 gptme comes with a variety of tools for different tasks:
 
-- :ref:`tools:shell` - Execute shell commands
-- :ref:`tools:python` - Run Python code
-- :ref:`tools:browser` - Browse and interact with web content
-- :ref:`tools:vision` - Process and analyze images
+- :doc:`tools/shell` - Execute shell commands
+- :doc:`tools/python` - Run Python code
+- :doc:`tools/browser` - Browse and interact with web content
+- :doc:`tools/vision` - Process and analyze images
 
 See the :doc:`tools` page for a complete list of available tools.
 
@@ -194,7 +191,7 @@ You can start chats and request changes directly from the command line. The cont
 Browser Integration
 ^^^^^^^^^^^^^^^^^^^
 
-With the :ref:`tools:browser` extras installed, the assistant can read URLs (included in the prompt or with its ``read_url`` tool) and "see" web pages by taking screenshots and viewing them.
+With the :doc:`tools/browser` extras installed, the assistant can read URLs (included in the prompt or with its ``read_url`` tool) and "see" web pages by taking screenshots and viewing them.
 
 Multiprompt syntax
 ^^^^^^^^^^^^^^^^^^
@@ -295,6 +292,8 @@ You can skip confirmation prompts using the ``--no-confirm`` flag. This is usefu
 .. code-block:: bash
 
     gptme --no-confirm 'create a snake game using curses in snake.py, dont run it'
+
+See :doc:`security` for the trade-offs, and how to contain the risk when running without confirmations.
 
 Non-interactive mode
 ^^^^^^^^^^^^^^^^^^^^

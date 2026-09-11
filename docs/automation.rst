@@ -1,14 +1,11 @@
+:audience: power-user
+
 Automation
 ==========
 
 gptme can be used to create powerful automated workflows.
 This page covers non-interactive usage patterns, CI/CD integration,
 and scheduling strategies.
-
-.. contents:: Contents
-   :local:
-   :depth: 2
-
 
 Non-Interactive Mode
 --------------------
@@ -68,6 +65,9 @@ Exit Codes
 
 CI/CD Integration
 -----------------
+
+For a ready-made bot that responds to ``@gptme`` comments on issues and pull
+requests, see the :doc:`GitHub bot <bot>`.
 
 GitHub Actions
 ~~~~~~~~~~~~~~

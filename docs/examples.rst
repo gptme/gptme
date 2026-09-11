@@ -1,18 +1,14 @@
+:audience: user
+
 Examples
 ========
 
-Here are some examples of how to use gptme and what its capabilities are.
+Start with the one-liners below to get a feel for gptme, follow a `how-to guide <How-to guides_>`_ when you have a specific task, and watch the :doc:`demos` to see it in action.
 
-To see example output without running the commands yourself, check out the :doc:`demos` page.
+Quick examples
+--------------
 
-.. contents::
-   :local:
-   :depth: 2
-
-Common Tasks
-------------
-
-Everyday prompts that work well with gptme out of the box.
+Everyday prompts that work well with gptme out of the box. gptme picks the right :doc:`tools <tools>` (shell, file editing, Python, browser, …) on its own — you describe the outcome, not the steps.
 
 .. code-block:: bash
 
@@ -20,6 +16,9 @@ Everyday prompts that work well with gptme out of the box.
     gptme 'summarize this' README.md
     gptme 'refactor this' main.py
     gptme 'what do you see?' image.png  # vision
+
+    # compound questions that need several tools
+    gptme "Read README.md, list the project's dependencies from pyproject.toml, and tell me if any are pinned to an old major version"
 
     # pipe stdin for context
     git status -vv | gptme 'fix TODOs'
@@ -47,34 +46,98 @@ Everyday prompts that work well with gptme out of the box.
     # resume the last conversation
     gptme -r
 
-Advanced Workflows
+For interactive iteration, start a session and keep chatting:
+
+.. code-block:: bash
+
+    gptme  # opens an interactive session
+    # > Read the failing tests and fix them
+    # > Now run the test suite and show me the output
+    # > Write a summary of what you changed to CHANGES.md
+
+Tools run in your local environment with your permissions, so keep sessions scoped to the project directory. List the available tools with ``gptme-util tools list``, and see :doc:`security` before skipping confirmations with ``--no-confirm``.
+
+How-to guides
+-------------
+
+Step-by-step recipes for common tasks, each with a copy-pasteable pattern you can adapt.
+
+**Getting oriented**
+
+- :doc:`howto/choose-workflow` — pick tools, model capability, local or remote execution, and an approval boundary from the outcome you need.
+- :doc:`howto/minimal-context` — measure and trim prompt sections for cheaper, tighter specialized runs.
+
+**Everyday coding**
+
+- :doc:`howto/edit-files` — patch, save, and inspect without rewriting whole files.
+- :doc:`howto/code-review` — review a diff, a PR, or a single file with context.
+- :doc:`howto/debug-python` — reproduce, trace, and fix Python errors step by step.
+- :doc:`howto/refactor` — rename, extract, and reshape code across a codebase.
+
+**Automation and agents**
+
+- :doc:`howto/automate-task` — turn a repeated shell or git procedure into a script.
+- :doc:`howto/parallel-research` — fan research out to subagents and synthesize the results.
+- :doc:`howto/computer-use` — control desktop apps and web UIs with screenshots, mouse, and keyboard.
+
+**Extending**
+
+- :doc:`howto/skills-workflows` — write project conventions once as skills and compose them into workflows.
+- :doc:`howto/custom-tool-plugin` — give gptme a domain-specific tool as a Python plugin.
+
+**Setup**
+
+- :doc:`howto/tts-setup` — configure OpenRouter, the local gptme-tts server, or browser speech synthesis.
+
+.. toctree::
+   :hidden:
+
+   howto/choose-workflow
+   howto/minimal-context
+   howto/edit-files
+   howto/code-review
+   howto/debug-python
+   howto/refactor
+   howto/automate-task
+   howto/parallel-research
+   howto/computer-use
+   howto/skills-workflows
+   howto/custom-tool-plugin
+   howto/tts-setup
+
+Advanced workflows
 ------------------
 
-gptme's tool system lets you unlock more powerful workflows. Enable extra tools with the ``--tools`` flag.
+Some tools are disabled by default. Enable them with the ``--tools`` flag to unlock more powerful workflows.
 
-.. rubric:: Subagents (Planner Mode)
+Subagents
+~~~~~~~~~
 
-Use a separate planning agent to research and plan before coding. This is great for complex tasks where you want clear reasoning before any code is written.
+Use subagents to research and plan before coding, or to split independent work across clean contexts:
 
 .. code-block:: bash
 
     gptme --tools +subagent \
       'Plan and implement a CLI tool that monitors CPU/memory usage and alerts when thresholds are exceeded'
 
-The subagent researches the approach, presents a plan, and only then does gptme start writing code. The result is better architecture for complex projects.
+See :doc:`howto/parallel-research` for a fan-out/synthesize pattern, and the :doc:`subagent tool reference <tools/subagent>` for isolation, budgets, and structured output.
 
-.. rubric:: Computer Use
+Computer use
+~~~~~~~~~~~~
 
-Let gptme interact with your desktop — take screenshots, move the mouse, click buttons, and type. Useful for GUI automation, testing, and workflows that span multiple applications.
+Let gptme interact with your desktop — take screenshots, move the mouse, click buttons, and type:
 
 .. code-block:: bash
 
     gptme --tools +computer \
       'Take a screenshot of my browser, identify any UI issues, and write a bug report to bugs.md'
 
-.. rubric:: Combining Tools for Maximum Power
+See :doc:`howto/computer-use` for prerequisites and recipes.
 
-Enable multiple tools together for complex, autonomous workflows. The most powerful combination is ``+subagent`` (for planning) with ``+computer`` (for desktop interaction):
+Combining tools
+~~~~~~~~~~~~~~~
+
+Enable several tools together for autonomous plan → execute → verify workflows:
 
 .. code-block:: bash
 
@@ -82,39 +145,14 @@ Enable multiple tools together for complex, autonomous workflows. The most power
     gptme --tools +computer,+subagent \
       'Research the top Python testing frameworks, implement a comparison benchmark, run it, and take a screenshot of the results'
 
-    # Autonomous agent workflow: plan first, then execute with full tool access
+    # Plan first, then execute with full tool access
     gptme --tools +subagent,+computer,+browser \
       'Find my most-starred GitHub repo, write a blog post about it, and open the draft in my browser'
 
-The subagent handles research and planning; ``+computer`` and ``+browser`` handle execution and verification.
+MCP servers
+~~~~~~~~~~~
 
-.. rubric:: Setting Up a Persistent Agent (gptme-agent)
-
-Create a persistent AI agent — like the example in :doc:`agents` — that runs autonomously, maintains its own task list, journal, and learns over time.
-
-.. code-block:: bash
-
-    # Install gptme (includes the gptme-agent command)
-    pipx install gptme
-
-    # Create a new agent workspace from the template
-    gptme-agent create ~/my-agent --name MyAgent
-
-    # Bootstrap it
-    cd ~/my-agent
-    gptme 'explore the workspace, read my identity files, and tell me what I am'
-
-    # Run it autonomously on a schedule
-    gptme-agent install
-    gptme-agent run
-
-Your agent will have its own workspace, task system, journal, and lesson system — everything needed for a persistent, self-improving AI agent.
-
-.. rubric:: MCP Servers
-
-Connect gptme to custom tools and data sources via the Model Context Protocol.
-
-Configure MCP servers in ``~/.config/gptme/config.toml``:
+Connect gptme to external tools and data sources via the Model Context Protocol. Configure servers in ``~/.config/gptme/config.toml``:
 
 .. code-block:: toml
 
@@ -130,43 +168,54 @@ Then use gptme as usual — the server starts automatically:
 
     gptme 'Refactor all my unused imports across all projects under /projects'
 
-See the :doc:`mcp` page for the full list of configuration options.
+See :doc:`mcp` for all configuration options.
+
+Persistent agents
+~~~~~~~~~~~~~~~~~
+
+Create a persistent agent — with its own workspace, task list, journal, and lessons — that runs autonomously on a schedule:
+
+.. code-block:: bash
+
+    # Create a new agent workspace from the template
+    gptme-agent create ~/my-agent --name MyAgent
+
+    # Bootstrap it
+    cd ~/my-agent
+    gptme 'explore the workspace, read my identity files, and tell me what I am'
+
+    # Run it autonomously on a schedule
+    gptme-agent install
+    gptme-agent run
+
+See :doc:`agents` for how agents work.
 
 Automation
 ----------
 
-gptme can be used in scripts and CI/CD pipelines for automated workflows. See the :doc:`automation` page for full examples.
+gptme runs in scripts, cron jobs, and CI/CD pipelines with ``--non-interactive``:
 
 .. code-block:: bash
 
-    # Non-interactive mode for scripts
     git diff | gptme --non-interactive 'review this diff for bugs and security issues'
     gptme --non-interactive --model 'sonnet' 'generate a changelog to CHANGELOG.md from these commits' <<< "$(git log --oneline v1.0..HEAD)"
 
-The :doc:`automation` page covers code review bots, daily activity summaries, and composable shell pipelines.
+See :doc:`automation` for code review bots, scheduled summaries, and composable shell pipelines, and :doc:`bot` to run gptme from GitHub issues and pull requests.
 
-Community Extensions (gptme-contrib)
--------------------------------------
+Community extensions (gptme-contrib)
+------------------------------------
 
-`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ is a community repository with plugins, packages, and scripts that extend gptme with additional capabilities.
-
-.. rubric:: Getting Started
-
-Clone the repo and point gptme at it:
+`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ is a community repository with plugins, packages, and scripts that extend gptme. Clone it and enable plugins in ``~/.config/gptme/config.toml``:
 
 .. code-block:: bash
 
     git clone https://github.com/gptme/gptme-contrib ~/.config/gptme/contrib
-
-Then enable plugins in your ``~/.config/gptme/config.toml``:
 
 .. code-block:: toml
 
     [plugins]
     paths = ["~/.config/gptme/contrib/plugins"]
     enabled = ["gptme_imagen"]
-
-.. rubric:: Image Generation
 
 The ``gptme-imagen`` plugin adds multi-provider image generation (DALL-E, Gemini Imagen):
 
@@ -175,9 +224,7 @@ The ``gptme-imagen`` plugin adds multi-provider image generation (DALL-E, Gemini
     gptme 'generate an image of a futuristic city at night, save to city.png'
     gptme 'render the mandelbrot set as an image using matplotlib and compare it with an AI-generated version'
 
-.. rubric:: Semantic Context Retrieval
-
-The ``gptme-retrieval`` plugin automatically injects relevant context from your codebase before each step — useful when working on large projects:
+The ``gptme-retrieval`` plugin automatically injects relevant context from your codebase before each step — useful on large projects:
 
 .. code-block:: toml
 
@@ -191,21 +238,16 @@ The ``gptme-retrieval`` plugin automatically injects relevant context from your 
 
 Browse the `full plugin list <https://github.com/gptme/gptme-contrib/tree/master/plugins>`_ — there are also plugins for LSP integration, multi-model consensus, code graph analysis (via ``gptme-codegraph``), voice, and more.
 
-Explore More
-------------
+Demos and projects
+------------------
 
-Learn more about gptme with these dedicated pages:
+- :doc:`demos` — terminal recordings of example runs.
+- :doc:`projects` — things built with and powered by gptme.
 
-* :doc:`demos` — watch example runs with terminal recordings
-* :doc:`automation` — CI/CD, cron jobs, shell scripts
-* :doc:`Projects </projects>` — things built with gptme
-
-Do you have a cool example? Share it with us in the `Discussions <https://github.com/gptme/gptme/discussions>`_!
+Have a cool example? Share it in the `Discussions <https://github.com/gptme/gptme/discussions>`_!
 
 .. toctree::
-   :maxdepth: 2
-   :caption: More Examples
+   :hidden:
 
    demos
-   automation
    projects

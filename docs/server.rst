@@ -1,3 +1,5 @@
+:audience: power-user
+
 Server
 ======
 
@@ -21,7 +23,7 @@ Start the server, then open http://localhost:5700:
 The server and modern web UI share one origin by default, so no separate
 frontend process or CORS configuration is required.
 
-For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
+For more CLI options, see the :doc:`CLI reference <cli/gptme-server>`.
 
 .. _server:gptme-webui:
 

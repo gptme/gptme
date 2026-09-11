@@ -3,6 +3,7 @@ The assistant can execute shell commands with bash by outputting code blocks wit
 
 Configuration:
     GPTME_SHELL_TIMEOUT: Environment variable to configure command timeout (set before starting gptme)
+
         - Set to a number (e.g., 30) for timeout in seconds
         - Set to 0 to disable timeout
         - Invalid values default to 1200 seconds (20 minutes)

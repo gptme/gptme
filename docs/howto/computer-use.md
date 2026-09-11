@@ -1,3 +1,7 @@
+---
+audience: power-user
+---
+
 # How to Automate GUIs with Computer Use
 
 Use gptme to control desktop applications, automate web forms, and capture screenshots

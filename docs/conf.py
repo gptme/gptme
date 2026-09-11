@@ -81,8 +81,46 @@ class ChatDirective(Directive):
         return [nodes.raw("", src, format="html")]
 
 
+# Every page declares its target audience as file-wide metadata (``:audience: user``
+# in RST, ``audience: user`` front matter in MyST), so editors and reviewers can keep
+# power-user and developer detail off high-level pages. See contributing.rst.
+DOC_AUDIENCES = ("user", "power-user", "developer")
+
+
+def check_audience(app, env):
+    from sphinx.util import logging as sphinx_logging
+
+    logger = sphinx_logging.getLogger(__name__)
+    # fragments pulled into other pages via ``.. include::`` aren't pages themselves
+    included = set().union(*env.included.values())
+    for docname in sorted(env.found_docs - included):
+        meta = env.metadata.get(docname, {})
+        if "orphan" in meta or docname.startswith(("releases/", "papers/")):
+            continue
+        audience = meta.get("audience")
+        if audience not in DOC_AUDIENCES:
+            logger.warning(
+                f"missing or invalid audience {audience!r} "
+                f"(expected one of: {', '.join(DOC_AUDIENCES)})",
+                location=docname,
+                type="gptme",
+                subtype="audience",
+            )
+
+
+def escape_click_line_blocks(app, ctx, lines):
+    # click's ``\b`` paragraphs render as RST line blocks, where a literal ``*`` (e.g.
+    # systemd OnCalendar specs in gptme-agent's help) would start inline emphasis
+    for i, line in enumerate(lines):
+        if line.startswith("| "):
+            lines[i] = "| " + line[2:].replace("*", r"\*")
+
+
 def setup(app):
     app.add_directive("chat", ChatDirective)
+    app.connect("env-check-consistency", check_audience)
+    app.connect("sphinx-click-process-description", escape_click_line_blocks)
+    app.connect("sphinx-click-process-epilog", escape_click_line_blocks)
 
 
 # -- General configuration ---------------------------------------------------
@@ -177,6 +215,15 @@ nitpick_ignore = [
     ("py:class", "HookFunc"),
     # Profile is TYPE_CHECKING-only in prompts/__init__.py; not visible to autodoc
     ("py:class", "Profile"),
+    # docstring references in API pages (docs/api/) that autodoc can't resolve:
+    # re-exported functions documented under their public path, and napoleon
+    # parsing descriptive return/field text as types
+    ("py:func", "gptme.commands.base.register_command"),
+    ("py:func", "gptme.hooks.registry.register_hook"),
+    ("py:mod", "gptme.dirs"),
+    ("py:class", "Environment type"),
+    ("py:class", "Link text for the index line"),
+    ("py:class", "RecallBackend"),
 ]
 
 # -- Options for HTML output -------------------------------------------------
@@ -199,6 +246,8 @@ html_theme_options = {
     # <p>
     #     Back to <a href="https://github.com/gptme/gptme">GitHub</a>
     # </p>""",
+    # Left sidebar: expand top-level pages only; subpages unfold when navigated into.
+    "show_navbar_depth": 1,
+    # Right sidebar: show sections and subsections of the current page.
+    "show_toc_level": 2,
 }
-
-show_navbar_depth = 2

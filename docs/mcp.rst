@@ -1,3 +1,5 @@
+:audience: power-user
+
 .. _mcp:
 
 MCP

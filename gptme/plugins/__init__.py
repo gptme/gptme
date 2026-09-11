@@ -3,6 +3,7 @@ Plugin system for gptme.
 
 Provides a simple folder-based plugin discovery mechanism where each plugin
 is a directory containing:
+
 - __init__.py (plugin metadata)
 - tools/ (optional: tool modules)
 - hooks/ (optional: hook modules)
@@ -72,11 +73,13 @@ def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
     Discover plugins from the given search paths with smart src/ layout detection.
 
     For each path, tries in order:
+
     1. If path itself is a plugin (has __init__.py + tools/hooks/commands), load it
     2. If path has pyproject.toml + src/ subdirectory, search src/ for plugins
     3. Otherwise search for plugin directories in the path
 
     A valid plugin is a directory containing:
+
     - __init__.py (makes it a Python package)
     - At least one of: tools/, hooks/, commands/ subdirectories
 
