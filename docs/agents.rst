@@ -326,7 +326,8 @@ The template system enables creating agents for specific domains:
 External Integrations
 ---------------------
 
-Agents can be extended with various external integrations and tools for enhanced capabilities:
+Agents can be extended with various external integrations and tools for enhanced capabilities.
+For the email, chat, and voice tools agents use to communicate, see :doc:`channels`.
 
 **Content & Information:**
 

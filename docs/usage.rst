@@ -122,7 +122,7 @@ Besides the CLI, gptme can be used through:
 - :ref:`server:gptme-webui` - A web-based interface
 - :doc:`app` - Desktop and Android app (macOS, Windows, Linux, Android)
 - :doc:`cloud` - Hosted gptme at gptme.ai
-- :doc:`bot` - GitHub bot integration
+- :doc:`channels` - GitHub, email, chat apps, and voice
 
 For more detailed information about specific features, check out:
 

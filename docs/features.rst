@@ -198,7 +198,7 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 - **Task management** — structured task queue with YAML metadata and GTD-style workflows
 - **Meta-learning** — lessons system captures behavioral patterns and improves over time
 - **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
-- **External integrations** — GitHub, email, Discord, Twitter, RSS, and more
+- **External integrations** — GitHub, email, Discord, Twitter, RSS, and more (see :doc:`channels`)
 
 .. code-block:: bash
 
