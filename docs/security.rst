@@ -121,6 +121,14 @@ less likely to take a destructive action by mistake than small or local models,
 which misread instructions and misuse tools more often. Give weaker models
 narrower tools and more review. See :doc:`models`.
 
+Competence includes secret hygiene. Strong models tend to work with credentials
+without reading them into the conversation: they pass them through environment
+variables or files instead of printing them, and often point it out when a secret
+slipped into the output anyway. Weaker models need to be told. Either way,
+anything that reaches the conversation is sent to the provider and saved in the
+conversation log, so state the expectation (for example in ``AGENTS.md`` or a
+:doc:`lesson <lessons>`), and rotate any credential that leaks.
+
 A model is also only as trustworthy as whoever serves it. You generally can't
 verify which weights, at what precision, answered a request. For agents with
 privileged access, prefer the model developer's own API or hosts you trust over
