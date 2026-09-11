@@ -77,3 +77,40 @@ Common invocations
 
 See :doc:`usage` for a guided tour, :doc:`commands` for the slash commands available
 inside a session, and :doc:`config` for configuration files and environment variables.
+
+.. raw:: html
+
+   <script>
+   (function () {
+     // cli.html used to be the full CLI reference; forward its old section anchors
+     // (e.g. #gptme-auth-login) to the page that now holds that command.
+     var pages = {
+       "gptme": "cli/gptme.html",
+       "gptme-server": "cli/gptme-server.html",
+       "gptme-tui": "cli/gptme-tui.html",
+       "gptme-util": "cli/gptme-util.html",
+       "gptme-mcp-server": "cli/gptme-mcp-server.html",
+       "gptme-agent": "cli/agents.html",
+       "gptme-service": "cli/agents.html",
+       "gptme-onboard": "cli/setup.html",
+       "gptme-auth": "cli/setup.html",
+       "gptme-init": "cli/setup.html",
+       "gptme-tutorial": "cli/setup.html",
+       "gptme-doctor": "cli/setup.html",
+       "gptme-status": "cli/sessions.html",
+       "gptme-resume": "cli/sessions.html",
+       "gptme-checkpoint": "cli/sessions.html",
+       "gptme-stats": "cli/sessions.html",
+       "gptme-eval": "cli/evaluation.html",
+       "gptme-eval-swebench": "cli/evaluation.html",
+       "gptme-eval-tbench": "cli/evaluation.html",
+       "gptme-dataset": "cli/evaluation.html"
+     };
+     var id = decodeURIComponent(location.hash.slice(1));
+     if (!id || document.getElementById(id)) return;
+     var match = Object.keys(pages)
+       .filter(function (cmd) { return id === cmd || id.indexOf(cmd + "-") === 0; })
+       .sort(function (a, b) { return b.length - a.length; })[0];
+     if (match) location.replace(pages[match] + "#" + id);
+   })();
+   </script>
