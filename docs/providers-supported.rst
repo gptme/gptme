@@ -382,7 +382,7 @@ The subscription endpoint is OpenAI-compatible and supports native function call
 gptme Managed Service
 ---------------------
 
-The ``gptme`` provider connects to the `gptme.ai <https://gptme.ai>`_ managed service, which acts as an OpenAI-compatible LLM proxy/gateway/router. This gives you access to multiple model providers (Anthropic, OpenAI, etc.) through a single account.
+The ``gptme`` provider connects to the `gptme.ai <https://gptme.ai>`_ managed service, which acts as an OpenAI-compatible LLM proxy/gateway/router. This gives you access to multiple model providers (Anthropic, OpenAI, etc.) through a single account. For hosted gptme instances on the same account, see :doc:`cloud`.
 
 **Setup:**
 

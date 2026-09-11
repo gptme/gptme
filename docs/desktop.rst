@@ -16,7 +16,7 @@ published for macOS, Windows, and Linux (AppImage and ``.deb``). Once installed,
 app checks those releases for updates and updates itself.
 
 An Android build is published with each release as well. It can't run a local
-``gptme-server``; connect it to a remote gptme instance instead.
+``gptme-server``; sign in to :doc:`gptme.ai <cloud>` or connect it to a remote gptme instance instead.
 
 How it works
 ------------

@@ -35,7 +35,7 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme/tree/m
 **Try it now:**
 
 - `chat.gptme.org <https://chat.gptme.org>`_ (latest version of gptme-webui, bring your own gptme-server)
-- `gptme.ai <https://gptme.ai>`_ (upcoming hosted gptme service)
+- :doc:`gptme.ai <cloud>` (managed hosted gptme service, early access)
 
 **Key Features:**
 
