@@ -4,7 +4,12 @@ import { useApi } from '@/contexts/ApiContext';
 import { isDemoMode } from '@/utils/connectionConfig';
 import { formatUnknownError } from '@/utils/errors';
 
-export type UserSettingSource = 'env' | 'config.local.toml' | 'config.toml' | 'oauth';
+export type UserSettingSource =
+  | 'env'
+  | 'config.local.toml'
+  | 'config.toml'
+  | 'config.runtime.toml'
+  | 'oauth';
 
 export interface UserSettingsProviderSource {
   auth_source: string;
@@ -15,6 +20,9 @@ export interface UserSettingsConfigFiles {
   config_path: string;
   local_config_path: string;
   local_config_exists: boolean;
+  runtime_config_path?: string;
+  runtime_config_exists?: boolean;
+  runtime_is_defaults?: boolean;
   write_target: string;
   local_overrides_main: boolean;
 }

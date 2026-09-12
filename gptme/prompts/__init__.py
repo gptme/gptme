@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from ..config import get_project_config
+from ..config import get_config, get_project_config
 from ..llm.models import get_recommended_model
 from ..message import Message
 from ..tools import ToolFormat, ToolSpec, get_available_tools
@@ -313,6 +313,13 @@ def _build_prompt_sections(
         profile=profile,
     )
 
+    if include_user_context and prompt != "none":
+        for name, content in sorted(get_config().user.prompt.fragments.items()):
+            if content.strip():
+                core_sections.append(
+                    (f"prompt_fragment:{name}", [Message("system", content)])
+                )
+
     dynamic_sections: list[tuple[str, list[Message]]] = []
     if prompt == "full" and not (is_selective and not include_tools):
         dynamic_sections.extend(
@@ -590,6 +597,8 @@ def get_prompt(
        - User identity/preferences (interactive only, from user config ``[user]``;
          skipped in ``--non-interactive`` since no human is present)
        - Tool descriptions (when tools are loaded, controlled by ``--tools``)
+       - Named additive ``[prompt.fragments]`` from global configuration, unless
+         user context is disabled or ``prompt="none"``
 
     2. **Context** (controlled by ``--context``, independent of ``--non-interactive``):
 
@@ -622,8 +631,8 @@ def get_prompt(
         agent_path: Agent identity workspace (if different from project workspace)
         context_mode: Context mode (full or selective)
         context_include: Components to include in selective mode
-        include_user_context: Whether to include user-level prompt files and
-            agent instruction files from ~/.config/gptme
+        include_user_context: Whether to include configured prompt fragments,
+            user-level prompt files, and agent instruction files from ~/.config/gptme
         include_examples: Whether to include tool usage examples in the system
             prompt. Defaults to True. Also set to False automatically when
             ``prompt == "full-noexamples"``.

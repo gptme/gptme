@@ -7,6 +7,8 @@ backend-selection policy.
 """
 
 import random
+from contextvars import ContextVar
+from pathlib import Path
 
 import pytest
 
@@ -247,6 +249,90 @@ class TestDefaultProfileInjectedOnConversationCreate:
                         "Profile system prompt must survive a server restart without "
                         "--default-profile when it was persisted to config.toml on PUT."
                     )
+
+
+@pytest.mark.parametrize("system_prompt", [None, "User conversation instructions."])
+def test_runtime_fragments_survive_patch_and_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, system_prompt: str | None
+) -> None:
+    from gptme.config import ChatConfig
+    from gptme.profiles import get_profile
+    from gptme.util import path_with_tilde
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    main = config_dir / "config.toml"
+    main.write_text('[prompt.fragments]\nuser = "User global instructions."\n')
+    runtime = config_dir / "config.runtime.toml"
+    runtime.write_text(
+        '[prompt.fragments]\npreview = "Initial preview instructions."\n'
+    )
+    original_main = main.read_bytes()
+    monkeypatch.setattr("gptme.config.user.config_path", str(main))
+    monkeypatch.setattr("gptme.prompts.workspace.config_path", str(main))
+    monkeypatch.setattr(
+        "gptme.config.core._config_var", ContextVar("test_config", default=None)
+    )
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
+
+    client = _make_client(default_profile="computer-use")
+    conv_id = "test-runtime-fragments"
+    body: dict = {"prompt": "Custom base instructions."}
+    if system_prompt:
+        body["config"] = {"chat": {"system_prompt": system_prompt}}
+    response = client.put(f"/api/v2/conversations/{conv_id}", json=body)
+    assert response.status_code == 200
+    profile = get_profile("computer-use")
+    assert profile is not None
+    conversation_prompt = system_prompt or profile.system_prompt
+
+    def system_content() -> str:
+        return "\n\n".join(
+            m["content"]
+            for m in _get_messages(client, conv_id)
+            if m["role"] == "system"
+        )
+
+    assert "Custom base instructions." in system_content()
+    for _ in range(2):
+        content = system_content()
+        assert content.count("Initial preview instructions.") == 1
+        assert content.count("User global instructions.") == 1
+        assert content.count(conversation_prompt) == 1
+        response = client.patch(
+            f"/api/v2/conversations/{conv_id}/config", json={"chat": {}}
+        )
+        assert response.status_code == 200
+
+    chat_config = ChatConfig.from_logdir(tmp_path / "logs" / conv_id)
+    assert chat_config.system_prompt == conversation_prompt
+    assert "preview instructions" not in chat_config.system_prompt
+
+    # A new app plus config regeneration picks up the operator's current file;
+    # it does not persist deployment text into the conversation's custom prompt.
+    runtime.write_text(
+        '[prompt.fragments]\npreview = "Updated preview instructions."\n'
+    )
+    client = _make_client()
+    response = client.patch(
+        f"/api/v2/conversations/{conv_id}/config", json={"chat": {}}
+    )
+    assert response.status_code == 200
+    content = system_content()
+    assert "Initial preview instructions." not in content
+    assert content.count("Updated preview instructions.") == 1
+    assert content.count(conversation_prompt) == 1
+    assert main.read_bytes() == original_main
+
+    response = client.get("/api/v2/user/config-file")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["runtime_config_exists"] is True
+    assert data["runtime_is_defaults"] is True
+    assert data["runtime_config_path"] == str(path_with_tilde(runtime))
+    assert data["write_target"] == str(path_with_tilde(main))
+    assert "Updated preview instructions." not in data["content"]
 
 
 # ---------------------------------------------------------------------------

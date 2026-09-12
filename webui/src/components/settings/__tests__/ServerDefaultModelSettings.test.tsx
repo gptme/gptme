@@ -7,6 +7,7 @@ const mockError = jest.fn();
 const mockFetch = jest.fn();
 const mockOnSelect = jest.fn();
 const mockRefetch = jest.fn();
+let mockDefaultModelSource = 'config.toml';
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -53,7 +54,7 @@ jest.mock('@/hooks/useUserSettings', () => ({
         },
       },
       default_model: 'anthropic/claude-sonnet-4-7',
-      default_model_source: 'config.toml',
+      default_model_source: mockDefaultModelSource,
       config_files: {
         config_path: '~/.config/gptme/config.toml',
         local_config_path: '~/.config/gptme/config.local.toml',
@@ -111,6 +112,7 @@ describe('ServerDefaultModelSettings', () => {
     mockError.mockReset();
     mockOnSelect.mockReset();
     mockRefetch.mockReset();
+    mockDefaultModelSource = 'config.toml';
     Object.defineProperty(window, 'fetch', {
       writable: true,
       value: mockFetch,
@@ -160,6 +162,16 @@ describe('ServerDefaultModelSettings', () => {
 
     expect(screen.getByText(/current default:/i).closest('p')).toHaveTextContent(
       'anthropic/claude-sonnet-4-7 from config.toml'
+    );
+  });
+
+  it('shows runtime defaults as the default model source', () => {
+    mockDefaultModelSource = 'config.runtime.toml';
+
+    render(<ServerDefaultModelSettings />);
+
+    expect(screen.getByText(/current default:/i).closest('p')).toHaveTextContent(
+      'anthropic/claude-sonnet-4-7 from config.runtime.toml'
     );
   });
 });

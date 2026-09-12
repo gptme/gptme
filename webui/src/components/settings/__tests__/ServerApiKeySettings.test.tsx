@@ -6,6 +6,7 @@ const mockSuccess = jest.fn();
 const mockError = jest.fn();
 const mockFetch = jest.fn();
 const mockRefetch = jest.fn();
+let mockProviderSource = 'config.local.toml';
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -43,7 +44,7 @@ jest.mock('@/hooks/useUserSettings', () => ({
       provider_sources: {
         anthropic: {
           auth_source: 'ANTHROPIC_API_KEY',
-          effective_source: 'config.local.toml',
+          effective_source: mockProviderSource,
         },
       },
       default_model: 'anthropic/claude-sonnet-4-7',
@@ -94,6 +95,7 @@ describe('ServerApiKeySettings', () => {
     mockSuccess.mockReset();
     mockError.mockReset();
     mockRefetch.mockReset();
+    mockProviderSource = 'config.local.toml';
     Object.defineProperty(window, 'fetch', {
       writable: true,
       value: mockFetch,
@@ -143,6 +145,16 @@ describe('ServerApiKeySettings', () => {
     expect(screen.getByText(/already configured/i)).toBeInTheDocument();
     expect(
       screen.getByText('Configured via config.local.toml (ANTHROPIC_API_KEY)')
+    ).toBeInTheDocument();
+  });
+
+  it('shows runtime defaults as a configured provider source', () => {
+    mockProviderSource = 'config.runtime.toml';
+
+    render(<ServerApiKeySettings />);
+
+    expect(
+      screen.getByText('Configured via config.runtime.toml (ANTHROPIC_API_KEY)')
     ).toBeInTheDocument();
   });
 

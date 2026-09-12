@@ -1,8 +1,9 @@
 import json
 import os
 import tempfile
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 import tomlkit
@@ -13,6 +14,7 @@ from gptme.config import (
     MCPConfig,
     ProjectConfig,
     UserIdentityConfig,
+    UserPromptConfig,
     get_config,
     load_user_config,
     setup_config_from_cli,
@@ -21,8 +23,12 @@ from gptme.config.user import (
     USER_CONFIG_SOURCE_ENV,
     USER_CONFIG_SOURCE_LOCAL,
     USER_CONFIG_SOURCE_MAIN,
+    USER_CONFIG_SOURCE_RUNTIME,
+    get_default_model_source,
     get_user_config_env_source,
+    get_user_config_paths,
     get_user_config_runtime_info,
+    get_user_config_runtime_path,
 )
 
 default_user_config = """[prompt]
@@ -1261,6 +1267,450 @@ def test_user_config_runtime_info_reports_paths_and_write_target(tmp_path):
     assert info["local_config_exists"] is True
     assert write_target.endswith("config.toml")
     assert info["local_overrides_main"] is True
+    assert info["runtime_config_exists"] is False
+    assert info["runtime_is_defaults"] is True
+    assert str(info["runtime_config_path"]).endswith("config.runtime.toml")
+
+
+def test_runtime_config_missing_does_not_create_file(tmp_path: Path) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text('[prompt.fragments]\nuser = "User context"\n', encoding="utf-8")
+    original = main.read_bytes()
+
+    config = load_user_config(str(main))
+
+    assert config.prompt.fragments == {"user": "User context"}
+    assert main.read_bytes() == original
+    assert get_user_config_paths(str(main)) == (main, tmp_path / "config.local.toml")
+    assert get_user_config_runtime_path(str(main)) == tmp_path / "config.runtime.toml"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["config.toml"]
+
+
+def test_runtime_config_defaults_with_existing_main(tmp_path: Path) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text(
+        '# Existing user preferences\n[user]\nname = "User"\n', encoding="utf-8"
+    )
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_bytes(
+        '# Operator defaults: café\r\n[prompt]\r\nfiles = ["runtime.md"]\r\n'
+        '[prompt.fragments]\r\npreview = "Preview context"\r\n'
+        '[env]\r\nRUNTIME_TEST_SETTING = "runtime"\r\n'
+        '[models]\r\ndefault = "runtime/model"\r\n'.encode()
+    )
+    originals = {p: p.read_bytes() for p in (main, runtime)}
+
+    config = load_user_config(str(main))
+    expected = asdict(config)
+    assert config.prompt.files == ["runtime.md"]
+    assert config.prompt.fragments == {"preview": "Preview context"}
+    assert config.env["RUNTIME_TEST_SETTING"] == "runtime"
+    assert config.models.default == "runtime/model"
+    config.prompt.fragments["preview"] = "Changed in memory"
+    config.prompt.files.append("changed.md")
+    assert asdict(load_user_config(str(main))) == expected
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+    info = get_user_config_runtime_info(str(main))
+    assert info["runtime_config_exists"] is True
+    assert info["runtime_is_defaults"] is True
+    assert str(info["runtime_config_path"]).endswith("config.runtime.toml")
+    assert info["write_target"] == info["config_path"]
+    assert info["local_config_exists"] is False
+
+
+@pytest.mark.parametrize("override", ["User preview", ""])
+def test_runtime_config_prompt_layering(tmp_path: Path, override: str) -> None:
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(
+        '[prompt]\nfiles = ["runtime.md"]\n'
+        '[prompt.fragments]\npreview = "Runtime preview"\nruntime = "Keep runtime"\n'
+        '[user]\nname = "Runtime"\n',
+        encoding="utf-8",
+    )
+    main.write_text(
+        '[prompt]\nfiles = ["user.md", "extra.md"]\n'
+        f'[prompt.fragments]\npreview = {json.dumps(override)}\nmain = "Keep main"\n'
+        '[user]\nname = "Main"\n',
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+    assert config.prompt.files == ["user.md", "extra.md"]
+    assert config.prompt.fragments == {
+        "preview": override,
+        "runtime": "Keep runtime",
+        "main": "Keep main",
+    }
+    assert config.user.name == "Main"
+
+    local = tmp_path / "config.local.toml"
+    local.write_text(
+        '[prompt.fragments]\npreview = ""\nlocal = "Keep local"\n'
+        '[user]\nname = "Local"\n',
+        encoding="utf-8",
+    )
+    originals = {p: p.read_bytes() for p in (runtime, main, local)}
+    config = load_user_config(str(main))
+    assert config.prompt.fragments == {
+        "preview": "",
+        "runtime": "Keep runtime",
+        "main": "Keep main",
+        "local": "Keep local",
+    }
+    assert config.prompt.files == ["user.md", "extra.md"]
+    assert config.user.name == "Local"
+    assert load_user_config(str(main)) == config
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+def test_runtime_config_named_lists_and_recursive_defaults(tmp_path: Path) -> None:
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    local = tmp_path / "config.local.toml"
+    runtime.write_text(
+        """
+[models]
+favorites = ["runtime/model"]
+[plugins]
+paths = ["runtime-plugins"]
+[env]
+RUNTIME_ONLY = "runtime"
+SHARED = "runtime"
+[mcp]
+enabled = true
+auto_start = true
+[[mcp.servers]]
+name = "shared"
+command = "runtime-command"
+args = ["runtime"]
+env = { RUNTIME_ONLY = "runtime", SHARED = "runtime" }
+[[mcp.servers]]
+name = "runtime-only"
+command = "runtime-only-command"
+[[providers]]
+name = "shared"
+base_url = "http://localhost:9000/v1"
+default_model = "runtime-model"
+[[providers]]
+name = "runtime-only"
+base_url = "http://localhost:9001/v1"
+""",
+        encoding="utf-8",
+    )
+    main.write_text(
+        """
+[models]
+favorites = ["main/model"]
+[plugins]
+paths = ["main-plugins"]
+[env]
+MAIN_ONLY = "main"
+SHARED = "main"
+[mcp]
+enabled = false
+[[mcp.servers]]
+name = "shared"
+command = "main-command"
+args = ["main"]
+env = { MAIN_ONLY = "main", SHARED = "main" }
+[[providers]]
+name = "shared"
+base_url = "http://localhost:9002/v1"
+""",
+        encoding="utf-8",
+    )
+    local.write_text(
+        """
+[models]
+favorites = []
+[env]
+SHARED = "local"
+[[mcp.servers]]
+name = "shared"
+args = ["local"]
+env = { LOCAL_ONLY = "local", SHARED = "local" }
+[[mcp.servers]]
+name = "local-only"
+command = "local-command"
+[[providers]]
+name = "shared"
+default_model = "local-model"
+[[providers]]
+name = "local-only"
+base_url = "http://localhost:9003/v1"
+""",
+        encoding="utf-8",
+    )
+    originals = {p: p.read_bytes() for p in (runtime, main, local)}
+
+    config = load_user_config(str(main))
+
+    assert config.models.favorites == []
+    assert config.plugins.paths == ["main-plugins"]
+    assert config.env == {
+        "RUNTIME_ONLY": "runtime",
+        "MAIN_ONLY": "main",
+        "SHARED": "local",
+    }
+    assert config.mcp is not None
+    assert config.mcp.enabled is False
+    assert config.mcp.auto_start is True
+    assert [server.name for server in config.mcp.servers] == [
+        "shared",
+        "runtime-only",
+        "local-only",
+    ]
+    server = config.mcp.servers[0]
+    assert server.command == "main-command"
+    assert server.args == ["local"]
+    assert server.env == {
+        "RUNTIME_ONLY": "runtime",
+        "MAIN_ONLY": "main",
+        "LOCAL_ONLY": "local",
+        "SHARED": "local",
+    }
+    assert [provider.name for provider in config.providers] == [
+        "shared",
+        "runtime-only",
+        "local-only",
+    ]
+    assert config.providers[0].base_url == "http://localhost:9002/v1"
+    assert config.providers[0].default_model == "local-model"
+    assert load_user_config(str(main)) == config
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+@pytest.mark.parametrize(("section", "key"), [("env", "MODEL"), ("models", "default")])
+def test_runtime_config_source_precedence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, section: str, key: str
+) -> None:
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    main = tmp_path / "config.toml"
+    main.write_text("# Main preferences\n", encoding="utf-8")
+    runtime = get_user_config_runtime_path(str(main))
+    local = tmp_path / "config.local.toml"
+
+    assert get_default_model_source(str(main)) is None
+    assert get_user_config_env_source("MODEL", str(main)) is None
+    assert not runtime.exists()
+    for path, source in (
+        (runtime, USER_CONFIG_SOURCE_RUNTIME),
+        (main, USER_CONFIG_SOURCE_MAIN),
+        (local, USER_CONFIG_SOURCE_LOCAL),
+    ):
+        path.write_text(f'[{section}]\n{key} = "{source}/model"\n', encoding="utf-8")
+        assert get_default_model_source(str(main)) == source
+        if section == "env":
+            assert get_user_config_env_source("MODEL", str(main)) == source
+            assert get_user_config_env_source("GPTME_MODEL", str(main)) == source
+        else:
+            assert load_user_config(str(main)).models.default == f"{source}/model"
+
+    for env_key in ("MODEL", "GPTME_MODEL"):
+        monkeypatch.setenv(env_key, "process/model")
+        assert get_user_config_env_source("MODEL", str(main)) == USER_CONFIG_SOURCE_ENV
+        assert get_default_model_source(str(main)) == (
+            USER_CONFIG_SOURCE_ENV if section == "env" else USER_CONFIG_SOURCE_LOCAL
+        )
+        monkeypatch.delenv(env_key)
+
+
+def test_runtime_models_default_preserves_priority_over_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text('[env]\nMODEL = "main/env-model"\n', encoding="utf-8")
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text('[models]\ndefault = "runtime/model"\n', encoding="utf-8")
+    monkeypatch.setenv("MODEL", "process/model")
+
+    assert load_user_config(str(main)).models.default == "runtime/model"
+    assert get_default_model_source(str(main)) == USER_CONFIG_SOURCE_RUNTIME
+
+
+def test_runtime_config_never_cleaned_or_copied_into_user_files(tmp_path: Path) -> None:
+    main = tmp_path / "config.toml"
+    local = tmp_path / "config.local.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(
+        '# Operator-owned\nunknown = "keep"\n'
+        '[prompt.fragments]\npreview = "Runtime only"\n',
+        encoding="utf-8",
+    )
+    main.write_text('unknown = "remove"\n[user]\nname = "Main"\n', encoding="utf-8")
+    local.write_text('unknown = "remove"\n[env]\nLOCAL = "local"\n', encoding="utf-8")
+    runtime_bytes = runtime.read_bytes()
+
+    config = load_user_config(str(main))
+
+    assert config.prompt.fragments == {"preview": "Runtime only"}
+    assert tomlkit.loads(main.read_text(encoding="utf-8")).unwrap() == {
+        "user": {"name": "Main"}
+    }
+    assert tomlkit.loads(local.read_text(encoding="utf-8")).unwrap() == {
+        "env": {"LOCAL": "local"}
+    }
+    originals = {p: p.read_bytes() for p in tmp_path.iterdir()}
+    assert load_user_config(str(main)) == config
+    assert runtime.read_bytes() == runtime_bytes
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+def test_runtime_config_does_not_leak_into_autocreated_main(tmp_path: Path) -> None:
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(
+        '[user]\nname = "Deployment user"\n'
+        '[prompt]\nfiles = ["runtime.md"]\n'
+        '[prompt.fragments]\npreview = "Runtime only"\n'
+        '[plugins]\npaths = ["runtime-plugins"]\n'
+        '[[hooks.scripts]]\nevent = "session.end"\ncommand = "echo done"\n',
+        encoding="utf-8",
+    )
+    original = runtime.read_bytes()
+
+    config = load_user_config(str(main))
+    assert config.prompt.fragments == {"preview": "Runtime only"}
+    assert config.prompt.files == ["runtime.md"]
+    assert config.user.name == "Deployment user"
+    assert config.plugins.paths == ["runtime-plugins"]
+    assert len(config.hooks.scripts) == 1
+    assert config.hooks.scripts[0].command == "echo done"
+    assert main.exists()
+    assert tomlkit.loads(main.read_text(encoding="utf-8")).unwrap() == {}
+    assert load_user_config(str(main)) == config
+    assert runtime.read_bytes() == original
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "config.runtime.toml",
+        "config.toml",
+    ]
+
+
+def test_runtime_config_source_lookup_does_not_seed_user_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(
+        '[env]\nMODEL = "runtime/model"\n[prompt]\nfiles = ["runtime.md"]\n',
+        encoding="utf-8",
+    )
+    assert get_default_model_source(str(main)) == USER_CONFIG_SOURCE_RUNTIME
+    assert load_user_config(str(main)).prompt.files == ["runtime.md"]
+    assert tomlkit.loads(main.read_text(encoding="utf-8")).unwrap() == {}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"[prompt.fragments\n",
+        b'[prompt.fragments]\npreview = "\xff"\n',
+        b'prompt = "not a table"\n',
+        b"[prompt]\nfragments = []\n",
+        b"[prompt.fragments]\npreview = false\n",
+        b'[prompt.fragments]\n"bad name" = "text"\n',
+    ],
+)
+def test_runtime_config_invalid_errors_include_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: bytes
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text("# Valid main\n", encoding="utf-8")
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_bytes(content)
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    originals = {p: p.read_bytes() for p in (main, runtime)}
+
+    for load in (
+        lambda: load_user_config(str(main)),
+        lambda: get_default_model_source(str(main)),
+        lambda: get_user_config_env_source("MODEL", str(main)),
+    ):
+        with pytest.raises(ValueError, match="runtime config") as exc_info:
+            load()
+        assert str(runtime) in str(exc_info.value)
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+def test_runtime_config_unreadable_errors_include_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text("# Valid main\n", encoding="utf-8")
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text("# Runtime defaults\n", encoding="utf-8")
+    original_read = Path.read_text
+
+    def read_text(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path == runtime:
+            raise PermissionError("Runtime file is not readable")
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    with pytest.raises(ValueError, match="runtime config") as exc_info:
+        load_user_config(str(main))
+    assert str(runtime) in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, PermissionError)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        'mcp = "not a table"\n',
+        "[mcp]\nservers = 1\n",
+        '[[mcp.servers]]\ncommand = "missing-name"\n',
+        'providers = "not a list"\n',
+        '[[providers]]\nname = "missing-base-url"\n',
+        "[hooks]\nscripts = false\n",
+    ],
+)
+def test_runtime_config_schema_errors_include_path(
+    tmp_path: Path, content: str
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text("# Valid main\n", encoding="utf-8")
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(content, encoding="utf-8")
+    originals = {p: p.read_bytes() for p in (main, runtime)}
+
+    with pytest.raises(ValueError, match="runtime defaults") as exc_info:
+        load_user_config(str(main))
+
+    assert str(runtime) in str(exc_info.value)
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+@pytest.mark.parametrize(
+    "fragments",
+    [
+        None,
+        "",
+        [],
+        {"": "text"},
+        {"bad name": "text"},
+        {"bad\nname": "text"},
+        {1: "text"},
+        {"preview": None},
+        {"preview": 1},
+        {"preview": []},
+    ],
+)
+def test_user_prompt_fragments_validation(fragments: Any) -> None:
+    with pytest.raises(ValueError, match=r"prompt\.fragments"):
+        UserPromptConfig(fragments=fragments)
+
+
+def test_user_prompt_fragments_defaults_and_disable() -> None:
+    assert UserPromptConfig().fragments == {}
+    assert UserPromptConfig(fragments={"app-preview.v1": ""}).fragments == {
+        "app-preview.v1": ""
+    }
 
 
 def test_cli_auto_envvar_prefix():

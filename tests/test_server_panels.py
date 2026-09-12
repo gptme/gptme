@@ -7,6 +7,7 @@ Covers:
 - list endpoint, including empty-response and error handling
 """
 
+from pathlib import Path
 from typing import Any
 from unittest import mock
 from uuid import uuid4
@@ -26,6 +27,51 @@ from gptme.server.panels_api import (  # fmt: skip
 )
 
 pytestmark = [pytest.mark.timeout(10)]
+
+
+def test_ipython_preview_panel_persists_in_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from IPython.core.interactiveshell import InteractiveShell
+    from traitlets.config import Config
+
+    from gptme.logmanager import LogManager
+    from gptme.tools import python as python_tool
+    from gptme.tools.python import execute_python
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_SANDBOX", "none")
+    monkeypatch.setattr(
+        python_tool,
+        "_ipython",
+        InteractiveShell(config=Config({"HistoryManager": {"enabled": False}})),
+    )
+    code = """\
+from gptme.message import Message
+Message("system", "App ready.", metadata={"panel_hints": [{
+    "id": "preview-5173",
+    "kind": "live_app",
+    "title": "App preview",
+    "url": "/instances/example/preview/5173/",
+    "status": "running",
+    "sandbox": ["allow-scripts", "allow-forms"],
+}]})
+"""
+    messages = list(execute_python(code, [], None))
+    manager = LogManager.load(
+        logdir=tmp_path / "conversation", initial_msgs=messages, create=True
+    )
+    manager.write()
+    reloaded = LogManager.load(logdir=manager.logdir)
+    panels = panels_from_messages(reloaded)
+    assert len(panels) == 1
+    panel = panels[0]
+    assert isinstance(panel, LiveAppPanelOut)
+    assert panel.id == "preview-5173"
+    assert panel.url == "/instances/example/preview/5173/"
+    assert panel.status == "running"
+    assert panel.sandbox == ["allow-scripts", "allow-forms"]
 
 
 # ============================================================

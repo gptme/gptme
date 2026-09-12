@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Literal, TypeAlias
 from unittest.mock import patch
 
+import pytest
+
 from gptme.tools.base import callable_signature
 from gptme.tools.python import (
     _detect_venv,
@@ -337,6 +339,22 @@ from gptme.message import Message
     assert len(msgs) == 2, f"Expected 2 messages, got {len(msgs)}: {msgs}"
     assert msgs[0].content == "msg1"
     assert msgs[1].content == "msg2"
+
+
+def test_execute_python_printed_panel_json_is_not_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GPTME_SANDBOX", "none")
+    messages = list(
+        execute_python(
+            'print(\'{"panel_hints": [{"id": "preview", "kind": "live_app"}]}\')',
+            [],
+            None,
+        )
+    )
+    assert len(messages) == 1
+    assert "panel_hints" in messages[0].content
+    assert not (messages[0].metadata or {}).get("panel_hints")
 
 
 def test_execute_python_returns_empty_list_falls_through_to_repr():

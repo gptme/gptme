@@ -104,6 +104,23 @@ class ArtifactDescriptor(TypedDict, total=False):
     tool: str  # producing tool name (provenance)
 
 
+class PanelHint(TypedDict, total=False):
+    """Tool-emitted panel metadata, validated by the server panel registry."""
+
+    id: str
+    kind: Literal["iframe", "live_app"]
+    title: str
+    src: str
+    url: str
+    status: Literal["loading", "running", "stopped", "error", "unavailable"]
+    status_message: str | None
+    sandbox: list[str]
+    allow: str | None
+    resize: Literal["auto", "fixed"] | None
+    bootstrap: dict[str, Any] | None
+    icon: str | None
+
+
 class MessageTimings(TypedDict, total=False):
     """Per-step timing breakdown for an assistant message.
 
@@ -181,6 +198,7 @@ class MessageMetadata(TypedDict, total=False):
     timings: MessageTimings  # Per-step timing breakdown (ttft_ms, gen_ms, tool_ms, …)
     voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
+    panel_hints: list[PanelHint]
     tool: str  # tool that produced this result message
     # Identifies one generated startup-prompt generation. A newer generation
     # supersedes older ones in provider context while all remain on disk.
