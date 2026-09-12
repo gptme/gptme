@@ -774,7 +774,7 @@ class TestCompletionNotifications:
         assert f"job #{job.id} finished" in messages[0].content
         assert "notified" in messages[0].content
 
-    def test_completion_hook_prefers_active_conversation_context(self):
+    def test_completion_hook_uses_active_context_without_manager_id(self):
         from types import SimpleNamespace
 
         from gptme.hooks import current_conversation_id
@@ -798,6 +798,39 @@ class TestCompletionNotifications:
 
         assert len(messages) == 1
         assert "job #1 finished" in messages[0].content
+
+    def test_completion_hook_prefers_manager_over_conflicting_context(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools import shell_background
+
+        job_a = _make_job()
+        job_a.id = 1
+        job_a.conversation_id = "conversation-a"
+        job_b = _make_job()
+        job_b.id = 1
+        job_b.conversation_id = "conversation-b"
+        shell_background._background_jobs.update(
+            {"conversation-a": {1: job_a}, "conversation-b": {1: job_b}}
+        )
+        shell_background._completion_queue.put(job_a)
+        shell_background._completion_queue.put(job_b)
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            messages = list(
+                shell_background.background_job_completion_hook(
+                    SimpleNamespace(chat_id="conversation-b"), True, []
+                )
+            )
+        finally:
+            current_conversation_id.reset(token)
+
+        assert len(messages) == 1
+        assert "job #1 finished" in messages[0].content
+        assert job_a in shell_background._completion_queue.queue
+        assert job_b not in shell_background._completion_queue.queue
 
     def test_completion_hook_prefers_manager_over_stale_log_context(self, tmp_path):
         from types import SimpleNamespace
