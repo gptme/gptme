@@ -16,7 +16,13 @@ from ..tools._allowlist import (
     expand_tool_allowlist_presets,
 )
 from .chat import ChatConfig
-from .core import Config, get_config, set_config, set_config_from_workspace
+from .core import (
+    Config,
+    ModelSourceKind,
+    get_config,
+    set_config,
+    set_config_from_workspace,
+)
 
 if TYPE_CHECKING:
     from ..tools.base import ToolFormat
@@ -114,7 +120,8 @@ def setup_config_from_cli(
     """
     Initialize and return a complete config from CLI arguments and workspace.
 
-    Handles the precedence: CLI args -> saved conversation config -> env vars -> config files -> defaults
+    Handles the model precedence: CLI args -> saved conversation config ->
+    ``[models].default`` -> ``MODEL`` -> auto-detection.
     """
 
     # Load base config from workspace
@@ -127,18 +134,29 @@ def setup_config_from_cli(
         existing_chat_config = ChatConfig.from_logdir(logdir)
 
     # Resolve configuration values with proper precedence
-    # For resuming: CLI args -> saved conversation config -> env vars/config files
-    # For new conversations: CLI args -> env vars/config files -> defaults
     resolved_model: str | None
+    resolved_model_source: ModelSourceKind | None
     if model is not None:
         # CLI override always takes precedence
         resolved_model = model
+        resolved_model_source = "cli"
     elif existing_chat_config and existing_chat_config.model:
         # When resuming, use saved conversation model unless CLI override provided
         resolved_model = existing_chat_config.model
+        resolved_model_source = "chat_config"
+    elif config.user.models.default:
+        resolved_model = config.user.models.default
+        resolved_model_source = "models.default"
     else:
-        # Fall back to env/config for new conversations or when no saved model
+        # Fall back to the process/project/user MODEL layers, then auto-detection.
         resolved_model = config.get_env("MODEL")
+        resolved_model_source = "MODEL" if resolved_model is not None else None
+
+    config._model_source = (
+        (resolved_model_source, resolved_model)
+        if resolved_model_source is not None and resolved_model is not None
+        else None
+    )
 
     resolved_gear = parse_gear(gear)
     if (

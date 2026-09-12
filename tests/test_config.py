@@ -988,6 +988,73 @@ workspace = "{workspace.as_posix()}"
         )
 
 
+@pytest.mark.parametrize(
+    (
+        "cli_model",
+        "saved_model",
+        "default_model",
+        "expected_model",
+        "expected_source",
+    ),
+    [
+        (
+            "openai/gpt-5",
+            "openrouter/openai/gpt-5-mini",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5",
+            "cli",
+        ),
+        (
+            None,
+            "openrouter/openai/gpt-5-mini",
+            "anthropic/claude-sonnet-4-6",
+            "openrouter/openai/gpt-5-mini",
+            "chat_config",
+        ),
+        (
+            None,
+            None,
+            "anthropic/claude-sonnet-4-6",
+            "anthropic/claude-sonnet-4-6",
+            "models.default",
+        ),
+        (None, None, None, "xai/grok-4", "MODEL"),
+    ],
+)
+def test_setup_config_model_precedence_and_source(
+    tmp_path,
+    monkeypatch,
+    cli_model,
+    saved_model,
+    default_model,
+    expected_model,
+    expected_source,
+):
+    """CLI, saved, default, and environment models use one precedence chain."""
+    from gptme.config import user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        f'[models]\ndefault = "{default_model}"\n' if default_model else "",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setenv("MODEL", "xai/grok-4")
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "conversation"
+    if saved_model:
+        ChatConfig(_logdir=logdir, model=saved_model, workspace=workspace).save()
+
+    config = setup_config_from_cli(workspace=workspace, logdir=logdir, model=cli_model)
+
+    assert config.chat is not None
+    assert config.chat.model == expected_model
+    assert config._model_source == (expected_source, expected_model)
+
+
 def test_reload_config_clears_tools(monkeypatch, tmp_path):
     """Test that reload_config() clears the tools cache so MCP tools are recreated."""
     from unittest.mock import MagicMock

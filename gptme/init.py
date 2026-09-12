@@ -300,8 +300,16 @@ def _record_selection_trace(
     """Create and store a ModelSelectionTrace for this session."""
     from .model_attestation import create_selection_trace, set_selection_trace
 
-    # Infer source kind from the precedence chain.
-    if requested_model is not None:
+    # setup_config_from_cli resolves the model before it reaches init_model, so
+    # keep that runtime-only source when it still describes this exact value.
+    tracked_source = config._model_source
+    if (
+        requested_model is not None
+        and tracked_source is not None
+        and tracked_source[1] == requested_model
+    ):
+        source_kind, source_value = tracked_source
+    elif requested_model is not None:
         source_kind = "cli"
         source_value = requested_model
     elif config.chat and config.chat.model:
@@ -356,7 +364,7 @@ def _record_selection_trace(
     trace = create_selection_trace(
         requested_model=source_value,
         resolved_model=resolved_model,
-        source_kind=source_kind,  # type: ignore[arg-type]
+        source_kind=source_kind,
         source_value=source_value,
         transport_provider=transport_provider,
         backend_provider=backend_provider,
