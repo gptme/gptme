@@ -370,6 +370,7 @@ _TOOL_COND_RE = re.compile(
     r"\{%\s*(?P<kw>if|elif)\s+tools?\s*:\s*(?P<names>[^%]*?)\s*%\}"
     r"|\{%\s*(?P<kw2>else|endif)\s*%\}"
 )
+_TOOL_COND_START_RE = re.compile(r"\{%\s*if\s+tools?\s*:")
 
 
 def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
@@ -385,7 +386,9 @@ def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
     A marker that occupies a whole line takes that line with it, so lists and
     paragraphs stay tidy; inline markers only remove themselves.
     """
-    if "{%" not in text:
+    # Other templating languages use the same ``{% ... %}`` delimiters. Only
+    # interpret the text when it opts into this syntax with an ``if tools:``.
+    if not _TOOL_COND_START_RE.search(text):
         return text
     loaded_set = None if loaded is None else {name.lower() for name in loaded}
 
@@ -442,8 +445,6 @@ def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
     if state is not None:
         raise ValueError("unterminated {% if tools %} block")
     trailing = text[pos:]
-    if "{%" in trailing:
-        raise ValueError("invalid {% if tools %} conditional marker")
     out.append(trailing)
     return "".join(out)
 
