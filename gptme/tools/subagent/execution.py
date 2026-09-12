@@ -17,7 +17,6 @@ import tempfile
 import threading
 import time
 import uuid
-from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -47,6 +46,7 @@ logger = logging.getLogger(__name__)
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
+_SUBPROCESS_STDERR_TAIL_BYTES = 64 * 1024
 _SUBPROCESS_STDERR_TAIL_LINES = 20
 
 # Thread-local storage for subagent context
@@ -786,17 +786,21 @@ def _poll_subprocess_progress(
 
 
 def _stderr_failure_tail(stderr_path: Path | None) -> str:
-    """Return a bounded diagnostic tail from a subprocess stderr log."""
+    """Return a byte- and line-bounded diagnostic tail from subprocess stderr."""
     if stderr_path is None:
         return ""
     try:
-        with stderr_path.open(errors="replace") as stderr_file:
-            tail = deque(stderr_file, maxlen=_SUBPROCESS_STDERR_TAIL_LINES)
+        with stderr_path.open("rb") as stderr_file:
+            stderr_file.seek(0, os.SEEK_END)
+            size = stderr_file.tell()
+            stderr_file.seek(max(0, size - _SUBPROCESS_STDERR_TAIL_BYTES))
+            chunk = stderr_file.read(_SUBPROCESS_STDERR_TAIL_BYTES)
     except OSError:
         return ""
-    if not tail:
+    if not chunk:
         return ""
-    return "\nChild stderr tail:\n" + "".join(tail).rstrip("\n")
+    tail = chunk.decode(errors="replace").splitlines()[-_SUBPROCESS_STDERR_TAIL_LINES:]
+    return "\nChild stderr tail:\n" + "\n".join(tail)
 
 
 def _monitor_subprocess(
