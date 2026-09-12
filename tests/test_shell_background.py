@@ -8,9 +8,11 @@ Covers:
 
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
+from threading import Thread
 from unittest.mock import Mock, patch
 
 import pytest
@@ -137,12 +139,36 @@ class TestJobLifecycle:
         assert job.process.returncode is not None
 
     def test_kill_already_finished(self):
-        """Killing a finished job should not raise."""
+        """A finished job must not signal a potentially reused process group."""
+        from unittest.mock import patch
+
         job = start_background_job("true")
         job.process.wait(timeout=5)
         time.sleep(0.3)
-        job.kill()  # should not raise
+        with patch("gptme.tools.shell_background.os.killpg") as killpg:
+            job.kill()
+        killpg.assert_not_called()
         assert not job.is_running()
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX process groups only")
+    def test_kill_uses_process_group_captured_at_start(self):
+        """Termination must not resolve a possibly reused leader PID."""
+        from unittest.mock import patch
+
+        job = start_background_job("sleep 60")
+        assert job.process_group_id == job.process.pid
+        try:
+            with (
+                patch("gptme.tools.shell_background.os.getpgid") as getpgid,
+                patch("gptme.tools.shell_background.os.killpg") as killpg,
+                patch.object(job.process, "wait", return_value=0),
+            ):
+                job.kill()
+            getpgid.assert_not_called()
+            killpg.assert_called_once_with(job.process_group_id, signal.SIGTERM)
+        finally:
+            job.process.kill()
+            job.process.wait(timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -355,12 +381,14 @@ class TestJobRegistry:
     def test_list_empty(self):
         assert list_background_jobs() == []
 
-    def test_cleanup_removes_finished(self):
-        job = start_background_job("true")
+    def test_cleanup_keeps_finished_output_available(self):
+        job = start_background_job("printf kept")
         job.process.wait(timeout=5)
-        time.sleep(0.3)
+        if job._reader_thread:
+            job._reader_thread.join(timeout=5)
         cleanup_finished_jobs()
-        assert get_background_job(job.id) is None
+        assert get_background_job(job.id) is job
+        assert job.get_output()[0] == "kept"
 
     def test_cleanup_keeps_running(self):
         job = start_background_job("sleep 60")
@@ -382,6 +410,74 @@ class TestJobRegistry:
         j = start_background_job("true")
         assert j.id == 1
         j.process.wait(timeout=5)
+
+    def test_reset_purges_conversation_completion(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools.shell_background import background_job_completion_hook
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            job = start_background_job("true")
+            job.process.wait(timeout=5)
+            if job._reader_thread:
+                job._reader_thread.join(timeout=5)
+            reset_background_jobs("conversation-a", all_conversations=False)
+        finally:
+            current_conversation_id.reset(token)
+
+        assert (
+            list(
+                background_job_completion_hook(
+                    SimpleNamespace(chat_id="conversation-a"), True, []
+                )
+            )
+            == []
+        )
+
+    def test_reset_purge_does_not_drop_concurrent_completion(self):
+        from threading import Event, Thread
+
+        from gptme.tools import shell_background
+
+        old_job = _make_job()
+        old_job.conversation_id = "conversation-a"
+        new_job = _make_job()
+        new_job.conversation_id = "conversation-b"
+        shell_background._completion_queue.put(old_job)
+
+        purge_started = Event()
+        producer_attempted = Event()
+        release_purge = Event()
+        original_mutex = shell_background._completion_queue.mutex
+
+        class CoordinatedMutex:
+            def __enter__(self) -> None:
+                original_mutex.acquire()
+                purge_started.set()
+                assert producer_attempted.wait(timeout=5)
+
+            def __exit__(self, *_args: object) -> None:
+                original_mutex.release()
+                release_purge.set()
+
+        def producer() -> None:
+            assert purge_started.wait(timeout=5)
+            producer_attempted.set()
+            shell_background._completion_queue.put(new_job)
+
+        producer_thread = Thread(target=producer)
+        producer_thread.start()
+        with patch.object(
+            shell_background._completion_queue, "mutex", CoordinatedMutex()
+        ):
+            shell_background._purge_completion_queue({"conversation-a"})
+        assert release_purge.is_set()
+        producer_thread.join(timeout=5)
+
+        assert not producer_thread.is_alive()
+        assert shell_background._completion_queue.get_nowait() is new_job
 
 
 # ---------------------------------------------------------------------------
@@ -640,4 +736,257 @@ def _make_job() -> BackgroundJob:
         command="true",
         process=proc,
         start_time=time.time(),
+        process_group_id=None if sys.platform == "win32" else proc.pid,
     )
+
+
+class TestCompletionNotifications:
+    def test_completion_hook_routes_to_own_conversation(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools.shell_background import background_job_completion_hook
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            job = start_background_job("printf notified")
+            # Completion is published by the reader thread after it has drained
+            # both pipes, not merely when the child process exits.
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=5)
+            assert not job._reader_thread.is_alive()
+        finally:
+            current_conversation_id.reset(token)
+
+        wrong = list(
+            background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-b"), True, []
+            )
+        )
+        assert wrong == []
+
+        messages = list(
+            background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-a"), True, []
+            )
+        )
+        assert len(messages) == 1
+        assert f"job #{job.id} finished" in messages[0].content
+        assert "notified" in messages[0].content
+
+    def test_completion_hook_uses_active_context_without_manager_id(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools import shell_background
+
+        job = _make_job()
+        job.id = 1
+        job.conversation_id = "conversation-a"
+        shell_background._background_jobs["conversation-a"] = {1: job}
+        shell_background._completion_queue.put(job)
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            messages = list(
+                shell_background.background_job_completion_hook(
+                    SimpleNamespace(chat_id=None), True, []
+                )
+            )
+        finally:
+            current_conversation_id.reset(token)
+
+        assert len(messages) == 1
+        assert "job #1 finished" in messages[0].content
+
+    def test_completion_hook_prefers_manager_over_conflicting_context(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools import shell_background
+
+        job_a = _make_job()
+        job_a.id = 1
+        job_a.conversation_id = "conversation-a"
+        job_b = _make_job()
+        job_b.id = 1
+        job_b.conversation_id = "conversation-b"
+        shell_background._background_jobs.update(
+            {"conversation-a": {1: job_a}, "conversation-b": {1: job_b}}
+        )
+        shell_background._completion_queue.put(job_a)
+        shell_background._completion_queue.put(job_b)
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            messages = list(
+                shell_background.background_job_completion_hook(
+                    SimpleNamespace(chat_id="conversation-b"), True, []
+                )
+            )
+        finally:
+            current_conversation_id.reset(token)
+
+        assert len(messages) == 1
+        assert "job #1 finished" in messages[0].content
+        assert job_a in shell_background._completion_queue.queue
+        assert job_b not in shell_background._completion_queue.queue
+
+    def test_completion_hook_prefers_manager_over_stale_log_context(self, tmp_path):
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+        from gptme.tools import shell_background
+
+        # Constructing a manager binds it as the current process-local log, but
+        # the hook argument still names the conversation being advanced.
+        LogManager(logdir=tmp_path / "stale-conversation", lock=False)
+        job = _make_job()
+        job.id = 1
+        job.conversation_id = "conversation-a"
+        shell_background._background_jobs["conversation-a"] = {1: job}
+        shell_background._completion_queue.put(job)
+
+        messages = list(
+            shell_background.background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-a"), True, []
+            )
+        )
+
+        assert len(messages) == 1
+        assert "job #1 finished" in messages[0].content
+
+    def test_completion_hook_does_not_use_stale_log_context(self, tmp_path):
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+        from gptme.tools import shell_background
+
+        LogManager(logdir=tmp_path / "conversation-a", lock=False)
+        job = _make_job()
+        job.id = 1
+        job.conversation_id = "conversation-a"
+        shell_background._background_jobs["conversation-a"] = {1: job}
+        shell_background._completion_queue.put(job)
+
+        messages = list(
+            shell_background.background_job_completion_hook(
+                SimpleNamespace(chat_id=None), True, []
+            )
+        )
+
+        assert messages == []
+
+    def test_completion_hook_claims_conversation_jobs_atomically(self):
+        from types import SimpleNamespace
+
+        from gptme.tools import shell_background
+
+        job_a = _make_job()
+        job_a.id = 1
+        job_a.conversation_id = "conversation-a"
+        job_b = _make_job()
+        job_b.id = 1
+        job_b.conversation_id = "conversation-b"
+        shell_background._background_jobs.update(
+            {"conversation-a": {1: job_a}, "conversation-b": {1: job_b}}
+        )
+        shell_background._completion_queue.put(job_a)
+        shell_background._completion_queue.put(job_b)
+
+        results: dict[str, list] = {}
+
+        def deliver(conversation_id: str) -> None:
+            results[conversation_id] = list(
+                shell_background.background_job_completion_hook(
+                    SimpleNamespace(chat_id=conversation_id), True, []
+                )
+            )
+
+        threads = [
+            Thread(target=deliver, args=("conversation-a",)),
+            Thread(target=deliver, args=("conversation-b",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert "conversation-a" in results
+        assert "conversation-b" in results
+        assert len(results["conversation-a"]) == 1
+        assert len(results["conversation-b"]) == 1
+
+    def test_stale_completion_does_not_target_reused_job_id(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools.shell_background import background_job_completion_hook
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            old_job = start_background_job("true")
+            old_job.process.wait(timeout=5)
+            if old_job._reader_thread:
+                old_job._reader_thread.join(timeout=5)
+            reset_background_jobs("conversation-a", all_conversations=False)
+            new_job = start_background_job("sleep 60")
+            assert new_job.id == old_job.id
+        finally:
+            current_conversation_id.reset(token)
+
+        messages = list(
+            background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-a"), True, []
+            )
+        )
+        assert messages == []
+        new_job.kill()
+
+    def test_registry_is_conversation_scoped(self):
+        from gptme.hooks import current_conversation_id
+
+        token_a = current_conversation_id.set("conversation-a")
+        try:
+            job_a = start_background_job("sleep 60")
+            assert get_background_job(job_a.id) is job_a
+        finally:
+            current_conversation_id.reset(token_a)
+
+        token_b = current_conversation_id.set("conversation-b")
+        try:
+            assert get_background_job(job_a.id) is None
+            job_b = start_background_job("sleep 60")
+            assert job_b.id == 1
+            assert get_background_job(job_b.id) is job_b
+        finally:
+            current_conversation_id.reset(token_b)
+
+
+def test_session_end_cleans_up_conversation_jobs():
+    from types import SimpleNamespace
+    from typing import cast
+    from unittest.mock import patch
+
+    from gptme.hooks import current_conversation_id
+    from gptme.logmanager import LogManager
+    from gptme.tools.shell import _session_end_shell_cleanup
+
+    token = current_conversation_id.set("conversation-a")
+    try:
+        job = start_background_job("sleep 60")
+    finally:
+        current_conversation_id.reset(token)
+
+    manager = SimpleNamespace(
+        logdir=SimpleNamespace(name="conversation-a"), chat_id="conversation-a"
+    )
+    with patch("gptme.tools.shell.close_conversation_shell"):
+        assert list(_session_end_shell_cleanup(cast(LogManager, manager))) == []
+
+    assert not job.is_running()
+    token = current_conversation_id.set("conversation-a")
+    try:
+        assert get_background_job(job.id) is None
+    finally:
+        current_conversation_id.reset(token)
