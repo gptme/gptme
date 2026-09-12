@@ -11,14 +11,13 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..util.context import md_codeblock
 from .shell_flags import flags_permitted
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from .base import ToolUse
 
 logger = logging.getLogger(__name__)
@@ -384,8 +383,11 @@ def _has_file_redirection(cmd: str) -> bool:
     return False
 
 
-def _has_sensitive_args(cmd: str) -> bool:
+def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     """Check whether any argument in the command targets a sensitive system path.
+
+    Heredoc delimiters and bodies are shell syntax and stdin data rather than
+    filesystem arguments, so blank them before tokenizing.
 
     P1 fix: `is_allowlisted()` previously checked command NAMES only, so
     ``cat /etc/shadow`` was auto-approved because ``cat`` is allowlisted.
@@ -398,15 +400,31 @@ def _has_sensitive_args(cmd: str) -> bool:
 
     Returns True if a sensitive argument is found (approval should be denied).
     """
+    # Blank heredoc bodies (stdin data) *and* headers (the << / <<- opener and
+    # its delimiter word). Both are shell syntax, not filesystem arguments.
+    # Critically, header blanking is spacing-aware: ``<<-`` (attached) treats
+    # the following word as the delimiter and blanks it, while ``<< -`` (spaced)
+    # is a delimiter literally named ``-`` whose next token is a real argument.
+    # The old token loop could not distinguish these (shlex collapses the
+    # whitespace), so ``cat << - /etc/shadow`` auto-approved a genuine read;
+    # regex-based blanking keeps the real path visible, so it is scanned.
+    cmd_blanked = _blank_heredoc_headers(_blank_heredoc_bodies(cmd))
     try:
-        tokens = shlex.split(cmd)
+        lexer = shlex.shlex(cmd_blanked, posix=True, punctuation_chars=";&|><()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
     except ValueError:
-        tokens = cmd.split()
+        tokens = cmd_blanked.split()
 
     # Walk all tokens after the first (which is the leading command name).
-    # Compound commands (&&, ||, ;) mean subsequent command names also appear
-    # in this list, but command names never start with / so they are harmless.
+    # punctuation_chars separates unquoted shell operators from adjacent path
+    # tokens while preserving quoted or escaped operators as literal filename
+    # characters. Compound command names also appear in this list, but command
+    # names never start with / so they are harmless.
     for token in tokens[1:]:
+        if token and all(char in ";&|><()" for char in token):
+            continue
         # Bare root directory — e.g. `find /` or `ls /`
         if token == "/":
             return True
@@ -456,6 +474,14 @@ def _has_sensitive_args(cmd: str) -> bool:
         # so the sensitive-dir boundary check below fires for those too.
         if re.match(r"^~[^/]+/", normalized) and not normalized.startswith("~/"):
             normalized = "~/" + re.sub(r"^~[^/]+/", "", normalized)
+        # Relative path arguments are interpreted from the persistent shell's
+        # effective cwd. Resolve lexical components here so a confirmed
+        # ``cd ~/.ssh`` cannot make a later ``cat id_rsa`` auto-approved.
+        if cwd is not None and not normalized.startswith(("/", "~")):
+            normalized = str(cwd.resolve() / normalized)
+            if normalized == home or normalized.startswith(home + "/"):
+                normalized = "~" + normalized[len(home) :]
+
         # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
         # still matches the ~/ prefix boundary after double-slash removal.
         while "//" in normalized:
@@ -537,6 +563,16 @@ def _has_command_substitution(cmd: str) -> bool:
     return False
 
 
+# Heredoc opener plus optional attached ``-`` (indent) flag plus the delimiter
+# word. ``<<<`` (here-string) is excluded via ``(?<!<)...(?!<)`` because an
+# unquoted here-string takes a real filename operand that must stay visible:
+# for a run ``<<<``, neither ``<<`` start position passes both lookarounds,
+# so nothing is blanked and the operand reaches the sensitive-path scan.
+_HEREDOC_HEADER = re.compile(
+    r"(?<!<)<<(?!<)-?\s*(?:\"[^\"\n]+\"|'[^'\n]+'|[^\s;&|<>]+)"
+)
+
+
 def _blank_heredoc_bodies(cmd: str) -> str:
     """Replace heredoc bodies with blanks, preserving offsets.
 
@@ -551,6 +587,44 @@ def _blank_heredoc_bodies(cmd: str) -> str:
     chars = list(cmd)
     for start, end in regions:
         for i in range(start, min(end, len(chars))):
+            if chars[i] != "\n":
+                chars[i] = " "
+    return "".join(chars)
+
+
+def _blank_heredoc_headers(cmd: str) -> str:
+    """Blank heredoc opener + delimiter words, preserving everything else.
+
+    Heredoc openers (``<<`` / ``<<-`` and the delimiter word) are shell
+    syntax, not filesystem arguments. Blanking them keeps a path-like
+    delimiter (``cat <<- /etc/shadow``) out of the sensitive-path scan.
+
+    Critically, only the *attached* ``<<-`` form treats the following word as
+    a delimiter. In the spaced ``<< -`` form bash treats ``-`` *itself* as the
+    delimiter and the next token as a real argument, so ``cat << - /etc/shadow``
+    genuinely reads ``/etc/shadow`` and must remain visible to the scan. The
+    regex handles this because the optional ``-`` is attached to ``<<`` with no
+    intervening whitespace; a spaced ``-`` is matched only as the delimiter word
+    and any further token after it is untouched.
+    """
+    chars = list(cmd)
+    quoted_regions = _find_quotes(cmd)
+    for match in _HEREDOC_HEADER.finditer(cmd):
+        # Keep the same lexical guards as ``_find_heredoc_regions``. Quoted or
+        # escaped apparent openers are data, not heredoc syntax. In particular,
+        # ``cat \<< /etc/shadow`` leaves one real ``<`` redirection whose path
+        # must remain visible to the sensitive-argument scan.
+        if _is_in_quoted_region(match.start(), quoted_regions):
+            continue
+        backslashes = 0
+        pos = match.start() - 1
+        while pos >= 0 and cmd[pos] == "\\":
+            backslashes += 1
+            pos -= 1
+        if backslashes % 2:
+            continue
+
+        for i in range(match.start(), match.end()):
             if chars[i] != "\n":
                 chars[i] = " "
     return "".join(chars)
@@ -589,7 +663,7 @@ def _blank_shell_comments(cmd: str) -> str:
     return "".join(chars)
 
 
-def is_allowlisted(cmd: str) -> bool:
+def is_allowlisted(cmd: str, cwd: Path | None = None) -> bool:
     """Check if a shell command is safe to auto-approve.
 
     Uses a conservative allowlist approach:
@@ -632,7 +706,7 @@ def is_allowlisted(cmd: str) -> bool:
 
     # P1/P4: Check for sensitive path arguments (e.g. /etc/shadow, /root/, /)
     # Allowlisted commands like `cat` must not auto-approve reads of sensitive paths.
-    if _has_sensitive_args(cmd):
+    if _has_sensitive_args(cmd, cwd=cwd):
         return False
 
     # P2: Check for executable shell command substitution. Both backticks and
@@ -745,7 +819,7 @@ def shell_allowlist_hook(
     )
 
     # Check if command is allowlisted
-    if is_allowlisted(check_cmd):
+    if is_allowlisted(check_cmd, cwd=workspace):
         logger.debug(f"Shell command allowlisted, auto-confirming: {cmd[:50]}...")
         return ConfirmationResult.confirm()
 

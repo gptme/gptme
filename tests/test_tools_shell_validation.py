@@ -4,6 +4,8 @@ Tests the allowlist/denylist logic, quote/heredoc parsing, pipe detection,
 and redirection detection in gptme/tools/shell_validation.py.
 """
 
+from pathlib import Path
+
 import pytest
 
 from gptme.tools.shell_validation import (
@@ -11,6 +13,7 @@ from gptme.tools.shell_validation import (
     _find_heredoc_regions,
     _find_quotes,
     _has_file_redirection,
+    _has_sensitive_args,
     _is_in_quoted_region,
     is_allowlisted,
     is_denylisted,
@@ -838,6 +841,81 @@ class TestSensitiveArgs:
         """`ls /tmp/ && cat /etc/passwd` should NOT be auto-approved (P1)."""
         assert not is_allowlisted("ls /tmp/ && cat /etc/passwd")
 
+    # #3806: relative paths bypass sensitive-path check via cd + semicolon
+    def test_cd_ssh_semicolon_cat_not_allowlisted(self):
+        """`cd ~/.ssh; cat id_rsa` must NOT be auto-approved (#3806).
+
+        Python's shlex attaches the semicolon to the preceding token, yielding
+        `~/.ssh;` which previously bypassed the exact-match / prefix check.
+        """
+        assert not is_allowlisted("cd ~/.ssh; cat id_rsa")
+
+    def test_cd_ssh_semicolon_no_space_not_allowlisted(self):
+        """`cd ~/.ssh;cat id_rsa` (no space around semicolon) must NOT be auto-approved."""
+        assert not is_allowlisted("cd ~/.ssh;cat id_rsa")
+
+    def test_cd_aws_semicolon_cat_not_allowlisted(self):
+        """`cd ~/.aws; cat credentials` must NOT be auto-approved (#3806)."""
+        assert not is_allowlisted("cd ~/.aws; cat credentials")
+
+    def test_cd_tmp_semicolon_ls_still_allowlisted(self):
+        """`cd /tmp; ls` should still be auto-approved — /tmp is not sensitive."""
+        assert is_allowlisted("cd /tmp; ls")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'cat "/etc;foo"',
+            "cat '/etc;foo'",
+            r"cat /etc\;foo",
+        ],
+    )
+    def test_literal_operator_in_filename_is_not_sensitive(self, command: str):
+        """Quoted or escaped operators are filename characters, not separators."""
+        assert not _has_sensitive_args(command)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cat << /etc/passwd\n~/.ssh/id_rsa\n/etc/passwd",
+            "cat <<EOF\n/etc/passwd\nEOF",
+            "cat <<- /etc/shadow\n\tsecret\n\t/etc/shadow",
+            # A quoted delimiter is shell syntax, not an argument.
+            'cat <<"EOF"\n/etc/passwd\nEOF',
+        ],
+    )
+    def test_heredoc_delimiter_and_body_are_not_sensitive_args(self, command: str):
+        """Heredoc syntax and stdin data are not filesystem arguments."""
+        assert not _has_sensitive_args(command)
+        assert is_allowlisted(command)
+
+    def test_spaced_heredoc_dash_is_delimiter_real_arg_stays_visible(self):
+        """``<< -`` treats ``-`` as the delimiter; the next token is a REAL arg.
+
+        Greptile P1: the old token loop collapsed the whitespace between ``<<``
+        and ``-``, so it dropped the following filename as if it were the
+        heredoc delimiter. In bash ``cat << - /etc/shadow`` reads ``/etc/shadow``,
+        so it must NOT auto-approve.
+        """
+        assert _has_sensitive_args("cat << - /etc/shadow\n-\n")
+        assert not is_allowlisted("cat << - /etc/shadow\n-\n")
+
+    def test_spaced_heredoc_dash_non_sensitive_arg_is_allowlisted(self):
+        """A non-sensitive real arg after a spaced ``<< -`` delimiter is fine."""
+        assert not _has_sensitive_args("cat << - /tmp/foo\n-\n")
+        assert is_allowlisted("cat << - /tmp/foo\n-\n")
+
+    def test_here_string_sensitive_path_remains_sensitive(self):
+        """A here-string operand is data supplied by expansion, not a delimiter."""
+        assert _has_sensitive_args("cat <<< /etc/passwd")
+        assert not is_allowlisted("cat <<< /etc/passwd")
+
+    def test_escaped_heredoc_opener_keeps_sensitive_path_visible(self):
+        """An escaped first ``<`` leaves a real input redirection, not a heredoc."""
+        command = r"cat \<< /etc/shadow"
+        assert _has_sensitive_args(command)
+        assert not is_allowlisted(command)
+
     def test_globbed_sensitive_path_not_allowlisted(self):
         """Shell glob expansion must not turn an approved token into /etc/shadow."""
         assert not is_allowlisted("cat /e??/shadow")
@@ -861,6 +939,25 @@ class TestSensitiveArgs:
     def test_search_pattern_without_path_separator_still_allowlisted(self):
         """Non-path glob patterns used by find remain safe to auto-approve."""
         assert is_allowlisted("find . -name '*.py'")
+
+    @pytest.mark.parametrize(
+        "command", ["ls *.py", "grep foo *.txt", "find . -name '*.py'"]
+    )
+    def test_search_pattern_with_effective_cwd_still_allowlisted(self, command: str):
+        """Resolving cwd must not turn non-path glob patterns into path globs."""
+        assert is_allowlisted(command, cwd=Path("/tmp"))
+
+    def test_relative_read_uses_effective_cwd(self):
+        """Relative operands are resolved from the persistent shell's cwd."""
+        ssh_dir = Path.home() / ".ssh"
+        assert not is_allowlisted("cat id_rsa", cwd=ssh_dir)
+        assert is_allowlisted("cat README.md", cwd=Path.home())
+
+    def test_relative_read_resolves_symlinked_cwd(self, tmp_path: Path):
+        """A logical cwd symlink into a sensitive directory cannot bypass checks."""
+        link = tmp_path / "ssh-link"
+        link.symlink_to(Path.home() / ".ssh", target_is_directory=True)
+        assert not is_allowlisted("cat id_rsa", cwd=link)
 
     def test_safe_file_read_still_allowlisted(self):
         """`cat README.md` should still be auto-approved (no false positive)."""

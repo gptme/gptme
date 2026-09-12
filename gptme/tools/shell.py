@@ -501,6 +501,22 @@ class ShellSession:
         # close on exit
         atexit.register(self.close)
 
+    def get_cwd(self) -> Path:
+        """Return the persistent shell's effective working directory."""
+        return Path(self._cwd or os.getcwd())
+
+    def _set_cwd(self, cwd: str) -> None:
+        """Synchronize the tracked cwd with the persistent shell."""
+        if not cwd:
+            logger.warning("pwd returned an empty working directory")
+            return
+        changed = cwd != self._cwd
+        self._cwd = cwd
+        # Preserve historical CLI behavior without process-wide chdir calls
+        # after every command; server conversations use context-local cwd.
+        if changed and get_workspace_cwd() is None:
+            os.chdir(cwd)
+
     def _init(self):
         # Choose shell and process group settings based on platform
         if _is_windows:
@@ -930,9 +946,11 @@ class ShellSession:
                         f"Shell: Pre-command stderr drain: {pre_drain_data[:80]}"
                     )
 
-        # Generate unique command ID to prevent output mixing (Issue #408)
+        # Generate per-command markers so command output cannot spoof the
+        # control record parsed below (Issue #408).
         cmd_id = f"{time.time_ns()}"
         start_marker_pattern = f"{self.start_marker}_{cmd_id}"
+        delimiter_pattern = f"{self.delimiter}_{cmd_id}"
 
         # Reset errexit after each block so that `set -e` set by the user does
         # not persist to later blocks. 41% of shell timeouts involve errexit
@@ -941,7 +959,15 @@ class ShellSession:
         # success path.
         full_command = f"echo {start_marker_pattern}\n"  # Start marker first
         full_command += f"{command}\n"
-        full_command += f"echo ReturnCode:$? {self.delimiter}\n"
+        # Capture the status before querying the physical cwd. ``$PWD`` is a
+        # mutable variable and therefore cannot be trusted for validation. Hex
+        # gives arbitrary valid path bytes a portable, single-line encoding.
+        full_command += (
+            "__gptme_rc=$?; __gptme_pwd=$(pwd -P | od -An -v -tx1 | "
+            "tr -d ' \n'); __gptme_pwd=${__gptme_pwd%0a}; printf "
+            f'"ReturnCode:%s PWDHEX:%s {delimiter_pattern}\\n" '
+            '"$__gptme_rc" "$__gptme_pwd"\n'
+        )
         full_command += "builtin set +e\n"
         try:
             self.process.stdin.write(full_command)
@@ -976,6 +1002,7 @@ class ShellSession:
                 return_code,
                 seen_start_marker,
                 start_marker_pattern,
+                delimiter_pattern,
                 start_time,
                 timeout,
                 max_output_bytes,
@@ -988,6 +1015,7 @@ class ShellSession:
             return_code,
             seen_start_marker,
             start_marker_pattern,
+            delimiter_pattern,
             start_time,
             timeout,
             max_output_bytes,
@@ -1002,6 +1030,7 @@ class ShellSession:
         return_code: int | None,
         seen_start_marker: bool,
         start_marker_pattern: str,
+        delimiter_pattern: str,
         start_time: float | None,
         timeout: float | None,
         max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
@@ -1152,7 +1181,7 @@ class ShellSession:
                                     )
                             continue
 
-                        if "ReturnCode:" in line and self.delimiter in line:
+                        if "ReturnCode:" in line and delimiter_pattern in line:
                             # Extract any command output that precedes the
                             # delimiter on the same line.  This happens when
                             # command output lacks a trailing newline (e.g.
@@ -1175,12 +1204,16 @@ class ShellSession:
                             rc_matches = re_returncode.findall(line)
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
-                            if (command == "cd" or command.startswith("cd ")) and (
-                                return_code == 0
-                            ):
-                                ex, pwd, _ = self._run("pwd", output=False)
-                                if ex == 0:
-                                    os.chdir(pwd.strip())
+                            cwd_match = re.search(
+                                rf" PWDHEX:([0-9a-f]*) {re.escape(delimiter_pattern)}",
+                                line[rc_pos:],
+                            )
+                            if cwd_match:
+                                self._set_cwd(
+                                    bytes.fromhex(cwd_match.group(1)).decode(
+                                        errors="surrogateescape"
+                                    )
+                                )
 
                             # Drain remaining stderr
                             stop_event.set()
@@ -1336,6 +1369,7 @@ class ShellSession:
         return_code: int | None,
         seen_start_marker: bool,
         start_marker_pattern: str,
+        delimiter_pattern: str,
         start_time: float | None,
         timeout: float | None,
         max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
@@ -1431,7 +1465,7 @@ class ShellSession:
                                     )
                             continue
 
-                        if "ReturnCode:" in line and self.delimiter in line:
+                        if "ReturnCode:" in line and delimiter_pattern in line:
                             # Extract any command output that precedes the
                             # delimiter on the same line.  This happens when
                             # command output lacks a trailing newline (e.g.
@@ -1466,18 +1500,16 @@ class ShellSession:
                             rc_matches = re_returncode.findall(line)
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
-                            # if command is cd, update working directory
-                            if (
-                                command == "cd" or command.startswith("cd ")
-                            ) and return_code == 0:
-                                ex, pwd, _ = self._run("pwd", output=False)
-                                if ex != 0:
-                                    logger.warning(
-                                        "pwd failed after cd, cannot update "
-                                        "working directory"
+                            cwd_match = re.search(
+                                rf" PWDHEX:([0-9a-f]*) {re.escape(delimiter_pattern)}",
+                                line[rc_pos:],
+                            )
+                            if cwd_match:
+                                self._set_cwd(
+                                    bytes.fromhex(cwd_match.group(1)).decode(
+                                        errors="surrogateescape"
                                     )
-                                else:
-                                    os.chdir(pwd.strip())
+                                )
 
                             # If the byte cap was already exceeded in this chunk
                             # (delimiter line present), do not return the real
@@ -2170,7 +2202,7 @@ def execute_shell_impl(
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output."""
     shell = get_shell()
-    allowlisted = is_allowlisted(cmd)
+    allowlisted = is_allowlisted(cmd, cwd=shell.get_cwd())
 
     start_time = time.monotonic()
     try:
@@ -2567,6 +2599,7 @@ def execute_shell(
             preview_lang="bash",
             confirm_msg="Run command in background?",
             allow_edit=not _has_surrounding,
+            confirmation_workspace=get_shell().get_cwd(),
         )
         return
 
@@ -2649,6 +2682,7 @@ def execute_shell(
         preview_lang="bash",
         confirm_msg="Run command?",
         allow_edit=True,
+        confirmation_workspace=get_shell().get_cwd(),
     )
 
 

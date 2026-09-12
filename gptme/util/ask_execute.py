@@ -82,6 +82,7 @@ def execute_with_confirmation(
     preview_lang: str | None = None,
     confirm_msg: str | None = None,
     allow_edit: bool = True,
+    confirmation_workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Helper function to handle common patterns in tool execution.
 
@@ -98,6 +99,7 @@ def execute_with_confirmation(
         preview_lang: Language for syntax highlighting
         confirm_msg: Custom confirmation message
         allow_edit: Whether to allow editing the content
+        confirmation_workspace: Effective cwd passed to confirmation hooks
     """
     from ..hooks import ConfirmAction, get_confirmation
 
@@ -113,10 +115,10 @@ def execute_with_confirmation(
         if preview_fn and content:
             preview_content = preview_fn(content, path)
 
-        # Get confirmation via hook system
-        # The hook will show preview, allow editing, and return result
+        # Get confirmation via hook system.
         result = get_confirmation(
             preview=preview_content or content,
+            workspace=confirmation_workspace,
             default_confirm=True,
         )
 
@@ -150,6 +152,7 @@ def execute_with_confirmation(
                 edited_preview = preview_fn(content, path) if preview_fn else None
                 edited_result = get_confirmation(
                     preview=edited_preview or content,
+                    workspace=confirmation_workspace,
                     default_confirm=True,
                 )
                 if edited_result.action != ConfirmAction.CONFIRM:

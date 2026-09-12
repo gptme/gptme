@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import gptme.tools.shell as shell_module
 from gptme.tools.pruner import PrunePlan
 from gptme.tools.shell import (
     ShellSession,
@@ -1991,6 +1993,83 @@ def test_shell_cwd_parameter(tmp_path):
         assert out.strip() == str(target_dir)
     finally:
         shell.close()
+
+
+def test_shell_context_local_cwd_does_not_change_process_cwd(tmp_path):
+    """Server contexts track shell cwd without mutating process-global cwd."""
+    original_cwd = Path.cwd()
+    cwd_token = shell_module._workspace_cwd.set(str(tmp_path))
+    shell = ShellSession(cwd=str(tmp_path))
+    try:
+        child = tmp_path / "child"
+        child.mkdir()
+        ret, _, _ = shell.run("cd child")
+        assert ret == 0
+        assert shell.get_cwd() == child
+        assert Path.cwd() == original_cwd
+    finally:
+        shell.close()
+        shell_module._workspace_cwd.reset(cwd_token)
+
+
+def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
+    """A successful compound command must refresh the persistent shell cwd."""
+    original_cwd = Path.cwd()
+    shell = ShellSession()
+    try:
+        ret, _, _ = shell.run(f"printf ready; cd {tmp_path}")
+        assert ret == 0
+        assert shell.get_cwd() == tmp_path
+
+        # Track cwd even when a later command fails: Bash keeps a successful
+        # ``cd`` performed before the failing command in a compound list.
+        ret, _, _ = shell.run("cd ..; false")
+        assert ret == 1
+        assert shell.get_cwd() == tmp_path.parent
+
+        # PWD is mutable, so validation must use the shell's physical cwd.
+        ret, _, _ = shell.run("PWD=/tmp")
+        assert ret == 0
+        assert shell.get_cwd() == tmp_path.parent
+
+        # Marker encoding must round-trip Bash-special path characters.
+        unusual_cwd = tmp_path / "line\nbreak and space"
+        unusual_cwd.mkdir()
+        ret, _, _ = shell.run(f"cd {shlex.quote(str(unusual_cwd))}")
+        assert ret == 0
+        assert shell.get_cwd() == unusual_cwd
+
+        # macOS/BSD ``head`` has no GNU ``head -c -1``. Cwd tracking must not
+        # depend on it: a PATH entry that rejects ``head`` cannot break a later
+        # cwd update.
+        fake_bin = tmp_path / "fake-bin"
+        fake_bin.mkdir()
+        fake_head = fake_bin / "head"
+        fake_head.write_text("#!/bin/sh\nexit 64\n")
+        fake_head.chmod(0o755)
+        ret, _, _ = shell.run(f"PATH={shlex.quote(str(fake_bin))}:$PATH")
+        assert ret == 0
+
+        portable_cwd = tmp_path / "portable"
+        portable_cwd.mkdir()
+        ret, _, _ = shell.run(f"cd {shlex.quote(str(portable_cwd))}")
+        assert ret == 0
+        assert shell.get_cwd() == portable_cwd
+
+        # Command output that resembles the old fixed control marker must not
+        # terminate parsing early or spoof the cwd used by later validation.
+        fake_cwd = tmp_path / "spoofed"
+        fake_cwd.mkdir()
+        old_marker = (
+            f"ReturnCode:0 PWDHEX:{os.fsencode(fake_cwd).hex()} {shell.delimiter}"
+        )
+        ret, out, _ = shell.run(f"printf '%s\\n' {shlex.quote(old_marker)}; true")
+        assert ret == 0
+        assert old_marker in out
+        assert shell.get_cwd() == portable_cwd
+    finally:
+        shell.close()
+        os.chdir(original_cwd)
 
 
 # ---------------------------------------------------------------------------
