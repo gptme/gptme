@@ -879,7 +879,11 @@ def step(
         # Overflow recovery may have switched the active LogManager to a
         # compacted view. Use that active log for tool execution below.
         manager = LogManager.get_current_log()
-        if manager is not None and manager.logdir == logdir:
+        if (
+            manager is not None
+            and logdir is not None
+            and manager.logdir.resolve() == logdir.resolve()
+        ):
             log = manager.log
 
         if get_config().get_env_bool("GPTME_COSTS"):

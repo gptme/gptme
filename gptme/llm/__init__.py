@@ -290,7 +290,7 @@ _CONTEXT_LENGTH_ERROR_PHRASES = (
     "maximum context length",
     "context length exceeded",
     "context window exceeded",
-    "prompt is too long",
+    "prompt is too long for the model",
     "input is too long for the model",
     "too many input tokens",
 )

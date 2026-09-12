@@ -245,6 +245,7 @@ def test_is_context_length_error_requires_provider_origin():
     for message in (
         "max_tokens must be a positive integer",
         "input is too long: maximum field length is 1000 characters",
+        "prompt is too long: maximum field length is 1000 characters",
     ):
         unrelated = BadRequestError(
             message,

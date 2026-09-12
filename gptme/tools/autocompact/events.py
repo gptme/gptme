@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import threading
-import weakref
 from datetime import datetime, timezone
 from os import PathLike
 from pathlib import Path
@@ -15,9 +14,7 @@ logger = logging.getLogger(__name__)
 
 EVENT_LOG_NAME = "compaction.jsonl"
 _event_locks_guard = threading.Lock()
-_event_locks: weakref.WeakValueDictionary[Path, threading.Lock] = (
-    weakref.WeakValueDictionary()
-)
+_event_locks: dict[Path, threading.Lock] = {}
 
 
 def _event_lock(logdir: Path) -> threading.Lock:
