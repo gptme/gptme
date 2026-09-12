@@ -256,8 +256,7 @@ def init_hooks(
             hooks_to_register.append("cli_confirm")
 
     # With no explicit hook allowlist, managed subprocess children add their
-    # control protocol to the normal defaults. The launcher extends an inherited
-    # HOOK_ALLOWLIST before process creation, preserving this API's strict contract.
+    # control protocol to the normal defaults. An explicit allowlist remains strict.
     if (
         allowlist is None
         and config.get_env("GPTME_SUBAGENT_AGENT_ID")

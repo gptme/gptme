@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
-_SUBPROCESS_STDERR_TAIL_BYTES = 64 * 1024
+_SUBPROCESS_STDERR_TAIL_BYTES = 16 * 1024
 _SUBPROCESS_STDERR_TAIL_LINES = 20
 
 # Thread-local storage for subagent context
@@ -610,13 +610,6 @@ def _run_subagent_subprocess(
     env = os.environ.copy()
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
-    if hook_allowlist := env.get("HOOK_ALLOWLIST"):
-        hooks = [hook.strip() for hook in hook_allowlist.split(",") if hook.strip()]
-        if "subagent_control" not in hooks:
-            hooks.append("subagent_control")
-        env["HOOK_ALLOWLIST"] = ",".join(hooks)
-    else:
-        env.pop("HOOK_ALLOWLIST", None)
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
     try:
