@@ -373,13 +373,9 @@ def _add_required_tools(
                 continue
             dep = by_name.get(name)
             if dep is None or not dep.is_available:
-                logger.warning(
-                    "Tool '%s' requires '%s', which is not available; "
-                    "its instructions may reference a missing tool.",
-                    tool.name,
-                    name,
+                raise ValueError(
+                    f"Tool '{tool.name}' requires '{name}', which is not available"
                 )
-                continue
             if allowlist is not None and not tool_matches_allowlist(
                 dep.name, allowlist, dep.hints
             ):
@@ -715,13 +711,20 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
             allowlist=None if allow_required else get_session_allowlist(),
             already_loaded={spec.name for spec in get_tools()},
         )
+        # Initialize the full closure before publishing any of it to the active
+        # toolset.  A companion failure must not leave the requested tool loaded
+        # without its dependency (or make a retry fail as "already loaded").
         initialized: dict[str, ToolSpec] = {}
-        for spec in to_load:
+        # _add_required_tools appends dependencies after their dependants, so
+        # reverse the closure: companions must initialize before the tool that
+        # requires them.
+        for spec in reversed(to_load):
             if has_tool(spec.name):
                 continue
-            initialized_spec = _init_single_tool(spec)
-            _get_loaded_tools().append(initialized_spec)
-            initialized[spec.name] = initialized_spec
-            logger.info("Loaded tool '%s' mid-conversation", spec.name)
+            initialized[spec.name] = _init_single_tool(spec)
+
+        _get_loaded_tools().extend(initialized.values())
+        for name in initialized:
+            logger.info("Loaded tool '%s' mid-conversation", name)
 
         return initialized[tool_name]
