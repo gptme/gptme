@@ -174,7 +174,13 @@ def _content_to_responses_input(content: MessageContent) -> str | list[dict[str,
 def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
     """Convert a ToolSpec to the flat Responses API function tool format."""
     name = spec.block_types[0] if spec.block_types else spec.name
-    description = spec.get_instructions("tool") or spec.desc or ""
+    # Prefer a format-specific compact summary verbatim (see _spec2tool).
+    description = (
+        spec.instructions_format.get("tool")
+        or spec.get_instructions("tool")
+        or spec.desc
+        or ""
+    )
     if len(description) > 1024:
         logger.warning(
             "Description for tool `%s` is too long ( %d > 1024 chars). Truncating...",

@@ -3721,6 +3721,73 @@ class TestSpec2ToolStrictSchema:
         assert result["function"]["strict"] is True
 
 
+class TestSpec2ToolDescription:
+    """Tests for the schema description source: a format-specific compact
+    summary (``instructions_format["tool"]``) must be used verbatim instead
+    of the base instructions, which can exceed the 1024-char API cap."""
+
+    def _model(self):
+        from gptme.llm.models.types import ModelMeta
+
+        return ModelMeta(
+            provider="openai",
+            model="gpt-4o",
+            context=4096,
+        )
+
+    def test_instructions_format_tool_used_verbatim(self):
+        """An instructions_format['tool'] override is the schema description
+        as-is — NOT appended to the (long) base instructions."""
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.tools.base import ToolSpec
+
+        spec = ToolSpec(
+            name="test",
+            desc="A test tool",
+            instructions="B" * 3000,
+            instructions_format={"tool": "Compact summary."},
+        )
+        result = _spec2tool(spec, self._model())
+        assert result["function"]["description"] == "Compact summary."
+
+    def test_no_override_falls_back_to_instructions(self):
+        """Without an override, the base instructions remain the source."""
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.tools.base import ToolSpec
+
+        spec = ToolSpec(name="test", desc="A test tool", instructions="Use it thus.")
+        result = _spec2tool(spec, self._model())
+        assert "Use it thus." in result["function"]["description"]
+
+    def test_hashline_edit_schema_description_under_cap(self):
+        """Real-world regression: hashline_edit's base instructions are
+        ~3.6k chars; its compact override must keep the schema description
+        within the 1024-char cap and mention the core operations."""
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.tools.hashline_edit import tool as hashline_edit_tool
+
+        result = _spec2tool(hashline_edit_tool, self._model())
+        desc = result["function"]["description"]
+        assert len(desc) <= 1024, f"description is {len(desc)} chars"
+        assert "PUT N.=M" in desc
+        assert "CUT N.=M" in desc
+        assert "[PATH#TAG]" in desc
+
+    def test_openai_responses_uses_override(self):
+        """The Responses-API converter honours the same preference."""
+        from gptme.llm.openai_responses import _tool_spec_to_responses_tool
+        from gptme.tools.base import ToolSpec
+
+        spec = ToolSpec(
+            name="test",
+            desc="A test tool",
+            instructions="B" * 3000,
+            instructions_format={"tool": "Compact summary."},
+        )
+        result = _tool_spec_to_responses_tool(spec)
+        assert result["description"] == "Compact summary."
+
+
 def test_record_usage_preserves_resolved_model_without_usage():
     """Provider metadata survives responses that omit token accounting."""
     from gptme.llm.llm_openai import _record_usage

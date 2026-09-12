@@ -649,6 +649,24 @@ PUT >40 @fn
 
 instructions_format = {
     "markdown": "Use a code block with language tag: `hashline_edit <path>`",
+    # Compact self-contained summary for the tools-API schema: the base
+    # instructions (~3.6k chars with the full syntax table) exceed OpenAI's
+    # 1024-char description cap and would be truncated mid-sentence.
+    "tool": (
+        "Apply snapshot-anchored line edits to a file after read() showed "
+        "it with a [PATH#TAG] header. The edit block must start with that "
+        "exact header, then one or more operations (line numbers refer to "
+        "the read version):\n"
+        "PUT N.=M: — replace lines N-M; new content follows as + prefixed lines\n"
+        "PUT <N: / PUT >N: — insert + content before/after line N\n"
+        "PUT N*: — replace the whole indented block starting at line N (def/class/if/...)\n"
+        "CUT N.=M — delete lines N-M\n"
+        "Registers: CUT N.=M @r saves the deleted lines; PUT >N @r / PUT <N @r / "
+        "PUT N.=M: @r pastes them elsewhere (no content block).\n"
+        "An empty line ends each content block. If the file changed since "
+        "read, the edit is rejected (3-way merge may recover); re-read to "
+        "get a fresh tag."
+    ),
 }
 
 

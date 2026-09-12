@@ -1367,3 +1367,17 @@ class TestToolSpec:
 
     def test_is_destructive(self):
         assert "destructive" in tool.hints
+
+    def test_instructions_format_tool_compact_under_1024(self):
+        """The 'tool'-format summary must fit OpenAI's 1024-char schema cap
+        and be self-contained (header + core operations)."""
+        compact = tool.instructions_format["tool"]
+        assert len(compact) <= 1024, f"compact summary is {len(compact)} chars"
+        assert "PUT N.=M" in compact
+        assert "[PATH#TAG]" in compact
+
+    def test_markdown_instructions_unchanged(self):
+        """The detailed usage docs stay in the markdown prompt path."""
+        full = tool.get_instructions("markdown")
+        assert "### Operations" in full or "PUT N.=M" in full
+        assert len(full) > len(tool.instructions_format["tool"])
