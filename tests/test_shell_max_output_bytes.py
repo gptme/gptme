@@ -161,7 +161,9 @@ def test_cap_total_output_size_bounded(shell):
     chunk = 2**16  # 64 KiB — the read chunk size
 
     with patch("gptme.tools.shell._get_max_output_bytes", return_value=cap):
-        returncode, stdout, stderr = shell.run("yes", timeout=10)
+        # Leave ample headroom for heavily loaded xdist runners. This test
+        # exercises the byte cap, not command-timeout behavior.
+        returncode, stdout, stderr = shell.run("yes", timeout=30)
 
     assert returncode == -125, f"Expected -125 (byte cap), got {returncode}"
     # Tight hermetic bound: pre-cap output + drain budget + one chunk + marker
