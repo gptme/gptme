@@ -258,7 +258,7 @@ def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
     if event == "UserPromptSubmit":
         value = payload.get("prompt")
         return value if isinstance(value, str) else "", event
-    return "", "PreToolUse" if pre_tool else "UserPromptSubmit"
+    return "", event
 
 
 @memory.command("match")

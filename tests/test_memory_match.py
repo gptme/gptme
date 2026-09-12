@@ -133,6 +133,20 @@ def test_match_ignores_invalid_or_unrelated_hook_fields(tmp_path, monkeypatch, p
     assert json.loads(result.output)["hits"] == []
 
 
+def test_match_preserves_unsupported_hook_event_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    write_entry(tmp_path, "rule", keywords=["release"])
+    payload = {"hook_event_name": "Stop", "prompt": "release"}
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--prompt", "-", "--format", "hook-json"],
+        input=json.dumps(payload),
+    )
+    assert result.exit_code == 0, result.output
+    output = json.loads(result.output)["hookSpecificOutput"]
+    assert output == {"hookEventName": "Stop", "additionalContext": ""}
+
+
 def test_match_plain_pretool_and_empty_hook(tmp_path, monkeypatch):
     monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
     write_entry(tmp_path, "rule", keywords=["release"])
