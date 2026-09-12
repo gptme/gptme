@@ -340,6 +340,7 @@ class MemoryStore:
         scope: str | None = None,
         title: str | None = None,
         metadata: dict[str, Any] | None = None,
+        keywords: list[str] | None = None,
     ) -> Path:
         """Write an entry, preserving existing lifecycle and omitted metadata.
 
@@ -375,6 +376,7 @@ class MemoryStore:
                 type=type if type is not None else previous.type,
                 title=title if title is not None else previous.title,
                 metadata={**previous.metadata, **(metadata or {})},
+                keywords=keywords if keywords is not None else previous.keywords,
             )
             text = entry.to_markdown()
             entry = entry_from_text(text, path=path, scope=root.scope, strict=True)

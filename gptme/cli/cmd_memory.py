@@ -128,6 +128,12 @@ def memory_show(name: str, as_json: bool):
     "--metadata", help="JSON object merged into entry metadata (e.g. provenance)."
 )
 @click.option(
+    "--keyword",
+    "keywords",
+    multiple=True,
+    help="Trigger phrase (repeatable); replaces keywords when supplied, otherwise preserves them.",
+)
+@click.option(
     "--body-file",
     type=click.Path(exists=True, dir_okay=False),
     help="Read the body from this file instead of stdin.",
@@ -140,6 +146,7 @@ def memory_save(
     scope: str | None,
     title: str | None,
     metadata: str | None,
+    keywords: tuple[str, ...],
     body_file: str | None,
     as_json: bool,
 ):
@@ -184,6 +191,7 @@ def memory_save(
             scope=scope,
             title=title,
             metadata=parsed_metadata,
+            keywords=list(keywords) if keywords else None,
         )
     except (KeyError, OSError, ValueError, MemoryParseError) as e:
         click.echo(f"Error: {e}", err=True)
@@ -215,6 +223,99 @@ def _read_recall_prompt(prompt: str | None) -> str:
     if not sys.stdin.isatty():
         return sys.stdin.read()
     raise click.UsageError("provide QUERY or --prompt - to read stdin")
+
+
+def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
+    """Accept plain text or the relevant fields of a Claude Code hook payload."""
+    event = "PreToolUse" if pre_tool else "UserPromptSubmit"
+    if prompt != "-":
+        return _read_recall_prompt(prompt), event
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw, event
+    if not isinstance(payload, dict):
+        return "", event
+    event = payload.get("hook_event_name", event)
+    if event == "PreToolUse":
+        tool_input = payload.get("tool_input")
+        if not isinstance(tool_input, dict):
+            return "", event
+
+        # Only input values carry the pending action. Envelope fields such as
+        # cwd, session_id and transcript_path must not trigger a memory.
+        def values(value: object) -> list[str]:
+            if isinstance(value, str):
+                return [value]
+            if isinstance(value, dict):
+                return [text for item in value.values() for text in values(item)]
+            if isinstance(value, list):
+                return [text for item in value for text in values(item)]
+            return []
+
+        return "\n".join(values(tool_input)), event
+    if event == "UserPromptSubmit":
+        value = payload.get("prompt")
+        return value if isinstance(value, str) else "", event
+    return "", "PreToolUse" if pre_tool else "UserPromptSubmit"
+
+
+@memory.command("match")
+@click.argument("query", required=False)
+@click.option("--prompt", help="Text, or '-' for a hook payload/plain text on stdin.")
+@click.option(
+    "--pre-tool", is_flag=True, help="Use PreToolUse output for plain text input."
+)
+@click.option("-k", "--limit", type=click.IntRange(min=1), default=5, show_default=True)
+@click.option(
+    "--format",
+    "format_",
+    type=click.Choice(["text", "json", "hook-json"]),
+    default="text",
+    show_default=True,
+)
+@click.option(
+    "--body-chars", type=click.IntRange(min=1), default=1200, show_default=True
+)
+def memory_match(
+    query: str | None,
+    prompt: str | None,
+    pre_tool: bool,
+    limit: int,
+    format_: str,
+    body_chars: int,
+) -> None:
+    """Trigger living memories by explicit lesson-style keywords and wildcards.
+
+    Unlike recall, names and body similarity never trigger a match. Hook input
+    supports UserPromptSubmit and PreToolUse; no session state is written.
+    """
+    from ..memory.match import match_memories, render_matches
+
+    if query is not None and prompt is not None:
+        raise click.UsageError("use either QUERY or --prompt, not both")
+    text, event = _read_match_prompt(prompt if prompt is not None else query, pre_tool)
+    hits = match_memories(_store(), text, limit=limit)
+    if format_ == "json":
+        click.echo(
+            json.dumps({"hits": [hit.to_dict() for hit in hits]}, indent=2, default=str)
+        )
+        return
+    rendered = _clean(render_matches(hits, body_chars=body_chars), keep_newlines=True)
+    if format_ == "hook-json":
+        click.echo(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": event,
+                        "additionalContext": rendered,
+                    }
+                }
+            )
+        )
+    elif rendered:
+        click.echo(rendered)
 
 
 @memory.command("recall")

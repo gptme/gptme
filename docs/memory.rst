@@ -106,6 +106,42 @@ its TF-IDF index. A minimal gptme installation falls back to a stdlib
 token-overlap scorer. Output always reports the backend that actually ran; use
 ``--backend tfidf`` when fallback would be unacceptable.
 
+Triggered matching
+------------------
+
+Add explicit trigger phrases through the shared writer:
+
+.. code-block:: console
+
+   $ gptme-util memory save release-rule "Verify releases before declaring done" --keyword "stable release" --keyword "deploy*" < rule.md
+   $ gptme-util memory match "Cut the stable release" --format json
+
+``match`` adapts living entries to gptme's ``LessonMatcher``. Keywords are
+case-insensitive substrings; ``*`` matches word characters, never spaces or
+punctuation. Empty keywords and a lone ``*`` are disabled. Each matching
+keyword contributes one point. Entry names, descriptions and bodies do not
+trigger matches. Equal scores retain name order; ``-k`` caps results (default
+5). Superseded and historical entries stay excluded. A nearer entry shadows
+a same-named farther entry before lifecycle filtering, and index selection
+does not restrict matching.
+
+Repeated ``--keyword`` options replace an entry's keywords; omitting the option
+preserves existing keywords. The Python writer also accepts ``keywords=[]``
+to clear them. Saving keywords follows the existing index policy and budget.
+Matching itself is read-only.
+
+``--prompt -`` accepts plain text or a Claude Code JSON event. For
+``UserPromptSubmit`` it matches the prompt; for ``PreToolUse`` it matches
+string values inside ``tool_input``. Session IDs, transcript paths, and other
+envelope fields never participate. ``--pre-tool`` selects the pre-tool response
+when supplying plain text. ``--format hook-json`` uses the input event's name
+and returns empty context on no match. Text and hook output include source
+paths and cap each body at ``--body-chars`` (default 1200).
+
+The CLI keeps no session deduplication state. A harness wrapper can call
+``gptme.memory.match.match_memories`` directly and apply its own deduplication
+and injection budget to the returned entries, scores and ``matched_by`` reasons.
+
 Claude Code hook
 ----------------
 
@@ -123,6 +159,17 @@ returns a valid ``additionalContext`` response:
              {
                "type": "command",
                "command": "gptme-util memory recall --prompt - --format hook-json",
+               "timeout": 20
+             }
+           ]
+         }
+       ],
+       "PreToolUse": [
+         {
+           "hooks": [
+             {
+               "type": "command",
+               "command": "gptme-util memory match --prompt - --format hook-json",
                "timeout": 20
              }
            ]
