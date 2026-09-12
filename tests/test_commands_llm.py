@@ -63,12 +63,13 @@ def test_cmd_tools_load_appends_replacement_prompt(tmp_path: Path):
     with (
         patch("gptme.config.ChatConfig.from_logdir") as from_logdir,
         patch("gptme.llm.models.get_default_model", return_value=model_meta),
-        patch("gptme.tools.load_tool"),
+        patch("gptme.tools.load_tool") as load_tool,
         patch("gptme.commands.llm._replacement_prompt", return_value=[replacement]),
     ):
         yielded = list(cmd_tools(ctx))
 
     assert yielded == [replacement]
+    load_tool.assert_called_once_with("python", allow_required=True)
     from_logdir.assert_called_once_with(tmp_path)
     from_logdir.return_value.save.assert_called_once_with()
 

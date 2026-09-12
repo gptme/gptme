@@ -9,7 +9,7 @@ import logging
 import re
 import types
 import xml.etree.ElementTree as _ElementTree
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import Callable, Collection, Generator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -366,6 +366,101 @@ def callable_signature(func: Callable) -> str:
 ToolFunctionInput: TypeAlias = ToolFunction | Callable[..., Any]
 
 
+_TOOL_COND_RE = re.compile(
+    r"\{%\s*(?P<kw>if|elif)\s+tools?\s*:\s*(?P<names>[^%]*?)\s*%\}"
+    r"|\{%\s*(?P<kw2>else|endif)\s*%\}"
+)
+_TOOL_COND_START_RE = re.compile(r"\{%\s*if\s+tools?\s*:")
+
+
+def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
+    """Resolve ``{% if tools: a, b %}...{% elif tools: c %}...{% else %}...{% endif %}``.
+
+    Tool docs often describe how tools interact ("fetch with `read`", "use
+    after `read`"). Such text is only true when the other tool is loaded, so
+    it is wrapped in a conditional and rendered against the loaded toolset at
+    prompt time. ``loaded=None`` means "assume every tool is loaded", which is
+    what documentation rendering wants.
+
+    A branch is taken when *all* listed tools are loaded. Blocks do not nest.
+    A marker that occupies a whole line takes that line with it, so lists and
+    paragraphs stay tidy; inline markers only remove themselves.
+    """
+    # Other templating languages use the same ``{% ... %}`` delimiters. Only
+    # interpret the text when it opts into this syntax with an ``if tools:``.
+    if not _TOOL_COND_START_RE.search(text):
+        return text
+    loaded_set = None if loaded is None else {name.lower() for name in loaded}
+
+    def _taken(names: str) -> bool:
+        wanted = [n.strip().lower() for n in names.split(",") if n.strip()]
+        if not wanted:
+            raise ValueError("{% if tools %} requires at least one tool name")
+        if loaded_set is None:
+            return True
+        return all(n in loaded_set for n in wanted)
+
+    out: list[str] = []
+    pos = 0
+    # state: None outside a block; inside: (branch_taken_already, emitting)
+    state: tuple[bool, bool] | None = None
+    for m in _TOOL_COND_RE.finditer(text):
+        start, end = m.span()
+        # whole-line marker: swallow the surrounding newline as well
+        line_start = text.rfind("\n", 0, start) + 1
+        line_end = text.find("\n", end)
+        line_end = len(text) if line_end == -1 else line_end
+        whole_line = (
+            text[line_start:start].strip() == "" and text[end:line_end].strip() == ""
+        )
+        chunk = text[pos:start]
+        if state is None or state[1]:
+            out.append(chunk)
+        if whole_line:
+            # Drop leading indentation already included in this chunk, then
+            # swallow the marker line and its trailing newline.
+            if state is None or state[1]:
+                out[-1] = chunk[: line_start - pos]
+            end = line_end + 1 if line_end < len(text) else line_end
+        kw = m.group("kw") or m.group("kw2")
+        if kw == "if":
+            if state is not None:
+                raise ValueError("nested {% if tools %} blocks are not supported")
+            taken = _taken(m.group("names"))
+            state = (taken, taken)
+        elif kw == "elif":
+            if state is None:
+                raise ValueError("{% elif %} without {% if tools %}")
+            taken = (not state[0]) and _taken(m.group("names"))
+            state = (state[0] or taken, taken)
+        elif kw == "else":
+            if state is None:
+                raise ValueError("{% else %} without {% if tools %}")
+            state = (True, not state[0])
+        else:  # endif
+            if state is None:
+                raise ValueError("{% endif %} without {% if tools %}")
+            state = None
+        pos = end
+    if state is not None:
+        raise ValueError("unterminated {% if tools %} block")
+    trailing = text[pos:]
+    out.append(trailing)
+    return "".join(out)
+
+
+def _loaded_tool_names() -> set[str] | None:
+    """Names of the currently loaded tools, or None before init_tools ran."""
+    # noreorder
+    from . import get_tools  # fmt: skip
+
+    try:
+        tools = get_tools()
+    except Exception:  # pragma: no cover - defensive; never break prompt rendering
+        return None
+    return {t.name for t in tools} if tools else None
+
+
 # init=False is intentional: ToolSpec needs a wide constructor input type while
 # storing normalized fields. Dataclasses will not call __post_init__ here.
 @dataclass(frozen=True, eq=False, init=False)
@@ -389,6 +484,8 @@ class ToolSpec:
         parameters: Descriptor of parameters use by this tool.
         load_priority: Influence the loading order of this tool. The higher the later.
         disabled_by_default: Whether this tool should be disabled by default.
+        requires_tools: Names of companion tools that are loaded together with
+            this one (a tool whose docs or workflow depend on another tool).
         hooks: Hooks to register when this tool is loaded.
         commands: User slash-commands (/example) to register when this tool is loaded.
     """
@@ -410,6 +507,10 @@ class ToolSpec:
     parameters: list[Parameter] = field(default_factory=list)
     load_priority: int = 0
     disabled_by_default: bool = False
+    # Companion tools this tool needs to be useful (e.g. hashline_edit needs
+    # read for its snapshot tags). Loaded alongside this tool even when
+    # disabled_by_default; see get_toolchain.
+    requires_tools: list[str] = field(default_factory=list)
     is_mcp: bool = False
     hints: frozenset[str] = field(default_factory=frozenset)
     read_only: bool = False
@@ -432,6 +533,7 @@ class ToolSpec:
         parameters: list[Parameter] | None = None,
         load_priority: int = 0,
         disabled_by_default: bool = False,
+        requires_tools: list[str] | None = None,
         is_mcp: bool = False,
         hints: frozenset[str] | None = None,
         read_only: bool = False,
@@ -456,6 +558,7 @@ class ToolSpec:
         object.__setattr__(self, "parameters", parameters or [])
         object.__setattr__(self, "load_priority", load_priority)
         object.__setattr__(self, "disabled_by_default", disabled_by_default)
+        object.__setattr__(self, "requires_tools", list(requires_tools or []))
         object.__setattr__(self, "is_mcp", is_mcp)
         object.__setattr__(self, "hints", hints or frozenset())
         object.__setattr__(self, "read_only", read_only)
@@ -521,7 +624,7 @@ class ToolSpec:
 
 .. code-block:: markdown
 
-{indent(self.instructions, "    ")}\n\n"""
+{indent(render_tool_conditionals(self.instructions, None), "    ")}\n\n"""
         if self.get_examples():
             examples_raw = self.get_examples()
             examples_rst = transform_examples_to_chat_directives(examples_raw)
@@ -560,9 +663,10 @@ class ToolSpec:
 
     def get_instructions(self, tool_format: ToolFormat):
         instructions = []
+        loaded = _loaded_tool_names()
 
         if self.instructions:
-            instructions.append(self.instructions)
+            instructions.append(render_tool_conditionals(self.instructions, loaded))
 
         if tool_format in self.instructions_format:
             # A format-specific override replaces the auto-generated function listing
@@ -570,7 +674,9 @@ class ToolSpec:
             # instructions_format["tool"], it takes responsibility for providing a
             # concise summary (needed to stay within OpenAI's 1024-char limit, #1697).
             # The same applies to any other format that has an override.
-            instructions.append(self.instructions_format[tool_format])
+            instructions.append(
+                render_tool_conditionals(self.instructions_format[tool_format], loaded)
+            )
         elif self.functions:
             instructions.append(self.get_functions_description())
 
@@ -623,6 +729,7 @@ class ToolSpec:
             examples = self.examples(tool_format)
         else:
             examples = self.examples
+        examples = render_tool_conditionals(examples, _loaded_tool_names())
         # make sure headers have exactly two newlines after them
         examples = re.sub(r"\n*(\n#+.*?)\n+", r"\n\1\n\n", examples)
         return clean_example(examples, quote=quote, strip_system=strip_system)

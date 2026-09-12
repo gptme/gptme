@@ -760,3 +760,41 @@ spawning subagents programmatically:
    :caption: Tool guides
 
    browser
+
+Tools that reference other tools
+--------------------------------
+
+Tool instructions and examples often describe how tools interact ("fetch the
+URL with ``read``", "use ``hashline_edit`` after ``read``"). Such text is only
+true when the other tool is loaded, and a model that reads it will happily call
+a tool it does not have. Two mechanisms keep this coherent:
+
+**Conditional blocks** in ``instructions``, ``instructions_format`` and
+``examples`` are rendered against the loaded toolset when the prompt is built::
+
+    Do **not** use vision for:
+    {% if tools: read, browser %}
+    - Images at a URL — fetch with `read` or visit with `browser` instead
+    {% elif tools: read %}
+    - Images at a URL — fetch with `read` first, then pass the local path
+    {% endif %}
+
+A branch is taken when *all* the listed tools are loaded; ``{% elif %}`` and
+``{% else %}`` behave as expected; blocks do not nest. A marker on its own
+line removes the whole line, so lists stay tidy. Generated documentation
+renders every branch as if all tools were loaded.
+
+**Companion tools** are declared with ``requires_tools`` on the ``ToolSpec``.
+Enabling ``hashline_edit`` loads ``read`` as well (its edits are anchored to
+``read``'s snapshot tags), even though ``read`` is disabled by default on its
+own. A startup allowlist must include every required companion; otherwise
+initialization fails rather than widening the configured capability boundary.
+An explicit ``/tools load`` user action may load the requested tool and its
+companions together::
+
+    tool = ToolSpec(
+        name="hashline_edit",
+        ...,
+        disabled_by_default=True,
+        requires_tools=["read"],
+    )

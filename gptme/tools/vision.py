@@ -147,8 +147,16 @@ or plot) that needs visual inspection or analysis. Prefer vision over guessing
 from filenames — pass the actual pixels to the model.
 
 Do **not** use vision for:
+{% if tools: read, browser %}
 - Images at a URL — fetch with `read` or visit with `browser` instead
+{% elif tools: read %}
+- Images at a URL — fetch with `read` first, then pass the local path
+{% elif tools: browser %}
+- Images at a URL — visit with `browser` instead
+{% endif %}
+{% if tools: screenshot %}
 - Taking a new screenshot — use the `screenshot` tool, then pass the path to vision
+{% endif %}
 
 Use the `view_image` Python function with `ipython` tool to view an image file.
 """.strip()
