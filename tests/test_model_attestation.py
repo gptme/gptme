@@ -163,6 +163,57 @@ def test_source_kinds():
         assert trace.selection.source.kind == kind
 
 
+def test_record_selection_trace_uses_tracked_config_source():
+    from gptme.init import _record_selection_trace
+    from gptme.llm.models import ModelMeta
+
+    model = "anthropic/claude-sonnet-4-6"
+    config = _config()
+    config.chat.model = model
+    config._model_source = ("models.default", model)
+
+    _record_selection_trace(
+        config,
+        model,
+        model,
+        model,
+        "anthropic",
+        ModelMeta(provider="anthropic", model="claude-sonnet-4-6", context=200_000),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.selection is not None
+    assert trace.selection.source.kind == "models.default"
+    assert trace.selection.source.value == model
+
+
+def test_record_selection_trace_ignores_stale_tracked_source():
+    from gptme.init import _record_selection_trace
+    from gptme.llm.models import ModelMeta
+
+    requested = "openai/gpt-5"
+    config = _config()
+    config.chat.model = requested
+    config._model_source = (
+        "models.default",
+        "anthropic/claude-sonnet-4-6",
+    )
+
+    _record_selection_trace(
+        config,
+        requested,
+        requested,
+        requested,
+        "openai",
+        ModelMeta(provider="openai", model="gpt-5", context=400_000),
+    )
+
+    trace = get_selection_trace()
+    assert trace is not None and trace.selection is not None
+    assert trace.selection.source.kind == "cli"
+    assert trace.selection.source.value == requested
+
+
 def _config() -> MagicMock:
     config = MagicMock()
     config.chat = MagicMock(model=None)

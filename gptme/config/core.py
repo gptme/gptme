@@ -9,6 +9,7 @@ import os
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from typing_extensions import Self
 
@@ -29,6 +30,8 @@ from .user import load_user_config
 
 logger = logging.getLogger(__name__)
 
+ModelSourceKind = Literal["cli", "chat_config", "models.default", "MODEL"]
+
 
 @dataclass()
 class Config:
@@ -42,6 +45,9 @@ class Config:
     user: UserConfig = field(default_factory=load_user_config)
     project: ProjectConfig | None = None
     chat: ChatConfig | None = None
+    # Runtime-only provenance for a model already resolved into chat.model.
+    # The value guard prevents a later explicit model from inheriting stale provenance.
+    _model_source: tuple[ModelSourceKind, str] | None = field(default=None, repr=False)
 
     @classmethod
     def from_workspace(cls, workspace: Path) -> Self:
