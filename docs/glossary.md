@@ -1,3 +1,7 @@
+---
+audience: developer
+---
+
 # Glossary
 
 This document defines key terminology used throughout the gptme codebase.

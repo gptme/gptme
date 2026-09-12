@@ -1,6 +1,7 @@
 """Configuration system for gptme.
 
 Split into sub-modules for maintainability:
+
 - models: Configuration dataclasses (ProjectConfig, UserConfig, etc.)
 - user: User config loading and merging
 - project: Project config loading and caching

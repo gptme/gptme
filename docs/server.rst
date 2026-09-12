@@ -1,3 +1,5 @@
+:audience: power-user
+
 Server
 ======
 
@@ -21,7 +23,7 @@ Start the server, then open http://localhost:5700:
 The server and modern web UI share one origin by default, so no separate
 frontend process or CORS configuration is required.
 
-For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
+For more CLI options, see the :doc:`CLI reference <cli/gptme-server>`.
 
 .. _server:gptme-webui:
 
@@ -33,7 +35,7 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme/tree/m
 **Try it now:**
 
 - `chat.gptme.org <https://chat.gptme.org>`_ (latest version of gptme-webui, bring your own gptme-server)
-- `gptme.ai <https://gptme.ai>`_ (upcoming hosted gptme service)
+- :doc:`gptme.ai <cloud>` (managed hosted gptme service, early access)
 
 **Key Features:**
 

@@ -3,6 +3,7 @@
 Extracted from a single 1100-line module into a package for maintainability.
 
 Package structure:
+
 - types.py      — Data classes and module-level state (Subagent, ReturnType, etc.)
 - hooks.py      — Completion notification system (LOOP_CONTINUE hook)
 - api.py        — Public API (subagent, subagent_status, subagent_wait, etc.)

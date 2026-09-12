@@ -1,5 +1,6 @@
 """
 Tools to let the assistant control a browser, including:
+
  - loading pages
  - reading their contents
  - searching the web
@@ -12,6 +13,7 @@ Tools to let the assistant control a browser, including:
 Two backends are available:
 
 Playwright backend:
+
  - Full browser automation with screenshots
  - Installation:
 
@@ -55,6 +57,7 @@ Playwright backend:
        export GPTME_BROWSER_CDP_URL=http://127.0.0.1:9222
 
 Lynx backend:
+
  - Text-only browser for basic page reading and searching
  - No screenshot support
  - Installation:
@@ -68,6 +71,7 @@ Lynx backend:
        # or any other way that gets you the `lynx` command
 
 Provider Native Search:
+
  - When using Anthropic Claude models, native web search can be enabled
  - This uses Anthropic's built-in web search instead of web scraping
  - More reliable than Google/DuckDuckGo scraping (which is blocked by bot detection)
@@ -1123,6 +1127,7 @@ def click_element(selector: str) -> str:
 
     Args:
         selector: Playwright selector to find the element. Supports:
+
             - CSS: "#submit-btn", ".nav-link", "button"
             - Text: "text=Submit", "text=Log in"
             - Role: "role=button[name='Submit']"

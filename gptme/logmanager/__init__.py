@@ -1,6 +1,7 @@
 """Conversation log management for gptme.
 
 Split into focused modules:
+
 - manager: Log data structure, LogManager orchestrator, message processing
 - conversations: ConversationMeta, conversation querying and management
 """

@@ -1,6 +1,7 @@
 """Agent profiles for pre-configured system prompts and tool access.
 
 Profiles combine:
+
 - System prompt customization (behavioral guidance)
 - Tool access restrictions (hard-enforced when used via subagent tool)
 - Behavior rules (read-only, no-network, etc.)
@@ -15,6 +16,7 @@ This enables creating specialized agents like "explorer" (read-only),
 "researcher" (web access), or "developer" (full capabilities).
 
 User profiles can be defined in ~/.config/gptme/profiles/ as either:
+
 - TOML files (.toml): Traditional key-value format
 - Markdown files (.md): YAML frontmatter for metadata, body as system_prompt
 """

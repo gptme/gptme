@@ -121,6 +121,7 @@ def init_hooks(
     """Initialize and register hooks in a thread-safe manner.
 
     Mode detection for confirmation hooks:
+
     - Interactive CLI mode with confirmation: Registers cli_confirm hook
     - Server mode with confirmation: Registers server_confirm hook
     - Non-interactive mode: No confirmation hook (autonomous/auto-confirm)

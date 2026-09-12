@@ -4,6 +4,7 @@ MCP server discovery and management tool.
 Allows searching for MCP servers in registries and dynamically loading/unloading them.
 
 Available Commands:
+
 - ``/mcp search [query]`` - Search for MCP servers across all registries
 - ``/mcp info <server-name>`` - Get detailed information about a specific server
 - ``/mcp load <server-name> [config-json]`` - Dynamically load an MCP server into the current session

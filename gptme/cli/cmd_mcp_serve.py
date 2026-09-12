@@ -40,7 +40,7 @@ def main(
 
     Connect this server to Claude Desktop, Cursor, or any MCP-compatible client.
 
-    \\b
+    \b
     Claude Desktop config (~/.claude/claude_desktop_config.json):
         {
           "mcpServers": {

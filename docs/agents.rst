@@ -1,3 +1,5 @@
+:audience: power-user
+
 Agents
 ======
 
@@ -324,7 +326,8 @@ The template system enables creating agents for specific domains:
 External Integrations
 ---------------------
 
-Agents can be extended with various external integrations and tools for enhanced capabilities:
+Agents can be extended with various external integrations and tools for enhanced capabilities.
+For the email, chat, and voice tools agents use to communicate, see :doc:`channels`.
 
 **Content & Information:**
 
@@ -383,10 +386,3 @@ For more details, see the following resources:
 
 - `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ - Template for creating new agents
 - `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ - Community-contributed tools and scripts for agents
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Agent Profiles
-   :hidden:
-
-   agent/verifier-profile

@@ -1,3 +1,7 @@
+---
+audience: user
+---
+
 # How to Edit Files
 
 gptme edits files with surgical precision using its `patch` and `save` tools.

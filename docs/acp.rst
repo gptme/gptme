@@ -1,7 +1,9 @@
+:audience: user
+
 .. _acp:
 
-ACP (Agent Client Protocol)
-===========================
+ACP
+===
 
 gptme implements the `Agent Client Protocol (ACP) <https://github.com/ArcadeAI/agent-client-protocol>`_, allowing it to be used as a coding agent from any ACP-compatible editor such as `Zed <https://zed.dev/>`_ and JetBrains IDEs.
 

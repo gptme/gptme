@@ -1,3 +1,5 @@
+:audience: power-user
+
 Skills
 ======
 
@@ -435,11 +437,6 @@ Example:
 
 - Lesson: ``lessons/patterns/testing.md`` - Testing best practices
 - Skill: ``skills/testing-skill.md`` - Bundled pytest utilities
-
-.. toctree::
-   :maxdepth: 1
-
-   skills-gallery
 
 Related
 -------

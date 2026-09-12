@@ -1,8 +1,7 @@
 :orphan:
 
 .. meta::
-   :http-equiv: refresh
-   :content: 0; url=providers-custom.html
+   :http-equiv=refresh: 0; url=providers-custom.html
 
 Custom Providers (moved)
 ========================

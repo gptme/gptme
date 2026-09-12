@@ -117,9 +117,10 @@ Default write root is project `memory/` if that directory exists, else
 `~/.claude/projects/<workspace-hash>/memory/`. Existence is the only check —
 an unwritable project directory is an error, not a fallback. `recall` (and
 the Claude Code hook) search every layered root, so other harnesses see the
-entry on their next recall. gptme's session-start workspace prompt and
-Claude Code's native `MEMORY.md` auto-load only the CC root; pass
-`--scope cc` when that auto-load path is required.
+entry on their next recall. gptme's session-start workspace prompt loads
+the indexes of every existing layered root (64 KB shared budget), but Claude
+Code's native `MEMORY.md` auto-load reads only the CC root; pass `--scope cc`
+when the memory must appear in Claude Code without recall.
 
 ### Inspect and manage
 
@@ -157,3 +158,13 @@ See [webui/AGENTS.md](webui/AGENTS.md) for full setup including dev servers, tes
 ```bash
 make docs
 ```
+
+### Writing docs
+
+Every docs page declares its target audience — `:audience: user|power-user|developer`
+as the first line of `.rst` files, `audience:` front matter in `.md` — and the build
+fails without it. Keep content at the page's level: move power-user or developer
+detail to a more technical page and link to it, and flag mismatches in review.
+Hub pages list their subpages near the top; leaf pages have no toctree and no
+`.. contents::`. Don't nest a lone related page under a content-heavy page.
+After `make docs`, review the rendered structure with `make docs-structure`. See "Documentation" in [docs/contributing.rst](docs/contributing.rst).

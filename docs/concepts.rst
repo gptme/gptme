@@ -1,3 +1,5 @@
+:audience: power-user
+
 Core Concepts
 =============
 
@@ -20,7 +22,7 @@ Architecture Overview
 
 The five core concepts:
 
-1. **Knowledge Files** - Context and instructions (via :doc:`lessons` and :doc:`skills`)
+1. **Knowledge Files** - Context and instructions (via :doc:`lessons` and :doc:`skills`), alongside runtime :doc:`memory`
 2. **Tools** - Capabilities the AI can use (see :doc:`tools`)
 3. **Hooks** - Lifecycle integration points (see :doc:`hooks`)
 4. **Commands** - User interface shortcuts (see :ref:`usage-commands`)
@@ -37,6 +39,11 @@ Knowledge Files (Context Injection)
 
 - **Lessons** (core): Auto-load by keywords/patterns/tools (see :doc:`lessons`)
 - **Skills** (Anthropic format): Auto-load by name only (see :doc:`skills`)
+
+**Memory is different**: knowledge files are curated ahead of time. Facts
+learned while working — user preferences, decisions, project facts — belong in
+:doc:`memory`, which agents and harnesses write at runtime and gptme loads at
+session start. See :ref:`memory-lessons-skills` for when to use which.
 
 **Structure**:
 
@@ -316,6 +323,17 @@ Decision Guide
        • Need to modify gptme behavior
 
        • Require dynamic behavior
+   * - **Memory**
+     - • Recording facts learned while working
+
+       • Preserving user preferences and decisions
+
+       • Sharing context across harnesses
+     - • Curated guidance that should shape behavior (use lessons)
+
+       • Repeatable workflows (use skills)
+
+       • Credentials or other secrets
    * - **Tools**
      - • Adding capabilities
 
@@ -433,7 +451,9 @@ Best Practices
 Further Reading
 ---------------
 
+- :doc:`lessons` - Lesson format and keyword/pattern/tool matching
 - :doc:`skills` - Knowledge files and skill format
+- :doc:`memory` - Persistent memory, and when to use it instead of lessons or skills
 - :doc:`tools` - Built-in tools catalog
 - :doc:`custom_tool` - Creating custom tools
 - :doc:`hooks` - Hook system details

@@ -4,17 +4,21 @@ Pre-commit hook tool that automatically runs pre-commit checks after file saves.
 This tool automatically runs pre-commit checks in two scenarios:
 
 1. **Per-file checks (FILE_SAVE_POST (file.save.post))**: After each file is saved
+
    - Runs pre-commit on the specific saved file
    - Provides immediate feedback on formatting/linting issues
 
 2. **Full checks (TURN_POST (turn.post))**: After message processing completes
+
    - Runs pre-commit on all modified files
    - Ensures all changes pass checks before auto-commit
 
 Commands:
+
 - /pre-commit: Manually run pre-commit checks
 
 Pre-commit checks include:
+
 - Code formatting (black, prettier, etc.)
 - Linting (ruff, eslint, etc.)
 - Type checking (mypy, etc.)
@@ -53,6 +57,7 @@ def use_checks() -> bool:
     """Check if pre-commit checks are enabled.
 
     Pre-commit checks are enabled when either:
+
     1. GPTME_CHECK=true is set explicitly, or
     2. A .pre-commit-config.yaml file exists in any parent directory
 
@@ -145,6 +150,7 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
             Falls back to ``--all-files`` when no modified files are found.
 
     Pre-commit checks will run if either:
+
     1. GPTME_CHECK=true is set explicitly, or
     2. A .pre-commit-config.yaml file exists in any parent directory
 
