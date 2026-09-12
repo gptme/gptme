@@ -255,10 +255,12 @@ def init_hooks(
         elif interactive and not no_confirm:
             hooks_to_register.append("cli_confirm")
 
-    # The control channel is part of the subprocess-subagent protocol, not an
-    # optional session hook. Keep it active even under an explicit hook allowlist.
+    # With no explicit hook allowlist, managed subprocess children add their
+    # control protocol to the normal defaults. The launcher extends an inherited
+    # HOOK_ALLOWLIST before process creation, preserving this API's strict contract.
     if (
-        config.get_env("GPTME_SUBAGENT_AGENT_ID")
+        allowlist is None
+        and config.get_env("GPTME_SUBAGENT_AGENT_ID")
         and "subagent_control" not in hooks_to_register
     ):
         hooks_to_register.append("subagent_control")

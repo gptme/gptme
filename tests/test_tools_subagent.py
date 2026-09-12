@@ -1085,6 +1085,34 @@ def test_subprocess_sets_progress_env_vars():
     assert captured_env["GPTME_PROGRESS_FILE"].endswith("progress.jsonl")
 
 
+def test_subprocess_extends_explicit_hook_allowlist(monkeypatch, tmp_path):
+    """Managed children keep control delivery under a parent hook allowlist."""
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    captured_env: dict[str, str] = {}
+
+    def fake_popen(cmd, **kwargs):
+        captured_env.update(kwargs.get("env") or {})
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
+    monkeypatch.setenv("HOOK_ALLOWLIST", "test,token_awareness")
+    logdir = tmp_path / "subagent-test-agent"
+    logdir.mkdir()
+
+    with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
+        _run_subagent_subprocess(
+            prompt="Test hook allowlist",
+            logdir=logdir,
+            model=None,
+            workspace=tmp_path,
+        )
+
+    assert captured_env["HOOK_ALLOWLIST"] == ("test,token_awareness,subagent_control")
+
+
 def test_progress_tool_file_delivery(tmp_path):
     """progress tool writes to file channel when running in subprocess env."""
     import json

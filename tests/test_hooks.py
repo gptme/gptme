@@ -23,6 +23,19 @@ def clear_all_hooks():
     clear_hooks()
 
 
+def test_init_hooks_explicit_allowlist_stays_strict(monkeypatch):
+    """Managed-child defaults must not override the init_hooks API allowlist."""
+    from gptme.hooks import init_hooks
+
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "child")
+
+    init_hooks(allowlist=["test"])
+
+    hook_names = {hook.name for hook in get_hooks()}
+    assert "subagent.control" not in hook_names
+    assert "test_step_pre" in hook_names
+
+
 def test_register_hook():
     """Test hook registration."""
 
