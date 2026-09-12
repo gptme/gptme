@@ -283,6 +283,17 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
 # after those hooks have already run. See https://github.com/gptme/gptme/issues/3668
 _PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx", "requests"})
 _LLM_REPLY_ORIGIN_ATTR = "_gptme_from_llm_reply"
+_CONTEXT_LENGTH_ERROR_CODES = frozenset(
+    {"context_length_exceeded", "context_window_exceeded", "request_too_large"}
+)
+_CONTEXT_LENGTH_ERROR_PHRASES = (
+    "maximum context length",
+    "context length exceeded",
+    "context window exceeded",
+    "prompt is too long",
+    "input is too long",
+    "too many input tokens",
+)
 
 
 def mark_llm_reply_origin(exc: BaseException) -> None:
@@ -306,6 +317,26 @@ def is_provider_error(e: BaseException) -> bool:
         return False
     modules = {(cls.__module__ or "").split(".", 1)[0] for cls in type(e).__mro__}
     return bool(modules & _PROVIDER_ERROR_MODULES)
+
+
+def is_context_length_error(e: BaseException) -> bool:
+    """Whether a provider call failed because its input exceeded context."""
+    if not is_provider_error(e):
+        return False
+
+    body = getattr(e, "body", None)
+    codes: set[str] = set()
+    if isinstance(body, dict):
+        candidates: list[object] = [body.get("code"), body.get("type")]
+        nested = body.get("error")
+        if isinstance(nested, dict):
+            candidates.extend((nested.get("code"), nested.get("type")))
+        codes = {str(value).lower() for value in candidates if value is not None}
+    if codes & _CONTEXT_LENGTH_ERROR_CODES:
+        return True
+
+    text = " ".join((str(e), str(body))).lower()
+    return any(phrase in text for phrase in _CONTEXT_LENGTH_ERROR_PHRASES)
 
 
 @trace_function(name="llm.reply", attributes={"component": "llm"})

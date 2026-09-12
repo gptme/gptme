@@ -22,7 +22,7 @@ from .constants import (
 )
 from .hooks import HookType, trigger_hook
 from .init import init
-from .llm import is_provider_error, reply
+from .llm import is_context_length_error, is_provider_error, reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import (
@@ -38,6 +38,7 @@ from .prompt_queue import drain_prompt_queue
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
     ToolFormat,
+    ToolSpec,
     ToolUse,
     execute_msg,
     get_tools,
@@ -723,6 +724,102 @@ def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
         return None
 
 
+def _reply_with_overflow_recovery(
+    *,
+    log: Log,
+    msgs: list[Message],
+    model: str,
+    stream: bool,
+    tools: list[ToolSpec] | None,
+    workspace: Path | None,
+    output_schema: type | None,
+    on_token: Callable[[str], None] | None,
+    on_thinking: Callable[[bool], None] | None,
+    logdir: Path | None,
+) -> Message:
+    """Generate once, compacting to a lossless view and retrying on overflow."""
+
+    def generate(messages: list[Message]) -> Message:
+        return reply(
+            messages,
+            get_model(model).full,
+            stream,
+            tools,
+            workspace,
+            output_schema,
+            on_token=on_token,
+            on_thinking=on_thinking,
+        )
+
+    try:
+        return generate(msgs)
+    except Exception as first_error:
+        if not is_context_length_error(first_error) or logdir is None:
+            raise
+
+        from time import monotonic
+
+        from .logmanager import LogManager
+        from .tools.autocompact.events import append_compaction_event
+        from .tools.autocompact.recovery import compact_for_overflow
+
+        manager = LogManager.get_current_log()
+        if (
+            manager is None
+            or manager.log is not log
+            or manager.logdir.resolve() != logdir.resolve()
+        ):
+            raise
+
+        started = monotonic()
+        before_messages = manager.log.messages
+        before_tokens = len_tokens(before_messages, get_model(model).model)
+        compacted_messages = compact_for_overflow(manager)
+        after_tokens = len_tokens(compacted_messages, get_model(model).model)
+        if after_tokens >= before_tokens:
+            logger.warning(
+                "Overflow compaction did not shrink context (%d -> %d tokens); "
+                "skipping retry",
+                before_tokens,
+                after_tokens,
+            )
+            append_compaction_event(
+                logdir,
+                trigger="overflow",
+                method="trim",
+                tokens_before=before_tokens,
+                tokens_after=after_tokens,
+                messages_before=len(before_messages),
+                messages_after=len(compacted_messages),
+                elapsed_seconds=monotonic() - started,
+                retry_success=False,
+            )
+            raise
+        view_name = manager.get_next_view_name()
+        manager.create_view(view_name, compacted_messages)
+        manager.switch_view(view_name)
+        retry_success = False
+        try:
+            retry_messages = prepare_messages(
+                manager.log.messages, workspace, logdir=logdir
+            )
+            response = generate(retry_messages)
+            retry_success = True
+            return response
+        finally:
+            append_compaction_event(
+                logdir,
+                trigger="overflow",
+                method="trim",
+                tokens_before=before_tokens,
+                tokens_after=after_tokens,
+                messages_before=len(before_messages),
+                messages_after=len(compacted_messages),
+                elapsed_seconds=monotonic() - started,
+                retry_success=retry_success,
+            )
+
+
 @trace_function(name="chat.step", attributes={"component": "chat"})
 def step(
     log: Log | list[Message],
@@ -760,15 +857,17 @@ def step(
         # generate response — `reply()` tags only the provider call, after
         # GENERATION_PRE hooks, so tool/hook failures still propagate.
         with terminal_state_title("🤔 generating"):
-            msg_response = reply(
-                msgs,
-                get_model(model).full,
-                stream,
-                tools,
-                workspace,
-                output_schema,
+            msg_response = _reply_with_overflow_recovery(
+                log=log,
+                msgs=msgs,
+                model=model,
+                stream=stream,
+                tools=tools,
+                workspace=workspace,
+                output_schema=output_schema,
                 on_token=on_token,
                 on_thinking=on_thinking,
+                logdir=logdir,
             )
         if get_config().get_env_bool("GPTME_COSTS"):
             log_costs(msgs + [msg_response])

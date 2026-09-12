@@ -12,6 +12,7 @@ from .decision import (
     should_auto_compact,
 )
 from .engine import auto_compact_log
+from .events import append_compaction_event, read_compaction_events
 from .handlers import (
     _compact_resume,
     _compact_summarize,
@@ -44,6 +45,9 @@ __all__ = [
     "should_auto_compact",
     # Engine
     "auto_compact_log",
+    # Observability
+    "append_compaction_event",
+    "read_compaction_events",
     # Resume
     "_parse_context_files",
     "_load_context_files",

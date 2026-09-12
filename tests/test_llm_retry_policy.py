@@ -223,6 +223,34 @@ def test_reply_tags_provider_call_errors(monkeypatch):
     assert is_provider_error(ei.value)
 
 
+def test_is_context_length_error_requires_provider_origin():
+    """Only provider-call context overflows qualify for compaction recovery."""
+    from unittest.mock import MagicMock
+
+    from openai import BadRequestError
+
+    from gptme.llm import is_context_length_error, mark_llm_reply_origin
+
+    response = MagicMock()
+    response.status_code = 400
+    overflow = BadRequestError(
+        "maximum context length is 200000 tokens",
+        response=response,
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    assert not is_context_length_error(overflow)
+    mark_llm_reply_origin(overflow)
+    assert is_context_length_error(overflow)
+
+    unrelated = BadRequestError(
+        "max_tokens must be a positive integer",
+        response=response,
+        body={"error": {"code": "invalid_request_error"}},
+    )
+    mark_llm_reply_origin(unrelated)
+    assert not is_context_length_error(unrelated)
+
+
 def test_anthropic_clients_have_sdk_retries_disabled():
     """The Anthropic clients are constructed with SDK retries disabled."""
     import inspect
