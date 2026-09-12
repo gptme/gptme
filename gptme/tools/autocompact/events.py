@@ -2,29 +2,73 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
+import os
 import threading
+import weakref
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 
 EVENT_LOG_NAME = "compaction.jsonl"
 _event_locks_guard = threading.Lock()
-_event_locks: dict[Path, threading.Lock] = {}
+_event_locks: weakref.WeakValueDictionary[Path, threading.Lock] = (
+    weakref.WeakValueDictionary()
+)
+
+try:
+    fcntl: Any = importlib.import_module("fcntl")
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
+try:
+    msvcrt: Any = importlib.import_module("msvcrt")
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None
 
 
-def _event_lock(logdir: Path) -> threading.Lock:
-    path = (logdir / EVENT_LOG_NAME).resolve()
+def _event_thread_lock(path: Path) -> threading.Lock:
+    key = path.resolve()
     with _event_locks_guard:
-        lock = _event_locks.get(path)
+        lock = _event_locks.get(key)
         if lock is None:
             lock = threading.Lock()
-            _event_locks[path] = lock
+            _event_locks[key] = lock
         return lock
+
+
+@contextmanager
+def _event_lock(logdir: Path) -> Iterator[None]:
+    """Serialize event appends across threads and processes."""
+    path = logdir / EVENT_LOG_NAME
+    lock_path = logdir / f".{EVENT_LOG_NAME}.lock"
+    thread_lock = _event_thread_lock(path)
+    with thread_lock, lock_path.open("a+b") as lock:
+        if fcntl is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        elif msvcrt is not None:  # pragma: no cover - Windows
+            if lock.seek(0, os.SEEK_END) == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            elif msvcrt is not None:  # pragma: no cover - Windows
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def append_compaction_event(

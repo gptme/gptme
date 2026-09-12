@@ -1496,6 +1496,26 @@ def test_compaction_event_log_round_trip(tmp_path):
     assert events[0]["elapsed_seconds"] == 0.25
 
 
+def test_compaction_event_lock_registry_releases_unused_paths(tmp_path):
+    import gc
+
+    from gptme.tools.autocompact import events
+
+    events.append_compaction_event(
+        tmp_path,
+        trigger="manual",
+        method="trim",
+        tokens_before=100,
+        tokens_after=60,
+        messages_before=5,
+        messages_after=3,
+        elapsed_seconds=0.25,
+    )
+
+    gc.collect()
+    assert not events._event_locks
+
+
 def test_manual_trim_writes_compaction_event(tmp_path, monkeypatch):
     from unittest.mock import MagicMock
 

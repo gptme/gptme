@@ -283,6 +283,8 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
 # after those hooks have already run. See https://github.com/gptme/gptme/issues/3668
 _PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx", "requests"})
 _LLM_REPLY_ORIGIN_ATTR = "_gptme_from_llm_reply"
+_LLM_REPLY_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_output_emitted"
+_LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_visible_output_emitted"
 _CONTEXT_LENGTH_ERROR_CODES = frozenset(
     {"context_length_exceeded", "context_window_exceeded", "request_too_large"}
 )
@@ -296,13 +298,30 @@ _CONTEXT_LENGTH_ERROR_PHRASES = (
 )
 
 
-def mark_llm_reply_origin(exc: BaseException) -> None:
+def mark_llm_reply_origin(
+    exc: BaseException,
+    *,
+    output_emitted: bool = False,
+    visible_output_emitted: bool | None = None,
+) -> None:
     """Mark an exception as raised from the provider call inside `reply()`.
 
     Applied after GENERATION_PRE hooks so a hook/tool failure is not treated
-    as a recoverable LLM outage.
+    as a recoverable LLM outage. ``output_emitted`` distinguishes atomic
+    request failures from streaming failures that already reached a consumer.
     """
     setattr(exc, _LLM_REPLY_ORIGIN_ATTR, True)
+    setattr(exc, _LLM_REPLY_OUTPUT_EMITTED_ATTR, output_emitted)
+    setattr(
+        exc,
+        _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR,
+        output_emitted if visible_output_emitted is None else visible_output_emitted,
+    )
+
+
+def did_llm_reply_emit_visible_output(exc: BaseException) -> bool:
+    """Whether a failing stream already emitted output to a user consumer."""
+    return bool(getattr(exc, _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR, False))
 
 
 def is_provider_error(e: BaseException) -> bool:
@@ -388,7 +407,13 @@ def reply(
             top_p,
         )
     except Exception as e:
-        mark_llm_reply_origin(e)
+        mark_llm_reply_origin(
+            e,
+            output_emitted=bool(getattr(e, _LLM_REPLY_OUTPUT_EMITTED_ATTR, False)),
+            visible_output_emitted=bool(
+                getattr(e, _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR, False)
+            ),
+        )
         raise
 
 
@@ -1058,6 +1083,14 @@ def _reply_stream(
             _emit_chunk("".join(line_buffer))
             line_buffer.clear()
 
+    except Exception as exc:
+        setattr(exc, _LLM_REPLY_OUTPUT_EMITTED_ATTR, bool(output))
+        setattr(
+            exc,
+            _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR,
+            bool(output) and (display_enabled or emit_active),
+        )
+        raise
     except KeyboardInterrupt:
         # Flush any chars buffered since the last chunk boundary so the terminal
         # shows everything received before the interrupt.

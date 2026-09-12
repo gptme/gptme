@@ -22,7 +22,12 @@ from .constants import (
 )
 from .hooks import HookType, trigger_hook
 from .init import init
-from .llm import is_context_length_error, is_provider_error, reply
+from .llm import (
+    did_llm_reply_emit_visible_output,
+    is_context_length_error,
+    is_provider_error,
+    reply,
+)
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import (
@@ -771,11 +776,9 @@ def _reply_with_overflow_recovery(
         ):
             raise
 
-        if stream:
-            # A streaming provider may have emitted user-visible bytes before
-            # raising. Retrying would duplicate an unknown prefix because the
-            # callback/display API has no rollback signal. Non-streaming calls
-            # are atomic and safe to retry.
+        # Retrying after a visible streaming prefix would duplicate output. A
+        # context rejection before the first provider chunk is still atomic.
+        if did_llm_reply_emit_visible_output(first_error):
             raise
 
         started = monotonic()
@@ -783,12 +786,20 @@ def _reply_with_overflow_recovery(
         before_tokens = len_tokens(before_messages, get_model(model).model)
         compacted_messages = compact_for_overflow(manager)
         after_tokens = len_tokens(compacted_messages, get_model(model).model)
-        if after_tokens >= before_tokens:
+        view_name = manager.get_next_view_name()
+        manager.create_view(view_name, compacted_messages)
+        manager.switch_view(view_name)
+        retry_messages = prepare_messages(
+            manager.log.messages, workspace, logdir=logdir
+        )
+        provider_tokens_before = len_tokens(msgs, get_model(model).model)
+        provider_tokens_after = len_tokens(retry_messages, get_model(model).model)
+        if provider_tokens_after >= provider_tokens_before:
             logger.warning(
-                "Overflow compaction did not shrink context (%d -> %d tokens); "
-                "skipping retry",
-                before_tokens,
-                after_tokens,
+                "Overflow compaction did not shrink provider input "
+                "(%d -> %d tokens); skipping retry",
+                provider_tokens_before,
+                provider_tokens_after,
             )
             append_compaction_event(
                 logdir,
@@ -800,16 +811,13 @@ def _reply_with_overflow_recovery(
                 messages_after=len(compacted_messages),
                 elapsed_seconds=monotonic() - started,
                 retry_success=False,
+                provider_tokens_before=provider_tokens_before,
+                provider_tokens_after=provider_tokens_after,
             )
+            manager.switch_to_master()
             raise
-        view_name = manager.get_next_view_name()
-        manager.create_view(view_name, compacted_messages)
-        manager.switch_view(view_name)
         retry_success = False
         try:
-            retry_messages = prepare_messages(
-                manager.log.messages, workspace, logdir=logdir
-            )
             response = generate(retry_messages)
             retry_success = True
             return response
@@ -824,6 +832,8 @@ def _reply_with_overflow_recovery(
                 messages_after=len(compacted_messages),
                 elapsed_seconds=monotonic() - started,
                 retry_success=retry_success,
+                provider_tokens_before=provider_tokens_before,
+                provider_tokens_after=provider_tokens_after,
             )
 
 

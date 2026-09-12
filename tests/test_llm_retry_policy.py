@@ -146,6 +146,90 @@ def test_openai_compat_providers_disable_sdk_retries(
     assert client._kwargs["max_retries"] == SDK_MAX_RETRIES
 
 
+def test_streaming_provider_error_records_whether_output_was_emitted(monkeypatch):
+    import httpx
+
+    from gptme.llm import did_llm_reply_emit_visible_output, reply
+    from gptme.message import Message
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda *_a, **_k: iter([]))
+    monkeypatch.setattr("gptme.llm.init_llm", lambda *_a, **_k: None)
+
+    class FakeStream:
+        def __init__(self, generate):
+            self.gen = generate()
+            self.metadata = None
+
+        def __iter__(self):
+            return self.gen
+
+    def fail_before_output(*_args, **_kwargs):
+        def generate():
+            raise httpx.HTTPStatusError(
+                "maximum context length exceeded",
+                request=httpx.Request("POST", "https://example.test"),
+                response=httpx.Response(400),
+            )
+            yield "unreachable"
+
+        return FakeStream(generate)
+
+    monkeypatch.setattr("gptme.llm._stream", fail_before_output)
+    with pytest.raises(httpx.HTTPStatusError) as before:
+        reply([Message("user", "hi")], "openai/gpt-4", stream=True)
+    assert not did_llm_reply_emit_visible_output(before.value)
+
+    def fail_after_output(*_args, **_kwargs):
+        def generate():
+            yield "visible prefix"
+            raise httpx.HTTPStatusError(
+                "maximum context length exceeded",
+                request=httpx.Request("POST", "https://example.test"),
+                response=httpx.Response(400),
+            )
+
+        return FakeStream(generate)
+
+    monkeypatch.setattr("gptme.llm._stream", fail_after_output)
+    with pytest.raises(httpx.HTTPStatusError) as after:
+        reply([Message("user", "hi")], "openai/gpt-4", stream=True)
+    assert did_llm_reply_emit_visible_output(after.value)
+
+
+def test_headless_stream_error_does_not_mark_buffered_output_visible(monkeypatch):
+    import httpx
+
+    from gptme.llm import did_llm_reply_emit_visible_output, reply
+    from gptme.message import Message
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda *_a, **_k: iter([]))
+    monkeypatch.setattr("gptme.llm.init_llm", lambda *_a, **_k: None)
+    monkeypatch.setattr("gptme.llm.is_output_quiet", lambda: True)
+
+    class FakeStream:
+        def __init__(self):
+            self.gen = self._generate()
+            self.metadata = None
+
+        def __iter__(self):
+            return self.gen
+
+        @staticmethod
+        def _generate():
+            yield "buffered prefix"
+            raise httpx.HTTPStatusError(
+                "maximum context length exceeded",
+                request=httpx.Request("POST", "https://example.test"),
+                response=httpx.Response(400),
+            )
+
+    monkeypatch.setattr("gptme.llm._stream", lambda *_a, **_k: FakeStream())
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        reply([Message("user", "hi")], "openai/gpt-4", stream=True)
+
+    assert not did_llm_reply_emit_visible_output(error.value)
+
+
 def test_is_provider_error_requires_reply_origin_tag():
     """Untagged SDK/httpx errors (tools, hooks) do not recover; tagged ones do."""
     from unittest.mock import MagicMock
