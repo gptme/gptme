@@ -415,14 +415,10 @@ def background_job_completion_hook(
     del interactive, prompt_queue, no_confirm
     from ..hooks import current_conversation_id
 
-    # The hook's manager names the conversation being advanced. Use the
-    # explicitly bound server context first, then that manager, before falling
-    # back to a process-local LogManager that may belong to an earlier call.
-    conversation_id = (
-        current_conversation_id.get()
-        or getattr(manager, "chat_id", None)
-        or _current_conversation_id()
-    )
+    # The explicit server context or the hook's manager must identify the
+    # conversation being advanced. Falling back to process-local LogManager state
+    # can route output from one conversation into another.
+    conversation_id = current_conversation_id.get() or getattr(manager, "chat_id", None)
     with _completion_queue.mutex:
         own_jobs = cast(
             list[BackgroundJob],
