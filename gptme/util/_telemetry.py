@@ -151,6 +151,11 @@ _tool_counter = None
 _tool_duration_histogram = None
 _active_conversations_gauge = None
 _llm_request_counter = None
+_skill_invocation_counter = None
+_skill_completion_counter = None
+_skill_duration_histogram = None
+_skill_token_counter = None
+_skill_cost_counter = None
 
 # Probe for opentelemetry availability without importing it (saves ~1.4s startup
 # when telemetry is installed but not enabled). Probing the top-level package
@@ -183,6 +188,11 @@ def get_telemetry_objects():
         "tool_duration_histogram": _tool_duration_histogram,
         "active_conversations_gauge": _active_conversations_gauge,
         "llm_request_counter": _llm_request_counter,
+        "skill_invocation_counter": _skill_invocation_counter,
+        "skill_completion_counter": _skill_completion_counter,
+        "skill_duration_histogram": _skill_duration_histogram,
+        "skill_token_counter": _skill_token_counter,
+        "skill_cost_counter": _skill_cost_counter,
     }
 
 
@@ -337,6 +347,12 @@ def init_telemetry(
         _tool_duration_histogram, \
         _active_conversations_gauge, \
         _llm_request_counter
+    global \
+        _skill_invocation_counter, \
+        _skill_completion_counter, \
+        _skill_duration_histogram, \
+        _skill_token_counter, \
+        _skill_cost_counter
 
     # Check if telemetry is enabled via environment variable
     if os.getenv("GPTME_TELEMETRY_ENABLED", "").lower() not in ("true", "1", "yes"):
@@ -558,6 +574,32 @@ def init_telemetry(
             name="gptme_llm_requests",
             description="Number of LLM API requests made",
             unit="requests",
+        )
+
+        _skill_invocation_counter = _meter.create_counter(
+            name="gptme_skill_invocations",
+            description="Persisted explicit skill invocations",
+            unit="invocations",
+        )
+        _skill_completion_counter = _meter.create_counter(
+            name="gptme_skill_completions",
+            description="Persisted skill terminal events (runtime outcomes)",
+            unit="invocations",
+        )
+        _skill_duration_histogram = _meter.create_histogram(
+            name="gptme_skill_duration_seconds",
+            description="Skill admission-to-terminal duration",
+            unit="seconds",
+        )
+        _skill_token_counter = _meter.create_counter(
+            name="gptme_skill_tokens",
+            description="Tokens in measured skill session windows (may overlap)",
+            unit="tokens",
+        )
+        _skill_cost_counter = _meter.create_counter(
+            name="gptme_skill_cost_usd",
+            description="Cost of measured skill session windows (may overlap)",
+            unit="USD",
         )
 
         # Auto-instrument Flask and requests if enabled

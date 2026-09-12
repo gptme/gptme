@@ -14,7 +14,10 @@ import functools
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+
+if TYPE_CHECKING:
+    from .lessons.skill_events import SkillEvent
 
 from .util._telemetry import (
     clear_conversation_context,
@@ -43,6 +46,7 @@ __all__ = [
     "record_hook_call",
     "record_conversation_change",
     "record_llm_request",
+    "record_skill_event",
     "measure_tokens_per_second",
 ]
 
@@ -157,6 +161,50 @@ def record_tokens(count: int, token_type: str = "total") -> None:
 
     if token_counter is not None:
         token_counter.add(count, {"token_type": token_type})
+
+
+def record_skill_event(event: "SkillEvent") -> None:
+    """Export persisted lifecycle evidence with a fixed metric-label allowlist.
+
+    Costs cover the inclusive admission-to-terminal session window. Overlapping
+    invocations can overlap in cost; this is not exclusive per-skill billing.
+    Missing or reset accounting is unknown, never a fabricated zero.
+    """
+    if not is_telemetry_enabled():
+        return
+    objects = get_telemetry_objects()
+    attributes = {"skill_name": event.skill_name, "surface": event.surface}
+    if event.phase == "started":
+        if counter := objects["skill_invocation_counter"]:
+            counter.add(1, attributes)
+    elif event.phase in {"completed", "failed", "abandoned"}:
+        if counter := objects["skill_completion_counter"]:
+            counter.add(
+                1,
+                {
+                    **attributes,
+                    "status": event.phase,
+                    "usage_available": event.usage is not None,
+                },
+            )
+        if (
+            histogram := objects["skill_duration_histogram"]
+        ) is not None and event.duration_seconds is not None:
+            histogram.record(event.duration_seconds, attributes)
+        if event.usage is not None:
+            if counter := objects["skill_token_counter"]:
+                for token_type in (
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_read_tokens",
+                    "cache_creation_tokens",
+                ):
+                    counter.add(
+                        event.usage[token_type],
+                        {**attributes, "token_type": token_type},
+                    )
+            if counter := objects["skill_cost_counter"]:
+                counter.add(event.usage["cost_usd"], attributes)
 
 
 def record_request_duration(
