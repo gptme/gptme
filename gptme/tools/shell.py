@@ -966,9 +966,7 @@ class ShellSession:
             "__gptme_rc=$?; __gptme_pwd=$(pwd -P | od -An -v -tx1 | "
             "tr -d ' \n'); __gptme_pwd=${__gptme_pwd%0a}; printf "
             f'"ReturnCode:%s PWDHEX:%s {delimiter_pattern}\\n" '
-
             '"$__gptme_rc" "$__gptme_pwd"\n'
-
         )
         full_command += "builtin set +e\n"
         try:
