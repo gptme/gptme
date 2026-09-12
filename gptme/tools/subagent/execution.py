@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -789,13 +790,13 @@ def _stderr_failure_tail(stderr_path: Path | None) -> str:
     if stderr_path is None:
         return ""
     try:
-        lines = stderr_path.read_text(errors="replace").splitlines()
+        with stderr_path.open(errors="replace") as stderr_file:
+            tail = deque(stderr_file, maxlen=_SUBPROCESS_STDERR_TAIL_LINES)
     except OSError:
         return ""
-    if not lines:
+    if not tail:
         return ""
-    tail = lines[-_SUBPROCESS_STDERR_TAIL_LINES:]
-    return "\nChild stderr tail:\n" + "\n".join(tail)
+    return "\nChild stderr tail:\n" + "".join(tail).rstrip("\n")
 
 
 def _monitor_subprocess(

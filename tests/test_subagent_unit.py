@@ -926,6 +926,21 @@ class TestSubagentCancel:
         assert "traceback line 4" not in result.result
         assert "ignored prefix" not in result.result
 
+    def test_stderr_failure_tail_does_not_read_whole_file(self, monkeypatch, tmp_path):
+        from gptme.tools.subagent.execution import _stderr_failure_tail
+
+        stderr_path = tmp_path / "stderr.log"
+        stderr_path.write_text("first\nlast\n")
+
+        def fail_read_text(*args, **kwargs):
+            raise AssertionError(
+                "stderr tail must stream instead of reading the whole file"
+            )
+
+        monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+        assert _stderr_failure_tail(stderr_path).endswith("first\nlast")
+
     def test_cancel_thread_marks_result(self):
         mock_thread = MagicMock(spec=threading.Thread)
         mock_thread.is_alive.return_value = True
