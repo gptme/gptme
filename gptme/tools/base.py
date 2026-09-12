@@ -414,10 +414,10 @@ def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
         if state is None or state[1]:
             out.append(chunk)
         if whole_line:
-            # drop the marker line (including its newline, or the preceding one at EOF)
+            # Drop leading indentation already included in this chunk, then
+            # swallow the marker line and its trailing newline.
             if state is None or state[1]:
-                # chunk already emitted up to the marker; trim the partial line
-                out[-1] = out[-1][: len(out[-1]) - (start - line_start)]
+                out[-1] = chunk[: line_start - pos]
             end = line_end + 1 if line_end < len(text) else line_end
         kw = m.group("kw") or m.group("kw2")
         if kw == "if":

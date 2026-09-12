@@ -705,10 +705,11 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
         if not tool.is_available:
             raise ValueError(_unavailable_message(tool_name, [tool]))
 
+        allowlist = None if allow_required else get_session_allowlist()
         to_load = _add_required_tools(
             [tool],
             list(available.values()),
-            allowlist=None if allow_required else get_session_allowlist(),
+            allowlist=allowlist,
             already_loaded={spec.name for spec in get_tools()},
         )
         # Initialize the full closure before publishing any of it to the active

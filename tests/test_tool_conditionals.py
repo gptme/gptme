@@ -40,6 +40,12 @@ def test_render_whole_line_markers_take_their_line():
     assert render_tool_conditionals(text, set()) == "- one\n- three\n"
 
 
+def test_render_indented_whole_line_markers_preserve_previous_line():
+    text = "- one\n  {% if tools: read %}\n  - two\n  {% endif %}\n- three\n"
+    assert render_tool_conditionals(text, {"read"}) == "- one\n  - two\n- three\n"
+    assert render_tool_conditionals(text, set()) == "- one\n- three\n"
+
+
 def test_render_text_without_markers_is_untouched():
     assert render_tool_conditionals("plain {text}", set()) == "plain {text}"
 
