@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Generator
+from time import monotonic
 
 from ...llm.models import get_default_model
 from ...logmanager import Log
@@ -9,6 +10,7 @@ from ...message import Message, len_tokens
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
 from .decision import should_auto_compact
+from .events import append_compaction_event
 from .resume import _resume_via_llm
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,7 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
         return
 
     # Apply auto-compacting using the provider interface
+    started = monotonic()
     provider = get_context_provider("default")
     config = CompressionConfig(logdir=ctx.manager.logdir, keep_head=_get_keep_head())
     compacted_msgs = provider.compress(msgs, config).messages
@@ -98,6 +101,16 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
         if original_tokens > 0
         else 0.0
     )
+    append_compaction_event(
+        ctx.manager.logdir,
+        trigger="manual",
+        method="trim",
+        tokens_before=original_tokens,
+        tokens_after=compacted_tokens,
+        messages_before=original_count,
+        messages_after=compacted_count,
+        elapsed_seconds=monotonic() - started,
+    )
     yield Message(
         "system",
         f"✅ Trim compaction completed:\n"
@@ -114,8 +127,25 @@ _compact_auto = _compact_trim
 def _compact_summarize(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """LLM-powered summarization: creates RESUME.md, extracts key files, and starts a new conversation with the context."""
 
+    started = monotonic()
+    m = get_default_model()
+    original_tokens = len_tokens(msgs, m.model) if m else 0
     try:
         yield from _resume_via_llm(ctx.manager, msgs, use_view_branch=False)
+        compacted_messages = ctx.manager.log.messages
+        if not isinstance(compacted_messages, list):
+            return
+        compacted_tokens = len_tokens(compacted_messages, m.model) if m else 0
+        append_compaction_event(
+            ctx.manager.logdir,
+            trigger="manual",
+            method="summarize",
+            tokens_before=original_tokens,
+            tokens_after=compacted_tokens,
+            messages_before=len(msgs),
+            messages_after=len(compacted_messages),
+            elapsed_seconds=monotonic() - started,
+        )
     except Exception as e:
         # Include exception type for better debugging when message is empty
         error_msg = str(e).strip() or f"({type(e).__name__})"

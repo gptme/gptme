@@ -1467,6 +1467,121 @@ def test_cmd_compact_invalid_mode_error():
     assert "summarize" in results[0].content
 
 
+def test_compaction_event_log_round_trip(tmp_path):
+    from gptme.tools.autocompact.events import (
+        append_compaction_event,
+        read_compaction_events,
+    )
+
+    append_compaction_event(
+        tmp_path,
+        trigger="manual",
+        method="trim",
+        tokens_before=100,
+        tokens_after=60,
+        messages_before=5,
+        messages_after=3,
+        elapsed_seconds=0.25,
+    )
+
+    events = read_compaction_events(tmp_path)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "manual"
+    assert events[0]["method"] == "trim"
+    assert events[0]["tokens"] == {
+        "before_estimated": 100,
+        "after_estimated": 60,
+    }
+    assert events[0]["savings"] == {"tokens": 40, "ratio": 0.4}
+    assert events[0]["elapsed_seconds"] == 0.25
+
+
+def test_compaction_event_lock_registry_releases_unused_paths(tmp_path):
+    import gc
+
+    from gptme.tools.autocompact import events
+
+    events.append_compaction_event(
+        tmp_path,
+        trigger="manual",
+        method="trim",
+        tokens_before=100,
+        tokens_after=60,
+        messages_before=5,
+        messages_after=3,
+        elapsed_seconds=0.25,
+    )
+
+    gc.collect()
+    assert not events._event_locks
+
+
+def test_manual_trim_writes_compaction_event(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.events import read_compaction_events
+    from gptme.tools.autocompact.handlers import _compact_trim
+
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "task"),
+            Message("system", "large output " * 100),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    ctx = MagicMock()
+    ctx.manager = manager
+    compacted = manager.log.messages[:2]
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.handlers.should_auto_compact",
+        lambda _msgs: "rule_based",
+    )
+    provider = MagicMock()
+    provider.compress.return_value.messages = compacted
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.handlers.get_context_provider",
+        lambda _name: provider,
+    )
+
+    list(_compact_trim(ctx, manager.log.messages))
+
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "manual"
+    assert events[0]["method"] == "trim"
+    assert events[0]["messages"] == {"before": 3, "after": 2}
+
+
+def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import Log, LogManager
+    from gptme.tools.autocompact.events import read_compaction_events
+    from gptme.tools.autocompact.handlers import _compact_summarize
+
+    messages = [Message("system", "system prompt"), Message("user", "task")]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    ctx = MagicMock()
+    ctx.manager = manager
+
+    def fake_resume(active_manager, _msgs, *, use_view_branch):
+        assert use_view_branch is False
+        active_manager.log = Log([Message("system", "summary")])
+        yield Message("system", "done")
+
+    monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
+
+    list(_compact_summarize(ctx, messages))
+
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "manual"
+    assert events[0]["method"] == "summarize"
+    assert events[0]["messages"] == {"before": 2, "after": 1}
+
+
 def test_compact_trim_handler_honors_env_keep_head(monkeypatch):
     """The /compact trim handler must use _get_keep_head(), not a hardcoded default.
 

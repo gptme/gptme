@@ -1206,6 +1206,585 @@ def test_step_marks_httpx_from_reply_as_provider_error():
     assert is_provider_error(tool_err)
 
 
+def test_step_compacts_and_retries_once_after_context_overflow(tmp_path, monkeypatch):
+    """A provider overflow creates a compacted view and retries exactly once."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.autocompact.events import read_compaction_events
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "original task"),
+            Message("system", "large tool result " * 1000),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    replies = iter([overflow, Message("assistant", "recovered")])
+
+    def fake_reply(*_args, **_kwargs):
+        result = next(replies)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(chat_module, "reply", fake_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:2],
+    )
+
+    yielded = list(
+        chat_module.step(
+            manager.log,
+            stream=False,
+            model="openai/gpt-4",
+            logdir=manager.logdir,
+        )
+    )
+
+    assert [msg.content for msg in yielded] == ["recovered"]
+    assert manager.current_view == "compacted-001"
+    assert manager.master_log.messages[-1].content.startswith("large tool result")
+    assert len(manager.log.messages) == 2
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "overflow"
+    assert events[0]["retry_success"] is True
+
+
+def test_step_overflow_recovery_uses_compacted_log_for_tool_execution(
+    tmp_path, monkeypatch
+):
+    """Recovered tool execution must see the active compacted view, not stale history."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "task"),
+            Message("system", "stale large output " * 100),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    replies = iter(
+        [
+            overflow,
+            Message("assistant", "```shell\nprintf recovered\n```\n"),
+        ]
+    )
+    seen_logs = []
+
+    def fake_reply(*_args, **_kwargs):
+        result = next(replies)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def fake_execute(_msg, *, log, **_kwargs):
+        seen_logs.append(log)
+        return iter([])
+
+    monkeypatch.setattr(chat_module, "reply", fake_reply)
+    monkeypatch.setattr(chat_module, "execute_msg", fake_execute)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:2],
+    )
+
+    list(
+        chat_module.step(
+            manager.log,
+            stream=False,
+            model="openai/gpt-4",
+            logdir=manager.logdir,
+        )
+    )
+
+    assert seen_logs == [manager.log]
+    assert "stale large output" not in " ".join(
+        msg.content for msg in seen_logs[0].messages
+    )
+
+
+def test_step_streaming_context_overflow_before_output_is_retried(
+    tmp_path, monkeypatch
+):
+    """A streaming request rejected before its first chunk is safe to retry."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "system prompt"), Message("user", "task")],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    replies = iter([overflow, Message("assistant", "recovered")])
+
+    def fake_reply(*_args, **_kwargs):
+        result = next(replies)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(chat_module, "reply", fake_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:1],
+    )
+
+    yielded = list(
+        chat_module.step(
+            manager.log,
+            stream=True,
+            model="openai/gpt-4",
+            logdir=manager.logdir,
+        )
+    )
+
+    assert [msg.content for msg in yielded] == ["recovered"]
+    assert manager.current_view == "compacted-001"
+
+
+def test_step_headless_streaming_overflow_after_buffered_output_is_retried(
+    tmp_path, monkeypatch
+):
+    """Buffered output with no display/callback has not reached a consumer."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "system prompt"), Message("user", "task")],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow, output_emitted=True, visible_output_emitted=False)
+    replies = iter([overflow, Message("assistant", "recovered")])
+
+    def fake_reply(*_args, **_kwargs):
+        result = next(replies)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(chat_module, "reply", fake_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:1],
+    )
+
+    yielded = list(
+        chat_module.step(
+            manager.log,
+            stream=True,
+            model="openai/gpt-4",
+            logdir=manager.logdir,
+        )
+    )
+
+    assert [msg.content for msg in yielded] == ["recovered"]
+    assert manager.current_view == "compacted-001"
+
+
+def test_step_streaming_context_overflow_after_output_is_not_retried(
+    tmp_path, monkeypatch
+):
+    """Retrying after a visible stream prefix would duplicate output."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "system prompt"), Message("user", "task")],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow, output_emitted=True)
+    calls = 0
+
+    def fail_reply(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise overflow
+
+    monkeypatch.setattr(chat_module, "reply", fail_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+
+    with pytest.raises(httpx.HTTPStatusError, match="maximum context length"):
+        list(
+            chat_module.step(
+                manager.log,
+                stream=True,
+                model="openai/gpt-4",
+                logdir=manager.logdir,
+            )
+        )
+
+    assert calls == 1
+    assert manager.current_view is None
+
+
+def test_step_skips_retry_when_prepared_provider_input_does_not_shrink(
+    tmp_path, monkeypatch
+):
+    """Compare provider-bound input, including evidence replay, before retrying."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "task"),
+            Message("system", "large output " * 100),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    calls = 0
+
+    def fail_reply(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise overflow
+
+    original_provider_input = manager.log.messages.copy()
+    monkeypatch.setattr(chat_module, "reply", fail_reply)
+    monkeypatch.setattr(
+        chat_module,
+        "prepare_messages",
+        lambda _msgs, *_a, **_k: original_provider_input,
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:2],
+    )
+
+    with pytest.raises(httpx.HTTPStatusError, match="maximum context length"):
+        list(
+            chat_module.step(
+                manager.log,
+                stream=False,
+                model="openai/gpt-4",
+                logdir=manager.logdir,
+            )
+        )
+
+    assert calls == 1
+    assert manager.current_view is None
+
+
+def test_step_restores_master_when_retry_preparation_fails(tmp_path, monkeypatch):
+    """A failed retry preparation must not leave the compacted view active."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.autocompact.events import read_compaction_events
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "task"),
+            Message("system", "large output " * 100),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    calls = 0
+
+    def fail_reply(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise overflow
+
+    prepare_calls = 0
+
+    def fail_retry_preparation(msgs, *_args, **_kwargs):
+        nonlocal prepare_calls
+        prepare_calls += 1
+        if prepare_calls == 1:
+            return msgs
+        raise RuntimeError("evidence reload failed")
+
+    monkeypatch.setattr(chat_module, "reply", fail_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", fail_retry_preparation)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:2],
+    )
+
+    with pytest.raises(RuntimeError, match="evidence reload failed"):
+        list(
+            chat_module.step(
+                manager.log,
+                stream=False,
+                model="openai/gpt-4",
+                logdir=manager.logdir,
+            )
+        )
+
+    assert calls == 1
+    assert manager.current_view is None
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["retry_success"] is False
+
+
+def test_step_context_overflow_without_manager_is_not_recovered(tmp_path, monkeypatch):
+    """Library callers without a LogManager keep the original failure."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import _current_log_var
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    calls = 0
+
+    def fail_reply(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise overflow
+
+    monkeypatch.setattr(chat_module, "reply", fail_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+    token = _current_log_var.set(None)
+    try:
+        with pytest.raises(httpx.HTTPStatusError, match="maximum context length"):
+            list(
+                chat_module.step(
+                    [Message("user", "task")],
+                    stream=False,
+                    model="openai/gpt-4",
+                    logdir=tmp_path,
+                )
+            )
+    finally:
+        _current_log_var.reset(token)
+
+    assert calls == 1
+    assert not (tmp_path / "compaction.jsonl").exists()
+
+
+def test_step_skips_retry_when_overflow_compaction_does_not_shrink(
+    tmp_path, monkeypatch
+):
+    """Do not pay for a guaranteed-identical retry when compaction is a no-op."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.autocompact.events import read_compaction_events
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "system prompt"), Message("user", "task")],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    calls = 0
+
+    def fail_reply(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise overflow
+
+    monkeypatch.setattr(chat_module, "reply", fail_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages,
+    )
+
+    with pytest.raises(httpx.HTTPStatusError, match="maximum context length"):
+        list(
+            chat_module.step(
+                manager.log,
+                stream=False,
+                model="openai/gpt-4",
+                logdir=manager.logdir,
+            )
+        )
+
+    assert calls == 1
+    assert manager.current_view is None
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["retry_success"] is False
+
+
+def test_step_does_not_retry_context_overflow_twice(tmp_path, monkeypatch):
+    """The recovery retry is bounded to one extra provider request."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.autocompact.events import read_compaction_events
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "system prompt"), Message("user", "task")],
+        logdir=tmp_path / "conversation",
+    )
+    errors = []
+    for _ in range(2):
+        error = httpx.HTTPStatusError(
+            "maximum context length exceeded",
+            request=httpx.Request("POST", "https://example.test"),
+            response=httpx.Response(400),
+        )
+        mark_llm_reply_origin(error)
+        errors.append(error)
+
+    calls = 0
+
+    def fail_reply(*_args, **_kwargs):
+        nonlocal calls
+        error = errors[calls]
+        calls += 1
+        raise error
+
+    monkeypatch.setattr(chat_module, "reply", fail_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", lambda msgs, *_a, **_k: msgs)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:1],
+    )
+
+    with pytest.raises(httpx.HTTPStatusError, match="maximum context length"):
+        list(
+            chat_module.step(
+                manager.log,
+                stream=False,
+                model="openai/gpt-4",
+                logdir=manager.logdir,
+            )
+        )
+
+    assert calls == 2
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["retry_success"] is False
+
+
 def test_get_user_input_interruptible_during_include_paths(monkeypatch):
     """Path inclusion after prompt_user must run in an interruptible state."""
     import sys
