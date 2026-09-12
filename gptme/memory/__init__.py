@@ -1,8 +1,7 @@
 """Cross-harness memory store: CC-compatible markdown entries with layered roots.
 
-This package imports nothing from gptme core except :mod:`gptme.dirs`, so it
-can be extracted into a standalone ``gptme-memory`` package (sibling of
-``gptme-rag``) as a file move. See gptme/gptme#3734.
+Storage depends on :mod:`gptme.dirs`; triggered delivery lazily adapts entries
+to :class:`gptme.lessons.matcher.LessonMatcher`. See gptme/gptme#3734.
 """
 
 from .recall import (
