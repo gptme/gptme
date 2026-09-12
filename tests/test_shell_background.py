@@ -448,22 +448,24 @@ class TestJobRegistry:
         shell_background._completion_queue.put(old_job)
 
         purge_started = Event()
-        producer_done = Event()
+        producer_attempted = Event()
+        release_purge = Event()
         original_mutex = shell_background._completion_queue.mutex
 
         class CoordinatedMutex:
             def __enter__(self) -> None:
                 original_mutex.acquire()
                 purge_started.set()
-                time.sleep(0.05)
+                assert producer_attempted.wait(timeout=5)
 
             def __exit__(self, *_args: object) -> None:
                 original_mutex.release()
+                release_purge.set()
 
         def producer() -> None:
-            purge_started.wait(timeout=5)
+            assert purge_started.wait(timeout=5)
+            producer_attempted.set()
             shell_background._completion_queue.put(new_job)
-            producer_done.set()
 
         producer_thread = Thread(target=producer)
         producer_thread.start()
@@ -471,9 +473,10 @@ class TestJobRegistry:
             shell_background._completion_queue, "mutex", CoordinatedMutex()
         ):
             shell_background._purge_completion_queue({"conversation-a"})
+        assert release_purge.is_set()
         producer_thread.join(timeout=5)
 
-        assert producer_done.is_set()
+        assert not producer_thread.is_alive()
         assert shell_background._completion_queue.get_nowait() is new_job
 
 
@@ -819,6 +822,27 @@ class TestCompletionNotifications:
 
         assert len(messages) == 1
         assert "job #1 finished" in messages[0].content
+
+    def test_completion_hook_does_not_use_stale_log_context(self, tmp_path):
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+        from gptme.tools import shell_background
+
+        LogManager(logdir=tmp_path / "conversation-a", lock=False)
+        job = _make_job()
+        job.id = 1
+        job.conversation_id = "conversation-a"
+        shell_background._background_jobs["conversation-a"] = {1: job}
+        shell_background._completion_queue.put(job)
+
+        messages = list(
+            shell_background.background_job_completion_hook(
+                SimpleNamespace(chat_id=None), True, []
+            )
+        )
+
+        assert messages == []
 
     def test_completion_hook_claims_conversation_jobs_atomically(self):
         from types import SimpleNamespace
