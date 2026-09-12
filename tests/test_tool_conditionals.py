@@ -1,5 +1,6 @@
 """Conditional tool docs ({% if tools: ... %}) and companion tools (requires_tools)."""
 
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -161,6 +162,48 @@ def test_load_tool_accepts_required_companion_already_loaded():
 
     assert loaded.name == "primary"
     assert {tool.name for tool in get_tools()} == {"primary", "companion"}
+
+
+def test_required_companion_must_be_available():
+    companion = ToolSpec(name="companion", desc="companion", available=False)
+    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+
+    with (
+        patch("gptme.tools.get_available_tools", return_value=[primary, companion]),
+        pytest.raises(ValueError, match="primary.*requires.*companion.*not available"),
+    ):
+        get_toolchain(None)
+
+
+def test_load_tool_does_not_publish_partial_closure_on_init_failure():
+    initialized: list[str] = []
+
+    def init(name: str, *, fail: bool = False):
+        def inner():
+            initialized.append(name)
+            if fail:
+                raise RuntimeError("companion init failed")
+            return specs[name]
+
+        return inner
+
+    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+    companion = ToolSpec(name="companion", desc="companion")
+    specs = {"primary": primary, "companion": companion}
+    primary = replace(primary, init=init("primary"))
+    companion = replace(companion, init=init("companion", fail=True))
+    specs.update(primary=primary, companion=companion)
+
+    clear_tools()
+    set_session_allowlist(None)
+    with (
+        patch("gptme.tools.get_available_tools", return_value=[primary, companion]),
+        pytest.raises(RuntimeError, match="companion init failed"),
+    ):
+        load_tool("primary")
+
+    assert initialized == ["companion"]
+    assert get_tools() == []
 
 
 def test_file_tool_loads_required_companion(tmp_path):
