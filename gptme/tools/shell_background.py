@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from ..message import Message
 from ..sandbox import apply_memory_limit
@@ -90,6 +90,7 @@ class BackgroundJob:
     _stdout_read_offset: int = field(default=0, repr=False)
     _stderr_read_offset: int = field(default=0, repr=False)
     conversation_id: str | None = None
+    process_group_id: int | None = field(default=None, repr=False)
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -228,13 +229,15 @@ class BackgroundJob:
             if _is_windows:
                 self.process.terminate()
             else:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+                assert self.process_group_id is not None
+                os.killpg(self.process_group_id, signal.SIGTERM)
             self.process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
             if _is_windows:
                 self.process.kill()
             else:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                assert self.process_group_id is not None
+                os.killpg(self.process_group_id, signal.SIGKILL)
             self.process.wait()
         except ProcessLookupError:
             pass
@@ -255,6 +258,9 @@ def _current_conversation_id() -> str | None:
     from ..hooks import current_conversation_id
     from ..logmanager import LogManager
 
+    # An explicitly bound server conversation is authoritative. A LogManager
+    # can remain current in the surrounding context after its caller is done,
+    # so it is only the fallback when no explicit conversation is active.
     manager = LogManager.get_current_log()
     return current_conversation_id.get() or (manager.chat_id if manager else None)
 
@@ -279,11 +285,6 @@ def _get_background_job(
 ) -> BackgroundJob | None:
     with _job_lock:
         return _background_jobs.get(conversation_id, {}).get(job_id)
-
-
-def _is_current_job(conversation_id: str | None, job: BackgroundJob) -> bool:
-    """Whether ``job`` is still the live instance for its conversation-local ID."""
-    return _get_background_job(conversation_id, job.id) is job
 
 
 def start_background_job(
@@ -315,6 +316,10 @@ def start_background_job(
             process=process,
             start_time=time.time(),
             conversation_id=conversation_id,
+            # ``start_new_session`` makes the child PID its process-group ID.
+            # Capture it at creation rather than resolving the PID during kill,
+            # after the leader may have exited and its PID may have been reused.
+            process_group_id=None if _is_windows else process.pid,
         )
         _jobs_for(conversation_id)[job_id] = job
     job.start_reader()
@@ -338,15 +343,23 @@ def cleanup_finished_jobs() -> None:
     return
 
 
-def _purge_completion_queue(conversation_ids: set[str | None]) -> None:
-    """Remove queued completions for conversations whose jobs were reset."""
+def _purge_completion_queue(conversation_ids: set[str | None] | None) -> None:
+    """Remove queued completions for conversations whose jobs were reset.
+
+    Pass ``None`` to clear all pending completions unconditionally (used when
+    resetting all conversations so that entries from conversations that were
+    never registered in ``_background_jobs`` don't linger across tests/resets).
+    """
     with _completion_queue.mutex:
-        retained = type(_completion_queue.queue)(
-            job
-            for job in _completion_queue.queue
-            if job.conversation_id not in conversation_ids
-        )
-        _completion_queue.queue = retained
+        if conversation_ids is None:
+            _completion_queue.queue.clear()
+        else:
+            retained = type(_completion_queue.queue)(
+                job
+                for job in _completion_queue.queue
+                if job.conversation_id not in conversation_ids
+            )
+            _completion_queue.queue = retained
 
 
 def reset_background_jobs(
@@ -355,15 +368,18 @@ def reset_background_jobs(
     """Stop and remove jobs globally, or only for ``conversation_id``."""
     with _job_lock:
         if all_conversations:
-            conversation_ids = set(_background_jobs) | set(_next_job_ids)
             groups = list(_background_jobs.values())
             _background_jobs.clear()
             _next_job_ids.clear()
+            # Clear all pending completions: filtering by currently-tracked
+            # conversation IDs would leave entries from jobs created outside
+            # start_background_job (e.g. via _make_job in tests).
+            _purge_completion_queue(None)
         else:
             conversation_ids = {conversation_id}
             groups = [_background_jobs.pop(conversation_id, {})]
             _next_job_ids.pop(conversation_id, None)
-        _purge_completion_queue(conversation_ids)
+            _purge_completion_queue(conversation_ids)
     for jobs in groups:
         for job in jobs.values():
             if job.is_running():
@@ -397,13 +413,25 @@ def background_job_completion_hook(
 ) -> Generator[Message, None, None]:
     """Deliver completed jobs only to the conversation that started them."""
     del interactive, prompt_queue, no_confirm
-    conversation_id = getattr(manager, "chat_id", None)
+    from ..hooks import current_conversation_id
+
+    # The hook's manager names the conversation being advanced. Use the
+    # explicitly bound server context first, then that manager, before falling
+    # back to a process-local LogManager that may belong to an earlier call.
+    conversation_id = (
+        current_conversation_id.get()
+        or getattr(manager, "chat_id", None)
+        or _current_conversation_id()
+    )
     with _completion_queue.mutex:
-        own_jobs = [
-            job
-            for job in _completion_queue.queue
-            if job.conversation_id == conversation_id
-        ]
+        own_jobs = cast(
+            list[BackgroundJob],
+            [
+                job
+                for job in _completion_queue.queue
+                if job.conversation_id == conversation_id
+            ],
+        )
         _completion_queue.queue = type(_completion_queue.queue)(
             job
             for job in _completion_queue.queue
@@ -412,13 +440,10 @@ def background_job_completion_hook(
     with _job_lock:
         # Match object identity as well as the conversation-local ID. A reset can
         # reuse IDs; an old queued completion must never resolve to the new job.
-        # ``own_jobs`` only holds live ``BackgroundJob`` instances; comparing the
-        # identity check in a separate expression avoids narrowing ``job`` to the
-        # ``BackgroundJob | None`` return of ``_get_background_job``.
         messages = [
             _completion_message(job)
             for job in own_jobs
-            if _is_current_job(conversation_id, job)
+            if _get_background_job(conversation_id, job.id) is job
         ]
     yield from messages
 
