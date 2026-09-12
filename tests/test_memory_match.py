@@ -127,6 +127,22 @@ def test_match_pretool_includes_nested_custom_tool_arguments(tmp_path, monkeypat
     assert [hit["name"] for hit in json.loads(result.output)["hits"]] == ["rule"]
 
 
+def test_match_pretool_handles_deeply_nested_arguments(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    write_entry(tmp_path, "rule", keywords=["release"])
+    nested: object = "release"
+    for _ in range(2000):
+        nested = [nested]
+    payload = {"hook_event_name": "PreToolUse", "tool_input": {"args": nested}}
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--prompt", "-", "--format", "json"],
+        input=json.dumps(payload),
+    )
+    assert result.exit_code == 0, result.output
+    assert [hit["name"] for hit in json.loads(result.output)["hits"]] == ["rule"]
+
+
 @pytest.mark.parametrize(
     "payload",
     [

@@ -245,16 +245,18 @@ def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
 
         # All tool_input values describe the pending action. Hook envelope
         # fields are excluded because traversal starts below the outer payload.
-        def values(value: object) -> list[str]:
+        values: list[str] = []
+        pending: list[object] = [tool_input]
+        while pending:
+            value = pending.pop()
             if isinstance(value, str):
-                return [value]
-            if isinstance(value, dict):
-                return [text for item in value.values() for text in values(item)]
-            if isinstance(value, list):
-                return [text for item in value for text in values(item)]
-            return []
+                values.append(value)
+            elif isinstance(value, dict):
+                pending.extend(reversed(value.values()))
+            elif isinstance(value, list):
+                pending.extend(reversed(value))
 
-        return "\n".join(values(tool_input)), event
+        return "\n".join(values), event
     if event == "UserPromptSubmit":
         value = payload.get("prompt")
         return value if isinstance(value, str) else "", event
