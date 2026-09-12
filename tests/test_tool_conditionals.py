@@ -71,6 +71,7 @@ def test_instructions_render_against_loaded_tools():
 
 
 def test_vision_docs_do_not_name_read_when_read_is_off():
+    clear_tools()
     init_tools(allowlist=["shell", "ipython", "vision"])
     from gptme.tools import get_tool
 
