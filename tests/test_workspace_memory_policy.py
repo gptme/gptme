@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import IO, Any
 from unittest.mock import patch
 
 import pytest
@@ -137,12 +138,31 @@ def test_policy_over_shared_budget_skips_only_that_root(tmp_path: Path) -> None:
     assert content == "healthy"
 
 
-def test_legacy_reads_and_separators_obey_byte_budget(tmp_path: Path) -> None:
+def test_legacy_reads_and_separators_obey_byte_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     first, second = tmp_path / "first", tmp_path / "second"
     first.mkdir()
     second.mkdir()
     (first / "MEMORY.md").write_text("12345", encoding="utf-8")
     (second / "MEMORY.md").write_text("é" * 100000, encoding="utf-8")
+    read_sizes: list[int] = []
+    original_open = Path.open
+
+    def recording_open(path: Path, *args: Any, **kwargs: Any) -> IO[Any]:
+        file = original_open(path, *args, **kwargs)
+        if path.name != "MEMORY.md" or not args or args[0] != "rb":
+            return file
+        original_read = file.read
+
+        def recording_read(size: int = -1) -> bytes:
+            read_sizes.append(size)
+            return original_read(size)
+
+        file.read = recording_read
+        return file
+
+    monkeypatch.setattr(Path, "open", recording_open)
     content = _memory_content(
         tmp_path,
         [MemoryRoot("project", first), MemoryRoot("cc", second)],
@@ -151,6 +171,9 @@ def test_legacy_reads_and_separators_obey_byte_budget(tmp_path: Path) -> None:
 
     assert content == "12345\n\né"
     assert len(content.encode("utf-8")) <= 10
+    # The first root may read at most the full shared budget. The second must
+    # receive only the three bytes left after the first root and separator.
+    assert read_sizes == [10, 3]
 
 
 def test_legacy_read_charges_raw_bytes_after_incomplete_utf8(
