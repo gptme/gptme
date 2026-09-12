@@ -243,20 +243,13 @@ def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
         if not isinstance(tool_input, dict):
             return "", event
 
-        # Only input values carry the pending action. Hook envelope keys may
-        # also occur inside custom tool inputs and must not trigger a memory.
-        envelope_keys = {"cwd", "session_id", "transcript_path"}
-
+        # All tool_input values describe the pending action. Hook envelope
+        # fields are excluded because traversal starts below the outer payload.
         def values(value: object) -> list[str]:
             if isinstance(value, str):
                 return [value]
             if isinstance(value, dict):
-                return [
-                    text
-                    for key, item in value.items()
-                    if key not in envelope_keys
-                    for text in values(item)
-                ]
+                return [text for item in value.values() for text in values(item)]
             if isinstance(value, list):
                 return [text for item in value for text in values(item)]
             return []

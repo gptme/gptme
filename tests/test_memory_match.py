@@ -106,6 +106,27 @@ def test_match_hook_payload_event_and_bounded_body(tmp_path, monkeypatch, pretoo
     assert "x" * 13 not in output["additionalContext"]
 
 
+def test_match_pretool_includes_nested_custom_tool_arguments(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    write_entry(tmp_path, "rule", keywords=["release"])
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": "unrelated",
+        "tool_input": {
+            "cwd": "release",
+            "nested": {"session_id": "release"},
+            "items": [{"transcript_path": "release"}],
+        },
+    }
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--prompt", "-", "--format", "json"],
+        input=json.dumps(payload),
+    )
+    assert result.exit_code == 0, result.output
+    assert [hit["name"] for hit in json.loads(result.output)["hits"]] == ["rule"]
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -117,15 +138,6 @@ def test_match_hook_payload_event_and_bounded_body(tmp_path, monkeypatch, pretoo
             "tool_name": "Bash",
             "tool_input": {},
             "cwd": "release",
-        },
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Custom",
-            "tool_input": {
-                "cwd": "release",
-                "nested": {"session_id": "release"},
-                "items": [{"transcript_path": "release"}],
-            },
         },
         ["release"],
     ],
