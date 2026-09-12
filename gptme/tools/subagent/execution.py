@@ -45,6 +45,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
+_SUBPROCESS_STDERR_FILENAME = "stderr.log"
+_SUBPROCESS_STDERR_TAIL_LINES = 20
 
 # Thread-local storage for subagent context
 # Used by the progress tool to know which agent_id it's running as
@@ -607,14 +609,18 @@ def _run_subagent_subprocess(
     env = os.environ.copy()
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
+    stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
     try:
-        with open(tmpfile_path) as stdin_file:
+        with (
+            open(tmpfile_path) as stdin_file,
+            open(stderr_path, "w") as stderr_file,
+        ):
             process = subprocess.Popen(
                 cmd,
                 stdin=stdin_file,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=stderr_file,
                 cwd=workspace,
                 env=env,
                 text=True,
@@ -778,14 +784,28 @@ def _poll_subprocess_progress(
     _drain()
 
 
+def _stderr_failure_tail(stderr_path: Path | None) -> str:
+    """Return a bounded diagnostic tail from a subprocess stderr log."""
+    if stderr_path is None:
+        return ""
+    try:
+        lines = stderr_path.read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    if not lines:
+        return ""
+    tail = lines[-_SUBPROCESS_STDERR_TAIL_LINES:]
+    return "\nChild stderr tail:\n" + "\n".join(tail)
+
+
 def _monitor_subprocess(
     subagent: "Subagent",
 ) -> None:
     """Monitor a subprocess and invoke callbacks when it completes.
 
-    Runs in a background thread to enable non-blocking operation.
-    Subprocess stdout/stderr are sent to DEVNULL since results are read
-    from the conversation log, not the process pipes.
+    Runs in a background thread to enable non-blocking operation. Subprocess
+    stdout is discarded; stderr is written to the child's log directory so a
+    bounded diagnostic tail can be surfaced when the child fails.
 
     Also starts a progress-polling thread that reads ``logdir/progress.jsonl``
     written by the subprocess-mode ``progress`` tool and delivers intermediate
@@ -843,9 +863,11 @@ def _monitor_subprocess(
         # Process was killed because our timeout expired (not an external SIGKILL)
         status = "failure"
         result = f"Process killed after {subagent.timeout}s timeout"
+        result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
     else:
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
+        result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
 
     # Clean up worktree isolation; capture preserved branch so it can be
     # included in the result that callers receive via subagent_wait() / subagent_parallel().

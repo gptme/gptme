@@ -787,9 +787,11 @@ def test_subprocess_actual_process_creation():
             assert process.pid is not None
             assert process.pid > 0
 
-            # Verify stdout and stderr are discarded (DEVNULL prevents pipe-buffer deadlock)
+            # stdout is discarded and stderr is redirected directly to disk, so
+            # neither stream can fill a parent-owned pipe buffer.
             assert process.stdout is None
             assert process.stderr is None
+            assert (logdir / "stderr.log").exists()
 
         finally:
             # Clean up - terminate the process
@@ -801,6 +803,81 @@ def test_subprocess_actual_process_creation():
                 process.wait()
 
 
+@pytest.mark.slow
+def test_subprocess_control_hook_delivers_queued_steer(monkeypatch, tmp_path):
+    """A real child consumes steer messages without loading the subagent tool."""
+    from gptme.prompt_queue import drain_steer_prompts, queue_prompt
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    logs_dir = tmp_path / "logs"
+    logdir = logs_dir / "subagent-steer-test"
+    logdir.mkdir(parents=True)
+    queue_prompt(logdir, "STEER-WAS-DELIVERED", steer=True)
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs_dir))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).parent.parent))
+
+    process = _run_subagent_subprocess(
+        prompt="INITIAL-PROMPT",
+        logdir=logdir,
+        model="mock/echo",
+        workspace=tmp_path,
+    )
+    assert process.wait(timeout=30) == 0
+
+    conversation = (logdir / "conversation.jsonl").read_text()
+    assert "STEER-WAS-DELIVERED" in conversation
+    assert drain_steer_prompts(logdir) == []
+
+
+@pytest.mark.slow
+def test_subprocess_crash_surfaces_real_stderr_tail(monkeypatch, tmp_path):
+    """A crashing real child reports its stderr traceback through the monitor."""
+    from gptme.tools.subagent import Subagent
+    from gptme.tools.subagent.execution import (
+        _monitor_subprocess,
+        _run_subagent_subprocess,
+    )
+    from gptme.tools.subagent.types import _subagent_results, _subagent_results_lock
+
+    logs_dir = tmp_path / "logs"
+    logdir = logs_dir / "subagent-crash-test"
+    logdir.mkdir(parents=True)
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs_dir))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).parent.parent))
+
+    process = _run_subagent_subprocess(
+        prompt="CRASH-PROMPT",
+        logdir=logdir,
+        model="mock/does-not-exist",
+        workspace=tmp_path,
+    )
+    subagent = Subagent(
+        agent_id="crash-test",
+        prompt="CRASH-PROMPT",
+        thread=None,
+        logdir=logdir,
+        model="mock/does-not-exist",
+        process=process,
+        execution_mode="subprocess",
+    )
+    _monitor_subprocess(subagent)
+
+    with _subagent_results_lock:
+        result = _subagent_results.pop("crash-test")
+    assert result.status == "failure"
+    assert isinstance(result.result, str)
+    assert "Process exited with code 1" in result.result
+    assert "Child stderr tail:" in result.result
+    assert "Unknown mock model" in result.result
+
+
 def test_subprocess_command_includes_required_flags():
     """Test that subprocess command includes all required gptme flags."""
     import tempfile
@@ -809,10 +886,13 @@ def test_subprocess_command_includes_required_flags():
     from gptme.tools.subagent.execution import _run_subagent_subprocess
 
     captured_cmd: list[str] = []
+    captured_kwargs: dict = {}
 
     def fake_popen(cmd, **kwargs):
         captured_cmd.clear()
         captured_cmd.extend(cmd)
+        captured_kwargs.clear()
+        captured_kwargs.update(kwargs)
         mock = MagicMock()
         mock.poll.return_value = None
         mock.args = cmd
@@ -829,6 +909,7 @@ def test_subprocess_command_includes_required_flags():
                 model="test-model",
                 workspace=Path(tmpdir),
             )
+        stderr_path = Path(captured_kwargs["stderr"].name)
 
     cmd = captured_cmd
     assert isinstance(cmd, list)
@@ -845,6 +926,7 @@ def test_subprocess_command_includes_required_flags():
     assert "--tools" in cmd
     assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify,+progress"
     assert "Test task" not in cmd  # Prompt passed via stdin, not argv
+    assert stderr_path == Path(tmpdir) / "logs" / "stderr.log"
 
 
 def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():

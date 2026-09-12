@@ -211,6 +211,17 @@ def init_hooks(
         "server_elicit": lambda: __import__(
             "gptme.hooks.server_elicit", fromlist=["register"]
         ).register(),
+        # The parent loads subagent hooks through its ToolSpec. Subprocess children
+        # do not load that tool, but still need the control hook to receive steer
+        # and cancel operations written to their log directory.
+        "subagent_control": lambda: register_hook(
+            "subagent.control",
+            HookType.STEP_PRE,
+            __import__(
+                "gptme.tools.subagent.hooks", fromlist=["_subagent_control_hook"]
+            )._subagent_control_hook,
+            0,
+        ),
         # NOTE: subagent_completion is now registered via ToolSpec in tools/subagent.py
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
@@ -221,15 +232,16 @@ def init_hooks(
     if allowlist is not None:
         hooks_to_register = allowlist
     else:
-        # Register all default hooks except test and mode-specific confirmation hooks
-        # Confirmation hooks (cli_confirm, auto_confirm, server_confirm) should be
-        # registered explicitly based on the mode (CLI, server, autonomous)
+        # Register all default hooks except test and mode-specific hooks.
+        # Confirmation hooks (cli_confirm, auto_confirm, server_confirm) and the
+        # subprocess-only control hook are registered from runtime mode below.
         mode_specific_hooks = {
             "test",
             "cli_confirm",
             "auto_confirm",
             "server_confirm",
             "server_elicit",
+            "subagent_control",
         }
         hooks_to_register = [h for h in available_hooks if h not in mode_specific_hooks]
 
@@ -242,6 +254,14 @@ def init_hooks(
             hooks_to_register.append("server_elicit")
         elif interactive and not no_confirm:
             hooks_to_register.append("cli_confirm")
+
+    # The control channel is part of the subprocess-subagent protocol, not an
+    # optional session hook. Keep it active even under an explicit hook allowlist.
+    if (
+        config.get_env("GPTME_SUBAGENT_AGENT_ID")
+        and "subagent_control" not in hooks_to_register
+    ):
+        hooks_to_register.append("subagent_control")
 
     # Register the hooks
     for hook_name in hooks_to_register:
