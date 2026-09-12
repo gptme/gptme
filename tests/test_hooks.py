@@ -36,6 +36,21 @@ def test_init_hooks_explicit_allowlist_stays_strict(monkeypatch):
     assert "test_step_pre" in hook_names
 
 
+def test_init_hooks_managed_child_extends_configured_allowlist(monkeypatch):
+    """Managed children keep control delivery under a configured allowlist."""
+    from gptme.hooks import init_hooks
+
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "child")
+    monkeypatch.setenv("HOOK_ALLOWLIST", "test,token_awareness")
+
+    init_hooks()
+
+    hook_names = {hook.name for hook in get_hooks()}
+    assert "subagent.control" in hook_names
+    assert "test_step_pre" in hook_names
+    assert "token_awareness.token_budget" in hook_names
+
+
 def test_register_hook():
     """Test hook registration."""
 

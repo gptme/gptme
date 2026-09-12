@@ -804,7 +804,10 @@ def test_subprocess_actual_process_creation():
 
 
 @pytest.mark.slow
-def test_subprocess_control_hook_delivers_queued_steer(monkeypatch, tmp_path):
+@pytest.mark.parametrize("hook_allowlist", [None, "token_awareness"])
+def test_subprocess_control_hook_delivers_queued_steer(
+    monkeypatch, tmp_path, hook_allowlist
+):
     """A real child consumes steer messages without loading the subagent tool."""
     from gptme.prompt_queue import drain_steer_prompts, queue_prompt
     from gptme.tools.subagent.execution import _run_subagent_subprocess
@@ -819,6 +822,10 @@ def test_subprocess_control_hook_delivers_queued_steer(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("PYTHONPATH", str(Path(__file__).parent.parent))
+    if hook_allowlist is None:
+        monkeypatch.delenv("HOOK_ALLOWLIST", raising=False)
+    else:
+        monkeypatch.setenv("HOOK_ALLOWLIST", hook_allowlist)
 
     process = _run_subagent_subprocess(
         prompt="INITIAL-PROMPT",

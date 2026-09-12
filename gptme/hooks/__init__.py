@@ -135,12 +135,17 @@ def init_hooks(
     from ..config import get_config  # fmt: skip
 
     config = get_config()
+    managed_subprocess = bool(config.get_env("GPTME_SUBAGENT_AGENT_ID"))
 
-    # Get allowlist from parameter, environment, or config
+    # Get allowlist from parameter, environment, or config. Managed subprocesses
+    # extend inherited configuration with their required control protocol, while
+    # a caller-provided allowlist remains an exact API-level restriction.
     if allowlist is None:
         env_allowlist = config.get_env("HOOK_ALLOWLIST")
         if env_allowlist:
             allowlist = env_allowlist.split(",")
+            if managed_subprocess and "subagent_control" not in allowlist:
+                allowlist.append("subagent_control")
         # Note: hooks are not yet in chat config, but could be added later
         # elif config.chat and config.chat.hooks:
         #     allowlist = config.chat.hooks
@@ -255,11 +260,12 @@ def init_hooks(
         elif interactive and not no_confirm:
             hooks_to_register.append("cli_confirm")
 
-    # With no explicit hook allowlist, managed subprocess children add their
-    # control protocol to the normal defaults. An explicit allowlist remains strict.
+    # Without configured restrictions, managed subprocess children add their
+    # control protocol to the normal defaults. Configured allowlists were extended
+    # above; a direct API allowlist remains exact.
     if (
         allowlist is None
-        and config.get_env("GPTME_SUBAGENT_AGENT_ID")
+        and managed_subprocess
         and "subagent_control" not in hooks_to_register
     ):
         hooks_to_register.append("subagent_control")
