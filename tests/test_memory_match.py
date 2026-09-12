@@ -118,6 +118,15 @@ def test_match_hook_payload_event_and_bounded_body(tmp_path, monkeypatch, pretoo
             "tool_input": {},
             "cwd": "release",
         },
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Custom",
+            "tool_input": {
+                "cwd": "release",
+                "nested": {"session_id": "release"},
+                "items": [{"transcript_path": "release"}],
+            },
+        },
         ["release"],
     ],
 )
