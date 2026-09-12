@@ -715,17 +715,22 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
         # Initialize the full closure before publishing any of it to the active
         # toolset.  A companion failure must not leave the requested tool loaded
         # without its dependency (or make a retry fail as "already loaded").
-        initialized: dict[str, ToolSpec] = {}
+        initialized: list[ToolSpec] = []
+        requested: ToolSpec | None = None
         # _add_required_tools appends dependencies after their dependants, so
         # reverse the closure: companions must initialize before the tool that
         # requires them.
         for spec in reversed(to_load):
             if has_tool(spec.name):
                 continue
-            initialized[spec.name] = _init_single_tool(spec)
+            initialized_spec = _init_single_tool(spec)
+            initialized.append(initialized_spec)
+            if spec is tool:
+                requested = initialized_spec
 
-        _get_loaded_tools().extend(initialized.values())
-        for name in initialized:
-            logger.info("Loaded tool '%s' mid-conversation", name)
+        _get_loaded_tools().extend(initialized)
+        for spec in initialized:
+            logger.info("Loaded tool '%s' mid-conversation", spec.name)
 
-        return initialized[tool_name]
+        assert requested is not None
+        return requested

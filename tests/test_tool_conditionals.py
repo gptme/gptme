@@ -53,11 +53,21 @@ def test_render_text_without_markers_is_untouched():
 @pytest.mark.parametrize(
     "text",
     [
+        "Use Jinja: {% if x %}yes{% endif %}",
+        "Shell template: {% raw_variable %}",
+    ],
+)
+def test_render_unrelated_template_syntax_is_untouched(text):
+    assert render_tool_conditionals(text, set()) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "{% if tools: a %}x",
-        "x{% endif %}",
+        "{% if tools: a %}x{% endif %}{% endif %}",
         "{% if tools: a %}{% if tools: b %}{% endif %}{% endif %}",
         "{% if tools: %}x{% endif %}",
-        "{% unknown %}",
     ],
 )
 def test_render_rejects_malformed_blocks(text):
@@ -179,6 +189,20 @@ def test_required_companion_must_be_available():
         pytest.raises(ValueError, match="primary.*requires.*companion.*not available"),
     ):
         get_toolchain(None)
+
+
+def test_load_tool_returns_replacement_spec_from_init():
+    original = ToolSpec(name="primary", desc="primary")
+    replacement = ToolSpec(name="initialized-primary", desc="initialized primary")
+    original = replace(original, init=lambda: replacement)
+
+    clear_tools()
+    set_session_allowlist(None)
+    with patch("gptme.tools.get_available_tools", return_value=[original]):
+        loaded = load_tool("primary")
+
+    assert loaded is replacement
+    assert get_tools() == [replacement]
 
 
 def test_load_tool_does_not_publish_partial_closure_on_init_failure():
