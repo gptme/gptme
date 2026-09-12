@@ -1555,6 +1555,74 @@ def test_step_skips_retry_when_prepared_provider_input_does_not_shrink(
     assert manager.current_view is None
 
 
+def test_step_restores_master_when_retry_preparation_fails(tmp_path, monkeypatch):
+    """A failed retry preparation must not leave the compacted view active."""
+    import importlib
+
+    import httpx
+
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.autocompact.events import read_compaction_events
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "task"),
+            Message("system", "large output " * 100),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    overflow = httpx.HTTPStatusError(
+        "maximum context length exceeded",
+        request=httpx.Request("POST", "https://example.test"),
+        response=httpx.Response(400),
+    )
+    mark_llm_reply_origin(overflow)
+    calls = 0
+
+    def fail_reply(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise overflow
+
+    prepare_calls = 0
+
+    def fail_retry_preparation(msgs, *_args, **_kwargs):
+        nonlocal prepare_calls
+        prepare_calls += 1
+        if prepare_calls == 1:
+            return msgs
+        raise RuntimeError("evidence reload failed")
+
+    monkeypatch.setattr(chat_module, "reply", fail_reply)
+    monkeypatch.setattr(chat_module, "prepare_messages", fail_retry_preparation)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:2],
+    )
+
+    with pytest.raises(RuntimeError, match="evidence reload failed"):
+        list(
+            chat_module.step(
+                manager.log,
+                stream=False,
+                model="openai/gpt-4",
+                logdir=manager.logdir,
+            )
+        )
+
+    assert calls == 1
+    assert manager.current_view is None
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["retry_success"] is False
+
+
 def test_step_context_overflow_without_manager_is_not_recovered(tmp_path, monkeypatch):
     """Library callers without a LogManager keep the original failure."""
     import importlib

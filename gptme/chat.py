@@ -789,37 +789,26 @@ def _reply_with_overflow_recovery(
         view_name = manager.get_next_view_name()
         manager.create_view(view_name, compacted_messages)
         manager.switch_view(view_name)
-        retry_messages = prepare_messages(
-            manager.log.messages, workspace, logdir=logdir
-        )
-        provider_tokens_before = len_tokens(msgs, get_model(model).model)
-        provider_tokens_after = len_tokens(retry_messages, get_model(model).model)
-        if provider_tokens_after >= provider_tokens_before:
-            logger.warning(
-                "Overflow compaction did not shrink provider input "
-                "(%d -> %d tokens); skipping retry",
-                provider_tokens_before,
-                provider_tokens_after,
-            )
-            append_compaction_event(
-                logdir,
-                trigger="overflow",
-                method="trim",
-                tokens_before=before_tokens,
-                tokens_after=after_tokens,
-                messages_before=len(before_messages),
-                messages_after=len(compacted_messages),
-                elapsed_seconds=monotonic() - started,
-                retry_success=False,
-                provider_tokens_before=provider_tokens_before,
-                provider_tokens_after=provider_tokens_after,
-            )
-            manager.switch_to_master()
-            raise
         retry_success = False
+        keep_compacted_view = False
+        provider_tokens_before = len_tokens(msgs, get_model(model).model)
+        provider_tokens_after = None
         try:
+            retry_messages = prepare_messages(
+                manager.log.messages, workspace, logdir=logdir
+            )
+            provider_tokens_after = len_tokens(retry_messages, get_model(model).model)
+            if provider_tokens_after >= provider_tokens_before:
+                logger.warning(
+                    "Overflow compaction did not shrink provider input "
+                    "(%d -> %d tokens); skipping retry",
+                    provider_tokens_before,
+                    provider_tokens_after,
+                )
+                raise first_error
             response = generate(retry_messages)
             retry_success = True
+            keep_compacted_view = True
             return response
         finally:
             append_compaction_event(
@@ -835,6 +824,8 @@ def _reply_with_overflow_recovery(
                 provider_tokens_before=provider_tokens_before,
                 provider_tokens_after=provider_tokens_after,
             )
+            if not keep_compacted_view:
+                manager.switch_to_master()
 
 
 @trace_function(name="chat.step", attributes={"component": "chat"})
