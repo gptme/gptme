@@ -383,9 +383,18 @@ def _extract_codeblocks(
                 re.search(r"(?:^|\n)" + re.escape(_think_start_tag), _prefix)
             )
             _has_any = _think_start_tag in _prefix
-            # Strip if standalone opening exists, or if there is no opening tag at
-            # all in the prefix (covers the Gemini "```thinking>" malformed case).
-            if _has_standalone or not _has_any:
+            # NEW: if the prefix already contains a complete fence pair, the
+            # model has emitted real tool calls before the stray close (a
+            # chat-template quirk seen with current reasoning models). The
+            # prefix is real content, NOT an unclosed think body, so we
+            # must NOT strip it. Without this guard, a model that emits
+            # several successful tool calls followed by stray ``</think>``
+            # / ``</thinking>`` loses every preceding call.
+            _has_complete_fence_pair = len(re.findall(r"`{3,}", _prefix)) >= 2
+            # Strip if standalone opening exists, or if there is no opening
+            # tag at all in the prefix AND no complete fence pair in the
+            # prefix (covers the Gemini "```thinking>" malformed case).
+            if _has_standalone or (not _has_any and not _has_complete_fence_pair):
                 # remove anything before and including the closing thinking tag
                 markdown = markdown[_think_end + len(_think_end_tag) :]
                 break

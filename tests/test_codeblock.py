@@ -2030,6 +2030,83 @@ def test_thinking_tag_concatenated_then_unclosed_standalone():
     assert len(blocks) == 0
 
 
+def test_stray_think_close_after_complete_fences_preserves_blocks():
+    """A stray ``</think>`` (no matching opener) landing AFTER several
+    complete fence pairs must NOT cause _extract_codeblocks to discard
+    the preceding tool calls.
+
+    Regression for: reasoning models (stepfun/step-3.7-flash, deepseek-r1,
+    qwen3-thinking) that emit stray ``</think>`` tokens as chat-template
+    junk after a successful tool-call turn. The model appears to hang
+    because every preceding tool call is silently dropped by the
+    think-strip guard at codeblock.py:134-148.
+    """
+    markdown = (
+        "```shell\necho ok\n```\n"
+        "```shell\nls\n```\n"
+        "```shell\nwhoami\n```\n"
+        "</think>\n"
+        "</think>\n"
+        "The user said hi."
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 3, (
+        f"three tool calls before stray </thinking> must all be extracted: {blocks!r}"
+    )
+    assert [b.lang for b in blocks] == ["shell", "shell", "shell"]
+    assert [b.content for b in blocks] == ["echo ok", "ls", "whoami"]
+
+
+def test_stray_think_close_after_single_fence_preserves_block():
+    """Same regression, single-fence form."""
+    markdown = (
+        "```shell\nls\n```\n"
+        "</think>\n"
+        "The user said hi."
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1, (
+        f"single fence before stray </thinking> must be preserved: {blocks!r}"
+    )
+    assert blocks[0].lang == "shell"
+    assert blocks[0].content == "ls"
+
+
+def test_stray_think_close_ZWSP_after_fences_preserves_blocks():
+    """stepfun/step-3.7-flash injects a U+200B zero-width space into
+    ``</thinking>`` to disguise the tag from its own XML parser. Same
+    fix must hold for the ZWSP form."""
+    markdown = (
+        "```shell\nls\n```\n"
+        "<\u200b/thinking>\n"
+        "The user said hi."
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1, (
+        f"ZWSP stray </thinking> must not drop preceding fence: {blocks!r}"
+    )
+    assert blocks[0].content == "ls"
+
+
+def test_gemini_malformed_thinking_fence_still_stripped():
+    """The original Gemini `` ```thinking> `` malformed case must STILL
+    be stripped — the proposed fix must not regress the existing
+    behaviour for messages with no real tool calls."""
+    markdown = (
+        "```thinking>\n"
+        "some model reasoning here\n</thinking>\n"
+        "```save pipeline.py\n"
+        "print('hello')\n"
+        "```"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    # The save block after should be extracted
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "print('hello')" in blocks[0].content
+
+
+
 def test_adjacent_fences_bare_multifence_content_line():
     """A content line of bare 6 backticks inside a block must NOT trigger adjacent-fence recovery."""
     # "``````" (6 backticks) is a valid content line, not a pair of adjacent fences.
