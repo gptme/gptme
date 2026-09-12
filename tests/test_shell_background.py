@@ -8,6 +8,7 @@ Covers:
 
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -148,6 +149,26 @@ class TestJobLifecycle:
             job.kill()
         killpg.assert_not_called()
         assert not job.is_running()
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX process groups only")
+    def test_kill_uses_process_group_captured_at_start(self):
+        """Termination must not resolve a possibly reused leader PID."""
+        from unittest.mock import patch
+
+        job = start_background_job("sleep 60")
+        assert job.process_group_id == job.process.pid
+        try:
+            with (
+                patch("gptme.tools.shell_background.os.getpgid") as getpgid,
+                patch("gptme.tools.shell_background.os.killpg") as killpg,
+                patch.object(job.process, "wait", return_value=0),
+            ):
+                job.kill()
+            getpgid.assert_not_called()
+            killpg.assert_called_once_with(job.process_group_id, signal.SIGTERM)
+        finally:
+            job.process.kill()
+            job.process.wait(timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -712,6 +733,7 @@ def _make_job() -> BackgroundJob:
         command="true",
         process=proc,
         start_time=time.time(),
+        process_group_id=None if sys.platform == "win32" else proc.pid,
     )
 
 
@@ -725,9 +747,11 @@ class TestCompletionNotifications:
         token = current_conversation_id.set("conversation-a")
         try:
             job = start_background_job("printf notified")
-            job.process.wait(timeout=5)
-            if job._reader_thread:
-                job._reader_thread.join(timeout=5)
+            # Completion is published by the reader thread after it has drained
+            # both pipes, not merely when the child process exits.
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=5)
+            assert not job._reader_thread.is_alive()
         finally:
             current_conversation_id.reset(token)
 
@@ -746,6 +770,55 @@ class TestCompletionNotifications:
         assert len(messages) == 1
         assert f"job #{job.id} finished" in messages[0].content
         assert "notified" in messages[0].content
+
+    def test_completion_hook_prefers_active_conversation_context(self):
+        from types import SimpleNamespace
+
+        from gptme.hooks import current_conversation_id
+        from gptme.tools import shell_background
+
+        job = _make_job()
+        job.id = 1
+        job.conversation_id = "conversation-a"
+        shell_background._background_jobs["conversation-a"] = {1: job}
+        shell_background._completion_queue.put(job)
+
+        token = current_conversation_id.set("conversation-a")
+        try:
+            messages = list(
+                shell_background.background_job_completion_hook(
+                    SimpleNamespace(chat_id=None), True, []
+                )
+            )
+        finally:
+            current_conversation_id.reset(token)
+
+        assert len(messages) == 1
+        assert "job #1 finished" in messages[0].content
+
+    def test_completion_hook_prefers_manager_over_stale_log_context(self, tmp_path):
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+        from gptme.tools import shell_background
+
+        # Constructing a manager binds it as the current process-local log, but
+        # the hook argument still names the conversation being advanced.
+        LogManager(logdir=tmp_path / "stale-conversation", lock=False)
+        job = _make_job()
+        job.id = 1
+        job.conversation_id = "conversation-a"
+        shell_background._background_jobs["conversation-a"] = {1: job}
+        shell_background._completion_queue.put(job)
+
+        messages = list(
+            shell_background.background_job_completion_hook(
+                SimpleNamespace(chat_id="conversation-a"), True, []
+            )
+        )
+
+        assert len(messages) == 1
+        assert "job #1 finished" in messages[0].content
 
     def test_completion_hook_claims_conversation_jobs_atomically(self):
         from types import SimpleNamespace

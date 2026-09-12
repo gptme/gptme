@@ -1585,6 +1585,14 @@ class ShellSession:
                             return self._kill_for_byte_cap(
                                 stdout, stderr, output, max_output_bytes
                             )
+
+                    # A chunk containing only pre-marker output takes the
+                    # ``continue`` path above for every line. Enforce the byte
+                    # cap here too instead of waiting for another read chunk.
+                    if not seen_start_marker and captured_bytes > max_output_bytes:
+                        return self._kill_for_byte_cap(
+                            stdout, stderr, output, max_output_bytes
+                        )
         except KeyboardInterrupt:
             # Clear line after ^C to avoid leaving a hanging line
             print()
