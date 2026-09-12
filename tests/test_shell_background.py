@@ -917,6 +917,67 @@ class TestCompletionNotifications:
         assert len(results["conversation-a"]) == 1
         assert len(results["conversation-b"]) == 1
 
+    def test_completion_delivery_is_atomic_with_reset(self):
+        from threading import Event, Thread
+        from types import SimpleNamespace
+
+        from gptme.tools import shell_background
+
+        job = _make_job()
+        job.id = 1
+        job.conversation_id = "conversation-a"
+        shell_background._background_jobs["conversation-a"] = {1: job}
+        shell_background._completion_queue.put(job)
+
+        delivery_started = Event()
+        release_delivery = Event()
+        original_mutex = shell_background._completion_queue.mutex
+
+        class CoordinatedMutex:
+            def __enter__(self) -> None:
+                delivery_started.set()
+                assert release_delivery.wait(timeout=5)
+                original_mutex.acquire()
+
+            def __exit__(self, *_args: object) -> None:
+                original_mutex.release()
+
+        messages: list = []
+
+        def deliver() -> None:
+            with patch.object(
+                shell_background._completion_queue, "mutex", CoordinatedMutex()
+            ):
+                messages.extend(
+                    shell_background.background_job_completion_hook(
+                        SimpleNamespace(chat_id="conversation-a"), True, []
+                    )
+                )
+
+        delivery_thread = Thread(target=deliver)
+        delivery_thread.start()
+        assert delivery_started.wait(timeout=5)
+
+        reset_done = Event()
+
+        def reset() -> None:
+            shell_background.reset_background_jobs(
+                "conversation-a", all_conversations=False
+            )
+            reset_done.set()
+
+        reset_thread = Thread(target=reset)
+        reset_thread.start()
+        assert not reset_done.wait(timeout=0.05)
+        release_delivery.set()
+        delivery_thread.join(timeout=5)
+        reset_thread.join(timeout=5)
+
+        assert not delivery_thread.is_alive()
+        assert not reset_thread.is_alive()
+        assert len(messages) == 1
+        assert shell_background._background_jobs.get("conversation-a") is None
+
     def test_stale_completion_does_not_target_reused_job_id(self):
         from types import SimpleNamespace
 

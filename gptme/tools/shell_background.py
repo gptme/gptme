@@ -258,9 +258,8 @@ def _current_conversation_id() -> str | None:
     from ..hooks import current_conversation_id
     from ..logmanager import LogManager
 
-    # An explicitly bound server conversation is authoritative. A LogManager
-    # can remain current in the surrounding context after its caller is done,
-    # so it is only the fallback when no explicit conversation is active.
+    # Server tool calls bind the owning conversation explicitly. CLI calls use
+    # the context-local LogManager established by chat().
     manager = LogManager.get_current_log()
     return current_conversation_id.get() or (manager.chat_id if manager else None)
 
@@ -419,28 +418,23 @@ def background_job_completion_hook(
     # paths also bind an explicit context for tools; use that only when the
     # manager cannot provide an ID. Never use process-local LogManager state here.
     conversation_id = getattr(manager, "chat_id", None) or current_conversation_id.get()
-    with _completion_queue.mutex:
+    # Reset takes these locks in the same order. Holding both while claiming and
+    # validating completions makes delivery atomic with conversation teardown.
+    with _job_lock, _completion_queue.mutex:
         own_jobs = cast(
             list[BackgroundJob],
             [
                 job
                 for job in _completion_queue.queue
                 if job.conversation_id == conversation_id
+                and _background_jobs.get(conversation_id, {}).get(job.id) is job
             ],
         )
+        own_job_ids = {id(job) for job in own_jobs}
         _completion_queue.queue = type(_completion_queue.queue)(
-            job
-            for job in _completion_queue.queue
-            if job.conversation_id != conversation_id
+            job for job in _completion_queue.queue if id(job) not in own_job_ids
         )
-    with _job_lock:
-        # Match object identity as well as the conversation-local ID. A reset can
-        # reuse IDs; an old queued completion must never resolve to the new job.
-        messages = [
-            _completion_message(job)
-            for job in own_jobs
-            if _get_background_job(conversation_id, job.id) is job
-        ]
+        messages = [_completion_message(job) for job in own_jobs]
     yield from messages
 
 
