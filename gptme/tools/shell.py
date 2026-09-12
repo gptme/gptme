@@ -517,6 +517,10 @@ class ShellSession:
         if changed and get_workspace_cwd() is None:
             os.chdir(cwd)
 
+    def _invalidate_cwd(self) -> None:
+        """Forget cwd state when a command ends without a trusted marker."""
+        self._cwd = None
+
     def _init(self):
         # Choose shell and process group settings based on platform
         if _is_windows:
@@ -589,6 +593,12 @@ class ShellSession:
             res_code = res_cur[0]
             res_stdout += res_cur[1]
             res_stderr += res_cur[2]
+            if res_code in (-124, -125):
+                # The shell process was killed before its cwd marker could be
+                # parsed. Restart() uses the tracked cwd, so clear it first:
+                # the next shell must start at the process cwd rather than an
+                # unverified pre-command directory.
+                self._invalidate_cwd()
             if res_code != 0:
                 return res_code, res_stdout, res_stderr
         return res_code, res_stdout, res_stderr

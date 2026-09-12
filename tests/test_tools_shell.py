@@ -2072,6 +2072,25 @@ def test_shell_tracks_cwd_changed_by_compound_command(tmp_path):
         os.chdir(original_cwd)
 
 
+def test_shell_forgets_cwd_when_marker_is_lost(tmp_path):
+    """Timeout/cap termination must not leave stale cwd validation state."""
+    original_cwd = Path.cwd()
+    shell = ShellSession(cwd=str(tmp_path))
+    sensitive = tmp_path / ".ssh"
+    sensitive.mkdir()
+    try:
+        ret, _, _ = shell.run(f"cd {shlex.quote(str(sensitive))}; sleep 5", timeout=0.1)
+        assert ret == -124
+        assert shell.get_cwd() == original_cwd
+
+        with patch("gptme.tools.shell._get_max_output_bytes", return_value=128):
+            ret, _, _ = shell.run(f"cd {shlex.quote(str(sensitive))}; yes x", timeout=5)
+        assert ret == -125
+        assert shell.get_cwd() == original_cwd
+    finally:
+        shell.close()
+
+
 # ---------------------------------------------------------------------------
 # Tests for workspace-aware subagent suggestion (issue #554)
 # ---------------------------------------------------------------------------
