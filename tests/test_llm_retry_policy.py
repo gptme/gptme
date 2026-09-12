@@ -242,13 +242,17 @@ def test_is_context_length_error_requires_provider_origin():
     mark_llm_reply_origin(overflow)
     assert is_context_length_error(overflow)
 
-    unrelated = BadRequestError(
+    for message in (
         "max_tokens must be a positive integer",
-        response=response,
-        body={"error": {"code": "invalid_request_error"}},
-    )
-    mark_llm_reply_origin(unrelated)
-    assert not is_context_length_error(unrelated)
+        "input is too long: maximum field length is 1000 characters",
+    ):
+        unrelated = BadRequestError(
+            message,
+            response=response,
+            body={"error": {"code": "invalid_request_error"}},
+        )
+        mark_llm_reply_origin(unrelated)
+        assert not is_context_length_error(unrelated)
 
 
 def test_anthropic_clients_have_sdk_retries_disabled():

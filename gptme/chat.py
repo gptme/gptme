@@ -771,6 +771,13 @@ def _reply_with_overflow_recovery(
         ):
             raise
 
+        if stream:
+            # A streaming provider may have emitted user-visible bytes before
+            # raising. Retrying would duplicate an unknown prefix because the
+            # callback/display API has no rollback signal. Non-streaming calls
+            # are atomic and safe to retry.
+            raise
+
         started = monotonic()
         before_messages = manager.log.messages
         before_tokens = len_tokens(before_messages, get_model(model).model)
@@ -869,6 +876,12 @@ def step(
                 on_thinking=on_thinking,
                 logdir=logdir,
             )
+        # Overflow recovery may have switched the active LogManager to a
+        # compacted view. Use that active log for tool execution below.
+        manager = LogManager.get_current_log()
+        if manager is not None and manager.logdir == logdir:
+            log = manager.log
+
         if get_config().get_env_bool("GPTME_COSTS"):
             log_costs(msgs + [msg_response])
         if get_config().get_env_bool("GPTME_TRACK_TOKENS"):
