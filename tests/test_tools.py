@@ -8,6 +8,7 @@ import pytest
 
 from gptme.message import Message
 from gptme.tools import (
+    ToolAllowlistError,
     _discover_tools,
     clear_tools,
     execute_msg,
@@ -174,6 +175,24 @@ def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
         init_tools(allowlist=["read-only", "save"])
 
 
+def test_expand_tool_allowlist_presets_rejects_multiple_presets(monkeypatch):
+    """Exclusive presets cannot be combined even when no non-preset names remain."""
+    from gptme.tools._allowlist import TOOL_PRESETS, expand_tool_allowlist_presets
+
+    monkeypatch.setitem(TOOL_PRESETS, "audit", ("ipython",))
+    with pytest.raises(ValueError, match="cannot be combined"):
+        expand_tool_allowlist_presets(["read-only", "audit"])
+    with pytest.raises(ValueError, match="cannot be combined"):
+        expand_tool_allowlist_presets(["read-only", "audit", "search.query"])
+
+
+def test_read_only_tool_preset_rejects_python_tool_path():
+    clear_tools()
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        init_tools(allowlist=["read-only", "foo.bar.py"])
+
+
 def test_init_tools_allowlist_glob_matches_mcp_tools():
     from gptme.tools.base import ToolSpec
 
@@ -202,7 +221,7 @@ def test_init_tools_error_explains_loaded_tools_mismatch():
     with (
         patch("gptme.tools.get_toolchain", return_value=[]),
         patch("gptme.tools.get_available_tools", return_value=fake_tools),
-        pytest.raises(ValueError, match="should have been loaded"),
+        pytest.raises(ToolAllowlistError, match="should have been loaded"),
     ):
         init_tools(allowlist=["save"])
 
@@ -230,7 +249,7 @@ def test_init_tools_allowlist_from_env():
 
 
 def test_init_tools_fails():
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(ToolAllowlistError, match="not found"):
         init_tools(allowlist=["save", "missing_tool"])
 
 
@@ -581,13 +600,13 @@ tool2 = ToolSpec(
 
 
 def test_get_toolchain_strict_raises_on_missing():
-    """Test that get_toolchain raises ValueError for unknown tools when strict=True."""
-    with pytest.raises(ValueError, match="not found"):
+    """Unknown tools raise the specific allowlist-resolution error in strict mode."""
+    with pytest.raises(ToolAllowlistError, match="not found"):
         get_toolchain(["nonexistent_tool_xyz"], strict=True)
 
 
 def test_get_toolchain_strict_raises_on_unavailable():
-    """Test that get_toolchain raises ValueError for unavailable tools when strict=True."""
+    """Unavailable tools raise the specific allowlist error in strict mode."""
     from gptme.tools.base import ToolSpec
 
     available = get_available_tools()
@@ -599,7 +618,7 @@ def test_get_toolchain_strict_raises_on_unavailable():
     available.append(unavailable_tool)
 
     try:
-        with pytest.raises(ValueError, match="unavailable"):
+        with pytest.raises(ToolAllowlistError, match="unavailable"):
             get_toolchain(["fake_unavailable_strict"], strict=True)
     finally:
         available.remove(unavailable_tool)
@@ -619,7 +638,8 @@ def test_get_toolchain_unavailable_uses_available_hint():
     available.append(unavailable_tool)
     try:
         with pytest.raises(
-            ValueError, match="start the fake server .or set FAKE_BACKEND=cloud."
+            ToolAllowlistError,
+            match="start the fake server .or set FAKE_BACKEND=cloud.",
         ):
             get_toolchain(["fake_with_hint"], strict=True)
     finally:
