@@ -1408,6 +1408,17 @@ class ShellSession:
                                 logger.warning(
                                     "Shell process did not exit after termination"
                                 )
+                                stderr.append(
+                                    "\n[gptme] The command closed a persistent shell "
+                                    "output pipe. The old shell was terminated "
+                                    "but could not be reaped, so it was not "
+                                    "replaced; this shell session is unusable.\n"
+                                )
+                                return (
+                                    -1,
+                                    trim_blank_lines("".join(stdout)),
+                                    trim_blank_lines("".join(stderr)),
+                                )
                             captured_bytes = self._drain_closed_shell_pipes(
                                 stdout,
                                 stderr,

@@ -2370,6 +2370,35 @@ def test_closing_output_pipe_restart_tolerates_slow_reap():
 
 
 @pytest.mark.timeout(30)
+def test_closing_output_pipe_does_not_replace_unreaped_shell():
+    """Do not lose the process handle when a killed shell cannot be reaped."""
+    from unittest.mock import patch
+
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession()
+    old_process = shell.process
+    try:
+        with (
+            patch.object(
+                old_process,
+                "wait",
+                side_effect=subprocess.TimeoutExpired(str(old_process.args), 1.0),
+            ),
+            patch.object(shell, "restart", wraps=shell.restart) as restart,
+        ):
+            rc, _stdout, stderr = shell.run(
+                "exec 1>&-; while :; do sleep 1; done", timeout=20.0
+            )
+        assert rc == -1
+        assert "could not be reaped" in stderr
+        assert shell.process is old_process
+        restart.assert_not_called()
+    finally:
+        shell.close()
+
+
+@pytest.mark.timeout(30)
 def test_closing_output_pipe_restarts_broken_shell():
     """A live shell with a permanently closed output pipe must be replaced."""
     from gptme.tools.shell import ShellSession
