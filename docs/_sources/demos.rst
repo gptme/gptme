@@ -1,15 +1,11 @@
+:audience: user
+
 Demos
 =====
 
 .. note::
 
    This page is a work in progress, and will be updated with more demos soon.
-
-.. contents:: Table of Contents
-   :depth: 1
-   :local:
-   :backlinks: none
-
 
 .. rubric:: Snake with curses
 

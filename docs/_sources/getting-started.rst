@@ -1,3 +1,5 @@
+:audience: user
+
 Getting Started
 ===============
 
@@ -38,7 +40,14 @@ If ``uv`` is not installed, you can install it using pip, pipx, or your system p
 .. tip::
 
    Some gptme tools require additional system dependencies (playwright, tmux, gh, etc.).
-   For extras, source installation, and system dependencies, see :doc:`system-dependencies`.
+
+   - :doc:`system-dependencies` — Python extras, browser binaries, source installs,
+     and the system packages individual tools need.
+
+.. toctree::
+   :hidden:
+
+   system-dependencies
 
 Usage
 -----
@@ -109,7 +118,7 @@ You can also reach the same flow from the interactive setup wizard:
 
     gptme-onboard
 
-See :doc:`providers` for the full list of supported subscription providers and
+See :doc:`providers-supported` for the full list of supported subscription providers and
 per-model options.
 
 .. _local-models:
@@ -149,7 +158,7 @@ For better results on coding tasks, use a larger model:
    :doc:`config` to point to a local model, or pass ``-m local/MODEL_NAME`` to use the
    same model for both chat and summaries.
 
-See :doc:`providers` for Groq and all other built-in provider options, or :doc:`providers-custom`
+See :doc:`providers-supported` for Groq and all other built-in provider options, or :doc:`providers-custom`
 for Ollama, vLLM, and custom server setup.
 
 Free Cloud Providers (No Credit Card Required)
@@ -226,7 +235,7 @@ Next Steps
 - Try the :doc:`examples`
 - Learn about available :doc:`tools`
 - Explore different :doc:`providers`
-- Set up the :doc:`server` for web access
+- Use the :doc:`web UI <webui>`, served by the :doc:`server`
 
 Support
 -------

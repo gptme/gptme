@@ -1,3 +1,5 @@
+:audience: power-user
+
 Skills
 ======
 
@@ -9,6 +11,11 @@ tools, and vice versa — the same interop play gptme makes for :doc:`MCP <mcp>`
 
 Looking for something to install? See the :doc:`skills-gallery` — a curated
 selection of community skills from gptme-contrib.
+
+.. toctree::
+   :hidden:
+
+   Gallery <skills-gallery>
 
 .. note::
 
@@ -435,11 +442,6 @@ Example:
 
 - Lesson: ``lessons/patterns/testing.md`` - Testing best practices
 - Skill: ``skills/testing-skill.md`` - Bundled pytest utilities
-
-.. toctree::
-   :maxdepth: 1
-
-   skills-gallery
 
 Related
 -------

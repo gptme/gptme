@@ -1,3 +1,7 @@
+---
+audience: developer
+---
+
 # Design: Generalized Elicitation
 
 **Issue**: [#1121](https://github.com/gptme/gptme/issues/1121)

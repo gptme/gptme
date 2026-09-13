@@ -1,3 +1,7 @@
+---
+audience: power-user
+---
+
 # How to Automate GUIs with Computer Use
 
 Use gptme to control desktop applications, automate web forms, and capture screenshots
@@ -337,7 +341,15 @@ make build-docker-computer   # build once
 make run-docker-computer     # start container (noVNC on :6080, gptme server on :8080)
 ```
 
-Then connect a browser to `http://localhost:6080` to watch the agent work.
+The container serves a split view with the chat on the left and the live desktop
+on the right, so you can watch the agent work and take over when needed:
+
+- **Split view:** <http://localhost:8080/computer>
+- **Chat only:** <http://localhost:8080>
+- **Desktop only:** <http://localhost:6080/vnc.html>
+
+The desktop toggles between view-only and interactive, and the screen is scaled
+for vision models. It needs Docker with X11 support and ports 6080 and 8080 free.
 Use `gptme-util computer record` inside the container to capture what the agent does.
 
 ## Backend selection cheat sheet

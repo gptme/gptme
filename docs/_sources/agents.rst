@@ -1,369 +1,116 @@
+:audience: user
+
 Agents
 ======
 
-gptme supports highly customizable "agents": persistent AI assistants with structured memory, identity, and workspace management capabilities.
+A gptme agent is a persistent assistant with its own identity, memory, and
+workspace — a git repository that serves as its "brain" and holds everything it
+knows and has done. It runs on a schedule, picks up work, and leaves a trail you
+can read in the morning.
 
-Each agent is implemented as a git repository that serves as their "brain," containing all their data, configuration, and interaction history.
+`Bob <https://github.com/TimeToBuildBob>`__ is the reference agent and the proof
+that this works: he has been running autonomously since 2024 and helps develop
+gptme itself — opening PRs, reviewing code, fixing CI, and managing his own task
+queue.
 
-Overview
---------
+What it does for you
+--------------------
 
-✨ Superpowers
-^^^^^^^^^^^^^^
+You point an agent at work and it goes and does it, on its own schedule, without
+you in the loop for every step:
 
-.. mermaid::
+- **Keeps the PR queue moving** — reviews open PRs, fixes the CI failures it
+  finds, and merges what passes.
+- **Triages your issues** — reads new issues, reproduces them, and opens a PR
+  with a fix or a diagnosis.
+- **Watches production** — checks logs and monitoring, and reports (or files) the
+  errors it discovers.
+- **Dogfoods your app** — exercises real flows through the
+  :doc:`browser or computer tools <tools>` and tells you what broke.
+- **Works its own backlog** — picks the next task off its queue, does it, and
+  updates the task when it's done.
+- **Runs the task system itself** — files follow-ups it discovers along the way,
+  so the backlog reflects reality instead of your last grooming session.
 
-   graph LR
-       Persistent[🔒 Persistent<br/>Complete history<br/>Version controlled]
-       Autonomous[🎯 Autonomous<br/>Long-term goals<br/>Proactive & self-directed]
-       Evolving[🌱 Self-Improving<br/>Gets smarter over time<br/>Learns from experience]
-       Portable[🔁 Portable<br/>Workspace-owned identity<br/>Multiple runtimes]
+Clear goals are what turn this from a reactive tool into something that takes
+initiative: an agent with a purpose can prioritize, notice opportunities, and
+keep a long-term direction between runs.
 
-       %% Force left-to-right layout
-       Persistent --- Autonomous --- Evolving --- Portable
+None of this is free of judgment. An agent left alone does what its prompt,
+tools, and credentials allow — see :doc:`security` for how to keep the blast
+radius small, and :doc:`agents/autonomous` for the practical guardrails.
 
-       classDef benefits fill:#fff8e1,stroke:#f57f17,stroke-width:3px,color:#000
-       class Persistent,Autonomous,Evolving,Portable benefits
-
-.. _agent-runtime-portability:
-
-🔁 Runtime Portability
-^^^^^^^^^^^^^^^^^^^^^^
-
-**Your agent is the workspace, not the harness.** Identity, memory, tasks,
-lessons, journal, workflow, and audit history live in the version-controlled
-workspace. gptme is the native runtime for that workspace, but another harness
-can operate on the same durable agent state when it implements the same context
-and task-lifecycle contract.
-
-Keep four layers distinct:
-
-- **Agent workspace** — identity, memory, tasks, journal, lessons, and workflow.
-- **Harness / runtime** — the agent loop, tools, context loading, and permissions.
-- **Model / provider** — the model used for reasoning and generation.
-- **Access / billing** — API keys, local inference, managed services, or a
-  compatible subscription login.
-
-These layers are not a full Cartesian product. Each harness supports different
-models and access methods, and merely being able to read the repository is not
-the same as shipping a reliable autonomous adapter. See the
-`gptme-agent-template runtime compatibility matrix
-<https://github.com/gptme/gptme-agent-template#one-agent-multiple-runtimes>`_
-for the concrete support levels in the public template.
-
-🧠 Agent Brain
-^^^^^^^^^^^^^^
-
-.. mermaid::
-
-   graph TD
-       subgraph Core[💎 Core Identity]
-           Identity[Who am I?<br/>My goals & capabilities]
-       end
-
-       subgraph LivingMemory[🔄 Living Memory Systems]
-           Journal[📔 Journal<br/>Every decision & insight<br/>Continuous learning]
-           Tasks[🎯 Tasks<br/>Goals & achievements<br/>Progress tracking]
-           Knowledge[📚 Knowledge<br/>Learned lessons<br/>Cross-referenced insights]
-           People[👥 Relationships<br/>Collaboration history<br/>Social intelligence]
-           Projects[🚀 Projects<br/>Active work & outcomes<br/>Success patterns]
-       end
-
-       subgraph Intelligence[🤖 Dynamic Intelligence]
-           direction LR
-           Context[⚡ Live Context<br/>Situational awareness<br/>Current state]
-           Learning[📈 Continuous Learning<br/>Self-improvement<br/>Pattern recognition]
-       end
-
-       %% Internal intelligence flow
-       Core --> LivingMemory
-       LivingMemory --> Intelligence
-       Context --- Learning
-
-       %% Memory interconnections (selective)
-       Journal -.->|Informs| Tasks
-       Knowledge -.->|Supports| Projects
-       People -.->|Collaborate on| Projects
-
-       classDef core fill:#fff3e0,stroke:#ef6c00,stroke-width:3px,color:#000
-       classDef memory fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
-       classDef intelligence fill:#fce4ec,stroke:#c2185b,stroke-width:3px,color:#000
-
-       class Core,Identity core
-       class LivingMemory,Journal,Tasks,Knowledge,People,Projects memory
-       class Intelligence,Context,Learning intelligence
-
-🌍 External World
-^^^^^^^^^^^^^^^^^
-
-.. mermaid::
-
-   graph LR
-       subgraph World
-           User[👤 User]
-           Web[🌐 Web & APIs]
-           Files[📁 Files & Code]
-           Social[✉️ Email & Discord]
-       end
-
-       classDef world fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
-
-       class World,User,Web,Files,Social world
-
-Architecture
-------------
-
-**Git-based Repository Structure:** Each agent is a complete git repository with a structured workspace.
-
-- **Core files** - ``README.md``, ``ABOUT.md``, ``ARCHITECTURE.md``, ``gptme.toml``
-- ``journal/`` - Daily activity logs (YYYY-MM-DD.md format)
-- ``tasks/`` - Individual task files with YAML metadata
-- ``knowledge/`` - Long-term documentation and insights
-- ``lessons/`` - Learned lessons and best practices
-- ``people/`` - Contact profiles and relationship management
-- ``projects/`` - Project-specific information
-
-**Dynamic Context Generation:** Agents use sophisticated context generation to maintain awareness.
-
-- :doc:`Project configuration <config>` (``gptme.toml``) specifies core ``files`` always in context
-- A ``context_cmd`` command specified in ``gptme.toml`` is used for dynamic context generation
-- Each interaction includes recent journal entries, active tasks, and git status
-- Provides comprehensive situational awareness across sessions
-
-Key Systems
+Get started
 -----------
 
-**Journal System:**
-
-- One file per day in append-only format
-- Contains task progress, decisions, reflections, and plans
-- Most recent entries automatically included in context
-- Maintains historical record of all activities and thoughts
-
-**Task Management:**
-
-- Individual Markdown files with YAML frontmatter metadata
-- States: new, active, paused, done, cancelled
-- Priority levels, tags, and dependencies
-- CLI tools for management and status tracking
-- Integrated with journal entries for progress updates
-
-**Knowledge Base:**
-
-- Long-term information storage organized by topic
-- Technical documentation, best practices, and insights
-- Cross-referenced with tasks and journal entries
-
-**Lessons System:**
-
-- Used to document learned lessons and best practices
-- Learned lessons are to be retrieved when the context arises
-- Helps avoid repeating mistakes and improves decision-making
-
-**People Directory:**
-
-- Individual profiles for contacts and collaborators
-- Includes interests, skills, project history, and interaction notes
-- Privacy-conscious with appropriate detail levels
-
-Usage
------
-
-.. note::
-
-    We are working on a graphical way to create and interact with agents using the :ref:`gptme web interface <server:gptme-webui>`. Try it out and let us know what you think! Soon coming as a managed service.
-
-**Installing dependencies:**
-
-First install the required dependencies and then gptme itself using `pipx <https://pipx.pypa.io/>`_ (recommended) to ensure isolation and easy management:
+An agent workspace needs ``git``, ``python3``, `pipx <https://pipx.pypa.io/>`_,
+`uv <https://docs.astral.sh/uv/>`_, and gptme itself:
 
 .. code-block:: bash
 
-    # Install pipx and other system dependencies
-    sudo apt install pipx tree
-    # or `brew install pipx tree`
+    pipx install gptme uv
 
-    # Install common dev dependencies (recommended)
-    sudo apt install git curl make build-essential \
-        python3 python3-dev python-is-python3
-
-    # Install gptme itself
-    pipx install gptme
-    # or `pipx install -e ./gptme` to install from local source
-    # or `pipx install "git+https://github.com/gptme/gptme.git@master#egg=gptme[browser,server,telemetry]"`_ for latest master with extras
-
-    # Requirements for agent
-    pipx install uv
-    pipx install pre-commit
-
-    # Install optional dependencies
-    sudo apt install lynx shellcheck jq pandoc ripgrep
-    # or `brew install lynx shellcheck jq pandoc ripgrep`
-
-    # Recommended:
-    # Install latest `gh` GitHub CLI from GitHub source (not old package manager version)
-    # See https://cli.github.com/
-
-**Creating an Agent:**
-
-The ``gptme-agent`` CLI (included with gptme) makes it easy to create and manage agents:
-
-.. code-block:: bash
-
-    # Create a new agent workspace (clones and customizes the template)
+    # Create a workspace from the agent template, customized for your agent
     gptme-agent create ~/my-agent --name MyAgent
 
-    # For a minimal workspace without the full template
-    gptme-agent create ~/my-agent --name MyAgent --no-template
+    # Bootstrap it: let the agent read its own identity files
+    cd ~/my-agent
+    gptme 'explore the workspace, read my identity files, and tell me what I am'
 
-See the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ repository for more details on the template structure.
+To let it run on a schedule through systemd or launchd:
+
+.. code-block:: bash
+
+    gptme-agent install      # install services
+    gptme-agent status       # check state
+    gptme-agent run          # trigger a run now
+    gptme-agent logs -f      # watch what it does
+
+``gptme-agent doctor`` checks a workspace's health, and ``gptme-agent scan``
+lists agent processes running on the host. See :doc:`agents/autonomous` for
+schedules, guardrails, and what makes a good autonomous prompt, and
+:doc:`system-dependencies` for optional tools that make an agent more capable.
 
 .. note::
 
-    You can also create agents manually by cloning the template repository and running ``./scripts/fork.sh``. The ``gptme-agent create`` command automates this process.
+    We are working on a graphical way to create and interact with agents using
+    the :ref:`gptme web interface <server:gptme-webui>`. Try it out and let us
+    know what you think! Soon coming as a managed service.
 
-**Running an Agent:**
+How it works
+------------
 
-.. code-block:: bash
+- **The workspace is the agent.** Identity, journal, tasks, knowledge, lessons,
+  and history live in a git repository you own. See :doc:`agents/workspace`.
+- **Runs are scheduled.** A service manager triggers gptme in that workspace on
+  an interval you choose. See :doc:`agents/autonomous`.
+- **It learns by writing things down.** Each run updates the journal, tasks, and
+  :doc:`lessons`; committing them is what makes the next run better than the last.
 
-    # Run the agent interactively
-    cd ~/my-agent
-    gptme "your prompt here"
+It reaches the rest of the world through the same surfaces as any gptme session:
+:doc:`channels` for email, chat, and voice; :doc:`tools` for browsing, search,
+and the shell; and :doc:`automation` for CI and git workflows.
 
-**Autonomous Operation:**
+Read more:
 
-Agents can run autonomously on a schedule using systemd (Linux) or launchd (macOS):
+- :doc:`agents/workspace` — the repository that holds identity, tasks, journal,
+  knowledge, and lessons, and how context is built each run.
+- :doc:`agents/autonomous` — scheduling runs, watching them, prompts that hold up
+  unattended, and keeping the blast radius small.
+- :doc:`profiles` — named presets of system prompt, tool access, and behavior,
+  for restricted sessions and subagents.
 
-.. code-block:: bash
+.. note::
 
-    # Install as a system service (runs every 30 minutes by default)
-    gptme-agent install
+    An agent is not the only way to specialize gptme. A
+    :doc:`profile <profiles>` is the lighter-weight sibling: a named preset of
+    system prompt, tool access, and behavior rules for a restricted session or a
+    subagent with a clear role, with no workspace of its own.
 
-    # Customize the schedule
-    gptme-agent install --schedule "*:00"    # Every hour
-
-    # Manage the agent
-    gptme-agent status              # Check status
-    gptme-agent logs --follow       # Monitor logs
-    gptme-agent run                 # Trigger immediate run
-    gptme-agent stop                # Pause scheduled runs
-    gptme-agent start               # Resume scheduled runs
-
-**Execution Flow with gptme:**
-
-1. ``gptme`` builds context from all systems
-
-   - Includes journal entries, tasks, knowledge, and people
-   - Static context is included using the ``files`` in ``gptme.toml``
-   - Dynamic context is generated using the ``context_cmd`` in ``gptme.toml``
-
-2. ``gptme`` runs the agent
-
-   - With prompt, tools, and collected context
-
-3. Agent processes the prompt
-
-   - Uses the context to inform decisions and responses
-   - Updates journal, tasks, and knowledge as needed
-
-Benefits
---------
-
-**Version Control:**
-
-- All agent data and interactions are version-controlled
-- Complete history of agent development and interactions
-- Easy backup, sharing, and collaboration
-
-**Persistence:**
-
-- Agents maintain state across sessions
-- Remember previous conversations, decisions, and progress
-- Build knowledge and relationships over time
-
-**Structured Memory:**
-
-- Organized information storage prevents knowledge loss
-- Easy retrieval of past decisions and context
-- Cross-referencing between different information types
-
-**Extensibility:**
-
-- Template provides consistent foundation
-- Customizable identity, goals, and capabilities
-- Integration with external tools and services
-
-**Goal-Oriented Behavior:**
-
-- Clear goals transform agents from reactive tools into proactive collaborators
-- Well-defined purpose enables agents to take initiative, suggest improvements, and identify opportunities
-- Strategic direction helps agents prioritize decisions and maintain long-term perspective
-- Goals provide the contextual framework that "pulls agents forward" toward meaningful outcomes
-
-Examples
---------
-
-**Bob:**
-Bob, aka `@TimeToBuildBob <https://github.com/TimeToBuildBob>`_, is an experimental agent that helps with gptme development. He demonstrates practical agent capabilities including:
-
-- Project management and task tracking
-- Code review and development assistance
-- Documentation and knowledge management (he has a `website <https://timetobuildbob.github.io/>`_)
-- Community interaction and support (he reads and responds on the Discord server)
-
-Bob tries to be more than just a AI assistant, he tries to expand his own impact and seek autonomy to safely scale his efforts and improve the agent harness.
-
-**Creating Specialized Agents:**
-The template system enables creating agents for specific domains:
-
-- Development assistants with project-specific knowledge
-- Research assistants with domain expertise
-- Personal productivity assistants with custom workflows
-- Team collaboration agents with shared knowledge bases
-
-External Integrations
----------------------
-
-Agents can be extended with various external integrations and tools for enhanced capabilities:
-
-**Content & Information:**
-
-- **Web Browsing:** Access and analyze web content using built-in browser tools
-- **Search Integration:** Query search engines and process results
-- **RSS Reader:** Consume and process RSS feeds in LLM-friendly formats
-
-**Communication & Sharing:**
-
-- **Email Integration:** Send and receive emails for external communication
-- **Social Media:**
-
-  - Twitter integration for sharing updates and public communication
-  - Discord integration for community interaction
-
-- **GitHub Integration:** Create and share gists, manage repositories
-- **Website Publishing:** Share information and updates publicly
-
-**Collaboration Tools:**
-
-- **Git Integration:** Version control with co-authoring capabilities
-- **Issue Tracking:** Integration with GitHub issues and project management
-- **Documentation:** Automated documentation generation and updates
-
-**Development & Operations:**
-
-- **CI/CD Integration:** Automated testing and deployment workflows
-- **Monitoring:** System and application monitoring capabilities
-- **Database Access:** Query and update databases as needed
-
-These integrations transform agents from isolated assistants into connected participants in digital workflows, enabling them to:
-
-- Stay informed about relevant developments through content feeds
-- Communicate with external parties and communities
-- Share their work and insights publicly
-- Collaborate on projects with proper attribution
-- Maintain awareness of project status and issues
-
-**Note:** Many integrations are work-in-progress (WIP) and under active development.
+    Compared to assistants built around messaging gateways (see
+    :doc:`alternatives`), a gptme agent is workspace-first: its identity, memory,
+    and history live in files you own, and it reaches people through whichever
+    :doc:`channels <channels>` you connect.
 
 Why personify agents?
 ---------------------
@@ -376,6 +123,26 @@ While personifying agents might seem unnecessary for professional use, it provid
 - **Engagement:** Creates more natural and memorable interactions
 - **Identity:** Distinguishes between different specialized agents
 
+Examples
+--------
+
+`Bob <https://github.com/TimeToBuildBob>`__ (``@TimeToBuildBob``) is an
+experimental agent that helps with gptme development: project management and task
+tracking, code review and development assistance, documentation and knowledge
+management (he has a `website <https://timetobuildbob.github.io/>`_), and
+community interaction (he reads and responds on the Discord server). He tries to
+be more than an AI assistant — expanding his own impact and seeking autonomy to
+safely scale his efforts and improve the agent harness.
+
+How Bob selects work, prioritizes it, and drives models is deliberately not
+documented here: it is one working solution to open questions, and the parts that
+prove general are upstreamed into gptme and the template as they mature.
+
+The same template works for other domains: development assistants with
+project-specific knowledge, research assistants with domain expertise, personal
+productivity assistants with custom workflows, and team collaboration agents with
+shared knowledge bases.
+
 Links
 -----
 
@@ -385,8 +152,8 @@ For more details, see the following resources:
 - `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ - Community-contributed tools and scripts for agents
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Agent Profiles
    :hidden:
 
-   agent/verifier-profile
+   agents/workspace
+   agents/autonomous
+   Profiles <profiles>

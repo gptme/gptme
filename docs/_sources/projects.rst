@@ -1,3 +1,5 @@
+:audience: user
+
 Projects
 ========
 
@@ -19,7 +21,7 @@ Official Projects
     RAG (Retrieval-Augmented Generation) implementation for gptme context management.
 
 * `gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_
-    Modern React-based web interface for gptme, available at `chat.gptme.org <https://chat.gptme.org>`_. Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main gptme repository.
+    Modern React-based web interface for gptme, bundled with ``gptme-server``. Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main gptme repository.
 
 * `gptme.vim <https://github.com/gptme/gptme.vim>`_
     Vim plugin for gptme integration.

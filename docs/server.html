@@ -48,8 +48,8 @@
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="MCP" href="mcp.html" />
-    <link rel="prev" title="Verifier Profile" href="agent/verifier-profile.html" />
+    <link rel="next" title="Web" href="webui.html" />
+    <link rel="prev" title="Voice" href="channels/voice.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -159,90 +159,162 @@
  </script></div>
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
-        <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
 <ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="getting-started.html">Getting Started</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="system-dependencies.html">Extras and System Dependencies</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
-<li class="toctree-l2"><a class="reference internal" href="automation.html">Automation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="projects.html">Projects</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/choose-workflow.html">Choose a Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Minimal Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/refactor.html">Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/automate-task.html">Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/parallel-research.html">Parallel Research</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/computer-use.html">Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/skills-workflows.html">Reusable Skills</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/custom-tool-plugin.html">Custom Tool Plugin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Text-to-Speech</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="cookbook.html">Cookbook</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="howto/choose-workflow.html">Choose a workflow for your task</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Run gptme with minimal context</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">How to Edit Files</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">How to Review Code</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">How to Debug Python</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/automate-task.html">How to Automate Tasks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/refactor.html">How to Refactor Code</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/computer-use.html">How to Automate GUIs with Computer Use</a></li>
-<li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Set Up Text-to-Speech</a></li>
 </ul>
-</details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser Tool</a></li>
-</ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Using gptme</span></p>
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models.html">Models</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="providers-supported.html">Supported Providers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-integration.html">Provider Integration Guide</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="provider-integration.html">Provider Integration Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="tools/read.html">Read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/save.html">Save</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/patch.html">Patch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/morph.html">Morph</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/hashline-edit.html">Hashline Edit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/python.html">Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/shell.html">Shell</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/gh.html">GitHub (gh)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/precommit.html">Precommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/autocommit.html">Autocommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/browser.html">Browser</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/rag.html">RAG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/chats.html">Chats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/vision.html">Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/screenshot.html">Screenshot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/computer.html">Computer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/choice.html">Choice</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/elicit.html">Elicit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/form.html">Form</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/tmux.html">Tmux</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/subagent.html">Subagent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/complete.html">Complete</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/restart.html">Restart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/vent.html">Vent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/request-tool-change.html">Request Tool Change</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/lessons.html">Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/todo.html">Todo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/mcp.html">MCP</a></li>
 </ul>
-<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="automation.html">Automation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Interfaces</span></p>
 <ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
-<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
-<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="agent/verifier-profile.html">Verifier Profile</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="cli.html">CLI</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme.html">gptme</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-server.html">gptme-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-tui.html">gptme-tui</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/agents.html">Agent Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/setup.html">Setup and Diagnostics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/sessions.html">Sessions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/evaluation.html">Evaluation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="app.html">App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloud.html">Cloud</a></li>
+<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="channels.html">Channels</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/email.html">Email</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/agent-messaging.html">Agent Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/chat.html">Chat Apps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/voice.html">Voice</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Server</a></li>
-<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
-<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
-<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="skills.html">Skills</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="skills-gallery.html">Skills Gallery</a></li>
+<li class="toctree-l1"><a class="reference internal" href="webui.html">Web</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Context</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agents/workspace.html">Workspace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/autonomous.html">Running autonomously</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiles.html">Profiles</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="memory.html">Cross-harness memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="skills.html">Skills</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="skills-gallery.html">Gallery</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="memory.html">Memory</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Extending gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pr-lifecycle.html">PR lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pr-lifecycle.html">PR Lifecycle</a></li>
 <li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
-<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
-<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
-<li class="toctree-l1"><a class="reference internal" href="context-compression.html">Context Compression</a></li>
-<li class="toctree-l1"><a class="reference internal" href="prompts.html">Prompts</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
-<li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/llm.html">LLMs and Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/tools.html">Tools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/config.html">Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/plugins.html">Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/commands.html">Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/profiles.html">Profiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/memory.html">Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/prompts.html">Prompts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/server.html">Server</a></li>
 </ul>
-<p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
-<ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="design/hook-based-confirmations.html">Design: Hook-Based Tool Confirmations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="design/elicitation.html">Design: Generalized Elicitation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="design/ptc-tool-interface.html">Design: Programmatic Tool Calling (PTC) Interface</a></li>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="context-compression.html">Context Compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="design/index.html">Design Documents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="design/hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design/elicitation.html">Generalized Elicitation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design/ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
+</ul>
+</details></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Projects</a></li>
 <li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
@@ -506,17 +578,12 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-as-a-systemd-service-pipx">Running as a systemd Service (pipx)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security">Security</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security">Security</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication-model">Authentication Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#host-header-validation">Host-header validation</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#threat-model">Threat Model</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace-patch-semantics">Workspace PATCH Semantics</a></li>
 </ul>
@@ -535,7 +602,8 @@ document.write(`
                   
   <section id="server">
 <h1>Server<a class="headerlink" href="#server" title="Link to this heading">#</a></h1>
-<p>gptme provides multiple web-based interfaces for browser-based interactions, from lightweight options to sophisticated desktop-integrated experiences.</p>
+<p><code class="docutils literal notranslate"><span class="pre">gptme-server</span></code> serves the <a class="reference internal" href="webui.html"><span class="doc">web UI</span></a> and the REST API. This page covers
+running and hosting it; see <a class="reference internal" href="webui.html"><span class="doc">Web</span></a> for the interfaces it serves.</p>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <p>To use gptme’s server capabilities, install with server extras:</p>
@@ -548,55 +616,7 @@ document.write(`
 </div>
 <p>The server and modern web UI share one origin by default, so no separate
 frontend process or CORS configuration is required.</p>
-<p>For more CLI options, see the <a class="reference internal" href="cli.html#gptme-server"><span class="std std-ref">CLI reference</span></a>.</p>
-</section>
-<section id="gptme-webui-modern-web-interface">
-<span id="server-gptme-webui"></span><h2>gptme-webui: Modern Web Interface<a class="headerlink" href="#gptme-webui-modern-web-interface" title="Link to this heading">#</a></h2>
-<p>The primary web interface is <a class="reference external" href="https://github.com/gptme/gptme/tree/master/webui">gptme-webui</a>: a modern, feature-rich application that provides a complete gptme experience in your browser. (Originally a <a class="reference external" href="https://github.com/gptme/gptme-webui">standalone repo</a>, now merged into the main gptme repository.)</p>
-<p><strong>Try it now:</strong></p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a> (latest version of gptme-webui, bring your own gptme-server)</p></li>
-<li><p><a class="reference external" href="https://gptme.ai">gptme.ai</a> (upcoming hosted gptme service)</p></li>
-</ul>
-<p><strong>Key Features:</strong></p>
-<ul class="simple">
-<li><p>Modern interface</p></li>
-<li><p>Streaming responses</p></li>
-<li><p>Mobile-friendly responsive design</p></li>
-<li><p>Dark mode support</p></li>
-<li><p>Conversation export and offline capabilities</p></li>
-<li><p>Integrated computer use interface</p></li>
-<li><p>Create your own persistent <cite>agents</cite></p></li>
-</ul>
-<p><strong>Local use:</strong></p>
-<p>The modern UI is bundled in gptme release packages. Run <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code> and
-open <a class="reference external" href="http://localhost:5700">http://localhost:5700</a>.</p>
-<p>For frontend development, see the <a class="reference external" href="https://github.com/gptme/gptme/tree/master/webui">gptme-webui README</a>.
-When Vite runs separately on port 5701, allow that development origin:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-server<span class="w"> </span>--cors-origin<span class="w"> </span><span class="s1">&#39;http://localhost:5701&#39;</span>
-</pre></div>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><strong>Connecting the hosted web UI to a local server (Chrome 142+).</strong>
-When you use the hosted web UI at <a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a>
-with a <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code> running on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, recent Chromium browsers
-(Chrome 142+) gate the connection behind a <em>Local Network Access</em> permission
-prompt. This check runs <em>before</em> CORS headers are evaluated, so the
-<code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code> flag is necessary but no longer sufficient — you must also
-click <strong>Allow</strong> on the permission prompt for the page to reach your local
-server. Serving the web UI from a local origin (for example
-<code class="docutils literal notranslate"><span class="pre">http://localhost:5701</span></code>) avoids the prompt entirely, since that is a
-local-to-local request.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><strong>Host-header validation.</strong> Bearer authentication is enabled for loopback
-and network binds alike. If an operator explicitly disables authentication
-with <code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code>, they can still opt into Host-header validation
-with <code class="docutils literal notranslate"><span class="pre">gptme-server</span> <span class="pre">serve</span> <span class="pre">--allowed-hosts</span> <span class="pre">gptme.local</span></code> (comma-separated,
-or via <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_ALLOWED_HOSTS</span></code>).</p>
-</div>
+<p>For more CLI options, see the <a class="reference internal" href="cli/gptme-server.html"><span class="doc">CLI reference</span></a>.</p>
 </section>
 <section id="self-hosting-with-docker-compose">
 <h2>Self-Hosting with Docker Compose<a class="headerlink" href="#self-hosting-with-docker-compose" title="Link to this heading">#</a></h2>
@@ -620,10 +640,9 @@ docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> 
 <p>The modern web UI is bundled at the same origin — just open
 <a class="reference external" href="http://localhost:5700">http://localhost:5700</a> in a browser. Being same-origin, it needs no CORS setup
 (you will still need the server token; see below).</p>
-<p>To use the hosted web UI instead, open
-<a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a> and point it at your server. That is
-a cross-origin setup, so uncomment the Compose <code class="docutils literal notranslate"><span class="pre">command</span></code> and set
-<code class="docutils literal notranslate"><span class="pre">CORS_ORIGIN</span></code> to the hosted UI (or your separately hosted UI).</p>
+<p>To point a separately hosted web UI at this server instead, uncomment the
+Compose <code class="docutils literal notranslate"><span class="pre">command</span></code> and set <code class="docutils literal notranslate"><span class="pre">CORS_ORIGIN</span></code> to that UI’s origin — a cross-origin
+setup needs it.</p>
 <p>Key <code class="docutils literal notranslate"><span class="pre">.env</span></code> settings:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> / <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> / <code class="docutils literal notranslate"><span class="pre">OPENROUTER_API_KEY</span></code> — at least one is required.</p></li>
@@ -710,7 +729,7 @@ sudo<span class="w"> </span>systemctl<span class="w"> </span>reload<span class="
 </div>
 <p>The server and bundled UI are now reachable together at
 <code class="docutils literal notranslate"><span class="pre">https://gptme.example.com</span></code>. If you instead use a separately hosted UI such
-as <a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a>, set <code class="docutils literal notranslate"><span class="pre">CORS_ORIGIN</span></code> in <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+from another origin, set <code class="docutils literal notranslate"><span class="pre">CORS_ORIGIN</span></code> in <code class="docutils literal notranslate"><span class="pre">.env</span></code>
 to that UI’s origin and enable the Compose <code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code> command.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -762,84 +781,6 @@ persistent credential across restarts. This is <strong>required for persistent
 deployments</strong>: if omitted the server generates a new random token at each startup,
 invalidating any client already configured with the previous token.</p>
 </section>
-<section id="basic-web-ui">
-<h2>Basic Web UI<a class="headerlink" href="#basic-web-ui" title="Link to this heading">#</a></h2>
-<p>A lightweight chat interface with minimal dependencies is bundled with the gptme server for simple deployments.</p>
-<p>Access at <a class="reference external" href="http://localhost:5700">http://localhost:5700</a> after starting <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code>.</p>
-<p>This interface provides basic chat functionality and is useful for:</p>
-<ul class="simple">
-<li><p>Quick testing and development</p></li>
-<li><p>Minimal server deployments</p></li>
-<li><p>Environments with limited resources</p></li>
-</ul>
-</section>
-<section id="computer-use-interface">
-<h2>Computer Use Interface<a class="headerlink" href="#computer-use-interface" title="Link to this heading">#</a></h2>
-<p>The computer use interface provides an innovative split-view experience with chat on the left and a live desktop environment on the right, enabling AI agents to interact directly with desktop applications.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>The computer use interface is experimental and has serious security implications.
-Please use with caution and see Anthropic’s documentation on <a class="reference external" href="https://docs.anthropic.com/en/docs/build-with-claude/computer-use">computer use</a> for additional guidance.</p>
-</div>
-<p><strong>Docker Setup</strong> (Recommended):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
-git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme.git
-<span class="nb">cd</span><span class="w"> </span>gptme
-
-<span class="c1"># Build and run the computer use container</span>
-make<span class="w"> </span>build-docker-computer
-docker<span class="w"> </span>run<span class="w"> </span>-v<span class="w"> </span>~/.config/gptme:/home/computeruse/.config/gptme<span class="w"> </span>-p<span class="w"> </span><span class="m">6080</span>:6080<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:8080<span class="w"> </span>gptme-computer:latest
-</pre></div>
-</div>
-<p><strong>Access Points:</strong></p>
-<ul class="simple">
-<li><p><strong>Combined interface:</strong> <a class="reference external" href="http://localhost:8080/computer">http://localhost:8080/computer</a></p></li>
-<li><p><strong>Chat only:</strong> <a class="reference external" href="http://localhost:8080">http://localhost:8080</a></p></li>
-<li><p><strong>Desktop only:</strong> <a class="reference external" href="http://localhost:6080/vnc.html">http://localhost:6080/vnc.html</a></p></li>
-</ul>
-<p><strong>Features:</strong></p>
-<ul class="simple">
-<li><p>Split-view interface with real-time desktop interaction</p></li>
-<li><p>Toggle between view-only and interactive desktop modes</p></li>
-<li><p>Automatic screen scaling optimized for LLM vision models</p></li>
-<li><p>Secure containerized environment</p></li>
-</ul>
-<p><strong>Requirements:</strong></p>
-<ul class="simple">
-<li><p>Docker with X11 support</p></li>
-<li><p>Available ports: 6080 (VNC) and 8080 (web interface)</p></li>
-</ul>
-<section id="local-computer-use-advanced">
-<h3>Local Computer Use (Advanced)<a class="headerlink" href="#local-computer-use-advanced" title="Link to this heading">#</a></h3>
-<p>You can enable the <code class="docutils literal notranslate"><span class="pre">computer</span></code> tool locally on Linux systems, though this is not recommended for security reasons.</p>
-<p><strong>Requirements:</strong></p>
-<ul class="simple">
-<li><p>X11 server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">xdotool</span></code> package installed</p></li>
-</ul>
-<p><strong>Usage:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable computer tool in addition to default tools</span>
-gptme<span class="w"> </span>--tools<span class="w"> </span>+computer
-</pre></div>
-</div>
-<p>Set an appropriate screen resolution for your vision model before use.</p>
-<p>For long-running visual workflows, prefer a specialized subagent profile to keep
-parent context smaller:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Desktop interaction (mouse, keyboard, screenshots)</span>
-<span class="n">subagent</span><span class="p">(</span>
-    <span class="s2">&quot;computer-use&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Click the Submit button, wait for the modal, and screenshot the result&quot;</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="c1"># Web browsing and testing</span>
-<span class="n">subagent</span><span class="p">(</span>
-    <span class="s2">&quot;browser-use&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Open localhost:5173, capture a screenshot, and report UI issues&quot;</span><span class="p">,</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-</section>
-</section>
 <section id="security">
 <h2>Security<a class="headerlink" href="#security" title="Link to this heading">#</a></h2>
 <p>This section describes the security model of gptme-server and the threat vectors it is designed (and not designed) to address.</p>
@@ -866,8 +807,16 @@ API layer. The security boundary is <strong>access to the server</strong>, not a
 individual endpoint.</p>
 </div>
 </section>
+<section id="host-header-validation">
+<span id="server-threat-model"></span><h3>Host-header validation<a class="headerlink" href="#host-header-validation" title="Link to this heading">#</a></h3>
+<p>Bearer authentication is enabled for loopback and network binds alike. If an
+operator explicitly disables authentication with <code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code>, they can
+still opt into Host-header validation with
+<code class="docutils literal notranslate"><span class="pre">gptme-server</span> <span class="pre">serve</span> <span class="pre">--allowed-hosts</span> <span class="pre">gptme.local</span></code> (comma-separated, or via
+<code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_ALLOWED_HOSTS</span></code>).</p>
+</section>
 <section id="threat-model">
-<span id="server-threat-model"></span><h3>Threat Model<a class="headerlink" href="#threat-model" title="Link to this heading">#</a></h3>
+<h3>Threat Model<a class="headerlink" href="#threat-model" title="Link to this heading">#</a></h3>
 <p>The server is hardened against browser-originating attacks that apply to local
 server access:</p>
 <p><strong>1. Cross-Site Request Forgery (CSRF)</strong></p>
@@ -934,7 +883,28 @@ minimize confused-deputy risk without breaking legitimate workflows.</p>
 <p class="admonition-title">Note</p>
 <p>API documentation is available when running the server. Visit the server endpoint <code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code> for interactive API documentation based on the OpenAPI spec (served at <code class="docutils literal notranslate"><span class="pre">/api/docs/openapi.json</span></code>).</p>
 </div>
-</section>
+<script>
+(function () {
+  // The web UI sections moved to webui.html; forward old deep links.
+  var moved = {
+    "server-gptme-webui": 1,
+    "gptme-webui-modern-web-interface": 1,
+    "basic-web-ui": 1,
+    "computer-use-interface": 1,
+    "local-computer-use-advanced": 1
+  };
+  var raw = location.hash.slice(1);
+  var id;
+  try {
+    id = decodeURIComponent(raw);
+  } catch (e) {
+    return;
+  }
+  if (id && moved[id] && !document.getElementById(id)) {
+    location.replace("webui.html#" + id);
+  }
+})();
+</script></section>
 </section>
 
 
@@ -949,20 +919,20 @@ minimize confused-deputy risk without breaking legitimate workflows.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="agent/verifier-profile.html"
+       href="channels/voice.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Verifier Profile</p>
+        <p class="prev-next-title">Voice</p>
       </div>
     </a>
     <a class="right-next"
-       href="mcp.html"
+       href="webui.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">MCP</p>
+        <p class="prev-next-title">Web</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -983,17 +953,12 @@ minimize confused-deputy risk without breaking legitimate workflows.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-as-a-systemd-service-pipx">Running as a systemd Service (pipx)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security">Security</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security">Security</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication-model">Authentication Model</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#host-header-validation">Host-header validation</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#threat-model">Threat Model</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace-patch-semantics">Workspace PATCH Semantics</a></li>
 </ul>

@@ -1,14 +1,11 @@
+:audience: user
+
 Features
 ========
 
 gptme is a personal AI agent in your terminal with tools to run shell commands, write code, edit files, browse the web, use vision, and much more. A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work — including running as a **persistent autonomous agent** that operates continuously, learns from experience, and manages its own tasks.
 
 An unconstrained local free and open-source alternative to Claude Code, Codex, Cursor Agents, etc. One of the first agent CLIs created (Spring 2023) — and still in very active development.
-
-.. contents:: Table of Contents
-   :depth: 2
-   :local:
-   :backlinks: none
 
 Core Capabilities
 -----------------
@@ -46,7 +43,7 @@ Search the web and read pages, PDFs, and documentation.
 - **Screenshot** web pages for visual analysis.
 - Full browser automation via Playwright.
 
-See the :ref:`Browser <tools:Browser>` tool.
+See the :doc:`Browser <tools/browser>` tool.
 
 👀 Vision
 ^^^^^^^^^
@@ -58,7 +55,7 @@ Analyze images, screenshots, and visual content.
 - Inspect web page screenshots.
 - Process diagrams, charts, mockups, and more.
 
-See the :ref:`Vision <tools:Vision>` and :ref:`Screenshot <tools:Screenshot>` tools.
+See the :doc:`Vision <tools/vision>` and :doc:`Screenshot <tools/screenshot>` tools.
 
 🖥️ Computer Use
 ^^^^^^^^^^^^^^^
@@ -82,18 +79,18 @@ The primary interface — a powerful terminal chat with:
 - Slash-commands for common actions (``/undo``, ``/edit``, ``/tokens``, etc.)
 - Keyboard shortcuts (Ctrl+X Ctrl+E to edit in ``$EDITOR``, Ctrl+J for newlines)
 
-See :doc:`usage` and :doc:`cli` for the full reference.
+See :doc:`usage` and :doc:`cli/gptme` for the full reference.
 
 🌐 Web UI
 ^^^^^^^^^
 
-A modern React-based web interface available at `chat.gptme.org <https://chat.gptme.org>`_.
+A modern React-based web interface, bundled with ``gptme-server``. See :doc:`webui`.
 
 - Chat with gptme from your browser
 - Access to all tools and features
 - Self-hostable by running ``gptme-server`` + ``gptme-webui``
 
-See :doc:`server` for setup instructions.
+See :doc:`webui` for the interface and :doc:`server` for running it.
 
 🔌 REST API
 ^^^^^^^^^^^
@@ -201,7 +198,7 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 - **Task management** — structured task queue with YAML metadata and GTD-style workflows
 - **Meta-learning** — lessons system captures behavioral patterns and improves over time
 - **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
-- **External integrations** — GitHub, email, Discord, Twitter, RSS, and more
+- **External integrations** — GitHub, email, Discord, Twitter, RSS, and more (see :doc:`channels`)
 
 .. code-block:: bash
 

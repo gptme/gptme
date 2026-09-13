@@ -1,7 +1,9 @@
-Prompts
-=======
+:orphan:
 
-Here you can read examples of the system prompts currently used by gptme.
+.. meta::
+   :http-equiv=refresh: 0; url=api/prompts.html
 
-.. automodule:: gptme.prompts
-   :members:
+Prompts (moved)
+===============
+
+This page has moved to :doc:`api/prompts`.

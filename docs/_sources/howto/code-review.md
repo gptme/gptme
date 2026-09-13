@@ -1,3 +1,7 @@
+---
+audience: user
+---
+
 # How to Review Code
 
 Use gptme to review a diff, a PR, or a file — with enough context to give meaningful feedback.

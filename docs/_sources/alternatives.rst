@@ -1,13 +1,11 @@
+:audience: user
+
 Alternatives
 ============
 
 .. meta::
    :description: Compare gptme with Claude Code, Claude Managed Agents, Aider, Cursor, Devin, OpenHands, and other AI coding agents. Open source, model-agnostic, terminal-native.
    :keywords: Claude Code alternative, Claude Managed Agents alternative, open source coding agent, Aider alternative, Devin alternative, AI coding assistant comparison, gptme vs Claude Code, gptme vs Aider
-
-.. contents::
-   :local:
-   :depth: 2
 
 gptme vs Claude Code vs Aider vs Cursor — Open Source AI Coding Agent Comparison
 ---------------------------------------------------------------------------------

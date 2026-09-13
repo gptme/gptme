@@ -1,0 +1,1068 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Supported Providers &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="_static/asciinema-player_3.12.1.css" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=3a28e17f" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/asciinema-player_3.12.1.js"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'providers-supported';</script>
+    <link rel="canonical" href="https://gptme.org/docs/providers-supported.html" />
+    <link rel="icon" href="_static/logo.png"/>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Custom and Local Providers" href="providers-custom.html" />
+    <link rel="prev" title="Providers" href="providers.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <script>document.write(`<img src="_static/logo.png" class="logo__image only-dark" alt="gptme - Home"/>`);</script>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="getting-started.html">Getting Started</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="system-dependencies.html">Extras and System Dependencies</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/choose-workflow.html">Choose a Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Minimal Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/refactor.html">Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/automate-task.html">Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/parallel-research.html">Parallel Research</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/computer-use.html">Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/skills-workflows.html">Reusable Skills</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/custom-tool-plugin.html">Custom Tool Plugin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="howto/tts-setup.html">Text-to-Speech</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Using gptme</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="config.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="models.html">Models</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="providers.html">Providers</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Supported Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="providers-integration.html">Provider Integration Guide</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tool-formats.html">Tool Formats</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="tools/read.html">Read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/save.html">Save</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/patch.html">Patch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/morph.html">Morph</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/hashline-edit.html">Hashline Edit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/python.html">Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/shell.html">Shell</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/gh.html">GitHub (gh)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/precommit.html">Precommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/autocommit.html">Autocommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/browser.html">Browser</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/rag.html">RAG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/chats.html">Chats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/vision.html">Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/screenshot.html">Screenshot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/computer.html">Computer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/choice.html">Choice</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/elicit.html">Elicit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/form.html">Form</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/tmux.html">Tmux</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/subagent.html">Subagent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/complete.html">Complete</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/restart.html">Restart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/vent.html">Vent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/request-tool-change.html">Request Tool Change</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/lessons.html">Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/todo.html">Todo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/mcp.html">MCP</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="automation.html">Automation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="security.html">Security</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Interfaces</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="cli.html">CLI</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme.html">gptme</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-server.html">gptme-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-tui.html">gptme-tui</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/agents.html">Agent Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/setup.html">Setup and Diagnostics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/sessions.html">Sessions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cli/evaluation.html">Evaluation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="app.html">App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cloud.html">Cloud</a></li>
+<li class="toctree-l1"><a class="reference internal" href="acp.html">ACP</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="channels.html">Channels</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/email.html">Email</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/agent-messaging.html">Agent Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/chat.html">Chat Apps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channels/voice.html">Voice</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="webui.html">Web</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Context</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agents/workspace.html">Workspace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/autonomous.html">Running autonomously</a></li>
+<li class="toctree-l2"><a class="reference internal" href="profiles.html">Profiles</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="lessons.html">Lessons</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="skills.html">Skills</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="skills-gallery.html">Gallery</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="memory.html">Memory</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Extending gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pr-lifecycle.html">PR Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/llm.html">LLMs and Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/tools.html">Tools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/config.html">Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/plugins.html">Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/commands.html">Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/profiles.html">Profiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/memory.html">Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/prompts.html">Prompts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/server.html">Server</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="context-compression.html">Context Compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="design/index.html">Design Documents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="design/hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design/elicitation.html">Generalized Elicitation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design/ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.33.0.html">v0.33.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.32.0.html">v0.32.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/providers-supported.rst" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="_sources/providers-supported.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Supported Providers</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#api-providers">API providers</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-platform">OpenAI Platform</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#anthropic">Anthropic</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#google-gemini">Google Gemini</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#xai">xAI</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deepseek">DeepSeek</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moonshot">Moonshot</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia">NVIDIA</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#azure-openai">Azure OpenAI</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openrouter">OpenRouter</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-a-subprovider">Choosing a subprovider</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#requesty">Requesty</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#groq">Groq</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subscriptions">Subscriptions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-subscription">OpenAI Subscription</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#grok-subscription">Grok Subscription</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-managed-service">gptme Managed Service</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-and-openai-compatible-servers">Local and OpenAI-compatible servers</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="supported-providers">
+<h1>Supported Providers<a class="headerlink" href="#supported-providers" title="Link to this heading">#</a></h1>
+<p>Setup details for each built-in provider. For how to select a model and store
+credentials, start with the <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> overview. For Ollama, LM Studio,
+vLLM, and other OpenAI-compatible servers, see <a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a>.</p>
+<section id="api-providers">
+<span id="id1"></span><h2>API providers<a class="headerlink" href="#api-providers" title="Link to this heading">#</a></h2>
+<p>These providers authenticate with an API key. Providers without a section
+below (Anthropic, Gemini, xAI, DeepSeek, Moonshot, NVIDIA, Azure) only need
+their key — see the table in <a class="reference internal" href="providers.html#supported-providers"><span class="std std-ref">Supported providers</span></a>.</p>
+<section id="openai-platform">
+<span id="id2"></span><h3>OpenAI Platform<a class="headerlink" href="#openai-platform" title="Link to this heading">#</a></h3>
+<p>Use the direct OpenAI Platform provider with <code class="docutils literal notranslate"><span class="pre">openai/&lt;model&gt;</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-4o
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+gptme<span class="w"> </span><span class="s2">&quot;fix this bug&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
+</pre></div>
+</div>
+<p>GPT-5-class <code class="docutils literal notranslate"><span class="pre">openai/*</span></code> models (<code class="docutils literal notranslate"><span class="pre">gpt-5</span></code>, <code class="docutils literal notranslate"><span class="pre">gpt-5.5</span></code>, <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">gpt-5-nano</span></code>) and o-series models automatically use the OpenAI Responses API.
+gptme routes these models through <code class="docutils literal notranslate"><span class="pre">/v1/responses</span></code> by default:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+</pre></div>
+</div>
+<p>Non-GPT-5 models, proxy providers such as OpenRouter, and other
+OpenAI-compatible backends continue using the chat-completions path.</p>
+<p>To force the legacy chat-completions path for debugging or comparison, set
+<code class="docutils literal notranslate"><span class="pre">GPTME_OPENAI_RESPONSES_API=0</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OPENAI_RESPONSES_API</span><span class="o">=</span><span class="m">0</span>
+gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+</pre></div>
+</div>
+<p>In addition to <code class="docutils literal notranslate"><span class="pre">0</span></code>, the flag also accepts <code class="docutils literal notranslate"><span class="pre">false</span></code>, <code class="docutils literal notranslate"><span class="pre">no</span></code>, and <code class="docutils literal notranslate"><span class="pre">off</span></code> as
+falsy values.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This flag only affects the direct <code class="docutils literal notranslate"><span class="pre">openai</span></code> provider. The
+<code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code> provider uses its own Responses API path by
+default.</p>
+</div>
+</section>
+<section id="anthropic">
+<span id="id3"></span><h3>Anthropic<a class="headerlink" href="#anthropic" title="Link to this heading">#</a></h3>
+<p>Use Claude models through Anthropic’s native API with <code class="docutils literal notranslate"><span class="pre">anthropic/&lt;model&gt;</span></code>. gptme
+applies prompt caching automatically, which substantially reduces costs in long
+conversations.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup anthropic&#39;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-4-6
+</pre></div>
+</div>
+<p>Set <code class="docutils literal notranslate"><span class="pre">GPTME_ANTHROPIC_WEB_SEARCH=true</span></code> to let Claude use Anthropic’s native web
+search. A Claude Max subscription can’t be used from gptme; see
+<a class="reference internal" href="providers.html#providers-subscriptions"><span class="std std-ref">Subscriptions</span></a>.</p>
+</section>
+<section id="google-gemini">
+<span id="gemini"></span><h3>Google Gemini<a class="headerlink" href="#google-gemini" title="Link to this heading">#</a></h3>
+<p>Use Gemini models with <code class="docutils literal notranslate"><span class="pre">gemini/&lt;model&gt;</span></code>, through Google’s OpenAI-compatible
+endpoint. Get an API key at <a class="reference external" href="https://aistudio.google.com/apikey">Google AI Studio</a>;
+a free tier is available.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GEMINI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup gemini&#39;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-3.1-pro-preview
+</pre></div>
+</div>
+</section>
+<section id="xai">
+<span id="id4"></span><h3>xAI<a class="headerlink" href="#xai" title="Link to this heading">#</a></h3>
+<p>Use Grok models with an xAI API key via <code class="docutils literal notranslate"><span class="pre">xai/&lt;model&gt;</span></code>. Get a key at
+<a class="reference external" href="https://console.x.ai">console.x.ai</a>, or use a SuperGrok plan instead with
+<a class="reference internal" href="#grok-subscription"><span class="std std-ref">Grok Subscription</span></a>.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">XAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup xai&#39;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4.6
+</pre></div>
+</div>
+</section>
+<section id="deepseek">
+<span id="id5"></span><h3>DeepSeek<a class="headerlink" href="#deepseek" title="Link to this heading">#</a></h3>
+<p>Use DeepSeek’s official API with <code class="docutils literal notranslate"><span class="pre">deepseek/&lt;model&gt;</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DEEPSEEK_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup deepseek&#39;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-v4-flash
+</pre></div>
+</div>
+<p>DeepSeek models are also available through <a class="reference internal" href="#openrouter"><span class="std std-ref">OpenRouter</span></a>, where hosts differ
+in reliability and data policy; see <a class="reference internal" href="#openrouter-hosts"><span class="std std-ref">Choosing a subprovider</span></a>.</p>
+</section>
+<section id="moonshot">
+<span id="id6"></span><h3>Moonshot<a class="headerlink" href="#moonshot" title="Link to this heading">#</a></h3>
+<p>Use Moonshot’s Kimi models with <code class="docutils literal notranslate"><span class="pre">moonshot/&lt;model&gt;</span></code>, such as <code class="docutils literal notranslate"><span class="pre">kimi-k3</span></code>,
+<code class="docutils literal notranslate"><span class="pre">kimi-k2.6</span></code>, or <code class="docutils literal notranslate"><span class="pre">kimi-k2</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">MOONSHOT_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>moonshot/kimi-k3
+</pre></div>
+</div>
+<p>Kimi K3 accepts the <code class="docutils literal notranslate"><span class="pre">low</span></code>, <code class="docutils literal notranslate"><span class="pre">high</span></code>, and <code class="docutils literal notranslate"><span class="pre">max</span></code> levels of
+<code class="docutils literal notranslate"><span class="pre">GPTME_THINKING_EFFORT</span></code>; see <a class="reference internal" href="providers.html#reasoning-effort"><span class="std std-ref">Reasoning effort</span></a>.</p>
+</section>
+<section id="nvidia">
+<span id="id7"></span><h3>NVIDIA<a class="headerlink" href="#nvidia" title="Link to this heading">#</a></h3>
+<p>Use models from the <a class="reference external" href="https://build.nvidia.com/">NVIDIA API catalog</a> with
+<code class="docutils literal notranslate"><span class="pre">nvidia/&lt;model-id&gt;</span></code>, where <code class="docutils literal notranslate"><span class="pre">&lt;model-id&gt;</span></code> is the ID shown in the catalog:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">NVIDIA_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>nvidia/&lt;model-id&gt;
+</pre></div>
+</div>
+<p>gptme has no built-in model metadata for NVIDIA, so it uses generic defaults for
+context size and pricing.</p>
+</section>
+<section id="azure-openai">
+<span id="azure"></span><h3>Azure OpenAI<a class="headerlink" href="#azure-openai" title="Link to this heading">#</a></h3>
+<p>Use OpenAI models deployed on Azure with <code class="docutils literal notranslate"><span class="pre">azure/&lt;deployment-name&gt;</span></code>. Both an API
+key and your resource endpoint are required:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_OPENAI_ENDPOINT</span><span class="o">=</span><span class="s2">&quot;https://&lt;resource&gt;.openai.azure.com&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>azure/&lt;deployment-name&gt;
+</pre></div>
+</div>
+<p>As with NVIDIA, gptme has no built-in model metadata for Azure deployments.</p>
+</section>
+<section id="openrouter">
+<span id="id8"></span><h3>OpenRouter<a class="headerlink" href="#openrouter" title="Link to this heading">#</a></h3>
+<p><a class="reference external" href="https://openrouter.ai/">OpenRouter</a> provides access to 100+ models through a single API key. gptme applies sensible defaults for OpenRouter requests:</p>
+<ul class="simple">
+<li><p><strong>Provider routing</strong>: <code class="docutils literal notranslate"><span class="pre">require_parameters</span></code> is enabled, ensuring the routed provider supports all request parameters (tools, response format, etc.). This prevents silent failures when OpenRouter falls back to a provider that doesn’t support function calling.</p></li>
+<li><p><strong>Privacy</strong>: <code class="docutils literal notranslate"><span class="pre">data_collection</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">&quot;deny&quot;</span></code>, preventing providers from training on your data. This aligns with gptme’s privacy-first philosophy. The flag is only sent when extended reasoning is off; for reasoning-capable models (most current open-weight models) pin providers explicitly with the options below, since OpenRouter’s default routing may otherwise pick a provider that trains on prompts.</p></li>
+<li><p><strong>Provider override</strong>: Use <code class="docutils literal notranslate"><span class="pre">model&#64;provider</span></code> syntax to pin a specific backend (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-6&#64;anthropic</span></code>). A comma-separated list (<code class="docutils literal notranslate"><span class="pre">model&#64;together,fireworks</span></code>) is an ordered allowlist: OpenRouter tries the first, falls back to the next on rate limits or outages, and never routes outside the list. Each model page on OpenRouter has a <em>Providers</em> tab listing per-provider pricing, uptime, and data policy (training / prompt retention).</p></li>
+<li><p><strong>Default provider allowlist</strong>: <code class="docutils literal notranslate"><span class="pre">OPENROUTER_PROVIDER_ORDER</span></code> applies the same ordered allowlist to every request that has no <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> pin, so a vetted set of subproviders can be the default for all models.</p></li>
+<li><p><strong>Quantization</strong>: Optionally restrict to specific precision levels (e.g. <code class="docutils literal notranslate"><span class="pre">fp16</span></code> for quality, <code class="docutils literal notranslate"><span class="pre">int4</span></code> for cost savings). Set <code class="docutils literal notranslate"><span class="pre">OPENROUTER_QUANTIZATION</span></code> to a comma-separated list of accepted levels.</p></li>
+</ul>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme.toml or ~/.config/gptme/config.toml</span>
+<span class="k">[env]</span>
+<span class="n">OPENROUTER_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span>
+
+<span class="c1"># Override data collection preference (default: &quot;deny&quot;)</span>
+<span class="c1"># Set to &quot;allow&quot; if you need providers that require data collection consent</span>
+<span class="n">OPENROUTER_DATA_COLLECTION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span>
+
+<span class="c1"># Default ordered provider allowlist for requests without a model@provider pin.</span>
+<span class="c1"># Slugs are the OpenRouter provider ids shown on each model&#39;s Providers tab.</span>
+<span class="n">OPENROUTER_PROVIDER_ORDER</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;together,fireworks&quot;</span>
+
+<span class="c1"># Restrict to specific quantization levels (optional)</span>
+<span class="c1"># Common values: fp16, bf16, fp8, int8, int4, unknown</span>
+<span class="n">OPENROUTER_QUANTIZATION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;fp16,bf16&quot;</span>
+</pre></div>
+</div>
+<section id="choosing-a-subprovider">
+<span id="openrouter-hosts"></span><h4>Choosing a subprovider<a class="headerlink" href="#choosing-a-subprovider" title="Link to this heading">#</a></h4>
+<p>Open-weight models are served by many providers on OpenRouter, and the provider matters as much as the model: quality (quantization), latency, uptime, cache pricing, and data policy all differ. Pin a provider with <code class="docutils literal notranslate"><span class="pre">model&#64;provider</span></code>, or an ordered allowlist with <code class="docutils literal notranslate"><span class="pre">model&#64;a,b</span></code> (falls back within the list on rate limits), and set <code class="docutils literal notranslate"><span class="pre">OPENROUTER_PROVIDER_ORDER</span></code> to apply a default allowlist to every request. See the configuration options above.</p>
+<p>What we have found (verified 2026-09-09; re-check the model’s <em>Providers</em> tab on OpenRouter, this changes often):</p>
+<ul class="simple">
+<li><p><strong>The official model-developer endpoints are the most reliable path</strong> (<code class="docutils literal notranslate"><span class="pre">&#64;deepseek</span></code> for DeepSeek, <code class="docutils literal notranslate"><span class="pre">&#64;z-ai</span></code> for GLM). They have the best uptime, are among the fastest, and have the best cache-read pricing (DeepSeek official charges ~3% of the input price for cached prefixes, which dominates cost in long agent sessions). Both are what gptme’s own automation runs on.</p></li>
+<li><p><strong>Data policy differs.</strong> DeepSeek’s official endpoint retains prompts and trains on them, per its policy. Z.AI’s official endpoint is listed as <em>no training, no prompt retention</em>. Third-party hosts are almost all listed as <em>no training</em>, but a handful retain prompts (Alibaba, Baidu, Cloudflare, GMICloud, StreamLake at the time of writing).</p></li>
+<li><p><strong>Jurisdiction matters for sensitive data.</strong> Hosts operate in different countries, under different laws and levels of oversight. For data you wouldn’t want exposed, choose hosts whose location and legal exposure you’re comfortable with, not just the cheapest.</p></li>
+<li><p><strong>You’re trusting the host to serve the model it claims.</strong> You generally can’t verify which weights, at what precision, answered a request. Hosts have been accused of serving lower-precision quantizations than advertised, and output quality differs between hosts for reasons that aren’t always explained. Restricting <code class="docutils literal notranslate"><span class="pre">OPENROUTER_QUANTIZATION</span></code> helps only as far as the host reports honestly. For agents with privileged access, a silently swapped or degraded model is a security risk, not just a quality one: prefer the developer’s official endpoint or hosts you trust, pinned with <code class="docutils literal notranslate"><span class="pre">&#64;</span></code>.</p></li>
+<li><p><strong>Third-party hosts are not battle-tested and rate-limit under load.</strong> In a same-day probe of ten DeepSeek V4 Flash hosts and ten GLM 5.3 Flash hosts, a third of them answered <code class="docutils literal notranslate"><span class="pre">429</span> <span class="pre">rate-limited</span> <span class="pre">upstream</span></code> on a two-request burst, and OpenRouter’s default price-first routing lands on the slowest host. Of the no-training hosts, <code class="docutils literal notranslate"><span class="pre">together</span></code>, <code class="docutils literal notranslate"><span class="pre">fireworks</span></code>, and <code class="docutils literal notranslate"><span class="pre">inceptron</span></code> served DeepSeek V4 Flash correctly with working prompt caching in both probes; <code class="docutils literal notranslate"><span class="pre">fireworks</span></code>, <code class="docutils literal notranslate"><span class="pre">deepinfra</span></code>, <code class="docutils literal notranslate"><span class="pre">siliconflow</span></code>, and <code class="docutils literal notranslate"><span class="pre">sail-research</span></code> did the same for GLM 5.3 Flash. Treat these as a starting allowlist, not a recommendation: gptme’s own sessions have only exercised the official endpoints (and OpenInference and Baidu for DeepSeek) at volume.</p></li>
+<li><p><strong>Prompt caching is what makes these models cheap.</strong> All of the hosts above billed cache hits at the discounted rate on the second request, regardless of what OpenRouter’s <code class="docutils literal notranslate"><span class="pre">supports_implicit_caching</span></code> flag said. Compare <em>cache-read</em> prices, not just input prices.</p></li>
+</ul>
+<p>A privacy-preserving DeepSeek setup therefore looks like:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="o">-</span><span class="n">m</span> <span class="s2">&quot;openrouter/deepseek/deepseek-v4-flash-0731@together,fireworks,inceptron&quot;</span>
+</pre></div>
+</div>
+<p>while GLM 5.3 Flash can simply use its official endpoint:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="o">-</span><span class="n">m</span> <span class="n">openrouter</span><span class="o">/</span><span class="n">z</span><span class="o">-</span><span class="n">ai</span><span class="o">/</span><span class="n">glm</span><span class="o">-</span><span class="mf">5.3</span><span class="o">-</span><span class="n">flash</span><span class="nd">@z</span><span class="o">-</span><span class="n">ai</span>
+</pre></div>
+</div>
+<p>Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.</p>
+</section>
+</section>
+<section id="requesty">
+<span id="id9"></span><h3>Requesty<a class="headerlink" href="#requesty" title="Link to this heading">#</a></h3>
+<p><a class="reference external" href="https://requesty.ai/">Requesty</a> is an OpenAI-compatible LLM gateway that routes to many models through a single API key, using the same <code class="docutils literal notranslate"><span class="pre">provider/model</span></code> naming as OpenRouter (e.g. <code class="docutils literal notranslate"><span class="pre">requesty/openai/gpt-4o-mini</span></code>, <code class="docutils literal notranslate"><span class="pre">requesty/anthropic/claude-sonnet-4-5</span></code>). It is reached through the standard OpenAI-compatible client path.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme.toml or ~/.config/gptme/config.toml</span>
+<span class="k">[env]</span>
+<span class="n">REQUESTY_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span>
+</pre></div>
+</div>
+<p>Get an API key at <a class="reference external" href="https://app.requesty.ai/api-keys">https://app.requesty.ai/api-keys</a>. See <a class="reference external" href="https://docs.requesty.ai">https://docs.requesty.ai</a> for details.</p>
+</section>
+<section id="groq">
+<span id="id10"></span><h3>Groq<a class="headerlink" href="#groq" title="Link to this heading">#</a></h3>
+<p><a class="reference external" href="https://groq.com/">Groq</a> provides fast inference for open-source models via its own API key — <strong>not</strong> through the <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> / <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> pattern.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;gsk_...&quot;</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+</pre></div>
+</div>
+<p>Or store the key via the interactive setup:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;/account setup groq&#39;</span>
+</pre></div>
+</div>
+<p>Or in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
+<span class="n">GROQ_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gsk_...&quot;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Using <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL=https://api.groq.com/openai/v1</span></code> with <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code>
+will return a 401 — Groq requires its own <code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY</span></code>.
+The <code class="docutils literal notranslate"><span class="pre">groq/&lt;model&gt;</span></code> provider prefix handles this automatically.</p>
+</div>
+<p>Popular Groq models:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">groq/llama-3.3-70b-versatile</span></code> — fast 70B Llama 3.3</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">groq/llama-3.1-8b-instant</span></code> — fastest, smallest</p></li>
+</ul>
+</section>
+</section>
+<section id="subscriptions">
+<h2>Subscriptions<a class="headerlink" href="#subscriptions" title="Link to this heading">#</a></h2>
+<p>Use a subscription you already pay for instead of an API key.</p>
+<section id="openai-subscription">
+<span id="id11"></span><h3>OpenAI Subscription<a class="headerlink" href="#openai-subscription" title="Link to this heading">#</a></h3>
+<p>You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.</p>
+<p><strong>Setup:</strong></p>
+<p>Authenticate using the OAuth command (opens browser for login):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>openai-subscription
+</pre></div>
+</div>
+<p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/openai_subscription.json</span></code>.
+Access tokens are automatically refreshed before expiry, so you only need to authenticate once.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.6-sol
+</pre></div>
+</div>
+<p>You can also append reasoning levels: <code class="docutils literal notranslate"><span class="pre">:low</span></code>, <code class="docutils literal notranslate"><span class="pre">:medium</span></code>, <code class="docutils literal notranslate"><span class="pre">:high</span></code>, or <code class="docutils literal notranslate"><span class="pre">:xhigh</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra:high
+</pre></div>
+</div>
+<p><strong>Available Models:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-6-astra</span></code> - Current flagship (released 2026-09-03). Rolling out to Codex on Plus/Pro; if the endpoint reports that the model needs a newer client, re-authenticate with <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">openai-subscription</span></code> to refresh the token</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.6-sol</span></code> / <code class="docutils literal notranslate"><span class="pre">gpt-5.6-terra</span></code> / <code class="docutils literal notranslate"><span class="pre">gpt-5.6-luna</span></code> - GPT-5.6 family (flagship / balanced / fast)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.5-pro</span></code> - Previous flagship with maximum reasoning compute (Responses API only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.4</span></code> - Previous flagship with reasoning capabilities</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.3-codex</span></code> - Previous code-optimized variant</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.3-codex-spark</span></code> - Faster variant of gpt-5.3-codex</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.2</span></code> - Previous generation GPT model</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.2-codex</span></code> - Previous code-optimized variant</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1-codex-max</span></code> - Maximum capability variant</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1-codex</span></code> - Code-optimized</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1-codex-mini</span></code> - Smaller code-optimized variant</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.1</span></code> - Previous generation</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is for <strong>personal development use</strong> with your own ChatGPT Plus/Pro subscription.
+For production or multi-user applications, use the OpenAI Platform API.
+OAuth credentials are stored locally and access tokens are refreshed automatically.</p>
+</div>
+</section>
+<section id="grok-subscription">
+<span id="id12"></span><h3>Grok Subscription<a class="headerlink" href="#grok-subscription" title="Link to this heading">#</a></h3>
+<p>You can use your existing SuperGrok subscription (<a class="reference external" href="https://grok.com">grok.com</a>) with gptme, instead of an xAI API key. This uses the same subscription endpoint as the grok CLI.</p>
+<p><strong>Setup:</strong></p>
+<p>If you have the grok CLI installed and have run <code class="docutils literal notranslate"><span class="pre">grok</span> <span class="pre">login</span></code>, gptme automatically reuses those tokens (from <code class="docutils literal notranslate"><span class="pre">~/.grok/auth.json</span></code>) with no extra steps.</p>
+<p>Otherwise, authenticate directly using the OAuth command (opens browser for login):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>grok-subscription
+</pre></div>
+</div>
+<p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/grok_subscription.json</span></code>.
+Access tokens are automatically refreshed before expiry, and refreshed tokens are synced back to the grok CLI’s auth file when present.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.5
+</pre></div>
+</div>
+<p><strong>Available Models:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">grok-4.6</span></code> - Current frontier model (500K context, vision, reasoning)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">grok-4.5</span></code> - Previous frontier model (500K context, vision, reasoning)</p></li>
+</ul>
+<p>The subscription endpoint is OpenAI-compatible and supports native function calling (<code class="docutils literal notranslate"><span class="pre">--tool-format</span> <span class="pre">tool</span></code>).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is for <strong>personal development use</strong> with your own SuperGrok subscription.
+For production or multi-user applications, use the xAI Platform API (<code class="docutils literal notranslate"><span class="pre">xai</span></code> provider) with an API key from <a class="reference external" href="https://console.x.ai">console.x.ai</a>.</p>
+</div>
+</section>
+</section>
+<section id="gptme-managed-service">
+<span id="id13"></span><h2>gptme Managed Service<a class="headerlink" href="#gptme-managed-service" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">gptme</span></code> provider connects to the <a class="reference external" href="https://gptme.ai">gptme.ai</a> managed service, which acts as an OpenAI-compatible LLM proxy/gateway/router. This gives you access to multiple model providers (Anthropic, OpenAI, etc.) through a single account. For hosted gptme instances on the same account, see <a class="reference internal" href="cloud.html"><span class="doc">Cloud</span></a>.</p>
+<p><strong>Setup:</strong></p>
+<p>Authenticate using the Device Flow command:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>login
+</pre></div>
+</div>
+<p>This opens your browser to approve access, then stores a token locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/auth/gptme-cloud-&lt;hash&gt;.json</span></code>. Tokens are refreshed automatically.</p>
+<p><strong>Usage:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme<span class="w">                    </span><span class="c1"># uses default model</span>
+</pre></div>
+</div>
+<p>Models are pass-through: <code class="docutils literal notranslate"><span class="pre">gptme/&lt;model&gt;</span></code> proxies to the corresponding backend provider.</p>
+<p><strong>Environment variables</strong> (alternative to Device Flow login):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CLOUD_API_KEY</span></code>: API key for the managed service</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_CLOUD_BASE_URL</span></code>: Custom service URL (default: <code class="docutils literal notranslate"><span class="pre">https://fleet.gptme.ai/v1</span></code>)</p></li>
+</ul>
+<p><strong>Auth commands:</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme-auth<span class="w"> </span>login<span class="w">               </span><span class="c1"># Login via Device Flow (opens browser)</span>
+gptme-auth<span class="w"> </span>login<span class="w"> </span>--no-browser<span class="w">  </span><span class="c1"># Print URL instead of opening browser</span>
+gptme-auth<span class="w"> </span>status<span class="w">              </span><span class="c1"># Show current login status</span>
+gptme-auth<span class="w"> </span><span class="nb">logout</span><span class="w">              </span><span class="c1"># Remove stored credentials</span>
+</pre></div>
+</div>
+</section>
+<section id="local-and-openai-compatible-servers">
+<span id="local-providers"></span><h2>Local and OpenAI-compatible servers<a class="headerlink" href="#local-and-openai-compatible-servers" title="Link to this heading">#</a></h2>
+<p>You can use local LLM models using any OpenAI API-compatible server.</p>
+<p>To achieve that with <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, install it then run:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:1b
+ollama<span class="w"> </span>serve
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Small models won’t work well with tools, severely limiting the usefulness of gptme. You can find an overview of how different models perform on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
+</div>
+<p>For a guided walkthrough, see <a class="reference internal" href="getting-started.html#local-models"><span class="std std-ref">Local Models (No API Key Required)</span></a> in Getting Started. For
+LM Studio, vLLM, named <code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> entries, and troubleshooting, see
+<a class="reference internal" href="providers-custom.html"><span class="doc">Custom and Local Providers</span></a>.</p>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="providers.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Providers</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="providers-custom.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Custom and Local Providers</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#api-providers">API providers</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-platform">OpenAI Platform</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#anthropic">Anthropic</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#google-gemini">Google Gemini</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#xai">xAI</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deepseek">DeepSeek</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moonshot">Moonshot</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nvidia">NVIDIA</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#azure-openai">Azure OpenAI</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openrouter">OpenRouter</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-a-subprovider">Choosing a subprovider</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#requesty">Requesty</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#groq">Groq</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subscriptions">Subscriptions</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openai-subscription">OpenAI Subscription</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#grok-subscription">Grok Subscription</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-managed-service">gptme Managed Service</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-and-openai-compatible-servers">Local and OpenAI-compatible servers</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

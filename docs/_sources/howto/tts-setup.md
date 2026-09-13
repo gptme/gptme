@@ -1,3 +1,7 @@
+---
+audience: power-user
+---
+
 # Set Up Text-to-Speech
 
 gptme's webui can speak assistant messages aloud. Three engines are available,

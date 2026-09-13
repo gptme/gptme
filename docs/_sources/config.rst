@@ -1,3 +1,5 @@
+:audience: power-user
+
 Configuration
 =============
 
@@ -98,7 +100,7 @@ The ``env`` section contains environment variables that gptme will fall back to 
 
 The ``settings`` section contains user-level CLI defaults. Currently supported:
 
-- ``gear``: Default autonomy preset for new conversations. Gear ``0`` is read-only
+- ``gear``: Default autonomy preset for new conversations (experimental). Gear ``0`` is read-only
   observe mode, gear ``1`` is the interactive default, gear ``2`` allows file edits
   while excluding shell/network tools by default, gear ``3`` is fully autonomous,
   and gear ``4`` adds subagent orchestration.
@@ -162,7 +164,7 @@ If no model is configured, gptme will scan your API keys and pick the first avai
 
 So if you have both ``ANTHROPIC_API_KEY`` and ``GROQ_API_KEY`` set, gptme will
 use Anthropic (earlier in the list) unless you override with ``MODEL`` or ``--model``.
-See :doc:`providers` for the full list and the :doc:`evals` page for model recommendations.
+See :doc:`providers` for the full list and :doc:`models` for model recommendations.
 
 **Using multiple providers:**
 
@@ -272,7 +274,7 @@ This file currently supports a few options:
   ``GPTME_WORKSPACE``, and the current ``GPTME_MODEL`` in their environment.
   A failure or timeout is logged and does not alter the session result.
 
-- ``settings``, a dictionary of project-local CLI defaults. ``settings.gear`` accepts the same 0-4 autonomy presets as ``gptme --gear`` and overrides the global ``[settings].gear`` default for conversations started in this workspace.
+- ``settings``, a dictionary of project-local CLI defaults. ``settings.gear`` accepts the same experimental 0-4 autonomy presets as ``gptme --gear`` and overrides the global ``[settings].gear`` default for conversations started in this workspace.
 
   .. warning::
 

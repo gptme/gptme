@@ -1,3 +1,7 @@
+---
+audience: user
+---
+
 # How to Automate Tasks
 
 Use gptme to turn a multi-step procedure into a reusable script — or to run one-off automation

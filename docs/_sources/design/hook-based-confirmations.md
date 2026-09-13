@@ -1,3 +1,7 @@
+---
+audience: developer
+---
+
 # Design: Hook-Based Tool Confirmations
 
 **Issue**: [#1104](https://github.com/gptme/gptme/issues/1104)

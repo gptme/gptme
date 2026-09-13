@@ -1,3 +1,7 @@
+---
+audience: user
+---
+
 # How to Debug Python
 
 Use gptme to reproduce an error, trace through it, and apply a fix — without leaving the terminal.

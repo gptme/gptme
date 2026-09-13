@@ -1,3 +1,7 @@
+---
+audience: power-user
+---
+
 GitHub Bot
 ==========
 
