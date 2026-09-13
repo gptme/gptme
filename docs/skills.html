@@ -577,6 +577,7 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#explicit-invocation-telemetry">Explicit invocation telemetry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-difference-matching-behavior">Key Difference: Matching Behavior</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
@@ -626,6 +627,37 @@ tools, and vice versa — the same interop play gptme makes for <a class="refere
 selection of community skills from gptme-contrib.</p>
 <div class="toctree-wrapper compound">
 </div>
+<section id="explicit-invocation-telemetry">
+<h2>Explicit invocation telemetry<a class="headerlink" href="#explicit-invocation-telemetry" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">/skill:&lt;name&gt;</span></code> writes lifecycle evidence to <code class="docutils literal notranslate"><span class="pre">skill-events.jsonl</span></code> beside the
+conversation log. Ambient matching and instruction injection do not count as
+invocations. Each invocation has a stable ID; queueing records <code class="docutils literal notranslate"><span class="pre">queued</span></code>, while
+terminal adapters record <code class="docutils literal notranslate"><span class="pre">completed</span></code>, <code class="docutils literal notranslate"><span class="pre">failed</span></code>, or <code class="docutils literal notranslate"><span class="pre">abandoned</span></code>. Completed
+means the runtime finished responding, not that arbitrary skill instructions
+achieved their intended outcome.</p>
+<p>Accounting fields use schema version 2. Readers accept version 1 history without
+rewriting it. Upgrade processes sharing a conversation before resuming writes:
+older version 1 writers reject the newer ledger and stop recording events.</p>
+<p>When telemetry is enabled, successful ledger appends also emit
+<code class="docutils literal notranslate"><span class="pre">gptme_skill_invocations</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme_skill_completions</span></code>,
+<code class="docutils literal notranslate"><span class="pre">gptme_skill_duration_seconds</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme_skill_tokens</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">gptme_skill_cost_usd</span></code> through the existing metrics exporter. Labels are limited
+to skill name and surface, plus terminal status, the boolean <code class="docutils literal notranslate"><span class="pre">usage_available</span></code>
+on completions, and token type on token counters. Session IDs, invocation IDs,
+paths, and error details remain in the ledger. Export failure does not prevent
+invocation; these live metrics are best-effort and are not replayed from history.</p>
+<p>Cost and token fields are deltas from the existing <code class="docutils literal notranslate"><span class="pre">CostTracker</span></code> over the
+inclusive admission-to-terminal window. They are available only when both ends
+observe the same tracker for the same conversation. A reset, missing tracker, or
+foreign conversation produces <code class="docutils literal notranslate"><span class="pre">usage:</span> <span class="pre">null</span></code> and <code class="docutils literal notranslate"><span class="pre">usage_available=false</span></code>;
+it does not produce a zero-cost measurement. Overlapping invocations can have
+overlapping cost windows, so these values must not be summed as exclusive billing.</p>
+<p>Frontend accounting coverage remains separate from lifecycle coverage. In
+particular, the TUI does not yet initialize session cost tracking, and native
+server request workers do not consistently retain its ownership. Their lifecycle
+counts and durations remain useful while unmeasurable costs stay unknown. CLI
+invocations can use their existing session tracker. Cross-harness adapters and
+end-to-end accounting parity are separate work.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Skills are a <strong>special case of lessons</strong> using the Agent Skills open standard format.
@@ -636,6 +668,7 @@ auto-load by keywords/patterns/tools. For deep runtime integration, use
 </div>
 <p>The skills system extends gptme’s <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> to support reusable workflow
 instructions following the Agent Skills open standard.</p>
+</section>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
 <p><strong>Skills</strong> are lessons that follow the Agent Skills open standard format and can include:</p>
@@ -1098,6 +1131,7 @@ For bundled utilities, mention &quot;python-repl&quot; to load helper functions.
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#explicit-invocation-telemetry">Explicit invocation telemetry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-difference-matching-behavior">Key Difference: Matching Behavior</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-vs-lesson-vs-plugin">Skill vs. Lesson vs. Plugin</a></li>
