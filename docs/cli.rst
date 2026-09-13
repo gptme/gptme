@@ -106,7 +106,15 @@ inside a session, and :doc:`config` for configuration files and environment vari
        "gptme-eval-tbench": "cli/evaluation.html",
        "gptme-dataset": "cli/evaluation.html"
      };
-     var id = decodeURIComponent(location.hash.slice(1));
+     var raw = location.hash.slice(1);
+     // A malformed fragment (e.g. #%E0) makes decodeURIComponent throw;
+     // forwarding is best-effort, so give up rather than guess a page.
+     var id;
+     try {
+       id = decodeURIComponent(raw);
+     } catch (e) {
+       return;
+     }
      if (!id || document.getElementById(id)) return;
      var match = Object.keys(pages)
        .filter(function (cmd) { return id === cmd || id.indexOf(cmd + "-") === 0; })

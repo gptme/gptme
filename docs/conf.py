@@ -108,12 +108,17 @@ def check_audience(app, env):
             )
 
 
+# Bare ``*`` in a line block starts inline emphasis, but an already-escaped ``\*``
+# must be left alone or it renders as a visible backslash.
+_BARE_ASTERISK = re.compile(r"(?<!\\)\*")
+
+
 def escape_click_line_blocks(app, ctx, lines):
     # click's ``\b`` paragraphs render as RST line blocks, where a literal ``*`` (e.g.
     # systemd OnCalendar specs in gptme-agent's help) would start inline emphasis
     for i, line in enumerate(lines):
         if line.startswith("| "):
-            lines[i] = "| " + line[2:].replace("*", r"\*")
+            lines[i] = "| " + _BARE_ASTERISK.sub(r"\*", line[2:])
 
 
 def setup(app):
