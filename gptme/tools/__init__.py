@@ -62,6 +62,9 @@ __all__ = [
 _loaded_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
     "loaded_tools", default=None
 )
+_tools_initialized_var: ContextVar[bool] = ContextVar(
+    "tools_initialized", default=False
+)
 _available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
     "available_tools", default=None
 )
@@ -258,6 +261,7 @@ def init_tools(
                 continue
             raise ValueError(f"Tool '{tool_name}' not found")
 
+        _tools_initialized_var.set(True)
         return loaded_tools
 
 
@@ -366,12 +370,18 @@ def _add_required_tools(
     by_name = {t.name: t for t in available}
     loaded = {t.name for t in tools} | (already_loaded or set())
     queue = [t for t in tools if t.requires_tools]
+    traversed: set[str] = set()
     while queue:
         tool = queue.pop()
+        if tool.name in traversed:
+            continue
+        traversed.add(tool.name)
         for name in tool.requires_tools:
-            if name in loaded:
-                continue
             dep = by_name.get(name)
+            if name in loaded:
+                if dep is not None and dep.requires_tools:
+                    queue.append(dep)
+                continue
             if dep is None or not dep.is_available:
                 raise ValueError(
                     f"Tool '{tool.name}' requires '{name}', which is not available"
@@ -573,12 +583,18 @@ def clear_tools():
     """
     _set_available_tools_cache(None)
     _loaded_tools_var.set([])
+    _tools_initialized_var.set(False)
     _session_allowlist_var.set(None)
 
 
 def get_tools() -> list[ToolSpec]:
     """Returns all loaded tools"""
     return _get_loaded_tools()
+
+
+def tools_initialized() -> bool:
+    """Return whether init_tools() ran in the current context."""
+    return _tools_initialized_var.get()
 
 
 def set_tools(tools: list[ToolSpec]) -> None:

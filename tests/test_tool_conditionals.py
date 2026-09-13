@@ -99,6 +99,19 @@ def test_vision_docs_do_not_name_read_when_read_is_off():
     assert "`screenshot`" not in instructions
 
 
+def test_instructions_render_against_an_initialized_empty_toolset():
+    spec = ToolSpec(
+        name="probe",
+        desc="probe",
+        instructions="{% if tools: read %}after read{% else %}no tools{% endif %}",
+    )
+
+    clear_tools()
+    init_tools(allowlist=[])
+
+    assert spec.get_instructions("markdown") == "no tools"
+
+
 def test_doc_rendering_assumes_every_tool_loaded():
     spec = ToolSpec(
         name="probe",
@@ -178,6 +191,30 @@ def test_load_tool_accepts_required_companion_already_loaded():
 
     assert loaded.name == "primary"
     assert {tool.name for tool in get_tools()} == {"primary", "companion"}
+
+
+def test_load_tool_traverses_requirements_of_already_loaded_companion():
+    transitive = ToolSpec(name="transitive", desc="transitive")
+    companion = ToolSpec(
+        name="companion", desc="companion", requires_tools=["transitive"]
+    )
+    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+
+    clear_tools()
+    set_session_allowlist(["primary", "transitive"])
+    get_tools().append(companion)
+    with patch(
+        "gptme.tools.get_available_tools",
+        return_value=[primary, companion, transitive],
+    ):
+        loaded = load_tool("primary")
+
+    assert loaded.name == "primary"
+    assert {tool.name for tool in get_tools()} == {
+        "primary",
+        "companion",
+        "transitive",
+    }
 
 
 def test_required_companion_must_be_available():

@@ -452,13 +452,14 @@ def render_tool_conditionals(text: str, loaded: Collection[str] | None) -> str:
 def _loaded_tool_names() -> set[str] | None:
     """Names of the currently loaded tools, or None before init_tools ran."""
     # noreorder
-    from . import get_tools  # fmt: skip
+    from . import get_tools, tools_initialized  # fmt: skip
 
     try:
-        tools = get_tools()
+        if not tools_initialized():
+            return None
+        return {tool.name for tool in get_tools()}
     except Exception:  # pragma: no cover - defensive; never break prompt rendering
         return None
-    return {t.name for t in tools} if tools else None
 
 
 # init=False is intentional: ToolSpec needs a wide constructor input type while
