@@ -79,13 +79,12 @@ def test_status_write_to_path_with_blocking_file_emits_clean_error(tmp_path):
     blocker.write_text("regular file contents")
     output_file = blocker / "foo.md"
     result = runner.invoke(status, ["-o", str(output_file)])
-    assert result.exit_code != 0, result.output
+    assert result.exit_code == 1, result.output
     assert not output_file.exists()
     # Must NOT contain a raw Python traceback.
     assert "Traceback (most recent call last)" not in result.output
-    # Must be a click-style error mentioning the failed path.
-    assert "Error:" in result.output
-    assert str(output_file) in result.output
+    # Must be our ClickException, not Click's parameter-validation UsageError.
+    assert result.output.startswith(f"Error: Failed to write status to {output_file}:")
 
 
 def test_status_write_creates_missing_parent_dirs(tmp_path):
