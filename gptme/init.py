@@ -27,6 +27,7 @@ from .llm.models import (
     Provider,
     get_model,
     get_recommended_model,
+    log_warn_once,
     set_default_model,
 )
 from .message import is_output_json
@@ -355,15 +356,24 @@ def _record_selection_trace(
         from model_capability_registry import (
             lookup_model,
         )
-
-        ref = lookup_model(model_meta.model)
-        if ref is not None:
-            registry_record = ref.record_id
-            catalog_observed_at = ref.observed_at
-            if ref.verification_status == "verified":
-                attestation_level = "provider_claim"
-    except Exception as e:
-        logger.warning("registry lookup failed for %s: %s", model_meta.model, e)
+    except ImportError:
+        # model-capability-registry is an optional external package and is not a
+        # dependency, so it is absent in a normal install. Attestation degrades
+        # to "selection_only" by design; that is not a problem worth warning
+        # about on every session.
+        logger.debug("model_capability_registry not installed, skipping lookup")
+    else:
+        try:
+            ref = lookup_model(model_meta.model)
+            if ref is not None:
+                registry_record = ref.record_id
+                catalog_observed_at = ref.observed_at
+                if ref.verification_status == "verified":
+                    attestation_level = "provider_claim"
+        except Exception as e:
+            # The registry is installed but failed: a real fault, worth saying
+            # once rather than once per model.
+            log_warn_once(f"registry lookup failed for {model_meta.model}: {e}")
 
     trace = create_selection_trace(
         requested_model=source_value,
