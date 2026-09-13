@@ -1,18 +1,16 @@
 :audience: user
 
+.. _server:gptme-webui:
+
 Web
 ===
 
-gptme's browser interface: a full chat UI with streaming, conversation history,
+The gptme web UI (`gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_) is a
+full chat interface in your browser, with streaming responses, conversation history,
 and an integrated computer-use view. Run it yourself with ``gptme-server`` (see
 :doc:`server`), use the :doc:`app`, or sign in to :doc:`gptme.ai <cloud>`.
-
-.. _server:gptme-webui:
-
-gptme-webui: Modern Web Interface
----------------------------------
-
-The primary web interface is `gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_: a modern, feature-rich application that provides a complete gptme experience in your browser. (Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main gptme repository.)
+(Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged
+into the main gptme repository.)
 
 **Try it now:**
 
