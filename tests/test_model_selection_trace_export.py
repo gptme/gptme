@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from gptme.message import Message
 from gptme.model_attestation import (
     ModelSelectionTrace,
     create_selection_trace,
@@ -198,7 +199,11 @@ class TestLogManagerTracePersistence:
         from gptme.logmanager.manager import LogManager
 
         set_selection_trace(make_trace())
-        lm = LogManager(logdir=tmp_path, lock=False)
+        lm = LogManager(
+            [Message("user", "persist me", quiet=True)],
+            logdir=tmp_path,
+            lock=False,
+        )
         real_fsync = os.fsync
 
         def reject_directory(fd: int) -> None:

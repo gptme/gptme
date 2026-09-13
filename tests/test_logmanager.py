@@ -1021,6 +1021,24 @@ def test_write_jsonl_syncs_preserved_permissions_before_replacement(
     assert jsonl_file.stat().st_mode & 0o777 == 0o640
 
 
+def test_write_jsonl_does_not_require_directory_barrier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Ordinary rewrites stay supported where directory fsync is unavailable."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+
+    def reject_directory(fd: int) -> None:
+        if os.path.isdir(f"/proc/self/fd/{fd}"):
+            raise OSError("directory fsync unsupported")
+
+    monkeypatch.setattr(os, "fsync", reject_directory)
+
+    Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
+
+
 def test_read_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
     """``read_jsonl`` must open conversation.jsonl with ``encoding="utf-8"``.
 

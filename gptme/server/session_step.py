@@ -904,8 +904,8 @@ def step(
             HookType.TURN_POST,
             manager=manager,
         ):
-            for msg in post_msgs:
-                _append_and_notify(manager, session, msg)
+            for hook_msg in post_msgs:
+                _append_and_notify(manager, session, hook_msg)
 
         # Streamed tokens/message_added are provisional. Completion acknowledges
         # the transcript, including hook output, only after its barrier succeeds.

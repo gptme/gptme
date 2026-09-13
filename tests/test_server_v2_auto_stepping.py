@@ -185,6 +185,59 @@ def test_generation_error_persists_system_message(
 
 
 @pytest.mark.timeout(30)
+def test_generation_complete_keeps_assistant_payload_after_turn_post_hook(
+    setup_conversation,
+    event_listener,
+    mock_generation,
+    wait_for_event,
+    auth_headers,
+):
+    """Hook output is persisted without replacing the completed assistant payload."""
+    from gptme.hooks import HookType
+    from gptme.message import Message
+    from gptme.server import session_step
+
+    port, conversation_id, session_id = setup_conversation
+    assistant_reply = "assistant reply"
+
+    requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Say hello"},
+        headers=auth_headers,
+    )
+
+    original_hook = session_step.trigger_hook
+
+    def hook(hook_type, **kwargs):
+        if hook_type == HookType.TURN_POST:
+            return [Message("system", "final hook record", quiet=True)]
+        return original_hook(hook_type, **kwargs)
+
+    with (
+        unittest.mock.patch(
+            "gptme.server.session_step._stream", mock_generation([assistant_reply])
+        ),
+        unittest.mock.patch.object(session_step, "trigger_hook", side_effect=hook),
+    ):
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id, "model": "openai/mock-model"},
+            headers=auth_headers,
+        )
+
+        assert wait_for_event(event_listener, "generation_started")
+        assert wait_for_event(event_listener, "generation_complete")
+
+    generation_complete = next(
+        event
+        for event in list(event_listener["events"].queue)
+        if event.get("type") == "generation_complete"
+    )
+    assert generation_complete["message"]["role"] == "assistant"
+    assert generation_complete["message"]["content"] == assistant_reply
+
+
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("failure_point", ["append", "sync", "hook-sync"])
 def test_append_write_failure_blocks_generation_complete_and_persists_error(
     setup_conversation,
