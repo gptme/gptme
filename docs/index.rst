@@ -62,12 +62,6 @@ Where to start
    cloud
    acp
    channels
-
-.. toctree::
-   :hidden:
-   :maxdepth: 2
-   :caption: Components
-
    server
    webui
 
