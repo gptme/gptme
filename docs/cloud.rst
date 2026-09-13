@@ -45,4 +45,4 @@ credentials (see :doc:`security`). In exchange, your conversations and the
 repositories you connect are processed by gptme.ai and its model providers.
 
 To run everything on your own machines, or with your own provider keys, self-host
-``gptme-server`` and the web UI instead. See :doc:`server`.
+``gptme-server`` and the :doc:`web UI <webui>` instead. See :doc:`server`.

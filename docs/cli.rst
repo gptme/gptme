@@ -1,7 +1,7 @@
 :audience: user
 
-Command-line Interface
-======================
+CLI
+===
 
 gptme ships a set of command-line tools. Most of the time you only need ``gptme``
 itself; the others cover setup, utilities, agents, and evaluation. Every tool accepts

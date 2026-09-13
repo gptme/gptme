@@ -233,7 +233,7 @@ Next Steps
 - Try the :doc:`examples`
 - Learn about available :doc:`tools`
 - Explore different :doc:`providers`
-- Set up the :doc:`server` for web access
+- Use the :doc:`web UI <webui>`, served by the :doc:`server`
 
 Support
 -------

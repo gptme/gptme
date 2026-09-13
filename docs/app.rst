@@ -29,8 +29,8 @@ How it connects
   sign in to :doc:`gptme.ai <cloud>`, or connect to your own ``gptme-server`` by
   entering its URL and auth token.
 
-Since it's the same web UI, see :doc:`server` for what it can do and how to run a
-server, and :doc:`providers` for setting up model access.
+Since it's the same web UI, see :doc:`webui` for what it can do, :doc:`server` for
+running one yourself, and :doc:`providers` for setting up model access.
 
 To build the app yourself, see
 `tauri/README.md <https://github.com/gptme/gptme/blob/master/tauri/README.md>`__.

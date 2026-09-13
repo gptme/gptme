@@ -90,7 +90,7 @@ A modern React-based web interface available at `chat.gptme.org <https://chat.gp
 - Access to all tools and features
 - Self-hostable by running ``gptme-server`` + ``gptme-webui``
 
-See :doc:`server` for setup instructions.
+See :doc:`webui` for the interface and :doc:`server` for running it.
 
 🔌 REST API
 ^^^^^^^^^^^
