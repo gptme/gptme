@@ -177,9 +177,9 @@ class Log:
                     temp_path = Path(file.name)
                     file.writelines(lines)
                     file.flush()
+                    if existing_mode is not None:
+                        os.fchmod(file.fileno(), existing_mode)
                     os.fsync(file.fileno())
-                if existing_mode is not None:
-                    os.chmod(temp_path, existing_mode)
                 os.replace(temp_path, output)
                 sync_directory(output.parent)
             finally:

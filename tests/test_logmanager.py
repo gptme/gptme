@@ -1,7 +1,9 @@
 import builtins
 import json
+import os
 from contextlib import contextmanager
 from io import TextIOWrapper
+from os import PathLike
 from pathlib import Path
 from types import TracebackType
 from unittest.mock import patch
@@ -986,14 +988,36 @@ def test_write_jsonl_replaces_unknown_existing_file(tmp_path: Path):
     assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
 
 
-def test_write_jsonl_rewrite_preserves_existing_permissions(tmp_path: Path):
-    """Atomic replacement must not silently make a shared transcript private."""
+def test_write_jsonl_syncs_preserved_permissions_before_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Atomic replacement must durably retain shared transcript permissions."""
     jsonl_file = tmp_path / "conversation.jsonl"
     jsonl_file.write_text('{"role":"user","content":"stale"}\n')
     jsonl_file.chmod(0o640)
+    order: list[str] = []
+    fsync = os.fsync
+    replace = os.replace
+
+    def record_fchmod(fd: int, mode: int) -> None:
+        order.append("fchmod")
+        os.chmod(fd, mode)
+
+    def record_fsync(fd: int) -> None:
+        order.append("fsync")
+        fsync(fd)
+
+    def record_replace(src: PathLike, dst: PathLike) -> None:
+        order.append("replace")
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "fchmod", record_fchmod)
+    monkeypatch.setattr(os, "fsync", record_fsync)
+    monkeypatch.setattr(os, "replace", record_replace)
 
     Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
 
+    assert order[:3] == ["fchmod", "fsync", "replace"]
     assert jsonl_file.stat().st_mode & 0o777 == 0o640
 
 
