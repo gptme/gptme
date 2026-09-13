@@ -242,6 +242,15 @@ if unset the server generates one and prints it at startup.
 
 .. _server:threat-model:
 
+Host-header validation
+~~~~~~~~~~~~~~~~~~~~~~
+
+Bearer authentication is enabled for loopback and network binds alike. If an
+operator explicitly disables authentication with ``GPTME_DISABLE_AUTH``, they can
+still opt into Host-header validation with
+``gptme-server serve --allowed-hosts gptme.local`` (comma-separated, or via
+``GPTME_SERVER_ALLOWED_HOSTS``).
+
 Threat Model
 ~~~~~~~~~~~~
 

@@ -24,7 +24,8 @@ An app the agent starts is reachable through the server's authenticated
 own URL. (Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_,
 now merged into the main gptme repository.)
 
-**Key Features:**
+Features
+--------
 
 - Streaming responses, with tool calls and their output shown inline
 - Artifact and panel surfaces: previews of what the agent made and what its tools expose
@@ -33,7 +34,8 @@ now merged into the main gptme repository.)
 - Conversation history, search, branching, and export
 - Mobile-friendly responsive design and dark mode
 
-**Local use:**
+Running it
+----------
 
 The modern UI is bundled in gptme release packages. Run ``gptme-server`` and
 open http://localhost:5700.
@@ -46,7 +48,10 @@ open http://localhost:5700.
    page is not a supported interface; its templates are currently also reused by
    the HTML export (``gptme-util chats export <id> -f html``).
 
-For frontend development, see the `gptme-webui README <https://github.com/gptme/gptme/tree/master/webui>`_.
+Frontend development
+--------------------
+
+See the `gptme-webui README <https://github.com/gptme/gptme/tree/master/webui>`_.
 When Vite runs separately on port 5701, allow that development origin:
 
 .. code-block:: bash
@@ -62,11 +67,3 @@ When Vite runs separately on port 5701, allow that development origin:
     ``--cors-origin`` is necessary but not sufficient — you must also click
     **Allow**. Serving the UI from the server's own origin (the default) or from
     a local origin such as ``http://localhost:5701`` avoids the prompt.
-
-.. note::
-
-    **Host-header validation.** Bearer authentication is enabled for loopback
-    and network binds alike. If an operator explicitly disables authentication
-    with ``GPTME_DISABLE_AUTH``, they can still opt into Host-header validation
-    with ``gptme-server serve --allowed-hosts gptme.local`` (comma-separated,
-    or via ``GPTME_SERVER_ALLOWED_HOSTS``).
