@@ -53,7 +53,7 @@ from ..util.reduce import (
 )
 from ..util.uri import URI
 from . import eventlog
-from .durability import existing_parent, sync_directories, sync_directory
+from .durability import existing_parent, sync_directories
 
 PathLike: TypeAlias = str | Path
 
@@ -181,7 +181,6 @@ class Log:
                         os.fchmod(file.fileno(), existing_mode)
                     os.fsync(file.fileno())
                 os.replace(temp_path, output)
-                sync_directory(output.parent)
             finally:
                 if temp_path is not None:
                     temp_path.unlink(missing_ok=True)
