@@ -401,6 +401,9 @@ def load_user_config(path: str | None = None) -> UserConfig:
 
     Loads optional read-only config.runtime.toml defaults, then config.toml,
     then config.local.toml from the same directory (later values override).
+    With runtime config present, built-in defaults form the lowest in-memory
+    layer. Without it, retain the existing first-run initialization and dataclass
+    fallbacks for existing files.
     This allows committing preferences to dotfiles while keeping secrets separate.
     """
     runtime_doc = _load_runtime_config_doc(path)
@@ -413,6 +416,22 @@ def load_user_config(path: str | None = None) -> UserConfig:
             "Invalid merged user configuration with runtime defaults from "
             f"{get_user_config_runtime_path(path)}: {exc}"
         ) from exc
+
+
+def _with_builtin_defaults(config: dict[str, Any]) -> dict[str, Any]:
+    """Apply built-in defaults beneath the explicit runtime/main/local layers."""
+    defaults = _strip_none(asdict(default_config))
+    prompt = config.get("prompt", {})
+    if isinstance(prompt, dict):
+        # Legacy prompt preferences must still beat built-in user defaults.
+        # Explicit [user] fields retain their existing priority over these aliases.
+        for key, legacy_key in (
+            ("about", "about_user"),
+            ("response_preference", "response_preference"),
+        ):
+            if prompt.get(legacy_key) is not None:
+                defaults["user"].pop(key, None)
+    return _merge_config_data(defaults, config)
 
 
 def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> UserConfig:
@@ -432,6 +451,9 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         local_config = tomlkit.loads(_read_config_text(local_path)).unwrap()
         writable_keys.update(local_config)
         config = _merge_config_data(config, local_config)
+
+    if runtime_doc is not None:
+        config = _with_builtin_defaults(config)
 
     # Log config paths (only once per config file)
     # Use logger instead of console to avoid polluting stdout

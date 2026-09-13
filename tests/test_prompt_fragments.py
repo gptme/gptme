@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from pathlib import Path
 
 import pytest
+import tomlkit
 
 from gptme.config import Config, UserConfig, UserPromptConfig
 from gptme.message import Message
@@ -117,6 +118,10 @@ def test_runtime_replacement_keeps_fragments_and_chat_prompt(
     from gptme.commands.llm import _replacement_prompt
     from gptme.config import ChatConfig
 
+    monkeypatch.setattr("gptme.config.user.config_path", str(tmp_path / "config.toml"))
+    (tmp_path / "config.runtime.toml").write_text(
+        tomlkit.dumps({"prompt": {"fragments": fragment_config.user.prompt.fragments}})
+    )
     monkeypatch.setattr("gptme.tools.get_tools", lambda: [])
     chat_config = ChatConfig(workspace=tmp_path, system_prompt="Conversation rules.")
     messages = _replacement_prompt(

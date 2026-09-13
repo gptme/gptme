@@ -24,6 +24,7 @@ from gptme.config.user import (
     USER_CONFIG_SOURCE_LOCAL,
     USER_CONFIG_SOURCE_MAIN,
     USER_CONFIG_SOURCE_RUNTIME,
+    default_config,
     get_default_model_source,
     get_user_config_env_source,
     get_user_config_paths,
@@ -1587,6 +1588,251 @@ def test_runtime_config_does_not_leak_into_autocreated_main(tmp_path: Path) -> N
         "config.runtime.toml",
         "config.toml",
     ]
+
+
+@pytest.mark.parametrize("existing_main", [False, True])
+@pytest.mark.parametrize(
+    "runtime_content",
+    [
+        b"",
+        '# Operator-owned: café\r\n[prompt]\r\nfiles = ["runtime.md"]\r\n'
+        '[prompt.fragments]\r\npreview = "Runtime only"\r\n'.encode(),
+    ],
+)
+def test_runtime_config_preserves_builtin_defaults(
+    tmp_path: Path, existing_main: bool, runtime_content: bytes
+) -> None:
+    main = tmp_path / "config.toml"
+    if existing_main:
+        main.write_bytes(b"# Sparse user preferences\r\n")
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_bytes(runtime_content)
+    runtime.chmod(0o444)
+    defaults_before = asdict(default_config)
+    originals = {p: p.read_bytes() for p in tmp_path.iterdir()}
+
+    config = load_user_config(str(main))
+
+    assert config.user.about == "I am a curious human programmer."
+    assert (
+        config.user.response_preference == "Basic concepts don't need to be explained."
+    )
+    assert asdict(config.user) == defaults_before["user"]
+    assert config.prompt.project == defaults_before["prompt"]["project"]
+    assert set(config.prompt.project) == {"activitywatch", "gptme"}
+    assert config.prompt.files == (["runtime.md"] if runtime_content else [])
+    assert config.prompt.fragments == (
+        {"preview": "Runtime only"} if runtime_content else {}
+    )
+    assert tomlkit.loads(main.read_text(encoding="utf-8")).unwrap() == {}
+    originals.setdefault(main, b"")
+    expected = asdict(config)
+    config.user.about = "Changed in memory"
+    config.prompt.project["gptme"] = "Changed in memory"
+    config.prompt.files.append("changed.md")
+    config.plugins.paths.append("changed-plugins")
+
+    assert asdict(default_config) == defaults_before
+    assert asdict(load_user_config(str(main))) == expected
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+@pytest.mark.parametrize("source", ["runtime", "main", "local"])
+@pytest.mark.parametrize("override", ["Custom value", ""])
+def test_runtime_config_builtin_defaults_allow_explicit_overrides(
+    tmp_path: Path, source: str, override: str
+) -> None:
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    local = tmp_path / "config.local.toml"
+    defaults_before = asdict(default_config)
+    expected_projects = dict(default_config.prompt.project)
+    for label, path in (("runtime", runtime), ("main", main), ("local", local)):
+        value = override if label == source else label
+        files = [f"{value}.md"] if value else []
+        path.write_bytes(
+            (
+                f"# {label} preferences: café\r\n[user]\r\n"
+                f"name = {json.dumps(value)}\r\n"
+                f"about = {json.dumps(value)}\r\n"
+                f"response_preference = {json.dumps(value)}\r\n"
+                f"[prompt]\r\nfiles = {json.dumps(files)}\r\n"
+                f"[prompt.project]\r\ngptme = {json.dumps(value)}\r\n"
+                f'{label} = "Keep {label}"\r\n'
+            ).encode()
+        )
+        expected_projects[label] = f"Keep {label}"
+        if label == source:
+            break
+    originals = {p: p.read_bytes() for p in tmp_path.iterdir()}
+    originals.setdefault(main, b"")
+
+    config = load_user_config(str(main))
+
+    assert config.user.name == override
+    assert config.user.about == override
+    assert config.user.response_preference == override
+    expected_projects["gptme"] = override
+    assert config.prompt.project == expected_projects
+    assert config.prompt.files == ([f"{override}.md"] if override else [])
+    assert load_user_config(str(main)) == config
+    assert asdict(default_config) == defaults_before
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+@pytest.mark.parametrize("source", ["runtime", "main", "local"])
+@pytest.mark.parametrize("value", ["Legacy preference", ""])
+@pytest.mark.parametrize(
+    ("user_key", "prompt_key"),
+    [("about", "about_user"), ("response_preference", "response_preference")],
+)
+def test_runtime_config_builtin_defaults_allow_legacy_overrides(
+    tmp_path: Path, source: str, value: str, user_key: str, prompt_key: str
+) -> None:
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_bytes(b"# Operator defaults\r\n")
+    path = {
+        "runtime": runtime,
+        "main": main,
+        "local": tmp_path / "config.local.toml",
+    }[source]
+    path.write_text(f"[prompt]\n{prompt_key} = {json.dumps(value)}\n", encoding="utf-8")
+    defaults_before = asdict(default_config)
+    originals = {p: p.read_bytes() for p in tmp_path.iterdir()}
+    originals.setdefault(main, b"")
+    expected_user = {**defaults_before["user"], user_key: value}
+
+    config = load_user_config(str(main))
+
+    assert asdict(config.user) == expected_user
+    assert getattr(config.prompt, prompt_key) == value
+    assert load_user_config(str(main)) == config
+    assert asdict(default_config) == defaults_before
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+def test_runtime_config_retains_user_priority_over_legacy_prompt(
+    tmp_path: Path,
+) -> None:
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(
+        '[user]\nabout = "Canonical user"\nresponse_preference = ""\n',
+        encoding="utf-8",
+    )
+    local = tmp_path / "config.local.toml"
+    local.write_text(
+        '[prompt]\nabout_user = "Legacy user"\nresponse_preference = "Legacy"\n',
+        encoding="utf-8",
+    )
+    originals = {p: p.read_bytes() for p in tmp_path.iterdir()}
+    originals[main] = b""
+
+    config = load_user_config(str(main))
+
+    assert config.user.about == "Canonical user"
+    assert config.user.response_preference == ""
+    assert load_user_config(str(main)) == config
+    assert {p: p.read_bytes() for p in tmp_path.iterdir()} == originals
+
+
+def test_runtime_config_builtin_defaults_lifecycle(tmp_path: Path) -> None:
+    main = tmp_path / "config.toml"
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(
+        '[user]\nabout = "Runtime user"\nresponse_preference = "Runtime preference"\n'
+        '[prompt]\nfiles = ["runtime.md"]\n'
+        '[prompt.project]\ngptme = "Runtime project"\n',
+        encoding="utf-8",
+    )
+    config = load_user_config(str(main))
+    assert config.user.about == "Runtime user"
+    assert config.prompt.project["gptme"] == "Runtime project"
+    assert main.read_bytes() == b""
+
+    runtime.write_text(
+        '[prompt]\nfiles = ["replacement.md"]\n'
+        '[prompt.project]\nreplacement = "Replacement project"\n',
+        encoding="utf-8",
+    )
+    replacement = runtime.read_bytes()
+    config = load_user_config(str(main))
+    assert config.user == default_config.user
+    assert config.prompt.project == {
+        **default_config.prompt.project,
+        "replacement": "Replacement project",
+    }
+    assert config.prompt.files == ["replacement.md"]
+    assert main.read_bytes() == b""
+    assert runtime.read_bytes() == replacement
+
+    expected_with_runtime = asdict(config)
+    runtime.unlink()
+    config = load_user_config(str(main))
+    assert config.user.about is None
+    assert config.user.response_preference is None
+    assert config.prompt.project == {}
+    assert config.prompt.files == []
+    assert load_user_config(str(main)) == config
+    assert main.read_bytes() == b""
+    assert not runtime.exists()
+    runtime.write_bytes(replacement)
+    assert asdict(load_user_config(str(main))) == expected_with_runtime
+    assert main.read_bytes() == b""
+    assert runtime.read_bytes() == replacement
+
+    main.write_bytes(b'[user]\r\nabout = ""\r\n[prompt]\r\nfiles = []\r\n')
+    local = tmp_path / "config.local.toml"
+    local.write_bytes(b'[prompt.project]\r\ngptme = ""\r\n')
+    originals = {p: p.read_bytes() for p in (main, local)}
+    for content in (None, replacement, b""):
+        if content is None:
+            runtime.unlink()
+        else:
+            runtime.write_bytes(content)
+        config = load_user_config(str(main))
+        assert config.user.about == ""
+        assert config.prompt.files == []
+        if content is None:
+            # Without runtime, an existing sparse main keeps dataclass fallbacks.
+            assert config.user.response_preference is None
+            assert config.prompt.project == {"gptme": ""}
+            assert not runtime.exists()
+        else:
+            assert (
+                config.user.response_preference
+                == default_config.user.response_preference
+            )
+            assert config.prompt.project == {
+                **default_config.prompt.project,
+                **({"replacement": "Replacement project"} if content else {}),
+                "gptme": "",
+            }
+            assert runtime.read_bytes() == content
+        assert load_user_config(str(main)) == config
+        assert {p: p.read_bytes() for p in (main, local)} == originals
+
+
+def test_user_config_without_runtime_keeps_default_initialization(
+    tmp_path: Path,
+) -> None:
+    main = tmp_path / "config.toml"
+    config = load_user_config(str(main))
+    assert config.user == default_config.user
+    assert config.prompt == default_config.prompt
+    initial = main.read_bytes()
+    assert tomlkit.loads(initial.decode())["user"]["about"] == default_config.user.about
+    assert load_user_config(str(main)) == config
+    assert main.read_bytes() == initial
+    assert not get_user_config_runtime_path(str(main)).exists()
+
+    main.write_bytes(b"# Existing intentionally sparse config\r\n")
+    config = load_user_config(str(main))
+    assert config.user.about is None
+    assert config.user.response_preference is None
+    assert config.prompt.project == {}
+    assert main.read_bytes() == b"# Existing intentionally sparse config\r\n"
 
 
 def test_runtime_config_source_lookup_does_not_seed_user_overrides(

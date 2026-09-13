@@ -241,6 +241,12 @@ highest, is:
 2. ``config.toml`` (user preferences)
 3. ``config.local.toml`` (user's local overrides/secrets)
 
+While the runtime file is present, built-in defaults form a lower-priority,
+in-memory baseline. A preview-only runtime file therefore retains the standard
+user guidance and project descriptions. Explicit values, including empty strings
+and lists, still override defaults; legacy ``[prompt]`` user preferences retain
+their existing fallback behavior.
+
 Existing process-environment, project, chat, and CLI resolution rules are
 unchanged. Dictionaries merge recursively; MCP servers and providers merge by
 name. Other lists and scalar values are replaced by the higher-priority layer,
@@ -286,14 +292,24 @@ contents into user configuration or ``ChatConfig.system_prompt``. An invalid or
 unreadable runtime file reports an error rather than silently disabling its
 defaults. If the main file is absent while runtime defaults are present, gptme
 creates an empty main file, so generated user settings do not override deployment
-defaults. The deployment should atomically replace only its runtime file on
+defaults. This does not persist built-in defaults into that file either. Removing
+the runtime file restores ordinary no-runtime loading: an existing sparse main
+file uses dataclass fallbacks (for example no user description or project
+descriptions), whereas a missing main file is initialized normally. Preferences
+that should survive removal of deployment configuration belong in the user's
+main/local files.
+
+The deployment should atomically replace only its runtime file on
 startup; do not append repeatedly or rewrite the user's main/local files.
 The config UI reports the defaults file separately while continuing to edit
 the main file; existing secret writes still target the local file.
 
 The runtime layer is read on configuration load/reload. Updated fragments affect
 new prompts and existing regeneration paths (for example conversation settings
-changes and model/tool changes); there is no file watcher or historical-log
+changes and model/tool changes). CLI ``/model`` and ``/tools load`` re-read user
+configuration before regenerating, preserving the active chat/project settings
+and loaded tools. Atomically replaced, removed, or disabled fragments therefore
+take effect without restarting the CLI. There is no file watcher or historical-log
 migration. Restarting the server alone does not rewrite a resumed conversation's
 stored messages. Removing the runtime fragment is not immediate revocation of
 instructions already in a conversation.
