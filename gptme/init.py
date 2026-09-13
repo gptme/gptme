@@ -356,16 +356,21 @@ def _record_selection_trace(
         from model_capability_registry import (
             lookup_model,
         )
-    except ModuleNotFoundError:
-        # model-capability-registry is an optional external package and is not a
-        # dependency, so it is absent in a normal install. Attestation degrades
-        # to "selection_only" by design; that is not a problem worth warning
-        # about on every session.
-        logger.debug("model_capability_registry not installed, skipping lookup")
+    except ModuleNotFoundError as e:
+        # ModuleNotFoundError covers two very different cases and only one is
+        # benign. `e.name` separates them: our own module missing means the
+        # optional package simply is not installed (the normal case, since it is
+        # not a dependency) and attestation degrades to "selection_only" by
+        # design. Any other name means the package is installed but imports
+        # something that is not — a broken install, which must stay visible.
+        # An absent `name` is treated as broken too: fail loud, not silent.
+        if e.name == "model_capability_registry":
+            logger.debug("model_capability_registry not installed, skipping lookup")
+        else:
+            log_warn_once(f"model_capability_registry import failed: {e}")
     except ImportError as e:
-        # Installed but not importable — a missing transitive dependency, or a
-        # version that no longer exports lookup_model. That is a genuine fault,
-        # and silencing it here is what this branch exists to avoid.
+        # Installed, but does not export lookup_model — a version mismatch.
+        # A missing *name* raises plain ImportError, not ModuleNotFoundError.
         log_warn_once(f"model_capability_registry import failed: {e}")
     else:
         try:
