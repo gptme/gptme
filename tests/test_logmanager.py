@@ -1021,22 +1021,58 @@ def test_write_jsonl_syncs_preserved_permissions_before_replacement(
     assert jsonl_file.stat().st_mode & 0o777 == 0o640
 
 
-def test_write_jsonl_does_not_require_directory_barrier(
+def test_write_jsonl_preserves_mode_without_fchmod(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """Ordinary rewrites stay supported where directory fsync is unavailable."""
+    """Windows has no fchmod; chmod-by-path must still land before fsync."""
     jsonl_file = tmp_path / "conversation.jsonl"
     jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+    jsonl_file.chmod(0o640)
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    order: list[str] = []
+    chmod = os.chmod
+    fsync = os.fsync
 
-    def reject_directory(fd: int) -> None:
-        if os.path.isdir(f"/proc/self/fd/{fd}"):
-            raise OSError("directory fsync unsupported")
+    def record_chmod(
+        path: PathLike, mode: int, *args: object, **kwargs: object
+    ) -> None:
+        order.append("chmod")
+        chmod(path, mode)
 
-    monkeypatch.setattr(os, "fsync", reject_directory)
+    def record_fsync(fd: int) -> None:
+        order.append("fsync")
+        fsync(fd)
+
+    monkeypatch.setattr(os, "chmod", record_chmod)
+    monkeypatch.setattr(os, "fsync", record_fsync)
 
     Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
 
+    assert "chmod" in order
+    assert "fsync" in order
+    assert order.index("chmod") < order.index("fsync")
+    assert jsonl_file.stat().st_mode & 0o777 == 0o640
     assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
+
+
+def test_write_jsonl_directory_sync_failure_prevents_acknowledgement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Direct rewrite callers must not report success if the namespace is unsynced."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+    synced: list[Path] = []
+
+    def fail_directory(path: Path) -> None:
+        synced.append(path)
+        raise OSError("injected directory I/O failure")
+
+    monkeypatch.setattr("gptme.logmanager.manager.sync_directory", fail_directory)
+
+    with pytest.raises(OSError, match="injected directory I/O failure"):
+        Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert synced == [jsonl_file.parent]
 
 
 def test_read_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):

@@ -62,6 +62,31 @@ def test_explicit_sync_covers_transcripts_and_namespaces(
     assert events[-1]["content"] == "final answer"
 
 
+def test_write_jsonl_replacement_syncs_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "conversation.jsonl"
+    Log([Message("assistant", "old")]).write_jsonl(path)
+    replace = os.replace
+    order: list[str] = []
+    fsync = os.fsync
+
+    def record_replace(src, dst) -> None:
+        order.append("replace")
+        replace(src, dst)
+
+    def record_sync(fd: int) -> None:
+        observed = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        order.append("directory" if observed.is_dir() else "file")
+        fsync(fd)
+
+    monkeypatch.setattr(os, "replace", record_replace)
+    monkeypatch.setattr(os, "fsync", record_sync)
+    Log([Message("assistant", "new")]).write_jsonl(path)
+    assert order == ["file", "replace", "directory"]
+    assert Log.read_jsonl(path)[-1].content == "new"
+
+
 def test_checkpoint_replacement_syncs_namespace(
     tmp_path: Path, synced_paths: list[Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
