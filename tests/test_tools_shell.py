@@ -2407,7 +2407,16 @@ def test_windows_reader_restarts_after_shell_eof(monkeypatch):
 
     with patch.object(shell, "restart") as restart:
         rc, stdout, stderr = shell._read_output_windows(
-            "exit 3", False, [], [], None, False, "START_123", None, 20.0
+            "exit 3",
+            False,
+            [],
+            [],
+            None,
+            False,
+            "START_123",
+            "END_OF_COMMAND_OUTPUT",
+            None,
+            20.0,
         )
 
     assert rc == 3
@@ -2426,7 +2435,16 @@ def test_windows_reader_does_not_replace_unreaped_shell(monkeypatch):
         patch.object(shell, "restart") as restart,
     ):
         rc, stdout, stderr = shell._read_output_windows(
-            "exit 3", False, [], [], None, False, "START_123", None, 20.0
+            "exit 3",
+            False,
+            [],
+            [],
+            None,
+            False,
+            "START_123",
+            "END_OF_COMMAND_OUTPUT",
+            None,
+            20.0,
         )
 
     assert rc == -1
