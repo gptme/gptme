@@ -46,7 +46,6 @@ Where to start
    models
    providers
    tools
-   profiles
    commands
    automation
    security
@@ -71,6 +70,7 @@ Where to start
    :caption: Agents & Context
 
    agents
+   profiles
    lessons
    skills
    memory
