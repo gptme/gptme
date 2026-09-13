@@ -5,6 +5,7 @@ resolving precedence between CLI args, saved configs, env vars, and defaults.
 """
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -137,8 +138,17 @@ def setup_config_from_cli(
 
     # Resolve the model through the shared layered resolver, so this path and
     # init_model() cannot drift apart again (see #3814).
+    #
+    # The existing chat config is not attached to `config` yet (that happens
+    # below, via load_or_create), so hand the resolver a copy that carries it.
+    # Otherwise the chat's own [env].MODEL — a more specific layer than the
+    # global default — is invisible, and resuming a conversation that sets it
+    # without a saved model would fall through to [models].default.
+    resolution_config = (
+        replace(config, chat=existing_chat_config) if existing_chat_config else config
+    )
     resolution = resolve_model_source(
-        config,
+        resolution_config,
         cli_model=model,
         chat_model=existing_chat_config.model if existing_chat_config else None,
     )

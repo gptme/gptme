@@ -1162,6 +1162,41 @@ def test_setup_config_model_precedence_and_source(
     assert config._model_source == (expected_source, expected_model)
 
 
+def test_setup_config_resumed_chat_env_model_beats_default(
+    tmp_path, monkeypatch, restore_config_var
+):
+    """A resumed chat's own [env].MODEL outranks the global [models].default.
+
+    The chat config is loaded separately from `config` during setup, so this
+    layer is only reachable if the resolver is given a config that carries it.
+    """
+    from gptme.config import user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[models]\ndefault = "anthropic/claude-sonnet-4-6"\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    # A resumed conversation with no model of its own, but a chat-level
+    # [env].MODEL, which is more specific than the global default.
+    logdir = tmp_path / "conversation"
+    ChatConfig(
+        _logdir=logdir, workspace=workspace, env={"MODEL": "openai/gpt-4o"}
+    ).save()
+
+    config = setup_config_from_cli(workspace=workspace, logdir=logdir)
+
+    assert config.chat is not None
+    assert config.chat.model == "openai/gpt-4o"
+    assert config._model_source == ("MODEL", "openai/gpt-4o")
+
+
 def test_reload_config_clears_tools(monkeypatch, tmp_path):
     """Test that reload_config() clears the tools cache so MCP tools are recreated."""
     from unittest.mock import MagicMock
