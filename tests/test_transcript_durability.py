@@ -1,5 +1,6 @@
 """Persistence barriers use real files; only syscall observation/failure is injected."""
 
+import importlib
 import os
 import signal
 import subprocess
@@ -205,7 +206,9 @@ os.kill(os.getpid(), signal.SIGKILL)
 def test_chat_success_acknowledges_final_hook_output(
     tmp_path: Path, complete_tool: bool, fail_barrier: bool
 ) -> None:
-    import gptme.chat as chat_module
+    # gptme.__init__ exports the ``chat`` function, so importing the module via
+    # importlib avoids binding that package attribute when test order changes.
+    chat_module = importlib.import_module("gptme.chat")
     from gptme.hooks import HookType
     from gptme.logmanager import durability
     from gptme.tools.complete import SessionCompleteException
@@ -268,3 +271,50 @@ def test_chat_success_acknowledges_final_hook_output(
             assert events is not None
             assert events[-1]["content"] == "final hook record"
     assert barriers == ["final hook record"]
+
+
+@pytest.mark.parametrize("fail_barrier", [False, True])
+def test_consumed_command_waits_for_turn_post_barrier(
+    tmp_path: Path, fail_barrier: bool
+) -> None:
+    chat_module = importlib.import_module("gptme.chat")
+    from gptme.hooks import HookType
+    from gptme.logmanager import durability
+
+    barriers: list[str] = []
+    sync_directories = durability.sync_directories
+
+    def barrier(paths: set[Path], root: Path) -> None:
+        barriers.append(Log.read_jsonl(tmp_path / "conversation.jsonl")[-1].content)
+        if fail_barrier:
+            raise OSError("command barrier failed")
+        sync_directories(paths, root)
+
+    def hooks(hook, **kwargs):
+        if hook == HookType.TURN_POST:
+            return [Message("system", "turn post record", quiet=True)]
+        return []
+
+    with (
+        LogManager(logdir=tmp_path, lock=False) as manager,
+        patch.object(
+            chat_module,
+            "step",
+            return_value=iter([Message("user", "/handled", quiet=True)]),
+        ),
+        patch.object(chat_module, "execute_cmd", return_value=True),
+        patch.object(chat_module, "trigger_hook", side_effect=hooks),
+        patch("gptme.logmanager.manager.sync_directories", side_effect=barrier),
+    ):
+        if fail_barrier:
+            with pytest.raises(OSError, match="command barrier failed"):
+                chat_module._process_message_conversation(
+                    manager, stream=False, tool_format="markdown", model=None
+                )
+        else:
+            chat_module._process_message_conversation(
+                manager, stream=False, tool_format="markdown", model=None
+            )
+            assert manager.log[-1].content == "turn post record"
+
+    assert barriers == ["turn post record"]

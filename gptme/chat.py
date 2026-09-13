@@ -569,14 +569,19 @@ def _process_message_conversation(
         finally:
             clear_interruptible()
 
+        command_consumed = False
         for response_msg in response_msgs:
             manager.append(response_msg)
             # run any user-commands, if msg is from user
             if response_msg.role == "user" and execute_cmd(response_msg, manager):
-                return
+                command_consumed = True
+                break
             # Show per-message cost if GPTME_SHOW_COST=1 (no-op otherwise)
             if response_msg.role == "assistant":
                 print_inline_cost(response_msg)
+
+        if command_consumed:
+            break
 
         # Check if user declined execution - return to prompt without generating response
         # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
