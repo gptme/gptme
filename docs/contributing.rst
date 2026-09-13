@@ -39,6 +39,36 @@ You can now start ``gptme`` from your development environment using the regular 
 
 You can also install it in editable mode with ``pipx`` using ``pipx install -e .`` which will let you use your development version of gptme regardless of venv.
 
+Keeping your environment in sync
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``poetry.lock`` pins the toolchain, and ``.pre-commit-config.yaml`` pins the
+hook versions separately. A virtualenv that has drifted from the lockfile will
+disagree with CI, usually in confusing ways:
+
+- ``make lint`` reports errors CI does not have, or misses errors CI finds —
+  most often a lint rule that was added or removed between versions.
+- ``pre-commit`` keeps reformatting a file you just formatted, and the commit
+  aborts every time with "files were modified by this hook".
+
+Run ``poetry install`` before concluding that a lint or test result is a
+problem with the repository, and check the version you are actually reasoning
+about:
+
+.. code-block:: bash
+
+   poetry install
+   poetry run ruff --version   # must match poetry.lock
+
+Two things worth knowing when this happens:
+
+- **Let the hooks own formatting.** Do not run a formatter yourself and then
+  commit. If your version differs from the pinned hook's, the two rewrite each
+  other's output and every commit fails.
+- **A commit rejected by a hook does not exist.** The hook output scrolls past
+  and a subsequent ``git push`` succeeds while pushing nothing. Check
+  ``git log -1`` before reporting a commit as made.
+
 Tests
 -----
 
