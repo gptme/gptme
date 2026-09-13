@@ -1345,10 +1345,59 @@ class ShellSession:
                 except Empty:
                     pass
 
-                # Both pipes reached EOF before the shell protocol delimiter.
-                # Treat an exited persistent shell like the Unix reader does:
-                # return promptly, preserve captured output, and restart it.
-                if not t_stdout.is_alive() and not t_stderr.is_alive():
+                # Either pipe reached EOF before the protocol delimiter.
+                # Unix recovers on a single-fd EOF. Waiting for both Windows
+                # reader threads to die hangs commands that close only one
+                # stream (`exec 1>&-`) until GPTME_SHELL_TIMEOUT.
+                if (not t_stdout.is_alive()) or (not t_stderr.is_alive()):
+
+                    def _drain_win_queues() -> None:
+                        while True:
+                            try:
+                                leftover = stdout_queue.get_nowait()
+                            except Empty:
+                                break
+                            stdout.append(leftover)
+                            if output:
+                                print(leftover, end="", file=sys.stdout)
+                        while True:
+                            try:
+                                leftover = stderr_queue.get_nowait()
+                            except Empty:
+                                break
+                            stderr.append(leftover)
+                            if output:
+                                print(leftover, end="", file=sys.stderr)
+
+                    _drain_win_queues()
+                    if cap_state["over"]:
+                        cap_mib = max_output_bytes / (1024 * 1024)
+                        trunc_msg = (
+                            f"\n[output truncated at {cap_mib:.0f} MiB,"
+                            f" process killed]\n"
+                        )
+                        stdout.append(trunc_msg)
+                        if output:
+                            print(trunc_msg, end="", file=sys.stdout)
+                        logger.warning(
+                            "Shell output cap (%d MiB) exceeded; killing process",
+                            int(cap_mib),
+                        )
+                        self._terminate_process()
+                        stop_event.set()
+                        return (
+                            -125,
+                            trim_blank_lines("".join(stdout)),
+                            trim_blank_lines("".join(stderr)),
+                        )
+
+                    # Stop the remaining reader before restart/teardown so it
+                    # cannot race on fds the recovery path is about to replace.
+                    stop_event.set()
+                    t_stdout.join(timeout=0.5)
+                    t_stderr.join(timeout=0.5)
+                    _drain_win_queues()
+
                     try:
                         self.process.wait(timeout=1.0)
                     except subprocess.TimeoutExpired:

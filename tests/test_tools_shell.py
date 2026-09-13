@@ -2454,6 +2454,55 @@ def test_windows_reader_does_not_replace_unreaped_shell(monkeypatch):
     restart.assert_not_called()
 
 
+@pytest.mark.timeout(10)
+@pytest.mark.parametrize("closed_fd", [10, 11], ids=["stdout", "stderr"])
+def test_windows_reader_recovers_when_one_pipe_eof(monkeypatch, closed_fd):
+    """A single closed Windows pipe must recover, not stall until timeout.
+
+    Unix recovers on per-fd EOF. The Windows reader used to wait for both
+    producer threads to die, so `exec 1>&-` hung until GPTME_SHELL_TIMEOUT.
+    """
+    import time
+
+    shell = object.__new__(shell_module.ShellSession)
+    shell.stdout_fd = 10
+    shell.stderr_fd = 11
+    shell.delimiter = "END_OF_COMMAND_OUTPUT"
+    shell.process = Mock()
+    shell.process.wait.return_value = 3
+
+    def read_side_effect(fd, _n):
+        if fd == closed_fd:
+            return b""
+        raise BlockingIOError
+
+    monkeypatch.setattr(shell_module, "_is_windows", True)
+    monkeypatch.setattr(shell_module.os, "set_blocking", Mock())
+    monkeypatch.setattr(shell_module.os, "read", Mock(side_effect=read_side_effect))
+
+    start = time.monotonic()
+    with patch.object(shell, "restart") as restart:
+        rc, stdout, stderr = shell._read_output_windows(
+            "exec 1>&-",
+            False,
+            [],
+            [],
+            None,
+            False,
+            "START_123",
+            "END_OF_COMMAND_OUTPUT",
+            None,
+            20.0,
+        )
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 5.0
+    assert rc == 3
+    assert stdout == ""
+    assert "shell exited" in stderr
+    restart.assert_called_once_with()
+
+
 @pytest.mark.timeout(30)
 @pytest.mark.parametrize(
     ("cmd", "code"), [("exit", 0), ("exit 3", 3), ("false || exit 1", 1)]
