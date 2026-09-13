@@ -334,9 +334,10 @@ def get_toolchain(
             if not explicitly_allowed:
                 continue
         tools.append(tool)
+    selected_tools = tools
     try:
         tools = _add_required_tools(
-            tools,
+            list(selected_tools),
             get_available_tools(include_mcp=include_mcp),
             allowlist=allowlist,
         )
@@ -346,7 +347,7 @@ def get_toolchain(
         logger.warning(
             "%s Skipping tools with unsatisfied companion requirements.", error
         )
-        tools = _remove_tools_with_unsatisfied_requirements(tools)
+        tools = _remove_tools_with_unsatisfied_requirements(selected_tools)
     if skipped_mcp_tools:
         allowlist_key = tuple(allowlist or [])
         with _warned_mcp_allowlists_lock:

@@ -228,16 +228,19 @@ def test_required_companion_must_be_available():
         get_toolchain(None)
 
 
-def test_nonstrict_toolchain_skips_tool_with_unavailable_companion():
+def test_nonstrict_toolchain_discards_partially_added_companions():
     independent = ToolSpec(name="independent", desc="independent")
-    companion = ToolSpec(name="companion", desc="companion", available=False)
-    primary = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
+    first = ToolSpec(name="first", desc="first", disabled_by_default=True)
+    unavailable = ToolSpec(name="unavailable", desc="unavailable", available=False)
+    primary = ToolSpec(
+        name="primary", desc="primary", requires_tools=["first", "unavailable"]
+    )
 
     with patch(
         "gptme.tools.get_available_tools",
-        return_value=[independent, primary, companion],
+        return_value=[independent, primary, first, unavailable],
     ):
-        tools = get_toolchain(["independent", "primary"], strict=False)
+        tools = get_toolchain(None, strict=False)
 
     assert [tool.name for tool in tools] == ["independent"]
 
