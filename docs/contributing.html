@@ -577,7 +577,10 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-your-environment-in-sync">Keeping your environment in sync</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation">Documentation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#target-audience">Target audience</a></li>
@@ -648,6 +651,34 @@ make<span class="w"> </span>build
 </div>
 <p>You can now start <code class="docutils literal notranslate"><span class="pre">gptme</span></code> from your development environment using the regular commands.</p>
 <p>You can also install it in editable mode with <code class="docutils literal notranslate"><span class="pre">pipx</span></code> using <code class="docutils literal notranslate"><span class="pre">pipx</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">.</span></code> which will let you use your development version of gptme regardless of venv.</p>
+<section id="keeping-your-environment-in-sync">
+<h3>Keeping your environment in sync<a class="headerlink" href="#keeping-your-environment-in-sync" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">poetry.lock</span></code> pins the toolchain, and <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> pins the
+hook versions separately. A virtualenv that has drifted from the lockfile will
+disagree with CI, usually in confusing ways:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">lint</span></code> reports errors CI does not have, or misses errors CI finds —
+most often a lint rule that was added or removed between versions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pre-commit</span></code> keeps reformatting a file you just formatted, and the commit
+aborts every time with “files were modified by this hook”.</p></li>
+</ul>
+<p>Run <code class="docutils literal notranslate"><span class="pre">poetry</span> <span class="pre">install</span></code> before concluding that a lint or test result is a
+problem with the repository, and check the version you are actually reasoning
+about:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install
+poetry<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>--version<span class="w">   </span><span class="c1"># must match poetry.lock</span>
+</pre></div>
+</div>
+<p>Two things worth knowing when this happens:</p>
+<ul class="simple">
+<li><p><strong>Let the hooks own formatting.</strong> Do not run a formatter yourself and then
+commit. If your version differs from the pinned hook’s, the two rewrite each
+other’s output and every commit fails.</p></li>
+<li><p><strong>A commit rejected by a hook does not exist.</strong> The hook output scrolls past
+and a subsequent <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span></code> succeeds while pushing nothing. Check
+<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">log</span> <span class="pre">-1</span></code> before reporting a commit as made.</p></li>
+</ul>
+</section>
 </section>
 <section id="tests">
 <h2>Tests<a class="headerlink" href="#tests" title="Link to this heading">#</a></h2>
@@ -1028,7 +1059,10 @@ so signing secrets are never exposed to PR-triggered builds.</p>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-your-environment-in-sync">Keeping your environment in sync</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests">Tests</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation">Documentation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#target-audience">Target audience</a></li>
