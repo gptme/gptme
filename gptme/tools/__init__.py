@@ -334,11 +334,19 @@ def get_toolchain(
             if not explicitly_allowed:
                 continue
         tools.append(tool)
-    tools = _add_required_tools(
-        tools,
-        get_available_tools(include_mcp=include_mcp),
-        allowlist=allowlist,
-    )
+    try:
+        tools = _add_required_tools(
+            tools,
+            get_available_tools(include_mcp=include_mcp),
+            allowlist=allowlist,
+        )
+    except ValueError as error:
+        if strict:
+            raise
+        logger.warning(
+            "%s Skipping tools with unsatisfied companion requirements.", error
+        )
+        tools = _remove_tools_with_unsatisfied_requirements(tools)
     if skipped_mcp_tools:
         allowlist_key = tuple(allowlist or [])
         with _warned_mcp_allowlists_lock:
@@ -352,6 +360,23 @@ def get_toolchain(
                 ", ".join(sorted(skipped_mcp_tools)),
             )
     return tools
+
+
+def _remove_tools_with_unsatisfied_requirements(
+    tools: list[ToolSpec],
+) -> list[ToolSpec]:
+    """Drop tools whose required companion closure is absent from ``tools``."""
+    remaining = list(tools)
+    while True:
+        names = {tool.name for tool in remaining}
+        filtered = [
+            tool
+            for tool in remaining
+            if all(name in names for name in tool.requires_tools)
+        ]
+        if len(filtered) == len(remaining):
+            return filtered
+        remaining = filtered
 
 
 def _add_required_tools(
