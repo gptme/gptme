@@ -356,12 +356,17 @@ def _record_selection_trace(
         from model_capability_registry import (
             lookup_model,
         )
-    except ImportError:
+    except ModuleNotFoundError:
         # model-capability-registry is an optional external package and is not a
         # dependency, so it is absent in a normal install. Attestation degrades
         # to "selection_only" by design; that is not a problem worth warning
         # about on every session.
         logger.debug("model_capability_registry not installed, skipping lookup")
+    except ImportError as e:
+        # Installed but not importable — a missing transitive dependency, or a
+        # version that no longer exports lookup_model. That is a genuine fault,
+        # and silencing it here is what this branch exists to avoid.
+        log_warn_once(f"model_capability_registry import failed: {e}")
     else:
         try:
             ref = lookup_model(model_meta.model)
@@ -371,9 +376,10 @@ def _record_selection_trace(
                 if ref.verification_status == "verified":
                     attestation_level = "provider_claim"
         except Exception as e:
-            # The registry is installed but failed: a real fault, worth saying
-            # once rather than once per model.
-            log_warn_once(f"registry lookup failed for {model_meta.model}: {e}")
+            # The registry is installed but the lookup failed. Key the dedupe on
+            # a fixed string so a session warns once, rather than once per
+            # (model, error-text) pair, while still reporting the specifics.
+            _warn_registry_lookup_failed(model_meta.model, e)
 
     trace = create_selection_trace(
         requested_model=source_value,
@@ -393,6 +399,23 @@ def _record_selection_trace(
             trace.identity.catalog_observed_at = catalog_observed_at
 
     set_selection_trace(trace)
+
+
+# Keyed on nothing but "has this fired", so a session reports the first genuine
+# registry lookup failure once and stays quiet, instead of re-warning for every
+# (model, error-text) pair. Deliberately not lock-guarded: the only cost of a
+# race is one duplicate warning, and this path is not known to run concurrently.
+_registry_lookup_warned = False
+
+
+def _warn_registry_lookup_failed(model: str, exc: Exception) -> None:
+    """Warn once per session that the installed registry failed a lookup."""
+    global _registry_lookup_warned
+    if _registry_lookup_warned:
+        logger.debug("registry lookup failed for %s: %s", model, exc)
+        return
+    _registry_lookup_warned = True
+    logger.warning("registry lookup failed for %s: %s", model, exc)
 
 
 def _backend_provider(transport_provider: str, resolved_model: str) -> str:
