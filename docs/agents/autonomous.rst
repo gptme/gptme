@@ -33,6 +33,35 @@ Scheduling comes in two shapes, which are less opposed than they sound:
 - **A timer approximates event-driven** when each run starts by checking those
   event streams, which is how most agents end up working in practice.
 
+Beyond a plain timer
+--------------------
+
+``gptme-agent install`` gives you the timer. What the agent does when it wakes is
+a separate question, and in practice two loop shapes show up:
+
+- **Autonomous runs** start on a cadence without a specific trigger. The run
+  itself decides what to work on, given the workspace state: what's in the task
+  queue, what was left unfinished, what the journal says happened last time.
+- **Project-monitoring runs** react to something that happened: an email
+  arrives, an issue or PR gets activity, CI turns green or red, a PR goes
+  conflicted after something else merged.
+
+The `gptme-runloops <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-runloops>`__
+package in gptme-contrib implements both, plus email and multi-agent
+coordination loops:
+
+.. code-block:: bash
+
+    gptme-runloops autonomous --workspace ~/my-agent   # cadence-driven run
+    gptme-runloops monitoring --workspace ~/my-agent   # react to GitHub activity
+    gptme-runloops email --workspace ~/my-agent        # react to incoming mail
+
+How a run picks its work — which task, which model, which harness — is the open
+part. `Bob <https://github.com/TimeToBuildBob>`__ samples that choice at the
+start of each autonomous run rather than fixing it in the schedule; that is one
+working approach, not a prescription, and pieces of it are being upstreamed as
+they prove out.
+
 Watching and controlling
 ------------------------
 
