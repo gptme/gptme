@@ -12,11 +12,6 @@ and an integrated computer-use view. Run it yourself with ``gptme-server`` (see
 (Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged
 into the main gptme repository.)
 
-**Try it now:**
-
-- `chat.gptme.org <https://chat.gptme.org>`_ (latest version of gptme-webui, bring your own gptme-server)
-- :doc:`gptme.ai <cloud>` (managed hosted gptme service, early access)
-
 **Key Features:**
 
 - Modern interface
@@ -49,16 +44,13 @@ When Vite runs separately on port 5701, allow that development origin:
 
 .. note::
 
-    **Connecting the hosted web UI to a local server (Chrome 142+).**
-    When you use the hosted web UI at `chat.gptme.org <https://chat.gptme.org>`_
-    with a ``gptme-server`` running on ``localhost``, recent Chromium browsers
-    (Chrome 142+) gate the connection behind a *Local Network Access* permission
-    prompt. This check runs *before* CORS headers are evaluated, so the
-    ``--cors-origin`` flag is necessary but no longer sufficient — you must also
-    click **Allow** on the permission prompt for the page to reach your local
-    server. Serving the web UI from a local origin (for example
-    ``http://localhost:5701``) avoids the prompt entirely, since that is a
-    local-to-local request.
+    **Cross-origin UIs and localhost (Chrome 142+).** When a web UI served from
+    another origin connects to a ``gptme-server`` on ``localhost``, recent
+    Chromium browsers gate the connection behind a *Local Network Access*
+    permission prompt. That check runs *before* CORS headers are evaluated, so
+    ``--cors-origin`` is necessary but not sufficient — you must also click
+    **Allow**. Serving the UI from the server's own origin (the default) or from
+    a local origin such as ``http://localhost:5701`` avoids the prompt.
 
 .. note::
 

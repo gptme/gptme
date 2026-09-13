@@ -53,10 +53,9 @@ The modern web UI is bundled at the same origin — just open
 http://localhost:5700 in a browser. Being same-origin, it needs no CORS setup
 (you will still need the server token; see below).
 
-To use the hosted web UI instead, open
-`chat.gptme.org <https://chat.gptme.org>`_ and point it at your server. That is
-a cross-origin setup, so uncomment the Compose ``command`` and set
-``CORS_ORIGIN`` to the hosted UI (or your separately hosted UI).
+To point a separately hosted web UI at this server instead, uncomment the
+Compose ``command`` and set ``CORS_ORIGIN`` to that UI's origin — a cross-origin
+setup needs it.
 
 Key ``.env`` settings:
 
