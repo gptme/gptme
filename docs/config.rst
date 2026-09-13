@@ -115,13 +115,21 @@ The ``settings`` section contains user-level CLI defaults. Currently supported:
 How model selection works
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When you start gptme, the model is resolved in this priority order:
+When you start gptme, the model is resolved in this priority order. The layers
+run from most specific (this one command) to most general (your global config):
 
 1. ``--model`` / ``-m`` CLI flag (highest priority, per-session)
 2. Per-chat model saved with ``/model`` — persists across session resumes
-3. ``[models].default`` in your global config
-4. ``MODEL`` env var (in shell or ``[env]`` section of config)
-5. Auto-detection based on which API keys are configured
+3. ``MODEL`` / ``GPTME_MODEL`` env var set in your shell
+4. ``[env].MODEL`` in the chat's own config
+5. ``[env].MODEL`` in the project's ``gptme.toml``
+6. ``[models].default`` in your global config
+7. ``[env].MODEL`` in your global config
+8. Auto-detection based on which API keys are configured
+
+So a variable exported for one command, or a model pinned by a project's
+``gptme.toml``, wins over the global default — while ``[models].default`` still
+wins over ``[env].MODEL`` set in that *same* global config.
 
 **Setting a permanent default model:**
 
@@ -197,7 +205,7 @@ the ``local/`` prefix — it does not affect OpenAI, Anthropic, or other provide
 
 The ``models`` section configures model selection preferences:
 
-- ``default``: The default chat model, as a fully-qualified model ID (e.g. ``"anthropic/claude-sonnet-4-6"``). A formal alternative to the ``MODEL`` env var; ``models.default`` takes precedence over the ``MODEL`` env var (and ``[env].MODEL`` in the config file), but is itself overridden by an explicit per-chat model or the ``--model`` CLI flag.
+- ``default``: The default chat model, as a fully-qualified model ID (e.g. ``"anthropic/claude-sonnet-4-6"``). A formal alternative to ``[env].MODEL`` in the same config file, which it takes precedence over. It is overridden by anything more specific: the ``--model`` CLI flag, a per-chat model, a ``MODEL`` env var in your shell, or ``[env].MODEL`` in a project's ``gptme.toml``. See :ref:`how-model-selection-works`.
 - ``favorites``: A list of fully-qualified model IDs (e.g. ``["anthropic/claude-sonnet-4-6", "openai/gpt-4o"]``) curated by the user. These are surfaced prominently in model pickers such as the web UI model selector.
 
 If you want to configure MCP servers, you can do so in a ``mcp`` section. See :ref:`mcp` for more information.

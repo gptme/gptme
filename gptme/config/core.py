@@ -231,6 +231,9 @@ def set_config_from_workspace(workspace: Path):
 def reload_config() -> Config:
     """Reload the configuration files."""
     config = _config_var.get()
+    # Model provenance is runtime-only state: reloading the config files must not
+    # erase which layer the session's already-resolved model came from.
+    model_source = config._model_source if config is not None else None
     if config is None:
         config = Config()
         _config_var.set(config)
@@ -240,6 +243,7 @@ def reload_config() -> Config:
     else:
         config = Config()
         _config_var.set(config)
+    config._model_source = model_source
 
     # Clear tools cache so MCP tools are recreated with new config
     from gptme.tools import clear_tools  # fmt: skip
@@ -248,3 +252,70 @@ def reload_config() -> Config:
 
     assert config
     return config
+
+
+def resolve_model_source(
+    config: Config,
+    cli_model: str | None = None,
+    chat_model: str | None = None,
+) -> tuple[str, ModelSourceKind] | None:
+    """Resolve the chat model, and which layer it came from.
+
+    Layers are ordered by specificity, mirroring :meth:`Config.get_env`: a value
+    set for this invocation beats one set for the conversation, which beats one
+    set for the project, which beats global user config.
+
+    1. ``--model``/``-m`` CLI flag
+    2. the model saved with the conversation
+    3. ``GPTME_MODEL``/``MODEL`` in the process environment
+    4. ``[env].MODEL`` in the chat config
+    5. ``[env].MODEL`` in the project's ``gptme.toml``
+    6. ``[models].default`` in the user config
+    7. ``[env].MODEL`` in the user config
+
+    ``[models].default`` sits among the *global* layers, so it still beats
+    ``[env].MODEL`` in the same user config (its documented role as the formal
+    alternative to that variable) without overriding a shell variable or a
+    per-project ``gptme.toml``.
+
+    The ``MODEL`` layers are always read through :meth:`Config.get_env`, which
+    owns that lookup order; this function only splits it around
+    ``[models].default``. Layers 3-5 are the ones that outrank the default, so
+    they are probed by masking out the layers below them, and everything left
+    over (layer 7) comes from the plain ``get_env`` call.
+
+    Returns ``None`` when no model is configured, leaving the caller to
+    auto-detect from available credentials.
+    """
+    if cli_model:
+        return cli_model, "cli"
+    if chat_model:
+        return chat_model, "chat_config"
+
+    # Layers above [models].default. get_env owns the MODEL lookup order, so ask
+    # it once; a value that came *only* from the user config ranks below the
+    # default and is handled further down.
+    env_model = config.get_env("MODEL")
+    if env_model:
+        user_env_model = config.user.env.get("MODEL")
+        if env_model != user_env_model:
+            return env_model, "MODEL"
+        # Same string as the user config's [env].MODEL. A more specific layer
+        # may hold that string too, and those still outrank [models].default.
+        if env_model in (
+            os.environ.get("GPTME_MODEL"),
+            os.environ.get("MODEL"),
+        ):
+            return env_model, "MODEL"
+        if config.chat and config.chat.env.get("MODEL") == env_model:
+            return env_model, "MODEL"
+        if config.project and config.project.env.get("MODEL") == env_model:
+            return env_model, "MODEL"
+
+    if default := config.user.models.default:
+        return default, "models.default"
+
+    # Layer 7: [env].MODEL in the user config.
+    if env_model:
+        return env_model, "MODEL"
+    return None

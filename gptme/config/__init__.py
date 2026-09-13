@@ -20,6 +20,7 @@ from .core import (
     _config_var,
     get_config,
     reload_config,
+    resolve_model_source,
     set_config,
     set_config_from_workspace,
 )
@@ -81,6 +82,7 @@ __all__ = [
     "ensure_workspace_dir",
     "get_config",
     "require_workspace_exists",
+    "resolve_model_source",
     "set_config",
     "set_config_from_workspace",
     "reload_config",

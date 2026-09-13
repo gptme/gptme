@@ -988,62 +988,169 @@ workspace = "{workspace.as_posix()}"
         )
 
 
+@pytest.fixture
+def restore_config_var():
+    """Restore the config contextvar after a test that calls setup_config_from_cli().
+
+    setup_config_from_cli() stores a Config built from whatever user config the
+    test pointed at. monkeypatch reverts ``config_path``, but not the contextvar,
+    so without this the resolved model leaks into later tests (which then try to
+    initialize that provider).
+    """
+    from gptme.config import _config_var
+
+    token = _config_var.set(_config_var.get())
+    yield
+    _config_var.reset(token)
+
+
+# Each case sets only the layers it names; every other layer is left unset, so a
+# case asserts precedence rather than merely "the one value present wins".
+# Layers, most specific first: cli, saved chat, shell MODEL, project gptme.toml
+# [env].MODEL, user [models].default, user [env].MODEL.
 @pytest.mark.parametrize(
     (
         "cli_model",
         "saved_model",
+        "shell_model",
+        "project_model",
         "default_model",
+        "user_env_model",
         "expected_model",
         "expected_source",
     ),
     [
+        # CLI beats everything below it.
         (
             "openai/gpt-5",
             "openrouter/openai/gpt-5-mini",
+            "xai/grok-4",
+            "openai/gpt-4o",
             "anthropic/claude-sonnet-4-6",
+            "openai/gpt-4o-mini",
             "openai/gpt-5",
             "cli",
         ),
+        # A saved conversation model beats the shell and every config layer.
         (
             None,
             "openrouter/openai/gpt-5-mini",
+            "xai/grok-4",
+            None,
             "anthropic/claude-sonnet-4-6",
+            None,
             "openrouter/openai/gpt-5-mini",
             "chat_config",
         ),
+        # A shell MODEL beats a global [models].default (it is more specific).
         (
             None,
             None,
+            "xai/grok-4",
+            None,
             "anthropic/claude-sonnet-4-6",
+            None,
+            "xai/grok-4",
+            "MODEL",
+        ),
+        # A project's gptme.toml [env].MODEL beats a global [models].default.
+        (
+            None,
+            None,
+            None,
+            "openai/gpt-4o",
+            "anthropic/claude-sonnet-4-6",
+            None,
+            "openai/gpt-4o",
+            "MODEL",
+        ),
+        # [models].default still beats [env].MODEL in that same user config.
+        (
+            None,
+            None,
+            None,
+            None,
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-4o-mini",
             "anthropic/claude-sonnet-4-6",
             "models.default",
         ),
-        (None, None, None, "xai/grok-4", "MODEL"),
+        # With no default, user-config [env].MODEL is still used.
+        (
+            None,
+            None,
+            None,
+            None,
+            None,
+            "openai/gpt-4o-mini",
+            "openai/gpt-4o-mini",
+            "MODEL",
+        ),
+        # A shell MODEL that happens to hold the *same* string as the user
+        # config's [env].MODEL still outranks a (different) [models].default.
+        # The layers are only distinguishable by value here, so this is the
+        # case that regresses if that disambiguation is done naively.
+        (
+            None,
+            None,
+            "openai/gpt-4o-mini",
+            None,
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-4o-mini",
+            "openai/gpt-4o-mini",
+            "MODEL",
+        ),
+        # Same collision via a project gptme.toml rather than the shell.
+        (
+            None,
+            None,
+            None,
+            "openai/gpt-4o-mini",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-4o-mini",
+            "openai/gpt-4o-mini",
+            "MODEL",
+        ),
     ],
 )
 def test_setup_config_model_precedence_and_source(
     tmp_path,
     monkeypatch,
+    restore_config_var,
     cli_model,
     saved_model,
+    shell_model,
+    project_model,
     default_model,
+    user_env_model,
     expected_model,
     expected_source,
 ):
-    """CLI, saved, default, and environment models use one precedence chain."""
+    """Model layers resolve by specificity, and report the layer they came from."""
     from gptme.config import user as user_mod
 
+    user_config = ""
+    if default_model:
+        user_config += f'[models]\ndefault = "{default_model}"\n'
+    if user_env_model:
+        user_config += f'[env]\nMODEL = "{user_env_model}"\n'
     config_file = tmp_path / "config.toml"
-    config_file.write_text(
-        f'[models]\ndefault = "{default_model}"\n' if default_model else "",
-        encoding="utf-8",
-    )
+    config_file.write_text(user_config, encoding="utf-8")
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
-    monkeypatch.setenv("MODEL", "xai/grok-4")
+
     monkeypatch.delenv("GPTME_MODEL", raising=False)
+    if shell_model:
+        monkeypatch.setenv("MODEL", shell_model)
+    else:
+        monkeypatch.delenv("MODEL", raising=False)
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    if project_model:
+        (workspace / "gptme.toml").write_text(
+            f'[env]\nMODEL = "{project_model}"\n', encoding="utf-8"
+        )
+
     logdir = tmp_path / "conversation"
     if saved_model:
         ChatConfig(_logdir=logdir, model=saved_model, workspace=workspace).save()

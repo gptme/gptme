@@ -125,9 +125,10 @@ without per-call flags:
     [env]
     MODEL = "anthropic/claude-sonnet-4-6"
 
-To pin a model regardless of other configuration (such as a global
-``[models].default``), pass ``--model`` in the command that runs the agent. See
-:ref:`how-model-selection-works` for how gptme resolves the model.
+A model set this way wins over a global ``[models].default``: the project's
+``gptme.toml`` is the more specific layer. To override it for a single run, pass
+``--model`` in the command that runs the agent, or export ``MODEL`` for that
+command. See :ref:`how-model-selection-works` for the full order.
 
 This is how an agent "brain" pins its default model: configure it once in the
 agent's config, override per session only when a specific task needs a different

@@ -14,7 +14,7 @@ from rich.logging import RichHandler
 
 from .cli.setup import ask_for_api_key
 from .commands import init_commands
-from .config import Config, get_config
+from .config import Config, get_config, resolve_model_source
 from .hooks import init_hooks
 from .lessons.skill_commands import register_skill_commands
 from .llm import guess_provider_from_config, init_llm, is_custom_provider
@@ -141,14 +141,17 @@ def init_model(
     # Save original input for provenance tracking before precedence resolution.
     _requested_model = model
 
-    # get from config
-    # Precedence: explicit CLI --model > per-chat saved model > [models].default > MODEL env var.
+    # get from config, via the same layered resolver setup_config_from_cli uses
+    # so the two precedence chains cannot drift apart (see #3814).
     if not model:
-        model = (
-            (config.chat.model if config.chat else None)
-            or config.user.models.default
-            or config.get_env("MODEL")
+        resolution = resolve_model_source(
+            config, chat_model=config.chat.model if config.chat else None
         )
+        if resolution is not None:
+            model = resolution[0]
+            # Record where it came from; _record_selection_trace prefers this
+            # over re-deriving the source from the config layers.
+            config._model_source = (resolution[1], resolution[0])
 
     if not model:  # pragma: no cover
         # auto-detect depending on if OPENAI_API_KEY or ANTHROPIC_API_KEY is set
@@ -300,30 +303,31 @@ def _record_selection_trace(
     """Create and store a ModelSelectionTrace for this session."""
     from .model_attestation import create_selection_trace, set_selection_trace
 
-    # setup_config_from_cli resolves the model before it reaches init_model, so
-    # keep that runtime-only source when it still describes this exact value.
+    # The model is resolved before it reaches here (by setup_config_from_cli, or
+    # by init_model itself), so prefer that runtime-only source whenever it still
+    # describes the value in play — including when no model was requested
+    # explicitly, in which case it describes what init_model resolved.
     tracked_source = config._model_source
-    if (
-        requested_model is not None
-        and tracked_source is not None
-        and tracked_source[1] == requested_model
+    tracked_value = tracked_source[1] if tracked_source is not None else None
+    if tracked_source is not None and tracked_value in (
+        requested_model,
+        model_full,
     ):
         source_kind, source_value = tracked_source
     elif requested_model is not None:
         source_kind = "cli"
         source_value = requested_model
-    elif config.chat and config.chat.model:
-        source_kind = "chat_config"
-        source_value = config.chat.model
-    elif config.user.models.default:
-        source_kind = "models.default"
-        source_value = config.user.models.default
-    elif config.get_env("MODEL"):
-        source_kind = "MODEL"
-        source_value = config.get_env("MODEL") or model_full
     else:
-        source_kind = "cli"
-        source_value = model_full
+        # Nothing tracked (a caller that set the model without resolving it):
+        # fall back to the same layered order rather than a third copy of it.
+        resolution = resolve_model_source(
+            config, chat_model=config.chat.model if config.chat else None
+        )
+        if resolution is not None:
+            source_value, source_kind = resolution
+        else:
+            source_kind = "cli"
+            source_value = model_full
 
     transport_provider = str(provider)
     backend_provider = _backend_provider(transport_provider, resolved_model)
