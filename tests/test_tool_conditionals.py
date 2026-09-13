@@ -243,17 +243,18 @@ def test_nonstrict_toolchain_skips_tool_with_unavailable_companion():
 
 
 def test_load_tool_returns_replacement_spec_from_init():
-    original = ToolSpec(name="primary", desc="primary")
+    companion = ToolSpec(name="companion", desc="companion")
+    original = ToolSpec(name="primary", desc="primary", requires_tools=["companion"])
     replacement = ToolSpec(name="initialized-primary", desc="initialized primary")
     original = replace(original, init=lambda: replacement)
 
     clear_tools()
     set_session_allowlist(None)
-    with patch("gptme.tools.get_available_tools", return_value=[original]):
+    with patch("gptme.tools.get_available_tools", return_value=[original, companion]):
         loaded = load_tool("primary")
 
     assert loaded is replacement
-    assert get_tools() == [replacement]
+    assert get_tools() == [companion, replacement]
 
 
 def test_load_tool_does_not_publish_partial_closure_on_init_failure():

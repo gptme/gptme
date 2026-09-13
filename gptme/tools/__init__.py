@@ -742,13 +742,13 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
                 f"Tool '{tool_name}' not found. Available: {', '.join(sorted(available.keys()))}"
             )
 
-        tool = available[tool_name]
-        if not tool.is_available:
-            raise ValueError(_unavailable_message(tool_name, [tool]))
+        requested_spec = available[tool_name]
+        if not requested_spec.is_available:
+            raise ValueError(_unavailable_message(tool_name, [requested_spec]))
 
         allowlist = None if allow_required else get_session_allowlist()
         to_load = _add_required_tools(
-            [tool],
+            [requested_spec],
             list(available.values()),
             allowlist=allowlist,
             already_loaded={spec.name for spec in get_tools()},
@@ -766,7 +766,7 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
                 continue
             initialized_spec = _init_single_tool(spec)
             initialized.append(initialized_spec)
-            if spec is tool:
+            if spec is requested_spec:
                 requested = initialized_spec
 
         _get_loaded_tools().extend(initialized)
