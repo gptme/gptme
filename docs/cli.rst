@@ -51,6 +51,18 @@ itself; the others cover setup, utilities, agents, and evaluation. Every tool ac
 - ``gptme-eval-trends`` — track eval result trends and regressions over time (no reference page).
 - ``gptme-dspy`` — optimize system prompts with DSPy (no reference page).
 
+Reference pages:
+
+- :doc:`cli/gptme` — the main command
+- :doc:`cli/gptme-server` — web UI and REST API server
+- :doc:`cli/gptme-tui` — terminal UI
+- :doc:`cli/gptme-util` — utilities (chats, models, memory, tools, …)
+- :doc:`cli/agents` — ``gptme-agent`` and ``gptme-service``
+- :doc:`cli/gptme-mcp-server` — expose gptme tools over MCP
+- :doc:`cli/setup` — onboarding, auth, init, tutorial, doctor
+- :doc:`cli/sessions` — status, resume, checkpoint, stats
+- :doc:`cli/evaluation` — evals, SWE-bench, terminal-bench, datasets
+
 .. toctree::
    :hidden:
 

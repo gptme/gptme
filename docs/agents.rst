@@ -91,6 +91,15 @@ It reaches the rest of the world through the same surfaces as any gptme session:
 :doc:`channels` for email, chat, and voice; :doc:`tools` for browsing, search,
 and the shell; and :doc:`automation` for CI and git workflows.
 
+Read more:
+
+- :doc:`agents/workspace` — the repository that holds identity, tasks, journal,
+  knowledge, and lessons, and how context is built each run.
+- :doc:`agents/autonomous` — scheduling runs, watching them, prompts that hold up
+  unattended, and keeping the blast radius small.
+- :doc:`profiles` — named presets of system prompt, tool access, and behavior,
+  for restricted sessions and subagents.
+
 .. note::
 
     An agent is not the only way to specialize gptme. A

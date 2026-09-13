@@ -125,7 +125,8 @@ def test_check_nav_flags_lone_child_and_missing_page(build_dir):
         "tools.html": ds.parse_headings((build_dir / "tools.html").read_text()),
     }
     issues = ds.check_nav(roots, build_dir, headings)
-    assert [(i.code, i.page) for i in issues] == [
+    # the fixture's tools.html links its child only from the sidebar
+    assert [(i.code, i.page) for i in issues if i.code != "unlinked-subpage"] == [
         ("lone-child", "tools.html"),
         ("missing-page", "security.html"),
     ]
@@ -165,3 +166,21 @@ def test_check_nav_flags_duplicate_titles_across_sections(build_dir):
     ]
     assert len(issues) == 1
     assert "'Tools' appears 2 times" in issues[0].message
+
+
+def test_check_nav_flags_subpage_linked_only_in_prose(build_dir):
+    prose = page(
+        heading(1, "Tools") + '<p>see <a href="tools/browser.html">Browser</a></p>'
+    )
+    (build_dir / "tools.html").write_text(prose)
+    roots = ds.parse_nav((build_dir / "index.html").read_text())
+    codes = [i.code for i in ds.check_nav(roots, build_dir, {})]
+    assert "unlinked-subpage" in codes
+
+    listed = page(
+        heading(1, "Tools")
+        + '<ul><li><a href="tools/browser.html">Browser</a></li></ul>'
+    )
+    (build_dir / "tools.html").write_text(listed)
+    codes = [i.code for i in ds.check_nav(roots, build_dir, {})]
+    assert "unlinked-subpage" not in codes

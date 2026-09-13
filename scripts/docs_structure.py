@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import posixpath
+import re
 import sys
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -250,10 +251,38 @@ def check_page(page: str, headings: list[Heading]) -> list[Issue]:
     return issues
 
 
+def _linked_from_list(body: str, href: str) -> bool:
+    """True if the page body links href from a list item (curated list or toctree)."""
+    target = re.escape(href.split("/")[-1])
+    return any(
+        re.search(rf'href="[^"]*{target}(#[^"]*)?"', item)
+        for item in re.findall(r"<li\b.*?</li>", body, re.DOTALL)
+    )
+
+
 def check_nav(
     roots: list[NavNode], build_dir: Path, headings: dict[str, list[Heading]]
 ) -> list[Issue]:
     issues: list[Issue] = []
+
+    for node in iter_nodes(roots):
+        pages = [c for c in node.children if c.href and not c.is_external]
+        if not node.href or not pages or not (build_dir / node.href).exists():
+            continue
+        html = (build_dir / node.href).read_text(encoding="utf-8")
+        start, end = html.find("<article"), html.find("</article>")
+        body = html[start:end] if start != -1 and end != -1 else html
+        issues.extend(
+            Issue(
+                "warning",
+                "unlinked-subpage",
+                node.href,
+                f"'{child.title}' is only reachable from the sidebar; "
+                "list it on the page too",
+            )
+            for child in pages
+            if not _linked_from_list(body, child.href)
+        )
     for node in iter_nodes(roots):
         if node.href and not node.is_external and not (build_dir / node.href).exists():
             issues.append(
