@@ -164,6 +164,33 @@ class TestLogManagerTracePersistence:
             info = path.stat()
             assert (info.st_dev, info.st_ino) in synced
 
+    def test_model_trace_syncs_temporary_file_before_replacement(
+        self, tmp_path: Path
+    ) -> None:
+        from gptme.logmanager.manager import LogManager
+
+        set_selection_trace(make_trace())
+        lm = LogManager(logdir=tmp_path, lock=False)
+        order: list[str] = []
+        real_fsync = os.fsync
+        real_replace = Path.replace
+
+        def record_sync(fd: int) -> None:
+            order.append("sync")
+            real_fsync(fd)
+
+        def record_replace(source: Path, target: Path) -> Path:
+            order.append("replace")
+            return real_replace(source, target)
+
+        with (
+            patch.object(os, "fsync", side_effect=record_sync),
+            patch.object(Path, "replace", autospec=True, side_effect=record_replace),
+        ):
+            lm.write_model_trace()
+
+        assert order == ["sync", "replace"]
+
     @pytest.mark.skipif(os.name == "nt", reason="No portable directory fsync")
     def test_failed_directory_fsync_does_not_acknowledge_save(
         self, tmp_path: Path

@@ -683,6 +683,8 @@ class LogManager:
             delete=False,
         ) as temp_file:
             temp_file.write(trace.to_json() + "\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
             temp_path = Path(temp_file.name)
         try:
             temp_path.replace(trace_path)
