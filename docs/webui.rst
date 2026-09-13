@@ -5,22 +5,32 @@
 Web
 ===
 
-The gptme web UI (`gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_) is a
-full chat interface in your browser, with streaming responses, conversation history,
-and an integrated computer-use view. Run it yourself with ``gptme-server`` (see
-:doc:`server`), use the :doc:`app`, or sign in to :doc:`gptme.ai <cloud>`.
-(Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged
-into the main gptme repository.)
+The gptme web UI (`gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_)
+is the richest way to work with gptme and your :doc:`agents <agents>`: a chat
+interface that shows what the agent is doing and what it produced, rather than a
+transcript alone.
+
+Alongside the conversation it renders **artifacts** the agent created, **panels**
+that tools declare at runtime (sandboxed iframes and live apps with their own
+lifecycle), **browser and computer previews** of what the agent sees, tool
+activity, and a branch map of the conversation. You can create and manage
+persistent agents from it, and drive a full desktop through the
+`Computer Use Interface`_.
+
+Run it yourself with ``gptme-server`` (see :doc:`server`), use the :doc:`app`, or
+sign in to :doc:`gptme.ai <cloud>`, where hosted instances can also expose a
+running app on its own preview URL. (Originally a
+`standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main
+gptme repository.)
 
 **Key Features:**
 
-- Modern interface
-- Streaming responses
-- Mobile-friendly responsive design
-- Dark mode support
-- Conversation export and offline capabilities
-- Integrated computer use interface
-- Create your own persistent `agents`
+- Streaming responses, with tool calls and their output shown inline
+- Artifact and panel surfaces: previews of what the agent made and what its tools expose
+- Integrated computer-use view
+- Create and manage persistent :doc:`agents <agents>`
+- Conversation history, search, branching, and export
+- Mobile-friendly responsive design and dark mode
 
 **Local use:**
 
