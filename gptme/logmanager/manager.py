@@ -53,7 +53,7 @@ from ..util.reduce import (
 )
 from ..util.uri import URI
 from . import eventlog
-from .durability import existing_parent, sync_directories
+from .durability import existing_parent, sync_directories, sync_directory
 
 PathLike: TypeAlias = str | Path
 
@@ -178,9 +178,19 @@ class Log:
                     file.writelines(lines)
                     file.flush()
                     if existing_mode is not None:
-                        os.fchmod(file.fileno(), existing_mode)
+                        # fchmod is Unix-only; chmod-by-path is the Windows
+                        # fallback. Either way the mode lands before fsync so
+                        # a crash after replacement cannot revive the temp
+                        # file's default permissions.
+                        if hasattr(os, "fchmod"):
+                            os.fchmod(file.fileno(), existing_mode)
+                        else:
+                            os.chmod(temp_path, existing_mode)
                     os.fsync(file.fileno())
                 os.replace(temp_path, output)
+                # Direct rewrite callers (fork, undo, edit) acknowledge here
+                # without a later write(sync=True). No-op on Windows.
+                sync_directory(output.parent)
             finally:
                 if temp_path is not None:
                     temp_path.unlink(missing_ok=True)
