@@ -36,6 +36,8 @@ LONE_CHILD_ALLOWED = {
     "getting-started.html",
     # The gallery is a companion listing for the skills guide, not a subtopic.
     "skills.html",
+    # Profiles sit under Agents so the nav entry can drop the "Agent" prefix.
+    "agents.html",
 }
 
 

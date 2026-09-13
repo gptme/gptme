@@ -7,6 +7,15 @@ gptme supports highly customizable "agents": persistent AI assistants with struc
 
 Each agent is implemented as a git repository that serves as their "brain," containing all their data, configuration, and interaction history.
 
+A :doc:`profile <profiles>` is the lighter-weight sibling: a named preset of
+system prompt, tool access, and behavior rules, for a restricted session or a
+subagent with a clear role.
+
+.. toctree::
+   :hidden:
+
+   Profiles <profiles>
+
 Overview
 --------
 

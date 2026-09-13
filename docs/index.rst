@@ -70,7 +70,6 @@ Where to start
    :caption: Agents & Context
 
    agents
-   profiles
    lessons
    skills
    memory
