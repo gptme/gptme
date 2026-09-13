@@ -152,7 +152,7 @@ example below uses nginx with a Let's Encrypt certificate.
 
 The server and bundled UI are now reachable together at
 ``https://gptme.example.com``. If you instead use a separately hosted UI such
-as `chat.gptme.org <https://chat.gptme.org>`_, set ``CORS_ORIGIN`` in ``.env``
+from another origin, set ``CORS_ORIGIN`` in ``.env``
 to that UI's origin and enable the Compose ``--cors-origin`` command.
 
 .. note::

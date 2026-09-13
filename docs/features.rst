@@ -84,7 +84,7 @@ See :doc:`usage` and :doc:`cli/gptme` for the full reference.
 🌐 Web UI
 ^^^^^^^^^
 
-A modern React-based web interface available at `chat.gptme.org <https://chat.gptme.org>`_.
+A modern React-based web interface, bundled with ``gptme-server``. See :doc:`webui`.
 
 - Chat with gptme from your browser
 - Access to all tools and features
