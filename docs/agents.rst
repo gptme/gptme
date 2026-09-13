@@ -215,8 +215,8 @@ Key Systems
 - Includes interests, skills, project history, and interaction notes
 - Privacy-conscious with appropriate detail levels
 
-Usage
------
+Growing an agent
+----------------
 
 .. note::
 
@@ -240,52 +240,40 @@ Tools like ``tree``, ``jq``, ``ripgrep``, ``pandoc``, ``shellcheck``, and the
 `GitHub CLI <https://cli.github.com/>`_ are optional but make an agent more
 capable; see :doc:`system-dependencies`.
 
-**Creating an Agent:**
+**What creation gave you:**
 
-The ``gptme-agent`` CLI (included with gptme) makes it easy to create and manage agents:
+``gptme-agent create`` clones the
+`gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ and
+customizes it for your agent: identity files, knowledge and lesson directories,
+and automation scaffolding. Pass ``--no-template`` for a bare directory layout
+instead, or clone the template yourself and run ``./scripts/fork.sh`` — the
+command just automates that.
 
-.. code-block:: bash
+**Working with it:**
 
-    # Create a new agent workspace (clones and customizes the template)
-    gptme-agent create ~/my-agent --name MyAgent
-
-    # For a minimal workspace without the full template
-    gptme-agent create ~/my-agent --name MyAgent --no-template
-
-See the `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ repository for more details on the template structure.
-
-.. note::
-
-    You can also create agents manually by cloning the template repository and running ``./scripts/fork.sh``. The ``gptme-agent create`` command automates this process.
-
-**Running an Agent:**
+Run the agent from its workspace, as you would any gptme session:
 
 .. code-block:: bash
 
-    # Run the agent interactively
     cd ~/my-agent
     gptme "your prompt here"
 
-**Autonomous Operation:**
+Everything it learns lands in the workspace: journal entries, tasks, knowledge,
+and :doc:`lessons`. Commit them — the git history *is* the agent's memory, and
+what makes the next session better than the last.
 
-Agents can run autonomously on a schedule using systemd (Linux) or launchd (macOS):
+**Tuning autonomous runs:**
+
+``gptme-agent install`` schedules runs every 30 minutes by default. Adjust it and
+keep an eye on what happens:
 
 .. code-block:: bash
 
-    # Install as a system service (runs every 30 minutes by default)
-    gptme-agent install
+    gptme-agent install --schedule "*:00"    # hourly instead
+    gptme-agent logs --follow                # watch a run
+    gptme-agent stop                         # pause scheduling; start resumes
 
-    # Customize the schedule
-    gptme-agent install --schedule "*:00"    # Every hour
-
-    # Manage the agent
-    gptme-agent status              # Check status
-    gptme-agent logs --follow       # Monitor logs
-    gptme-agent run                 # Trigger immediate run
-    gptme-agent stop                # Pause scheduled runs
-    gptme-agent start               # Resume scheduled runs
-
-**Execution Flow with gptme:**
+**What happens each run:**
 
 1. ``gptme`` builds context from all systems
 
