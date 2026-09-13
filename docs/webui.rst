@@ -1,7 +1,7 @@
 :audience: user
 
-Web UI
-======
+Web
+===
 
 gptme's browser interface: a full chat UI with streaming, conversation history,
 and an integrated computer-use view. Run it yourself with ``gptme-server`` (see
