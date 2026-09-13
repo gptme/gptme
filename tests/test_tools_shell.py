@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -2384,6 +2384,32 @@ def test_set_e_does_not_persist_across_blocks(shell):
 
 
 # Persistent-shell exit/pipe recovery regressions (gptme/gptme#3802)
+def test_windows_reader_restarts_after_shell_eof(monkeypatch):
+    """Windows EOF before the delimiter must not return a silent None status."""
+    from gptme.tools import shell as shell_module
+
+    shell = object.__new__(shell_module.ShellSession)
+    shell.stdout_fd = 10
+    shell.stderr_fd = 11
+    shell.delimiter = "END_OF_COMMAND_OUTPUT"
+    shell.process = Mock()
+    shell.process.wait.return_value = 3
+
+    monkeypatch.setattr(shell_module, "_is_windows", True)
+    monkeypatch.setattr(shell_module.os, "set_blocking", Mock())
+    monkeypatch.setattr(shell_module.os, "read", Mock(return_value=b""))
+
+    with patch.object(shell, "restart") as restart:
+        rc, stdout, stderr = shell._read_output_windows(
+            "exit 3", False, [], [], None, False, "START_123", None, 20.0
+        )
+
+    assert rc == 3
+    assert stdout == ""
+    assert "shell exited" in stderr
+    restart.assert_called_once_with()
+
+
 @pytest.mark.timeout(30)
 @pytest.mark.parametrize(
     ("cmd", "code"), [("exit", 0), ("exit 3", 3), ("false || exit 1", 1)]

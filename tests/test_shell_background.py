@@ -217,6 +217,54 @@ class TestOutputCapture:
         stdout, _ = job.get_output()
         assert len(stdout) >= 100_000
 
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX process groups only")
+    def test_descendant_holding_pipes_does_not_stall_completion(self):
+        """A detached descendant must not suppress the direct child's completion."""
+        from types import SimpleNamespace
+
+        from gptme.tools.shell_background import background_job_completion_hook
+
+        job = start_background_job("sleep 30 &")
+        try:
+            job.process.wait(timeout=5)
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=3)
+            assert not job._reader_thread.is_alive()
+
+            messages = list(
+                background_job_completion_hook(
+                    SimpleNamespace(chat_id=job.conversation_id), True, []
+                )
+            )
+            assert len(messages) == 1
+            assert f"job #{job.id} finished" in messages[0].content
+        finally:
+            if job.process_group_id is not None:
+                try:
+                    os.killpg(job.process_group_id, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_stop_during_post_exit_grace_preserves_buffered_output(self):
+        """Teardown wakes the reader without dropping already readable bytes."""
+        job = start_background_job("sleep 30 &")
+        try:
+            job.process.wait(timeout=5)
+            assert job._reader_thread is not None
+            deadline = time.monotonic() + 2
+            while job.process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            job._stop_event.set()
+            job._reader_thread.join(timeout=1)
+            assert not job._reader_thread.is_alive()
+        finally:
+            if job.process_group_id is not None:
+                try:
+                    os.killpg(job.process_group_id, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
     def test_reader_does_not_use_select_select_while_running(self):
         """Streaming capture must not go through select.select (#3715 leftover).
 
@@ -662,9 +710,12 @@ class TestThreadSafety:
         ids = {j.id for j in jobs}
         assert len(ids) == 10
 
-        # Wait for all to finish
+        # Wait for all processes and their output readers to finish.
         for j in jobs:
             j.process.wait(timeout=5)
+            assert j._reader_thread is not None
+            j._reader_thread.join(timeout=2)
+            assert not j._reader_thread.is_alive()
 
     def test_concurrent_get_output(self):
         """Reading output while writer thread is active should not crash."""
@@ -774,9 +825,10 @@ class TestCompletionNotifications:
         assert f"job #{job.id} finished" in messages[0].content
         assert "notified" in messages[0].content
 
-    def test_completion_hook_uses_active_context_without_manager_id(self):
-        from types import SimpleNamespace
-
+    @pytest.mark.parametrize(
+        "manager", [object(), pytest.param(None, id="none-manager")]
+    )
+    def test_completion_hook_uses_active_context_without_manager_id(self, manager):
         from gptme.hooks import current_conversation_id
         from gptme.tools import shell_background
 
@@ -789,9 +841,7 @@ class TestCompletionNotifications:
         token = current_conversation_id.set("conversation-a")
         try:
             messages = list(
-                shell_background.background_job_completion_hook(
-                    SimpleNamespace(chat_id=None), True, []
-                )
+                shell_background.background_job_completion_hook(manager, True, [])
             )
         finally:
             current_conversation_id.reset(token)

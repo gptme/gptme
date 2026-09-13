@@ -1345,9 +1345,17 @@ class ShellSession:
                 except Empty:
                     pass
 
-                # If both reader threads are dead, stop
+                # Both pipes reached EOF before the shell protocol delimiter.
+                # Treat an exited persistent shell like the Unix reader does:
+                # return promptly, preserve captured output, and restart it.
                 if not t_stdout.is_alive() and not t_stderr.is_alive():
-                    break
+                    return self._handle_shell_exit(
+                        stdout,
+                        stderr,
+                        output,
+                        max_output_bytes,
+                        cap_state["bytes"],
+                    )
 
         except KeyboardInterrupt:
             print()
@@ -1672,18 +1680,22 @@ class ShellSession:
             and captured_bytes <= max_output_bytes
             and time.monotonic() < deadline
         ):
-            readable = _wait_readable(list(open_fds), 0.1)
-            if not readable:
-                continue
+            readable = (
+                list(open_fds) if _is_windows else _wait_readable(list(open_fds), 0.1)
+            )
+            read_any = False
             for fd in readable:
                 try:
                     raw = os.read(fd, 2**16)
+                except BlockingIOError:
+                    continue
                 except OSError:
                     open_fds.discard(fd)
                     continue
                 if not raw:
                     open_fds.discard(fd)
                     continue
+                read_any = True
                 captured_bytes += len(raw)
                 data = raw.decode("utf-8", errors="replace")
                 target = stdout if fd == self.stdout_fd else stderr
@@ -1691,6 +1703,8 @@ class ShellSession:
                 target.append(data)
                 if output:
                     print(data, end="", file=stream)
+            if _is_windows and not read_any:
+                time.sleep(0.1)
         return captured_bytes
 
     def _handle_shell_exit(

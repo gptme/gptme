@@ -100,81 +100,75 @@ class BackgroundJob:
         self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self._reader_thread.start()
 
+    def _append_output(self, fd: int, stdout_fd: int, data: bytes) -> None:
+        """Decode and append one output chunk while maintaining offsets."""
+        text = data.decode("utf-8", errors="replace")
+        with self._buffer_lock:
+            if fd == stdout_fd:
+                self._stdout_buffer_start += self._append_to_buffer(
+                    self.stdout_buffer, text
+                )
+            else:
+                self._stderr_buffer_start += self._append_to_buffer(
+                    self.stderr_buffer, text
+                )
+
     def _read_output(self) -> None:
-        """Read stdout/stderr in background thread."""
+        """Read stdout/stderr until the child exits, then drain briefly."""
         stdout_fd = self.process.stdout.fileno() if self.process.stdout else -1
         stderr_fd = self.process.stderr.fileno() if self.process.stderr else -1
-        fds = [fd for fd in [stdout_fd, stderr_fd] if fd >= 0]
+        open_fds = {fd for fd in (stdout_fd, stderr_fd) if fd >= 0}
 
         if _is_windows:
-            # Windows: use non-blocking reads with polling
-            for fd in fds:
+            # Windows: use non-blocking reads with polling.
+            for fd in open_fds:
                 try:
                     os.set_blocking(fd, False)
                 except OSError:
                     pass
-            while not self._stop_event.is_set() and self.process.poll() is None:
-                for fd in fds:
-                    try:
-                        data = os.read(fd, 4096).decode("utf-8", errors="replace")
-                        if data:
-                            with self._buffer_lock:
-                                if fd == stdout_fd:
-                                    self._stdout_buffer_start += self._append_to_buffer(
-                                        self.stdout_buffer, data
-                                    )
-                                else:
-                                    self._stderr_buffer_start += self._append_to_buffer(
-                                        self.stderr_buffer, data
-                                    )
-                    except BlockingIOError:
-                        pass
-                    except (OSError, ValueError):
-                        return
-                time.sleep(0.1)
-        else:
-            assert select is not None
-            while not self._stop_event.is_set() and self.process.poll() is None:
-                try:
-                    readable = _wait_readable(fds, 0.1)
-                    for fd in readable:
-                        data = os.read(fd, 4096).decode("utf-8", errors="replace")
-                        if data:
-                            with self._buffer_lock:
-                                if fd == stdout_fd:
-                                    self._stdout_buffer_start += self._append_to_buffer(
-                                        self.stdout_buffer, data
-                                    )
-                                else:
-                                    self._stderr_buffer_start += self._append_to_buffer(
-                                        self.stderr_buffer, data
-                                    )
-                except (OSError, ValueError):
-                    break
 
-        # Final read after process exits
-        if self.process.stdout:
+        exited_at: float | None = None
+        while not self._stop_event.is_set():
+            if self.process.poll() is None:
+                exited_at = None
+            elif not open_fds:
+                break
+            elif exited_at is None:
+                exited_at = time.monotonic()
+            elif time.monotonic() - exited_at >= 1.0:
+                # A descendant may inherit the pipes after the direct child exits.
+                # Bound the drain so that completion notification cannot stall on it.
+                break
+
+            if not open_fds:
+                # Closing both streams does not itself mean that the process exited.
+                time.sleep(0.1)
+                continue
+
             try:
-                remaining = self.process.stdout.read()
-                if remaining:
-                    with self._buffer_lock:
-                        self._stdout_buffer_start += self._append_to_buffer(
-                            self.stdout_buffer,
-                            remaining.decode("utf-8", errors="replace"),
-                        )
+                readable = (
+                    list(open_fds)
+                    if _is_windows
+                    else _wait_readable(list(open_fds), 0.1)
+                )
+                read_any = False
+                for fd in readable:
+                    try:
+                        raw = os.read(fd, 4096)
+                    except BlockingIOError:
+                        continue
+                    except (OSError, ValueError):
+                        open_fds.discard(fd)
+                        continue
+                    if not raw:
+                        open_fds.discard(fd)
+                        continue
+                    read_any = True
+                    self._append_output(fd, stdout_fd, raw)
+                if _is_windows and not read_any:
+                    time.sleep(0.1)
             except (OSError, ValueError):
-                pass
-        if self.process.stderr:
-            try:
-                remaining = self.process.stderr.read()
-                if remaining:
-                    with self._buffer_lock:
-                        self._stderr_buffer_start += self._append_to_buffer(
-                            self.stderr_buffer,
-                            remaining.decode("utf-8", errors="replace"),
-                        )
-            except (OSError, ValueError):
-                pass
+                break
 
         _notify_completion(self)
 
@@ -220,30 +214,32 @@ class BackgroundJob:
 
     def kill(self) -> None:
         """Terminate the background job and its process group."""
-        self._stop_event.set()
-        if self.process.poll() is not None:
-            if self._reader_thread and self._reader_thread.is_alive():
-                self._reader_thread.join(timeout=1.0)
-            return
-        try:
-            if _is_windows:
-                self.process.terminate()
-            else:
-                assert self.process_group_id is not None
-                os.killpg(self.process_group_id, signal.SIGTERM)
-            self.process.wait(timeout=2.0)
-        except subprocess.TimeoutExpired:
-            if _is_windows:
-                self.process.kill()
-            else:
-                assert self.process_group_id is not None
-                os.killpg(self.process_group_id, signal.SIGKILL)
-            self.process.wait()
-        except ProcessLookupError:
-            pass
-        # Join reader thread to ensure clean shutdown
+        if self.process.poll() is None:
+            try:
+                if _is_windows:
+                    self.process.terminate()
+                else:
+                    assert self.process_group_id is not None
+                    os.killpg(self.process_group_id, signal.SIGTERM)
+                self.process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                if _is_windows:
+                    self.process.kill()
+                else:
+                    assert self.process_group_id is not None
+                    os.killpg(self.process_group_id, signal.SIGKILL)
+                self.process.wait()
+            except ProcessLookupError:
+                pass
+        # Let the reader drain regular completed jobs. Force inherited pipes to
+        # stop only when their post-exit grace has elapsed.
         if self._reader_thread and self._reader_thread.is_alive():
-            self._reader_thread.join(timeout=1.0)
+            self._reader_thread.join(timeout=1.5)
+            if self._reader_thread.is_alive():
+                self._stop_event.set()
+                self._reader_thread.join(timeout=1.0)
+        if self._reader_thread and self._reader_thread.is_alive():
+            logger.warning("Background output reader did not stop for job #%s", self.id)
 
 
 # Jobs are scoped to the active conversation. A ``None`` key covers direct
