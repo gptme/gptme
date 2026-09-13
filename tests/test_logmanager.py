@@ -986,6 +986,17 @@ def test_write_jsonl_replaces_unknown_existing_file(tmp_path: Path):
     assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
 
 
+def test_write_jsonl_rewrite_preserves_existing_permissions(tmp_path: Path):
+    """Atomic replacement must not silently make a shared transcript private."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+    jsonl_file.chmod(0o640)
+
+    Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert jsonl_file.stat().st_mode & 0o777 == 0o640
+
+
 def test_read_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
     """``read_jsonl`` must open conversation.jsonl with ``encoding="utf-8"``.
 
