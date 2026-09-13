@@ -3,13 +3,51 @@
 Agents
 ======
 
-gptme supports highly customizable "agents": persistent AI assistants with structured memory, identity, and workspace management capabilities.
+A gptme agent is a persistent assistant with its own identity, memory, and
+workspace — a git repository that serves as its "brain" and holds everything it
+knows and has done. `Bob <https://github.com/TimeToBuildBob>`__ is the reference
+agent: he has been running autonomously since 2024, opening PRs, reviewing code,
+and maintaining his own tasks and lessons. That is what this page sets up.
 
-Each agent is implemented as a git repository that serves as their "brain," containing all their data, configuration, and interaction history.
+Get started
+-----------
 
-A :doc:`profile <profiles>` is the lighter-weight sibling: a named preset of
-system prompt, tool access, and behavior rules, for a restricted session or a
-subagent with a clear role.
+.. code-block:: bash
+
+    pipx install gptme
+
+    # Create a workspace from the agent template, customized for your agent
+    gptme-agent create ~/my-agent --name MyAgent
+
+    # Bootstrap it: let the agent read its own identity files
+    cd ~/my-agent
+    gptme 'explore the workspace, read my identity files, and tell me what I am'
+
+To let it run on a schedule through systemd or launchd:
+
+.. code-block:: bash
+
+    gptme-agent install      # install services
+    gptme-agent status       # check state
+    gptme-agent run          # trigger a run now
+    gptme-agent logs -f      # watch what it does
+
+``gptme-agent doctor`` checks a workspace's health, and ``gptme-agent scan``
+lists the agents already running locally. Use ``--no-template`` for a bare
+directory layout instead of the full template. The rest of this page explains
+what lives in that workspace and why.
+
+.. note::
+
+    An agent is not the only way to specialize gptme. A
+    :doc:`profile <profiles>` is the lighter-weight sibling: a named preset of
+    system prompt, tool access, and behavior rules for a restricted session or a
+    subagent with a clear role, with no workspace of its own.
+
+    Compared to assistants built around messaging gateways (see
+    :doc:`alternatives`), a gptme agent is workspace-first: its identity, memory,
+    and history live in files you own, and it reaches people through whichever
+    :doc:`channels <channels>` you connect.
 
 .. toctree::
    :hidden:
