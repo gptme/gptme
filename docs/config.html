@@ -703,14 +703,21 @@ and gear <code class="docutils literal notranslate"><span class="pre">4</span></
 </div>
 <section id="how-model-selection-works">
 <span id="id2"></span><h3>How model selection works<a class="headerlink" href="#how-model-selection-works" title="Link to this heading">#</a></h3>
-<p>When you start gptme, the model is resolved in this priority order:</p>
+<p>When you start gptme, the model is resolved in this priority order. The layers
+run from most specific (this one command) to most general (your global config):</p>
 <ol class="arabic simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--model</span></code> / <code class="docutils literal notranslate"><span class="pre">-m</span></code> CLI flag (highest priority, per-session)</p></li>
 <li><p>Per-chat model saved with <code class="docutils literal notranslate"><span class="pre">/model</span></code> — persists across session resumes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MODEL</span></code> / <code class="docutils literal notranslate"><span class="pre">GPTME_MODEL</span></code> env var set in your shell</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> in the chat’s own config</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> in the project’s <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">[models].default</span></code> in your global config</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MODEL</span></code> env var (in shell or <code class="docutils literal notranslate"><span class="pre">[env]</span></code> section of config)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> in your global config</p></li>
 <li><p>Auto-detection based on which API keys are configured</p></li>
 </ol>
+<p>So a variable exported for one command, or a model pinned by a project’s
+<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>, wins over the global default — while <code class="docutils literal notranslate"><span class="pre">[models].default</span></code> still
+wins over <code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> set in that <em>same</em> global config.</p>
 <p><strong>Setting a permanent default model:</strong></p>
 <p>The recommended approach is to use <code class="docutils literal notranslate"><span class="pre">[models].default</span></code> in your config:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
@@ -784,7 +791,7 @@ the <code class="docutils literal notranslate"><span class="pre">local/</span></
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">models</span></code> section configures model selection preferences:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">default</span></code>: The default chat model, as a fully-qualified model ID (e.g. <code class="docutils literal notranslate"><span class="pre">&quot;anthropic/claude-sonnet-4-6&quot;</span></code>). A formal alternative to the <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> env var; <code class="docutils literal notranslate"><span class="pre">models.default</span></code> takes precedence over the <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> env var (and <code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> in the config file), but is itself overridden by an explicit per-chat model or the <code class="docutils literal notranslate"><span class="pre">--model</span></code> CLI flag.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">default</span></code>: The default chat model, as a fully-qualified model ID (e.g. <code class="docutils literal notranslate"><span class="pre">&quot;anthropic/claude-sonnet-4-6&quot;</span></code>). A formal alternative to <code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> in the same config file, which it takes precedence over. It is overridden by anything more specific: the <code class="docutils literal notranslate"><span class="pre">--model</span></code> CLI flag, a per-chat model, a <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> env var in your shell, or <code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> in a project’s <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>. See <a class="reference internal" href="#how-model-selection-works"><span class="std std-ref">How model selection works</span></a>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">favorites</span></code>: A list of fully-qualified model IDs (e.g. <code class="docutils literal notranslate"><span class="pre">[&quot;anthropic/claude-sonnet-4-6&quot;,</span> <span class="pre">&quot;openai/gpt-4o&quot;]</span></code>) curated by the user. These are surfaced prominently in model pickers such as the web UI model selector.</p></li>
 </ul>
 <p>If you want to configure MCP servers, you can do so in a <code class="docutils literal notranslate"><span class="pre">mcp</span></code> section. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p>

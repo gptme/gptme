@@ -696,9 +696,10 @@ without per-call flags:</p>
 <span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span>
 </pre></div>
 </div>
-<p>To pin a model regardless of other configuration (such as a global
-<code class="docutils literal notranslate"><span class="pre">[models].default</span></code>), pass <code class="docutils literal notranslate"><span class="pre">--model</span></code> in the command that runs the agent. See
-<a class="reference internal" href="config.html#how-model-selection-works"><span class="std std-ref">How model selection works</span></a> for how gptme resolves the model.</p>
+<p>A model set this way wins over a global <code class="docutils literal notranslate"><span class="pre">[models].default</span></code>: the project’s
+<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> is the more specific layer. To override it for a single run, pass
+<code class="docutils literal notranslate"><span class="pre">--model</span></code> in the command that runs the agent, or export <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> for that
+command. See <a class="reference internal" href="config.html#how-model-selection-works"><span class="std std-ref">How model selection works</span></a> for the full order.</p>
 <p>This is how an agent “brain” pins its default model: configure it once in the
 agent’s config, override per session only when a specific task needs a different
 model. No vendor lock-in, no format changes.</p>
