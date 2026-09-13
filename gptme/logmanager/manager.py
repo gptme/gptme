@@ -168,6 +168,7 @@ class Log:
         else:
             # Never truncate an acknowledged transcript in place. A failed
             # rewrite leaves the old inode recoverable until replacement.
+            existing_mode = output.stat().st_mode if output.exists() else None
             temp_path: Path | None = None
             try:
                 with NamedTemporaryFile(
@@ -177,6 +178,8 @@ class Log:
                     file.writelines(lines)
                     file.flush()
                     os.fsync(file.fileno())
+                if existing_mode is not None:
+                    os.chmod(temp_path, existing_mode)
                 os.replace(temp_path, output)
                 sync_directory(output.parent)
             finally:
