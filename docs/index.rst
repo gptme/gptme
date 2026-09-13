@@ -73,7 +73,6 @@ Where to start
    agents
    lessons
    skills
-   skills-gallery
    memory
 
 .. toctree::

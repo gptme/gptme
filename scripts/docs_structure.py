@@ -34,6 +34,8 @@ LONE_CHILD_MIN_SECTIONS = 3
 LONE_CHILD_ALLOWED = {
     # Installation extras live under the install guide on purpose.
     "getting-started.html",
+    # The gallery is a companion listing for the skills guide, not a subtopic.
+    "skills.html",
 }
 
 

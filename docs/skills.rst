@@ -12,6 +12,11 @@ tools, and vice versa — the same interop play gptme makes for :doc:`MCP <mcp>`
 Looking for something to install? See the :doc:`skills-gallery` — a curated
 selection of community skills from gptme-contrib.
 
+.. toctree::
+   :hidden:
+
+   Gallery <skills-gallery>
+
 .. note::
 
    Skills are a **special case of lessons** using the Agent Skills open standard format.
