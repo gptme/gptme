@@ -70,6 +70,36 @@ def test_status_write_to_file(tmp_path):
     assert "## Active Work" in content
 
 
+def test_status_write_to_path_with_blocking_file_emits_clean_error(tmp_path):
+    """Writing to a path whose parent is a regular file must raise a clean
+    ClickException, not a raw Python traceback (regression for raw FileExistsError
+    traceback in `gptme-util status -o`)."""
+    runner = CliRunner()
+    blocker = tmp_path / "blocker"
+    blocker.write_text("regular file contents")
+    output_file = blocker / "foo.md"
+    result = runner.invoke(status, ["-o", str(output_file)])
+    assert result.exit_code != 0, result.output
+    assert not output_file.exists()
+    # Must NOT contain a raw Python traceback.
+    assert "Traceback (most recent call last)" not in result.output
+    # Must be a click-style error mentioning the failed path.
+    assert "Error:" in result.output
+    assert str(output_file) in result.output
+
+
+def test_status_write_creates_missing_parent_dirs(tmp_path):
+    """Writing to a path whose parent doesn't exist should auto-mkdir
+    the parent directory (mkdir -p style) instead of failing."""
+    runner = CliRunner()
+    nested = tmp_path / "new" / "subdir" / "handoff.md"
+    result = runner.invoke(status, ["-o", str(nested)])
+    assert result.exit_code == 0, result.output
+    assert nested.exists()
+    content = nested.read_text()
+    assert "# gptme Status" in content
+
+
 def test_status_no_markdown():
     """Verify --no-markdown strips heading markers from output."""
     runner = CliRunner()

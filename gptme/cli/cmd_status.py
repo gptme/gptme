@@ -552,7 +552,13 @@ def status(
         out_path = (root or Path.cwd()) / "status.md"
 
     if out_path:
-        out_path.write_text(doc, encoding="utf-8")
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(doc, encoding="utf-8")
+        except OSError as e:
+            raise click.ClickException(
+                f"Failed to write status to {out_path}: {e}"
+            ) from None
         click.echo(f"Written to {out_path}")
     else:
         click.echo(doc)
