@@ -12,6 +12,7 @@ from gptme.tools import (
     init_tools,
     load_tool,
     set_session_allowlist,
+    set_tools,
 )
 from gptme.tools.base import ToolSpec, render_tool_conditionals
 
@@ -110,6 +111,19 @@ def test_instructions_render_against_an_initialized_empty_toolset():
     init_tools(allowlist=[])
 
     assert spec.get_instructions("markdown") == "no tools"
+
+
+def test_instructions_render_against_restored_tools():
+    spec = ToolSpec(
+        name="probe",
+        desc="probe",
+        instructions="{% if tools: read %}after read{% else %}without read{% endif %}",
+    )
+
+    clear_tools()
+    set_tools([ToolSpec(name="shell", desc="shell")])
+
+    assert spec.get_instructions("markdown") == "without read"
 
 
 def test_doc_rendering_assumes_every_tool_loaded():

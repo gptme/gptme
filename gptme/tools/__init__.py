@@ -630,6 +630,7 @@ def set_tools(tools: list[ToolSpec]) -> None:
     ContextVars from the parent context aren't visible.
     """
     _loaded_tools_var.set(tools)
+    _tools_initialized_var.set(True)
 
 
 def get_session_allowlist() -> list[str] | None:
