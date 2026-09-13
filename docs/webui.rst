@@ -34,6 +34,14 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme/tree/m
 The modern UI is bundled in gptme release packages. Run ``gptme-server`` and
 open http://localhost:5700.
 
+.. note::
+
+   Release packages ship the modern UI, which ``gptme-server`` serves from
+   ``gptme/server/webui-dist``. A source checkout without ``make bundle-webui``
+   falls back to a minimal legacy page bundled in ``gptme/server/static``. That
+   page is not a supported interface; its templates are currently also reused by
+   the HTML export (``gptme-util chats export <id> -f html``).
+
 For frontend development, see the `gptme-webui README <https://github.com/gptme/gptme/tree/master/webui>`_.
 When Vite runs separately on port 5701, allow that development origin:
 
@@ -61,19 +69,6 @@ When Vite runs separately on port 5701, allow that development origin:
     with ``GPTME_DISABLE_AUTH``, they can still opt into Host-header validation
     with ``gptme-server serve --allowed-hosts gptme.local`` (comma-separated,
     or via ``GPTME_SERVER_ALLOWED_HOSTS``).
-
-Basic Web UI
-------------
-
-A lightweight chat interface with minimal dependencies is bundled with the gptme server for simple deployments.
-
-Access at http://localhost:5700 after starting ``gptme-server``.
-
-This interface provides basic chat functionality and is useful for:
-
-- Quick testing and development
-- Minimal server deployments
-- Environments with limited resources
 
 Computer Use Interface
 ----------------------
