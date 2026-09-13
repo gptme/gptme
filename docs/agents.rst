@@ -222,36 +222,23 @@ Usage
 
     We are working on a graphical way to create and interact with agents using the :ref:`gptme web interface <server:gptme-webui>`. Try it out and let us know what you think! Soon coming as a managed service.
 
-**Installing dependencies:**
+**Requirements:**
 
-First install the required dependencies and then gptme itself using `pipx <https://pipx.pypa.io/>`_ (recommended) to ensure isolation and easy management:
+An agent workspace needs ``git``, ``python3``, `pipx <https://pipx.pypa.io/>`_,
+`uv <https://docs.astral.sh/uv/>`_, and gptme itself:
 
 .. code-block:: bash
 
-    # Install pipx and other system dependencies
-    sudo apt install pipx tree
-    # or `brew install pipx tree`
+    pipx install gptme uv
 
-    # Install common dev dependencies (recommended)
-    sudo apt install git curl make build-essential \
-        python3 python3-dev python-is-python3
+The template ships ``scripts/install-deps.sh`` to check what's missing (add
+``--install`` to install what it can), and ``gptme-agent doctor`` checks a
+workspace afterwards: identity files, config, directories, git, pre-commit hooks,
+and tools such as ``uv`` and ``gh``.
 
-    # Install gptme itself
-    pipx install gptme
-    # or `pipx install -e ./gptme` to install from local source
-    # or `pipx install "git+https://github.com/gptme/gptme.git@master#egg=gptme[browser,server,telemetry]"`_ for latest master with extras
-
-    # Requirements for agent
-    pipx install uv
-    pipx install pre-commit
-
-    # Install optional dependencies
-    sudo apt install lynx shellcheck jq pandoc ripgrep
-    # or `brew install lynx shellcheck jq pandoc ripgrep`
-
-    # Recommended:
-    # Install latest `gh` GitHub CLI from GitHub source (not old package manager version)
-    # See https://cli.github.com/
+Tools like ``tree``, ``jq``, ``ripgrep``, ``pandoc``, ``shellcheck``, and the
+`GitHub CLI <https://cli.github.com/>`_ are optional but make an agent more
+capable; see :doc:`system-dependencies`.
 
 **Creating an Agent:**
 
