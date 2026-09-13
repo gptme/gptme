@@ -390,7 +390,7 @@ This command scaffolds:
 
 The scaffolded workspace is self-contained and runs as generated — edit `prompt.md` to say what the agent should do each run; all you need is gptme installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.
 
-See the [Headless Agents guide](https://gptme.org/docs/agents/headless.html) for advanced configurations and troubleshooting.
+See [Running agents autonomously](https://gptme.org/docs/agents/autonomous.html) for scheduling, monitoring, and guardrails.
 
 [**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — a production autonomous agent that's been running continuously since late 2024. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
 
