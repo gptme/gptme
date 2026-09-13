@@ -162,7 +162,12 @@ def _init_single_tool(tool: ToolSpec) -> ToolSpec:
     Caller is responsible for acquiring _tools_init_lock if needed.
     """
     if tool.init:
-        tool = tool.init()
+        initialized = tool.init()
+        if initialized is None:
+            raise ValueError(
+                f"Tool {tool.name!r} init() returned None; it must return a ToolSpec"
+            )
+        tool = initialized
     tool.register_hooks()
     tool.register_commands()
     return tool

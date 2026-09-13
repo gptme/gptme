@@ -9,6 +9,7 @@ import pytest
 from gptme.message import Message
 from gptme.tools import (
     _discover_tools,
+    _init_single_tool,
     clear_tools,
     execute_msg,
     get_available_tools,
@@ -22,13 +23,23 @@ from gptme.tools import (
     load_tool,
 )
 from gptme.tools._allowlist import READ_ONLY_TOOL_PRESET
-from gptme.tools.base import load_from_file, set_tool_format
+from gptme.tools.base import ToolSpec, load_from_file, set_tool_format
 
 
 def test_init_tools():
     init_tools()
 
     assert len(get_tools()) > 1
+
+
+def test_init_single_tool_rejects_none_result():
+    tool = ToolSpec(name="bad-plugin-tool", desc="demo", init=lambda: None)
+
+    with pytest.raises(
+        ValueError,
+        match=r"Tool 'bad-plugin-tool' init\(\) returned None; it must return a ToolSpec",
+    ):
+        _init_single_tool(tool)
 
 
 def test_init_tools_include_mcp_false_does_not_create_mcp_tools(monkeypatch):
