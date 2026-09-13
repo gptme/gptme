@@ -597,6 +597,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-profiles">Example profiles</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tools-that-reference-other-tools">Tools that reference other tools</a></li>
 </ul>
             </nav>
         </div>
@@ -883,6 +884,42 @@ spawning subagents programmatically:</p>
 </div>
 </section>
 </section>
+<section id="tools-that-reference-other-tools">
+<h2>Tools that reference other tools<a class="headerlink" href="#tools-that-reference-other-tools" title="Link to this heading">#</a></h2>
+<p>Tool instructions and examples often describe how tools interact (“fetch the
+URL with <code class="docutils literal notranslate"><span class="pre">read</span></code>”, “use <code class="docutils literal notranslate"><span class="pre">hashline_edit</span></code> after <code class="docutils literal notranslate"><span class="pre">read</span></code>”). Such text is only
+true when the other tool is loaded, and a model that reads it will happily call
+a tool it does not have. Two mechanisms keep this coherent:</p>
+<p><strong>Conditional blocks</strong> in <code class="docutils literal notranslate"><span class="pre">instructions</span></code>, <code class="docutils literal notranslate"><span class="pre">instructions_format</span></code> and
+<code class="docutils literal notranslate"><span class="pre">examples</span></code> are rendered against the loaded toolset when the prompt is built:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>Do **not** use vision for:
+{% if tools: read, browser %}
+- Images at a URL — fetch with `read` or visit with `browser` instead
+{% elif tools: read %}
+- Images at a URL — fetch with `read` first, then pass the local path
+{% endif %}
+</pre></div>
+</div>
+<p>A branch is taken when <em>all</em> the listed tools are loaded; <code class="docutils literal notranslate"><span class="pre">{%</span> <span class="pre">elif</span> <span class="pre">%}</span></code> and
+<code class="docutils literal notranslate"><span class="pre">{%</span> <span class="pre">else</span> <span class="pre">%}</span></code> behave as expected; blocks do not nest. A marker on its own
+line removes the whole line, so lists stay tidy. Generated documentation
+renders every branch as if all tools were loaded.</p>
+<p><strong>Companion tools</strong> are declared with <code class="docutils literal notranslate"><span class="pre">requires_tools</span></code> on the <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code>.
+Enabling <code class="docutils literal notranslate"><span class="pre">hashline_edit</span></code> loads <code class="docutils literal notranslate"><span class="pre">read</span></code> as well (its edits are anchored to
+<code class="docutils literal notranslate"><span class="pre">read</span></code>’s snapshot tags), even though <code class="docutils literal notranslate"><span class="pre">read</span></code> is disabled by default on its
+own. A startup allowlist must include every required companion; otherwise
+initialization fails rather than widening the configured capability boundary.
+An explicit <code class="docutils literal notranslate"><span class="pre">/tools</span> <span class="pre">load</span></code> user action may load the requested tool and its
+companions together:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;hashline_edit&quot;</span><span class="p">,</span>
+    <span class="o">...</span><span class="p">,</span>
+    <span class="n">disabled_by_default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">requires_tools</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;read&quot;</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
 </section>
 
 
@@ -950,6 +987,7 @@ spawning subagents programmatically:</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-profiles">Example profiles</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tools-that-reference-other-tools">Tools that reference other tools</a></li>
 </ul>
   </nav></div>
 
