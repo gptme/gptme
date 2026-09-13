@@ -17,11 +17,12 @@ activity, and a branch map of the conversation. You can create and manage
 persistent agents from it, and drive a full desktop through the
 `Computer Use Interface`_.
 
-Run it yourself with ``gptme-server`` (see :doc:`server`), use the :doc:`app`, or
-sign in to :doc:`gptme.ai <cloud>`, where hosted instances can also expose a
-running app on its own preview URL. (Originally a
-`standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main
-gptme repository.)
+An app the agent starts is reachable through the server's authenticated
+``/preview/<port>/`` proxy, so live previews work the same whether you run
+``gptme-server`` yourself (see :doc:`server`), use the :doc:`app`, or sign in to
+:doc:`gptme.ai <cloud>` — hosted instances additionally get each preview on its
+own URL. (Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_,
+now merged into the main gptme repository.)
 
 **Key Features:**
 
