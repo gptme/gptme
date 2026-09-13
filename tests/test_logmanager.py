@@ -726,7 +726,9 @@ def _legacy_default_encoding(codec: str):
 
 @contextmanager
 def _record_open_calls():
-    """Record every ``builtins.open`` call's file/mode/encoding for spy tests."""
+    """Observe append and atomic-rewrite writers, excluding prefix reads."""
+    import io
+
     real_open = builtins.open
     calls: list[dict] = []
 
@@ -736,7 +738,12 @@ def _record_open_calls():
         )
         return real_open(file, mode, *args, **kwargs)
 
-    with patch.object(builtins, "open", shim):
+    def io_shim(file, mode="r", *args, **kwargs):
+        if "w" in mode or "a" in mode:
+            return shim(file, mode, *args, **kwargs)
+        return real_open(file, mode, *args, **kwargs)
+
+    with patch.object(builtins, "open", shim), patch.object(io, "open", io_shim):
         yield calls
 
 
@@ -778,7 +785,7 @@ def test_read_jsonl_round_trips_non_ascii_with_explicit_encoding(tmp_path: Path)
 def test_write_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
     """``write_jsonl`` must open conversation.jsonl with ``encoding="utf-8"``.
 
-    A direct spy on ``builtins.open`` proves the encoding kwarg is passed
+    A spy on the append and temporary-file writers proves encoding is passed
     regardless of the machine's locale -- the locale-independent complement to
     the round-trip test. ``write_jsonl`` makes exactly one ``open()`` call, so
     that call is the one under test.

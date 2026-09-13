@@ -8,6 +8,8 @@ import stat
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from gptme.model_attestation import (
     ModelSelectionTrace,
     create_selection_trace,
@@ -146,13 +148,24 @@ class TestLogManagerTracePersistence:
         set_selection_trace(make_trace())
         lm = LogManager(logdir=tmp_path, lock=False)
 
-        with patch.object(os, "fsync") as fsync:
+        synced: set[tuple[int, int]] = set()
+
+        def record(fd: int) -> None:
+            info = os.fstat(fd)
+            synced.add((info.st_dev, info.st_ino))
+
+        with patch.object(os, "fsync", side_effect=record):
             lm.write(sync=True)
 
-        expected_calls = 2 if os.name == "nt" else 3
-        assert fsync.call_count == expected_calls
+        paths = [lm.logfile, tmp_path / "model_selection_trace.json"]
+        if os.name != "nt":
+            paths.append(tmp_path)
+        for path in paths:
+            info = path.stat()
+            assert (info.st_dev, info.st_ino) in synced
 
-    def test_unsupported_directory_fsync_does_not_fail_save(
+    @pytest.mark.skipif(os.name == "nt", reason="No portable directory fsync")
+    def test_failed_directory_fsync_does_not_acknowledge_save(
         self, tmp_path: Path
     ) -> None:
         from gptme.logmanager.manager import LogManager
@@ -166,7 +179,11 @@ class TestLogManagerTracePersistence:
                 raise OSError("directory fsync unsupported")
             real_fsync(fd)
 
-        with patch.object(os, "fsync", side_effect=reject_directory):
+        lm.write()
+        with (
+            patch.object(os, "fsync", side_effect=reject_directory),
+            pytest.raises(OSError, match="directory fsync unsupported"),
+        ):
             lm.write(sync=True)
 
         assert lm.logfile.exists()

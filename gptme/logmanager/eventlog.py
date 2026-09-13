@@ -19,6 +19,8 @@ from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from .durability import sync_directory
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
@@ -134,6 +136,15 @@ def append_next_event(
     return event
 
 
+def sync_events(logdir: Path) -> None:
+    """Sync the current recovery file while excluding checkpoint replacement."""
+    with _event_log_lock(logdir):
+        path = _event_log_path(logdir)
+        if path.exists():
+            with path.open("rb") as file:
+                os.fsync(file.fileno())
+
+
 def _compact_events_unlocked(logdir: Path) -> None:
     """Drop events superseded by the latest checkpoint; caller holds lock."""
     path = _event_log_path(logdir)
@@ -161,6 +172,7 @@ def _compact_events_unlocked(logdir: Path) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_name, path)
+        sync_directory(path.parent)
     except BaseException:
         with suppress(FileNotFoundError):
             os.unlink(tmp_name)
