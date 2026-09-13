@@ -334,20 +334,19 @@ def get_toolchain(
             if not explicitly_allowed:
                 continue
         tools.append(tool)
-    selected_tools = tools
-    try:
+    available_tools = get_available_tools(include_mcp=include_mcp)
+    if strict:
         tools = _add_required_tools(
-            list(selected_tools),
-            get_available_tools(include_mcp=include_mcp),
+            tools,
+            available_tools,
             allowlist=allowlist,
         )
-    except ValueError as error:
-        if strict:
-            raise
-        logger.warning(
-            "%s Skipping tools with unsatisfied companion requirements.", error
+    else:
+        tools = _resolve_available_tool_requirements(
+            tools,
+            available_tools,
+            allowlist=allowlist,
         )
-        tools = _remove_tools_with_unsatisfied_requirements(selected_tools)
     if skipped_mcp_tools:
         allowlist_key = tuple(allowlist or [])
         with _warned_mcp_allowlists_lock:
@@ -363,21 +362,31 @@ def get_toolchain(
     return tools
 
 
-def _remove_tools_with_unsatisfied_requirements(
+def _resolve_available_tool_requirements(
     tools: list[ToolSpec],
+    available: list[ToolSpec],
+    *,
+    allowlist: list[str] | None,
 ) -> list[ToolSpec]:
-    """Drop tools whose required companion closure is absent from ``tools``."""
-    remaining = list(tools)
-    while True:
-        names = {tool.name for tool in remaining}
-        filtered = [
-            tool
-            for tool in remaining
-            if all(name in names for name in tool.requires_tools)
-        ]
-        if len(filtered) == len(remaining):
-            return filtered
-        remaining = filtered
+    """Resolve each selected tool independently, skipping broken closures."""
+    resolved: list[ToolSpec] = []
+    for tool in tools:
+        try:
+            candidate = _add_required_tools(
+                [tool],
+                available,
+                allowlist=allowlist,
+            )
+        except ValueError as error:
+            logger.warning(
+                "%s Skipping tool '%s' with unsatisfied companion requirements.",
+                error,
+                tool.name,
+            )
+            continue
+        known = {item.name for item in resolved}
+        resolved.extend(item for item in candidate if item.name not in known)
+    return resolved
 
 
 def _add_required_tools(

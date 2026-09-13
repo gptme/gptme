@@ -242,21 +242,38 @@ def test_required_companion_must_be_available():
         get_toolchain(None)
 
 
-def test_nonstrict_toolchain_discards_partially_added_companions():
+def test_nonstrict_toolchain_skips_only_tool_with_broken_closure():
     independent = ToolSpec(name="independent", desc="independent")
-    first = ToolSpec(name="first", desc="first", disabled_by_default=True)
+    valid_companion = ToolSpec(
+        name="valid_companion", desc="valid companion", disabled_by_default=True
+    )
+    valid = ToolSpec(name="valid", desc="valid", requires_tools=["valid_companion"])
+    partial = ToolSpec(name="partial", desc="partial", disabled_by_default=True)
     unavailable = ToolSpec(name="unavailable", desc="unavailable", available=False)
-    primary = ToolSpec(
-        name="primary", desc="primary", requires_tools=["first", "unavailable"]
+    broken = ToolSpec(
+        name="broken",
+        desc="broken",
+        requires_tools=["partial", "unavailable"],
     )
 
     with patch(
         "gptme.tools.get_available_tools",
-        return_value=[independent, primary, first, unavailable],
+        return_value=[
+            independent,
+            valid,
+            valid_companion,
+            broken,
+            partial,
+            unavailable,
+        ],
     ):
         tools = get_toolchain(None, strict=False)
 
-    assert [tool.name for tool in tools] == ["independent"]
+    assert [tool.name for tool in tools] == [
+        "independent",
+        "valid",
+        "valid_companion",
+    ]
 
 
 def test_load_tool_returns_replacement_spec_from_init():
