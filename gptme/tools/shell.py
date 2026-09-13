@@ -1349,6 +1349,27 @@ class ShellSession:
                 # Treat an exited persistent shell like the Unix reader does:
                 # return promptly, preserve captured output, and restart it.
                 if not t_stdout.is_alive() and not t_stderr.is_alive():
+                    try:
+                        self.process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        self._terminate_process()
+                        try:
+                            self.process.wait(timeout=1.0)
+                        except subprocess.TimeoutExpired:
+                            logger.warning(
+                                "Shell process did not exit after termination"
+                            )
+                            stderr.append(
+                                "\n[gptme] The command closed the persistent shell "
+                                "output pipes. The old shell was terminated but "
+                                "could not be reaped, so it was not replaced; "
+                                "this shell session is unusable.\n"
+                            )
+                            return (
+                                -1,
+                                trim_blank_lines("".join(stdout)),
+                                trim_blank_lines("".join(stderr)),
+                            )
                     return self._handle_shell_exit(
                         stdout,
                         stderr,
@@ -1461,6 +1482,17 @@ class ShellSession:
                                 logger.warning(
                                     "Shell process did not exit after termination"
                                 )
+                                captured_bytes = self._drain_closed_shell_pipes(
+                                    stdout,
+                                    stderr,
+                                    output,
+                                    max_output_bytes,
+                                    captured_bytes,
+                                )
+                                if captured_bytes > max_output_bytes:
+                                    return self._kill_for_byte_cap(
+                                        stdout, stderr, output, max_output_bytes
+                                    )
                                 stderr.append(
                                     "\n[gptme] The command closed a persistent shell "
                                     "output pipe. The old shell was terminated "

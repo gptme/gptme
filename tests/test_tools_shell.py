@@ -2384,8 +2384,8 @@ def test_set_e_does_not_persist_across_blocks(shell):
 
 
 # Persistent-shell exit/pipe recovery regressions (gptme/gptme#3802)
-def test_windows_reader_restarts_after_shell_eof(monkeypatch):
-    """Windows EOF before the delimiter must not return a silent None status."""
+def _mock_windows_eof_shell(monkeypatch):
+    """Build a minimal ShellSession whose Windows readers immediately hit EOF."""
     from gptme.tools import shell as shell_module
 
     shell = object.__new__(shell_module.ShellSession)
@@ -2393,11 +2393,17 @@ def test_windows_reader_restarts_after_shell_eof(monkeypatch):
     shell.stderr_fd = 11
     shell.delimiter = "END_OF_COMMAND_OUTPUT"
     shell.process = Mock()
-    shell.process.wait.return_value = 3
 
     monkeypatch.setattr(shell_module, "_is_windows", True)
     monkeypatch.setattr(shell_module.os, "set_blocking", Mock())
     monkeypatch.setattr(shell_module.os, "read", Mock(return_value=b""))
+    return shell
+
+
+def test_windows_reader_restarts_after_shell_eof(monkeypatch):
+    """Windows EOF before the delimiter must not return a silent None status."""
+    shell = _mock_windows_eof_shell(monkeypatch)
+    shell.process.wait.return_value = 3
 
     with patch.object(shell, "restart") as restart:
         rc, stdout, stderr = shell._read_output_windows(
@@ -2408,6 +2414,26 @@ def test_windows_reader_restarts_after_shell_eof(monkeypatch):
     assert stdout == ""
     assert "shell exited" in stderr
     restart.assert_called_once_with()
+
+
+def test_windows_reader_does_not_replace_unreaped_shell(monkeypatch):
+    """Windows EOF must retain an old process that cannot be reaped."""
+    shell = _mock_windows_eof_shell(monkeypatch)
+    shell.process.wait.side_effect = subprocess.TimeoutExpired("cmd", 1.0)
+
+    with (
+        patch.object(shell, "_terminate_process") as terminate,
+        patch.object(shell, "restart") as restart,
+    ):
+        rc, stdout, stderr = shell._read_output_windows(
+            "exit 3", False, [], [], None, False, "START_123", None, 20.0
+        )
+
+    assert rc == -1
+    assert stdout == ""
+    assert "could not be reaped" in stderr
+    terminate.assert_called_once_with()
+    restart.assert_not_called()
 
 
 @pytest.mark.timeout(30)
@@ -2495,13 +2521,23 @@ def test_closing_output_pipe_restart_tolerates_slow_reap():
 
 @pytest.mark.timeout(30)
 def test_closing_output_pipe_does_not_replace_unreaped_shell():
-    """Do not lose the process handle when a killed shell cannot be reaped."""
+    """Do not lose the process handle or late diagnostics after failed reaping."""
     from unittest.mock import patch
 
     from gptme.tools.shell import ShellSession
 
     shell = ShellSession()
     old_process = shell.process
+    real_drain = shell._drain_closed_shell_pipes
+    drain_calls = 0
+
+    def drain_with_late_diagnostic(*args, **kwargs):
+        nonlocal drain_calls
+        drain_calls += 1
+        if drain_calls == 2:
+            args[1].append("late diagnostic\n")
+        return real_drain(*args, **kwargs)
+
     try:
         with (
             patch.object(
@@ -2509,13 +2545,20 @@ def test_closing_output_pipe_does_not_replace_unreaped_shell():
                 "wait",
                 side_effect=subprocess.TimeoutExpired(str(old_process.args), 1.0),
             ),
+            patch.object(
+                shell,
+                "_drain_closed_shell_pipes",
+                side_effect=drain_with_late_diagnostic,
+            ),
             patch.object(shell, "restart", wraps=shell.restart) as restart,
         ):
             rc, _stdout, stderr = shell.run(
                 "exec 1>&-; while :; do sleep 1; done", timeout=20.0
             )
         assert rc == -1
+        assert "late diagnostic" in stderr
         assert "could not be reaped" in stderr
+        assert drain_calls == 2
         assert shell.process is old_process
         restart.assert_not_called()
     finally:
