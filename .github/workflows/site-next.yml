@@ -1,0 +1,119 @@
+name: Site (next)
+
+# Builds the prototype of the new gptme.org site in site/next/.
+# It does NOT deploy to gptme.org. Same-repo PRs get a Cloudflare Pages preview.
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'site/next/**'
+      - 'README.md'
+      - 'media/logo.png'
+      - 'media/icon.svg'
+      - '.github/workflows/site-next.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'site/next/**'
+      - 'README.md'
+      - 'media/logo.png'
+      - 'media/icon.svg'
+      - '.github/workflows/site-next.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-next-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: site/next
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Use Node.js 22
+      uses: actions/setup-node@v7
+      with:
+        node-version: 22.x
+        cache: 'npm'
+        cache-dependency-path: site/next/package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build
+      run: npm run build
+
+    - name: Upload dist artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: site-next-dist
+        path: site/next/dist
+        retention-days: 7
+
+  preview:
+    # Secrets are unavailable to fork PRs, so only same-repo PRs get a preview.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PROJECT: gptme-org-next
+      WRANGLER: wrangler@4.131.2
+      HEAD_REF: ${{ github.head_ref }}
+    steps:
+    - name: Download dist artifact
+      uses: actions/download-artifact@v6
+      with:
+        name: site-next-dist
+        path: dist
+
+    - name: Use Node.js 22
+      uses: actions/setup-node@v7
+      with:
+        node-version: 22.x
+
+    # The preview is best-effort: a missing Pages project or a token without
+    # Pages:Edit permission must not block the PR.
+    - name: Ensure Pages project exists
+      working-directory: .
+      continue-on-error: true
+      run: |
+        if npx --yes "$WRANGLER" pages project list 2>&1 | grep -q "$PROJECT"; then
+          echo "Pages project $PROJECT exists"
+        else
+          npx --yes "$WRANGLER" pages project create "$PROJECT" --production-branch master
+        fi
+
+    - name: Deploy preview
+      id: deploy
+      working-directory: .
+      continue-on-error: true
+      run: |
+        set -o pipefail
+        npx --yes "$WRANGLER" pages deploy dist --project-name "$PROJECT" --branch "$HEAD_REF" --commit-dirty=true | tee deploy.log
+        url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.pages\.dev' deploy.log | tail -1)
+        echo "url=$url" >> "$GITHUB_OUTPUT"
+
+    - name: Summary
+      working-directory: .
+      run: |
+        if [ "${{ steps.deploy.outcome }}" = "success" ]; then
+          alias=$(echo "$HEAD_REF" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-28 | sed -E 's/-+$//')
+          {
+            echo "### site/next preview"
+            echo "- Deployment: ${{ steps.deploy.outputs.url }}"
+            echo "- Branch alias: https://${alias}.${PROJECT}.pages.dev"
+          } >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "::warning::site/next preview deploy failed (Pages project '$PROJECT' may not exist or the Cloudflare token may lack Pages permissions). The build itself passed."
+          echo "### site/next preview: not deployed (see job log)" >> "$GITHUB_STEP_SUMMARY"
+        fi

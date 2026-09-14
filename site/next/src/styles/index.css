@@ -1,0 +1,46 @@
+/* Self-hosted fonts (no Google Fonts requests) */
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-padding-top: var(--space-6);
+  }
+
+  body {
+    @apply bg-bg font-sans text-base text-ink antialiased;
+    line-height: 1.5;
+    overflow-x: clip;
+  }
+
+  /* Unstyled inline links; classed links set their own colors. */
+  a:not([class]) {
+    color: var(--color-accent);
+  }
+
+  a:not([class]):hover {
+    color: var(--color-accent-2-text);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}
