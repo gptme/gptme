@@ -1,0 +1,21 @@
+
+--- Start of generation ---
+[07:29:09] Using model: openrouter/meta-llama/llama-3.1-70b-instruct            
+[07:29:10] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-09-14-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-70b-instruct-xml-1143b07b                              
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-09-14-gptme-evals-openrouter--meta-lla
+           ma--llama-3.1-70b-instruct-xml-1143b07b/workspace                    
+Skipped 5 hidden system messages (/log --hidden to show)
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<tool-use>
+<save args="hello.py">
+print("Hello, world!")
+</save>
+</tool-use>                                                                                System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+The script `hello.py` has been written to the current directory. It can be run with the Python interpreter to print "Hello, world!".                                                                                [07:29:16] Session: $0.00 | 2 turns | 1k context | 0% cached                    
+--- Finished generation ---
+
