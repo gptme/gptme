@@ -81,7 +81,7 @@ When Vite runs separately on port 5701, allow that development origin:
 .. _server-preview-guidance:
 
 Teaching agents about app previews
----------------------------------
+----------------------------------
 
 The server proxies authenticated HTTP and WebSocket requests at
 ``/preview/{port}/`` to ``127.0.0.1:{port}``. Allowed ports are 1024-65535 except

@@ -230,7 +230,7 @@ Values in ``config.local.toml`` are merged into the main config: dictionary sect
 .. _global-config-runtime:
 
 Runtime defaults and prompt fragments
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Deployments can provide an optional ``config.runtime.toml`` alongside the main
 and local files. This is a generic operator-owned defaults layer, not a
