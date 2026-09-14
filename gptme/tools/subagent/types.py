@@ -127,6 +127,10 @@ _completion_queue: queue.Queue[tuple[str, Status, str]] = queue.Queue()
 # Only populated in thread-mode subagents (subprocess mode cannot share in-process queues)
 _progress_queue: queue.Queue[tuple[str, str]] = queue.Queue()
 
+# Guard for one-shot registry rehydration on first access after process restart
+_registry_rehydrated = False
+_registry_rehydrate_lock = threading.Lock()
+
 
 def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
     """Cache a subagent result unless another terminal result already exists."""

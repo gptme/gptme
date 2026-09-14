@@ -31,6 +31,7 @@ from .._allowlist import (
 )
 from .concurrency import get_slot_sem
 from .hooks import notify_completion, notify_progress
+from .persistence import persist_subagent_meta
 from .types import (
     ReturnType,
     set_subagent_result_if_absent,
@@ -1147,6 +1148,7 @@ def _run_planner(
             object.__setattr__(sa, "thread", monitor_t)
             with _subagents_lock:
                 _subagents.append(sa)
+            persist_subagent_meta(sa)
             monitor_t.start()
 
             # Sequential mode: wait for this executor before starting the next
@@ -1241,6 +1243,7 @@ def _run_planner(
             # (matches pattern in api.py — thread closure may look up _subagents)
             with _subagents_lock:
                 _subagents.append(sa)
+            persist_subagent_meta(sa)
             t.start()
 
             # Sequential mode: wait for each task to complete before starting next

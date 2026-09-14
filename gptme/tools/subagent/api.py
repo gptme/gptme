@@ -20,6 +20,12 @@ from . import execution as _exec
 from .concurrency import get_slot_sem
 from .control import append_control_op
 from .hooks import notify_completion
+from .persistence import (
+    load_subagent_by_id,
+    persist_subagent_meta,
+    remove_subagent_meta,
+    scan_rehydrate_subagents,
+)
 from .types import (
     ReturnType,
     Role,
@@ -36,6 +42,52 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _find_subagent(agent_id: str, *, newest: bool = False) -> Subagent | None:
+    """Return a live or persisted subagent, registering disk hits into memory."""
+    with _subagents_lock:
+        seq = list(reversed(_subagents)) if newest else list(_subagents)
+        sa = next((s for s in seq if s.agent_id == agent_id), None)
+        if sa is not None:
+            return sa
+    loaded = load_subagent_by_id(agent_id)
+    if loaded is None:
+        return None
+    with _subagents_lock:
+        seq = list(reversed(_subagents)) if newest else list(_subagents)
+        sa = next((s for s in seq if s.agent_id == agent_id), None)
+        if sa is not None:
+            return sa
+        _subagents.append(loaded)
+        return loaded
+
+
+def _maybe_rehydrate_registry() -> None:
+    """One-shot scan of the logs directory to rebuild _subagents after a restart.
+
+    Used by ``subagent_list``. ID-based APIs load a single meta file instead.
+    """
+    from . import types as _types
+
+    if _types._registry_rehydrated:
+        return
+    with _types._registry_rehydrate_lock:
+        if _types._registry_rehydrated:
+            return
+        rehydrated = scan_rehydrate_subagents()
+        if rehydrated:
+            logger.info(
+                "Rehydrated %d subagent(s) from disk: %s",
+                len(rehydrated),
+                ", ".join(sa.agent_id for sa in rehydrated),
+            )
+            with _subagents_lock:
+                existing_ids = {s.agent_id for s in _subagents}
+                for sa in rehydrated:
+                    if sa.agent_id not in existing_ids:
+                        _subagents.append(sa)
+        _types._registry_rehydrated = True
 
 
 def _write_cancel_op(logdir: Path, agent_id: str) -> None:
@@ -451,6 +503,7 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+        persist_subagent_meta(sa)
 
         _timer = None
         if max_time is not None:
@@ -591,6 +644,7 @@ def subagent(
                 sa_ref = next((s for s in _subagents if s.agent_id == agent_id), None)
             if sa_ref is not None:
                 object.__setattr__(sa_ref, "acp_session_id", session_id)
+                persist_subagent_meta(sa_ref)
 
         def run_acp_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
@@ -750,6 +804,7 @@ def subagent(
         # (avoids race condition where fast completion can't locate sa in _subagents)
         with _subagents_lock:
             _subagents.append(sa)
+        persist_subagent_meta(sa)
         t.start()
 
     elif use_subprocess:
@@ -877,6 +932,7 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+        persist_subagent_meta(sa)
         launcher.start()
     else:
         # Thread mode: original behavior, gated by the concurrency semaphore.
@@ -1037,6 +1093,7 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+        persist_subagent_meta(sa)
         t.start()
 
     # Launch max_time watchdog after all execution paths have registered the subagent.
@@ -1112,8 +1169,7 @@ def subagent_cancel(agent_id: str) -> str:
     Returns:
         A human-readable status message
     """
-    with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    sa = _find_subagent(agent_id)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
@@ -1232,8 +1288,7 @@ def subagent_steer(agent_id: str, message: str) -> str:
     """
     from ...prompt_queue import queue_prompt  # fmt: skip
 
-    with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    sa = _find_subagent(agent_id)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -1352,8 +1407,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
         agent_id: The completed subagent to continue.
         message: Follow-up instruction for the child.
     """
-    with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    sa = _find_subagent(agent_id)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -1536,6 +1590,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
             )
         _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
         _subagents.append(continued)
+        persist_subagent_meta(continued)
         # Start while holding the registry lock. A concurrent caller will then
         # observe a live thread instead of the not-yet-started handoff object.
         thread.start()
@@ -1564,8 +1619,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
         agent_id: The subagent that raised the clarification request.
         reply: Your answer to the subagent's question.
     """
-    with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    sa = _find_subagent(agent_id)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -1607,6 +1661,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
         _subagents[:] = [
             existing for existing in _subagents if existing.agent_id != agent_id
         ]
+    remove_subagent_meta(sa.logdir)
 
     # Isolation cleanup removes the child workspace. Re-create fresh isolation
     # from the original workspace instead of passing the deleted child path.
@@ -1663,6 +1718,7 @@ def subagent_list() -> list[dict]:
     """
     import time
 
+    _maybe_rehydrate_registry()
     now = time.time()
     with _subagents_lock:
         agents = list(_subagents)  # copy under lock, then iterate outside
@@ -1695,8 +1751,7 @@ def subagent_list() -> list[dict]:
 
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
-    with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    sa = _find_subagent(agent_id)
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
     return asdict(sa.status())
@@ -1719,8 +1774,7 @@ def subagent_wait(
     """
     # Use the most recently spawned entry — _subagents is append-only, so
     # reversed() finds the newest match when the same agent_id is reused.
-    with _subagents_lock:
-        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
+    sa = _find_subagent(agent_id, newest=True)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
@@ -1817,6 +1871,8 @@ def subagent_wait_any(
     if not agent_ids:
         raise ValueError("agent_ids must not be empty")
 
+    for aid in agent_ids:
+        _find_subagent(aid, newest=True)
     from .batch import BatchJob
 
     job = BatchJob(agent_ids=list(agent_ids))
@@ -1842,8 +1898,7 @@ def subagent_read_log(
     """
     # Use the most recently spawned entry — _subagents is append-only, so
     # reversed() finds the newest match when the same agent_id is reused.
-    with _subagents_lock:
-        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
+    sa = _find_subagent(agent_id, newest=True)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")

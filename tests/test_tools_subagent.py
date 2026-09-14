@@ -3072,10 +3072,13 @@ def test_hint_allowlist_filters_subagent_tools(
         )
 
 
-def test_subagent_list_empty():
+def test_subagent_list_empty(tmp_path, monkeypatch):
     """Test that subagent_list returns an empty list when no subagents exist."""
+    import gptme.tools.subagent.types as types_mod
     from gptme.tools.subagent import _subagents, _subagents_lock, subagent_list
 
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    types_mod._registry_rehydrated = False
     with _subagents_lock:
         _subagents.clear()
     result = subagent_list()
