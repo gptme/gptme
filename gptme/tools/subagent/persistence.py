@@ -187,21 +187,23 @@ def scan_rehydrate_subagents(logs_dir: Path | None = None) -> list[Subagent]:
     """Scan the logs directory for subagent meta files and return Subagents.
 
     Skips directories without ``conversation.jsonl`` (explicit cleanup) and
-    unreadable metadata.
+    unreadable metadata. A failed directory listing raises ``OSError`` so the
+    one-shot registry rehydration can retry instead of treating the failure as
+    an empty (complete) scan.
     """
     from ...dirs import get_logs_dir
 
     if logs_dir is None:
         logs_dir = get_logs_dir()
-    if not logs_dir.is_dir():
-        return []
-
-    rehydrated: list[Subagent] = []
     try:
+        if not logs_dir.is_dir():
+            return []
         entries = list(logs_dir.iterdir())
     except OSError as e:
         logger.warning("Failed to scan logs dir %s: %s", logs_dir, e)
-        return []
+        raise
+
+    rehydrated: list[Subagent] = []
     for entry in entries:
         if not entry.is_dir() or not entry.name.startswith("subagent-"):
             continue

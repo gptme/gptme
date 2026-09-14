@@ -71,6 +71,8 @@ def _maybe_rehydrate_registry() -> None:
     """One-shot scan of the logs directory to rebuild _subagents after a restart.
 
     Used by ``subagent_list``. ID-based APIs load a single meta file instead.
+    A failed directory listing does not mark the scan complete, so a later
+    call can retry after a transient filesystem error.
     """
     from . import types as _types
 
@@ -79,7 +81,12 @@ def _maybe_rehydrate_registry() -> None:
     with _types._registry_rehydrate_lock:
         if _types._registry_rehydrated:
             return
-        rehydrated = scan_rehydrate_subagents()
+        try:
+            rehydrated = scan_rehydrate_subagents()
+        except OSError:
+            # Transient listing failure: keep the one-shot flag unset so the
+            # next subagent_list() can retry instead of hiding persisted children.
+            return
         if rehydrated:
             rehydrated.sort(key=lambda sa: sa.started_at, reverse=True)
             logger.info(

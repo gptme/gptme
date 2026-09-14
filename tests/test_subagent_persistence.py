@@ -4,6 +4,8 @@ import json
 import threading
 from pathlib import Path
 
+import pytest
+
 from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.tools.subagent.persistence import (
@@ -268,6 +270,20 @@ class TestScanRehydrate:
         _completed_log(subagent_dir)
         (subagent_dir / META_FILENAME).write_text("not json")
         assert scan_rehydrate_subagents(tmp_path) == []
+
+    def test_raises_on_logs_dir_iterdir_oserror(self, tmp_path: Path, monkeypatch):
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        real_iterdir = Path.iterdir
+
+        def boom(self: Path):
+            if self == logs_dir:
+                raise OSError("transient")
+            return real_iterdir(self)
+
+        monkeypatch.setattr(Path, "iterdir", boom)
+        with pytest.raises(OSError, match="transient"):
+            scan_rehydrate_subagents(logs_dir)
 
     def test_load_by_id(self, tmp_path: Path):
         subagent_dir = tmp_path / "subagent-by-id"
@@ -535,6 +551,42 @@ class TestRegistryRehydration:
         listed = [e for e in subagent_list() if e["agent_id"] == "worker"]
         assert len(listed) == 1
         assert listed[0]["prompt_preview"] == "new run"
+
+    def test_list_retries_after_failed_scan(self, tmp_path: Path, monkeypatch):
+        import gptme.tools.subagent.types as types_mod
+        from gptme.tools.subagent.api import subagent_list
+
+        logs_dir = tmp_path / "logs"
+        subagent_dir = logs_dir / "subagent-retry-agent"
+        _completed_log(subagent_dir, "later")
+        persist_subagent_meta(
+            Subagent(
+                agent_id="retry-agent",
+                prompt="do thing",
+                thread=None,
+                logdir=subagent_dir,
+                model=None,
+            )
+        )
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        calls = {"n": 0}
+        real_iterdir = Path.iterdir
+
+        def flaky(self: Path):
+            if self == logs_dir:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise OSError("transient")
+            return real_iterdir(self)
+
+        monkeypatch.setattr(Path, "iterdir", flaky)
+
+        assert subagent_list() == []
+        assert types_mod._registry_rehydrated is False
+        ids = [entry["agent_id"] for entry in subagent_list()]
+        assert "retry-agent" in ids
+        assert types_mod._registry_rehydrated is True
 
     def test_find_subagent_prefers_newer_in_memory(self, tmp_path: Path):
         from gptme.tools.subagent.api import _find_subagent
