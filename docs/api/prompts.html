@@ -882,7 +882,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f544edf5080&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f8a48e6d080&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2316,15 +2316,11 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 <span class="gu">### Background Jobs</span>
 
-For long-running commands (dev servers, builds):
-<span class="k">-</span><span class="w"> </span><span class="sb">`bg &lt;command&gt;`</span> - start, returns job ID
-<span class="k">-</span><span class="w"> </span><span class="sb">`jobs`</span> - list jobs
-<span class="k">-</span><span class="w"> </span><span class="sb">`output &lt;id&gt;`</span> - accumulated output
-<span class="k">-</span><span class="w"> </span><span class="sb">`output &lt;id&gt; --new`</span> - unread output only; poll while waiting for a log line
-<span class="k">-</span><span class="w"> </span><span class="sb">`wait &lt;id&gt; [timeout]`</span> - wait for completion; timeout leaves the job running
-<span class="k">-</span><span class="w"> </span><span class="sb">`kill &lt;id&gt;`</span> - terminate
-
-Avoids blocking on commands like <span class="sb">`npm run dev`</span> that run indefinitely.
+Set <span class="sb">`background: true`</span> on a structured shell call to run its whole script as a
+conversation-owned process. The call returns a job ID immediately and completion
+is reported automatically. Exact <span class="sb">`jobs`</span>, <span class="sb">`output &lt;id&gt; [--new]`</span>, `wait &lt;id&gt;
+[timeout]`, and <span class="sb">`kill &lt;id&gt;`</span> calls manage matching harness jobs; otherwise Bash
+owns those commands. Use this for dev servers and long builds.
 
 <span class="gu">### Examples</span>
 
@@ -3046,7 +3042,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20147</p>
+<p>Tokens: 20123</p>
 </dd></dl>
 
 <dl class="py function">
