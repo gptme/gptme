@@ -296,3 +296,30 @@ class TestCostTracker:
         second.join()
         assert seen == [owner.tracking_id, owner.tracking_id]
         assert owner.request_count == 2
+
+    def test_concurrent_record_keeps_all_entries(self):
+        owner = CostTracker.ensure_session("conv-a")
+        barrier = threading.Barrier(8)
+
+        def worker() -> None:
+            CostTracker.attach(owner)
+            barrier.wait()
+            CostTracker.record(
+                CostEntry(
+                    timestamp=1.0,
+                    model="test",
+                    input_tokens=1,
+                    output_tokens=0,
+                    cache_read_tokens=0,
+                    cache_creation_tokens=0,
+                    cost=0.0,
+                )
+            )
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert owner.request_count == 8
+        assert len(owner.snapshot_entries()) == 8

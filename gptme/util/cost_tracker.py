@@ -91,6 +91,14 @@ class SessionCosts:
     extras: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # A reset/resume of the same log directory is a different accounting window.
     tracking_id: str = field(default_factory=lambda: str(uuid4()), repr=False)
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
+
+    def snapshot_entries(self) -> list[CostEntry]:
+        """Copy entries so a concurrent append cannot split a totals snapshot."""
+        with self._lock:
+            return list(self.entries)
 
     def record_extra(self, key: str, **kwargs: Any) -> None:
         """Store plugin-level annotations alongside cost data.
@@ -228,7 +236,8 @@ class CostTracker:
         """
         costs = cls._session_costs_var.get()
         if costs:
-            costs.entries.append(entry)
+            with costs._lock:
+                costs.entries.append(entry)
 
     @classmethod
     def get_session_costs(cls) -> SessionCosts | None:

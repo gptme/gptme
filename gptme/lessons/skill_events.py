@@ -57,7 +57,7 @@ def _cost_snapshot(logdir: Path) -> tuple[str | None, dict[str, int | float] | N
     if costs is None or costs.session_id != str(logdir.resolve()):
         return None, None
     # Snapshot the entries once so a concurrent append cannot split the totals.
-    entries = list(costs.entries)
+    entries = costs.snapshot_entries()
     usage: dict[str, int | float] = {
         "input_tokens": sum(e.input_tokens for e in entries),
         "output_tokens": sum(e.output_tokens for e in entries),

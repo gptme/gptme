@@ -1077,9 +1077,6 @@ def start_tool_execution(
 
         current_conversation_id.set(conversation_id)
         current_session_id.set(session.id)
-        CostTracker.ensure_session(
-            session_id_for_logdir(get_logs_dir() / conversation_id)
-        )
 
         try:
             # Prepare execution environment (config, tools, hooks, .env)
@@ -1109,6 +1106,7 @@ def start_tool_execution(
                 # Use the same branch as the originating step() call so we read
                 # the correct message history, not always the "main" branch.
                 manager = LogManager.load(conversation_id, branch=branch, lock=False)
+                CostTracker.ensure_session(session_id_for_logdir(manager.logdir))
 
                 # Atomically claim the tool with pop() and register it as
                 # executing — both under conversation_lock so no sibling thread
