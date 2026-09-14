@@ -28,6 +28,15 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
 
     This file can be automatically updated by gptme with the help of `gh release list` and `gh release view` commands.
 
+    Source of truth and sync:
+
+    - This file is the source of truth for the gptme project timeline.
+      The "📢 News" list in README.md is a brief, manually synced mirror of it; update both together.
+    - Per-release details live in docs/changelog.rst (generated from release notes).
+    - Bob's personal month-by-month timeline, which covers his contributions rather than gptme releases, is separate:
+      TimeToBuildBob/TimeToBuildBob.github.io _data/timeline.yml, rendered at
+      https://timetobuildbob.github.io/timeline/ and into the TimeToBuildBob GitHub profile README.
+
 Unreleased
 ----------
 
