@@ -22,19 +22,28 @@ from gptme.tools.rag import (
 
 
 @pytest.mark.skipif(not _has_gptme_rag(), reason="RAG is not available")
-def test_rag_context_hook():
+def test_rag_context_hook(monkeypatch):
     """Test that RAG context hook yields context messages."""
     messages = [
         Message("user", "Tell me about Python"),
         Message("assistant", "Python is a programming language"),
+        Message("user", "Tell me more"),
     ]
 
-    # Call the hook
-    context_msgs = list(_rag_context_hook(messages, workspace=None))
+    # Mock the config to enable RAG
+    mock_config = MagicMock()
+    mock_config.rag = RagConfig(enabled=True)
+    with (
+        patch("gptme.tools.rag.get_project_config", return_value=mock_config),
+        patch("gptme.tools.rag.get_rag_context") as mock_rag_context,
+    ):
+        mock_rag_context.return_value = Message("system", "Here's some RAG context")
+        # Call the hook
+        context_msgs = list(_rag_context_hook(messages, workspace=None))
 
-    # Should yield at least one context message
-    assert len(context_msgs) >= 1
-    assert all(msg.role == "system" for msg in context_msgs)
+        # Should yield at least one context message
+        assert len(context_msgs) >= 1
+        assert all(msg.role == "system" for msg in context_msgs)
 
 
 def test_rag_context_hook_no_rag():

@@ -28,13 +28,16 @@ def test_is_message_command():
     assert is_message_command("/a")  # Single character command
 
 
-def test_is_message_command_integration():
+def test_is_message_command_integration(monkeypatch):
     """Test that the command detection is properly integrated."""
     import tempfile
     from pathlib import Path
 
     from gptme.message import Message
     from gptme.util.context import include_paths
+
+    # Ensure GPTME_DISABLE_PATH_INCLUDE does not interfere
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
 
     # Create a temp file to test with
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:

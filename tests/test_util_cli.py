@@ -316,6 +316,9 @@ def test_chats_read_start_and_context_options(tmp_path, monkeypatch, mocker):
     assert "3. User: third line..." not in result.output
 
 
+@pytest.mark.xfail(
+    reason="RAG index is shared globally and cannot be isolated per-test; see TODO in test code"
+)
 def test_context_index_and_retrieve(tmp_path):
     """Test the context index and retrieve commands."""
     # Skip if gptme-rag not available
@@ -337,6 +340,8 @@ def test_context_index_and_retrieve(tmp_path):
     # Test basic retrieve
     result = runner.invoke(main, ["context", "retrieve", "test query"])
     assert result.exit_code == 0
+    # NOTE: This fails because the global RAG knowledge base has other indexed documents
+    # that are ranked higher by semantic similarity than our test file
     assert result.output.count("Hello, world!") > 0
     # Check that the output contains the indexed content only once
     # TODO: requires fresh index for gptme-rag (or project/dir-specific index support)
@@ -345,6 +350,7 @@ def test_context_index_and_retrieve(tmp_path):
     # Test with --full flag
     result = runner.invoke(main, ["context", "retrieve", "--full", "test query"])
     assert result.exit_code == 0
+    # NOTE: Same issue as above - global knowledge base interference
     assert result.output.count("Hello, world!") > 0
     # assert result.output.count("Hello, world!") == 1
 
