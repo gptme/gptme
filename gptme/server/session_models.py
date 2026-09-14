@@ -226,6 +226,10 @@ class SessionManager:
         """Release a synchronous command reservation."""
         with cls._lock:
             cls._active_commands.discard(conversation_id)
+        # Evict after releasing _lock: _evict_idle_cost_window takes the
+        # same non-reentrant lock. A live session or a newly started command
+        # makes this a no-op.
+        cls._evict_idle_cost_window(conversation_id, None)
 
     @classmethod
     def create_session(cls, conversation_id: str) -> ConversationSession:
@@ -442,10 +446,11 @@ class SessionManager:
 
     @classmethod
     def _evict_idle_cost_window(cls, conversation_id: str, logdir: Path | None) -> None:
-        """Drop the CostTracker window if no live sessions remain.
+        """Drop the CostTracker window if no live sessions or commands remain.
 
         Re-checks under ``_lock`` so a session that connected after last-session
-        teardown started is not evicted.
+        teardown started, or a command still running outside the conversation
+        lock, is not evicted.
         """
         from ..dirs import get_logs_dir
         from ..util.cost_tracker import CostTracker, session_id_for_logdir
@@ -455,6 +460,8 @@ class SessionManager:
         # SessionManager._lock then CostTracker._sessions_lock.
         with cls._lock:
             if conversation_id in cls._conversation_sessions:
+                return
+            if conversation_id in cls._active_commands:
                 return
             if logdir is None:
                 logdir = get_logs_dir() / conversation_id

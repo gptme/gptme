@@ -411,6 +411,57 @@ def test_last_session_removal_drops_cost_tracker(skill_conversation):
     assert rebound.request_count == 0
 
 
+def test_last_session_removal_keeps_cost_window_for_active_command(skill_conversation):
+    name, session, manager = skill_conversation
+    sid = str(manager.logdir.resolve())
+    first = CostTracker.ensure_session(sid)
+    CostTracker.record(
+        CostEntry(
+            timestamp=1.0,
+            model="test-model",
+            input_tokens=4,
+            output_tokens=1,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.25,
+        )
+    )
+    SessionManager.start_command(name)
+    try:
+        SessionManager.remove_session(session.id)
+        rebound = CostTracker.ensure_session(sid)
+        assert rebound is first
+        CostTracker.record(
+            CostEntry(
+                timestamp=2.0,
+                model="test-model",
+                input_tokens=2,
+                output_tokens=1,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                cost=0.10,
+            )
+        )
+        assert rebound.request_count == 2
+    finally:
+        SessionManager.finish_command(name)
+    after = CostTracker.ensure_session(sid)
+    assert after is not first
+    assert after.request_count == 0
+
+
+def test_finish_command_with_live_session_keeps_cost_window(skill_conversation):
+    name, session, manager = skill_conversation
+    sid = str(manager.logdir.resolve())
+    first = CostTracker.ensure_session(sid)
+    SessionManager.start_command(name)
+    SessionManager.finish_command(name)
+    rebound = CostTracker.ensure_session(sid)
+    assert rebound is first
+    live = SessionManager.get_sessions_for_conversation(name)
+    assert session.id in {s.id for s in live}
+
+
 def test_conversation_delete_ends_tracker_under_lock(
     client, skill_conversation, monkeypatch
 ):
