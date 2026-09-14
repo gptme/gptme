@@ -450,12 +450,15 @@ class SessionManager:
         from ..dirs import get_logs_dir
         from ..util.cost_tracker import CostTracker, session_id_for_logdir
 
+        # Hold _lock across end_session so create_session cannot insert a
+        # live session into a window we are about to drop. Lock order is
+        # SessionManager._lock then CostTracker._sessions_lock.
         with cls._lock:
             if conversation_id in cls._conversation_sessions:
                 return
-        if logdir is None:
-            logdir = get_logs_dir() / conversation_id
-        CostTracker.end_session(session_id_for_logdir(logdir))
+            if logdir is None:
+                logdir = get_logs_dir() / conversation_id
+            CostTracker.end_session(session_id_for_logdir(logdir))
 
     @classmethod
     def remove_all_sessions_for_conversation(cls, conversation_id: str) -> None:
