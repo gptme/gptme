@@ -5,6 +5,11 @@ registered. After a parent gptme process restart, lookup APIs reload that file
 so ``subagent_status`` / ``subagent_wait`` / ``subagent_continue`` still work.
 Completed agents keep their metadata — removing it on completion would make
 resume-after-restart impossible.
+
+Rehydrated entries have no live ``thread``/``process`` handles. Thread-mode
+children die with the parent, so treating them as terminal is correct.
+Reattaching a subprocess that outlived the parent is out of scope: status()
+reads the conversation log rather than polling a PID.
 """
 
 from __future__ import annotations
