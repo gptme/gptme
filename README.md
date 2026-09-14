@@ -115,84 +115,7 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
 
 ## 🎥 Demos
 
-> [!NOTE]
-> The screencasts below are from 2023. gptme has evolved a lot since then!
-> For up-to-date examples and screenshots, see the [Documentation][docs-examples].
-> We're working on automated demo generation: [#1554](https://github.com/gptme/gptme/issues/1554).
-
 <table>
-  <tr>
-    <th>Fibonacci</th>
-    <th>Snake with curses</th>
-  </tr>
-  <tr>
-    <td width="50%">
-
-[![demo screencast with asciinema](https://github.com/ErikBjare/gptme/assets/1405370/5dda4240-bb7d-4cfa-8dd1-cd1218ccf571)](https://asciinema.org/a/606375)
-
-  <details>
-  <summary>Steps</summary>
-  <ol>
-    <li> Create a new dir 'gptme-test-fib' and git init
-    <li> Write a fib function to fib.py, commit
-    <li> Create a public repo and push to GitHub
-  </ol>
-  </details>
-
-  </td>
-
-  <td width="50%">
-
-[![621992-resvg](https://github.com/ErikBjare/gptme/assets/1405370/72ac819c-b633-495e-b20e-2e40753ec376)](https://asciinema.org/a/621992)
-
-  <details>
-  <summary>Steps</summary>
-  <ol>
-    <li> Create a snake game with curses to snake.py
-    <li> Running fails, ask gptme to fix a bug
-    <li> Game runs
-    <li> Ask gptme to add color
-    <li> Minor struggles
-    <li> Finished game with green snake and red apple pie!
-  </ol>
-  </details>
-  </td>
-</tr>
-
-<tr>
-  <th>Mandelbrot with curses</th>
-  <th>Answer question from URL</th>
-</tr>
-<tr>
-  <td width="50%">
-
-[![mandelbrot-curses](https://github.com/ErikBjare/gptme/assets/1405370/570860ac-80bd-4b21-b8d1-da187d7c1a95)](https://asciinema.org/a/621991)
-
-  <details>
-  <summary>Steps</summary>
-  <ol>
-    <li> Render mandelbrot with curses to mandelbrot_curses.py
-    <li> Program runs
-    <li> Add color
-  </ol>
-  </details>
-
-  </td>
-
-  <td width="25%">
-
-[![superuserlabs-ceo](https://github.com/ErikBjare/gptme/assets/1405370/bae45488-f4ed-409c-a656-0c5218877de2)](https://asciinema.org/a/621997)
-
-  <details>
-  <summary>Steps</summary>
-  <ol>
-    <li> Ask who the CEO of Superuser Labs is, passing website URL
-    <li> gptme browses the website, and answers correctly
-  </ol>
-  </details>
-  </td>
-  </tr>
-
   <tr>
     <th>Terminal UI</th>
     <th>Web UI</th>
@@ -200,23 +123,23 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
   <tr>
   <td width="50%">
 
-<!--[![terminal-ui](https://github.com/ErikBjare/gptme/assets/1405370/terminal-ui-demo)](https://asciinema.org/a/terminal-demo)-->
+[![gptme-tui showing a conversation where gptme writes and runs fib.py](https://gptme.org/media/screenshots/tui.png)][docs-tui]
 
   <details>
   <summary>Features</summary>
   <ul>
-    <li> Powerful terminal interface
-    <li> Convenient CLI commands
-    <li> Diff & Syntax highlighting
-    <li> Tab completion
-    <li> Command history
+    <li> Textual-based <code>gptme-tui</code> (<code>pipx install 'gptme[tui]'</code>)
+    <li> Queue prompts while the agent is working
+    <li> Collapsible tool output
+    <li> Status bar with model, token usage, and agent state
+    <li> Or use the plain <code>gptme</code> CLI for scripted and non-interactive use
   </ul>
   </details>
 
   </td>
   <td width="50%">
 
-<!--[![web-ui](https://github.com/ErikBjare/gptme/assets/1405370/web-ui-demo)](https://chat.gptme.org)-->
+[![gptme web UI showing a demo conversation with a Python code block and its output](https://gptme.org/media/screenshots/webui.png)](https://chat.gptme.org)
 
   <details>
   <summary>Features</summary>
@@ -231,9 +154,45 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
 
   </td>
   </tr>
+
+  <tr>
+    <th>Fibonacci</th>
+    <th>Mandelbrot with curses</th>
+  </tr>
+  <tr>
+    <td width="50%">
+
+[![asciinema recording of gptme writing fib.py, committing it, and pushing to a new GitHub repo](https://gptme.org/media/demos/fibonacci-606375.png)](https://asciinema.org/a/606375)
+
+  <details>
+  <summary>Steps</summary>
+  <ol>
+    <li> Create a new dir 'gptme-test-fib' and git init
+    <li> Write a fib function to fib.py, commit
+    <li> Create a public repo and push to GitHub
+  </ol>
+  </details>
+
+  </td>
+  <td width="50%">
+
+[![asciinema recording of gptme rendering the Mandelbrot set in the terminal with curses](https://gptme.org/media/demos/mandelbrot-621991.png)](https://asciinema.org/a/621991)
+
+  <details>
+  <summary>Steps</summary>
+  <ol>
+    <li> Render mandelbrot with curses to mandelbrot_curses.py
+    <li> Program runs
+    <li> Add color
+  </ol>
+  </details>
+
+  </td>
+  </tr>
 </table>
 
-You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [documentation][docs].
+> [!NOTE]
+> The terminal recordings above are from 2023 and show the classic CLI. More recordings are kept in the [Demo archive][docs-demos], and more up-to-date walkthroughs are in the [Examples][docs-examples].
 
 ## 🌟 Features
 
@@ -695,6 +654,7 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [docs-getting-started]: https://gptme.org/docs/getting-started.html
 [docs-examples]: https://gptme.org/docs/examples.html
 [docs-demos]: https://gptme.org/docs/demos.html
+[docs-tui]: https://gptme.org/docs/tui.html
 [docs-providers]: https://gptme.org/docs/providers.html
 [docs-model-routing]: https://gptme.org/docs/models.html
 [docs-tools]: https://gptme.org/docs/tools.html
