@@ -7,9 +7,9 @@ A brief timeline of the project.
 
 The idea is to later make this into a timeline similar to the one for `ActivityWatch <https://activitywatch.net/timeline/>`_, including releases, features, etc.
 
-.. figure:: https://starchart.cc/gptme/gptme.svg
+.. figure:: https://raw.githubusercontent.com/gptme/stats/master/charts/stars.svg
    :alt: Stargazers over time
-   :target: https://starchart.cc/gptme/gptme
+   :target: https://github.com/gptme/stats
 
    GitHub stargazers over time
 
@@ -33,6 +33,8 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
     - This file is the source of truth for the gptme project timeline.
       The "📢 News" list in README.md is a brief, manually synced mirror of it; update both together.
     - Per-release details live in docs/changelog.rst (generated from release notes).
+    - Community and usage stats (stars, downloads, contributors) live in https://github.com/gptme/stats,
+      which also renders the stargazers chart above.
     - Bob's personal month-by-month timeline, which covers his contributions rather than gptme releases, is separate:
       TimeToBuildBob/TimeToBuildBob.github.io _data/timeline.yml, rendered at
       https://timetobuildbob.github.io/timeline/ and into the TimeToBuildBob GitHub profile README.
