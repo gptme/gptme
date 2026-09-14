@@ -243,8 +243,10 @@ def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
         if not isinstance(tool_input, dict):
             return "", event
 
-        # All tool_input values describe the pending action. Hook envelope
-        # fields are excluded because traversal starts below the outer payload.
+        # All string values under tool_input describe the pending action,
+        # including nested keys that reuse envelope names (cwd, session_id,
+        # transcript_path). Outer envelope fields never participate because
+        # traversal starts at tool_input, not the payload root.
         values: list[str] = []
         pending: list[object] = [tool_input]
         while pending:

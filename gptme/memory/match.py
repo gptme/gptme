@@ -86,6 +86,8 @@ def render_matches(matches: list[MemoryMatch], *, body_chars: int = 1200) -> str
         lines.append(f"Source: {entry.path} (scope: {entry.scope})")
         body = entry.body.strip() or entry.description
         if len(body) > body_chars:
+            # Python 3 str is indexed by Unicode code point, so this cannot
+            # split a UTF-8 sequence. json.dumps of the result stays valid.
             body = (
                 body[: body_chars - 3].rstrip() + "..."
                 if body_chars > 3

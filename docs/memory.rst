@@ -132,11 +132,15 @@ Matching itself is read-only.
 
 ``--prompt -`` accepts plain text or a Claude Code JSON event. For
 ``UserPromptSubmit`` it matches the prompt; for ``PreToolUse`` it matches
-string values inside ``tool_input``. Session IDs, transcript paths, and other
-envelope fields never participate. ``--pre-tool`` selects the pre-tool response
-when supplying plain text. ``--format hook-json`` uses the input event's name
-and returns empty context on no match. Text and hook output include source
-paths and cap each body at ``--body-chars`` (default 1200).
+every string value under ``tool_input``, including nested dicts and lists.
+Outer hook envelope fields (``session_id``, ``transcript_path``, ``cwd``,
+``tool_name``, and the rest of the payload above ``tool_input``) never
+participate. Nested keys *inside* ``tool_input`` that happen to reuse those
+names are tool arguments and do participate. ``--pre-tool`` selects the
+pre-tool response when supplying plain text. ``--format hook-json`` uses the
+input event's name and returns empty context on no match. Text and hook
+output include source paths and cap each body at ``--body-chars`` Unicode
+code points (default 1200), never UTF-8 bytes.
 
 The CLI keeps no session deduplication state. A harness wrapper can call
 ``gptme.memory.match.match_memories`` directly and apply its own deduplication

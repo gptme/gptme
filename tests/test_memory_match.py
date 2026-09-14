@@ -107,11 +107,18 @@ def test_match_hook_payload_event_and_bounded_body(tmp_path, monkeypatch, pretoo
 
 
 def test_match_pretool_includes_nested_custom_tool_arguments(tmp_path, monkeypatch):
+    """Nested tool_input keys that reuse envelope names still participate.
+
+    Outer payload session_id/cwd/transcript_path are ignored; the same names
+    under tool_input are arguments of the pending tool call.
+    """
     monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
     write_entry(tmp_path, "rule", keywords=["release"])
     payload = {
         "hook_event_name": "PreToolUse",
         "session_id": "unrelated",
+        "cwd": "unrelated",
+        "transcript_path": "unrelated",
         "tool_input": {
             "cwd": "release",
             "nested": {"session_id": "release"},
@@ -125,6 +132,34 @@ def test_match_pretool_includes_nested_custom_tool_arguments(tmp_path, monkeypat
     )
     assert result.exit_code == 0, result.output
     assert [hit["name"] for hit in json.loads(result.output)["hits"]] == ["rule"]
+
+
+def test_match_hook_json_truncates_multibyte_bodies_on_code_points(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    write_entry(tmp_path, "release-rule", keywords=["release"], body="é" * 20)
+    payload = {"hook_event_name": "UserPromptSubmit", "prompt": "release"}
+    result = CliRunner().invoke(
+        util_main,
+        [
+            "memory",
+            "match",
+            "--prompt",
+            "-",
+            "--format",
+            "hook-json",
+            "--body-chars",
+            "8",
+        ],
+        input=json.dumps(payload),
+    )
+    assert result.exit_code == 0, result.output
+    output = json.loads(result.output)
+    ctx = output["hookSpecificOutput"]["additionalContext"]
+    assert "é" in ctx
+    assert "\ufffd" not in ctx
+    assert ctx.encode("utf-8")
 
 
 def test_match_pretool_handles_deeply_nested_arguments(tmp_path, monkeypatch):

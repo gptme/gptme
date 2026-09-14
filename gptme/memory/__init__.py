@@ -1,7 +1,7 @@
 """Cross-harness memory store: CC-compatible markdown entries with layered roots.
 
 Storage depends on :mod:`gptme.dirs`; triggered delivery lazily adapts entries
-to :class:`gptme.lessons.matcher.LessonMatcher`. See gptme/gptme#3734.
+to ``LessonMatcher``. See gptme/gptme#3734.
 """
 
 from .recall import (
