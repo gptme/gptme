@@ -362,3 +362,29 @@ def test_server_latest_user_turn_only(skill_conversation, monkeypatch):
     manager.write()
     run_step(skill_conversation, monkeypatch)
     assert phases(manager) == ["started", "queued"]
+
+
+def test_conversation_delete_drops_cost_tracker(client, skill_conversation):
+    name, session, manager = skill_conversation
+    sid = str(manager.logdir.resolve())
+    first = CostTracker.ensure_session(sid)
+    CostTracker.record(
+        CostEntry(
+            timestamp=1.0,
+            model="test-model",
+            input_tokens=4,
+            output_tokens=1,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.25,
+        )
+    )
+    tracking_id = first.tracking_id
+    assert first.request_count == 1
+
+    response = client.delete(f"/api/v2/conversations/{name}")
+    assert response.status_code == 200
+    rebound = CostTracker.ensure_session(sid)
+    assert rebound is not first
+    assert rebound.tracking_id != tracking_id
+    assert rebound.request_count == 0

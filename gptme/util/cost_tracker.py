@@ -209,7 +209,14 @@ class CostTracker:
 
     @classmethod
     def ensure_session(cls, session_id: str) -> SessionCosts:
-        """Bind this context to the existing window, or create one."""
+        """Bind this context to the existing window, or create one.
+
+        This is not a reset. Skill usage is the inclusive delta from that
+        invocation's ``cost_baseline``; sharing ``tracking_id`` across TUI
+        and server workers keeps in-flight measurements valid. Use
+        ``start_session`` to open a new accounting window, and
+        ``end_session`` when the conversation is deleted.
+        """
         with cls._sessions_lock:
             costs = cls._sessions.get(session_id)
             if costs is None:
@@ -217,6 +224,19 @@ class CostTracker:
                 cls._sessions[session_id] = costs
         cls._session_costs_var.set(costs)
         return costs
+
+    @classmethod
+    def end_session(cls, session_id: str) -> None:
+        """Drop a conversation window from the process registry.
+
+        Call this when the conversation is deleted so a later recreate does
+        not inherit stale totals or ``tracking_id``. No-op if unknown.
+        """
+        with cls._sessions_lock:
+            costs = cls._sessions.pop(session_id, None)
+        current = cls._session_costs_var.get()
+        if costs is not None and current is costs:
+            cls._session_costs_var.set(None)
 
     @classmethod
     def attach(cls, costs: SessionCosts) -> None:

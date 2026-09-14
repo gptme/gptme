@@ -571,6 +571,10 @@ def delete_conversation(conv_id: str) -> bool:
     conv_path = Path(conv.path)
     conv_dir = conv_path.parent
 
+    from ..util.cost_tracker import CostTracker, session_id_for_logdir  # fmt: skip
+
+    cost_session_id = session_id_for_logdir(conv_dir)
     # Delete the entire conversation directory
     shutil.rmtree(conv_dir)
+    CostTracker.end_session(cost_session_id)
     return True

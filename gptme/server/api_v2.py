@@ -2504,6 +2504,9 @@ def api_conversation_delete(conversation_id: str):
                 409,
             )
 
+        from ..util.cost_tracker import CostTracker, session_id_for_logdir  # fmt: skip
+
+        cost_session_id = session_id_for_logdir(logdir)
         try:
             shutil.rmtree(logdir)
         except OSError as e:
@@ -2511,6 +2514,7 @@ def api_conversation_delete(conversation_id: str):
             return flask.jsonify({"error": f"Could not delete conversation: {e}"}), 500
 
     SessionManager.remove_all_sessions_for_conversation(conversation_id)
+    CostTracker.end_session(cost_session_id)
 
     _invalidate_conversations_cache()
     return flask.jsonify({"status": "ok"})

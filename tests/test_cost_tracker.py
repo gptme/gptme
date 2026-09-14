@@ -297,6 +297,31 @@ class TestCostTracker:
         assert seen == [owner.tracking_id, owner.tracking_id]
         assert owner.request_count == 2
 
+    def test_end_session_drops_registry_so_recreate_is_fresh(self):
+        first = CostTracker.ensure_session("conv-a")
+        CostTracker.record(
+            CostEntry(
+                timestamp=1.0,
+                model="test",
+                input_tokens=4,
+                output_tokens=1,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                cost=0.25,
+            )
+        )
+        CostTracker.end_session("conv-a")
+        assert CostTracker.get_session_costs() is None
+        second = CostTracker.ensure_session("conv-a")
+        assert second is not first
+        assert second.tracking_id != first.tracking_id
+        assert second.request_count == 0
+
+    def test_end_session_unknown_id_is_noop(self):
+        owner = CostTracker.ensure_session("conv-a")
+        CostTracker.end_session("missing")
+        assert CostTracker.get_session_costs() is owner
+
     def test_concurrent_record_keeps_all_entries(self):
         owner = CostTracker.ensure_session("conv-a")
         barrier = threading.Barrier(8)
