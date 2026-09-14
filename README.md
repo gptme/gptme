@@ -94,7 +94,8 @@ active development.
 
 ## 📢 News
 
-- **2026-07** - [v0.32.1](https://github.com/gptme/gptme/releases/tag/v0.32.1): Desktop app for Linux (AppImage), macOS, and Windows with auto-updates — [download here](https://github.com/gptme/gptme/releases/latest); [gptme.ai](https://gptme.ai) cloud service
+- **2026-08** - [v0.33.0](https://github.com/gptme/gptme/releases/tag/v0.33.0): Hashline edit format, sandboxed Python/shell execution (Docker, Wasmtime), non-interactive exit taxonomy, `gptme explain`, server auth hardening
+- **2026-07** - [v0.32.0](https://github.com/gptme/gptme/releases/tag/v0.32.0) & [v0.32.1](https://github.com/gptme/gptme/releases/tag/v0.32.1): Desktop app for Linux (AppImage), macOS, and Windows, with auto-updates since v0.32.1 — [download here](https://github.com/gptme/gptme/releases/latest); ACP support, MCP server, Textual TUI; [gptme.ai](https://gptme.ai) cloud service
 - **2026-01** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.4: [Bob](https://github.com/TimeToBuildBob) has run extensively as an autonomous agent, autonomous run loops, enhanced context generation
 - **2025-12** - [v0.31.0](https://github.com/gptme/gptme/releases/tag/v0.31.0): Background jobs, form tool, cost tracking, content-addressable storage
 - **2025-11** - [v0.30.0](https://github.com/gptme/gptme/releases/tag/v0.30.0): Plugin system, context compression, subagent planner mode
