@@ -223,7 +223,8 @@ class CostTracker:
         invocation's ``cost_baseline``; sharing ``tracking_id`` across TUI
         and server workers keeps in-flight measurements valid. Use
         ``start_session`` to open a new accounting window, and
-        ``end_session`` when the conversation is deleted.
+        ``end_session`` when the conversation is deleted or the last
+        session ends.
         """
         with cls._sessions_lock:
             costs = cls._sessions.get(session_id)
@@ -234,17 +235,19 @@ class CostTracker:
         return costs
 
     @classmethod
-    def end_session(cls, session_id: str) -> None:
+    def end_session(cls, session_id: str) -> SessionCosts | None:
         """Drop a conversation window from the process registry.
 
-        Call this when the conversation is deleted so a later recreate does
-        not inherit stale totals or ``tracking_id``. No-op if unknown.
+        Call this when the conversation is deleted or the last session ends
+        so a later recreate does not inherit stale totals or ``tracking_id``.
+        No-op if unknown. Returns the dropped window, if any.
         """
         with cls._sessions_lock:
             costs = cls._sessions.pop(session_id, None)
         current = cls._session_costs_var.get()
         if costs is not None and current is costs:
             cls._session_costs_var.set(None)
+        return costs
 
     @classmethod
     def attach(cls, costs: SessionCosts) -> None:
@@ -265,12 +268,15 @@ class CostTracker:
         costs = cls._session_costs_var.get()
         if not costs:
             return
+        # Liveness and append share _sessions_lock so a concurrent
+        # end_session cannot replace the window between the check and the
+        # write. A dropped entry belongs to a conversation that no longer
+        # has a live window, not to a later recreate.
         with cls._sessions_lock:
-            live = cls._sessions.get(costs.session_id) is costs
-        if not live:
-            return
-        with costs._lock:
-            costs.entries.append(entry)
+            if cls._sessions.get(costs.session_id) is not costs:
+                return
+            with costs._lock:
+                costs.entries.append(entry)
 
     @classmethod
     def get_session_costs(cls) -> SessionCosts | None:

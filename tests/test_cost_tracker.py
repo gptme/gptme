@@ -359,6 +359,34 @@ class TestCostTracker:
         assert second is not first
         assert second.request_count == 0
 
+    def test_record_concurrent_with_end_session_does_not_land_on_recreate(self):
+        first = CostTracker.ensure_session("conv-a")
+        barrier = threading.Barrier(2)
+        entry = CostEntry(
+            timestamp=1.0,
+            model="test",
+            input_tokens=3,
+            output_tokens=0,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.3,
+        )
+
+        def worker() -> None:
+            CostTracker.attach(first)
+            barrier.wait()
+            CostTracker.record(entry)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        barrier.wait()
+        CostTracker.end_session("conv-a")
+        thread.join()
+        second = CostTracker.ensure_session("conv-a")
+        assert second is not first
+        assert second.request_count == 0
+        assert first.request_count in (0, 1)
+
     def test_relative_logdir_identity_is_cwd_independent(self, tmp_path, monkeypatch):
         other = tmp_path / "workspace"
         other.mkdir()

@@ -356,10 +356,12 @@ class SessionManager:
             with session.step_lock:
                 session.finish_skill_turn("abandoned")
             if is_last:
+                logdir: Path | None = None
                 try:
                     from ..logmanager import LogManager
 
                     manager = LogManager.load(conversation_id, lock=True)
+                    logdir = manager.logdir
                     logger.debug(
                         "Last session for conversation %s, triggering SESSION_END hook",
                         conversation_id,
@@ -372,6 +374,7 @@ class SessionManager:
                             manager.append(msg)
                 except Exception as e:
                     logger.warning(f"Failed to trigger SESSION_END hook: {e}")
+                cls._evict_idle_cost_window(conversation_id, logdir)
 
             if acp_rt is not None:
                 from .session_step import close_acp_runtime_bg
@@ -412,10 +415,12 @@ class SessionManager:
         with session.step_lock:
             session.finish_skill_turn("abandoned")
         if is_last_session:
+            logdir: Path | None = None
             try:
                 from ..logmanager import LogManager
 
                 manager = LogManager.load(conversation_id, lock=True)
+                logdir = manager.logdir
 
                 logger.debug(
                     f"Last session for conversation {conversation_id}, triggering SESSION_END hook"
@@ -428,11 +433,29 @@ class SessionManager:
                         manager.append(msg)
             except Exception as e:
                 logger.warning(f"Failed to trigger SESSION_END hook: {e}")
+            cls._evict_idle_cost_window(conversation_id, logdir)
 
         if acp_rt is not None:
             from .session_step import close_acp_runtime_bg
 
             close_acp_runtime_bg(acp_rt)
+
+    @classmethod
+    def _evict_idle_cost_window(cls, conversation_id: str, logdir: Path | None) -> None:
+        """Drop the CostTracker window if no live sessions remain.
+
+        Re-checks under ``_lock`` so a session that connected after last-session
+        teardown started is not evicted.
+        """
+        from ..dirs import get_logs_dir
+        from ..util.cost_tracker import CostTracker, session_id_for_logdir
+
+        with cls._lock:
+            if conversation_id in cls._conversation_sessions:
+                return
+        if logdir is None:
+            logdir = get_logs_dir() / conversation_id
+        CostTracker.end_session(session_id_for_logdir(logdir))
 
     @classmethod
     def remove_all_sessions_for_conversation(cls, conversation_id: str) -> None:

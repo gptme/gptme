@@ -388,3 +388,67 @@ def test_conversation_delete_drops_cost_tracker(client, skill_conversation):
     assert rebound is not first
     assert rebound.tracking_id != tracking_id
     assert rebound.request_count == 0
+
+
+def test_last_session_removal_drops_cost_tracker(skill_conversation):
+    name, session, manager = skill_conversation
+    sid = str(manager.logdir.resolve())
+    first = CostTracker.ensure_session(sid)
+    CostTracker.record(
+        CostEntry(
+            timestamp=1.0,
+            model="test-model",
+            input_tokens=4,
+            output_tokens=1,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.25,
+        )
+    )
+    SessionManager.remove_session(session.id)
+    rebound = CostTracker.ensure_session(sid)
+    assert rebound is not first
+    assert rebound.request_count == 0
+
+
+def test_conversation_delete_ends_tracker_under_lock(
+    client, skill_conversation, monkeypatch
+):
+    name, session, manager = skill_conversation
+    inner = SessionManager.conversation_lock(name)
+
+    class RecordingLock:
+        def __init__(self) -> None:
+            self.depth = 0
+
+        def __enter__(self):
+            self.depth += 1
+            return inner.__enter__()
+
+        def __exit__(self, *exc):
+            try:
+                return inner.__exit__(*exc)
+            finally:
+                self.depth -= 1
+
+    rec = RecordingLock()
+    real_lock = SessionManager.conversation_lock
+
+    def fake_lock(cls, conversation_id: str):
+        if conversation_id == name:
+            return rec
+        return real_lock(conversation_id)
+
+    monkeypatch.setattr(SessionManager, "conversation_lock", classmethod(fake_lock))
+    owned_at_calls: list[bool] = []
+    original = CostTracker.end_session
+
+    def wrapped(session_id: str):
+        owned_at_calls.append(rec.depth > 0)
+        return original(session_id)
+
+    monkeypatch.setattr(CostTracker, "end_session", staticmethod(wrapped))
+    response = client.delete(f"/api/v2/conversations/{name}")
+    assert response.status_code == 200
+    assert owned_at_calls, "delete must call CostTracker.end_session"
+    assert owned_at_calls[0] is True

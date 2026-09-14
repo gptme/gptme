@@ -2513,8 +2513,12 @@ def api_conversation_delete(conversation_id: str):
             logger.error(f"Error deleting conversation {conversation_id}: {e}")
             return flask.jsonify({"error": f"Could not delete conversation: {e}"}), 500
 
+        # Evict before releasing the lock. If this runs after the lock
+        # drops, a recreate of the same id can bind a new window that this
+        # delayed end_session then deletes.
+        CostTracker.end_session(cost_session_id)
+
     SessionManager.remove_all_sessions_for_conversation(conversation_id)
-    CostTracker.end_session(cost_session_id)
 
     _invalidate_conversations_cache()
     return flask.jsonify({"status": "ok"})

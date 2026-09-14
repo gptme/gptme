@@ -408,6 +408,11 @@ def session_end_cost_summary(
 ) -> Generator[Message | StopPropagation, None, None]:
     """Display brief cost summary at session end.
 
+    Eviction of the process-wide cost window is *not* done here. SESSION_END
+    can fire while another session still owns the conversation; the server
+    drops the window from last-session teardown in SessionManager after
+    re-checking that no sessions remain.
+
     Args:
         manager: The LogManager for the session
         **kwargs: Additional arguments (e.g., logdir)
