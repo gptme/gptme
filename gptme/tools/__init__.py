@@ -163,9 +163,10 @@ def _init_single_tool(tool: ToolSpec) -> ToolSpec:
     """
     if tool.init:
         initialized = tool.init()
-        if initialized is None:
+        if not isinstance(initialized, ToolSpec):
             raise ValueError(
-                f"Tool {tool.name!r} init() returned None; it must return a ToolSpec"
+                f"Tool {tool.name!r} init() returned {type(initialized).__name__}; "
+                "it must return a ToolSpec"
             )
         tool = initialized
     tool.register_hooks()

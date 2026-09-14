@@ -1418,7 +1418,19 @@ class TestInitSingleTool:
         from gptme.tools import _init_single_tool
 
         broken_tool = ToolSpec(name="broken", desc="test tool", init=lambda: None)  # type: ignore[arg-type,return-value]
-        with pytest.raises(ValueError, match="broken.*returned None"):
+        with pytest.raises(ValueError, match="broken.*returned NoneType"):
+            _init_single_tool(broken_tool)
+
+    def test_init_returning_non_toolspec_raises_valueerror(self):
+        """A plugin init() that returns a non-ToolSpec value should raise ValueError naming the tool and type."""
+        from gptme.tools import _init_single_tool
+
+        broken_tool = ToolSpec(
+            name="broken",
+            desc="test tool",
+            init=lambda: "not a spec",  # type: ignore[arg-type,return-value]
+        )
+        with pytest.raises(ValueError, match="broken.*returned str"):
             _init_single_tool(broken_tool)
 
     def test_init_returning_toolspec_succeeds(self):
