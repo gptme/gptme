@@ -116,15 +116,35 @@ def load_subagent_meta(logdir: Path) -> Subagent | None:
 
 
 def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent | None:
-    """Load one persisted subagent by id from the logs directory."""
+    """Load one persisted subagent by id from the logs directory.
+
+    Planner logdirs are ``subagent-{id}``. Executor/thread/subprocess/ACP logdirs
+    are ``subagent-{id}-{4 random chars}``. When several matches exist, return
+    the newest by ``started_at``.
+    """
     from ...dirs import get_logs_dir
 
     if logs_dir is None:
         logs_dir = get_logs_dir()
-    entry = logs_dir / f"subagent-{agent_id}"
-    if not entry.is_dir() or not (entry / "conversation.jsonl").exists():
+    if not logs_dir.is_dir():
         return None
-    return load_subagent_meta(entry)
+
+    prefix = f"subagent-{agent_id}-"
+    exact = logs_dir / f"subagent-{agent_id}"
+    candidates: list[Subagent] = []
+    for entry in logs_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        if entry != exact and not entry.name.startswith(prefix):
+            continue
+        if not (entry / "conversation.jsonl").exists():
+            continue
+        sa = load_subagent_meta(entry)
+        if sa is not None and sa.agent_id == agent_id:
+            candidates.append(sa)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda sa: sa.started_at)
 
 
 def scan_rehydrate_subagents(logs_dir: Path | None = None) -> list[Subagent]:

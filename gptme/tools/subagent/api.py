@@ -44,8 +44,12 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 
-def _find_subagent(agent_id: str, *, newest: bool = False) -> Subagent | None:
-    """Return a live or persisted subagent, registering disk hits into memory."""
+def _find_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
+    """Return a live or persisted subagent, registering disk hits into memory.
+
+    Prefers the newest in-memory entry so a live spawn after list-rehydration
+    wins over a stale disk copy of the same agent_id.
+    """
     with _subagents_lock:
         seq = list(reversed(_subagents)) if newest else list(_subagents)
         sa = next((s for s in seq if s.agent_id == agent_id), None)

@@ -230,6 +230,54 @@ class TestScanRehydrate:
         assert loaded.agent_id == "by-id"
         assert load_subagent_by_id("missing", tmp_path) is None
 
+    def test_load_by_id_finds_random_suffix_logdir(self, tmp_path: Path):
+        subagent_dir = tmp_path / "subagent-worker-a7k2"
+        _completed_log(subagent_dir)
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="hello",
+                thread=None,
+                logdir=subagent_dir,
+                model=None,
+                started_at=100.0,
+            )
+        )
+        loaded = load_subagent_by_id("worker", tmp_path)
+        assert loaded is not None
+        assert loaded.logdir == subagent_dir
+        assert load_subagent_by_id("work", tmp_path) is None
+
+    def test_load_by_id_prefers_newest_started_at(self, tmp_path: Path):
+        older = tmp_path / "subagent-worker-old1"
+        newer = tmp_path / "subagent-worker-new2"
+        _completed_log(older, "old")
+        _completed_log(newer, "new")
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="old",
+                thread=None,
+                logdir=older,
+                model=None,
+                started_at=10.0,
+            )
+        )
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="new",
+                thread=None,
+                logdir=newer,
+                model=None,
+                started_at=20.0,
+            )
+        )
+        loaded = load_subagent_by_id("worker", tmp_path)
+        assert loaded is not None
+        assert loaded.prompt == "new"
+        assert loaded.logdir == newer
+
 
 class TestRegistryRehydration:
     def setup_method(self):
@@ -290,7 +338,7 @@ class TestRegistryRehydration:
         from gptme.tools.subagent.api import subagent_status
 
         logs_dir = tmp_path / "logs"
-        subagent_dir = logs_dir / "subagent-status-agent"
+        subagent_dir = logs_dir / "subagent-status-agent-ab12"
         _completed_log(subagent_dir, "all good")
         persist_subagent_meta(
             Subagent(
@@ -313,7 +361,7 @@ class TestRegistryRehydration:
         from gptme.tools.subagent.types import _subagents, _subagents_lock
 
         logs_dir = tmp_path / "logs"
-        subagent_dir = logs_dir / "subagent-continue-agent"
+        subagent_dir = logs_dir / "subagent-continue-agent-cd34"
         _completed_log(subagent_dir, "first result")
         persist_subagent_meta(
             Subagent(
@@ -365,3 +413,26 @@ class TestRegistryRehydration:
 
         ids = [entry["agent_id"] for entry in subagent_list()]
         assert "listed-agent" in ids
+
+    def test_find_subagent_prefers_newer_in_memory(self, tmp_path: Path):
+        from gptme.tools.subagent.api import _find_subagent
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        stale = Subagent(
+            agent_id="reuse-id",
+            prompt="old",
+            thread=None,
+            logdir=tmp_path / "old",
+            model=None,
+        )
+        live = Subagent(
+            agent_id="reuse-id",
+            prompt="new",
+            thread=None,
+            logdir=tmp_path / "new",
+            model=None,
+        )
+        with _subagents_lock:
+            _subagents.extend([stale, live])
+        found = _find_subagent("reuse-id")
+        assert found is live
