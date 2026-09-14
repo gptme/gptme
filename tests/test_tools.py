@@ -2,6 +2,7 @@ import sys
 import tempfile
 import types
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -38,6 +39,20 @@ def test_init_single_tool_rejects_none_result():
     with pytest.raises(
         ValueError,
         match=r"Tool 'bad-plugin-tool' init\(\) returned None; it must return a ToolSpec",
+    ):
+        _init_single_tool(tool)
+
+
+def test_init_single_tool_rejects_wrong_result_type():
+    tool = ToolSpec(
+        name="wrong-plugin-tool",
+        desc="demo",
+        init=cast(Any, lambda: "not a tool"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Tool 'wrong-plugin-tool' init\(\) returned str; it must return a ToolSpec",
     ):
         _init_single_tool(tool)
 
