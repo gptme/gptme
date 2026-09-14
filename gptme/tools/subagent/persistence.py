@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -75,19 +77,48 @@ def _dict_to_subagent(data: dict[str, Any]) -> Subagent:
             continue
         if key in _PATH_FIELDS and payload[key] is not None:
             payload[key] = Path(payload[key])
+    if "started_at" in payload:
+        try:
+            payload["started_at"] = float(payload["started_at"])
+        except (TypeError, ValueError):
+            # Invalid timestamps sort oldest so they cannot win newest-id selection.
+            payload["started_at"] = 0.0
     payload["thread"] = None
     payload["process"] = None
     return Subagent(**payload)
 
 
 def persist_subagent_meta(sa: Subagent) -> None:
-    """Write ``subagent-meta.json`` into the subagent's logdir."""
+    """Atomically write ``subagent-meta.json`` into the subagent's logdir.
+
+    Write to a same-directory temp file and ``os.replace`` onto the destination
+    so readers never see a truncated rewrite. An interrupted
+    ``Path.write_text`` can leave invalid JSON and make a completed child
+    undiscoverable after restart.
+    """
     try:
         sa.logdir.mkdir(parents=True, exist_ok=True)
-        (sa.logdir / META_FILENAME).write_text(
-            json.dumps(_subagent_to_dict(sa), indent=2, default=str),
-            encoding="utf-8",
-        )
+        dest = sa.logdir / META_FILENAME
+        payload = json.dumps(_subagent_to_dict(sa), indent=2, default=str)
+        tmp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=sa.logdir,
+                prefix=".subagent-meta-",
+                suffix=".tmp",
+                delete=False,
+            ) as tf:
+                tmp_path = tf.name
+                tf.write(payload)
+                tf.flush()
+                os.fsync(tf.fileno())
+            os.replace(tmp_path, dest)
+            tmp_path = None
+        finally:
+            if tmp_path is not None:
+                Path(tmp_path).unlink(missing_ok=True)
     except OSError as e:
         logger.warning("Failed to persist subagent meta for %s: %s", sa.agent_id, e)
 
@@ -132,7 +163,12 @@ def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent
     prefix = f"subagent-{agent_id}-"
     exact = logs_dir / f"subagent-{agent_id}"
     candidates: list[Subagent] = []
-    for entry in logs_dir.iterdir():
+    try:
+        entries = list(logs_dir.iterdir())
+    except OSError as e:
+        logger.warning("Failed to scan logs dir %s: %s", logs_dir, e)
+        return None
+    for entry in entries:
         if not entry.is_dir():
             continue
         if entry != exact and not entry.name.startswith(prefix):
@@ -161,7 +197,12 @@ def scan_rehydrate_subagents(logs_dir: Path | None = None) -> list[Subagent]:
         return []
 
     rehydrated: list[Subagent] = []
-    for entry in logs_dir.iterdir():
+    try:
+        entries = list(logs_dir.iterdir())
+    except OSError as e:
+        logger.warning("Failed to scan logs dir %s: %s", logs_dir, e)
+        return []
+    for entry in entries:
         if not entry.is_dir() or not entry.name.startswith("subagent-"):
             continue
         if not (entry / "conversation.jsonl").exists():

@@ -114,6 +114,30 @@ class TestSubagentToDict:
         data = _subagent_to_dict(sa)
         assert "output_schema" not in data
 
+    def test_started_at_coerced_to_float(self, tmp_path: Path):
+        restored = _dict_to_subagent(
+            {
+                "agent_id": "typed",
+                "prompt": "hello",
+                "logdir": str(tmp_path),
+                "model": None,
+                "started_at": "12.5",
+            }
+        )
+        assert restored.started_at == 12.5
+
+    def test_invalid_started_at_falls_back_to_zero(self, tmp_path: Path):
+        restored = _dict_to_subagent(
+            {
+                "agent_id": "bad-time",
+                "prompt": "hello",
+                "logdir": str(tmp_path),
+                "model": None,
+                "started_at": "abc",
+            }
+        )
+        assert restored.started_at == 0.0
+
 
 class TestPersistAndLoad:
     def test_persist_creates_file(self, tmp_path: Path):
@@ -167,6 +191,38 @@ class TestPersistAndLoad:
     def test_load_corrupt_returns_none(self, tmp_path: Path):
         (tmp_path / META_FILENAME).write_text("not json")
         assert load_subagent_meta(tmp_path) is None
+
+    def test_persist_keeps_previous_file_if_replace_fails(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent import persistence as persistence_mod
+
+        persist_subagent_meta(
+            Subagent(
+                agent_id="atomic-agent",
+                prompt="old",
+                thread=None,
+                logdir=tmp_path,
+                model=None,
+            )
+        )
+        original = (tmp_path / META_FILENAME).read_text()
+
+        def boom(_src, _dest):
+            raise OSError("simulated crash after temp write")
+
+        monkeypatch.setattr(persistence_mod.os, "replace", boom)
+        persist_subagent_meta(
+            Subagent(
+                agent_id="atomic-agent",
+                prompt="new",
+                thread=None,
+                logdir=tmp_path,
+                model=None,
+            )
+        )
+        assert (tmp_path / META_FILENAME).read_text() == original
+        assert list(tmp_path.glob(".subagent-meta-*.tmp")) == []
 
 
 class TestScanRehydrate:
@@ -277,6 +333,38 @@ class TestScanRehydrate:
         assert loaded is not None
         assert loaded.prompt == "new"
         assert loaded.logdir == newer
+
+    def test_load_by_id_skips_invalid_started_at(self, tmp_path: Path):
+        older = tmp_path / "subagent-worker-old1"
+        newer = tmp_path / "subagent-worker-new2"
+        _completed_log(older, "old")
+        _completed_log(newer, "new")
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="old",
+                thread=None,
+                logdir=older,
+                model=None,
+                started_at=10.0,
+            )
+        )
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="new",
+                thread=None,
+                logdir=newer,
+                model=None,
+                started_at=20.0,
+            )
+        )
+        data = json.loads((older / META_FILENAME).read_text())
+        data["started_at"] = "abc"
+        (older / META_FILENAME).write_text(json.dumps(data))
+        loaded = load_subagent_by_id("worker", tmp_path)
+        assert loaded is not None
+        assert loaded.prompt == "new"
 
 
 class TestRegistryRehydration:
