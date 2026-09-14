@@ -1971,6 +1971,9 @@ def api_conversation_post(conversation_id: str):
     # Append and execute a command under its reservation, not the conversation lock.
     # The reservation is always cleared, including when handle_cmd raises.
     from ..lessons.skill_commands import is_skill_command  # fmt: skip
+    from ..util.cost_tracker import CostTracker, session_id_for_logdir  # fmt: skip
+
+    CostTracker.ensure_session(session_id_for_logdir(log.logdir))
 
     responses: list[Message] = []
     try:

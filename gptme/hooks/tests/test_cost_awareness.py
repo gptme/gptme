@@ -45,7 +45,7 @@ class TestSessionStartCostTracking:
 
         costs = CostTracker.get_session_costs()
         assert costs is not None
-        assert costs.session_id == str(logdir)
+        assert costs.session_id == str(logdir.resolve())
         assert costs.entries == []
 
     def test_yields_nothing(self, tmp_path: Path):
@@ -53,6 +53,17 @@ class TestSessionStartCostTracking:
         logdir = tmp_path / "session-2"
         msgs = list(session_start_cost_tracking(logdir, None, []))
         assert msgs == []
+
+    def test_same_logdir_keeps_tracking_id(self, tmp_path: Path):
+        """Repeat SESSION_START on the same conversation is not a reset."""
+        logdir = tmp_path / "session-keep"
+        list(session_start_cost_tracking(logdir, None, []))
+        first = CostTracker.get_session_costs()
+        assert first is not None
+        list(session_start_cost_tracking(logdir, None, []))
+        second = CostTracker.get_session_costs()
+        assert second is first
+        assert second.tracking_id == first.tracking_id
 
     def test_with_workspace(self, tmp_path: Path):
         """Works with workspace parameter provided."""

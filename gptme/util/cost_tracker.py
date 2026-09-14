@@ -8,10 +8,19 @@ See Issue #935 for design context.
 
 from __future__ import annotations
 
+import threading
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+
+def session_id_for_logdir(logdir: Path | str) -> str:
+    """Identity used by skill cost snapshots; Path values are resolved."""
+    if isinstance(logdir, Path):
+        return str(logdir.resolve())
+    return str(logdir)
 
 
 @dataclass
@@ -153,8 +162,9 @@ class SessionCosts:
 class CostTracker:
     """Track costs across a session with context-safe storage.
 
-    Uses ContextVar for thread-safe, context-local storage suitable
-    for concurrent sessions.
+    ContextVar holds the active window for this task/thread. A process-wide
+    registry lets TUI workers and server request threads re-bind the same
+    conversation window without resetting ``tracking_id``.
 
     Usage:
         # At session start
@@ -171,15 +181,41 @@ class CostTracker:
     _session_costs_var: ContextVar[SessionCosts | None] = ContextVar(
         "session_costs", default=None
     )
+    _sessions: dict[str, SessionCosts] = {}
+    _sessions_lock = threading.Lock()
 
     @classmethod
     def start_session(cls, session_id: str) -> None:
-        """Initialize cost tracking for a session.
+        """Initialize a new accounting window for a session.
+
+        A later ``start_session`` for the same id is a reset: skill cost
+        deltas treat the new ``tracking_id`` as unknown, not a continuation.
 
         Args:
             session_id: Unique identifier for the session (typically logdir path).
         """
-        cls._session_costs_var.set(SessionCosts(session_id=session_id))
+        costs = SessionCosts(session_id=session_id)
+        with cls._sessions_lock:
+            cls._sessions[session_id] = costs
+        cls._session_costs_var.set(costs)
+
+    @classmethod
+    def ensure_session(cls, session_id: str) -> SessionCosts:
+        """Bind this context to the existing window, or create one."""
+        with cls._sessions_lock:
+            costs = cls._sessions.get(session_id)
+            if costs is None:
+                costs = SessionCosts(session_id=session_id)
+                cls._sessions[session_id] = costs
+        cls._session_costs_var.set(costs)
+        return costs
+
+    @classmethod
+    def attach(cls, costs: SessionCosts) -> None:
+        """Install an already-owned window in this context and the registry."""
+        with cls._sessions_lock:
+            cls._sessions[costs.session_id] = costs
+        cls._session_costs_var.set(costs)
 
     @classmethod
     def record(cls, entry: CostEntry) -> None:
@@ -229,4 +265,6 @@ class CostTracker:
     @classmethod
     def reset(cls) -> None:
         """Reset cost tracking (for testing)."""
+        with cls._sessions_lock:
+            cls._sessions.clear()
         cls._session_costs_var.set(None)

@@ -31,6 +31,7 @@ from ..message import Message, MessageMetadata, MessageTimings
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools
 from ..tools.shell import set_workspace_cwd
+from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
 from .session_models import (
     ConversationSession,
@@ -458,6 +459,7 @@ async def _acp_step(
         )
 
         manager = LogManager.load(conversation_id, lock=False)
+        CostTracker.ensure_session(session_id_for_logdir(manager.logdir))
 
         # Keep server-side hook semantics aligned with the in-process step path.
         assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
@@ -679,6 +681,7 @@ def step(
         branch=branch,
         lock=False,
     )
+    CostTracker.ensure_session(session_id_for_logdir(manager.logdir))
 
     # Snapshot the step sequence at the earliest possible point — before any
     # early-exit path that might clear `generating`. All generating=False clears
@@ -1074,6 +1077,9 @@ def start_tool_execution(
 
         current_conversation_id.set(conversation_id)
         current_session_id.set(session.id)
+        CostTracker.ensure_session(
+            session_id_for_logdir(get_logs_dir() / conversation_id)
+        )
 
         try:
             # Prepare execution environment (config, tools, hooks, .env)

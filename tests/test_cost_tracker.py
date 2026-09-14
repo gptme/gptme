@@ -1,5 +1,7 @@
 """Tests for the cost tracking system."""
 
+import threading
+
 import pytest
 
 from gptme.util.cost_tracker import CostEntry, CostTracker, SessionCosts
@@ -225,3 +227,72 @@ class TestCostTracker:
         from gptme.util.cost_tracker import CostSummary
 
         assert isinstance(summary, CostSummary)
+
+    def test_ensure_session_rebinds_without_reset(self):
+        CostTracker.start_session("conv-a")
+        first = CostTracker.get_session_costs()
+        assert first is not None
+        CostTracker._session_costs_var.set(None)
+        second = CostTracker.ensure_session("conv-a")
+        assert second is first
+        assert CostTracker.get_session_costs() is first
+
+    def test_ensure_session_isolates_conversations(self):
+        a = CostTracker.ensure_session("conv-a")
+        b = CostTracker.ensure_session("conv-b")
+        assert a is not b
+        CostTracker.record(
+            CostEntry(
+                timestamp=1.0,
+                model="test",
+                input_tokens=1,
+                output_tokens=1,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                cost=0.1,
+            )
+        )
+        assert b.request_count == 1
+        assert a.request_count == 0
+        CostTracker.ensure_session("conv-a")
+        assert CostTracker.get_session_costs() is a
+        assert a.request_count == 0
+
+    def test_start_session_resets_tracking_id(self):
+        CostTracker.start_session("conv-a")
+        first = CostTracker.get_session_costs()
+        assert first is not None
+        CostTracker.start_session("conv-a")
+        second = CostTracker.get_session_costs()
+        assert second is not None
+        assert second is not first
+        assert second.tracking_id != first.tracking_id
+
+    def test_replacement_worker_rebinds_same_window(self):
+        owner = CostTracker.ensure_session("conv-a")
+        seen: list[str] = []
+
+        def worker() -> None:
+            CostTracker._session_costs_var.set(None)
+            rebound = CostTracker.ensure_session("conv-a")
+            seen.append(rebound.tracking_id)
+            CostTracker.record(
+                CostEntry(
+                    timestamp=1.0,
+                    model="test",
+                    input_tokens=1,
+                    output_tokens=0,
+                    cache_read_tokens=0,
+                    cache_creation_tokens=0,
+                    cost=0.0,
+                )
+            )
+
+        first = threading.Thread(target=worker)
+        second = threading.Thread(target=worker)
+        first.start()
+        first.join()
+        second.start()
+        second.join()
+        assert seen == [owner.tracking_id, owner.tracking_id]
+        assert owner.request_count == 2

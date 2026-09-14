@@ -22,6 +22,7 @@ from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.tools.complete import SessionCompleteException
 from gptme.tui.app import GptmeApp
+from gptme.util.cost_tracker import CostEntry, CostTracker
 
 
 @pytest.mark.asyncio
@@ -53,6 +54,56 @@ async def test_tui_real_command_has_one_terminal_event(tmp_path, monkeypatch):
             assert len({e.invocation_id for e in events}) == 1
             assert events[0].session_id != str(manager.logdir.resolve())
         assert read_skill_events(manager.logdir) == events
+    finally:
+        unregister_skill_commands()
+        clear_cache()
+
+
+@pytest.mark.asyncio
+async def test_tui_real_command_records_usage(tmp_path, monkeypatch):
+    skill = tmp_path / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: demo\ndescription: demo\n---\nSay hello.")
+    monkeypatch.setattr(
+        LessonIndex, "_default_dirs", staticmethod(lambda: [skill.parent.parent])
+    )
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
+
+    def reply(*args, **kwargs):
+        CostTracker.record(
+            CostEntry(
+                timestamp=0,
+                model="test-model",
+                input_tokens=11,
+                output_tokens=7,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                cost=0.125,
+            )
+        )
+        yield Message("assistant", "Hello.")
+
+    monkeypatch.setattr("gptme.tui.app.step", reply)
+    clear_cache()
+    register_skill_commands()
+    manager = LogManager([], logdir=tmp_path / "conversation", lock=False)
+    app = GptmeApp(manager, workspace=tmp_path)
+    try:
+        async with app.run_test() as pilot:
+            app._handle_command("/skill:demo")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            events = read_skill_events(manager.logdir)
+            assert [e.phase for e in events] == ["started", "queued", "completed"]
+            assert events[0].cost_tracker_id is not None
+            assert events[-1].usage == {
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+                "cost_usd": 0.125,
+                "requests": 1,
+            }
     finally:
         unregister_skill_commands()
         clear_cache()

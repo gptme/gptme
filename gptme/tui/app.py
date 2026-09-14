@@ -71,6 +71,7 @@ from ..tools.complete import SessionCompleteException
 from ..util.content import is_message_command
 from ..util.context import extract_urls, include_paths
 from ..util.cost_display import inline_cost_text
+from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.history import append_history, load_history
 from ..util.tokens import len_tokens
 
@@ -1053,6 +1054,11 @@ class GptmeApp(App):
         # (exclusive=True), so reusing one Context is safe, and mutations
         # (e.g. /model-style changes) persist across turns.
         self._chat_ctx = contextvars.copy_context()
+        # Own one CostTracker window for this TUI run so command admission
+        # and generation workers share the same tracking_id.
+        self._chat_ctx.run(
+            CostTracker.ensure_session, session_id_for_logdir(self.manager.logdir)
+        )
         self._skill_session_id = str(uuid4())
         self._active_skill_invocation_id: str | None = None
         self.prompt_queue: list[str | Message] = []

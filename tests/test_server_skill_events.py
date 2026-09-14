@@ -22,6 +22,7 @@ from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.server.session_models import SessionManager
 from gptme.server.session_step import start_tool_execution, step
+from gptme.util.cost_tracker import CostEntry, CostTracker
 
 
 @pytest.fixture
@@ -225,6 +226,133 @@ def test_server_abandons_owned_invocation(
         "abandoned",
     ]
     assert [e.phase for e in events if e.invocation_id == unrelated] == ["started"]
+
+
+def _record_test_cost() -> None:
+    CostTracker.record(
+        CostEntry(
+            timestamp=0,
+            model="test-model",
+            input_tokens=11,
+            output_tokens=7,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.125,
+        )
+    )
+
+
+def test_server_skill_usage_survives_worker_rebind(client, tmp_path, monkeypatch):
+    skill = tmp_path / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: demo\ndescription: demo\n---\nSay hello.")
+    monkeypatch.setattr(
+        LessonIndex, "_default_dirs", staticmethod(lambda: [skill.parent.parent])
+    )
+    clear_cache()
+    register_skill_commands()
+    name = f"test-skill-cost-{uuid4().hex}"
+    response = client.put(
+        f"/api/v2/conversations/{name}", json={"prompt": "Be helpful."}
+    )
+    session = SessionManager.get_session(response.get_json()["session_id"])
+    assert session
+    tracking_ids: list[str] = []
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{name}",
+            json={"role": "user", "content": "/skill:demo"},
+        )
+        assert response.status_code == 200
+        manager = LogManager.load(name, lock=False)
+        started = read_skill_events(manager.logdir)[0]
+        assert started.cost_tracker_id is not None
+        monkeypatch.setattr(
+            "gptme.server.session_step.trigger_hook", lambda *a, **kw: []
+        )
+        monkeypatch.setattr(
+            "gptme.server.session_step._try_auto_name_and_notify", lambda *a, **kw: None
+        )
+
+        def complete(*args, **kwargs):
+            costs = CostTracker.get_session_costs()
+            assert costs is not None
+            tracking_ids.append(costs.tracking_id)
+            _record_test_cost()
+            return "Done.", None
+
+        monkeypatch.setattr("gptme.server.session_step._chat_complete", complete)
+        CostTracker._session_costs_var.set(None)
+        session.generating = True
+        session.step_seq += 1
+        step(
+            name,
+            session,
+            "openai/gpt-4o-mini",
+            manager.workspace,
+            stream=False,
+            step_seq=session.step_seq,
+        )
+        events = read_skill_events(manager.logdir)
+        assert [e.phase for e in events] == ["started", "queued", "completed"]
+        assert tracking_ids == [started.cost_tracker_id]
+        assert events[-1].usage == {
+            "input_tokens": 11,
+            "output_tokens": 7,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cost_usd": 0.125,
+            "requests": 1,
+        }
+    finally:
+        SessionManager.remove_session(session.id)
+        unregister_skill_commands()
+        clear_cache()
+
+
+def test_server_cost_windows_isolated_across_conversations(
+    skill_conversation, monkeypatch
+):
+    name, session, manager = skill_conversation
+    other_dir = manager.logdir.parent / f"other-{uuid4().hex}"
+    other = CostTracker.ensure_session(str(other_dir.resolve()))
+    CostTracker.record(
+        CostEntry(
+            timestamp=0,
+            model="test-model",
+            input_tokens=99,
+            output_tokens=0,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=9.0,
+        )
+    )
+    CostTracker._session_costs_var.set(None)
+
+    def complete(*args, **kwargs):
+        costs = CostTracker.get_session_costs()
+        assert costs is not None
+        assert costs.tracking_id != other.tracking_id
+        assert costs.session_id == str(manager.logdir.resolve())
+        _record_test_cost()
+        return "Done.", None
+
+    monkeypatch.setattr("gptme.server.session_step._chat_complete", complete)
+    session.generating = True
+    session.step_seq += 1
+    step(
+        name,
+        session,
+        "openai/gpt-4o-mini",
+        manager.workspace,
+        stream=False,
+        step_seq=session.step_seq,
+    )
+    assert other.request_count == 1
+    current = CostTracker.get_session_costs()
+    assert current is not None
+    assert current.request_count == 1
+    assert current.total_cost == 0.125
 
 
 def test_server_latest_user_turn_only(skill_conversation, monkeypatch):

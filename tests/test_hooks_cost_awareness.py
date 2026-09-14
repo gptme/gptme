@@ -456,6 +456,16 @@ class TestSessionStartCostTracking:
         assert costs is not None
         assert costs.session_id == "session-2"
 
+    def test_same_session_keeps_tracking_id(self):
+        logdir = MagicMock(__str__=lambda _: "session-keep")
+        list(session_start_cost_tracking(logdir, None, []))
+        first = CostTracker.get_session_costs()
+        assert first is not None
+        list(session_start_cost_tracking(logdir, None, []))
+        second = CostTracker.get_session_costs()
+        assert second is first
+        assert second.tracking_id == first.tracking_id
+
 
 # === session_end_cost_summary ===
 
