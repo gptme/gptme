@@ -162,11 +162,25 @@ def test_match_hook_json_truncates_multibyte_bodies_on_code_points(
     assert ctx.encode("utf-8")
 
 
-def test_match_pretool_handles_deeply_nested_arguments(tmp_path, monkeypatch):
+def test_pretool_string_values_walk_is_iterative():
+    """2,000-level trees exceed CPython 3.10's recursive json codec.
+
+    The walker must not depend on json.dumps/loads, which RecursionError
+    on the no-extras CI job (Python 3.10) before match code runs.
+    """
+    from gptme.cli.cmd_memory import _string_values
+
+    nested: object = "release"
+    for _ in range(2000):
+        nested = [nested]
+    assert _string_values({"args": nested}) == ["release"]
+
+
+def test_match_pretool_handles_nested_arguments(tmp_path, monkeypatch):
     monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
     write_entry(tmp_path, "rule", keywords=["release"])
     nested: object = "release"
-    for _ in range(2000):
+    for _ in range(32):
         nested = [nested]
     payload = {"hook_event_name": "PreToolUse", "tool_input": {"args": nested}}
     result = CliRunner().invoke(

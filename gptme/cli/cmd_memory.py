@@ -225,6 +225,26 @@ def _read_recall_prompt(prompt: str | None) -> str:
     raise click.UsageError("provide QUERY or --prompt - to read stdin")
 
 
+def _string_values(root: object) -> list[str]:
+    """Collect strings from nested dict/list trees without recursion.
+
+    PreToolUse ``tool_input`` can be arbitrarily nested. A recursive walk
+    raises ``RecursionError`` near Python's default limit (~1000); this
+    iterative stack stays bounded by heap instead.
+    """
+    values: list[str] = []
+    pending: list[object] = [root]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            values.append(value)
+        elif isinstance(value, dict):
+            pending.extend(reversed(value.values()))
+        elif isinstance(value, list):
+            pending.extend(reversed(value))
+    return values
+
+
 def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
     """Accept plain text or the relevant fields of a Claude Code hook payload."""
     event = "PreToolUse" if pre_tool else "UserPromptSubmit"
@@ -247,18 +267,7 @@ def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
         # including nested keys that reuse envelope names (cwd, session_id,
         # transcript_path). Outer envelope fields never participate because
         # traversal starts at tool_input, not the payload root.
-        values: list[str] = []
-        pending: list[object] = [tool_input]
-        while pending:
-            value = pending.pop()
-            if isinstance(value, str):
-                values.append(value)
-            elif isinstance(value, dict):
-                pending.extend(reversed(value.values()))
-            elif isinstance(value, list):
-                pending.extend(reversed(value))
-
-        return "\n".join(values), event
+        return "\n".join(_string_values(tool_input)), event
     if event == "UserPromptSubmit":
         value = payload.get("prompt")
         return value if isinstance(value, str) else "", event
