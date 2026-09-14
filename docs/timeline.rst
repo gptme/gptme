@@ -32,7 +32,9 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
 
     - This file is the source of truth for the gptme project timeline.
       The "📢 News" list in README.md is a brief, manually synced mirror of it; update both together.
-    - Per-release details live in docs/changelog.rst (generated from release notes).
+    - Per-release details live in docs/releases/*.md (generated from git history
+      by scripts/build_changelog.py). docs/changelog.rst is the toctree; GitHub
+      release notes are copied from those files.
     - Community and usage stats (stars, downloads, contributors) live in https://github.com/gptme/stats,
       which also renders the stargazers chart above.
     - Bob's personal month-by-month timeline, which covers his contributions rather than gptme releases, is separate:
