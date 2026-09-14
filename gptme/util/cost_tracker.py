@@ -17,8 +17,16 @@ from uuid import uuid4
 
 
 def session_id_for_logdir(logdir: Path | str) -> str:
-    """Identity used by skill cost snapshots; Path values are resolved."""
-    if isinstance(logdir, Path):
+    """Identity used by skill cost snapshots.
+
+    Absolute ``Path`` values are resolved (CWD-independent). Relative paths
+    and plain strings keep their given form: ``Path.resolve()`` would follow
+    CWD and split the same conversation after ``session_step`` chdirs into
+    the workspace.
+    """
+    if not isinstance(logdir, Path):
+        return str(logdir)
+    if logdir.is_absolute():
         return str(logdir.resolve())
     return str(logdir)
 
@@ -255,9 +263,14 @@ class CostTracker:
             entry: The cost entry to record.
         """
         costs = cls._session_costs_var.get()
-        if costs:
-            with costs._lock:
-                costs.entries.append(entry)
+        if not costs:
+            return
+        with cls._sessions_lock:
+            live = cls._sessions.get(costs.session_id) is costs
+        if not live:
+            return
+        with costs._lock:
+            costs.entries.append(entry)
 
     @classmethod
     def get_session_costs(cls) -> SessionCosts | None:

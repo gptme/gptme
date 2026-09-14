@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from ..logmanager.eventlog import _event_log_lock
-from ..util.cost_tracker import CostTracker
+from ..util.cost_tracker import CostTracker, session_id_for_logdir
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -54,7 +54,7 @@ class SkillEvent:
 def _cost_snapshot(logdir: Path) -> tuple[str | None, dict[str, int | float] | None]:
     """Unknown accounting is distinct from a measured zero-cost invocation."""
     costs = CostTracker.get_session_costs()
-    if costs is None or costs.session_id != str(logdir.resolve()):
+    if costs is None or costs.session_id != session_id_for_logdir(logdir):
         return None, None
     # Snapshot the entries once so a concurrent append cannot split the totals.
     entries = costs.snapshot_entries()

@@ -1,10 +1,16 @@
 """Tests for the cost tracking system."""
 
 import threading
+from pathlib import Path
 
 import pytest
 
-from gptme.util.cost_tracker import CostEntry, CostTracker, SessionCosts
+from gptme.util.cost_tracker import (
+    CostEntry,
+    CostTracker,
+    SessionCosts,
+    session_id_for_logdir,
+)
 
 
 class TestCostEntry:
@@ -321,6 +327,53 @@ class TestCostTracker:
         owner = CostTracker.ensure_session("conv-a")
         CostTracker.end_session("missing")
         assert CostTracker.get_session_costs() is owner
+
+    def test_record_ignores_ended_window_left_in_context(self):
+        first = CostTracker.ensure_session("conv-a")
+        CostTracker.record(
+            CostEntry(
+                timestamp=1.0,
+                model="test",
+                input_tokens=1,
+                output_tokens=0,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                cost=0.1,
+            )
+        )
+        CostTracker.end_session("conv-a")
+        CostTracker._session_costs_var.set(first)
+        CostTracker.record(
+            CostEntry(
+                timestamp=2.0,
+                model="test",
+                input_tokens=9,
+                output_tokens=0,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                cost=0.9,
+            )
+        )
+        assert first.request_count == 1
+        second = CostTracker.ensure_session("conv-a")
+        assert second is not first
+        assert second.request_count == 0
+
+    def test_relative_logdir_identity_is_cwd_independent(self, tmp_path, monkeypatch):
+        other = tmp_path / "workspace"
+        other.mkdir()
+        relative = Path("logs") / "conv-a"
+        monkeypatch.chdir(tmp_path)
+        first = session_id_for_logdir(relative)
+        monkeypatch.chdir(other)
+        second = session_id_for_logdir(relative)
+        assert first == second == str(relative)
+
+    def test_absolute_logdir_identity_canonicalizes(self, tmp_path):
+        logdir = tmp_path / "logs" / "conv-a"
+        logdir.mkdir(parents=True)
+        assert session_id_for_logdir(logdir) == str(logdir.resolve())
+        assert session_id_for_logdir(logdir / ".." / "conv-a") == str(logdir.resolve())
 
     def test_concurrent_record_keeps_all_entries(self):
         owner = CostTracker.ensure_session("conv-a")
