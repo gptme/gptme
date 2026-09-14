@@ -660,7 +660,9 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 
 ### ⭐ Stargazers over time
 
-[![Stargazers over time](https://starchart.cc/gptme/gptme.svg)](https://starchart.cc/gptme/gptme)
+[![Stargazers over time](https://raw.githubusercontent.com/gptme/stats/master/charts/stars.svg)](https://github.com/gptme/stats)
+
+Community and usage numbers (stars, downloads, contributors) are collected daily in [gptme/stats](https://github.com/gptme/stats).
 
 ### 📈 Download Stats
 
