@@ -414,6 +414,40 @@ class TestRegistryRehydration:
         ids = [entry["agent_id"] for entry in subagent_list()]
         assert "listed-agent" in ids
 
+    def test_list_keeps_newest_when_id_is_reused(self, tmp_path: Path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_list
+
+        logs_dir = tmp_path / "logs"
+        older = logs_dir / "subagent-worker-old1"
+        newer = logs_dir / "subagent-worker-new2"
+        _completed_log(older, "old")
+        _completed_log(newer, "new")
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="old run",
+                thread=None,
+                logdir=older,
+                model=None,
+                started_at=10.0,
+            )
+        )
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="new run",
+                thread=None,
+                logdir=newer,
+                model=None,
+                started_at=20.0,
+            )
+        )
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        listed = [e for e in subagent_list() if e["agent_id"] == "worker"]
+        assert len(listed) == 1
+        assert listed[0]["prompt_preview"] == "new run"
+
     def test_find_subagent_prefers_newer_in_memory(self, tmp_path: Path):
         from gptme.tools.subagent.api import _find_subagent
         from gptme.tools.subagent.types import _subagents, _subagents_lock

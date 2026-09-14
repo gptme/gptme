@@ -81,6 +81,7 @@ def _maybe_rehydrate_registry() -> None:
             return
         rehydrated = scan_rehydrate_subagents()
         if rehydrated:
+            rehydrated.sort(key=lambda sa: sa.started_at, reverse=True)
             logger.info(
                 "Rehydrated %d subagent(s) from disk: %s",
                 len(rehydrated),
@@ -91,6 +92,7 @@ def _maybe_rehydrate_registry() -> None:
                 for sa in rehydrated:
                     if sa.agent_id not in existing_ids:
                         _subagents.append(sa)
+                        existing_ids.add(sa.agent_id)
         _types._registry_rehydrated = True
 
 
