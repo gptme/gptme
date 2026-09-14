@@ -554,7 +554,9 @@ document.write(`
   </button>
 `);
 </script>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -570,6 +572,15 @@ document.write(`
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-interfaces">Current interfaces</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#demo-archive-2023">Demo archive (2023)</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -581,13 +592,47 @@ document.write(`
                   
   <section id="demos">
 <h1>Demos<a class="headerlink" href="#demos" title="Link to this heading">#</a></h1>
+<section id="current-interfaces">
+<h2>Current interfaces<a class="headerlink" href="#current-interfaces" title="Link to this heading">#</a></h2>
+<p class="rubric">Terminal UI</p>
+<p>The Textual-based <a class="reference internal" href="tui.html"><span class="doc">TUI</span></a> (<code class="docutils literal notranslate"><span class="pre">gptme-tui</span></code>), with collapsible tool output and a status bar.</p>
+<a class="reference internal image-reference" href="_images/tui.png"><img alt="gptme-tui showing a conversation where gptme writes and runs fib.py" src="_images/tui.png" style="width: 700px;" />
+</a>
+<p class="rubric">Web UI</p>
+<p>The <a class="reference internal" href="webui.html"><span class="doc">web UI</span></a>, bundled with <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code> and hosted at <a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a>.</p>
+<a class="reference internal image-reference" href="_images/webui.png"><img alt="gptme web UI showing a demo conversation with a Python code block and its output" src="_images/webui.png" style="width: 700px;" />
+</a>
+</section>
+<section id="demo-archive-2023">
+<h2>Demo archive (2023)<a class="headerlink" href="#demo-archive-2023" title="Link to this heading">#</a></h2>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>This page is a work in progress, and will be updated with more demos soon.</p>
+<p>These terminal recordings are from 2023 and are kept for historical reference.
+They show the classic <code class="docutils literal notranslate"><span class="pre">gptme</span></code> CLI, which has changed a lot since then.
+See <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a> for up-to-date walkthroughs.</p>
 </div>
+<p>The posters below show a representative frame; press play to watch from the start.</p>
+<p class="rubric">Fibonacci</p>
+<p>An old demo showing off basic code execution and shell interaction.</p>
+<script async id="asciicast-606375" data-idle-time-limit="1" data-poster="npt:1:27" 
+                src="https://asciinema.org/a/606375.js"></script><p>Steps</p>
+<ol class="arabic simple">
+<li><p>Create a new dir ‘gptme-test-fib’ and git init</p></li>
+<li><p>Write a fib function to fib.py, commit</p></li>
+<li><p>Create a public repo and push to GitHub</p></li>
+</ol>
+<p class="rubric">Mandelbrot with curses</p>
+<p>Generate a program that renders mandelbrot with curses, and then modify it to add color.</p>
+<script async id="asciicast-621991" data-idle-time-limit="1" data-poster="npt:3:52" 
+                src="https://asciinema.org/a/621991.js"></script><p>Steps</p>
+<ol class="arabic simple">
+<li><p>Render mandelbrot with curses to mandelbrot_curses.py</p></li>
+<li><p>Program runs</p></li>
+<li><p>Add color</p></li>
+</ol>
 <p class="rubric">Snake with curses</p>
 <p>Generate a snake game that runs in the terminal using curses, and then modify it to add color.</p>
-<script async id="asciicast-621992" data-autoplay="true" data-idle-time-limit="1" 
+<script async id="asciicast-621992" data-idle-time-limit="1" data-poster="npt:4:08" 
                 src="https://asciinema.org/a/621992.js"></script><p>Steps</p>
 <ol class="arabic simple">
 <li><p>Create a snake game with curses to snake.py</p></li>
@@ -597,27 +642,9 @@ document.write(`
 <li><p>Minor struggles</p></li>
 <li><p>Finished game with green snake and red apple pie!</p></li>
 </ol>
-<p class="rubric">Mandelbrot with curses</p>
-<p>Generate a program that renders mandelbrot with curses, and then modify it to add color.</p>
-<script async id="asciicast-621991" data-autoplay="true" data-idle-time-limit="1" 
-                src="https://asciinema.org/a/621991.js"></script><p>Steps</p>
-<ol class="arabic simple">
-<li><p>Render mandelbrot with curses to mandelbrot_curses.py</p></li>
-<li><p>Program runs</p></li>
-<li><p>Add color</p></li>
-</ol>
-<p class="rubric">Fibonacci</p>
-<p>An old demo showing off basic code execution and shell interaction.</p>
-<script async id="asciicast-606375" data-autoplay="true" data-idle-time-limit="1" 
-                src="https://asciinema.org/a/606375.js"></script><p>Steps</p>
-<ol class="arabic simple">
-<li><p>Create a new dir ‘gptme-test-fib’ and git init</p></li>
-<li><p>Write a fib function to fib.py, commit</p></li>
-<li><p>Create a public repo and push to GitHub</p></li>
-</ol>
 <p class="rubric">Answer question from URL</p>
 <p>Showing off basic URL loading from the prompt, and answering questions based on the content.</p>
-<script async id="asciicast-621997" data-autoplay="true" data-idle-time-limit="1" 
+<script async id="asciicast-621997" data-idle-time-limit="1" data-poster="npt:0:31" 
                 src="https://asciinema.org/a/621997.js"></script><p>Steps</p>
 <ol class="arabic simple">
 <li><p>Ask who the CEO of Superuser Labs is, passing website URL</p></li>
@@ -658,6 +685,7 @@ document.write(`
 <li><p>Press <code class="docutils literal notranslate"><span class="pre">Ctrl+C</span></code> in the editor to cancel without making changes</p></li>
 </ul>
 </section>
+</section>
 
 
                 </article>
@@ -694,6 +722,22 @@ document.write(`
             </div>
             
             
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-interfaces">Current interfaces</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#demo-archive-2023">Demo archive (2023)</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>

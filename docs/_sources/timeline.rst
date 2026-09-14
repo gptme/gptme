@@ -7,9 +7,9 @@ A brief timeline of the project.
 
 The idea is to later make this into a timeline similar to the one for `ActivityWatch <https://activitywatch.net/timeline/>`_, including releases, features, etc.
 
-.. figure:: https://starchart.cc/gptme/gptme.svg
+.. figure:: https://raw.githubusercontent.com/gptme/stats/master/charts/stars.svg
    :alt: Stargazers over time
-   :target: https://starchart.cc/gptme/gptme
+   :target: https://github.com/gptme/stats
 
    GitHub stargazers over time
 
@@ -28,19 +28,75 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
 
     This file can be automatically updated by gptme with the help of `gh release list` and `gh release view` commands.
 
+    Source of truth and sync:
+
+    - This file is the source of truth for the gptme project timeline.
+      The "📢 News" list in README.md is a brief, manually synced mirror of it; update both together.
+    - Per-release details live in docs/releases/*.md (generated from git history
+      by scripts/build_changelog.py). docs/changelog.rst is the toctree; GitHub
+      release notes are copied from those files.
+    - Community and usage stats (stars, downloads, contributors) live in https://github.com/gptme/stats,
+      which also renders the stargazers chart above.
+    - Bob's personal month-by-month timeline, which covers his contributions rather than gptme releases, is separate:
+      TimeToBuildBob/TimeToBuildBob.github.io _data/timeline.yml, rendered at
+      https://timetobuildbob.github.io/timeline/ and into the TimeToBuildBob GitHub profile README.
+
 Unreleased
 ----------
 
-- MCP prompts and resources support
-- Anthropic native web search
-- PDF support in browser tool (using pypdf)
-- Skills summary in system prompt
-- Lesson keyword wildcard and regex pattern support
-- Session cost summary on exit
-- Master Context Architecture for autocompact
+- ``gptme service init`` scaffold for headless agents (systemd, and launchd on macOS)
+- Cross-harness memory: ``gptme.memory`` package and ``gptme-util memory`` CLI, compatible with Claude Code and Codex memory
+- Skills invocable as slash commands (``/skill:<name>``)
+- Auto-discovery of local Ollama and LM Studio providers
+- Offline file format conversion tool
+- Trust-on-first-use gate for project-level shell execution
 
 2026
 ----
+
+August
+
+- v0.33.0 (2026-08-19)
+
+  - Snapshot-anchored ``hashline_edit`` edit format with 3-way merge recovery
+  - Sandboxed execution: Docker and Wasmtime WASI backends for the Python tool, sandbox mode for the shell tool
+  - Non-interactive mode: fatal error envelope and exit code taxonomy
+  - Autocompact ``keep_head`` to protect task context from compaction
+  - New commands and modes: ``gptme explain``, ``gptme providers add``, read-only audit tool preset, interactive tutorial onboarding
+  - Security hardening: bearer auth required on all server bind addresses, per-binary shell allowlist flags (GHSA-mfh4-cxj2-jc9p)
+  - Native Kimi K3 support, SuperGrok subscription provider, OpenRouter OAuth in first-run setup
+
+- `gptme-skills-cc <https://github.com/gptme/gptme-skills-cc>`_ created (2026-08-05): gptme agent skills packaged as a Claude Code plugin
+
+July
+
+- v0.32.1 (2026-07-17)
+
+  - Auto-updater for the desktop app
+  - Textual-based terminal UI (``gptme-tui``)
+  - Prompt-injection screening (``--injection-hygiene``) for file reads, shell, and MCP output
+  - Subagent fleet controls: shared token budget, ``max_concurrent`` cap, ``cancel_on_failure``, cooperative cancellation
+  - Gear autonomy presets and brief response mode
+
+- v0.32.0 (2026-07-11)
+
+  - Agent Client Protocol (ACP) support with the ``gptme-acp`` package; gptme tools exposed as an MCP server (``gptme-mcp-server``); MCP prompts, resources, roots, and elicitation
+  - Desktop app (Tauri) builds for Linux, macOS, and Windows, plus Android builds
+  - Computer use: accessibility-tree actions on Linux and macOS, screen recording, audit log with risk labels
+  - Subagents: parallel fan-out (``subagent_parallel``) and git worktree isolation
+  - Evals: SWE-bench and Terminal-Bench modules, HTML leaderboard
+  - Anthropic native web search, PDF support in browser tool, skills summary in system prompt, lesson keyword wildcards/regex, session cost summary on exit, Master Context Architecture for autocompact
+  - New models: GPT-5.5, GPT-5.6 Luna/Terra/Sol, Claude Opus 4.7, DeepSeek V4
+
+- `gptme-cc-plugin <https://github.com/gptme/gptme-cc-plugin>`_ created (2026-07-06): Claude Code skills for running gptme
+
+May
+
+- `gptme-plugin-registry <https://github.com/gptme/gptme-plugin-registry>`_ created (2026-05-12): central registry for plugin discovery
+
+February
+
+- Scheduled dev pre-releases begin (2026-02-27)
 
 January
 

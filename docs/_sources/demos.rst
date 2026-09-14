@@ -3,17 +3,73 @@
 Demos
 =====
 
+Current interfaces
+------------------
+
+.. rubric:: Terminal UI
+
+The Textual-based :doc:`TUI <tui>` (``gptme-tui``), with collapsible tool output and a status bar.
+
+.. image:: ../media/screenshots/tui.png
+   :alt: gptme-tui showing a conversation where gptme writes and runs fib.py
+   :width: 700
+
+.. rubric:: Web UI
+
+The :doc:`web UI <webui>`, bundled with ``gptme-server`` and hosted at `chat.gptme.org <https://chat.gptme.org>`_.
+
+.. image:: ../media/screenshots/webui.png
+   :alt: gptme web UI showing a demo conversation with a Python code block and its output
+   :width: 700
+
+Demo archive (2023)
+-------------------
+
 .. note::
 
-   This page is a work in progress, and will be updated with more demos soon.
+   These terminal recordings are from 2023 and are kept for historical reference.
+   They show the classic ``gptme`` CLI, which has changed a lot since then.
+   See :doc:`examples` for up-to-date walkthroughs.
+
+The posters below show a representative frame; press play to watch from the start.
+
+.. rubric:: Fibonacci
+
+An old demo showing off basic code execution and shell interaction.
+
+.. asciinema:: 606375
+   :idle-time-limit: 1
+   :poster: npt:1:27
+
+Steps
+
+#. Create a new dir 'gptme-test-fib' and git init
+#. Write a fib function to fib.py, commit
+#. Create a public repo and push to GitHub
+
+
+.. rubric:: Mandelbrot with curses
+
+Generate a program that renders mandelbrot with curses, and then modify it to add color.
+
+.. asciinema:: 621991
+   :idle-time-limit: 1
+   :poster: npt:3:52
+
+Steps
+
+#. Render mandelbrot with curses to mandelbrot_curses.py
+#. Program runs
+#. Add color
+
 
 .. rubric:: Snake with curses
 
 Generate a snake game that runs in the terminal using curses, and then modify it to add color.
 
 .. asciinema:: 621992
-   :autoplay: true
    :idle-time-limit: 1
+   :poster: npt:4:08
 
 Steps
 
@@ -24,43 +80,14 @@ Steps
 #. Minor struggles
 #. Finished game with green snake and red apple pie!
 
-.. rubric:: Mandelbrot with curses
-
-Generate a program that renders mandelbrot with curses, and then modify it to add color.
-
-.. asciinema:: 621991
-   :autoplay: true
-   :idle-time-limit: 1
-
-Steps
-
-#. Render mandelbrot with curses to mandelbrot_curses.py
-#. Program runs
-#. Add color
-
-
-.. rubric:: Fibonacci
-
-An old demo showing off basic code execution and shell interaction.
-
-.. asciinema:: 606375
-   :autoplay: true
-   :idle-time-limit: 1
-
-Steps
-
-#. Create a new dir 'gptme-test-fib' and git init
-#. Write a fib function to fib.py, commit
-#. Create a public repo and push to GitHub
-
 
 .. rubric:: Answer question from URL
 
 Showing off basic URL loading from the prompt, and answering questions based on the content.
 
 .. asciinema:: 621997
-   :autoplay: true
    :idle-time-limit: 1
+   :poster: npt:0:31
 
 Steps
 

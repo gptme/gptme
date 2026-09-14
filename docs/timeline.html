@@ -598,7 +598,7 @@ document.write(`
 <p>A brief timeline of the project.</p>
 <p>The idea is to later make this into a timeline similar to the one for <a class="reference external" href="https://activitywatch.net/timeline/">ActivityWatch</a>, including releases, features, etc.</p>
 <figure class="align-default" id="id5">
-<a class="reference external image-reference" href="https://starchart.cc/gptme/gptme"><img alt="Stargazers over time" src="https://starchart.cc/gptme/gptme.svg" />
+<a class="reference external image-reference" href="https://github.com/gptme/stats"><img alt="Stargazers over time" src="https://raw.githubusercontent.com/gptme/stats/master/charts/stars.svg" />
 </a>
 <figcaption>
 <p><span class="caption-text">GitHub stargazers over time</span><a class="headerlink" href="#id5" title="Link to this image">#</a></p>
@@ -607,17 +607,63 @@ document.write(`
 <section id="unreleased">
 <h2>Unreleased<a class="headerlink" href="#unreleased" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p>MCP prompts and resources support</p></li>
-<li><p>Anthropic native web search</p></li>
-<li><p>PDF support in browser tool (using pypdf)</p></li>
-<li><p>Skills summary in system prompt</p></li>
-<li><p>Lesson keyword wildcard and regex pattern support</p></li>
-<li><p>Session cost summary on exit</p></li>
-<li><p>Master Context Architecture for autocompact</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">service</span> <span class="pre">init</span></code> scaffold for headless agents (systemd, and launchd on macOS)</p></li>
+<li><p>Cross-harness memory: <code class="docutils literal notranslate"><span class="pre">gptme.memory</span></code> package and <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span></code> CLI, compatible with Claude Code and Codex memory</p></li>
+<li><p>Skills invocable as slash commands (<code class="docutils literal notranslate"><span class="pre">/skill:&lt;name&gt;</span></code>)</p></li>
+<li><p>Auto-discovery of local Ollama and LM Studio providers</p></li>
+<li><p>Offline file format conversion tool</p></li>
+<li><p>Trust-on-first-use gate for project-level shell execution</p></li>
 </ul>
 </section>
 <section id="id1">
 <h2>2026<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
+<p>August</p>
+<ul class="simple">
+<li><p>v0.33.0 (2026-08-19)</p>
+<ul>
+<li><p>Snapshot-anchored <code class="docutils literal notranslate"><span class="pre">hashline_edit</span></code> edit format with 3-way merge recovery</p></li>
+<li><p>Sandboxed execution: Docker and Wasmtime WASI backends for the Python tool, sandbox mode for the shell tool</p></li>
+<li><p>Non-interactive mode: fatal error envelope and exit code taxonomy</p></li>
+<li><p>Autocompact <code class="docutils literal notranslate"><span class="pre">keep_head</span></code> to protect task context from compaction</p></li>
+<li><p>New commands and modes: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">explain</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">providers</span> <span class="pre">add</span></code>, read-only audit tool preset, interactive tutorial onboarding</p></li>
+<li><p>Security hardening: bearer auth required on all server bind addresses, per-binary shell allowlist flags (GHSA-mfh4-cxj2-jc9p)</p></li>
+<li><p>Native Kimi K3 support, SuperGrok subscription provider, OpenRouter OAuth in first-run setup</p></li>
+</ul>
+</li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-skills-cc">gptme-skills-cc</a> created (2026-08-05): gptme agent skills packaged as a Claude Code plugin</p></li>
+</ul>
+<p>July</p>
+<ul class="simple">
+<li><p>v0.32.1 (2026-07-17)</p>
+<ul>
+<li><p>Auto-updater for the desktop app</p></li>
+<li><p>Textual-based terminal UI (<code class="docutils literal notranslate"><span class="pre">gptme-tui</span></code>)</p></li>
+<li><p>Prompt-injection screening (<code class="docutils literal notranslate"><span class="pre">--injection-hygiene</span></code>) for file reads, shell, and MCP output</p></li>
+<li><p>Subagent fleet controls: shared token budget, <code class="docutils literal notranslate"><span class="pre">max_concurrent</span></code> cap, <code class="docutils literal notranslate"><span class="pre">cancel_on_failure</span></code>, cooperative cancellation</p></li>
+<li><p>Gear autonomy presets and brief response mode</p></li>
+</ul>
+</li>
+<li><p>v0.32.0 (2026-07-11)</p>
+<ul>
+<li><p>Agent Client Protocol (ACP) support with the <code class="docutils literal notranslate"><span class="pre">gptme-acp</span></code> package; gptme tools exposed as an MCP server (<code class="docutils literal notranslate"><span class="pre">gptme-mcp-server</span></code>); MCP prompts, resources, roots, and elicitation</p></li>
+<li><p>Desktop app (Tauri) builds for Linux, macOS, and Windows, plus Android builds</p></li>
+<li><p>Computer use: accessibility-tree actions on Linux and macOS, screen recording, audit log with risk labels</p></li>
+<li><p>Subagents: parallel fan-out (<code class="docutils literal notranslate"><span class="pre">subagent_parallel</span></code>) and git worktree isolation</p></li>
+<li><p>Evals: SWE-bench and Terminal-Bench modules, HTML leaderboard</p></li>
+<li><p>Anthropic native web search, PDF support in browser tool, skills summary in system prompt, lesson keyword wildcards/regex, session cost summary on exit, Master Context Architecture for autocompact</p></li>
+<li><p>New models: GPT-5.5, GPT-5.6 Luna/Terra/Sol, Claude Opus 4.7, DeepSeek V4</p></li>
+</ul>
+</li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-cc-plugin">gptme-cc-plugin</a> created (2026-07-06): Claude Code skills for running gptme</p></li>
+</ul>
+<p>May</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-plugin-registry">gptme-plugin-registry</a> created (2026-05-12): central registry for plugin discovery</p></li>
+</ul>
+<p>February</p>
+<ul class="simple">
+<li><p>Scheduled dev pre-releases begin (2026-02-27)</p></li>
+</ul>
 <p>January</p>
 <ul class="simple">
 <li><p>gptme-agent-template v0.4 release (2026-01-23)</p>
