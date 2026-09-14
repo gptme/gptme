@@ -316,9 +316,6 @@ def test_chats_read_start_and_context_options(tmp_path, monkeypatch, mocker):
     assert "3. User: third line..." not in result.output
 
 
-@pytest.mark.xfail(
-    reason="RAG index is shared globally and cannot be isolated per-test; see TODO in test code"
-)
 def test_context_index_and_retrieve(tmp_path):
     """Test the context index and retrieve commands."""
     # Skip if gptme-rag not available
@@ -335,24 +332,26 @@ def test_context_index_and_retrieve(tmp_path):
     result = runner.invoke(main, ["context", "index", str(test_file)])
 
     assert result.exit_code == 0
-    assert "indexed 1" in result.output.lower()
+    indexed = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", result.output)
+    indexed = re.sub(r"\x1b\]8;.*?(?:\x1b\\|\x07)", "", indexed).lower()
+    assert "indexed 1" in indexed
 
-    # Test basic retrieve
+    # Indexing is isolated; retrieval ranking is not — the global RAG store
+    # can outrank this file. Keep CLI exit-code coverage; xfail only the
+    # content assertion when the shared index interferes.
     result = runner.invoke(main, ["context", "retrieve", "test query"])
     assert result.exit_code == 0
-    # NOTE: This fails because the global RAG knowledge base has other indexed documents
-    # that are ranked higher by semantic similarity than our test file
-    assert result.output.count("Hello, world!") > 0
-    # Check that the output contains the indexed content only once
-    # TODO: requires fresh index for gptme-rag (or project/dir-specific index support)
-    # assert result.output.count("Hello, world!") == 1
+    if result.output.count("Hello, world!") == 0:
+        pytest.xfail(
+            "shared RAG index ranks other documents above the isolated test file"
+        )
 
-    # Test with --full flag
     result = runner.invoke(main, ["context", "retrieve", "--full", "test query"])
     assert result.exit_code == 0
-    # NOTE: Same issue as above - global knowledge base interference
-    assert result.output.count("Hello, world!") > 0
-    # assert result.output.count("Hello, world!") == 1
+    if result.output.count("Hello, world!") == 0:
+        pytest.xfail(
+            "shared RAG index ranks other documents above the isolated test file"
+        )
 
 
 def test_prompts_expand_ignores_disable_path_include(tmp_path, monkeypatch):
