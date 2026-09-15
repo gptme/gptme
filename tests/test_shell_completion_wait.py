@@ -234,3 +234,20 @@ def test_pending_subagent_notification_yields_to_its_hook(tmp_path: Path) -> Non
             == []
         )
     assert completions.get_nowait() == ("child", "success", "result")
+
+
+@pytest.mark.parametrize("regular", [0, 50, 101])
+def test_idle_input_preserves_prompts_above_loop_capacity(
+    tmp_path: Path, regular: int
+) -> None:
+    from gptme.constants import MAX_PROMPT_QUEUE_SIZE
+    from gptme.prompt_queue import drain_prompt_queue, drain_steer_prompts, queue_prompt
+
+    expected = [f"prompt-{i}" for i in range(101)]
+    for i, content in enumerate(expected):
+        queue_prompt(tmp_path, content, steer=i >= regular)
+    messages = bg._background_wait_input(SimpleNamespace(logdir=tmp_path))
+    assert isinstance(messages, list)
+    assert len(messages) == MAX_PROMPT_QUEUE_SIZE
+    remaining = drain_prompt_queue(tmp_path) + drain_steer_prompts(tmp_path)
+    assert [m.content for m in messages + remaining] == expected

@@ -458,6 +458,7 @@ def _background_wait_input(
     manager: object,
 ) -> list[Message] | Literal["hook"] | None:
     """Yield to existing file-based input/control, including subagent budgets."""
+    from ..constants import MAX_PROMPT_QUEUE_SIZE
     from ..prompt_queue import drain_prompt_queue, drain_steer_prompts
 
     logdir = getattr(manager, "logdir", None)
@@ -510,7 +511,10 @@ def _background_wait_input(
     # Use the existing locked readers, not file size: an idle CLI has no next
     # STEP_PRE to consume steering unless we actually queue that input here.
     # Invalid/partial records remain on disk and cannot cause a spurious exit.
-    messages = drain_prompt_queue(logdir) + drain_steer_prompts(logdir)
+    messages = drain_prompt_queue(logdir, max_items=MAX_PROMPT_QUEUE_SIZE)
+    messages += drain_steer_prompts(
+        logdir, max_items=MAX_PROMPT_QUEUE_SIZE - len(messages)
+    )
     if messages:
         return messages
     try:
