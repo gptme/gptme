@@ -211,3 +211,83 @@ def test_idle_completion_preempts_lower_priority_loop_control(
         lower_priority.assert_not_called()
     finally:
         current_conversation_id.reset(token)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Requires a POSIX FIFO release gate")
+def test_noninteractive_cli_receives_background_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shell_loop: None
+) -> None:
+    """Exercise real `gptme -n` parsing, startup, chat and shell without a provider."""
+    from click.testing import CliRunner
+
+    from gptme.cli.main import main
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    monkeypatch.setenv("GPTME_TELEMETRY_ENABLED", "false")
+    release_gate = tmp_path / "cli-release"
+    os.mkfifo(release_gate)
+    command = (
+        f"read -r release < {shlex.quote(str(release_gate))}; "
+        "sleep 0.1; printf CLI_RESULT"
+    )
+    call_count = 0
+
+    def reply(messages: list[Message], *args: object, **kwargs: object) -> Message:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return Message(
+                "assistant",
+                "@shell(cli-job): "
+                + json.dumps({"command": command, "background": True}),
+            )
+        if call_count == 2:
+            job = get_background_job(1)
+            assert job is not None and job.is_running()
+            release_gate.write_text("continue\n")
+            return Message("assistant", "The command is running.")
+        assert call_count == 3, "Unexpected extra model turn"
+        completions = [
+            message
+            for message in messages
+            if message.role == "system"
+            and message.content.startswith("Background shell job #")
+        ]
+        assert len(completions) == 1
+        assert "```stdout\nCLI_RESULT\n```" in completions[0].content
+        return Message(
+            "assistant",
+            "Received CLI_RESULT; the command succeeded.\n\n```complete\n\n```",
+        )
+
+    monkeypatch.setattr(sys.modules["gptme.llm"], "_reply_after_hooks", reply)
+    result = CliRunner().invoke(
+        main,
+        [
+            "-n",
+            "--no-stream",
+            "--model",
+            "local/test",
+            "--tools",
+            "shell",
+            "--tool-format",
+            "tool",
+            "--name",
+            "cli-completion",
+            "--workspace",
+            str(tmp_path),
+            "Start a background command and report its completion.",
+        ],
+    )
+    assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
+    assert call_count == 3
+    transcripts = list((tmp_path / "logs").glob("*/conversation.jsonl"))
+    assert len(transcripts) == 1
+    saved = [json.loads(line) for line in transcripts[0].read_text().splitlines()]
+    assert any(
+        message.get("content", "").startswith(
+            "Received CLI_RESULT; the command succeeded."
+        )
+        for message in saved
+    )
