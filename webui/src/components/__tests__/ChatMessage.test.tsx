@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { ChatMessage } from '../ChatMessage';
+import { ChatMessage, isSystemErrorContent, isSystemSuccessContent } from '../ChatMessage';
 import { MessageAvatar } from '../MessageAvatar';
 import '@testing-library/jest-dom';
 import type { Message, MessageRole } from '@/types/conversation';
@@ -201,5 +201,69 @@ describe('ChatMessage', () => {
     expect(copyButton.querySelector('svg.lucide-check')).not.toBeInTheDocument();
 
     consoleSpy.mockRestore();
+  });
+
+  it('renders system message with empty content without throwing', () => {
+    const message$ = observable<Message>({
+      role: 'system',
+      content: '',
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(() =>
+      renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />)
+    ).not.toThrow();
+  });
+
+  it('renders system message when content is undefined without throwing', () => {
+    const message$ = observable({
+      role: 'system',
+      content: undefined,
+      timestamp: new Date().toISOString(),
+    } as unknown as Message);
+
+    expect(() =>
+      renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />)
+    ).not.toThrow();
+  });
+});
+
+describe('isSystemErrorContent', () => {
+  it('returns false for undefined without throwing', () => {
+    expect(() => isSystemErrorContent(undefined)).not.toThrow();
+    expect(isSystemErrorContent(undefined)).toBe(false);
+  });
+
+  it('returns false for empty string', () => {
+    expect(isSystemErrorContent('')).toBe(false);
+  });
+
+  it('returns true when content starts with Error', () => {
+    expect(isSystemErrorContent('Error: file not found')).toBe(true);
+  });
+
+  it('returns false for non-error content', () => {
+    expect(isSystemErrorContent('Saved foo.py')).toBe(false);
+  });
+});
+
+describe('isSystemSuccessContent', () => {
+  it('returns false for undefined without throwing', () => {
+    expect(() => isSystemSuccessContent(undefined)).not.toThrow();
+    expect(isSystemSuccessContent(undefined)).toBe(false);
+  });
+
+  it('returns false for empty string', () => {
+    expect(isSystemSuccessContent('')).toBe(false);
+  });
+
+  it('returns true for saved/appended/success prefixes', () => {
+    expect(isSystemSuccessContent('Saved foo.py')).toBe(true);
+    expect(isSystemSuccessContent('Appended to foo.py')).toBe(true);
+    expect(isSystemSuccessContent('Patch applied successfully')).toBe(true);
+  });
+
+  it('returns false for error content', () => {
+    expect(isSystemSuccessContent('Error: file not found')).toBe(false);
   });
 });

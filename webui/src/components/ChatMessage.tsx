@@ -139,6 +139,24 @@ function MessageMetaLabel({
   );
 }
 
+/**
+ * System-message status classification.
+ * Keep in sync with gptme/message.py (first-line saved/appended/success vs Error).
+ */
+export function isSystemErrorContent(content: string | undefined): boolean {
+  return (content ?? '').startsWith('Error');
+}
+
+export function isSystemSuccessContent(content: string | undefined): boolean {
+  const normalized = (content ?? '').toLowerCase();
+  const firstThreeWords = normalized.split(/\s+/).slice(0, 3);
+  return (
+    normalized.startsWith('saved') ||
+    normalized.startsWith('appended') ||
+    firstThreeWords.some((word) => word.includes('success') || word.includes('successfully'))
+  );
+}
+
 interface Props {
   message$: Observable<Message | StreamingMessage>;
   previousMessage$?: Observable<Message | undefined>;
@@ -472,18 +490,8 @@ const ChatMessageComponent: FC<Props> = ({
   const isUser$ = useObservable(() => message$.role.get() === 'user');
   const isAssistant$ = useObservable(() => message$.role.get() === 'assistant');
   const isSystem$ = useObservable(() => message$.role.get() === 'system');
-  const isError$ = useObservable(() => (previousContent$.get() ?? '').startsWith('Error'));
-  const isSuccess$ = useObservable(() => {
-    // The equivalent pattern for this in gptme-core exists in gptme/message.py
-    // Keep these in sync for consistency
-    const content = (previousContent$.get() ?? '').toLowerCase();
-    const firstThreeWords = content.split(/\s+/).slice(0, 3);
-    return (
-      content.startsWith('saved') ||
-      content.startsWith('appended') ||
-      firstThreeWords.some((word) => word.includes('success') || word.includes('successfully'))
-    );
-  });
+  const isError$ = useObservable(() => isSystemErrorContent(previousContent$.get()));
+  const isSuccess$ = useObservable(() => isSystemSuccessContent(previousContent$.get()));
 
   const copied$ = useObservable(false);
 
