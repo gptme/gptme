@@ -2813,9 +2813,14 @@ def _check_workspace_config() -> Message | None:
     workspace-aware subagent instead of running in a generic context.
     Returns None if no gptme.toml is found (or CWD lookup fails), or if this
     workspace has already been hinted this session.
+
+    Uses the persistent shell's cwd, not ``Path.cwd()``. In server contexts
+    ``_set_cwd`` skips process-wide ``os.chdir`` when ``get_workspace_cwd()``
+    is set, so a process-cwd lookup would miss the directory the agent just
+    ``cd``'d into.
     """
     try:
-        cwd = Path.cwd()
+        cwd = get_shell().get_cwd().resolve()
     except (FileNotFoundError, OSError):
         return None
 

@@ -2264,6 +2264,22 @@ def test_check_workspace_config_hint_includes_workdir_param(tmp_path):
         _hinted_workspaces.discard(str(tmp_path.resolve()))
 
 
+def _isolate_shell_context():
+    """Drop leaked ContextVars from a prior xdist-worker test (e.g. session_step)."""
+    ws_token = shell_module._workspace_cwd.set(None)
+    old_shell = shell_module._shell_var.get()
+    sh_token = shell_module._shell_var.set(None)
+    return ws_token, sh_token, old_shell
+
+
+def _restore_shell_context(ws_token, sh_token, old_shell) -> None:
+    leftover = shell_module._shell_var.get()
+    if leftover is not None and leftover is not old_shell:
+        leftover.close()
+    shell_module._shell_var.reset(sh_token)
+    shell_module._workspace_cwd.reset(ws_token)
+
+
 def test_workspace_hint_in_command_output(tmp_path):
     """Workspace hint is appended to the command output in a single message.
 
@@ -2282,10 +2298,12 @@ def test_workspace_hint_in_command_output(tmp_path):
     _hinted_workspaces.discard(str(tmp_path.resolve()))
 
     original_cwd = os.getcwd()
+    ctx = _isolate_shell_context()
     try:
         messages = list(execute_shell(None, None, {"command": f"cd {tmp_path}"}))
     finally:
         os.chdir(original_cwd)
+        _restore_shell_context(*ctx)
         _hinted_workspaces.discard(str(tmp_path.resolve()))
 
     assert len(messages) == 1, (
@@ -2311,6 +2329,7 @@ def test_workspace_hint_serializes_as_one_tool_response(tmp_path):
     _hinted_workspaces.discard(str(tmp_path.resolve()))
 
     original_cwd = os.getcwd()
+    ctx = _isolate_shell_context()
     try:
         result_messages = list(
             ToolUse(
@@ -2324,6 +2343,7 @@ def test_workspace_hint_serializes_as_one_tool_response(tmp_path):
         )
     finally:
         os.chdir(original_cwd)
+        _restore_shell_context(*ctx)
         _hinted_workspaces.discard(str(tmp_path.resolve()))
 
     init_tools(allowlist=["shell"])
@@ -2350,11 +2370,31 @@ def test_workspace_hint_serializes_as_one_tool_response(tmp_path):
     assert "gptme.toml" in str(tool_result["content"])
 
 
+def test_workspace_hint_follows_shell_cwd_when_process_chdir_is_skipped(tmp_path):
+    """Server sessions set workspace cwd and skip os.chdir; the hint must still fire."""
+    from gptme.tools.shell import _hinted_workspaces, execute_shell
+
+    (tmp_path / "gptme.toml").write_text("[gptme]\n")
+    _hinted_workspaces.discard(str(tmp_path.resolve()))
+    original_cwd = os.getcwd()
+    ctx = _isolate_shell_context()
+    shell_module._workspace_cwd.set(original_cwd)
+    try:
+        messages = list(execute_shell(None, None, {"command": f"cd {tmp_path}"}))
+        assert os.getcwd() == original_cwd
+        assert "gptme.toml" in messages[0].content
+    finally:
+        os.chdir(original_cwd)
+        _restore_shell_context(*ctx)
+        _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+
 def test_shell_bare_cd_updates_working_directory(tmp_path):
     """A bare ``cd`` should update cwd to HOME, not leave stale state behind."""
     original_cwd = os.getcwd()
     home_dir = tmp_path / "home"
     home_dir.mkdir()
+    ctx = _isolate_shell_context()
     shell = ShellSession()
 
     try:
@@ -2371,6 +2411,7 @@ def test_shell_bare_cd_updates_working_directory(tmp_path):
     finally:
         os.chdir(original_cwd)
         shell.close()
+        _restore_shell_context(*ctx)
 
 
 def test_set_e_does_not_persist_across_blocks(shell):
