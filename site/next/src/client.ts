@@ -21,20 +21,27 @@ if (toggle && menu) {
 
 // Copy-to-clipboard buttons, hidden until JS and the Clipboard API are available.
 const status = document.getElementById("copy-status");
+let copyTimer = 0;
+let lastCopied: HTMLButtonElement | undefined;
 document.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((btn) => {
   if (!navigator.clipboard) return;
   btn.hidden = false;
   btn.addEventListener("click", async () => {
+    window.clearTimeout(copyTimer);
+    if (lastCopied && lastCopied !== btn) delete lastCopied.dataset.state;
+    lastCopied = btn;
     try {
       await navigator.clipboard.writeText(btn.dataset.copy ?? "");
       btn.dataset.state = "copied";
       if (status) status.textContent = "Copied to clipboard";
-      setTimeout(() => {
-        delete btn.dataset.state;
-        if (status) status.textContent = "";
-      }, 1800);
     } catch {
+      delete btn.dataset.state;
       if (status) status.textContent = "Copy failed";
     }
+    copyTimer = window.setTimeout(() => {
+      delete btn.dataset.state;
+      if (status) status.textContent = "";
+      lastCopied = undefined;
+    }, 1800);
   });
 });

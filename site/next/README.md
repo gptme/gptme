@@ -11,7 +11,8 @@ This directory is a static prototype of the redesigned gptme.org open-source sho
   six ways to run gptme, project stats, Bob and the open-source/managed comparison,
   and a Superuser Labs band.
 - `/readme/` renders the repository `README.md` at build time (GFM, GitHub-style
-  heading anchors, without the logo/badge header).
+  heading anchors, without the logo/badge header). The HTML is sanitized before
+  it is inserted into the page.
 
 ## Stack
 

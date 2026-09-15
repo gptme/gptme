@@ -13,5 +13,6 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "vite.config.ts", "tailwind.config.ts", "tailwind.preset.ts"]
+  "include": ["src", "vite.config.ts", "tailwind.config.ts", "tailwind.preset.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

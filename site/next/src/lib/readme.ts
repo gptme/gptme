@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import GithubSlugger from "github-slugger";
 import { Marked, type Tokens } from "marked";
+import sanitizeHtml from "sanitize-html";
 
 // Resolved from the project root (site/next), which is the cwd for `vite` and
 // the prerender step. import.meta.url is not usable here: at build time this
@@ -11,6 +12,7 @@ const README_PATH = resolve(process.cwd(), "..", "..", "README.md");
 
 const MEDIA_BASE = "https://gptme.org/media/";
 const REPO_BLOB_BASE = "https://github.com/gptme/gptme/blob/master/";
+const SAFE_ABSOLUTE = /^(https?:|mailto:)/i;
 
 /**
  * Drop the centered HTML header at the top of the README (logo, title,
@@ -35,17 +37,111 @@ export function stripHeader(md: string): string {
 
 /** Rewrite a relative URL from the README so it works when served from the site. */
 export function rewriteUrl(href: string): string {
-  if (!href || /^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(href)) return href;
-  const clean = href.replace(/^\.\//, "").replace(/^\//, "");
+  const trimmed = href.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("#")) return trimmed;
+  // Protocol-relative URLs are treated as https so they cannot inherit the page scheme.
+  if (trimmed.startsWith("//")) return rewriteUrl(`https:${trimmed}`);
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+    return SAFE_ABSOLUTE.test(trimmed) ? trimmed : "";
+  }
+  const clean = trimmed.replace(/^\.\//, "").replace(/^\//, "");
   if (clean.startsWith("media/")) return MEDIA_BASE + clean.slice("media/".length);
   return REPO_BLOB_BASE + clean;
 }
 
+function rewriteSrcset(value: string): string {
+  return value
+    .split(",")
+    .map((part) => {
+      const trimmed = part.trim();
+      if (!trimmed) return "";
+      const [url, ...rest] = trimmed.split(/\s+/);
+      return [rewriteUrl(url), ...rest].join(" ");
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
 function rewriteHtmlUrls(html: string): string {
   return html.replace(
-    /\b(src|href)=("|')([^"']*)\2/g,
-    (_m, attr: string, q: string, url: string) => `${attr}=${q}${rewriteUrl(url)}${q}`,
+    /\b(src|href|srcset)=("|')([^"']*)\2/g,
+    (_m, attr: string, q: string, url: string) => {
+      const next = attr === "srcset" ? rewriteSrcset(url) : rewriteUrl(url);
+      return `${attr}=${q}${next}${q}`;
+    },
   );
+}
+
+const README_SANITIZE: sanitizeHtml.IOptions = {
+  allowedTags: [
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "br",
+    "hr",
+    "ul",
+    "ol",
+    "li",
+    "blockquote",
+    "pre",
+    "code",
+    "em",
+    "i",
+    "strong",
+    "del",
+    "a",
+    "img",
+    "table",
+    "thead",
+    "tbody",
+    "tfoot",
+    "tr",
+    "th",
+    "td",
+    "div",
+    "span",
+    "details",
+    "summary",
+    "sup",
+    "sub",
+    "kbd",
+    "abbr",
+  ],
+  allowedAttributes: {
+    a: ["href", "title", "class", "aria-hidden", "tabindex"],
+    img: ["src", "srcset", "alt", "title", "width", "height", "class"],
+    h1: ["id", "class"],
+    h2: ["id", "class"],
+    h3: ["id", "class"],
+    h4: ["id", "class"],
+    h5: ["id", "class"],
+    h6: ["id", "class"],
+    div: ["class"],
+    span: ["class"],
+    code: ["class"],
+    pre: ["class"],
+    ul: ["class", "id"],
+    ol: ["start", "type", "class"],
+    li: ["value"],
+    p: ["align", "class"],
+    th: ["align", "colspan", "rowspan", "width"],
+    td: ["align", "colspan", "rowspan", "width"],
+    details: ["open"],
+    abbr: ["title"],
+  },
+  allowedSchemes: ["http", "https", "mailto"],
+  allowedSchemesByTag: { img: ["http", "https"] },
+  allowProtocolRelative: false,
+};
+
+/** Strip scripts, event handlers, and unsafe URL schemes from README HTML. */
+export function sanitizeReadmeHtml(html: string): string {
+  return sanitizeHtml(html, README_SANITIZE);
 }
 
 export function renderReadme(md: string = readFileSync(README_PATH, "utf8")): string {
@@ -69,7 +165,11 @@ export function renderReadme(md: string = readFileSync(README_PATH, "utf8")): st
   });
   const html = marked.parse(stripHeader(md), { async: false }) as string;
   // Wide tables scroll inside their own container instead of the page.
-  return rewriteHtmlUrls(html)
-    .replaceAll("<table>", '<div class="overflow-x-auto"><table>')
-    .replaceAll("</table>", "</table></div>");
+  // Sanitize last so raw README HTML (script tags, javascript: links, event
+  // handlers) cannot reach dangerouslySetInnerHTML on /readme/.
+  return sanitizeReadmeHtml(
+    rewriteHtmlUrls(html)
+      .replaceAll("<table>", '<div class="overflow-x-auto"><table>')
+      .replaceAll("</table>", "</table></div>"),
+  );
 }
