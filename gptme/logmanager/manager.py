@@ -53,6 +53,7 @@ from ..util.reduce import (
 )
 from ..util.uri import URI
 from . import eventlog
+from .durability import existing_parent, sync_directories, sync_directory
 
 PathLike: TypeAlias = str | Path
 
@@ -159,12 +160,40 @@ class Log:
     def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
         output = Path(path)
         append_safe = append and self._can_append(output)
-        mode = "a" if append_safe else "w"
         start = len(self.persisted) if append_safe else 0
-        with open(output, mode, encoding="utf-8") as file:
-            file.writelines(
-                json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:]
-            )
+        lines = (json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:])
+        if append_safe:
+            with open(output, "a", encoding="utf-8") as file:
+                file.writelines(lines)
+        else:
+            # Never truncate an acknowledged transcript in place. A failed
+            # rewrite leaves the old inode recoverable until replacement.
+            existing_mode = output.stat().st_mode if output.exists() else None
+            temp_path: Path | None = None
+            try:
+                with NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=output.parent, delete=False
+                ) as file:
+                    temp_path = Path(file.name)
+                    file.writelines(lines)
+                    file.flush()
+                    if existing_mode is not None:
+                        # fchmod is Unix-only; chmod-by-path is the Windows
+                        # fallback. Either way the mode lands before fsync so
+                        # a crash after replacement cannot revive the temp
+                        # file's default permissions.
+                        if hasattr(os, "fchmod"):
+                            os.fchmod(file.fileno(), existing_mode)
+                        else:
+                            os.chmod(temp_path, existing_mode)
+                    os.fsync(file.fileno())
+                os.replace(temp_path, output)
+                # Direct rewrite callers (fork, undo, edit) acknowledge here
+                # without a later write(sync=True). No-op on Windows.
+                sync_directory(output.parent)
+            finally:
+                if temp_path is not None:
+                    temp_path.unlink(missing_ok=True)
         return self.replace(
             persisted=tuple(self.messages),
             persisted_path=output.resolve(),
@@ -222,7 +251,7 @@ class LogManager:
         # When current_view is set, new messages go to BOTH master AND the view
         self.current_view: str | None = view
         if logdir:
-            self.logdir = Path(logdir)
+            self.logdir = Path(logdir).resolve()
         else:
             # generate tmpfile - store TemporaryDirectory instance to prevent
             # premature garbage collection and ensure proper cleanup
@@ -237,6 +266,7 @@ class LogManager:
         _current_log_var.set(self)
 
         # Create and optionally lock the directory
+        self._sync_root = existing_parent(self.logdir)
         self.logdir.mkdir(parents=True, exist_ok=True)
         is_pytest = "PYTEST_CURRENT_TEST" in os.environ
         if lock and not is_pytest:
@@ -439,7 +469,7 @@ class LogManager:
     @property
     def logfile(self) -> Path:
         if self.current_branch == "main":
-            return get_logs_dir() / self.chat_id / "conversation.jsonl"
+            return self.logdir / "conversation.jsonl"
         return self.logdir / "branches" / f"{self.current_branch}.jsonl"
 
     @property
@@ -570,10 +600,12 @@ class LogManager:
 
         Args:
             branches: Whether to write other branches
-            sync: If True, force fsync to ensure data is on disk
+            sync: Sync written transcripts, recovery logs and namespace before
+                returning. POSIX barrier failures propagate to the caller.
         """
         # create directory if it doesn't exist
         Path(self.logfile).parent.mkdir(parents=True, exist_ok=True)
+        paths: set[Path] = set()
 
         # write current branch (or main branch if on a view)
         # When on a view, conversation.jsonl must always contain the full main
@@ -582,8 +614,10 @@ class LogManager:
             main_path = self.logdir / "conversation.jsonl"
             main_log = self._branches["main"]
             self._branches["main"] = main_log.write_jsonl(main_path, append=True)
+            paths.add(main_path)
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)
+            paths.add(self.logfile)
 
         # write other branches
         if branches:
@@ -593,12 +627,14 @@ class LogManager:
                 if branch == "main":
                     # when on a non-main branch, also persist main to conversation.jsonl
                     if self.current_branch != "main":
-                        main_path = get_logs_dir() / self.chat_id / "conversation.jsonl"
+                        main_path = self.logdir / "conversation.jsonl"
                         main_path.parent.mkdir(parents=True, exist_ok=True)
                         self._branches[branch] = log.write_jsonl(main_path, append=True)
+                        paths.add(main_path)
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
                 self._branches[branch] = log.write_jsonl(branch_path, append=True)
+                paths.add(branch_path)
 
             # Write view branches
             if self._views:
@@ -607,35 +643,35 @@ class LogManager:
                 for view_name, log in self._views.items():
                     view_path = views_dir / f"{view_name}.jsonl"
                     self._views[view_name] = log.write_jsonl(view_path, append=True)
+                    paths.add(view_path)
 
         # Persist model selection trace alongside the conversation
         trace_path = self.write_model_trace()
 
         # Force sync to disk if requested
         if sync:
-            paths = [Path(self.logfile)]
             if trace_path is not None:
-                paths.append(trace_path)
+                paths.add(trace_path)
             for path in paths:
                 with path.open("rb") as f:
                     os.fsync(f.fileno())
-            if trace_path is not None:
-                self._fsync_directory(trace_path.parent)
-
-    @staticmethod
-    def _fsync_directory(path: Path) -> None:
-        """Best-effort sync of directory-entry changes on POSIX filesystems."""
-        if os.name == "nt":
-            return
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        try:
-            directory_fd = os.open(path, flags)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except OSError as error:
-            logger.warning("Could not fsync log directory %s: %s", path, error)
+            event_dirs = {self.logdir}
+            if branches:
+                event_dirs.update(
+                    self.logdir / "branches" / branch
+                    for branch in self._branches
+                    if branch != "main"
+                )
+            elif self.current_branch != "main":
+                event_dirs.add(self.logdir / "branches" / self.current_branch)
+            for directory in event_dirs:
+                if (directory / eventlog.EVENT_LOG_NAME).exists():
+                    eventlog.sync_events(directory)
+            sync_directories(
+                {path.parent for path in paths}
+                | {directory for directory in event_dirs if directory.exists()},
+                root=self._sync_root,
+            )
 
     _TRACE_FILENAME = "model_selection_trace.json"
 
@@ -659,6 +695,8 @@ class LogManager:
             delete=False,
         ) as temp_file:
             temp_file.write(trace.to_json() + "\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
             temp_path = Path(temp_file.name)
         try:
             temp_path.replace(trace_path)
@@ -760,6 +798,7 @@ class LogManager:
         else:
             logfile = logdir / f"branches/{branch}.jsonl"
 
+        sync_root = existing_parent(logdir)
         if not Path(logfile).exists():
             if create:
                 # logger.debug(f"Creating new logfile {logfile}")
@@ -771,6 +810,7 @@ class LogManager:
         log = Log.read_jsonl(logfile)
         msgs = log.messages or initial_msgs or []
         manager = cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
+        manager._sync_root = sync_root
         if log.messages:
             manager.log = manager.log.replace(
                 persisted=log.persisted,
@@ -876,8 +916,10 @@ class LogManager:
         validate_conversation_id(name)
         self.write()
         logsdir = get_logs_dir()
+        sync_root = existing_parent(logsdir / name)
         shutil.copytree(self.logfile.parent, logsdir / name, symlinks=True)
         self.logdir = logsdir / name
+        self._sync_root = sync_root
         self.chat_id = name
         self.write()
 

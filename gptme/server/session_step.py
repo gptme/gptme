@@ -546,7 +546,7 @@ async def _acp_step(
                 for hook_msg in post_msgs:
                     _append_and_notify(manager, session, hook_msg)
 
-            manager.write()
+            manager.write(sync=True)
 
             if final_msg is None:
                 # Should not happen: pending_user_messages was non-empty above, but
@@ -902,9 +902,17 @@ def step(
 
         _append_and_notify(manager, session, msg)
 
-        # Signal generation_complete AFTER message_added but BEFORE expensive
-        # disk writes, so the frontend receives the completion event as early
-        # as possible without stalling on message persistence.
+        # Trigger TURN_POST hook (turn.post - after message processing completes)
+        if post_msgs := trigger_hook(
+            HookType.TURN_POST,
+            manager=manager,
+        ):
+            for hook_msg in post_msgs:
+                _append_and_notify(manager, session, hook_msg)
+
+        # Streamed tokens/message_added are provisional. Completion acknowledges
+        # the transcript, including hook output, only after its barrier succeeds.
+        manager.write(sync=True)
         logger.debug("Generation complete")
         SessionManager.add_event(
             conversation_id,
@@ -913,23 +921,6 @@ def step(
                 "message": msg2dict(msg, manager.workspace, manager.logdir),
             },
         )
-
-        # Write immediately after assistant message to ensure it's persisted
-        manager.write()
-        logger.debug("Persisted assistant message and wrote to disk")
-
-        # Trigger TURN_POST hook (turn.post - after message processing completes)
-        if post_msgs := trigger_hook(
-            HookType.TURN_POST,
-            manager=manager,
-        ):
-            for msg in post_msgs:
-                _append_and_notify(manager, session, msg)
-
-        # Write messages to disk to ensure they're persisted
-        # This fixes race condition where messages might not be available when log is retrieved
-        manager.write()
-        logger.debug("Wrote messages to disk")
 
         # Auto-generate display name AFTER signaling generation_complete,
         # so the event isn't blocked by a potentially slow LLM call.

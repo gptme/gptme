@@ -1,7 +1,9 @@
 import builtins
 import json
+import os
 from contextlib import contextmanager
 from io import TextIOWrapper
+from os import PathLike
 from pathlib import Path
 from types import TracebackType
 from unittest.mock import patch
@@ -726,7 +728,9 @@ def _legacy_default_encoding(codec: str):
 
 @contextmanager
 def _record_open_calls():
-    """Record every ``builtins.open`` call's file/mode/encoding for spy tests."""
+    """Observe append and atomic-rewrite writers, excluding prefix reads."""
+    import io
+
     real_open = builtins.open
     calls: list[dict] = []
 
@@ -736,7 +740,12 @@ def _record_open_calls():
         )
         return real_open(file, mode, *args, **kwargs)
 
-    with patch.object(builtins, "open", shim):
+    def io_shim(file, mode="r", *args, **kwargs):
+        if "w" in mode or "a" in mode:
+            return shim(file, mode, *args, **kwargs)
+        return real_open(file, mode, *args, **kwargs)
+
+    with patch.object(builtins, "open", shim), patch.object(io, "open", io_shim):
         yield calls
 
 
@@ -778,7 +787,7 @@ def test_read_jsonl_round_trips_non_ascii_with_explicit_encoding(tmp_path: Path)
 def test_write_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
     """``write_jsonl`` must open conversation.jsonl with ``encoding="utf-8"``.
 
-    A direct spy on ``builtins.open`` proves the encoding kwarg is passed
+    A spy on the append and temporary-file writers proves encoding is passed
     regardless of the machine's locale -- the locale-independent complement to
     the round-trip test. ``write_jsonl`` makes exactly one ``open()`` call, so
     that call is the one under test.
@@ -977,6 +986,93 @@ def test_write_jsonl_replaces_unknown_existing_file(tmp_path: Path):
 
     assert calls[0]["mode"] == "w"
     assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
+
+
+def test_write_jsonl_syncs_preserved_permissions_before_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Atomic replacement must durably retain shared transcript permissions."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+    jsonl_file.chmod(0o640)
+    order: list[str] = []
+    fsync = os.fsync
+    replace = os.replace
+
+    def record_fchmod(fd: int, mode: int) -> None:
+        order.append("fchmod")
+        os.chmod(fd, mode)
+
+    def record_fsync(fd: int) -> None:
+        order.append("fsync")
+        fsync(fd)
+
+    def record_replace(src: PathLike, dst: PathLike) -> None:
+        order.append("replace")
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "fchmod", record_fchmod)
+    monkeypatch.setattr(os, "fsync", record_fsync)
+    monkeypatch.setattr(os, "replace", record_replace)
+
+    Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert order[:3] == ["fchmod", "fsync", "replace"]
+    assert jsonl_file.stat().st_mode & 0o777 == 0o640
+
+
+def test_write_jsonl_preserves_mode_without_fchmod(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Windows has no fchmod; chmod-by-path must still land before fsync."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+    jsonl_file.chmod(0o640)
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    order: list[str] = []
+    chmod = os.chmod
+    fsync = os.fsync
+
+    def record_chmod(
+        path: PathLike, mode: int, *args: object, **kwargs: object
+    ) -> None:
+        order.append("chmod")
+        chmod(path, mode)
+
+    def record_fsync(fd: int) -> None:
+        order.append("fsync")
+        fsync(fd)
+
+    monkeypatch.setattr(os, "chmod", record_chmod)
+    monkeypatch.setattr(os, "fsync", record_fsync)
+
+    Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert "chmod" in order
+    assert "fsync" in order
+    assert order.index("chmod") < order.index("fsync")
+    assert jsonl_file.stat().st_mode & 0o777 == 0o640
+    assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
+
+
+def test_write_jsonl_directory_sync_failure_prevents_acknowledgement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Direct rewrite callers must not report success if the namespace is unsynced."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    jsonl_file.write_text('{"role":"user","content":"stale"}\n')
+    synced: list[Path] = []
+
+    def fail_directory(path: Path) -> None:
+        synced.append(path)
+        raise OSError("injected directory I/O failure")
+
+    monkeypatch.setattr("gptme.logmanager.manager.sync_directory", fail_directory)
+
+    with pytest.raises(OSError, match="injected directory I/O failure"):
+        Log([Message("user", "fresh")]).write_jsonl(jsonl_file)
+
+    assert synced == [jsonl_file.parent]
 
 
 def test_read_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):

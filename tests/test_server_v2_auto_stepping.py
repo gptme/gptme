@@ -185,11 +185,73 @@ def test_generation_error_persists_system_message(
 
 
 @pytest.mark.timeout(30)
-def test_append_write_failure_blocks_generation_complete_and_persists_error(
-    setup_conversation, event_listener, mock_generation, wait_for_event, auth_headers
+def test_generation_complete_keeps_assistant_payload_after_turn_post_hook(
+    setup_conversation,
+    event_listener,
+    mock_generation,
+    wait_for_event,
+    auth_headers,
 ):
-    """A failed assistant append must not emit generation_complete."""
+    """Hook output is persisted without replacing the completed assistant payload."""
+    from gptme.hooks import HookType
+    from gptme.message import Message
+    from gptme.server import session_step
+
+    port, conversation_id, session_id = setup_conversation
+    assistant_reply = "assistant reply"
+
+    requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Say hello"},
+        headers=auth_headers,
+    )
+
+    original_hook = session_step.trigger_hook
+
+    def hook(hook_type, **kwargs):
+        if hook_type == HookType.TURN_POST:
+            return [Message("system", "final hook record", quiet=True)]
+        return original_hook(hook_type, **kwargs)
+
+    with (
+        unittest.mock.patch(
+            "gptme.server.session_step._stream", mock_generation([assistant_reply])
+        ),
+        unittest.mock.patch.object(session_step, "trigger_hook", side_effect=hook),
+    ):
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id, "model": "openai/mock-model"},
+            headers=auth_headers,
+        )
+
+        assert wait_for_event(event_listener, "generation_started")
+        assert wait_for_event(event_listener, "generation_complete")
+
+    generation_complete = next(
+        event
+        for event in list(event_listener["events"].queue)
+        if event.get("type") == "generation_complete"
+    )
+    assert generation_complete["message"]["role"] == "assistant"
+    assert generation_complete["message"]["content"] == assistant_reply
+
+
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("failure_point", ["append", "sync", "hook-sync"])
+def test_append_write_failure_blocks_generation_complete_and_persists_error(
+    setup_conversation,
+    event_listener,
+    mock_generation,
+    wait_for_event,
+    auth_headers,
+    failure_point,
+):
+    """Failed assistant/hook persistence must not emit generation_complete."""
+    from gptme.hooks import HookType
     from gptme.logmanager.manager import LogManager
+    from gptme.message import Message
+    from gptme.server import session_step
 
     port, conversation_id, session_id = setup_conversation
     assistant_reply = "x" * 25  # force an early generation_progress event
@@ -205,13 +267,28 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 
     def flaky_write(self, *args, **kwargs):
         nonlocal write_failed
-        if not write_failed and any(
-            msg.role == "assistant" and msg.content == assistant_reply
-            for msg in self.log.messages
+        if (
+            not write_failed
+            and (failure_point == "append" or kwargs.get("sync"))
+            and (
+                failure_point != "hook-sync"
+                or self.log.messages[-1].content == "final hook record"
+            )
+            and any(
+                msg.role == "assistant" and msg.content == assistant_reply
+                for msg in self.log.messages
+            )
         ):
             write_failed = True
             raise OSError("disk write failed")
         return original_write(self, *args, **kwargs)
+
+    original_hook = session_step.trigger_hook
+
+    def hook(hook_type, **kwargs):
+        if failure_point == "hook-sync" and hook_type == HookType.TURN_POST:
+            return [Message("system", "final hook record", quiet=True)]
+        return original_hook(hook_type, **kwargs)
 
     with (
         unittest.mock.patch(
@@ -222,6 +299,7 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
             autospec=True,
             side_effect=flaky_write,
         ),
+        unittest.mock.patch.object(session_step, "trigger_hook", side_effect=hook),
     ):
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
@@ -234,8 +312,8 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 
         assert wait_for_event(event_listener, "generation_started")
         assert not wait_for_event(event_listener, "generation_complete", timeout=2)
-        # Assistant message_added never fires because manager.append() writes
-        # before emitting SSE. The recovery path appends a visible system error.
+        # Append failure suppresses assistant message_added; barrier failure
+        # may follow provisional events. Both append a visible system error.
         assert wait_for_event(event_listener, "message_added")
         assert wait_for_event(event_listener, "error")
 
@@ -247,8 +325,11 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 
     data = resp.json()
     messages = data["log"]
-    assert messages[-2]["role"] == "assistant"
-    assert messages[-2]["content"] == assistant_reply
+    assert any(
+        m["role"] == "assistant" and m["content"] == assistant_reply for m in messages
+    )
+    if failure_point == "hook-sync":
+        assert messages[-2]["content"] == "final hook record"
     assert messages[-1]["role"] == "system"
     assert messages[-1]["content"] == "Error: disk write failed"
     assert data["session"]["last_error"] == "disk write failed"

@@ -275,16 +275,19 @@ def chat(
             logdir=logdir,
             output_schema=output_schema,
         )
+        # Includes session-end hook messages. A successful return is the
+        # acknowledgement; previously streamed tokens are only provisional.
+        manager.write(sync=True)
     except SessionCompleteException as e:
-        if not is_output_json() and not is_output_quiet():
-            console.log(f"Autonomous mode: {e}. Exiting.")
-
         # Trigger session end hooks
         if session_end_msgs := trigger_hook(
             HookType.SESSION_END, logdir=logdir, manager=manager
         ):
             for msg in session_end_msgs:
                 manager.append(msg)
+        manager.write(sync=True)
+        if not is_output_json() and not is_output_quiet():
+            console.log(f"Autonomous mode: {e}. Exiting.")
     finally:
         skill_lifecycle.close()
         # Safety-net sentinel write.  The primary writes happen inside
@@ -566,14 +569,19 @@ def _process_message_conversation(
         finally:
             clear_interruptible()
 
+        command_consumed = False
         for response_msg in response_msgs:
             manager.append(response_msg)
             # run any user-commands, if msg is from user
             if response_msg.role == "user" and execute_cmd(response_msg, manager):
-                return
+                command_consumed = True
+                break
             # Show per-message cost if GPTME_SHOW_COST=1 (no-op otherwise)
             if response_msg.role == "assistant":
                 print_inline_cost(response_msg)
+
+        if command_consumed:
+            break
 
         # Check if user declined execution - return to prompt without generating response
         # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
@@ -632,6 +640,8 @@ def _process_message_conversation(
     ):
         for msg in post_msgs:
             manager.append(msg)
+    # Returning to the prompt acknowledges this turn, including hook output.
+    manager.write(sync=True)
 
 
 def _should_prompt_for_input(log: Log) -> bool:
