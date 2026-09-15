@@ -2147,14 +2147,20 @@ def test_shell_forgets_cwd_when_marker_is_lost(tmp_path):
     try:
         ret, _, _ = shell.run(f"cd {shlex.quote(str(sensitive))}; sleep 5", timeout=0.1)
         assert ret == -124
-        assert shell.get_cwd() == original_cwd
+        # Timeout now keeps bash alive, so the delimiter/PWDHEX still arrives
+        # and the cd that already ran is the real cwd.
+        assert shell.get_cwd() == sensitive
 
         with patch("gptme.tools.shell._get_max_output_bytes", return_value=128):
             ret, _, _ = shell.run(f"cd {shlex.quote(str(sensitive))}; yes x", timeout=5)
         assert ret == -125
-        assert shell.get_cwd() == original_cwd
+        # Byte-cap killpg takes bash down before a cwd marker. Tracked cwd is
+        # forgotten; get_cwd() then falls back to the process cwd (which may
+        # still be the last trusted directory from a completed command).
+        assert shell._cwd is None
     finally:
         shell.close()
+        os.chdir(original_cwd)
 
 
 # ---------------------------------------------------------------------------
