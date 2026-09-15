@@ -4,12 +4,27 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
 
 from gptme.cli import cmd_batch
 from gptme.cli.util import main as util_main
+
+
+def _patch_monotonic(monkeypatch, *values: float) -> None:
+    """Give cmd_batch an isolated clock without patching the global module.
+
+    Patching ``time.monotonic`` globally exhausts a short iterator and crashes
+    pytest-xdist's multiprocessing logger (``timeout = deadline - time.monotonic()``).
+    """
+    real_monotonic = time.monotonic
+    seq = iter(values)
+    fake_time = SimpleNamespace(monotonic=lambda: next(seq))
+    monkeypatch.setattr(cmd_batch, "time", fake_time)
+    assert time.monotonic is real_monotonic
 
 
 def _jsonl(output: str) -> list[dict]:
@@ -272,7 +287,6 @@ def test_summarize_child_output_counts_tool_calls():
 
 def test_run_one_prompt_invokes_child_process(monkeypatch):
     calls = []
-    times = iter([10.0, 12.25])
 
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
@@ -281,7 +295,7 @@ def test_run_one_prompt_invokes_child_process(monkeypatch):
 
     monkeypatch.setattr(cmd_batch.subprocess, "run", fake_run)
     monkeypatch.setattr(cmd_batch.sys, "executable", "/usr/bin/python-test")
-    monkeypatch.setattr(cmd_batch.time, "monotonic", lambda: next(times))
+    _patch_monotonic(monkeypatch, 10.0, 12.25)
 
     record = cmd_batch._run_one_prompt(
         index=2,
@@ -323,13 +337,11 @@ def test_run_one_prompt_invokes_child_process(monkeypatch):
 
 
 def test_run_one_prompt_reports_timeout(monkeypatch):
-    times = iter([1.0, 4.4567])
-
     def fake_run(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
 
     monkeypatch.setattr(cmd_batch.subprocess, "run", fake_run)
-    monkeypatch.setattr(cmd_batch.time, "monotonic", lambda: next(times))
+    _patch_monotonic(monkeypatch, 1.0, 4.4567)
 
     record = cmd_batch._run_one_prompt(
         index=1,
