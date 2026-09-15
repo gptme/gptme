@@ -65,65 +65,43 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROJECT: gptme-org-next
-      WRANGLER: wrangler@4.131.2
-      HEAD_REF: ${{ github.head_ref }}
     steps:
-    # Pin mutable tags to SHAs in this credential-bearing job (same pattern as
-    # webui.yml's Cloudflare deploy). Tokens stay on the wrangler steps only.
+    # Credential-bearing job: pin every action to a commit SHA (same pattern as
+    # webui.yml). Tokens are action inputs, not job env, and wrangler is not
+    # fetched via unpinned `npx`.
     - name: Download dist artifact
       uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
       with:
         name: site-next-dist
         path: dist
 
-    - name: Use Node.js 22
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-      with:
-        node-version: 22.x
-
-    # The preview is best-effort: a missing Pages project or a token without
-    # Pages:Edit permission must not block the PR.
+    # Best-effort: a missing Pages project or a token without Pages:Edit must
+    # not block the PR. Create fails harmlessly if the project already exists.
     - name: Ensure Pages project exists
-      working-directory: .
       continue-on-error: true
-      env:
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      run: |
-        if npx --yes "$WRANGLER" pages project list 2>&1 | grep -q "$PROJECT"; then
-          echo "Pages project $PROJECT exists"
-        else
-          npx --yes "$WRANGLER" pages project create "$PROJECT" --production-branch master
-        fi
+      uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+      with:
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        command: pages project create gptme-org-next --production-branch master
 
     - name: Deploy preview
       id: deploy
-      working-directory: .
       continue-on-error: true
-      env:
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      run: |
-        set -o pipefail
-        npx --yes "$WRANGLER" pages deploy dist --project-name "$PROJECT" --branch "$HEAD_REF" --commit-dirty=true | tee deploy.log
-        url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.pages\.dev' deploy.log | grep -F "$PROJECT" | tail -1)
-        if [ -z "$url" ]; then
-          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.pages\.dev' deploy.log | tail -1)
-        fi
-        echo "url=$url" >> "$GITHUB_OUTPUT"
-        if [ -z "$url" ]; then
-          echo "::warning::Deploy finished but no pages.dev URL was found in wrangler output"
-        fi
+      uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+      with:
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        command: pages deploy dist --project-name gptme-org-next --branch ${{ github.head_ref }} --commit-dirty=true
 
     - name: Summary
       working-directory: .
       run: |
         if [ "${{ steps.deploy.outcome }}" = "success" ]; then
-          alias=$(echo "$HEAD_REF" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-28 | sed -E 's/-+$//')
           {
             echo "### site/next preview"
-            echo "- Deployment: ${{ steps.deploy.outputs.url }}"
-            echo "- Branch alias: https://${alias}.${PROJECT}.pages.dev"
+            echo "- Deployment: ${{ steps.deploy.outputs.deployment-url }}"
+            echo "- Branch alias: ${{ steps.deploy.outputs.pages-deployment-alias-url }}"
           } >> "$GITHUB_STEP_SUMMARY"
         else
           echo "::warning::site/next preview deploy failed (Pages project '$PROJECT' may not exist or the Cloudflare token may lack Pages permissions). The build itself passed."
