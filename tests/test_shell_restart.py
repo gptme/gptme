@@ -148,6 +148,54 @@ def test_command_that_kills_shell_is_not_rerun(shell, tmp_path):
     assert marker.read_text() == "x\n"
 
 
+def test_broken_pipe_zero_bytes_retries_command(shell, tmp_path, monkeypatch):
+    """EPIPE before any bytes landed: the command was never received, retry once."""
+    marker = tmp_path / "ran"
+    orig_write = os.write
+    stdin_fd = shell.process.stdin.fileno()
+    raised = {"done": False}
+
+    def write_fd(fd, data):
+        if fd == stdin_fd and not raised["done"]:
+            raised["done"] = True
+            raise BrokenPipeError
+        return orig_write(fd, data)
+
+    monkeypatch.setattr(os, "write", write_fd)
+    rc, _, _ = shell.run(f"echo x >> {marker}", output=False)
+    assert rc == 0
+    assert marker.read_text() == "x\n"
+    notice = shell.consume_restart_notice()
+    assert notice and "before this command was received" in notice
+    assert shell.run("echo ok", output=False)[1].strip() == "ok"
+
+
+def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
+    """EPIPE after a short write must not re-send: the statement may have run."""
+    marker = tmp_path / "ran"
+    orig_write = os.write
+    stdin_fd = shell.process.stdin.fileno()
+    state = {"partial": False, "raised": False}
+
+    def write_fd(fd, data):
+        # Raise exactly once after a short write. The restarted shell often
+        # reuses the same stdin fd number, so a sticky EPIPE loops forever.
+        if fd == stdin_fd and not state["partial"]:
+            state["partial"] = True
+            return orig_write(fd, data[: min(8, len(data))])
+        if fd == stdin_fd and not state["raised"]:
+            state["raised"] = True
+            raise BrokenPipeError
+        return orig_write(fd, data)
+
+    monkeypatch.setattr(os, "write", write_fd)
+    shell.run(f"echo x >> {marker}", output=False)
+    assert not marker.exists()
+    notice = shell.consume_restart_notice()
+    assert notice and "during this command" in notice
+    assert shell.run("echo ok", output=False)[1].strip() == "ok"
+
+
 def test_timeout_kills_command_but_keeps_shell(shell, tmp_path):
     pid = shell.process.pid
     start = time.monotonic()

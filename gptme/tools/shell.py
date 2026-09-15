@@ -1143,19 +1143,35 @@ class ShellSession:
             '"$__gptme_rc" "$__gptme_pwd"\n'
         )
         full_command += "builtin set +e\n"
+        # Write via os.write so a BrokenPipeError reports how many bytes the
+        # kernel accepted. TextIOWrapper.write() can buffer, then flush() raise,
+        # which would look like "never received" after a partial delivery.
+        encoding = getattr(self.process.stdin, "encoding", None) or "utf-8"
+        errors = getattr(self.process.stdin, "errors", None) or "strict"
+        payload = full_command.encode(encoding, errors)
+        sent = 0
+        fd = self.process.stdin.fileno()
         try:
-            self.process.stdin.write(full_command)
-            self.process.stdin.flush()
+            while sent < len(payload):
+                try:
+                    sent += os.write(fd, payload[sent:])
+                except InterruptedError:
+                    continue
         except BrokenPipeError:
-            # Died between the liveness check and the write: the command was
-            # never received, so a single retry is safe.
-            if tries == 0:
-                self._restart_after_death(
-                    self.process.poll(), "before this command was received"
-                )
+            # Retry only if the kernel accepted zero bytes. A short write may
+            # already have delivered a complete statement (newline inside the
+            # first PIPE_BUF), so re-sending would double-execute.
+            status = self.process.poll()
+            if tries == 0 and sent == 0:
+                self._restart_after_death(status, "before this command was received")
                 return self._run_pipe(
                     command, output=output, tries=tries + 1, timeout=timeout
                 )
+            if tries == 0:
+                self._restart_after_death(
+                    status, "during this command — not re-run, it may have executed"
+                )
+                return (status if status is not None else -1), "", ""
             raise
 
         # Issue #408: Track whether we've seen the start marker for this command
