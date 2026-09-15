@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import GithubSlugger from "github-slugger";
 import { Marked, type Tokens } from "marked";
-import sanitizeHtml from "sanitize-html";
+import { sanitizeReadmeHtml } from "./readme-sanitize.ts";
+
+export { sanitizeReadmeHtml } from "./readme-sanitize.ts";
 
 // Resolved from the project root (site/next), which is the cwd for `vite` and
 // the prerender step. import.meta.url is not usable here: at build time this
@@ -73,75 +75,8 @@ function rewriteHtmlUrls(html: string): string {
   );
 }
 
-const README_SANITIZE: sanitizeHtml.IOptions = {
-  allowedTags: [
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "p",
-    "br",
-    "hr",
-    "ul",
-    "ol",
-    "li",
-    "blockquote",
-    "pre",
-    "code",
-    "em",
-    "i",
-    "strong",
-    "del",
-    "a",
-    "img",
-    "table",
-    "thead",
-    "tbody",
-    "tfoot",
-    "tr",
-    "th",
-    "td",
-    "div",
-    "span",
-    "details",
-    "summary",
-    "sup",
-    "sub",
-    "kbd",
-    "abbr",
-  ],
-  allowedAttributes: {
-    a: ["href", "title", "class", "aria-hidden", "tabindex"],
-    img: ["src", "srcset", "alt", "title", "width", "height", "class"],
-    h1: ["id", "class"],
-    h2: ["id", "class"],
-    h3: ["id", "class"],
-    h4: ["id", "class"],
-    h5: ["id", "class"],
-    h6: ["id", "class"],
-    div: ["class"],
-    span: ["class"],
-    code: ["class"],
-    pre: ["class"],
-    ul: ["class", "id"],
-    ol: ["start", "type", "class"],
-    li: ["value"],
-    p: ["align", "class"],
-    th: ["align", "colspan", "rowspan", "width"],
-    td: ["align", "colspan", "rowspan", "width"],
-    details: ["open"],
-    abbr: ["title"],
-  },
-  allowedSchemes: ["http", "https", "mailto"],
-  allowedSchemesByTag: { img: ["http", "https"] },
-  allowProtocolRelative: false,
-};
-
-/** Strip scripts, event handlers, and unsafe URL schemes from README HTML. */
-export function sanitizeReadmeHtml(html: string): string {
-  return sanitizeHtml(html, README_SANITIZE);
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
 export function renderReadme(md: string = readFileSync(README_PATH, "utf8")): string {
@@ -157,7 +92,7 @@ export function renderReadme(md: string = readFileSync(README_PATH, "utf8")): st
     renderer: {
       heading(this: { parser: { parseInline(tokens: Tokens.Generic[]): string } }, { tokens, depth, text }: Tokens.Heading) {
         // GitHub-compatible ids so the README's own table of contents works.
-        const id = slugger.slug(text);
+        const id = escapeAttr(slugger.slug(text));
         const inner = this.parser.parseInline(tokens);
         return `<h${depth} id="${id}" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#${id}" aria-hidden="true" tabindex="-1">#</a>${inner}</h${depth}>\n`;
       },

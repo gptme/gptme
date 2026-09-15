@@ -29,6 +29,17 @@ test("sanitizeReadmeHtml strips script, event handlers, and javascript hrefs", (
   assert.match(html, /src="https:\/\/gptme.org\/media\/logo.png"/);
 });
 
+test("sanitizeReadmeHtml drops unsafe srcset and data/vbscript URLs at the sink", () => {
+  const html = sanitizeReadmeHtml(
+    `<img src="data:image/svg+xml,<svg>" srcset="javascript:alert(1) 1x, https://gptme.org/media/logo.png 2x" alt="x"><a href="vbscript:alert(1)">nope</a>`,
+  );
+  assert.equal(html.includes("javascript:"), false);
+  assert.equal(html.includes("data:"), false);
+  assert.equal(html.includes("vbscript:"), false);
+  assert.equal(html.includes("alert(1)"), false);
+  assert.match(html, /srcset="https:\/\/gptme.org\/media\/logo.png 2x"/);
+});
+
 test("sanitizeReadmeHtml keeps heading permalinks and table wrappers", () => {
   const html = sanitizeReadmeHtml(
     `<h2 id="install" class="group relative"><a class="absolute" href="#install" aria-hidden="true" tabindex="-1">#</a>Install</h2><div class="overflow-x-auto"><table><thead><tr><th>A</th></tr></thead></table></div>`,

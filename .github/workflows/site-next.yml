@@ -85,6 +85,19 @@ jobs:
         accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         command: pages project create gptme-org-next --production-branch master
 
+    # Pass the branch through GITHUB_OUTPUT, not a shell-interpolated
+    # github.head_ref inside `command:`. Cloudflare Pages aliases already
+    # collapse `/` to `-`; do that here so the value is a safe token.
+    - name: Sanitize preview branch name
+      id: branch
+      working-directory: .
+      env:
+        RAW: ${{ github.head_ref }}
+      run: |
+        safe=$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9._-' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+        if [ -z "$safe" ]; then safe="pr-${{ github.event.pull_request.number }}"; fi
+        echo "name=$safe" >> "$GITHUB_OUTPUT"
+
     - name: Deploy preview
       id: deploy
       continue-on-error: true
@@ -92,7 +105,7 @@ jobs:
       with:
         apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        command: pages deploy dist --project-name gptme-org-next --branch ${{ github.head_ref }} --commit-dirty=true
+        command: pages deploy dist --project-name gptme-org-next --branch ${{ steps.branch.outputs.name }} --commit-dirty=true
 
     - name: Summary
       working-directory: .

@@ -1,5 +1,6 @@
 import { eyebrow, wrap } from "../lib/cn";
 import { links } from "../lib/links";
+import { sanitizeReadmeHtml } from "../lib/readme-sanitize.ts";
 
 export function Readme({ html }: { html: string }) {
   return (
@@ -15,7 +16,7 @@ export function Readme({ html }: { html: string }) {
       </header>
       <article
         className="prose prose-lg max-w-[860px] pb-22 [overflow-wrap:anywhere] max-md:pb-16 max-sm:prose-base"
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={{ __html: sanitizeReadmeHtml(html) }}
       />
     </div>
   );
