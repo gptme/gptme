@@ -625,20 +625,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-      78512 |                 prompt_toolkit
-      80300 |               gptme.util.prompt
-     103543 |             gptme.message
-     120025 | gptme.cli.main
-     133465 |           gptme.tools
-     148888 |         gptme.config.cli_setup
-     182916 |       gptme.config
-     191401 |     gptme.llm
-     264742 |   gptme.commands
-     349947 | gptme.chat
+      44672 |                 prompt_toolkit
+      45799 |               gptme.util.prompt
+      61674 |             gptme.message
+      80890 |           gptme.tools
+      82695 | gptme.cli.main
+      91461 |         gptme.config.cli_setup
+     110957 |       gptme.config
+     116703 |     gptme.llm
+     157488 |   gptme.commands
+     212513 | gptme.chat
 
-real	0m1.375s
-user	0m1.145s
-sys	0m0.195s
+real	0m1.090s
+user	0m0.813s
+sys	0m0.092s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -646,21 +646,21 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     138.9 ms ±   1.8 ms    [User: 118.5 ms, System: 20.4 ms]
-  Range (min … max):   136.6 ms … 142.7 ms    10 runs
+  Time (mean ± σ):     105.5 ms ±   2.3 ms    [User: 95.1 ms, System: 10.3 ms]
+  Range (min … max):   102.0 ms … 109.6 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     591.5 ms ±  12.6 ms    [User: 525.5 ms, System: 65.7 ms]
-  Range (min … max):   575.8 ms … 621.8 ms    10 runs
+  Time (mean ± σ):     429.5 ms ±  11.7 ms    [User: 395.4 ms, System: 33.9 ms]
+  Range (min … max):   418.8 ms … 460.2 ms    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      1.047 s ±  0.017 s    [User: 0.839 s, System: 0.562 s]
-  Range (min … max):    1.029 s …  1.076 s    10 runs
+  Time (mean ± σ):     928.7 ms ± 258.6 ms    [User: 655.3 ms, System: 327.7 ms]
+  Range (min … max):   758.8 ms … 1598.1 ms    10 runs
  
 Summary
   import gptme.cli.main ran
-    4.26 ± 0.11 times faster than gptme --help
-    7.54 ± 0.16 times faster than full start/exit cycle
+    4.07 ± 0.14 times faster than gptme --help
+    8.80 ± 2.46 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -2879,13 +2879,13 @@ Largest Files (&gt;300 SLOC):
 
 make[3]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Most Duplicated Files:
-npm warn exec The following package was not found and will be installed: jscpd@5.2.0
+npm warn exec The following package was not found and will be installed: jscpd@5.2.1
 Clone found (python)
  - __init__.py [29:47 - 40:30] (12 lines, 54 tokens)
    context/__init__.py [36:55 - 47:30]
 Clone found (python)
- - __init__.py [29:47 - 42:29] (14 lines, 62 tokens)
-   context/selector/__init__.py [46:61 - 59:75]
+ - __init__.py [29:47 - 40:30] (12 lines, 54 tokens)
+   context/selector/__init__.py [46:61 - 57:30]
 Clone found (python)
  - acp/client.py [239:9 - 246:9] (8 lines, 85 tokens)
    acp/client.py [449:5 - 456:5]
@@ -2953,6 +2953,9 @@ Clone found (python)
  - config/user.py [604:5 - 616:4] (13 lines, 62 tokens)
    config/user.py [662:5 - 674:4]
 Clone found (python)
+ - context/__init__.py [40:16 - 49:75] (10 lines, 57 tokens)
+   context/selector/__init__.py [50:16 - 59:75]
+Clone found (python)
  - context/adaptive_compressor.py [56:1 - 69:23] (14 lines, 92 tokens)
    tools/autocompact/scoring.py [145:1 - 158:23]
 Clone found (python)
@@ -2983,8 +2986,8 @@ Clone found (python)
  - eval/execenv.py [207:13 - 220:11] (14 lines, 59 tokens)
    eval/execenv.py [508:13 - 521:11]
 Clone found (python)
- - eval/execenv.py [207:13 - 227:28] (21 lines, 92 tokens)
-   eval/execenv.py [718:13 - 737:16]
+ - eval/execenv.py [207:13 - 220:11] (14 lines, 59 tokens)
+   eval/execenv.py [718:13 - 731:11]
 Clone found (python)
  - eval/execenv.py [237:57 - 248:33] (12 lines, 94 tokens)
    eval/filestore.py [59:60 - 70:33]
@@ -2994,6 +2997,9 @@ Clone found (python)
 Clone found (python)
  - eval/execenv.py [395:17 - 414:29] (20 lines, 82 tokens)
    eval/execenv.py [615:17 - 634:29]
+Clone found (python)
+ - eval/execenv.py [510:35 - 527:16] (18 lines, 82 tokens)
+   eval/execenv.py [720:35 - 737:16]
 Clone found (python)
  - eval/leaderboard.py [221:5 - 227:46] (7 lines, 61 tokens)
    eval/leaderboard.py [702:5 - 708:85]
@@ -3067,8 +3073,11 @@ Clone found (python)
  - hooks/tests/test_agents_md_inject.py [156:74 - 170:68] (15 lines, 62 tokens)
    hooks/tests/test_agents_md_inject.py [263:54 - 278:58]
 Clone found (python)
- - hooks/tests/test_agents_md_inject.py [156:74 - 172:21] (17 lines, 72 tokens)
-   hooks/tests/test_agents_md_inject.py [289:48 - 305:19]
+ - hooks/tests/test_agents_md_inject.py [156:74 - 171:40] (16 lines, 71 tokens)
+   hooks/tests/test_agents_md_inject.py [289:48 - 304:40]
+Clone found (python)
+ - hooks/tests/test_agents_md_inject.py [246:21 - 255:19] (10 lines, 50 tokens)
+   hooks/tests/test_agents_md_inject.py [296:21 - 305:19]
 Clone found (python)
  - hooks/tests/test_agents_md_inject.py [335:68 - 350:35] (16 lines, 71 tokens)
    hooks/tests/test_agents_md_inject.py [372:44 - 387:35]
@@ -3232,8 +3241,11 @@ Clone found (python)
  - server/api_v2.py [3055:58 - 3068:38] (14 lines, 94 tokens)
    server/api_v2.py [3091:51 - 3104:38]
 Clone found (python)
- - server/api_v2.py [3059:5 - 3071:40] (13 lines, 78 tokens)
-   server/api_v2.py [3416:5 - 3428:15]
+ - server/api_v2.py [3059:5 - 3068:38] (10 lines, 73 tokens)
+   server/api_v2.py [3416:5 - 3425:38]
+Clone found (python)
+ - server/api_v2.py [3096:74 - 3107:15] (12 lines, 54 tokens)
+   server/api_v2.py [3417:74 - 3428:15]
 Clone found (python)
  - server/api_v2.py [3209:53 - 3214:76] (6 lines, 51 tokens)
    server/api_v2.py [3310:52 - 3315:76]
@@ -3328,11 +3340,14 @@ Clone found (python)
  - tools/convert.py [381:19 - 399:35] (19 lines, 63 tokens)
    tools/convert.py [686:18 - 704:35]
 Clone found (python)
- - tools/convert.py [382:9 - 400:49] (19 lines, 74 tokens)
-   tools/convert.py [563:34 - 583:18]
+ - tools/convert.py [382:9 - 399:35] (18 lines, 62 tokens)
+   tools/convert.py [563:34 - 580:35]
 Clone found (python)
  - tools/convert.py [384:5 - 399:35] (16 lines, 61 tokens)
    tools/convert.py [467:5 - 482:35]
+Clone found (python)
+ - tools/convert.py [470:19 - 485:18] (16 lines, 61 tokens)
+   tools/convert.py [568:19 - 583:18]
 Clone found (python)
  - tools/gh.py [78:9 - 87:59] (10 lines, 53 tokens)
    tools/gh.py [151:13 - 159:63]
@@ -3364,8 +3379,8 @@ Clone found (python)
  - tools/shell.py [1156:21 - 1175:26] (20 lines, 94 tokens)
    tools/shell.py [1269:25 - 1288:30]
 Clone found (python)
- - tools/shell.py [1156:21 - 1176:34] (21 lines, 98 tokens)
-   tools/shell.py [1325:25 - 1346:25]
+ - tools/shell.py [1156:21 - 1175:26] (20 lines, 94 tokens)
+   tools/shell.py [1325:25 - 1344:30]
 Clone found (python)
  - tools/shell.py [1157:25 - 1177:39] (21 lines, 103 tokens)
    tools/shell.py [1298:25 - 1318:39]
@@ -3382,8 +3397,8 @@ Clone found (python)
  - tools/shell.py [1268:64 - 1288:30] (21 lines, 95 tokens)
    tools/shell.py [1372:39 - 1392:26]
 Clone found (python)
- - tools/shell.py [1277:73 - 1292:37] (16 lines, 53 tokens)
-   tools/shell.py [1333:73 - 1348:73]
+ - tools/shell.py [1277:73 - 1290:25] (14 lines, 53 tokens)
+   tools/shell.py [1333:73 - 1346:25]
 Clone found (python)
  - tools/shell.py [2181:5 - 2191:31] (11 lines, 55 tokens)
    tools/shell.py [2232:5 - 2242:31]
@@ -3448,7 +3463,7 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 482         │ 3220         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 488            │ 190335      │ 906513       │ 185          │ 2280 (1.20%)     │ 12927 (1.43%)     │
+│ python     │ 488            │ 190335      │ 906513       │ 190          │ 2324 (1.22%)     │ 13168 (1.45%)     │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ text       │ 3              │ 923         │ 330          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -3456,10 +3471,10 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 3              │ 758         │ 1511         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 517            │ 197181      │ 932981       │ 185          │ 2280 (1.16%)     │ 12927 (1.39%)     │
+│ Total:     │ 517            │ 197181      │ 932981       │ 190          │ 2324 (1.18%)     │ 13168 (1.41%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
-Found 185 clones.
-time: 426.108ms
+Found 190 clones.
+time: 385.526ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
