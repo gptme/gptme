@@ -493,6 +493,72 @@ def test_cli_export_failure_preserves_existing_output(tmp_path):
     assert not list(tmp_path.glob(".dataset.jsonl.*"))
 
 
+def test_cli_export_parent_is_file_emits_clean_error(tmp_path):
+    """Writing to a path whose parent is a regular file must raise a clean
+    ClickException, not a raw Python traceback (regression for raw
+    NotADirectoryError in `gptme-util dataset export -o`)."""
+    from gptme.cli.cmd_dataset import dataset
+
+    runner = CliRunner()
+    repo = make_repo(tmp_path)
+    logs_dir = make_logs_dir(tmp_path, "cafe", make_messages("cafe"))
+    blocker = tmp_path / "blocker"
+    blocker.write_text("regular file contents")
+    output_file = blocker / "envs.jsonl"
+
+    result = runner.invoke(
+        dataset,
+        [
+            "export",
+            "--repo",
+            str(repo),
+            "--logs-dir",
+            str(logs_dir),
+            "--output",
+            str(output_file),
+            "-n",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert not output_file.exists()
+    assert "Traceback (most recent call last)" not in result.output
+    assert result.output.startswith(
+        f"Error: Failed to write dataset export to {output_file}:"
+    )
+
+
+def test_cli_export_creates_missing_parent_dirs(tmp_path):
+    """Writing to a path whose parent doesn't exist should auto-mkdir
+    the parent directory (mkdir -p style) instead of failing."""
+    from gptme.cli.cmd_dataset import dataset
+
+    runner = CliRunner()
+    repo = make_repo(tmp_path)
+    logs_dir = make_logs_dir(tmp_path, "cafe", make_messages("cafe"))
+    nested = tmp_path / "new" / "subdir" / "envs.jsonl"
+
+    result = runner.invoke(
+        dataset,
+        [
+            "export",
+            "--repo",
+            str(repo),
+            "--logs-dir",
+            str(logs_dir),
+            "--output",
+            str(nested),
+            "-n",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert nested.exists()
+    assert "Exported" in result.output
+
+
 def test_cli_export_rejects_nonpositive_min_commits(tmp_path):
     from gptme.cli.cmd_dataset import dataset
 
