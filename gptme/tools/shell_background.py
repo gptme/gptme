@@ -454,11 +454,11 @@ def background_job_completion_hook(
     yield from messages
 
 
-def _background_wait_has_input(
+def _background_wait_input(
     manager: object,
-) -> Literal["prompt", "control", "hook"] | None:
+) -> list[Message] | Literal["hook"] | None:
     """Yield to existing file-based input/control, including subagent budgets."""
-    from ..prompt_queue import QUEUE_FILENAME
+    from ..prompt_queue import drain_prompt_queue, drain_steer_prompts
 
     logdir = getattr(manager, "logdir", None)
     if logdir is None:
@@ -507,12 +507,19 @@ def _background_wait_has_input(
         # Let it run instead of hiding its events behind a long shell job.
         if not subagent_completions.empty() or not subagent_progress.empty():
             return "hook"
-    for name in (QUEUE_FILENAME, "control.jsonl"):
-        try:
-            if (logdir / name).stat().st_size:
-                return "prompt" if name == QUEUE_FILENAME else "control"
-        except FileNotFoundError:
-            pass
+    # Use the existing locked readers, not file size: an idle CLI has no next
+    # STEP_PRE to consume steering unless we actually queue that input here.
+    # Invalid/partial records remain on disk and cannot cause a spurious exit.
+    messages = drain_prompt_queue(logdir) + drain_steer_prompts(logdir)
+    if messages:
+        return messages
+    try:
+        if (logdir / "control.jsonl").stat().st_size:
+            return [
+                Message("system", "Background wait yielded to pending session input.")
+            ]
+    except FileNotFoundError:
+        pass
     return None
 
 
@@ -551,7 +558,6 @@ def background_job_wait_hook(
         logger.warning("Invalid GPTME_WATCH_IDLE_MAX %r; using 1800 seconds", raw_limit)
         limit = 1800.0
     deadline = time.monotonic() + limit
-    queued_input = False
     set_interruptible()
     try:
         while True:
@@ -564,19 +570,9 @@ def background_job_wait_hook(
                 ]
                 if messages or not pending:
                     break
-            if incoming := _background_wait_has_input(manager):
-                # Re-enter the normal loop so the existing prompt/control
-                # consumers retain ownership of their files and semantics.
-                if incoming == "prompt":
-                    queued_input = True
-                    break
-                if incoming == "hook":
-                    break
-                messages = [
-                    Message(
-                        "system", "Background wait yielded to pending session input."
-                    )
-                ]
+            if incoming := _background_wait_input(manager):
+                if isinstance(incoming, list):
+                    messages = incoming
                 break
             with _job_lock:
                 # Check again under the same lock used by the notifier to avoid
@@ -608,7 +604,7 @@ def background_job_wait_hook(
                 condition.wait(timeout=min(remaining, 1.0))
     finally:
         clear_interruptible()
-    if messages or queued_input:
+    if messages:
         yield from messages
         yield StopPropagation()
 

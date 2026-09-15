@@ -118,19 +118,37 @@ def test_reset_wakes_waiter_and_drops_late_callback() -> None:
     assert list(bg._completion_queue.queue) == []
 
 
-def test_external_prompt_releases_wait_without_consuming_input(tmp_path: Path) -> None:
+@pytest.mark.parametrize("steer", [False, True])
+def test_external_prompt_releases_wait_with_input(tmp_path: Path, steer: bool) -> None:
     from gptme.prompt_queue import queue_prompt
 
     start_owned("sleep 30")
-    queue_prompt(tmp_path, "steer-now")
+    queue_prompt(tmp_path, "steer-now", steer=steer)
     results = list(
         bg.background_job_wait_hook(
             SimpleNamespace(chat_id="owner", logdir=tmp_path), False, []
         )
     )
-    assert len(results) == 1
-    assert isinstance(results[0], StopPropagation)
-    assert (tmp_path / "prompt-queue.jsonl").exists()
+    assert len(results) == 2
+    assert isinstance(results[0], Message)
+    assert results[0].role == "user"
+    assert results[0].content == "steer-now"
+    assert isinstance(results[1], StopPropagation)
+    assert not (tmp_path / "prompt-queue.jsonl").exists()
+
+
+def test_malformed_prompt_does_not_end_background_wait(tmp_path: Path) -> None:
+    start_owned("sleep 0.1; printf FINISHED")
+    queue = tmp_path / "prompt-queue.jsonl"
+    queue.write_text('{"content":')
+    results = list(
+        bg.background_job_wait_hook(
+            SimpleNamespace(chat_id="owner", logdir=tmp_path), False, []
+        )
+    )
+    assert isinstance(results[0], Message)
+    assert "FINISHED" in results[0].content
+    assert queue.exists()
 
 
 def test_control_file_reenters_step_checkpoint(tmp_path: Path) -> None:
