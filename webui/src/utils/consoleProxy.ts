@@ -50,3 +50,25 @@ export const consoleProxyScript = `
     console.debug = proxyConsole('debug');
   })();
 `;
+
+/**
+ * Inject the console proxy into an iframe window.
+ * Same-origin windows get the script. Cross-origin access throws SecurityError
+ * and is skipped; any other failure is rethrown so same-origin bugs stay visible.
+ */
+export function injectConsoleProxy(contentWindow: Window): boolean {
+  try {
+    const script = new Function(consoleProxyScript);
+    contentWindow.document.head.appendChild(
+      Object.assign(contentWindow.document.createElement('script'), {
+        textContent: `(${script.toString()})();`,
+      })
+    );
+    return true;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'SecurityError') {
+      return false;
+    }
+    throw err;
+  }
+}

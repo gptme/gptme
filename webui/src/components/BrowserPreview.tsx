@@ -2,7 +2,7 @@ import { RefreshCw, Smartphone, Monitor, Terminal, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useState, useEffect, useRef } from 'react';
-import { consoleProxyScript } from '@/utils/consoleProxy';
+import { injectConsoleProxy } from '@/utils/consoleProxy';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { FC } from 'react';
 
@@ -68,19 +68,9 @@ export const BrowserPreview: FC<Props> = ({ defaultUrl = 'http://localhost:8080'
   // Inject console proxy script when iframe loads.
   // Only works for same-origin iframes; cross-origin access throws SecurityError.
   const handleIframeLoad = () => {
-    const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-    try {
-      // Use Function constructor instead of eval for better type safety
-      const script = new Function(consoleProxyScript);
-      iframe.contentWindow.document.head.appendChild(
-        Object.assign(iframe.contentWindow.document.createElement('script'), {
-          textContent: `(${script.toString()})();`,
-        })
-      );
-    } catch {
-      // Cross-origin iframe: console proxy injection is not supported.
-    }
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    injectConsoleProxy(win);
   };
 
   const clearLogs = () => {
