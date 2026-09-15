@@ -143,4 +143,52 @@ describe('ConfigFileEditor', () => {
     });
     expect(screen.queryByText(/This config contains an/)).not.toBeInTheDocument();
   });
+
+  it('shows read-only runtime defaults separately from local overrides', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...configResponse,
+        local_config_exists: true,
+        runtime_config_path: '~/.config/gptme/config.runtime.toml',
+        runtime_config_exists: true,
+        runtime_is_defaults: true,
+      }),
+    });
+
+    render(<ConfigFileEditor />);
+
+    const notice = await screen.findByText(/Read-only runtime defaults are provided by/);
+    expect(notice).toHaveTextContent('~/.config/gptme/config.runtime.toml');
+    expect(notice).toHaveTextContent(
+      'Values in config.toml and config.local.toml override these defaults.'
+    );
+    expect(notice).toHaveTextContent(
+      'This editor saves only to ~/.config/gptme/config.toml, not the runtime file.'
+    );
+    expect(screen.getByText(/A local override config also exists/)).toBeInTheDocument();
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(screen.getByLabelText('gptme config TOML')).toHaveValue(configResponse.content);
+  });
+
+  it.each([false, undefined])(
+    'does not show runtime notice when runtime presence is %s',
+    async (runtimeExists) => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...configResponse,
+          runtime_config_exists: runtimeExists,
+          runtime_is_defaults: runtimeExists === undefined ? undefined : true,
+        }),
+      });
+
+      render(<ConfigFileEditor />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('gptme config TOML')).toHaveValue(configResponse.content);
+      });
+      expect(screen.queryByText(/Read-only runtime defaults/)).not.toBeInTheDocument();
+    }
+  );
 });

@@ -648,6 +648,9 @@ def _get_user_config_file_response(content: str) -> dict[str, str | bool]:
         "local_config_path": runtime_info["local_config_path"],
         "local_config_exists": runtime_info["local_config_exists"],
         "local_overrides_main": runtime_info["local_overrides_main"],
+        "runtime_config_path": runtime_info["runtime_config_path"],
+        "runtime_config_exists": runtime_info["runtime_config_exists"],
+        "runtime_is_defaults": runtime_info["runtime_is_defaults"],
     }
 
 

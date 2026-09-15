@@ -3,6 +3,7 @@ LLM-related commands: model, tools, context, tokens.
 """
 
 from collections import defaultdict
+from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -74,10 +75,17 @@ def _replacement_prompt(
     tool_format: "ToolFormat",
 ) -> list["Message"]:
     """Generate a replacement startup prompt after runtime configuration changes."""
-    from ..config import get_project_config  # fmt: skip
+    from ..config import (  # fmt: skip
+        get_config,
+        get_project_config,
+        load_user_config,
+        set_config,
+    )
     from ..prompts import get_prompt  # fmt: skip
     from ..tools import get_tools  # fmt: skip
 
+    # A full reload would clear loaded tools and discard the active chat config.
+    set_config(replace(get_config(), user=load_user_config()))
     project_config = get_project_config(chat_config.workspace)
     prompt = (project_config.system if project_config else None) or "full"
     if chat_config.system_prompt:

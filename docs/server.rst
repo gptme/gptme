@@ -26,6 +26,91 @@ frontend process or CORS configuration is required.
 
 For more CLI options, see the :doc:`CLI reference <cli/gptme-server>`.
 
+.. _server-preview-guidance:
+
+Teaching agents about app previews
+----------------------------------
+
+The server proxies authenticated HTTP and WebSocket requests at
+``/preview/{port}/`` to ``127.0.0.1:{port}``. Allowed ports are 1024-65535 except
+5700 (the server) and 5900 (raw VNC). This does not start an app or provision
+noVNC. WebSocket forwarding requires a supported raw-socket WSGI transport.
+Validate the complete upgrade path, not just raw-socket availability, before
+advertising WebSocket/HMR or noVNC support.
+
+Operators can advertise that capability through
+:ref:`config.runtime.toml and named prompt fragments <global-config-runtime>`,
+without editing user preferences or selecting a different agent profile.
+Only install the fragment when the deployment actually supports the described
+preview routes and interface.
+
+The following example assumes the webui and instance server share an origin
+and the instance is mounted at the origin root:
+
+.. code-block:: toml
+
+    [prompt.fragments]
+    live_app_preview = '''
+    This deployment exposes authenticated live app previews in the webui.
+    Bind development apps to 127.0.0.1 on ports 1024-65535 except 5700/5900.
+    They are reachable at /preview/{port}/ relative to the instance server URL.
+    Configure absolute asset paths and HMR for the public preview base, e.g.
+    vite --host 127.0.0.1 --port 5173 --strictPort --base=/preview/5173/
+    WebSockets are supported by this deployment's proxy transport.
+    If noVNC is running on 6080, use the computer preview panel; its
+    /preview/6080/vnc.html URL includes the proxied websockify path parameter.
+    Verify the app is responding before describing it as running.
+    In the webui, if unsandboxed ipython is available, return this Message as
+    the final expression (do not print JSON) to register a live_app panel:
+    ```ipython
+    from gptme.message import Message
+    Message("system", "App preview ready.", metadata={"panel_hints": [{
+        "id": "app-preview-5173",
+        "kind": "live_app",
+        "title": "App preview",
+        "url": "/preview/5173/",
+        "status": "running",
+        "sandbox": ["allow-scripts", "allow-forms"]
+    }]})
+    ```
+    Use a new ID for a new declaration; duplicate IDs do not update status.
+    Tell the user to open/refresh the Panels sidebar. If Message passthrough
+    or the webui is unavailable, give the preview link without claiming panel
+    registration. Never disable sandboxing just to register a panel.
+    '''
+
+The panel convention is ``Message.metadata.panel_hints``; ``live_app`` entries
+use ``url`` (not ``src``) and need ``status="running"`` to display the iframe.
+The unsandboxed IPython tool passes a returned ``Message`` through to the
+conversation log. Its Docker/Wasmtime execution modes do not. Printing a
+descriptor, writing a Markdown link, or posting metadata to the message-create
+API does not register a panel. Status is declarative, not automatic health
+monitoring, and duplicate IDs are first-wins. The panel list refreshes on load
+or manual refresh.
+
+.. important::
+
+    Operators must substitute the actual **browser-visible instance prefix**
+    into asset/HMR bases, panel URLs, and user links. For example, a same-origin
+    server mounted at ``/instances/example`` needs
+    ``/instances/example/preview/5173/``, not just ``/preview/5173/``. This path
+    is illustrative, not a cloud routing API.
+
+    Relative iframe URLs currently resolve against the **webui origin**, not
+    its configured server base URL. The panel allowlist rejects non-loopback
+    absolute URLs, so a remote absolute URL is not a workaround for a separately
+    hosted webui. Such a topology needs an independently designed resolver;
+    do not weaken the sandbox or allowlist. The existing computer preview
+    component builds noVNC URLs from the server base URL and supplies the full
+    prefixed ``websockify`` path.
+
+Deployment startup owns atomic/idempotent runtime-file generation, the public
+URL/prefix, and knowledge of which tools and preview services are available.
+It must separately verify authenticated HTTP, WebSockets/HMR, noVNC if
+provisioned, actual panel rendering, and preservation of user config across
+restarts. Core config/prompt support alone does not establish cloud deployment
+readiness or public/shareable previews.
+
 Self-Hosting with Docker Compose
 --------------------------------
 

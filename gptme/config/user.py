@@ -1,7 +1,7 @@
 """User configuration loading.
 
 Handles loading, merging, and persisting user-level configuration
-from ~/.config/gptme/config.toml and config.local.toml.
+from optional config.runtime.toml defaults, config.toml, and config.local.toml.
 """
 
 import codecs
@@ -276,12 +276,42 @@ _user_config_logged: set[Path] = set()
 USER_CONFIG_SOURCE_ENV = "env"
 USER_CONFIG_SOURCE_LOCAL = "config.local.toml"
 USER_CONFIG_SOURCE_MAIN = "config.toml"
+USER_CONFIG_SOURCE_RUNTIME = "config.runtime.toml"
 
 
 def get_user_config_paths(path: str | None = None) -> tuple[Path, Path]:
     """Return the main and local user config paths."""
     config_file = Path(path or config_path)
     return config_file, config_file.parent / "config.local.toml"
+
+
+def get_user_config_runtime_path(path: str | None = None) -> Path:
+    """Return the optional operator-owned runtime defaults path."""
+    config_file, _ = get_user_config_paths(path)
+    return config_file.parent / "config.runtime.toml"
+
+
+def _load_runtime_config_doc(path: str | None = None) -> TOMLDocument | None:
+    """Read runtime defaults without creating, repairing, or rewriting the file."""
+    runtime_path = get_user_config_runtime_path(path)
+    try:
+        text = runtime_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(
+            f"Could not read runtime config {runtime_path}: {exc}"
+        ) from exc
+    try:
+        doc = tomlkit.loads(text)
+        prompt = doc.unwrap().get("prompt", {})
+        if not isinstance(prompt, dict):
+            raise ValueError("prompt must be a table")
+        if "fragments" in prompt:
+            UserPromptConfig(fragments=prompt["fragments"])
+        return doc
+    except (tomlkit.exceptions.TOMLKitError, ValueError) as exc:
+        raise ValueError(f"Invalid runtime config {runtime_path}: {exc}") from exc
 
 
 def _get_nested_config_value(doc: TOMLDocument, *keys: str) -> Any | None:
@@ -298,7 +328,8 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     """Return where an env-backed user setting currently comes from.
 
     Precedence matches ``Config.get_env`` for the user-config/global portion:
-    process environment first, then ``config.local.toml``, then ``config.toml``.
+    process environment first, then ``config.local.toml``, ``config.toml``,
+    and finally ``config.runtime.toml`` defaults.
     """
     prefixed = f"GPTME_{key}" if not key.startswith("GPTME_") else key
     bare = key.removeprefix("GPTME_") if key.startswith("GPTME_") else key
@@ -316,14 +347,21 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     if _get_nested_config_value(main_doc, "env", bare) is not None:
         return USER_CONFIG_SOURCE_MAIN
 
+    runtime_doc = _load_runtime_config_doc(path)
+    if (
+        runtime_doc is not None
+        and _get_nested_config_value(runtime_doc, "env", bare) is not None
+    ):
+        return USER_CONFIG_SOURCE_RUNTIME
+
     return None
 
 
 def get_default_model_source(path: str | None = None) -> str | None:
     """Return where the default model comes from.
 
-    Precedence mirrors model resolution: ``[models].default`` (local then main
-    config) takes priority, then the ``MODEL`` env var / ``[env]`` source.
+    Precedence mirrors model resolution: ``[models].default`` (local, main,
+    then runtime defaults) takes priority, then ``MODEL`` env var / ``[env]``.
     """
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
@@ -333,16 +371,26 @@ def get_default_model_source(path: str | None = None) -> str | None:
     main_doc = _load_config_doc(str(config_file))
     if _get_nested_config_value(main_doc, "models", "default") is not None:
         return USER_CONFIG_SOURCE_MAIN
+    runtime_doc = _load_runtime_config_doc(path)
+    if (
+        runtime_doc is not None
+        and _get_nested_config_value(runtime_doc, "models", "default") is not None
+    ):
+        return USER_CONFIG_SOURCE_RUNTIME
     return get_user_config_env_source("MODEL", path)
 
 
 def get_user_config_runtime_info(path: str | None = None) -> dict[str, str | bool]:
     """Return read/write path details for the user config UI."""
     config_file, local_path = get_user_config_paths(path)
+    runtime_path = get_user_config_runtime_path(path)
     return {
         "config_path": str(path_with_tilde(config_file)),
         "local_config_path": str(path_with_tilde(local_path)),
         "local_config_exists": local_path.exists(),
+        "runtime_config_path": str(path_with_tilde(runtime_path)),
+        "runtime_config_exists": runtime_path.exists(),
+        "runtime_is_defaults": True,
         "write_target": str(path_with_tilde(config_file)),
         "local_overrides_main": True,
     }
@@ -351,19 +399,61 @@ def get_user_config_runtime_info(path: str | None = None) -> dict[str, str | boo
 def load_user_config(path: str | None = None) -> UserConfig:
     """Load the user configuration from the config file.
 
-    Also loads config.local.toml from the same directory if it exists,
-    merging it into the main config (local values override main values).
+    Loads optional read-only config.runtime.toml defaults, then config.toml,
+    then config.local.toml from the same directory (later values override).
+    With runtime config present, built-in defaults form the lowest in-memory
+    layer. Without it, retain the existing first-run initialization and dataclass
+    fallbacks for existing files.
     This allows committing preferences to dotfiles while keeping secrets separate.
     """
+    runtime_doc = _load_runtime_config_doc(path)
+    try:
+        return _load_user_config(path, runtime_doc)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        if runtime_doc is None:
+            raise
+        raise ValueError(
+            "Invalid merged user configuration with runtime defaults from "
+            f"{get_user_config_runtime_path(path)}: {exc}"
+        ) from exc
+
+
+def _with_builtin_defaults(config: dict[str, Any]) -> dict[str, Any]:
+    """Apply built-in defaults beneath the explicit runtime/main/local layers."""
+    defaults = _strip_none(asdict(default_config))
+    prompt = config.get("prompt", {})
+    if isinstance(prompt, dict):
+        # Legacy prompt preferences must still beat built-in user defaults.
+        # Explicit [user] fields retain their existing priority over these aliases.
+        for key, legacy_key in (
+            ("about", "about_user"),
+            ("response_preference", "response_preference"),
+        ):
+            if prompt.get(legacy_key) is not None:
+                defaults["user"].pop(key, None)
+    return _merge_config_data(defaults, config)
+
+
+def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> UserConfig:
     config_file_path = path or config_path
     config_file, local_path = get_user_config_paths(config_file_path)
-    config = _load_config_doc(path).unwrap()
+    main_config = _load_config_doc(path).unwrap()
+    writable_keys = set(main_config)
+    config = (
+        _merge_config_data(runtime_doc.unwrap(), main_config)
+        if runtime_doc is not None
+        else main_config
+    )
 
     # Look for local config file in the same directory
     has_local = local_path.exists()
     if has_local:
         local_config = tomlkit.loads(_read_config_text(local_path)).unwrap()
+        writable_keys.update(local_config)
         config = _merge_config_data(config, local_config)
+
+    if runtime_doc is not None:
+        config = _with_builtin_defaults(config)
 
     # Log config paths (only once per config file)
     # Use logger instead of console to avoid polluting stdout
@@ -371,6 +461,8 @@ def load_user_config(path: str | None = None) -> UserConfig:
     if config_file not in _user_config_logged:
         _user_config_logged.add(config_file)
         msg = f"Using user configuration from {path_with_tilde(config_file)}"
+        if runtime_doc is not None:
+            msg += " with runtime defaults"
         if has_local:
             msg += " with local overrides"
         logger.info(msg)
@@ -503,8 +595,15 @@ def load_user_config(path: str | None = None) -> UserConfig:
         if isinstance(plugin_data, dict):
             plugin_config = plugin_data
 
-    if config:
-        unknown = set(config.keys())
+    unknown = set(config)
+    runtime_unknown = unknown - writable_keys
+    if runtime_unknown:
+        logger.warning(
+            f"Unknown keys in runtime config {get_user_config_runtime_path(path)}:"
+            f" {sorted(runtime_unknown)} (ignored; file is read-only)"
+        )
+    unknown &= writable_keys
+    if unknown:
         strip_targets = str(path_with_tilde(config_file))
         if has_local:
             strip_targets += f" and {path_with_tilde(local_path)}"
@@ -547,7 +646,14 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if not os.path.exists(path):
         # If not, create it and write some default settings
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        toml = tomlkit.dumps(_strip_none(asdict(default_config)))
+        # Built-in defaults written here would become explicit user overrides
+        # of runtime defaults (notably empty lists). Keep this layer sparse.
+        initial = (
+            {}
+            if get_user_config_runtime_path(path).exists()
+            else _strip_none(asdict(default_config))
+        )
+        toml = tomlkit.dumps(initial)
         with open(path, "w", encoding="utf-8") as config_file:
             config_file.write(toml)
         logger.info(f"Created config file at {path}")

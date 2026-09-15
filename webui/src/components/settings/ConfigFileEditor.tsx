@@ -14,6 +14,9 @@ type ConfigFileResponse = {
   local_config_path: string;
   local_config_exists: boolean;
   local_overrides_main: boolean;
+  runtime_config_path?: string;
+  runtime_config_exists?: boolean;
+  runtime_is_defaults?: boolean;
   status?: string;
 };
 
@@ -155,6 +158,16 @@ export function ConfigFileEditor() {
             <code className="text-xs">{configFile.local_config_path}</code> and takes precedence.
             Changes saved here may be shadowed by values in the local file.
           </span>
+        </div>
+      )}
+
+      {configFile?.runtime_config_exists && configFile?.runtime_is_defaults && (
+        <div className="rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground">
+          Read-only runtime defaults are provided by{' '}
+          <code className="text-xs">{configFile.runtime_config_path ?? 'config.runtime.toml'}</code>
+          . Values in <code className="text-xs">config.toml</code> and{' '}
+          <code className="text-xs">config.local.toml</code> override these defaults. This editor
+          saves only to <code className="text-xs">{pathLabel}</code>, not the runtime file.
         </div>
       )}
 

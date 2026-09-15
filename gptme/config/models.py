@@ -5,6 +5,7 @@ including their serialization helpers (from_dict, to_dict, merge).
 """
 
 import logging
+import re
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -174,6 +175,22 @@ class UserPromptConfig:
     # - ~ expansion
     # - Relative paths (resolved against the config directory, e.g. ~/.config/gptme)
     files: list[str] = field(default_factory=list)
+    # Named inline prompt text; an empty value disables a lower-layer fragment.
+    fragments: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.fragments, dict):
+            raise ValueError("prompt.fragments must be a mapping of names to strings")
+        for name, text in self.fragments.items():
+            if not isinstance(name, str) or not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.-]*", name
+            ):
+                raise ValueError(
+                    "prompt.fragments names must be nonempty stable identifiers "
+                    "matching [A-Za-z0-9][A-Za-z0-9_.-]*"
+                )
+            if not isinstance(text, str):
+                raise ValueError(f"prompt.fragments.{name} must be a string")
 
 
 @dataclass
