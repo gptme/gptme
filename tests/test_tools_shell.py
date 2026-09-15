@@ -2181,6 +2181,21 @@ def test_check_workspace_config_no_gptme_toml(tmp_path):
         os.chdir(original_cwd)
 
 
+def test_check_workspace_config_returns_none_if_cwd_lookup_fails(monkeypatch):
+    """Hint lookup is best-effort: a missing session or vanished cwd must not crash."""
+    from gptme.tools import shell as shell_module
+    from gptme.tools.shell import _check_workspace_config
+
+    monkeypatch.setattr(shell_module, "get_shell", lambda: None)
+    assert _check_workspace_config() is None
+
+    def boom():
+        raise OSError("cwd gone")
+
+    monkeypatch.setattr(shell_module, "get_shell", boom)
+    assert _check_workspace_config() is None
+
+
 def test_check_workspace_config_with_gptme_toml(tmp_path):
     """Returns a hint Message when gptme.toml exists in the current directory."""
     from gptme.tools.shell import _check_workspace_config, _hinted_workspaces

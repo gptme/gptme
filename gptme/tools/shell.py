@@ -2820,8 +2820,13 @@ def _check_workspace_config() -> Message | None:
     ``cd``'d into.
     """
     try:
-        cwd = get_shell().get_cwd().resolve()
-    except (FileNotFoundError, OSError):
+        shell = get_shell()
+        cwd = shell.get_cwd().resolve()
+    except (FileNotFoundError, OSError, AttributeError):
+        # Hint is best-effort: a missing shell session or a vanished cwd
+        # must not crash the tool response. AttributeError covers a None
+        # session if a caller stubbed get_shell(); production get_shell()
+        # always constructs one.
         return None
 
     config_file = cwd / "gptme.toml"
