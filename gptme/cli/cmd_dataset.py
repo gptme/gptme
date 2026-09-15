@@ -202,9 +202,11 @@ def export_cmd(
             f"Failed to write dataset export to {dest}: {e}"
         ) from None
     finally:
-        if destination is not None and not out.closed:
-            out.close()
+        # Key cleanup off temp_path, not destination: mkdir can fail before
+        # the tempfile exists, and `out` is still stdout in that case.
         if temp_path is not None:
+            if not out.closed:
+                out.close()
             temp_path.unlink(missing_ok=True)
 
     click.echo(f"Exported {count} environments.", err=True)
