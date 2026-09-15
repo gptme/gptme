@@ -65,11 +65,12 @@ export const BrowserPreview: FC<Props> = ({ defaultUrl = 'http://localhost:8080'
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  // Inject console proxy script when iframe loads
-  // NOTE: only works with same-origin URLs (we need a workaround to capture logs from cross-origin iframes)
+  // Inject console proxy script when iframe loads.
+  // Only works for same-origin iframes; cross-origin access throws SecurityError.
   const handleIframeLoad = () => {
     const iframe = iframeRef.current;
-    if (iframe?.contentWindow) {
+    if (!iframe?.contentWindow) return;
+    try {
       // Use Function constructor instead of eval for better type safety
       const script = new Function(consoleProxyScript);
       iframe.contentWindow.document.head.appendChild(
@@ -77,6 +78,8 @@ export const BrowserPreview: FC<Props> = ({ defaultUrl = 'http://localhost:8080'
           textContent: `(${script.toString()})();`,
         })
       );
+    } catch {
+      // Cross-origin iframe: console proxy injection is not supported.
     }
   };
 
