@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 # Maximum buffer size to prevent memory issues (1MB per buffer)
 _MAX_BUFFER_SIZE = 1024 * 1024
 
+# Control-file fingerprints already yielded as a wait interruption. The file is
+# left for STEP_PRE's subagent cancel checkpoint; yielding again on the same
+# contents would inject a dummy system message every LOOP_CONTINUE and burn
+# model calls until timeout (parent sessions never consume control.jsonl).
+_control_wait_keys: set[tuple[str, int, int]] = set()
+
 
 def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
     """Return the subset of `fds` that are readable, waiting up to `timeout` seconds.
@@ -386,6 +392,7 @@ def reset_background_jobs(
             _purge_completion_queue(None)
             conditions = list(_job_conditions.values())
             _job_conditions.clear()
+            _control_wait_keys.clear()
         else:
             conversation_ids = {conversation_id}
             groups = [_background_jobs.pop(conversation_id, {})]
@@ -517,14 +524,21 @@ def _background_wait_input(
     )
     if messages:
         return messages
+    control = logdir / "control.jsonl"
     try:
-        if (logdir / "control.jsonl").stat().st_size:
-            return [
-                Message("system", "Background wait yielded to pending session input.")
-            ]
+        stat = control.stat()
     except FileNotFoundError:
-        pass
-    return None
+        return None
+    if not stat.st_size:
+        return None
+    # Leave the file for STEP_PRE. Yield once so a subagent cancel can re-enter
+    # that checkpoint; a second yield of the same contents is an infinite loop
+    # because the parent cancel hook no-ops when agent_id is unset.
+    key = (str(control.resolve()), stat.st_mtime_ns, stat.st_size)
+    if key in _control_wait_keys:
+        return None
+    _control_wait_keys.add(key)
+    return [Message("system", "Background wait yielded to pending session input.")]
 
 
 def background_job_wait_hook(

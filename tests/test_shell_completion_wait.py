@@ -165,6 +165,24 @@ def test_control_file_reenters_step_checkpoint(tmp_path: Path) -> None:
     assert (tmp_path / "control.jsonl").exists()
 
 
+def test_control_file_does_not_reenter_every_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale control file must not inject a dummy model turn every LOOP_CONTINUE."""
+    monkeypatch.setenv("GPTME_WATCH_IDLE_MAX", "0")
+    start_owned("sleep 30")
+    (tmp_path / "control.jsonl").write_text('{"op":"cancel"}\n')
+    manager = SimpleNamespace(chat_id="owner", logdir=tmp_path)
+    first = list(bg.background_job_wait_hook(manager, False, []))
+    assert isinstance(first[0], Message)
+    assert "pending session input" in first[0].content
+    second = list(bg.background_job_wait_hook(manager, False, []))
+    assert isinstance(second[0], Message)
+    assert "pending session input" not in second[0].content
+    assert "timed out" in second[0].content
+    assert (tmp_path / "control.jsonl").exists()
+
+
 @pytest.mark.parametrize("cancelled", [False, True])
 @pytest.mark.parametrize("recorded", [False, True])
 def test_subagent_budget_or_cancel_ends_wait(

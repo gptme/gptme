@@ -1,9 +1,11 @@
 """Real shell completions must keep an otherwise idle chat loop alive."""
 
+import errno
 import json
 import os
 import shlex
 import sys
+import time
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import Mock
@@ -29,6 +31,27 @@ from gptme.tools.shell_background import (
     reset_background_jobs,
     start_background_job,
 )
+
+
+def _write_fifo(path: Path, data: str, timeout: float = 5.0) -> None:
+    """Write to a FIFO without blocking the test suite if the reader never opens."""
+    deadline = time.monotonic() + timeout
+    fd: int | None = None
+    while fd is None:
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError as exc:
+            if exc.errno not in (errno.ENXIO, errno.EAGAIN):
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"FIFO writer timed out waiting for reader: {path}"
+                ) from exc
+            time.sleep(0.05)
+    try:
+        os.write(fd, data.encode())
+    finally:
+        os.close(fd)
 
 
 @pytest.fixture
@@ -96,7 +119,7 @@ def test_noninteractive_loop_receives_delayed_owned_completion(
             assert job is not None and job.is_running(), (
                 "Job must remain blocked until the second reply releases it"
             )
-            release_gate.write_text("continue\n")
+            _write_fifo(release_gate, "continue\n")
         return replies[len(observed_prompts) - 1]
 
     mock_reply = Mock(side_effect=reply)
@@ -245,7 +268,7 @@ def test_noninteractive_cli_receives_background_completion(
         if call_count == 2:
             job = get_background_job(1)
             assert job is not None and job.is_running()
-            release_gate.write_text("continue\n")
+            _write_fifo(release_gate, "continue\n")
             return Message("assistant", "The command is running.")
         assert call_count == 3, "Unexpected extra model turn"
         completions = [
