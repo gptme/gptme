@@ -11111,6 +11111,54 @@ its TF-IDF index. A minimal gptme installation falls back to a stdlib
 token-overlap scorer. Output always reports the backend that actually ran; use
 ``--backend tfidf`` when fallback would be unacceptable.
 
+Triggered matching
+------------------
+
+Use keyword triggers when a memory must arrive *on this turn*, not only in the
+session-start index. ``MEMORY.md`` is a budgeted always-on view; triggered
+matching is for the smaller set of facts that should interrupt the current
+action (a release checklist, a private-review rule, a recurring failure mode).
+
+**When to save a trigger phrase.** Attach ``--keyword`` as you write the memory,
+using the phrase you will actually see in a prompt or tool call. Prefer short,
+distinctive phrases and lesson-style wildcards (``deploy*``). Names,
+descriptions, and bodies never trigger, so a memory named ``release-rule`` will
+stay silent until you give it keywords. Skip keywords on ambient facts that
+already belong in the index.
+
+.. code-block:: console
+
+   $ gptme-util memory save release-rule "Verify releases before declaring done" --keyword "stable release" --keyword "deploy*" < rule.md
+   $ gptme-util memory match "Cut the stable release" --format json
+
+Repeated ``--keyword`` options replace the entry's phrases; omit the option to
+keep them. From Python, ``keywords=[]`` clears them. Saving still follows the
+index policy and budget; matching is read-only.
+
+**How hooks give you the memory in time.** Put ``memory match`` on
+``PreToolUse`` so a pending tool call can still pull the matching rule before
+it runs. Keep ``memory recall`` on ``UserPromptSubmit`` for broader search at
+the start of a turn (see the hook configuration below). ``--prompt -`` reads the
+Claude Code JSON event from stdin: the prompt for ``UserPromptSubmit``, every
+string under ``tool_input`` for ``PreToolUse`` (nested dicts and lists
+included). Outer envelope fields (``session_id``, ``transcript_path``,
+``cwd``, ``tool_name``) never match; nested keys *inside* ``tool_input`` that
+reuse those names are tool arguments and do. ``--format hook-json`` returns
+empty ``additionalContext`` on no match so the hook stays silent.
+
+**Dedup and budget belong to the wrapper.** The CLI does not remember what it
+already injected. Call ``gptme.memory.match.match_memories`` from the harness
+and apply your own session dedup and injection budget to the returned entries,
+scores, and ``matched_by`` reasons. ``-k`` (default 5) and ``--body-chars``
+(default 1200 Unicode code points) are hard caps, not a substitute for that.
+
+Matching uses the same layered-root precedence as the rest of the store:
+superseded and historical entries stay excluded, a nearer entry of any status
+occupies the name, and index selection does not restrict who can trigger.
+Keywords are case-insensitive substrings; ``*`` matches word characters, never
+spaces or punctuation. Empty keywords and a lone ``*`` are disabled. Each
+matching keyword scores one point. Equal scores keep name order.
+
 Claude Code hook
 ~~~~~~~~~~~~~~~~
 
@@ -11128,6 +11176,17 @@ returns a valid ``additionalContext`` response:
              {
                "type": "command",
                "command": "gptme-util memory recall --prompt - --format hook-json",
+               "timeout": 20
+             }
+           ]
+         }
+       ],
+       "PreToolUse": [
+         {
+           "hooks": [
+             {
+               "type": "command",
+               "command": "gptme-util memory match --prompt - --format hook-json",
                "timeout": 20
              }
            ]

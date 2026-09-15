@@ -583,6 +583,9 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#triggered-matching">Triggered matching</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#codex-agents-md-integration">Codex / AGENTS.md integration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#writer-provenance">Writer provenance</a></li>
@@ -793,6 +796,47 @@ its TF-IDF index. A minimal gptme installation falls back to a stdlib
 token-overlap scorer. Output always reports the backend that actually ran; use
 <code class="docutils literal notranslate"><span class="pre">--backend</span> <span class="pre">tfidf</span></code> when fallback would be unacceptable.</p>
 </section>
+</section>
+<section id="triggered-matching">
+<h2>Triggered matching<a class="headerlink" href="#triggered-matching" title="Link to this heading">#</a></h2>
+<p>Use keyword triggers when a memory must arrive <em>on this turn</em>, not only in the
+session-start index. <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> is a budgeted always-on view; triggered
+matching is for the smaller set of facts that should interrupt the current
+action (a release checklist, a private-review rule, a recurring failure mode).</p>
+<p><strong>When to save a trigger phrase.</strong> Attach <code class="docutils literal notranslate"><span class="pre">--keyword</span></code> as you write the memory,
+using the phrase you will actually see in a prompt or tool call. Prefer short,
+distinctive phrases and lesson-style wildcards (<code class="docutils literal notranslate"><span class="pre">deploy*</span></code>). Names,
+descriptions, and bodies never trigger, so a memory named <code class="docutils literal notranslate"><span class="pre">release-rule</span></code> will
+stay silent until you give it keywords. Skip keywords on ambient facts that
+already belong in the index.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>save<span class="w"> </span>release-rule<span class="w"> </span><span class="s2">&quot;Verify releases before declaring done&quot;</span><span class="w"> </span>--keyword<span class="w"> </span><span class="s2">&quot;stable release&quot;</span><span class="w"> </span>--keyword<span class="w"> </span><span class="s2">&quot;deploy*&quot;</span><span class="w"> </span>&lt;<span class="w"> </span>rule.md
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>match<span class="w"> </span><span class="s2">&quot;Cut the stable release&quot;</span><span class="w"> </span>--format<span class="w"> </span>json
+</pre></div>
+</div>
+<p>Repeated <code class="docutils literal notranslate"><span class="pre">--keyword</span></code> options replace the entry’s phrases; omit the option to
+keep them. From Python, <code class="docutils literal notranslate"><span class="pre">keywords=[]</span></code> clears them. Saving still follows the
+index policy and budget; matching is read-only.</p>
+<p><strong>How hooks give you the memory in time.</strong> Put <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> on
+<code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> so a pending tool call can still pull the matching rule before
+it runs. Keep <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">recall</span></code> on <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code> for broader search at
+the start of a turn (see the hook configuration below). <code class="docutils literal notranslate"><span class="pre">--prompt</span> <span class="pre">-</span></code> reads the
+Claude Code JSON event from stdin: the prompt for <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code>, every
+string under <code class="docutils literal notranslate"><span class="pre">tool_input</span></code> for <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> (nested dicts and lists
+included). Outer envelope fields (<code class="docutils literal notranslate"><span class="pre">session_id</span></code>, <code class="docutils literal notranslate"><span class="pre">transcript_path</span></code>,
+<code class="docutils literal notranslate"><span class="pre">cwd</span></code>, <code class="docutils literal notranslate"><span class="pre">tool_name</span></code>) never match; nested keys <em>inside</em> <code class="docutils literal notranslate"><span class="pre">tool_input</span></code> that
+reuse those names are tool arguments and do. <code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">hook-json</span></code> returns
+empty <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code> on no match so the hook stays silent.</p>
+<p><strong>Dedup and budget belong to the wrapper.</strong> The CLI does not remember what it
+already injected. Call <code class="docutils literal notranslate"><span class="pre">gptme.memory.match.match_memories</span></code> from the harness
+and apply your own session dedup and injection budget to the returned entries,
+scores, and <code class="docutils literal notranslate"><span class="pre">matched_by</span></code> reasons. <code class="docutils literal notranslate"><span class="pre">-k</span></code> (default 5) and <code class="docutils literal notranslate"><span class="pre">--body-chars</span></code>
+(default 1200 Unicode code points) are hard caps, not a substitute for that.</p>
+<p>Matching uses the same layered-root precedence as the rest of the store:
+superseded and historical entries stay excluded, a nearer entry of any status
+occupies the name, and index selection does not restrict who can trigger.
+Keywords are case-insensitive substrings; <code class="docutils literal notranslate"><span class="pre">*</span></code> matches word characters, never
+spaces or punctuation. Empty keywords and a lone <code class="docutils literal notranslate"><span class="pre">*</span></code> are disabled. Each
+matching keyword scores one point. Equal scores keep name order.</p>
 <section id="claude-code-hook">
 <h3>Claude Code hook<a class="headerlink" href="#claude-code-hook" title="Link to this heading">#</a></h3>
 <p>Add the command below to a <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code> hook in
@@ -806,6 +850,17 @@ returns a valid <code class="docutils literal notranslate"><span class="pre">add
 <span class="w">          </span><span class="p">{</span>
 <span class="w">            </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span>
 <span class="w">            </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gptme-util memory recall --prompt - --format hook-json&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">]</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;PreToolUse&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">          </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gptme-util memory match --prompt - --format hook-json&quot;</span><span class="p">,</span>
 <span class="w">            </span><span class="nt">&quot;timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
 <span class="w">          </span><span class="p">}</span>
 <span class="w">        </span><span class="p">]</span>
@@ -916,6 +971,9 @@ instead. Invalid JSON, a non-object, or a reserved key fails before writing.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#triggered-matching">Triggered matching</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-hook">Claude Code hook</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#codex-agents-md-integration">Codex / AGENTS.md integration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#writer-provenance">Writer provenance</a></li>
