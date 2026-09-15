@@ -170,6 +170,10 @@ site/dist/downloads/index.html: site/downloads.html
 	mkdir -p site/dist/downloads
 	cp site/downloads.html site/dist/downloads/index.html
 
+.PHONY: site-next
+site-next:  ## Build the prototype of the new gptme.org site (site/next, needs Node 22.12+)
+	cd site/next && npm ci && npm run build
+
 version:  ## Bump version using ./scripts/bump_version.sh (interactive)
 	@./scripts/bump_version.sh
 

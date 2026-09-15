@@ -1,0 +1,122 @@
+name: Site (next)
+
+# Builds the prototype of the new gptme.org site in site/next/.
+# It does NOT deploy to gptme.org. Same-repo PRs get a Cloudflare Pages preview.
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'site/next/**'
+      - 'README.md'
+      - 'media/logo.png'
+      - 'media/icon.svg'
+      - '.github/workflows/site-next.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'site/next/**'
+      - 'README.md'
+      - 'media/logo.png'
+      - 'media/icon.svg'
+      - '.github/workflows/site-next.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-next-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: site/next
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Use Node.js 22
+      uses: actions/setup-node@v7
+      with:
+        node-version: 22.x
+        cache: 'npm'
+        cache-dependency-path: site/next/package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build
+      run: npm run build
+
+    - name: Upload dist artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: site-next-dist
+        path: site/next/dist
+        retention-days: 7
+
+  preview:
+    # Secrets are unavailable to fork PRs, so only same-repo PRs get a preview.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      PROJECT: gptme-org-next
+    steps:
+    # Credential-bearing job: pin every action to a commit SHA (same pattern as
+    # webui.yml). Tokens are action inputs, not job env, and wrangler is not
+    # fetched via unpinned `npx`.
+    - name: Download dist artifact
+      uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+      with:
+        name: site-next-dist
+        path: dist
+
+    # Best-effort: a missing Pages project or a token without Pages:Edit must
+    # not block the PR. Create fails harmlessly if the project already exists.
+    - name: Ensure Pages project exists
+      continue-on-error: true
+      uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+      with:
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        command: pages project create gptme-org-next --production-branch master
+
+    # Pass the branch through GITHUB_OUTPUT, not a shell-interpolated
+    # github.head_ref inside `command:`. Cloudflare Pages aliases already
+    # collapse `/` to `-`; do that here so the value is a safe token.
+    - name: Sanitize preview branch name
+      id: branch
+      working-directory: .
+      env:
+        RAW: ${{ github.head_ref }}
+      run: |
+        safe=$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9._-' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+        if [ -z "$safe" ]; then safe="pr-${{ github.event.pull_request.number }}"; fi
+        echo "name=$safe" >> "$GITHUB_OUTPUT"
+
+    - name: Deploy preview
+      id: deploy
+      continue-on-error: true
+      uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+      with:
+        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        command: pages deploy dist --project-name gptme-org-next --branch ${{ steps.branch.outputs.name }} --commit-dirty=true
+
+    - name: Summary
+      working-directory: .
+      run: |
+        if [ "${{ steps.deploy.outcome }}" = "success" ]; then
+          {
+            echo "### site/next preview"
+            echo "- Deployment: ${{ steps.deploy.outputs.deployment-url }}"
+            echo "- Branch alias: ${{ steps.deploy.outputs.pages-deployment-alias-url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "::warning::site/next preview deploy failed (Pages project '$PROJECT' may not exist or the Cloudflare token may lack Pages permissions). The build itself passed."
+          echo "### site/next preview: not deployed (see job log)" >> "$GITHUB_STEP_SUMMARY"
+        fi

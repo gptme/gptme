@@ -1,0 +1,158 @@
+/*
+ * gptme design tokens (design v3, 2026-09-14)
+ * ============================================
+ *
+ * Shared design language for gptme surfaces: this site first, then the docs
+ * theme, the web UI (chat.gptme.org) and gptme.ai. Components should use
+ * these semantic names rather than raw hex values.
+ *
+ * Brand family (siblings, not clones):
+ *   - Superuser Labs: dark background, pixel SU logo, green accent #4ade80,
+ *     Inter. The gptme dark accent deliberately matches it.
+ *   - gptme: these tokens. Light mode by default with ink navy #002938, blue
+ *     #2767b1 and copper #c46a1c. Dark mode (prefers-color-scheme, or
+ *     data-theme="dark") uses green #4ade80 and amber #f5b94a.
+ *   - Bob (autonomous agent built on gptme): denim #4A7BA7 + construction
+ *     orange #FF8C42. Keep it distinct; gptme's copper is deliberately darker
+ *     and browner than Bob's orange.
+ *
+ * Theme switching: light values live on :root. Dark values apply under
+ * prefers-color-scheme: dark (unless data-theme="light" is set) and under
+ * :root[data-theme="dark"], so an explicit toggle wins in both directions.
+ *
+ * Contrast notes (WCAG AA, 4.5:1 for small text):
+ *   - Copper #c46a1c is 3.67:1 on #f7f9fa, so it fails for small text. Use
+ *     --color-accent-2-text (#a65512, 5.06:1) for text. The original copper
+ *     stays for large or decorative use.
+ *   - Muted #6b7c85 is 4.10:1 on #f7f9fa, so it also fails. Use
+ *     --color-muted-text (#5c6d76, 5.09:1) for captions and labels.
+ *   - All dark-mode text pairs and the terminal palette pass.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --color-bg: #f7f9fa;
+  --color-surface: #ffffff;
+  --color-border: #dfe5e8;
+  --color-chip: #eef3f6;
+
+  /* Text */
+  --color-ink: #0b1d26;
+  --color-heading: #002938;
+  --color-ink-2: #3f525c;
+  --color-muted: #6b7c85;
+  --color-muted-text: #5c6d76;
+
+  /* Accents */
+  --color-accent: #2767b1;
+  --color-accent-2: #c46a1c;
+  --color-accent-2-text: #a65512;
+  --color-on-accent: #ffffff;
+
+  /* Logo palette: pale steel from the gptme mascot, used for the hero rings */
+  --color-ring: #a9bdcd;
+
+  /* Terminal card (identical in both themes) */
+  --term-bg: #0b1a22;
+  --term-border: #1c3a49;
+  --term-header: #122530;
+  --term-text: #d3dee5;
+  --term-muted: #8aa0ad;
+  --term-tool: #7fc8e8;
+  --term-pass: #4ade80;
+  --term-fail: #f28b82;
+  --term-prompt: #f5b94a;
+  --term-shadow: 0 30px 60px -30px rgba(0, 41, 56, 0.45);
+
+  /* Superuser Labs band */
+  --su-bg: #0a1015;
+  --su-text: #f2f5f7;
+  --su-text-2: #a3b1b9;
+  --su-link: #4ade80;
+
+  /* Type */
+  --font-sans: "Inter", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem; /* 12 */
+  --text-sm: 0.8125rem; /* 13 */
+  --text-base: 1rem; /* 16 */
+  --text-md: 1.125rem; /* 18 */
+  --text-lg: 1.25rem; /* 20 */
+  --text-xl: 1.625rem; /* 26 */
+  --text-2xl: 2.125rem; /* 34 */
+  --text-3xl: 2.375rem; /* 38 */
+  --text-stat: 2.625rem; /* 42 */
+  --text-display: 3.625rem; /* 58 */
+
+  --tracking-eyebrow: 0.12em;
+  --tracking-tight: -0.02em;
+  --tracking-display: -0.025em;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-18: 72px;
+  --space-22: 88px;
+
+  /* Layout */
+  --page-max: 1440px;
+  --gutter: var(--space-18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0b1117;
+    --color-surface: #111a22;
+    --color-border: #1f2b34;
+    --color-chip: #17222b;
+    --color-ink: #e6edf1;
+    --color-heading: #eef4f7;
+    --color-ink-2: #a7b5bd;
+    --color-muted: #7d8e97;
+    --color-muted-text: #7d8e97;
+    --color-accent: #4ade80;
+    --color-accent-2: #f5b94a;
+    --color-accent-2-text: #f5b94a;
+    --color-on-accent: #07120c;
+    --term-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6);
+    --su-bg: #111a22;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0b1117;
+  --color-surface: #111a22;
+  --color-border: #1f2b34;
+  --color-chip: #17222b;
+  --color-ink: #e6edf1;
+  --color-heading: #eef4f7;
+  --color-ink-2: #a7b5bd;
+  --color-muted: #7d8e97;
+  --color-muted-text: #7d8e97;
+  --color-accent: #4ade80;
+  --color-accent-2: #f5b94a;
+  --color-accent-2-text: #f5b94a;
+  --color-on-accent: #07120c;
+  --term-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6);
+  --su-bg: #111a22;
+}

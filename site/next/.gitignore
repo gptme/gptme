@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-ssr/
+
+# copied from the repo's media/ at build time by scripts/copy-assets.mjs
+public/media/
