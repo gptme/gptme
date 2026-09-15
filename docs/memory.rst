@@ -109,42 +109,50 @@ token-overlap scorer. Output always reports the backend that actually ran; use
 Triggered matching
 ------------------
 
-Add explicit trigger phrases through the shared writer:
+Use keyword triggers when a memory must arrive *on this turn*, not only in the
+session-start index. ``MEMORY.md`` is a budgeted always-on view; triggered
+matching is for the smaller set of facts that should interrupt the current
+action (a release checklist, a private-review rule, a recurring failure mode).
+
+**When to save a trigger phrase.** Attach ``--keyword`` as you write the memory,
+using the phrase you will actually see in a prompt or tool call. Prefer short,
+distinctive phrases and lesson-style wildcards (``deploy*``). Names,
+descriptions, and bodies never trigger, so a memory named ``release-rule`` will
+stay silent until you give it keywords. Skip keywords on ambient facts that
+already belong in the index.
 
 .. code-block:: console
 
    $ gptme-util memory save release-rule "Verify releases before declaring done" --keyword "stable release" --keyword "deploy*" < rule.md
    $ gptme-util memory match "Cut the stable release" --format json
 
-``match`` adapts living entries to gptme's ``LessonMatcher``. Keywords are
-case-insensitive substrings; ``*`` matches word characters, never spaces or
-punctuation. Empty keywords and a lone ``*`` are disabled. Each matching
-keyword contributes one point. Entry names, descriptions and bodies do not
-trigger matches. Equal scores retain name order; ``-k`` caps results (default
-5). Superseded and historical entries stay excluded. A nearer entry shadows
-a same-named farther entry before lifecycle filtering, and index selection
-does not restrict matching.
+Repeated ``--keyword`` options replace the entry's phrases; omit the option to
+keep them. From Python, ``keywords=[]`` clears them. Saving still follows the
+index policy and budget; matching is read-only.
 
-Repeated ``--keyword`` options replace an entry's keywords; omitting the option
-preserves existing keywords. The Python writer also accepts ``keywords=[]``
-to clear them. Saving keywords follows the existing index policy and budget.
-Matching itself is read-only.
+**How hooks give you the memory in time.** Put ``memory match`` on
+``PreToolUse`` so a pending tool call can still pull the matching rule before
+it runs. Keep ``memory recall`` on ``UserPromptSubmit`` for broader search at
+the start of a turn (see the hook configuration below). ``--prompt -`` reads the
+Claude Code JSON event from stdin: the prompt for ``UserPromptSubmit``, every
+string under ``tool_input`` for ``PreToolUse`` (nested dicts and lists
+included). Outer envelope fields (``session_id``, ``transcript_path``,
+``cwd``, ``tool_name``) never match; nested keys *inside* ``tool_input`` that
+reuse those names are tool arguments and do. ``--format hook-json`` returns
+empty ``additionalContext`` on no match so the hook stays silent.
 
-``--prompt -`` accepts plain text or a Claude Code JSON event. For
-``UserPromptSubmit`` it matches the prompt; for ``PreToolUse`` it matches
-every string value under ``tool_input``, including nested dicts and lists.
-Outer hook envelope fields (``session_id``, ``transcript_path``, ``cwd``,
-``tool_name``, and the rest of the payload above ``tool_input``) never
-participate. Nested keys *inside* ``tool_input`` that happen to reuse those
-names are tool arguments and do participate. ``--pre-tool`` selects the
-pre-tool response when supplying plain text. ``--format hook-json`` uses the
-input event's name and returns empty context on no match. Text and hook
-output include source paths and cap each body at ``--body-chars`` Unicode
-code points (default 1200), never UTF-8 bytes.
+**Dedup and budget belong to the wrapper.** The CLI does not remember what it
+already injected. Call ``gptme.memory.match.match_memories`` from the harness
+and apply your own session dedup and injection budget to the returned entries,
+scores, and ``matched_by`` reasons. ``-k`` (default 5) and ``--body-chars``
+(default 1200 Unicode code points) are hard caps, not a substitute for that.
 
-The CLI keeps no session deduplication state. A harness wrapper can call
-``gptme.memory.match.match_memories`` directly and apply its own deduplication
-and injection budget to the returned entries, scores and ``matched_by`` reasons.
+Matching uses the same layered-root precedence as the rest of the store:
+superseded and historical entries stay excluded, a nearer entry of any status
+occupies the name, and index selection does not restrict who can trigger.
+Keywords are case-insensitive substrings; ``*`` matches word characters, never
+spaces or punctuation. Empty keywords and a lone ``*`` are disabled. Each
+matching keyword scores one point. Equal scores keep name order.
 
 Claude Code hook
 ----------------

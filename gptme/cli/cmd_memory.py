@@ -299,10 +299,12 @@ def memory_match(
     format_: str,
     body_chars: int,
 ) -> None:
-    """Trigger living memories by explicit lesson-style keywords and wildcards.
+    """Inject living memories whose keywords match this turn's prompt or tool call.
 
-    Unlike recall, names and body similarity never trigger a match. Hook input
-    supports UserPromptSubmit and PreToolUse; no session state is written.
+    Use this instead of recall when a specific phrase should surface a rule
+    before you act. Names and body similarity never trigger. The CLI stores no
+    session dedup; wrappers apply their own injection budget. Hook input
+    supports UserPromptSubmit and PreToolUse.
     """
     from ..memory.match import match_memories, render_matches
 
