@@ -38,6 +38,7 @@ from ..gears import parse_gear, resolve_gear
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import FrameType
 
     from ..logmanager import ConversationMeta
     from ..prompts import ContextMode
@@ -1670,6 +1671,15 @@ def main(
         ]
         initial_msgs = list(initial_msgs) + [editor_injection]
 
+    # Default SIGTERM skips Python cleanup, leaving detached shell jobs alive.
+    # Scope graceful termination to CLI chat; library/server hosts own signals.
+    def handle_sigterm(signum: int, frame: FrameType | None) -> None:
+        raise SystemExit(128 + signum)
+
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    if previous_sigterm == signal.SIG_DFL:
+        signal.signal(signal.SIGTERM, handle_sigterm)
+
     try:
         chat(
             prompt_msgs,
@@ -1721,6 +1731,8 @@ def main(
             exit_code = 1
         sys.exit(exit_code)
     finally:
+        if signal.getsignal(signal.SIGTERM) is handle_sigterm:
+            signal.signal(signal.SIGTERM, previous_sigterm)
         shutdown_telemetry()
         if get_config().get_env_bool("GPTME_EXIT_STATS"):
             try:
