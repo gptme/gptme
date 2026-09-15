@@ -174,7 +174,8 @@ export function parseMarkdownContent(content: string) {
   return parsedResult;
 }
 
-export function getCodeBlockEmoji(langtag: string): string {
+export function getCodeBlockEmoji(langtag: string | undefined): string {
+  if (!langtag) return '💻';
   // TODO: replace these with proper icons
   if (isPath(langtag)) return '📄';
   if (isTool(langtag)) return '🛠️';

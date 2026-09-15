@@ -19,7 +19,8 @@ export interface Agent {
 
 // For now, we'll use a simple heuristic to detect agents
 // Agents might be workspaces with certain naming patterns or special files
-export function isAgentWorkspace(path: string): boolean {
+export function isAgentWorkspace(path: string | undefined): boolean {
+  if (!path) return false;
   // Simple heuristic: consider workspaces with "agent" in the name as agents
   const pathLower = path.toLowerCase();
   return (

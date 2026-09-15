@@ -116,7 +116,7 @@ export function detectLanguageFromFilename(filename: string): string | undefined
  * @param content Code content
  * @returns Detected language or undefined
  */
-export function detectLanguageFromContent(content: string): string | undefined {
+export function detectLanguageFromContent(content: string | undefined): string | undefined {
   if (!content) return undefined;
 
   const firstLine = content.split('\n')[0].trim();

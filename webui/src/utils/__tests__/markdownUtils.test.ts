@@ -2,6 +2,7 @@ import {
   processNestedCodeBlocks,
   transformThinkingTags,
   parseMarkdownContent,
+  getCodeBlockEmoji,
 } from '../markdownUtils';
 import '@testing-library/jest-dom';
 
@@ -266,5 +267,26 @@ You can try the web UI by:
     // Check thinking block
     expect(result).toContain('<details type="thinking"><summary>💭 Thinking</summary>');
     expect(result).toContain('Thinking blocks are collapsible');
+  });
+});
+
+describe('getCodeBlockEmoji', () => {
+  it('returns default emoji for undefined input without throwing', () => {
+    expect(() => getCodeBlockEmoji(undefined)).not.toThrow();
+    expect(getCodeBlockEmoji(undefined)).toBe('💻');
+  });
+
+  it('returns default emoji for empty string without throwing', () => {
+    expect(() => getCodeBlockEmoji('')).not.toThrow();
+    expect(getCodeBlockEmoji('')).toBe('💻');
+  });
+
+  it('returns correct emoji for known langtags', () => {
+    expect(getCodeBlockEmoji('shell')).toBe('🛠️');
+    expect(getCodeBlockEmoji('stdout')).toBe('📤');
+    expect(getCodeBlockEmoji('save')).toBe('📝');
+    expect(getCodeBlockEmoji('browser')).toBe('🌐');
+    expect(getCodeBlockEmoji('complete')).toBe('🏁');
+    expect(getCodeBlockEmoji('src/foo.py')).toBe('📄');
   });
 });

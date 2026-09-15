@@ -1,5 +1,5 @@
 import hljs from 'highlight.js';
-import { highlightCode } from '../highlightUtils';
+import { highlightCode, detectLanguageFromContent } from '../highlightUtils';
 
 describe('highlightCode', () => {
   const code = 'x = 1\ny = 2\n';
@@ -77,5 +77,16 @@ describe('highlightCode', () => {
   it('escapes HTML entities in plain text output', () => {
     const result = highlightCode('<b>bold</b> & "quoted"', 'stdout');
     expect(result.code).toBe('&lt;b&gt;bold&lt;/b&gt; &amp; "quoted"');
+  });
+});
+
+describe('detectLanguageFromContent', () => {
+  it('returns undefined for undefined input without throwing', () => {
+    expect(() => detectLanguageFromContent(undefined)).not.toThrow();
+    expect(detectLanguageFromContent(undefined)).toBeUndefined();
+  });
+
+  it('returns undefined for empty string', () => {
+    expect(detectLanguageFromContent('')).toBeUndefined();
   });
 });
