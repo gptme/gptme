@@ -7,19 +7,23 @@ See Issue #576 for the original background jobs feature.
 """
 
 import atexit
+import hashlib
 import importlib
 import logging
+import math
 import os
 import queue
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Literal, cast
 
+from ..hooks.types import StopPropagation
 from ..message import Message
 from ..sandbox import apply_memory_limit
 from ..util.context import md_codeblock
@@ -36,6 +40,14 @@ logger = logging.getLogger(__name__)
 
 # Maximum buffer size to prevent memory issues (1MB per buffer)
 _MAX_BUFFER_SIZE = 1024 * 1024
+
+# Control-file fingerprints already yielded as a wait interruption. The file is
+# left for STEP_PRE's subagent cancel checkpoint; yielding again on the same
+# contents would inject a dummy system message every LOOP_CONTINUE and burn
+# model calls until timeout (parent sessions never consume control.jsonl).
+# Hash contents, not mtime/size: a same-size rewrite (new cancel op) must
+# interrupt wait again even on filesystems with coarse timestamps.
+_control_wait_keys: set[tuple[str, bytes]] = set()
 
 
 def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
@@ -94,6 +106,8 @@ class BackgroundJob:
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _completion_notified: bool = field(default=False, repr=False)
+    _wait_expired: bool = field(default=False, repr=False)
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
@@ -248,6 +262,7 @@ _background_jobs: dict[str | None, dict[int, BackgroundJob]] = {}
 _next_job_ids: dict[str | None, int] = {}
 _completion_queue: queue.Queue[BackgroundJob] = queue.Queue()
 _job_lock: threading.RLock = threading.RLock()
+_job_conditions: dict[str | None, threading.Condition] = {}
 
 
 def _current_conversation_id() -> str | None:
@@ -267,8 +282,25 @@ def _get_next_job_id_locked(conversation_id: str | None) -> int:
     return job_id
 
 
+def _pending_wait_jobs(conversation_id: str | None) -> list[BackgroundJob]:
+    """Jobs this conversation should still wait for. Caller holds ``_job_lock``."""
+    return [
+        job
+        for job in _background_jobs.get(conversation_id, {}).values()
+        if not job._completion_notified and not job._wait_expired
+    ]
+
+
 def _notify_completion(job: BackgroundJob) -> None:
-    _completion_queue.put(job)
+    with _job_lock:
+        # A reader can finish after session cleanup. Never resurrect its event,
+        # or deliver it to a later session that reused the same job ID.
+        if _background_jobs.get(job.conversation_id, {}).get(job.id) is not job:
+            return
+        job._completion_notified = True
+        _completion_queue.put(job)
+        if condition := _job_conditions.get(job.conversation_id):
+            condition.notify_all()
 
 
 def _jobs_for(conversation_id: str | None) -> dict[int, BackgroundJob]:
@@ -370,11 +402,18 @@ def reset_background_jobs(
             # conversation IDs would leave entries from jobs created outside
             # start_background_job (e.g. via _make_job in tests).
             _purge_completion_queue(None)
+            conditions = list(_job_conditions.values())
+            _job_conditions.clear()
+            _control_wait_keys.clear()
         else:
             conversation_ids = {conversation_id}
             groups = [_background_jobs.pop(conversation_id, {})]
             _next_job_ids.pop(conversation_id, None)
             _purge_completion_queue(conversation_ids)
+            condition = _job_conditions.pop(conversation_id, None)
+            conditions = [condition] if condition is not None else []
+        for condition in conditions:
+            condition.notify_all()
     for jobs in groups:
         for job in jobs.values():
             if job.is_running():
@@ -402,8 +441,8 @@ def _completion_message(job: BackgroundJob) -> Message:
 
 def background_job_completion_hook(
     manager: object,
-    interactive: bool,
-    prompt_queue: object,
+    interactive: bool = False,
+    prompt_queue: object = None,
     no_confirm: bool = False,
 ) -> Generator[Message, None, None]:
     """Deliver completed jobs only to the conversation that started them."""
@@ -432,6 +471,166 @@ def background_job_completion_hook(
         )
         messages = [_completion_message(job) for job in own_jobs]
     yield from messages
+
+
+def _background_wait_input(
+    manager: object,
+) -> list[Message] | Literal["hook"] | None:
+    """Yield to existing file-based input/control, including subagent budgets."""
+    from ..constants import MAX_PROMPT_QUEUE_SIZE
+    from ..prompt_queue import drain_prompt_queue, drain_steer_prompts
+
+    logdir = getattr(manager, "logdir", None)
+    if logdir is None:
+        return None
+    # Subagents are optional: do not load that tool just to wait for a shell.
+    if "gptme.tools.subagent.types" in sys.modules:
+        from .complete import SessionCompleteException
+        from .subagent.types import (
+            ReturnType,
+            _subagents,
+            _subagents_lock,
+            set_subagent_result_if_absent,
+        )
+        from .subagent.types import (
+            _completion_queue as subagent_completions,
+        )
+        from .subagent.types import (
+            _progress_queue as subagent_progress,
+        )
+
+        with _subagents_lock:
+            child = next((s for s in _subagents if s.logdir == logdir), None)
+        if child is not None:
+            if child.cancel_event.is_set():
+                set_subagent_result_if_absent(
+                    child.agent_id,
+                    ReturnType("cancelled", "Cancelled during background wait"),
+                )
+                raise SessionCompleteException(
+                    "Subagent cancelled during background wait"
+                )
+            if (
+                child.max_time is not None
+                and time.time() >= child.started_at + child.max_time
+            ):
+                # Win the same first-writer race as the watchdog; otherwise
+                # normal chat shutdown could cache this timeout as success.
+                set_subagent_result_if_absent(
+                    child.agent_id,
+                    ReturnType("timeout", "max_time reached during background wait"),
+                )
+                raise SessionCompleteException(
+                    "Subagent max_time reached during background wait"
+                )
+        # The existing subagent LOOP_CONTINUE hook still owns these queues.
+        # Let it run instead of hiding its events behind a long shell job.
+        if not subagent_completions.empty() or not subagent_progress.empty():
+            return "hook"
+    # Use the existing locked readers, not file size: an idle CLI has no next
+    # STEP_PRE to consume steering unless we actually queue that input here.
+    # Invalid/partial records remain on disk and cannot cause a spurious exit.
+    messages = drain_prompt_queue(logdir, max_items=MAX_PROMPT_QUEUE_SIZE)
+    messages += drain_steer_prompts(
+        logdir, max_items=MAX_PROMPT_QUEUE_SIZE - len(messages)
+    )
+    if messages:
+        return messages
+    control = logdir / "control.jsonl"
+    try:
+        payload = control.read_bytes()
+    except FileNotFoundError:
+        return None
+    if not payload:
+        return None
+    # Leave the file for STEP_PRE. Yield once so a subagent cancel can re-enter
+    # that checkpoint; a second yield of the same contents is an infinite loop
+    # because the parent cancel hook no-ops when agent_id is unset.
+    key = (str(control.resolve()), hashlib.sha256(payload).digest())
+    if key in _control_wait_keys:
+        return None
+    _control_wait_keys.add(key)
+    return [Message("system", "Background wait yielded to pending session input.")]
+
+
+def background_job_wait_hook(
+    manager: object,
+    interactive: bool,
+    prompt_queue: object,
+    no_confirm: bool = False,
+) -> Generator[Message | StopPropagation, None, None]:
+    """Wake an idle CLI on completion, before auto-reply/stuck detection.
+
+    Job completion is condition-driven. The one-second control checkpoint is
+    only for cross-process prompt/cancel files and subagent wall-clock limits;
+    it does not poll processes or make model calls.
+    """
+    from ..config import get_config
+    from ..hooks import current_conversation_id
+    from ..util.interrupt import clear_interruptible, set_interruptible
+
+    del no_confirm
+    conversation_id = getattr(manager, "chat_id", None) or current_conversation_id.get()
+    messages = list(background_job_completion_hook(manager))
+    if messages:
+        yield from messages
+        yield StopPropagation()
+        return
+    if interactive or prompt_queue:
+        return
+
+    raw_limit = get_config().get_env("WATCH_IDLE_MAX", "1800") or "1800"
+    try:
+        limit = float(raw_limit)
+        if not math.isfinite(limit) or limit < 0:
+            raise ValueError
+    except ValueError:
+        logger.warning("Invalid GPTME_WATCH_IDLE_MAX %r; using 1800 seconds", raw_limit)
+        limit = 1800.0
+    deadline = time.monotonic() + limit
+    set_interruptible()
+    try:
+        while True:
+            with _job_lock:
+                messages = list(background_job_completion_hook(manager))
+                pending = _pending_wait_jobs(conversation_id)
+                if messages or not pending:
+                    break
+            if incoming := _background_wait_input(manager):
+                if isinstance(incoming, list):
+                    messages = incoming
+                break
+            with _job_lock:
+                # Recheck under the notifier's lock so a completion between the
+                # last drain and wait() cannot be lost. Recompute pending from
+                # live state: a job whose completion was already claimed (STEP_PRE
+                # or a concurrent drain) must not abort wait for remaining jobs.
+                messages = list(background_job_completion_hook(manager))
+                pending = _pending_wait_jobs(conversation_id)
+                if messages or not pending:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    for job in pending:
+                        job._wait_expired = True
+                    messages = [
+                        Message(
+                            "system",
+                            f"Background wait timed out after {limit:g}s; {len(pending)} job(s) still pending. "
+                            "Automatic waiting is disabled for these jobs; late completions will still be reported. "
+                            "Use `output <id>`, `wait <id> [timeout]`, or `kill <id>` as needed.",
+                        )
+                    ]
+                    break
+                condition = _job_conditions.setdefault(
+                    conversation_id, threading.Condition(_job_lock)
+                )
+                condition.wait(timeout=min(remaining, 1.0))
+    finally:
+        clear_interruptible()
+    if messages:
+        yield from messages
+        yield StopPropagation()
 
 
 # Background command handlers

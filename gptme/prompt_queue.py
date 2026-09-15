@@ -138,13 +138,14 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
         return drained
 
 
-def drain_steer_prompts(logdir: Path) -> list[Message]:
+def drain_steer_prompts(logdir: Path, max_items: int | None = None) -> list[Message]:
     """Drain only steer-flagged prompts from the queue (mid-turn injection).
 
     Regular (non-steer) prompts remain on disk for between-turn draining by
     ``drain_prompt_queue``.  Steer prompts written by ``subagent_steer()`` are
     picked up here at each STEP_PRE checkpoint so the next LLM generation in
     the same agentic turn sees the orchestrator's guidance immediately.
+    If ``max_items`` is set, excess steer prompts remain on disk in FIFO order.
     """
     queue_path = get_prompt_queue_path(logdir)
     if not queue_path.exists():
@@ -160,6 +161,9 @@ def drain_steer_prompts(logdir: Path) -> list[Message]:
 
         for line in lines:
             if not line.strip():
+                continue
+            if max_items is not None and len(steer_msgs) >= max_items:
+                remaining.append(line)
                 continue
             try:
                 record = json.loads(line)

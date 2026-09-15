@@ -74,6 +74,7 @@ from .base import (
 from .pruner import plan_tool_output_prune
 from .shell_background import (
     background_job_completion_hook,
+    background_job_wait_hook,
     execute_jobs_command,
     execute_kill_command,
     execute_output_command,
@@ -269,6 +270,9 @@ conversation-owned process. The call returns a job ID immediately and completion
 is reported automatically. Exact `jobs`, `output <id> [--new]`, `wait <id>
 [timeout]`, and `kill <id>` calls manage matching harness jobs; otherwise Bash
 owns those commands. Use this for dev servers and long builds.
+Keep working while a job runs: completion is delivered before the next model
+step, and non-interactive sessions wait when idle (up to
+`GPTME_WATCH_IDLE_MAX` seconds, default 1800). `wait` is the blocking fallback.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -3160,7 +3164,8 @@ tool = ToolSpec(
     # This auto-confirms allowlisted commands before CLI/server hooks (priority 0)
     hooks={
         "allowlist": ("tool.confirm", shell_allowlist_hook, 10),
-        "background_completion": ("loop.continue", background_job_completion_hook, 0),
+        "background_completion": ("step.pre", background_job_completion_hook, 900),
+        "background_wait": ("loop.continue", background_job_wait_hook, 1500),
         "session_end": ("session.end", _session_end_shell_cleanup, 0),
     },
     hints=frozenset({"code-exec", "destructive"}),
