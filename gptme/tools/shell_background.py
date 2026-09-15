@@ -467,30 +467,42 @@ def _background_wait_has_input(
     if "gptme.tools.subagent.types" in sys.modules:
         from .complete import SessionCompleteException
         from .subagent.types import (
+            ReturnType,
+            _subagents,
+            _subagents_lock,
+            set_subagent_result_if_absent,
+        )
+        from .subagent.types import (
             _completion_queue as subagent_completions,
         )
         from .subagent.types import (
             _progress_queue as subagent_progress,
         )
-        from .subagent.types import (
-            _subagents,
-            _subagents_lock,
-        )
 
         with _subagents_lock:
             child = next((s for s in _subagents if s.logdir == logdir), None)
-            if child is not None:
-                if child.cancel_event.is_set():
-                    raise SessionCompleteException(
-                        "Subagent cancelled during background wait"
-                    )
-                if (
-                    child.max_time is not None
-                    and time.time() >= child.started_at + child.max_time
-                ):
-                    raise SessionCompleteException(
-                        "Subagent max_time reached during background wait"
-                    )
+        if child is not None:
+            if child.cancel_event.is_set():
+                set_subagent_result_if_absent(
+                    child.agent_id,
+                    ReturnType("cancelled", "Cancelled during background wait"),
+                )
+                raise SessionCompleteException(
+                    "Subagent cancelled during background wait"
+                )
+            if (
+                child.max_time is not None
+                and time.time() >= child.started_at + child.max_time
+            ):
+                # Win the same first-writer race as the watchdog; otherwise
+                # normal chat shutdown could cache this timeout as success.
+                set_subagent_result_if_absent(
+                    child.agent_id,
+                    ReturnType("timeout", "max_time reached during background wait"),
+                )
+                raise SessionCompleteException(
+                    "Subagent max_time reached during background wait"
+                )
         # The existing subagent LOOP_CONTINUE hook still owns these queues.
         # Let it run instead of hiding its events behind a long shell job.
         if not subagent_completions.empty() or not subagent_progress.empty():

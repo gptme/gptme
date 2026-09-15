@@ -148,7 +148,10 @@ def test_control_file_reenters_step_checkpoint(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
-def test_subagent_budget_or_cancel_ends_wait(tmp_path: Path, cancelled: bool) -> None:
+@pytest.mark.parametrize("recorded", [False, True])
+def test_subagent_budget_or_cancel_ends_wait(
+    tmp_path: Path, cancelled: bool, recorded: bool
+) -> None:
     from gptme.tools.complete import SessionCompleteException
     from gptme.tools.subagent import types
 
@@ -157,19 +160,29 @@ def test_subagent_budget_or_cancel_ends_wait(tmp_path: Path, cancelled: bool) ->
     if cancelled:
         cancel.set()
     child = SimpleNamespace(
+        agent_id="waiting-child",
         logdir=tmp_path,
         cancel_event=cancel,
         max_time=None if cancelled else 0,
         started_at=0,
     )
+    earlier = types.ReturnType("cancelled", "Earlier terminal result")
+    results: dict[str, types.ReturnType] = {child.agent_id: earlier} if recorded else {}
     with (
         patch.object(types, "_subagents", [child]),
+        patch.object(types, "_subagent_results", results),
         pytest.raises(SessionCompleteException),
     ):
         list(
             bg.background_job_wait_hook(
                 SimpleNamespace(chat_id="owner", logdir=tmp_path), False, []
             )
+        )
+    if recorded:
+        assert results[child.agent_id] is earlier
+    else:
+        assert results[child.agent_id].status == (
+            "cancelled" if cancelled else "timeout"
         )
 
 
