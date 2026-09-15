@@ -183,6 +183,50 @@ def test_control_file_does_not_reenter_every_turn(
     assert (tmp_path / "control.jsonl").exists()
 
 
+def test_control_file_same_size_rewrite_reenters(tmp_path: Path) -> None:
+    """A same-size rewrite is a new control op and must interrupt wait again."""
+    start_owned("sleep 30")
+    control = tmp_path / "control.jsonl"
+    control.write_text('{"op":"cancel"}\n')
+    manager = SimpleNamespace(chat_id="owner", logdir=tmp_path)
+    first = list(bg.background_job_wait_hook(manager, False, []))
+    assert isinstance(first[0], Message)
+    assert "pending session input" in first[0].content
+    # Same byte length, different payload. mtime/size fingerprints miss this.
+    rewritten = '{"op":"paused"}\n'
+    assert len(rewritten.encode()) == len(b'{"op":"cancel"}\n')
+    control.write_text(rewritten)
+    second = list(bg.background_job_wait_hook(manager, False, []))
+    assert isinstance(second[0], Message)
+    assert "pending session input" in second[0].content
+
+
+def test_wait_keeps_remaining_jobs_after_concurrent_drain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A drained completion must not abort wait for still-running siblings."""
+    monkeypatch.setenv("GPTME_WATCH_IDLE_MAX", "0")
+    fast = start_owned("sleep 30")
+    slow = start_owned("sleep 30")
+    manager = SimpleNamespace(chat_id="owner")
+
+    def steal_fast_completion(_mgr: object) -> None:
+        fast.kill()
+        assert fast._reader_thread is not None
+        fast._reader_thread.join(timeout=3)
+        list(bg.background_job_completion_hook(manager))
+        return
+
+    monkeypatch.setattr(bg, "_background_wait_input", steal_fast_completion)
+    results = list(bg.background_job_wait_hook(manager, False, []))
+    assert results, "wait hook dropped the remaining job after a sibling drain"
+    assert isinstance(results[0], Message)
+    assert "timed out" in results[0].content
+    assert "1 job" in results[0].content
+    assert slow.is_running()
+    slow.kill()
+
+
 @pytest.mark.parametrize("cancelled", [False, True])
 @pytest.mark.parametrize("recorded", [False, True])
 def test_subagent_budget_or_cancel_ends_wait(

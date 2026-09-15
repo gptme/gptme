@@ -7,6 +7,7 @@ See Issue #576 for the original background jobs feature.
 """
 
 import atexit
+import hashlib
 import importlib
 import logging
 import math
@@ -44,7 +45,9 @@ _MAX_BUFFER_SIZE = 1024 * 1024
 # left for STEP_PRE's subagent cancel checkpoint; yielding again on the same
 # contents would inject a dummy system message every LOOP_CONTINUE and burn
 # model calls until timeout (parent sessions never consume control.jsonl).
-_control_wait_keys: set[tuple[str, int, int]] = set()
+# Hash contents, not mtime/size: a same-size rewrite (new cancel op) must
+# interrupt wait again even on filesystems with coarse timestamps.
+_control_wait_keys: set[tuple[str, bytes]] = set()
 
 
 def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
@@ -277,6 +280,15 @@ def _get_next_job_id_locked(conversation_id: str | None) -> int:
     job_id = _next_job_ids.get(conversation_id, 1)
     _next_job_ids[conversation_id] = job_id + 1
     return job_id
+
+
+def _pending_wait_jobs(conversation_id: str | None) -> list[BackgroundJob]:
+    """Jobs this conversation should still wait for. Caller holds ``_job_lock``."""
+    return [
+        job
+        for job in _background_jobs.get(conversation_id, {}).values()
+        if not job._completion_notified and not job._wait_expired
+    ]
 
 
 def _notify_completion(job: BackgroundJob) -> None:
@@ -526,15 +538,15 @@ def _background_wait_input(
         return messages
     control = logdir / "control.jsonl"
     try:
-        stat = control.stat()
+        payload = control.read_bytes()
     except FileNotFoundError:
         return None
-    if not stat.st_size:
+    if not payload:
         return None
     # Leave the file for STEP_PRE. Yield once so a subagent cancel can re-enter
     # that checkpoint; a second yield of the same contents is an infinite loop
     # because the parent cancel hook no-ops when agent_id is unset.
-    key = (str(control.resolve()), stat.st_mtime_ns, stat.st_size)
+    key = (str(control.resolve()), hashlib.sha256(payload).digest())
     if key in _control_wait_keys:
         return None
     _control_wait_keys.add(key)
@@ -581,11 +593,7 @@ def background_job_wait_hook(
         while True:
             with _job_lock:
                 messages = list(background_job_completion_hook(manager))
-                pending = [
-                    job
-                    for job in _background_jobs.get(conversation_id, {}).values()
-                    if not job._completion_notified and not job._wait_expired
-                ]
+                pending = _pending_wait_jobs(conversation_id)
                 if messages or not pending:
                     break
             if incoming := _background_wait_input(manager):
@@ -593,15 +601,13 @@ def background_job_wait_hook(
                     messages = incoming
                 break
             with _job_lock:
-                # Check again under the same lock used by the notifier to avoid
-                # losing an exit between the predicate check and wait().
+                # Recheck under the notifier's lock so a completion between the
+                # last drain and wait() cannot be lost. Recompute pending from
+                # live state: a job whose completion was already claimed (STEP_PRE
+                # or a concurrent drain) must not abort wait for remaining jobs.
                 messages = list(background_job_completion_hook(manager))
-                if messages or any(job._completion_notified for job in pending):
-                    break
-                if any(
-                    _background_jobs.get(conversation_id, {}).get(job.id) is not job
-                    for job in pending
-                ):
+                pending = _pending_wait_jobs(conversation_id)
+                if messages or not pending:
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
