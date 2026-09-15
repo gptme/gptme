@@ -174,19 +174,14 @@ def export_cmd(
     try:
         if destination is not None:
             destination = destination.resolve()
-            try:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                temp = tempfile.NamedTemporaryFile(
-                    mode="w",
-                    encoding="utf-8",
-                    dir=destination.parent,
-                    prefix=f".{destination.name}.",
-                    delete=False,
-                )
-            except OSError as e:
-                raise click.ClickException(
-                    f"Failed to write dataset export to {destination}: {e}"
-                ) from None
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temp = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                delete=False,
+            )
             out = temp
             temp_path = Path(temp.name)
 
@@ -197,15 +192,15 @@ def export_cmd(
         if destination is not None:
             out.close()
             assert temp_path is not None
-            try:
-                os.replace(temp_path, destination)
-            except OSError as e:
-                raise click.ClickException(
-                    f"Failed to write dataset export to {destination}: {e}"
-                ) from None
+            os.replace(temp_path, destination)
             temp_path = None
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
+    except OSError as e:
+        dest = destination if destination is not None else output_path
+        raise click.ClickException(
+            f"Failed to write dataset export to {dest}: {e}"
+        ) from None
     finally:
         if destination is not None and not out.closed:
             out.close()

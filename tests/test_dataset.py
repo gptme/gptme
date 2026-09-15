@@ -529,6 +529,60 @@ def test_cli_export_parent_is_file_emits_clean_error(tmp_path):
     )
 
 
+def test_cli_export_write_error_emits_clean_error(tmp_path, monkeypatch):
+    """A mid-export OSError on the temp file must be a ClickException,
+    not a raw traceback (gptme/gptme#3842 AI-review finding)."""
+    import tempfile as tf
+
+    from gptme.cli.cmd_dataset import dataset
+
+    session_id = "feed"
+    repo = make_repo(tmp_path)
+    add_commit(repo, "impl.py", "# impl\n", f"feat: implement ({session_id})")
+    logs_dir = make_logs_dir(tmp_path, session_id, make_messages(session_id))
+    output_file = tmp_path / "envs.jsonl"
+    output_file.write_text("existing\n")
+
+    real_ntf = tf.NamedTemporaryFile
+
+    def exploding_ntf(*args, **kwargs):
+        handle = real_ntf(*args, **kwargs)
+
+        def boom(*_a, **_k):
+            raise OSError(28, "No space left on device")
+
+        handle.write = boom  # type: ignore[method-assign]
+        return handle
+
+    monkeypatch.setattr(
+        "gptme.cli.cmd_dataset.tempfile.NamedTemporaryFile", exploding_ntf
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        dataset,
+        [
+            "export",
+            "--repo",
+            str(repo),
+            "--logs-dir",
+            str(logs_dir),
+            "--output",
+            str(output_file),
+            "-n",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "Traceback (most recent call last)" not in result.output
+    assert result.output.startswith(
+        f"Error: Failed to write dataset export to {output_file}:"
+    )
+    assert output_file.read_text() == "existing\n"
+    assert not list(tmp_path.glob(".envs.jsonl.*"))
+
+
 def test_cli_export_creates_missing_parent_dirs(tmp_path):
     """Writing to a path whose parent doesn't exist should auto-mkdir
     the parent directory (mkdir -p style) instead of failing."""
