@@ -885,6 +885,91 @@ def test_project_config_rejects_non_object_mcp_server_entries():
         ProjectConfig.from_dict({"mcp": {"servers": ["not_an_object"]}})
 
 
+@pytest.mark.parametrize("config_source", ["environment", "project", "resume"])
+@pytest.mark.parametrize(
+    ("configured_tools", "expected_tools"),
+    [
+        (("read", "shell"), ["read", "shell", "save"]),
+        (("read-only",), ["read", "save"]),
+    ],
+)
+def test_additive_tools_extend_configured_allowlist(
+    tmp_path: Path,
+    monkeypatch,
+    config_source: str,
+    configured_tools: tuple[str, ...],
+    expected_tools: list[str],
+):
+    """Additive tool selection preserves and expands the configured base policy."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "log"
+    tools_value = ",".join(configured_tools)
+    if config_source == "environment":
+        monkeypatch.setenv("GPTME_TOOL_ALLOWLIST", tools_value)
+    elif config_source == "project":
+        (workspace / "gptme.toml").write_text(
+            f'[env]\nTOOL_ALLOWLIST = "{tools_value}"\n', encoding="utf-8"
+        )
+    else:
+        logdir.mkdir()
+        serialized_tools = ", ".join(f'"{tool}"' for tool in configured_tools)
+        (logdir / "config.toml").write_text(
+            f"[chat]\ntools = [{serialized_tools}]\n", encoding="utf-8"
+        )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="+save",
+        tool_format=None,
+        prune_tool_output=None,
+        gear=None,
+        no_confirm=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == expected_tools
+
+
+def test_additive_tools_with_empty_saved_policy(tmp_path: Path):
+    """Additive '+tool' on a resumed session with tools=[] uses [] as base, not defaults.
+
+    Regression guard for the truthiness-vs-is-not-None bug: tools=[] is falsy,
+    so `if existing_chat_config.tools:` silently falls through to the full default
+    toolchain, producing defaults+save instead of the correct [save].
+    """
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    # Simulate a session saved with --tools none (no tools at all).
+    (logdir / "config.toml").write_text("[chat]\ntools = []\n", encoding="utf-8")
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="+save",
+        tool_format=None,
+        prune_tool_output=None,
+        gear=None,
+        no_confirm=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    # Only "save" should be in the list — the empty base must not be replaced
+    # by the full default toolchain just because [] is falsy.
+    assert config.chat.tools == ["save"]
+
+
 def test_resume_config_precedence():
     """Test that resume configuration respects saved config unless CLI overrides provided."""
     with tempfile.TemporaryDirectory() as tmpdir:
