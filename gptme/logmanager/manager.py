@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 import textwrap
+import threading
 from typing import Any
 
 try:
@@ -59,6 +60,11 @@ PathLike: TypeAlias = str | Path
 logger = logging.getLogger(__name__)
 
 RoleLiteral = Literal["user", "assistant", "system"]
+
+# Windows byte-range locks prevent a second handle from reading the locked byte.
+# Track locks owned by this process so server-mode reloads can reuse them.
+_windows_lock_owners_guard = threading.Lock()
+_windows_lock_owners: set[Path] = set()
 
 # Field names accepted by Message.__init__, used to drop unknown keys when
 # reading stored logs (forward-compatibility with logs from newer versions).
@@ -287,6 +293,32 @@ class LogManager:
             # but we track master separately for dual-write
             pass  # View is already loaded in _views
 
+    def _acquire_lock_fd(self) -> bool:
+        """Acquire the OS lock and record ownership; false means same-process reuse."""
+        assert self._lock_fd is not None, "_acquire_lock_fd called without open fd"
+
+        if os.name == "nt":
+            lock_key = self._lockfile.resolve()
+            with _windows_lock_owners_guard:
+                if lock_key in _windows_lock_owners:
+                    self._lock_fd.close()
+                    self._lock_fd = None
+                    return False
+                self._platform_lock(self._lock_fd)
+                self._lock_fd.seek(0)
+                self._lock_fd.truncate()
+                self._lock_fd.write(str(os.getpid()))
+                self._lock_fd.flush()
+                _windows_lock_owners.add(lock_key)
+                return True
+
+        self._platform_lock(self._lock_fd)
+        self._lock_fd.seek(0)
+        self._lock_fd.truncate()
+        self._lock_fd.write(str(os.getpid()))
+        self._lock_fd.flush()
+        return True
+
     def _acquire_lock(self):
         """Acquire an exclusive lock on the conversation directory.
 
@@ -302,12 +334,8 @@ class LogManager:
         assert self._lock_fd is not None, "_acquire_lock called without open fd"
 
         try:
-            self._platform_lock(self._lock_fd)
-            # Lock acquired - write our PID (seek/truncate first to clear old content)
-            self._lock_fd.seek(0)
-            self._lock_fd.truncate()
-            self._lock_fd.write(str(os.getpid()))
-            self._lock_fd.flush()
+            if not self._acquire_lock_fd():
+                return
             atexit.register(self._release_lock)
         except (BlockingIOError, OSError, PermissionError):
             # Lock is held - check if it's us or another process
@@ -340,11 +368,8 @@ class LogManager:
                     self._lockfile.touch(exist_ok=True)
                     self._lock_fd = self._lockfile.open("r+")
                     # Retry lock acquisition
-                    self._platform_lock(self._lock_fd)
-                    self._lock_fd.seek(0)
-                    self._lock_fd.truncate()
-                    self._lock_fd.write(str(os.getpid()))
-                    self._lock_fd.flush()
+                    if not self._acquire_lock_fd():
+                        return
                     atexit.register(self._release_lock)
                     return
 
@@ -394,10 +419,14 @@ class LogManager:
     def _release_lock(self):
         """Release the lock and close the file descriptor"""
         if self._lock_fd:
+            lock_key = self._lockfile.resolve()
             try:
                 self._platform_unlock(self._lock_fd)
                 self._lock_fd.close()
                 self._lock_fd = None
+                if os.name == "nt":
+                    with _windows_lock_owners_guard:
+                        _windows_lock_owners.discard(lock_key)
             except (OSError, ValueError) as e:
                 logger.warning(f"Error releasing lock: {e}")
 
