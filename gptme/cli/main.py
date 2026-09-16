@@ -1154,10 +1154,45 @@ def main(
         expands presets. The ``init_tools`` fallback must do the same so a
         lone ``builtin_tools: ["read-only"]`` manifest keeps the preset's
         available members instead of treating the preset name as a missing tool.
+
+        A preset whose members are all available keeps its NAME: expanding it
+        to concrete members would erase the preset provenance that
+        ``configured_base_is_preset`` relies on (e.g. a subsequent resume of
+        this conversation would lose the exclusive boundary and inject
+        'complete' in non-interactive mode).
         """
-        current = _expanded_tool_names(list(config_tools or []))
+        from ..tools import get_available_tools, matching_allowlist_tools
+        from ..tools._allowlist import TOOL_PRESETS
+
         unavailable = _unavailable_manifest_tools(manifest_allowlist)
-        return [tool for tool in current if tool not in unavailable]
+        available = get_available_tools()
+
+        def _member_available(member: str) -> bool:
+            matched = matching_allowlist_tools(member, available)
+            return bool(matched) and any(t.is_available for t in matched)
+
+        result: list[str] = []
+        for tool in config_tools or []:
+            if tool in TOOL_PRESETS:
+                members = TOOL_PRESETS[tool]
+                if all(_member_available(member) for member in members):
+                    # All members available: keep the preset NAME so
+                    # configured_base_is_preset still sees the exclusive
+                    # boundary on a subsequent resume of this conversation.
+                    result.append(tool)
+                    continue
+                # Some members unavailable: expand to the available ones so
+                # the preset name is not later treated as a missing tool.
+                result.extend(
+                    member
+                    for member in members
+                    if _member_available(member) and member not in unavailable
+                )
+                continue
+            if tool in unavailable:
+                continue
+            result.append(tool)
+        return list(dict.fromkeys(result))
 
     def _manifest_fallback_allowlist(
         manifest_allowlist: str | None, pre_manifest_allowlist: str | None

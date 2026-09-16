@@ -2106,15 +2106,17 @@ def test_tool_manifest_lone_preset_preserves_exclusive_boundary(
     assert seen["tool_allowlist"] == "read-only"
 
 
-def test_tool_manifest_lone_preset_init_fallback_keeps_available_preset_tools(
+def test_tool_manifest_lone_preset_init_fallback_preserves_preset_name(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """init_tools fallback expands a lone preset instead of dropping it.
+    """init_tools fallback keeps a lone preset whose members are available.
 
     apply_tool_manifest returns the unexpanded ``read-only`` name so the
     exclusive boundary is preserved. If init_tools then raises, the fallback
-    must expand that preset and keep its available members — not treat
-    ``read-only`` as a missing tool and start with an empty allowlist.
+    must keep the preset name (its members are available) — not treat
+    ``read-only`` as a missing tool and start with an empty allowlist, and
+    not expand it to concrete names, which would erase the preset
+    provenance ``configured_base_is_preset`` relies on at resume time.
     """
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
@@ -2140,7 +2142,10 @@ def test_tool_manifest_lone_preset_init_fallback_keeps_available_preset_tools(
 
     def fake_init_tools(tools):
         init_calls.append(list(tools or []))
-        if tools and "read-only" in tools:
+        # Real init_tools expands preset names itself, so an unexpanded
+        # 'read-only' can only fail the FIRST init (simulating the manifest
+        # tools being unusable); the fallback's expansion must succeed.
+        if tools and "read-only" in tools and len(init_calls) == 1:
             raise ToolAllowlistError("Tool 'read-only' not found")
         return list(tools or [])
 
@@ -2173,8 +2178,8 @@ def test_tool_manifest_lone_preset_init_fallback_keeps_available_preset_tools(
     assert result.exit_code == 0, result.output
     assert len(init_calls) == 2
     assert init_calls[0] == ["read-only"]
-    assert init_calls[1] == ["read"]
-    assert fake_config.chat.tools == ["read"]
+    assert init_calls[1] == ["read-only"]
+    assert fake_config.chat.tools == ["read-only"]
 
 
 def test_tool_manifest_log_workspace_new_session_resolves_manifest_from_cwd(
@@ -3015,6 +3020,92 @@ def test_tool_manifest_builtin_tools_unavailable_mcp_falls_back_gracefully(
     assert "grep" in second_call, "built-in tool should survive the fallback"
     # config.chat.tools must be in sync with the fallback (no unavailable MCP tool)
     assert not any("github" in t for t in (fake_config.chat.tools or []))
+
+
+def test_tools_alias_unavailable_mcp_fallback_preserves_preset_name(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """init_tools fallback keeps the preset NAME when its members are available.
+
+    With a configured preset base (``read-only``) extended by an MCP-only
+    manifest alias whose MCP tool is unavailable, the fallback must not
+    expand ``read-only`` to concrete names: that erases the preset
+    provenance ``configured_base_is_preset`` relies on, so a subsequent
+    resume would lose the exclusive boundary and inject 'complete'.
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":['
+        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            # As setup_config_from_cli produces for a configured preset base
+            # extended by an MCP-only alias: preset name kept verbatim.
+            tools=["read-only", "github.search_code"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+
+    init_calls: list[Any] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(list(tools or []))
+        if any(isinstance(t, str) and "github" in t for t in (tools or [])):
+            raise ToolAllowlistError("Tool 'github.search_code' not found")
+        return []
+
+    available_tools = [
+        SimpleNamespace(name="read", is_available=True),
+        SimpleNamespace(name="ipython", is_available=True),
+        SimpleNamespace(name="shell", is_available=True),
+        SimpleNamespace(name="save", is_available=True),
+        SimpleNamespace(name="patch", is_available=True),
+        SimpleNamespace(name="github.search_code", is_available=False),
+    ]
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: available_tools)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "research",
+            "hello",
+        ],
+        input="",
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(init_calls) == 2
+    # Preset name preserved verbatim, unavailable MCP tool dropped
+    assert init_calls[1] == ["read-only"]
+    assert fake_config.chat.tools == ["read-only"]
 
 
 def test_tool_manifest_unrelated_config_error_does_not_retry(
