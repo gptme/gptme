@@ -381,9 +381,12 @@ def test_attest_sign_out_unwritable_parent_emits_clean_error(tmp_path, monkeypat
 
     monkeypatch.setenv("CC_MODEL", "gpt-5.4")
     out_path = tmp_path / "nested" / "att.json"
+    real_mkdir = Path.mkdir
 
-    def boom(*_args, **_kwargs):
-        raise PermissionError(13, "Permission denied")
+    def boom(self, *args, **kwargs):
+        if self == out_path.parent:
+            raise PermissionError(13, "Permission denied")
+        return real_mkdir(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "mkdir", boom)
 
@@ -447,9 +450,12 @@ def test_attest_sign_out_is_directory_emits_clean_error(tmp_path, monkeypatch):
 
     monkeypatch.setenv("CC_MODEL", "gpt-5.4")
     out_path = tmp_path / "att.json"
+    real_write_text = Path.write_text
 
-    def boom(*_args, **_kwargs):
-        raise IsADirectoryError(21, "Is a directory")
+    def boom(self, *args, **kwargs):
+        if self == out_path:
+            raise IsADirectoryError(21, "Is a directory")
+        return real_write_text(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", boom)
 
