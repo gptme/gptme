@@ -1,7 +1,8 @@
 name: Site (next)
 
-# Builds the prototype of the new gptme.org site in site/next/.
-# It does NOT deploy to gptme.org. Same-repo PRs get a Cloudflare Pages preview.
+# Builds site/next/ and deploys a Cloudflare Pages preview for same-repo PRs.
+# Production gptme.org is assembled and deployed by docs.yml (`make site`).
+# Do not add a gh-pages publish step here — that would race docs.yml.
 
 on:
   push:

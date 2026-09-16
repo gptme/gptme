@@ -1,5 +1,9 @@
 name: Docs
 
+# Builds Sphinx docs + the site/next landing page (`make site`) and deploys
+# the assembled tree to the gh-pages branch (gptme.org). This is the only
+# production deploy; site-next.yml is PR preview only.
+
 on:
   push:
     branches:
@@ -26,12 +30,16 @@ jobs:
           python-version: '3.12'
           cache: 'poetry'
 
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+          cache: 'npm'
+          cache-dependency-path: site/next/package-lock.json
+
       - name: Install apt/dpkg dependencies
         run: |
           sudo apt-get install -y cloc hyperfine
-          # pandoc in ubuntu repos is from 2018...
-          wget https://github.com/jgm/pandoc/releases/download/3.3/pandoc-3.3-1-amd64.deb
-          sudo dpkg -i pandoc-3.3-1-amd64.deb
 
       - name: Write dummy gptme config
         run: |

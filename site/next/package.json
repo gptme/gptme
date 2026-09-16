@@ -2,7 +2,7 @@
   "name": "gptme-site-next",
   "private": true,
   "version": "0.0.0",
-  "description": "Prototype of the new gptme.org open-source showcase site (design v3)",
+  "description": "gptme.org open-source showcase site (design v3)",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"

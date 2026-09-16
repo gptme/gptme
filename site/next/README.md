@@ -1,11 +1,13 @@
 # gptme.org (next)
 
-**Status: prototype, not deployed to gptme.org.** The live site is still built from
-the root `README.md` with pandoc (`make site`, `site/template.html`) and published by
-`.github/workflows/docs.yml`. Nothing here changes that.
+**Status: production landing page.** `make site` prerenders this tree, overlays
+Sphinx docs / downloads / media / CNAME, and `.github/workflows/docs.yml`
+publishes the result to GitHub Pages (gptme.org). The old pandoc homepage
+(`site/template.html`) is no longer part of the deploy. Same-repo PRs still
+get a Cloudflare Pages preview from `.github/workflows/site-next.yml`.
 
-This directory is a static prototype of the redesigned gptme.org open-source showcase
-(design v3). It has two pages:
+This directory is the redesigned gptme.org open-source showcase (design v3).
+It has two pages:
 
 - `/` is the landing page: hero with install command, "See it work" terminal card, the
   six ways to run gptme, project stats, Bob and the open-source/managed comparison,
@@ -111,5 +113,5 @@ src/
 
 ## Not in scope
 
-The docs.gptme.org move, the cutover from GitHub Pages, and replacing the current site are
-separate steps.
+The docs.gptme.org move and sharing these tokens with `webui/` are separate steps.
+The pandoc template at `site/template.html` is unused and can be deleted after soak.

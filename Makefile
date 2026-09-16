@@ -142,36 +142,45 @@ docs-structure: ## Show the built docs' sidebar navigation with each page's head
 docs-auto:
 	make -C docs livehtml
 
-.PHONY: site
-site: site/dist/index.html site/dist/docs site/dist/downloads/index.html site/dist/badge.svg
-	echo "gptme.org" > site/dist/CNAME
+.PHONY: site site-assemble site-check
+site: site-assemble  ## Build gptme.org (new landing + Sphinx docs)
+	$(MAKE) site-check
 
-.PHONY: site/dist/index.html
-site/dist/index.html: README.md site/dist/style.css site/template.html
-	mkdir -p site/dist
-	awk 'BEGIN { skip=0 } /^## .*Table of Contents$$/ { skip=1; next } skip && /^## / { skip=0 } !skip { print }' README.md \
-		| sed '0,/Website/{s/Website/GitHub/}' - \
-		| sed '0,/gptme.org\/\"/{s/gptme.org\/\"/github.com\/gptme\/gptme\"/}' - \
-		| pandoc -s -f gfm -t html5 -o $@ --metadata title="gptme - agent in your terminal" --css style.css --template=site/template.html
-	cp -r media site/dist
-
-site/dist/style.css: site/style.css
-	mkdir -p site/dist
-	cp site/style.css site/dist
-
-site/dist/badge.svg: site/badge.svg
-	mkdir -p site/dist
-	cp site/badge.svg site/dist
-
-site/dist/docs: docs
-	cp -r docs/_build/html site/dist/docs
-
-site/dist/downloads/index.html: site/downloads.html
+# Overlay the prerendered site/next tree, Sphinx HTML, downloads, badge, and
+# the full media/ tree into site/dist. site/next/dist only ships logo.png and
+# icon.svg under media/; README rewrite and existing /media/* URLs need the rest.
+# Depend on the builds explicitly so `make -j site` cannot assemble early.
+site-assemble: site-next docs
+	test -f site/next/dist/index.html
+	test -f docs/_build/html/index.html
+	rm -rf site/dist
 	mkdir -p site/dist/downloads
+	cp -a site/next/dist/. site/dist/
+	cp -a docs/_build/html site/dist/docs
 	cp site/downloads.html site/dist/downloads/index.html
+	cp site/badge.svg site/dist/badge.svg
+	mkdir -p site/dist/media
+	cp -a media/. site/dist/media/
+	echo "gptme.org" > site/dist/CNAME
+	touch site/dist/.nojekyll
+
+site-check:  ## Verify the assembled gptme.org tree before deploy
+	test -f site/dist/index.html
+	grep -F -q "An AI agent that lives in your terminal" site/dist/index.html
+	test -f site/dist/readme/index.html
+	grep -F -q "https://gptme.org/media/" site/dist/readme/index.html
+	test -f site/dist/docs/index.html
+	test -f site/dist/CNAME
+	grep -Fxq "gptme.org" site/dist/CNAME
+	test -f site/dist/media/logo.png
+	test -f site/dist/media/screenshots/tui.png
+	test -f site/dist/downloads/index.html
+	test -f site/dist/badge.svg
+	test -f site/dist/.nojekyll
+	! grep -q 'name="generator" content="pandoc"' site/dist/index.html
 
 .PHONY: site-next
-site-next:  ## Build the prototype of the new gptme.org site (site/next, needs Node 22.12+)
+site-next:  ## Build the gptme.org landing page (site/next, needs Node 22.12+)
 	cd site/next && npm ci && npm run build
 
 version:  ## Bump version using ./scripts/bump_version.sh (interactive)
