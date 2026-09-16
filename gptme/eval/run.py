@@ -95,6 +95,10 @@ def _write_result_unless_success(sync_dict, result: ProcessResult) -> None:
 
     Parent join-timeout keeps a child's success (join raced with a completed
     write). The SIGTERM handler must not clobber that success with timeout.
+
+    Same-process only: the parent never writes this dict (it reads after
+    join). The handler interrupts the child, so get-then-set is not a
+    cross-process race with a parent success write.
     """
     existing = sync_dict.get("result")
     if isinstance(existing, dict) and existing.get("status") == "success":
@@ -680,10 +684,11 @@ def act_process(
 
     # handle SIGTERM (parent join-timeout calls Process.terminate)
     def sigterm_handler(*_):
-        # Reset to default handler first to prevent recursive SIGTERM loop:
-        # _graceful_killpg sends SIGTERM to our own process group, which would
-        # re-trigger this handler without this reset.
-        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        # Ignore further SIGTERM before writing: _graceful_killpg sends
+        # SIGTERM to our own process group, which would re-enter this
+        # handler (or SIG_DFL-kill us mid-write). SIG_IGN matches the
+        # success / TimeoutExpired paths.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         duration = time.time() - start
         result_timeout: ProcessError = {
             "status": "timeout",

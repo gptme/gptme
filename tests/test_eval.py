@@ -710,18 +710,7 @@ def test_act_process_error_includes_cost():
     assert result["cost"]["total_input_tokens"] == 900
 
 
-def test_execute_parent_timeout_keeps_child_tokens():
-    """Parent join-timeout must keep tokens even if the child wrote error."""
-    test: EvalSpec = {
-        "name": "timeout-tokens",
-        "files": {},
-        "prompt": "do thing",
-        "run": "true",
-        "expect": {},
-    }
-    agent = SuccessAgent(model="claude-code/test")
-    cost_dict = _FAKE_COST.to_dict()
-
+def _fake_proc_writing(status: str, cost_dict: dict):
     class FakeProc:
         def __init__(
             self, group=None, target=None, name=None, args=(), kwargs=None, **_
@@ -741,11 +730,9 @@ def test_execute_parent_timeout_keeps_child_tokens():
 
         def terminate(self):
             sync_dict = self._args[4]
-            # Simulate the old SIGTERM handler writing error, which used to
-            # both drop cost and overwrite parent timeout status.
             sync_dict["result"] = {
-                "status": "error",
-                "message": "SIGTERM received",
+                "status": status,
+                "message": "SIGTERM received" if status == "timeout" else "child error",
                 "stdout": "",
                 "stderr": "",
                 "duration": 2.0,
@@ -758,7 +745,48 @@ def test_execute_parent_timeout_keeps_child_tokens():
             self._alive = False
             self.exitcode = -9
 
-    with patch("gptme.eval.run.Process", FakeProc):
+    return FakeProc
+
+
+def test_execute_parent_timeout_keeps_child_tokens():
+    """Parent join-timeout must keep tokens from the SIGTERM timeout write."""
+    test: EvalSpec = {
+        "name": "timeout-tokens",
+        "files": {},
+        "prompt": "do thing",
+        "run": "true",
+        "expect": {},
+    }
+    agent = SuccessAgent(model="claude-code/test")
+    cost_dict = _FAKE_COST.to_dict()
+
+    with patch("gptme.eval.run.Process", _fake_proc_writing("timeout", cost_dict)):
+        result = execute(test=test, agent=agent, timeout=2, parallel=False)
+
+    assert result.status == "timeout"
+    assert result.tokens_input == 900
+    assert result.tokens_output == 40
+    assert result.num_steps == 2
+    assert result.cost_usd == 0.05
+
+
+def test_execute_parent_timeout_overrides_child_error():
+    """Parent join-timeout must stay timeout if the child wrote error.
+
+    error_handler still writes status=error; that must not wipe the parent's
+    timeout or drop the child's cost snapshot.
+    """
+    test: EvalSpec = {
+        "name": "timeout-overrides-error",
+        "files": {},
+        "prompt": "do thing",
+        "run": "true",
+        "expect": {},
+    }
+    agent = SuccessAgent(model="claude-code/test")
+    cost_dict = _FAKE_COST.to_dict()
+
+    with patch("gptme.eval.run.Process", _fake_proc_writing("error", cost_dict)):
         result = execute(test=test, agent=agent, timeout=2, parallel=False)
 
     assert result.status == "timeout"
