@@ -335,7 +335,9 @@ def test_dropout_partial_is_consistent(monkeypatch, tmp_path):
     matches = [
         _MockMatch(_make_lesson(f"L{i}", "body", f"/tmp/l{i}.md")) for i in range(20)
     ]
-    _random.seed(42)
+    # Patch the RNG rather than seeding the global module: random.seed() mutates
+    # process-wide state that leaks into every later test on this xdist worker.
+    monkeypatch.setattr(_random, "random", _random.Random(42).random)
     kept = _apply_lesson_dropout(matches)
 
     # The withheld log plus the kept set must reconstruct the original set.
@@ -712,7 +714,7 @@ def test_dropout_log_withheld_has_policy_fields(monkeypatch, tmp_path):
         _MockMatch(_make_lesson("A", "body", "lessons/category/lesson-a.md")),
         _MockMatch(_make_lesson("B", "body", "lessons/category/lesson-b.md")),
     ]
-    _random.seed(0)
+    monkeypatch.setattr(_random, "random", _random.Random(0).random)
     kept = _apply_lesson_dropout(matches)
     assert kept == []  # all withheld at epsilon=1.0
 
@@ -1326,7 +1328,7 @@ def test_dropout_exempt_lesson_never_withheld(monkeypatch, tmp_path):
     monkeypatch.setenv("GPTME_SESSION_ID", "sess-exempt-test")
     monkeypatch.delenv("CC_SESSION_ID", raising=False)
 
-    _random.seed(99)
+    monkeypatch.setattr(_random, "random", _random.Random(99).random)
     matches = [_MockMatch(_make_lesson("Exempt", "body", exempt_path))]
     result = _apply_lesson_dropout(matches)
 
@@ -1346,7 +1348,7 @@ def test_dropout_withheld_records_contain_effective_epsilon(monkeypatch, tmp_pat
     monkeypatch.setenv("GPTME_SESSION_ID", "sess-eff-eps")
     monkeypatch.delenv("CC_SESSION_ID", raising=False)
 
-    _random.seed(0)
+    monkeypatch.setattr(_random, "random", _random.Random(0).random)
     matches = [_MockMatch(_make_lesson("H", "body", "/tmp/holdout.md"))]
     _apply_lesson_dropout(matches)
 
