@@ -108,8 +108,8 @@ def _tool_name_from_record(tool: Any, *, line_no: int, task_type: str) -> str:
     #   server_name="github", tool_name="../../evil.py"
     #   → combined name "github.../../evil.py"
     #   → init_tools sees "/" → load_from_file("github.../../evil.py")
-    # We block forward-slash, backslash, path-traversal "..", and a ".py" suffix
-    # in tool_name (which would make the combined name end in ".py").
+    # We block forward-slash, backslash, path-traversal "..", and a combined
+    # identifier that ends in ".py" (init_tools() would load it as Python).
     _PATH_FORBIDDEN: list[tuple[str, str]] = [
         ("/", "forward slashes"),
         ("\\", "backslashes"),
@@ -126,15 +126,17 @@ def _tool_name_from_record(tool: Any, *, line_no: int, task_type: str) -> str:
                 f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
                 f"tool_name {tn!r} must not contain {label}"
             )
-    # tool_name must not end with ".py" — combined "sn.tn" would end in ".py"
-    # and init_tools() would route it to load_from_file().
-    if tn.endswith(".py"):
+    # Combined identifier must not end with ".py" — init_tools() routes those
+    # to load_from_file(). Checking only tn.endswith(".py") misses
+    # server_name="x", tool_name="py" → "x.py".
+    combined = f"{sn}.{tn}"
+    if combined.endswith(".py"):
         raise ValueError(
             f"Invalid tool manifest entry for {task_type!r} on line {line_no}: "
-            f"tool_name {tn!r} must not end with '.py'"
+            f"combined tool name {combined!r} must not end with '.py'"
         )
 
-    return f"{sn}.{tn}"
+    return combined
 
 
 def _validate_builtin_tool_name(name: str, *, line_no: int, task_type: str) -> str:

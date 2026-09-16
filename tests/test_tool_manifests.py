@@ -139,6 +139,9 @@ def test_load_task_manifest_rejects_glob_in_task_type(tmp_path: Path, task_type:
         ("github", "..evil", "path traversal"),
         # .py suffix in tool_name → combined name "server.exploit.py" ends in ".py"
         ("server", "exploit.py", r"must not end with '\.py'"),
+        # Bare tool_name "py" → combined "x.py" is itself a file path (P0 bypass)
+        ("x", "py", r"must not end with '\.py'"),
+        ("exploit", "py", r"must not end with '\.py'"),
     ],
 )
 def test_load_task_manifest_rejects_path_injection(
