@@ -171,26 +171,38 @@ def test_broken_pipe_zero_bytes_retries_command(shell, tmp_path, monkeypatch):
 
 
 def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
-    """EPIPE after a short write must not re-send: the statement may have run."""
+    """EPIPE mid-payload must not re-send: the statement may have run."""
+    # Atomic rename so the marker only exists if the command fully completed:
+    # a killed `>>` open leaves an empty file behind (partial execution).
     marker = tmp_path / "ran"
+    command = f"printf x > {tmp_path}/m.tmp && mv {tmp_path}/m.tmp {marker}"
     orig_write = os.write
     stdin_fd = shell.process.stdin.fileno()
     state = {"partial": False, "raised": False}
 
     def write_fd(fd, data):
-        # Raise exactly once after a short write. The restarted shell often
-        # reuses the same stdin fd number, so a sticky EPIPE loops forever.
+        # First write: deliver everything through the command's own newline so
+        # the statement was genuinely handed to the shell (a tiny short write
+        # landing inside the start-marker echo would make the no-retry
+        # assertion vacuous). Then raise exactly once: the restarted shell
+        # often reuses the same stdin fd number, so a sticky EPIPE loops.
         if fd == stdin_fd and not state["partial"]:
             state["partial"] = True
-            return orig_write(fd, data[: min(8, len(data))])
+            cmd_bytes = command.encode()
+            end = data.index(cmd_bytes) + len(cmd_bytes) + 1
+            return orig_write(fd, data[:end])
         if fd == stdin_fd and not state["raised"]:
             state["raised"] = True
             raise BrokenPipeError
         return orig_write(fd, data)
 
     monkeypatch.setattr(os, "write", write_fd)
-    shell.run(f"echo x >> {marker}", output=False)
-    assert not marker.exists()
+    shell.run(command, output=False)
+    # The command was fully delivered, but whether bash scheduled it before
+    # the restart killed it is inherently racy. What is deterministic is the
+    # no-retry invariant: it ran at most once (never "x\nx\n"), and the
+    # restart notice explicitly says the in-flight command was not re-run.
+    assert not marker.exists() or marker.read_text() == "x"
     notice = shell.consume_restart_notice()
     assert notice and "during this command" in notice
     assert shell.run("echo ok", output=False)[1].strip() == "ok"

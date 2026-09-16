@@ -1122,16 +1122,15 @@ class ShellSession:
         # success path.
         full_command = f"echo {start_marker_pattern}\n"  # Start marker first
         full_command += f"{command}\n"
-        # Capture the status before querying the physical cwd. ``$PWD`` is a
-        # mutable variable and therefore cannot be trusted for validation. Hex
-        # gives arbitrary valid path bytes a portable, single-line encoding.
+        # Capture the status before querying the physical cwd. Hex gives
+        # arbitrary valid path bytes a portable, single-line encoding.
         # Snapshot cwd + exported env before reporting completion. This
         # closes the race where run() returned and the shell died before
         # the state from the successful command reached the snapshot.
         snapshot = ""
         if self._state_path:
             snapshot = (
-                "{ printf 'cd -- %q\\n' \"$PWD\"; export -p; } > "
+                "{ printf 'cd -- %q\\n' \"$(pwd -P)\"; export -p; } > "
                 f"{shlex.quote(self._state_path)} 2>/dev/null || true; "
             )
         full_command += (
