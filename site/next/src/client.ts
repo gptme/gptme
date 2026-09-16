@@ -3,12 +3,16 @@
 import "./styles/index.css";
 import { readmeHashRedirect } from "./lib/readme-hash.ts";
 
-const readmeTarget = readmeHashRedirect(
-  window.location.pathname,
-  window.location.hash,
-  (id) => document.getElementById(id) !== null,
-);
-if (readmeTarget) window.location.replace(readmeTarget);
+const redirectReadmeHash = () => {
+  const readmeTarget = readmeHashRedirect(
+    window.location.pathname,
+    window.location.hash,
+    (id) => document.getElementById(id) !== null,
+  );
+  if (readmeTarget) window.location.replace(readmeTarget);
+};
+redirectReadmeHash();
+window.addEventListener("hashchange", redirectReadmeHash);
 
 // Mobile menu toggle. Without JS the nav links wrap under the brand instead.
 const toggle = document.querySelector<HTMLButtonElement>("[data-nav-toggle]");
