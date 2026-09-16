@@ -436,3 +436,40 @@ def test_attest_sign_out_creates_missing_parent_dirs(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert out_path.is_file()
     assert Path(result.output.strip()) == out_path
+
+
+def test_attest_sign_out_is_directory_emits_clean_error(tmp_path, monkeypatch):
+    """An OSError while writing --out contents must be a ClickException, not a
+    raw IsADirectoryError/OSError traceback."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
+    out_path = tmp_path / "att.json"
+
+    def boom(*_args, **_kwargs):
+        raise IsADirectoryError(21, "Is a directory")
+
+    monkeypatch.setattr(Path, "write_text", boom)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "attest",
+            "sign",
+            "--text",
+            "hello",
+            "--workspace",
+            str(repo),
+            "--out",
+            str(out_path),
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "Traceback (most recent call last)" not in result.output
+    assert result.output.startswith(
+        f"Error: Failed to write attestation to {out_path}:"
+    )
