@@ -2431,6 +2431,36 @@ def test_setup_config_from_cli_read_only_preset_does_not_add_complete(tmp_path):
     assert "complete" not in (config.chat.tools or [])
 
 
+def test_setup_config_from_cli_preset_plus_mcp_does_not_add_complete(tmp_path):
+    """``--tool-manifest`` shape: preset + MCP names must keep the exclusive boundary.
+
+    ``apply_tool_manifest`` returns ``read-only,github.search_code``. Configuration
+    used to recognize a direct preset only when it was the sole entry, so
+    non-interactive mode appended ``complete`` and widened the builtin boundary.
+    The final normalized tool list (not just the string passed in) must stay
+    inside the preset plus additive MCP names.
+    """
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist="read-only,github.search_code",
+        tool_format=None,
+        stream=True,
+        interactive=False,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == ["read-only", "github.search_code"]
+    assert "complete" not in (config.chat.tools or [])
+
+
 @pytest.mark.parametrize("configured_base", ["environment", "resume"])
 def test_setup_config_from_cli_explicit_read_tool_adds_complete_noninteractive(
     tmp_path, monkeypatch, configured_base: str

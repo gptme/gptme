@@ -484,7 +484,7 @@ def test_show_prompt_stats_does_not_retry_after_config_fallback(
         "gptme.tool_manifests.load_task_manifest",
         lambda task_type, workspace: TaskToolManifest(
             task_type=task_type,
-            tool_names=("github.search_code",),
+            tool_names=("github.search_code", "time.get_current_time"),
             path=workspace / "state" / "task-manifests.jsonl",
         ),
     )
@@ -518,6 +518,17 @@ def test_show_prompt_stats_does_not_retry_after_config_fallback(
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
     monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda *_, **__: [
+            SimpleNamespace(name="github.search_code", is_available=False),
+            SimpleNamespace(name="time.get_current_time", is_available=True),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [t for t in tools if t.name == name],
+    )
 
     result = runner.invoke(
         cli.main,
@@ -3283,18 +3294,20 @@ def test_tool_manifest_unrelated_config_error_does_not_retry(
 def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """When setup_config_from_cli raises ValueError for an unavailable manifest tool,
-    the session retries config setup without manifest tools and still starts.
+    """When setup_config_from_cli raises for one unavailable MCP tool, the session
+    retries without that tool and still starts.
 
-    This covers the _normalize_tool_allowlist path inside setup_config_from_cli,
-    which calls get_toolchain([item]) with strict=True for each tool name and can
-    raise ValueError before init_tools is ever reached.
+    All-unavailable additive manifests fail closed (see
+    test_tool_manifest_all_mcp_unavailable_additive_fails_closed). This covers
+    the partial-unavailability path: drop only the missing MCP tool and keep
+    the rest of the additive list.
     """
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
         '{"task_type":"research","tools":['
-        '{"server_name":"github","tool_name":"search_code"}]}\n',
+        '{"server_name":"github","tool_name":"search_code"},'
+        '{"server_name":"time","tool_name":"get_current_time"}]}\n',
         encoding="utf-8",
     )
 
@@ -3304,7 +3317,7 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
             tools=[
                 "read",
                 "shell",
-            ],  # no manifest tools — fallback already excluded them
+            ],  # no unavailable manifest tools — fallback already excluded them
             interactive=False,
             tool_format="markdown",
             model="local/test",
@@ -3331,6 +3344,17 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
         return fake_config
 
     monkeypatch.setattr("gptme.config.setup_config_from_cli", fake_setup_config)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda *_, **__: [
+            SimpleNamespace(name="github.search_code", is_available=False),
+            SimpleNamespace(name="time.get_current_time", is_available=True),
+        ],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.matching_allowlist_tools",
+        lambda name, tools: [t for t in tools if t.name == name],
+    )
     monkeypatch.setattr("gptme.tools.init_tools", lambda tools: [])
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
@@ -3363,8 +3387,10 @@ def test_tool_manifest_unavailable_tool_falls_back_in_config_setup(
     )
     # First call had the manifest additive allowlist
     assert setup_calls[0] and "+github.search_code" in setup_calls[0]
-    # Second (fallback) call does NOT include the manifest tool
+    assert setup_calls[0] and "time.get_current_time" in setup_calls[0]
+    # Second (fallback) call drops only the unavailable MCP tool
     assert not (setup_calls[1] and "github" in setup_calls[1])
+    assert setup_calls[1] and "time.get_current_time" in setup_calls[1]
 
 
 def test_tool_manifest_unavailable_builtin_falls_back_in_config_setup(
@@ -3441,7 +3467,12 @@ def test_tool_manifest_unavailable_builtin_falls_back_in_config_setup(
 def test_tool_manifest_expands_builtin_preset_before_fallback(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
-    """Manifest presets retain their concrete tools when another tool is unavailable."""
+    """Manifest presets keep their name when another tool is unavailable.
+
+    ``apply_tool_manifest`` returns the unexpanded preset plus MCP names so
+    the exclusive boundary survives config setup. Fallback then drops the
+    unavailable MCP tool and keeps the preset identifier.
+    """
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir()
     manifest_path.write_text(
@@ -3504,7 +3535,7 @@ def test_tool_manifest_expands_builtin_preset_before_fallback(
     )
 
     assert result.exit_code == 0, result.output
-    assert setup_calls == ["read,github.search_code", "read"]
+    assert setup_calls == ["read-only,github.search_code", "read-only"]
 
 
 def test_tool_manifest_builtin_tools_config_setup_failure_preserves_builtins(

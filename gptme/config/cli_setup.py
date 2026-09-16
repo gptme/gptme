@@ -638,12 +638,22 @@ def setup_config_from_cli(
         and len(configured_base_tools) >= 1
         and configured_base_tools[0] in TOOL_PRESETS
     )
-    tool_preset_selected = (
-        (
-            resolved_tool_allowlist is not None
-            and len(resolved_tool_allowlist) == 1
-            and resolved_tool_allowlist[0] in TOOL_PRESETS
+    # A lone preset *or* a preset plus additive MCP names is still an exclusive
+    # builtin boundary. ``--tool-manifest`` with builtin_tools: ["read-only"]
+    # plus MCP tools lands here as ``["read-only", "server.tool"]`` — the
+    # previous len==1 check treated that as a mixed exact list and appended
+    # ``complete``, widening the manifest's boundary (and then exploding in
+    # expand_tool_allowlist_presets because ``complete`` is not an MCP name).
+    resolved_has_preset_boundary = bool(
+        resolved_tool_allowlist
+        and any(tool in TOOL_PRESETS for tool in resolved_tool_allowlist)
+        and _tools_stay_inside_preset_boundary(
+            [tool for tool in resolved_tool_allowlist if tool not in TOOL_PRESETS],
+            [tool for tool in resolved_tool_allowlist if tool in TOOL_PRESETS],
         )
+    )
+    tool_preset_selected = (
+        resolved_has_preset_boundary
         or manifest_alias_selected_preset
         or (
             manifest_alias_resolved
