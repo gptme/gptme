@@ -1237,7 +1237,20 @@ def main(
             remaining = [entry for entry in remaining if entry not in preset_tools]
             remaining = [*viable_presets, *remaining]
         if manifest_allowlist.startswith("+"):
-            return "+" + ",".join(remaining) if remaining else pre_manifest_allowlist
+            if remaining:
+                return "+" + ",".join(remaining)
+            # All manifest MCP tools unavailable. Fall back to the pre-manifest
+            # allowlist only when one actually exists; for --tool-manifest it is
+            # always None (env/saved-tools/gear combinations are rejected in
+            # apply_tool_manifest), and returning None would load the full
+            # default toolchain — silently defeating the manifest's restrictive
+            # purpose. Fail closed instead.
+            if pre_manifest_allowlist:
+                return pre_manifest_allowlist
+            raise ToolAllowlistError(
+                f"All manifest tools are unavailable: {', '.join(sorted(unavailable))}. "
+                "Check that the required MCP servers are running."
+            )
         # Non-additive (builtin_tools): fail closed when every entry is unavailable.
         # Silently falling back to None (full default toolchain) would defeat the
         # manifest's purpose of restricting the session to a curated subset — the
@@ -1355,6 +1368,17 @@ def main(
             # Explicit allowlist: built-in tools + MCP tools (no additive prefix).
             # Expand a named preset before adding MCP tools because presets are
             # exclusive boundaries and cannot otherwise be mixed with tool names.
+            # A lone preset must stay unexpanded so setup_config_from_cli still
+            # treats it as an exclusive boundary (non-interactive mode must not
+            # auto-append 'complete', and a resume must still see the preset
+            # via configured_base_is_preset). MCP dotted names may accompany a
+            # preset — they are purely additive and do not dilute the boundary
+            # (expand_tool_allowlist_presets keeps them and expands at init).
+            if (
+                len(manifest.builtin_tools) == 1
+                and manifest.builtin_tools[0] in TOOL_PRESETS
+            ):
+                return ",".join((manifest.builtin_tools[0], *manifest.tool_names))
             try:
                 builtin_tools = expand_tool_allowlist_presets(
                     list(manifest.builtin_tools)
@@ -1362,15 +1386,6 @@ def main(
             except ValueError as e:
                 raise click.UsageError(str(e)) from e
             assert builtin_tools is not None
-            # A lone preset with no MCP tools must stay unexpanded so
-            # setup_config_from_cli still treats it as an exclusive boundary
-            # (non-interactive mode must not auto-append 'complete').
-            if (
-                not manifest.tool_names
-                and len(manifest.builtin_tools) == 1
-                and manifest.builtin_tools[0] in TOOL_PRESETS
-            ):
-                return manifest.builtin_tools[0]
             return ",".join((*builtin_tools, *manifest.tool_names))
         # Additive prefix: MCP tools are ADDED to the full default built-in set
         # (a bare list would drop read/shell/save/etc. — the '+' preserves them)
