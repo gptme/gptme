@@ -1,26 +1,14 @@
 // Client entry. Pages are prerendered to static HTML, so there is no React
 // hydration: this file only loads the styles and adds small enhancements.
 import "./styles/index.css";
+import { readmeHashRedirect } from "./lib/readme-hash.ts";
 
-// The old gptme.org homepage *was* the README, so inbound links like
-// https://gptme.org/#installation need to land on /readme/. Only redirect
-// when the current page has no matching id, so future homepage hashes work.
-{
-  const path = window.location.pathname;
-  const hash = window.location.hash;
-  if ((path === "/" || path === "/index.html") && hash.length > 1) {
-    const id = hash.slice(1);
-    let decoded = id;
-    try {
-      decoded = decodeURIComponent(id);
-    } catch {
-      /* keep the raw id */
-    }
-    if (!document.getElementById(id) && !document.getElementById(decoded)) {
-      window.location.replace(`/readme/${hash}`);
-    }
-  }
-}
+const readmeTarget = readmeHashRedirect(
+  window.location.pathname,
+  window.location.hash,
+  (id) => document.getElementById(id) !== null,
+);
+if (readmeTarget) window.location.replace(readmeTarget);
 
 // Mobile menu toggle. Without JS the nav links wrap under the brand instead.
 const toggle = document.querySelector<HTMLButtonElement>("[data-nav-toggle]");
