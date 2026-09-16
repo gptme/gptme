@@ -61,10 +61,16 @@ logger = logging.getLogger(__name__)
 
 RoleLiteral = Literal["user", "assistant", "system"]
 
+@dataclass
+class _WindowsLockState:
+    fd: TextIO
+    refcount: int = 1
+
+
 # Windows byte-range locks prevent a second handle from reading the locked byte.
-# Track locks owned by this process so server-mode reloads can reuse them.
+# Share one OS lock across same-process managers until the final user releases it.
 _windows_lock_owners_guard = threading.Lock()
-_windows_lock_owners: set[Path] = set()
+_windows_lock_owners: dict[Path, _WindowsLockState] = {}
 
 # Field names accepted by Message.__init__, used to drop unknown keys when
 # reading stored logs (forward-compatibility with logs from newer versions).
@@ -199,6 +205,7 @@ class LogManager:
     """
 
     _lock_fd: TextIO | None = None
+    _windows_lock_key: Path | None = None
     _tmpdir: TemporaryDirectory | None = None  # Store to prevent premature GC
 
     @classmethod
@@ -300,16 +307,21 @@ class LogManager:
         if os.name == "nt":
             lock_key = self._lockfile.resolve()
             with _windows_lock_owners_guard:
-                if lock_key in _windows_lock_owners:
+                state = _windows_lock_owners.get(lock_key)
+                if state is not None:
+                    state.refcount += 1
                     self._lock_fd.close()
                     self._lock_fd = None
+                    self._windows_lock_key = lock_key
                     return False
                 self._platform_lock(self._lock_fd)
                 self._lock_fd.seek(0)
                 self._lock_fd.truncate()
                 self._lock_fd.write(str(os.getpid()))
                 self._lock_fd.flush()
-                _windows_lock_owners.add(lock_key)
+                _windows_lock_owners[lock_key] = _WindowsLockState(self._lock_fd)
+                self._windows_lock_key = lock_key
+                self._lock_fd = None
                 return True
 
         self._platform_lock(self._lock_fd)
@@ -334,9 +346,10 @@ class LogManager:
         assert self._lock_fd is not None, "_acquire_lock called without open fd"
 
         try:
-            if not self._acquire_lock_fd():
-                return
+            reused = not self._acquire_lock_fd()
             atexit.register(self._release_lock)
+            if reused:
+                return
         except (BlockingIOError, OSError, PermissionError):
             # Lock is held - check if it's us or another process
             lock_pid = self._read_lock_pid()
@@ -368,9 +381,10 @@ class LogManager:
                     self._lockfile.touch(exist_ok=True)
                     self._lock_fd = self._lockfile.open("r+")
                     # Retry lock acquisition
-                    if not self._acquire_lock_fd():
-                        return
+                    reused = not self._acquire_lock_fd()
                     atexit.register(self._release_lock)
+                    if reused:
+                        return
                     return
 
             # Could not read PID - fail with generic message
@@ -417,16 +431,30 @@ class LogManager:
         return None
 
     def _release_lock(self):
-        """Release the lock and close the file descriptor"""
+        """Release this manager's reference to the conversation lock."""
+        if os.name == "nt" and self._windows_lock_key is not None:
+            lock_key = self._windows_lock_key
+            self._windows_lock_key = None
+            with _windows_lock_owners_guard:
+                state = _windows_lock_owners.get(lock_key)
+                if state is None:
+                    return
+                state.refcount -= 1
+                if state.refcount == 0:
+                    try:
+                        self._platform_unlock(state.fd)
+                        state.fd.close()
+                    except (OSError, ValueError) as e:
+                        logger.warning(f"Error releasing lock: {e}")
+                    finally:
+                        _windows_lock_owners.pop(lock_key, None)
+            return
+
         if self._lock_fd:
-            lock_key = self._lockfile.resolve()
             try:
                 self._platform_unlock(self._lock_fd)
                 self._lock_fd.close()
                 self._lock_fd = None
-                if os.name == "nt":
-                    with _windows_lock_owners_guard:
-                        _windows_lock_owners.discard(lock_key)
             except (OSError, ValueError) as e:
                 logger.warning(f"Error releasing lock: {e}")
 
