@@ -86,15 +86,19 @@ jobs:
         command: pages project create gptme-org-next --production-branch master
 
     # Pass the branch through GITHUB_OUTPUT, not a shell-interpolated
-    # github.head_ref inside `command:`. Cloudflare Pages aliases already
-    # collapse `/` to `-`; do that here so the value is a safe token.
+    # github.head_ref inside `command:`. Keep `/` in the value: Cloudflare
+    # collapses it to `-` for the alias hostname, but it keys the alias on the
+    # branch name it was given. Collapsing it here made `feat/x` and `feat-x`
+    # two different branches, so the second one got a suffixed alias
+    # (`feat-x-lexy.…pages.dev`) while the clean hostname stayed pinned to the
+    # first deploy — a preview URL that silently stops updating.
     - name: Sanitize preview branch name
       id: branch
       working-directory: .
       env:
         RAW: ${{ github.head_ref }}
       run: |
-        safe=$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9._-' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+        safe=$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9._/-' '-' | sed 's/--*/-/g; s/^[-/]*//; s/[-/]*$//')
         if [ -z "$safe" ]; then safe="pr-${{ github.event.pull_request.number }}"; fi
         echo "name=$safe" >> "$GITHUB_OUTPUT"
 
