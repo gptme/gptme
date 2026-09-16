@@ -3077,7 +3077,9 @@ def test_tools_alias_unavailable_mcp_fallback_preserves_preset_name(
         SimpleNamespace(name="github.search_code", is_available=False),
     ]
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
-    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: available_tools)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools", lambda *_, **__: available_tools
+    )
     monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
