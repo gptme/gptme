@@ -90,6 +90,18 @@ def _cost_snapshot() -> dict | None:
     return cost_summary.to_dict() if cost_summary else None
 
 
+def _write_result_unless_success(sync_dict, result: ProcessResult) -> None:
+    """Write a process result unless a success is already recorded.
+
+    Parent join-timeout keeps a child's success (join raced with a completed
+    write). The SIGTERM handler must not clobber that success with timeout.
+    """
+    existing = sync_dict.get("result")
+    if isinstance(existing, dict) and existing.get("status") == "success":
+        return
+    sync_dict["result"] = result
+
+
 def _graceful_killpg(pgrp: int, grace_period: float = 2.0) -> None:
     """Terminate process group gracefully with SIGTERM, then SIGKILL after grace period."""
     try:
@@ -681,7 +693,7 @@ def act_process(
             "duration": duration,
             "cost": _cost_snapshot(),
         }
-        sync_dict["result"] = result_timeout
+        _write_result_unless_success(sync_dict, result_timeout)
         cleanup_process_group()
 
     signal.signal(signal.SIGTERM, sigterm_handler)
@@ -725,12 +737,11 @@ def act_process(
         "workspace_dir": agent.workspace_dir,
         "cost": _cost_snapshot(),
     }
+    # Ignore SIGTERM before publishing success so parent join-timeout cannot
+    # clobber it; _write_result_unless_success is the remaining race guard.
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")
-
-    # Reset SIGTERM handler before cleanup to prevent self-termination
-    # from overwriting the success result
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
     # kill child processes gracefully
     cleanup_process_group()

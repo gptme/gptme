@@ -17,7 +17,13 @@ from gptme.eval import execute, tests
 from gptme.eval.agents import Agent, GPTMe
 from gptme.eval.cost import CostSummary
 from gptme.eval.main import main, resolve_eval_names, results_to_json
-from gptme.eval.run import ProcessError, SyncedDict, act_process, run_evals
+from gptme.eval.run import (
+    ProcessError,
+    SyncedDict,
+    _write_result_unless_success,
+    act_process,
+    run_evals,
+)
 from gptme.eval.suites import suites, tests_map
 from gptme.eval.types import CaseResult, EvalResult, ModelConfig
 from gptme.message import Message
@@ -759,6 +765,111 @@ def test_execute_parent_timeout_keeps_child_tokens():
     assert result.tokens_input == 900
     assert result.tokens_output == 40
     assert result.num_steps == 2
+    assert result.cost_usd == 0.05
+
+
+def test_write_result_unless_success_keeps_existing_success():
+    sync_dict: dict = {
+        "result": {
+            "status": "success",
+            "files": {"out.txt": "done"},
+            "cost": _FAKE_COST.to_dict(),
+        }
+    }
+    _write_result_unless_success(
+        sync_dict,
+        {
+            "status": "timeout",
+            "message": "SIGTERM received",
+            "stdout": "",
+            "stderr": "",
+            "duration": 2.0,
+            "cost": _FAKE_COST.to_dict(),
+        },
+    )
+    assert sync_dict["result"]["status"] == "success"
+    assert sync_dict["result"]["files"] == {"out.txt": "done"}
+
+
+def test_write_result_unless_success_writes_timeout_when_empty():
+    sync_dict: dict = {}
+    timeout_result: ProcessError = {
+        "status": "timeout",
+        "message": "SIGTERM received",
+        "stdout": "",
+        "stderr": "",
+        "duration": 2.0,
+        "cost": _FAKE_COST.to_dict(),
+    }
+    _write_result_unless_success(sync_dict, timeout_result)
+    assert sync_dict["result"]["status"] == "timeout"
+
+
+def test_execute_parent_timeout_keeps_child_success():
+    """Join-timeout must not report timeout if the child already succeeded."""
+    test: EvalSpec = {
+        "name": "timeout-keeps-success",
+        "files": {},
+        "prompt": "do thing",
+        "run": "true",
+        "expect": {},
+    }
+    agent = SuccessAgent(model="claude-code/test")
+    cost_dict = _FAKE_COST.to_dict()
+
+    class FakeProc:
+        def __init__(
+            self, group=None, target=None, name=None, args=(), kwargs=None, **_
+        ):
+            self._args = args
+            self._alive = True
+            self.exitcode = None
+
+        def start(self):
+            sync_dict = self._args[4]
+            sync_dict["result"] = {
+                "status": "success",
+                "files": {"out.txt": "done"},
+                "stdout": "",
+                "stderr": "",
+                "duration": 1.5,
+                "log_dir": None,
+                "workspace_dir": None,
+                "cost": cost_dict,
+            }
+
+        def join(self, timeout=None):
+            return None
+
+        def is_alive(self):
+            return self._alive
+
+        def terminate(self):
+            sync_dict = self._args[4]
+            _write_result_unless_success(
+                sync_dict,
+                {
+                    "status": "timeout",
+                    "message": "SIGTERM received",
+                    "stdout": "",
+                    "stderr": "",
+                    "duration": 2.0,
+                    "cost": cost_dict,
+                },
+            )
+            self._alive = False
+            self.exitcode = -15
+
+        def kill(self):
+            self._alive = False
+            self.exitcode = -9
+
+    with patch("gptme.eval.run.Process", FakeProc):
+        result = execute(test=test, agent=agent, timeout=2, parallel=False)
+
+    assert result.status == "success"
+    assert result.tokens_input == 900
+    assert result.tokens_output == 40
     assert result.cost_usd == 0.05
 
 
