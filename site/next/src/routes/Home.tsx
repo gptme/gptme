@@ -19,10 +19,10 @@ const surfaces = [
 
 const ecosystem = [
   {
-    tag: "providers",
-    title: "Any model, including your own",
-    href: links.providers,
-    desc: "Anthropic, OpenAI, Google, xAI and DeepSeek directly, 100+ more through OpenRouter, or fully local with llama.cpp. Bring an existing ChatGPT or Grok subscription instead of API keys, and route cheap models to triage and strong ones to code.",
+    tag: "github · email · chat · voice",
+    title: "Reachable where you already are",
+    href: links.channels,
+    desc: "Mention @gptme on an issue or pull request. Let an agent read and answer email, sit in Discord or WhatsApp, or take a phone call. Agents can also message each other over SSH.",
   },
   {
     tag: "mcp · acp",
@@ -38,8 +38,50 @@ const ecosystem = [
   },
 ];
 
-// The last tool is dropped on narrow screens (MainMobile design board).
-const tools = ["shell", "ipython", "patch", "browser", "vision", "computer", "subagent"];
+// What each tool actually does, linked to its reference page. The full set is
+// larger (28 documented tools); these are the ones worth showing on a landing page.
+const toolDocs: Array<{ name: string; href: string; desc: string }> = [
+  {
+    name: "shell",
+    href: links.tool.shell,
+    desc: "A persistent session: builds, tests, git, ssh, package managers — with state kept between commands.",
+  },
+  {
+    name: "ipython",
+    href: links.tool.python,
+    desc: "A stateful Python REPL with your installed libraries, so data stays loaded between steps.",
+  },
+  {
+    name: "patch · morph",
+    href: links.tool.patch,
+    desc: "Surgical edits to existing files instead of rewriting them wholesale.",
+  },
+  {
+    name: "browser",
+    href: links.tool.browser,
+    desc: "A real Chromium: search, read pages, click, fill forms, scroll, screenshot, read PDFs.",
+  },
+  {
+    name: "computer",
+    href: links.tool.computer,
+    desc: "The desktop itself on X11 or macOS — mouse, keyboard and screen capture, for apps with no API.",
+  },
+  {
+    name: "subagent",
+    href: links.tool.subagent,
+    desc: "Spawns child agents in parallel or as a pipeline, each with its own context, and steers or cancels them mid-run.",
+  },
+  {
+    name: "tmux",
+    href: links.tool.tmux,
+    desc: "Long-running processes it can come back to: dev servers, log tails, REPLs.",
+  },
+  {
+    name: "vision · screenshot",
+    href: links.tool.vision,
+    desc: "Reads images, diagrams, its own screenshots and rendered pages.",
+  },
+];
 
 /** Shown only above 600px. The mobile board uses shorter terminal lines. */
 const wide = "max-sm:hidden";
@@ -222,14 +264,39 @@ function Terminal() {
   );
 }
 
+function ToolGrid() {
+  return (
+    <div className="mt-16 border-t border-border pt-12 max-md:mt-12 max-md:pt-10 max-sm:mt-9 max-sm:pt-8">
+      <div className="mb-7 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 max-sm:mb-5 max-sm:flex-col max-sm:items-start max-sm:gap-3">
+        <h3 className="m-0 text-[26px] font-semibold leading-[1.25] tracking-heading text-heading max-sm:text-[21px]">
+          What it can actually do
+        </h3>
+        <a href={links.tools} className="text-base font-medium text-accent hover:text-accent-2-text max-sm:text-[15px]">
+          Full tool reference →
+        </a>
+      </div>
+      <ul className="m-0 grid list-none grid-cols-4 gap-x-8 gap-y-7 p-0 max-lg:grid-cols-3 max-md:grid-cols-2 max-sm:grid-cols-1 max-sm:gap-y-5">
+        {toolDocs.map((t) => (
+          <li key={t.name} className="flex flex-col gap-1.5 max-sm:gap-1">
+            <a href={t.href} className="font-mono text-[15px] font-medium text-accent hover:text-accent-2-text">
+              {t.name}
+            </a>
+            <p className="m-0 text-[15px] leading-[1.55] text-ink-2 max-sm:text-[14.5px]">{t.desc}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function SeeItWork() {
   return (
     <section className="border-y border-border bg-surface" aria-labelledby="demo-title">
+      <div className={cn(wrap, "py-22 max-md:py-16 max-sm:py-12")}>
       <div
         className={cn(
-          wrap,
-          "grid grid-cols-[5fr_7fr] items-center gap-16 py-22",
-          "max-md:grid-cols-1 max-md:gap-10 max-md:py-16 max-sm:gap-[18px] max-sm:py-12",
+          "grid grid-cols-[5fr_7fr] items-center gap-16",
+          "max-md:grid-cols-1 max-md:gap-10 max-sm:gap-[18px]",
         )}
       >
         <div className="flex min-w-0 flex-col gap-5 max-sm:gap-[18px]">
@@ -248,21 +315,10 @@ function SeeItWork() {
               Point it at a local model and nothing leaves the machine at all.
             </span>
           </p>
-          <ul className="m-0 flex list-none flex-wrap gap-2 p-0 max-sm:gap-1.5" aria-label="Built-in tools">
-            {tools.map((t, i) => (
-              <li
-                key={t}
-                className={cn(
-                  "rounded-pill bg-chip px-3 py-1.5 font-mono text-[13px] text-ink-2 max-sm:px-[10px] max-sm:py-[5px] max-sm:text-xs",
-                  i === tools.length - 1 && wide,
-                )}
-              >
-                {t}
-              </li>
-            ))}
-          </ul>
         </div>
         <Terminal />
+      </div>
+      <ToolGrid />
       </div>
     </section>
   );
@@ -394,9 +450,89 @@ function Agents() {
   );
 }
 
+function Models() {
+  return (
+    <section className="border-y border-border bg-surface" aria-labelledby="models-title">
+      <div
+        className={cn(
+          wrap,
+          "grid grid-cols-[6fr_6fr] items-center gap-16 py-22",
+          "max-md:grid-cols-1 max-md:gap-10 max-md:py-16 max-sm:gap-[22px] max-sm:py-12",
+        )}
+      >
+        <div className="overflow-hidden rounded-lg border border-term-border bg-term-bg font-mono text-term-text shadow-term max-md:order-last max-sm:rounded-[10px]">
+          <div className="flex justify-between gap-4 border-b border-term-border px-[18px] py-3 text-[13px] text-term-muted max-sm:px-[14px] max-sm:py-[10px] max-sm:text-[11px]">
+            <span>~</span>
+            <span>same tools, any model</span>
+          </div>
+          <div className="flex flex-col gap-[18px] overflow-x-auto p-6 text-[14px] leading-[1.6] max-sm:gap-[14px] max-sm:p-[14px] max-sm:text-[11px] max-sm:leading-[1.55]">
+            {[
+              {
+                note: "# the subscription you already pay for — nothing per token",
+                cmds: ["gptme -m openai-subscription/gpt-6-astra", "gptme -m grok-subscription/grok-4.6"],
+              },
+              {
+                note: "# open-weight flash models: high volume at a fraction of the cost",
+                cmds: [
+                  "gptme -m openrouter/deepseek/deepseek-v4.1-flash",
+                  "gptme -m openrouter/z-ai/glm-5.3-flash",
+                ],
+              },
+              { note: "# or entirely local, nothing leaving the machine", cmds: ["gptme -m local/llama3.2:1b"] },
+            ].map((group) => (
+              <div key={group.note} className="flex flex-col gap-1.5 max-sm:gap-1">
+                <div className="whitespace-pre text-term-muted">{group.note}</div>
+                {group.cmds.map((c) => (
+                  <div key={c} className="whitespace-pre">
+                    <span className="select-none text-term-prompt" aria-hidden="true">
+                      ${" "}
+                    </span>
+                    {c}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5 max-sm:gap-[18px]">
+          <p className={eyebrow}>Bring your own model</p>
+          <h2
+            id="models-title"
+            className="m-0 text-[38px] font-semibold leading-[1.18] tracking-heading text-heading [text-wrap:balance] max-sm:text-[27px] max-sm:leading-[1.2]"
+          >
+            Never locked to one provider, or one price.
+          </h2>
+          <p className="m-0 text-lg leading-[1.6] text-ink-2 [text-wrap:pretty] max-sm:text-base max-sm:leading-[1.6]">
+            One flag switches model, provider or price tier — the tools, config and workflow stay identical. Already
+            paying for ChatGPT Plus/Pro or SuperGrok? Use that plan instead of an API key, at no cost per token.
+            Running something high-volume? Open-weight models like DeepSeek V4.1 Flash and GLM 5.3 Flash hold up in
+            agentic work for a fraction of frontier prices, and one OpenRouter key reaches 100+ models with
+            data collection denied by default.
+          </p>
+          <div className="flex flex-wrap gap-x-7 gap-y-2">
+            <a href={links.models} className="text-base font-medium text-accent hover:text-accent-2-text max-sm:text-[15px]">
+              Picking a model →
+            </a>
+            <a
+              href={links.providers}
+              className="text-base font-medium text-accent hover:text-accent-2-text max-sm:text-[15px]"
+            >
+              Providers and subscriptions →
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Ecosystem() {
   return (
-    <section className={cn(wrap, "pb-18 max-md:pb-12 max-sm:pb-10")} aria-labelledby="ecosystem-title">
+    <section
+      className={cn(wrap, "pb-18 pt-22 max-md:pb-12 max-md:pt-16 max-sm:pb-10 max-sm:pt-12")}
+      aria-labelledby="ecosystem-title"
+    >
       <div className="mb-8 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 max-sm:mb-4 max-sm:flex-col max-sm:items-start max-sm:gap-4">
         <h2
           id="ecosystem-title"
@@ -552,6 +688,7 @@ export function Home({ stats }: { stats: SiteStats }) {
       <SeeItWork />
       <Agents />
       <Surfaces />
+      <Models />
       <Ecosystem />
       <Stats stats={stats} />
       <TwoWays />
