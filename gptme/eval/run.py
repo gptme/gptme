@@ -679,6 +679,10 @@ def act_process(
         }
         sync_dict["result"] = result_error
 
+        # Ignore SIGTERM before cleanup so self-SIGTERM from _graceful_killpg
+        # cannot overwrite this error with timeout (same guard as success /
+        # TimeoutExpired).
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         # kill child processes gracefully
         cleanup_process_group()
 

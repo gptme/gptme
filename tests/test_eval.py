@@ -1,6 +1,7 @@
 import importlib
 import json
 import os
+import signal
 import subprocess
 import sys
 from concurrent.futures import CancelledError, TimeoutError
@@ -706,6 +707,35 @@ def test_act_process_error_includes_cost():
 
     result = cast(ProcessError, sync_dict["result"])
     assert result["status"] == "error"
+    assert result["cost"] is not None
+    assert result["cost"]["total_input_tokens"] == 900
+
+
+def test_act_process_error_survives_cleanup_sigterm():
+    """error_handler must ignore SIGTERM during cleanup so error is not a timeout."""
+    sync_dict = cast(SyncedDict, {})
+    agent = ErrorAgent(model="claude-code/test")
+
+    def killpg_sends_sigterm(_pgrp, grace_period=2.0):
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    with (
+        patch("gptme.eval.run.get_eval_costs", return_value=_FAKE_COST),
+        patch("gptme.eval.run._graceful_killpg", side_effect=killpg_sends_sigterm),
+    ):
+        act_process(
+            agent=agent,
+            test_name="error-sigterm-case",
+            prompt="do thing",
+            files={},
+            sync_dict=sync_dict,
+            parallel=True,
+            suppress_output=True,
+        )
+
+    result = cast(ProcessError, sync_dict["result"])
+    assert result["status"] == "error"
+    assert "agent exploded" in result["message"]
     assert result["cost"] is not None
     assert result["cost"]["total_input_tokens"] == 900
 
