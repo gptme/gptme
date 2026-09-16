@@ -335,3 +335,104 @@ def test_get_agent_id_falls_back_to_uid_when_username_lookup_fails(monkeypatch):
     getuid = getattr(os, "getuid", None)
     expected_user = f"uid{getuid()}" if callable(getuid) else "unknown"
     assert agent_id == f"{expected_user}@{socket.gethostname()}"
+
+
+def test_attest_sign_out_parent_is_file_emits_clean_error(tmp_path, monkeypatch):
+    """Writing --out under a regular-file parent must be a ClickException,
+    not a raw FileExistsError traceback."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
+    blocker = tmp_path / "blocker"
+    blocker.write_text("regular file contents\n")
+    out_path = blocker / "att.json"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "attest",
+            "sign",
+            "--text",
+            "hello",
+            "--workspace",
+            str(repo),
+            "--out",
+            str(out_path),
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "Traceback (most recent call last)" not in result.output
+    assert result.output.startswith(
+        f"Error: Failed to write attestation to {out_path}:"
+    )
+    assert not out_path.exists()
+
+
+def test_attest_sign_out_unwritable_parent_emits_clean_error(tmp_path, monkeypatch):
+    """An OSError while creating --out's parent must be a ClickException,
+    not a raw PermissionError traceback."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
+    out_path = tmp_path / "nested" / "att.json"
+
+    def boom(*_args, **_kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "mkdir", boom)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "attest",
+            "sign",
+            "--text",
+            "hello",
+            "--workspace",
+            str(repo),
+            "--out",
+            str(out_path),
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "Traceback (most recent call last)" not in result.output
+    assert result.output.startswith(
+        f"Error: Failed to write attestation to {out_path}:"
+    )
+    assert not out_path.exists()
+
+
+def test_attest_sign_out_creates_missing_parent_dirs(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    monkeypatch.setenv("CC_MODEL", "gpt-5.4")
+    out_path = tmp_path / "new" / "subdir" / "att.json"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "attest",
+            "sign",
+            "--text",
+            "hello",
+            "--workspace",
+            str(repo),
+            "--out",
+            str(out_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert out_path.is_file()
+    assert Path(result.output.strip()) == out_path

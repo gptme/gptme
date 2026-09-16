@@ -240,8 +240,13 @@ def write_attestation(
     out_path = destination or default_attestation_path(
         workspace_root, attestation["id"]
     )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(attestation, indent=2, sort_keys=True) + "\n")
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(attestation, indent=2, sort_keys=True) + "\n")
+    except OSError as exc:
+        raise AttestationError(
+            f"Failed to write attestation to {out_path}: {exc}"
+        ) from exc
     return out_path
 
 
