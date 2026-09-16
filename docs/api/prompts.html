@@ -882,7 +882,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1a97125b20&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fa1dd2a1b20&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2321,6 +2321,9 @@ conversation-owned process. The call returns a job ID immediately and completion
 is reported automatically. Exact <span class="sb">`jobs`</span>, <span class="sb">`output &lt;id&gt; [--new]`</span>, `wait &lt;id&gt;
 [timeout]`, and <span class="sb">`kill &lt;id&gt;`</span> calls manage matching harness jobs; otherwise Bash
 owns those commands. Use this for dev servers and long builds.
+Keep working while a job runs: completion is delivered before the next model
+step, and non-interactive sessions wait when idle (up to
+<span class="sb">`GPTME_WATCH_IDLE_MAX`</span> seconds, default 1800). <span class="sb">`wait`</span> is the blocking fallback.
 
 <span class="gu">### Examples</span>
 
@@ -3042,7 +3045,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20123</p>
+<p>Tokens: 20178</p>
 </dd></dl>
 
 <dl class="py function">

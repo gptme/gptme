@@ -641,6 +641,9 @@ conversation-owned process. The call returns a job ID immediately and completion
 is reported automatically. Exact <span class="sb">`jobs`</span>, <span class="sb">`output &lt;id&gt; [--new]`</span>, `wait &lt;id&gt;
 [timeout]`, and <span class="sb">`kill &lt;id&gt;`</span> calls manage matching harness jobs; otherwise Bash
 owns those commands. Use this for dev servers and long builds.
+Keep working while a job runs: completion is delivered before the next model
+step, and non-interactive sessions wait when idle (up to
+<span class="sb">`GPTME_WATCH_IDLE_MAX`</span> seconds, default 1800). <span class="sb">`wait`</span> is the blocking fallback.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
