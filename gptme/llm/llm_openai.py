@@ -754,13 +754,15 @@ def _fold_mid_system(msgs: list[Message]) -> Generator[Message, None, None]:
 
 def _merge_consecutive(msgs: Iterable[Message]) -> Generator[Message, None, None]:
     # if consecutive messages from same role, merge them
+    # Do NOT merge when call_ids differ — parallel tool results have distinct call_ids
+    # and merging them drops all but the first, causing a 400 on reasoning models.
     last_message = None
     for msg in msgs:
         if last_message is None:
             last_message = msg
             continue
 
-        if last_message.role == msg.role:
+        if last_message.role == msg.role and last_message.call_id == msg.call_id:
             last_message = last_message.concat(msg)
             continue
         else:

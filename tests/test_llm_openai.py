@@ -2606,6 +2606,62 @@ def test_prep_deepseek_reasoner_preserves_image_files():
     assert result[1].file_hashes.get("/path/to/screenshot.png") == "hash123"
 
 
+def test_merge_consecutive_does_not_merge_parallel_tool_results():
+    """Regression: _merge_consecutive must NOT merge parallel tool results.
+
+    DeepSeek 400s with "An assistant message with 'tool_calls' must be followed
+    by tool messages responding to each 'tool_call_id'" when two consecutive
+    tool result messages with *different* call_ids are merged into one that only
+    carries the first call_id.  See gptme/gptme#3846.
+
+    Tool results are stored as role="system" messages with a call_id.
+    """
+    from gptme.llm.llm_openai import _merge_consecutive
+    from gptme.message import Message
+
+    # Tool results are system messages with a call_id
+    tool_result_0 = Message("system", "result 0", call_id="call_00")
+    tool_result_1 = Message("system", "result 1", call_id="call_01")
+
+    merged = list(_merge_consecutive([tool_result_0, tool_result_1]))
+
+    # Both tool results must survive — merging drops the second call_id.
+    assert len(merged) == 2
+    assert merged[0].call_id == "call_00"
+    assert merged[1].call_id == "call_01"
+
+
+def test_merge_consecutive_still_merges_same_call_id():
+    """Messages with the same call_id (multi-yield from one tool) can still merge."""
+    from gptme.llm.llm_openai import _merge_consecutive
+    from gptme.message import Message
+
+    chunk1 = Message("system", "chunk1", call_id="call_00")
+    chunk2 = Message("system", "chunk2", call_id="call_00")
+
+    merged = list(_merge_consecutive([chunk1, chunk2]))
+
+    assert len(merged) == 1
+    assert merged[0].call_id == "call_00"
+    assert "chunk1" in merged[0].content
+    assert "chunk2" in merged[0].content
+
+
+def test_merge_consecutive_merges_none_call_id():
+    """Messages with no call_id (plain same-role content) can still merge."""
+    from gptme.llm.llm_openai import _merge_consecutive
+    from gptme.message import Message
+
+    msg1 = Message("user", "hello")
+    msg2 = Message("user", "world")
+
+    merged = list(_merge_consecutive([msg1, msg2]))
+
+    assert len(merged) == 1
+    assert "hello" in merged[0].content
+    assert "world" in merged[0].content
+
+
 # --- Tests for extra_body (OpenRouter provider routing) ---
 
 
