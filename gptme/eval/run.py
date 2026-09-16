@@ -25,7 +25,7 @@ from tqdm import tqdm
 from ..logmanager import LogManager
 from .agents import Agent, GPTMe
 from .agents.claude_code import ClaudeCodeAgent, is_claude_code_model
-from .cost import get_eval_costs
+from .cost import CostSummary, get_eval_costs, token_fields_from_cost
 from .execenv import DockerExecutionEnv, SimpleExecutionEnv
 from .pass_rate_gate import apply_gate, load_pass_rate_data
 from .types import (
@@ -78,9 +78,16 @@ class ProcessError(TypedDict):
     stdout: str
     stderr: str
     duration: float
+    cost: dict | None
 
 
 ProcessResult = ProcessSuccess | ProcessError
+
+
+def _cost_snapshot() -> dict | None:
+    """Best-effort CostTracker snapshot from the current eval subprocess."""
+    cost_summary = get_eval_costs()
+    return cost_summary.to_dict() if cost_summary else None
 
 
 def _graceful_killpg(pgrp: int, grace_period: float = 2.0) -> None:
@@ -384,31 +391,34 @@ def execute(
                     p.kill()
                     p.join()  # Wait for forced termination
 
+        parent_timeout = status == "timeout"
         if "result" in sync_dict:
             result = sync_dict["result"]
             time_gen = max(result.get("duration", 0.0), time_gen)
-            status = result["status"]
+            child_status = result["status"]
+            # Parent join-timeout must stay "timeout" unless the child already
+            # finished successfully (join raced with a completed write).
+            # SIGTERM previously wrote status="error" and wiped the timeout.
+            if parent_timeout and child_status != "success":
+                status = "timeout"
+            elif child_status in ("success", "timeout", "error"):
+                status = child_status
             files = result.get("files", {})
             gen_stdout = result.get("stdout", "")
             gen_stderr = result.get("stderr", "")
             log_dir = result.get("log_dir") or agent.log_dir
             workspace_dir = result.get("workspace_dir") or agent.workspace_dir
 
-            # Extract cost from subprocess result
             cost_dict = result.get("cost")
-            cost = None
-            if cost_dict:
-                from .cost import CostSummary
-
-                cost = CostSummary.from_dict(cost_dict)
-
-            tokens_input = cost.total_input_tokens if cost else 0
-            tokens_output = cost.total_output_tokens if cost else 0
-            cost_usd = cost.total_cost if cost else None
-            cache_read_tokens = cost.cache_read_tokens if cost else 0
-            cache_creation_tokens = cost.cache_creation_tokens if cost else 0
-            cache_hit_rate = cost.cache_hit_rate if cost else 0.0
-            num_steps = cost.request_count if cost else 0
+            cost = CostSummary.from_dict(cost_dict) if cost_dict else None
+            tokens = token_fields_from_cost(cost)
+            tokens_input = tokens["tokens_input"]
+            tokens_output = tokens["tokens_output"]
+            cost_usd = tokens["cost_usd"]
+            cache_read_tokens = tokens["cache_read_tokens"]
+            cache_creation_tokens = tokens["cache_creation_tokens"]
+            cache_hit_rate = tokens["cache_hit_rate"]
+            num_steps = tokens["num_steps"]
         else:
             exit_code = p.exitcode
             error_msg = (
@@ -649,19 +659,30 @@ def act_process(
             "stdout": stdout.getvalue(),
             "stderr": stderr.getvalue(),
             "duration": duration,
+            "cost": _cost_snapshot(),
         }
         sync_dict["result"] = result_error
 
         # kill child processes gracefully
         cleanup_process_group()
 
-    # handle SIGTERM
+    # handle SIGTERM (parent join-timeout calls Process.terminate)
     def sigterm_handler(*_):
         # Reset to default handler first to prevent recursive SIGTERM loop:
         # _graceful_killpg sends SIGTERM to our own process group, which would
         # re-trigger this handler without this reset.
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        error_handler(KeyboardInterrupt("SIGTERM received"))
+        duration = time.time() - start
+        result_timeout: ProcessError = {
+            "status": "timeout",
+            "message": "SIGTERM received",
+            "stdout": stdout.getvalue(),
+            "stderr": stderr.getvalue(),
+            "duration": duration,
+            "cost": _cost_snapshot(),
+        }
+        sync_dict["result"] = result_timeout
+        cleanup_process_group()
 
     signal.signal(signal.SIGTERM, sigterm_handler)
 
@@ -680,6 +701,7 @@ def act_process(
             "stdout": stdout.getvalue(),
             "stderr": stderr.getvalue(),
             "duration": duration,
+            "cost": _cost_snapshot(),
         }
         sync_dict["result"] = result_timeout
         # Reset SIGTERM handler before cleanup to prevent self-SIGTERM
@@ -693,11 +715,6 @@ def act_process(
 
     duration = time.time() - start
 
-    # Capture cost summary from this subprocess
-
-    cost_summary = get_eval_costs()
-    cost_dict = cost_summary.to_dict() if cost_summary else None
-
     result_success: ProcessSuccess = {
         "status": "success",
         "files": files,
@@ -706,7 +723,7 @@ def act_process(
         "duration": duration,
         "log_dir": agent.log_dir,
         "workspace_dir": agent.workspace_dir,
-        "cost": cost_dict,
+        "cost": _cost_snapshot(),
     }
     sync_dict["result"] = result_success
     subprocess_logger.info("Success")

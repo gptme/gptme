@@ -15,6 +15,7 @@ from click.testing import CliRunner
 from gptme.config import get_config
 from gptme.eval import execute, tests
 from gptme.eval.agents import Agent, GPTMe
+from gptme.eval.cost import CostSummary
 from gptme.eval.main import main, resolve_eval_names, results_to_json
 from gptme.eval.run import ProcessError, SyncedDict, act_process, run_evals
 from gptme.eval.suites import suites, tests_map
@@ -625,6 +626,13 @@ class TimeoutAgent(Agent):
         raise subprocess.TimeoutExpired(cmd="claude -p", timeout=7)
 
 
+class ErrorAgent(Agent):
+    def act(
+        self, files: dict[str, str | bytes] | None, prompt: str
+    ) -> dict[str, str | bytes]:
+        raise RuntimeError("agent exploded")
+
+
 class SuccessAgent(Agent):
     def act(
         self, files: dict[str, str | bytes] | None, prompt: str
@@ -632,11 +640,26 @@ class SuccessAgent(Agent):
         return {"out.txt": "done"}
 
 
+_FAKE_COST = CostSummary(
+    session_id="eval-timeout",
+    total_cost=0.05,
+    total_input_tokens=900,
+    total_output_tokens=40,
+    cache_read_tokens=10,
+    cache_creation_tokens=20,
+    cache_hit_rate=0.1,
+    request_count=2,
+)
+
+
 def test_act_process_maps_subprocess_timeout_to_timeout_result():
     sync_dict = cast(SyncedDict, {})
     agent = TimeoutAgent(model="claude-code/test")
 
-    with patch("gptme.eval.run._graceful_killpg"):
+    with (
+        patch("gptme.eval.run.get_eval_costs", return_value=_FAKE_COST),
+        patch("gptme.eval.run._graceful_killpg"),
+    ):
         act_process(
             agent=agent,
             test_name="timeout-case",
@@ -651,6 +674,92 @@ def test_act_process_maps_subprocess_timeout_to_timeout_result():
     assert result["status"] == "timeout"
     assert result["duration"] >= 0
     assert result["message"]
+    assert result["cost"] is not None
+    assert result["cost"]["total_input_tokens"] == 900
+    assert result["cost"]["total_output_tokens"] == 40
+    assert result["cost"]["request_count"] == 2
+
+
+def test_act_process_error_includes_cost():
+    sync_dict = cast(SyncedDict, {})
+    agent = ErrorAgent(model="claude-code/test")
+
+    with (
+        patch("gptme.eval.run.get_eval_costs", return_value=_FAKE_COST),
+        patch("gptme.eval.run._graceful_killpg"),
+    ):
+        act_process(
+            agent=agent,
+            test_name="error-case",
+            prompt="do thing",
+            files={},
+            sync_dict=sync_dict,
+            parallel=True,
+            suppress_output=True,
+        )
+
+    result = cast(ProcessError, sync_dict["result"])
+    assert result["status"] == "error"
+    assert result["cost"] is not None
+    assert result["cost"]["total_input_tokens"] == 900
+
+
+def test_execute_parent_timeout_keeps_child_tokens():
+    """Parent join-timeout must keep tokens even if the child wrote error."""
+    test: EvalSpec = {
+        "name": "timeout-tokens",
+        "files": {},
+        "prompt": "do thing",
+        "run": "true",
+        "expect": {},
+    }
+    agent = SuccessAgent(model="claude-code/test")
+    cost_dict = _FAKE_COST.to_dict()
+
+    class FakeProc:
+        def __init__(
+            self, group=None, target=None, name=None, args=(), kwargs=None, **_
+        ):
+            self._args = args
+            self._alive = True
+            self.exitcode = None
+
+        def start(self):
+            return None
+
+        def join(self, timeout=None):
+            return None
+
+        def is_alive(self):
+            return self._alive
+
+        def terminate(self):
+            sync_dict = self._args[4]
+            # Simulate the old SIGTERM handler writing error, which used to
+            # both drop cost and overwrite parent timeout status.
+            sync_dict["result"] = {
+                "status": "error",
+                "message": "SIGTERM received",
+                "stdout": "",
+                "stderr": "",
+                "duration": 2.0,
+                "cost": cost_dict,
+            }
+            self._alive = False
+            self.exitcode = -15
+
+        def kill(self):
+            self._alive = False
+            self.exitcode = -9
+
+    with patch("gptme.eval.run.Process", FakeProc):
+        result = execute(test=test, agent=agent, timeout=2, parallel=False)
+
+    assert result.status == "timeout"
+    assert result.tokens_input == 900
+    assert result.tokens_output == 40
+    assert result.num_steps == 2
+    assert result.cost_usd == 0.05
 
 
 def test_execute_docker_mode_runs_checks_in_docker_env():
