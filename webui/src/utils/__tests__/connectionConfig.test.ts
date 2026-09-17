@@ -20,6 +20,7 @@ jest.mock('@/stores/servers', () => ({
 }));
 
 import {
+  describeError,
   getConnectionConfigFromSources,
   isDemoMode,
   processConnectionFromHash,
@@ -174,6 +175,37 @@ describe('processConnectionFromHash', () => {
     expect(mockFindOrCreateServerByUrl).not.toHaveBeenCalled();
     expect(mockConnectServer).not.toHaveBeenCalled();
     expect(mockSetActiveServer).not.toHaveBeenCalled();
+  });
+
+  it('logs a readable cause when the exchange fetch itself rejects', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // Android logcat serializes a TypeError as `{}`; the message is what matters.
+    const networkError = new TypeError('Failed to fetch');
+    mockFetch.mockRejectedValue(networkError);
+
+    await expect(processConnectionFromHash('code=net-fail')).rejects.toThrow('Failed to fetch');
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[ConnectionConfig] Auth code exchange failed: Failed to fetch',
+      networkError
+    );
+    consoleError.mockRestore();
+  });
+});
+
+describe('describeError', () => {
+  it('surfaces the message for errors that WebView consoles serialize as {}', () => {
+    expect(describeError(new TypeError('Failed to fetch'))).toBe('Failed to fetch');
+  });
+
+  it('falls back to the name for message-less errors', () => {
+    expect(describeError(new Error(''))).toBe('Error');
+  });
+
+  it('handles non-Error thrown values', () => {
+    expect(describeError('boom')).toBe('boom');
+    expect(describeError({ status: 403 })).toBe('{"status":403}');
+    expect(describeError(undefined)).toBe('undefined');
   });
 });
 

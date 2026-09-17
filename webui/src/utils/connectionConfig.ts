@@ -265,6 +265,27 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
 }
 
 /**
+ * Render an unknown thrown value as a readable message.
+ *
+ * WebView consoles — notably Android logcat — serialize an `Error` object as
+ * `{}`, dropping the cause entirely. Callers must surface `message` explicitly
+ * or the failure is undiagnosable.
+ */
+export function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  try {
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return String(error);
+  }
+}
+
+/**
  * Process URL hash for connection configuration.
  * Handles both legacy direct token flow and new auth code exchange flow.
  *
@@ -302,7 +323,7 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
         useAuthToken: true,
       };
     } catch (error) {
-      console.error('[ConnectionConfig] Auth code exchange failed:', error);
+      console.error(`[ConnectionConfig] Auth code exchange failed: ${describeError(error)}`, error);
       throw error;
     }
   }
