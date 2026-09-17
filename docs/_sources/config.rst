@@ -89,6 +89,9 @@ The ``prompt`` section contains options included in both interactive and non-int
 
 - ``files``: A list of additional files to always include in context. Supports absolute paths, ``~`` expansion, and paths relative to the config directory.
 - ``project``: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for ``activitywatch`` and ``gptme`` — when the git root directory name matches one of these keys, the description is automatically injected into the system prompt.
+- ``fragments``: A table of named, additive system-prompt text, described in
+  :ref:`global-config-runtime`. These sections do not replace user preferences,
+  workspace files, profiles, or a conversation's custom system prompt.
 
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
 
@@ -233,6 +236,93 @@ Example ``config.local.toml``:
     env = { API_KEY = "secret-key" }
 
 Values in ``config.local.toml`` are merged into the main config: dictionary sections are merged recursively, and MCP servers are merged by name (so you can define the server command/args in ``config.toml`` and add secrets in ``config.local.toml``). Scalar values in the local file override the main file.
+
+.. _global-config-runtime:
+
+Runtime defaults and prompt fragments
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Deployments can provide an optional ``config.runtime.toml`` alongside the main
+and local files. This is a generic operator-owned defaults layer, not a
+cloud-specific switch or an enforcement policy. File precedence, lowest to
+highest, is:
+
+1. ``config.runtime.toml`` (deployment defaults)
+2. ``config.toml`` (user preferences)
+3. ``config.local.toml`` (user's local overrides/secrets)
+
+While the runtime file is present, built-in defaults form a lower-priority,
+in-memory baseline. A preview-only runtime file therefore retains the standard
+user guidance and project descriptions. Explicit values, including empty strings
+and lists, still override defaults; legacy ``[prompt]`` user preferences retain
+their existing fallback behavior.
+
+Existing process-environment, project, chat, and CLI resolution rules are
+unchanged. Dictionaries merge recursively; MCP servers and providers merge by
+name. Other lists and scalar values are replaced by the higher-priority layer,
+not concatenated. In particular, do not use deployment ``prompt.files`` to append
+to a user's file list.
+
+For additive instructions, use named fragments instead:
+
+.. code-block:: toml
+
+    # config.runtime.toml, written by the deployment
+    [prompt.fragments]
+    deployment = "This environment provides an authenticated app preview."
+
+Other keys in the user's ``[prompt.fragments]`` coexist with that fragment.
+To override or disable just the deployment fragment, set the same key in
+``config.toml`` or ``config.local.toml``:
+
+.. code-block:: toml
+
+    [prompt.fragments]
+    deployment = ""  # Disable this fragment, without changing the runtime file
+    personal = "Keep explanations concise."
+
+Fragment values must be strings; names must match
+``[A-Za-z0-9][A-Za-z0-9_.-]*``. Nonblank fragments become
+named ``prompt_fragment:<name>`` sections, sorted by name, before dynamic context
+and the cache boundary. They participate in prompt statistics and the same
+generation/pinning mechanism as other system instructions. They work with full,
+short, custom, and selective prompts without depending on a workspace or tools.
+``include_user_context=False`` and ``prompt="none"`` suppress these optional
+fragments.
+
+These global fragments apply to all prompt-builder callers in the configured
+environment, including CLI and server conversations. Interface-specific text
+should describe its prerequisites rather than assume every caller is the webui.
+An absent runtime file and empty fragment mapping leave ordinary local
+installations unchanged. See :ref:`server-preview-guidance` for an app-preview
+example using the existing webui panel protocol.
+
+gptme never creates, edits, or removes the runtime file and never copies its
+contents into user configuration or ``ChatConfig.system_prompt``. An invalid or
+unreadable runtime file reports an error rather than silently disabling its
+defaults. If the main file is absent while runtime defaults are present, gptme
+creates an empty main file, so generated user settings do not override deployment
+defaults. This does not persist built-in defaults into that file either. Removing
+the runtime file restores ordinary no-runtime loading: an existing sparse main
+file uses dataclass fallbacks (for example no user description or project
+descriptions), whereas a missing main file is initialized normally. Preferences
+that should survive removal of deployment configuration belong in the user's
+main/local files.
+
+The deployment should atomically replace only its runtime file on
+startup; do not append repeatedly or rewrite the user's main/local files.
+The config UI reports the defaults file separately while continuing to edit
+the main file; existing secret writes still target the local file.
+
+The runtime layer is read on configuration load/reload. Updated fragments affect
+new prompts and existing regeneration paths (for example conversation settings
+changes and model/tool changes). CLI ``/model`` and ``/tools load`` re-read user
+configuration before regenerating, preserving the active chat/project settings
+and loaded tools. Atomically replaced, removed, or disabled fragments therefore
+take effect without restarting the CLI. There is no file watcher or historical-log
+migration. Restarting the server alone does not rewrite a resumed conversation's
+stored messages. Removing the runtime fragment is not immediate revocation of
+instructions already in a conversation.
 
 .. _project-config:
 

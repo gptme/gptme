@@ -580,6 +580,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-model-selection-works">How model selection works</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-config-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-defaults-and-prompt-fragments">Runtime defaults and prompt fragments</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a><ul class="visible nav section-nav flex-column">
@@ -682,6 +683,9 @@ document.write(`
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">files</span></code>: A list of additional files to always include in context. Supports absolute paths, <code class="docutils literal notranslate"><span class="pre">~</span></code> expansion, and paths relative to the config directory.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">project</span></code>: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for <code class="docutils literal notranslate"><span class="pre">activitywatch</span></code> and <code class="docutils literal notranslate"><span class="pre">gptme</span></code> — when the git root directory name matches one of these keys, the description is automatically injected into the system prompt.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fragments</span></code>: A table of named, additive system-prompt text, described in
+<a class="reference internal" href="#global-config-runtime"><span class="std std-ref">Runtime defaults and prompt fragments</span></a>. These sections do not replace user preferences,
+workspace files, profiles, or a conversation’s custom system prompt.</p></li>
 </ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>. It can also be used to set default tool configuration options, see <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more information.</p>
 <div class="admonition note">
@@ -812,6 +816,80 @@ the <code class="docutils literal notranslate"><span class="pre">local/</span></
 </pre></div>
 </div>
 <p>Values in <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> are merged into the main config: dictionary sections are merged recursively, and MCP servers are merged by name (so you can define the server command/args in <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> and add secrets in <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>). Scalar values in the local file override the main file.</p>
+</section>
+<section id="runtime-defaults-and-prompt-fragments">
+<span id="global-config-runtime"></span><h3>Runtime defaults and prompt fragments<a class="headerlink" href="#runtime-defaults-and-prompt-fragments" title="Link to this heading">#</a></h3>
+<p>Deployments can provide an optional <code class="docutils literal notranslate"><span class="pre">config.runtime.toml</span></code> alongside the main
+and local files. This is a generic operator-owned defaults layer, not a
+cloud-specific switch or an enforcement policy. File precedence, lowest to
+highest, is:</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">config.runtime.toml</span></code> (deployment defaults)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">config.toml</span></code> (user preferences)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> (user’s local overrides/secrets)</p></li>
+</ol>
+<p>While the runtime file is present, built-in defaults form a lower-priority,
+in-memory baseline. A preview-only runtime file therefore retains the standard
+user guidance and project descriptions. Explicit values, including empty strings
+and lists, still override defaults; legacy <code class="docutils literal notranslate"><span class="pre">[prompt]</span></code> user preferences retain
+their existing fallback behavior.</p>
+<p>Existing process-environment, project, chat, and CLI resolution rules are
+unchanged. Dictionaries merge recursively; MCP servers and providers merge by
+name. Other lists and scalar values are replaced by the higher-priority layer,
+not concatenated. In particular, do not use deployment <code class="docutils literal notranslate"><span class="pre">prompt.files</span></code> to append
+to a user’s file list.</p>
+<p>For additive instructions, use named fragments instead:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.runtime.toml, written by the deployment</span>
+<span class="k">[prompt.fragments]</span>
+<span class="n">deployment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;This environment provides an authenticated app preview.&quot;</span>
+</pre></div>
+</div>
+<p>Other keys in the user’s <code class="docutils literal notranslate"><span class="pre">[prompt.fragments]</span></code> coexist with that fragment.
+To override or disable just the deployment fragment, set the same key in
+<code class="docutils literal notranslate"><span class="pre">config.toml</span></code> or <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[prompt.fragments]</span>
+<span class="n">deployment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="w">  </span><span class="c1"># Disable this fragment, without changing the runtime file</span>
+<span class="n">personal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Keep explanations concise.&quot;</span>
+</pre></div>
+</div>
+<p>Fragment values must be strings; names must match
+<code class="docutils literal notranslate"><span class="pre">[A-Za-z0-9][A-Za-z0-9_.-]*</span></code>. Nonblank fragments become
+named <code class="docutils literal notranslate"><span class="pre">prompt_fragment:&lt;name&gt;</span></code> sections, sorted by name, before dynamic context
+and the cache boundary. They participate in prompt statistics and the same
+generation/pinning mechanism as other system instructions. They work with full,
+short, custom, and selective prompts without depending on a workspace or tools.
+<code class="docutils literal notranslate"><span class="pre">include_user_context=False</span></code> and <code class="docutils literal notranslate"><span class="pre">prompt=&quot;none&quot;</span></code> suppress these optional
+fragments.</p>
+<p>These global fragments apply to all prompt-builder callers in the configured
+environment, including CLI and server conversations. Interface-specific text
+should describe its prerequisites rather than assume every caller is the webui.
+An absent runtime file and empty fragment mapping leave ordinary local
+installations unchanged. See <a class="reference internal" href="server.html#server-preview-guidance"><span class="std std-ref">Teaching agents about app previews</span></a> for an app-preview
+example using the existing webui panel protocol.</p>
+<p>gptme never creates, edits, or removes the runtime file and never copies its
+contents into user configuration or <code class="docutils literal notranslate"><span class="pre">ChatConfig.system_prompt</span></code>. An invalid or
+unreadable runtime file reports an error rather than silently disabling its
+defaults. If the main file is absent while runtime defaults are present, gptme
+creates an empty main file, so generated user settings do not override deployment
+defaults. This does not persist built-in defaults into that file either. Removing
+the runtime file restores ordinary no-runtime loading: an existing sparse main
+file uses dataclass fallbacks (for example no user description or project
+descriptions), whereas a missing main file is initialized normally. Preferences
+that should survive removal of deployment configuration belong in the user’s
+main/local files.</p>
+<p>The deployment should atomically replace only its runtime file on
+startup; do not append repeatedly or rewrite the user’s main/local files.
+The config UI reports the defaults file separately while continuing to edit
+the main file; existing secret writes still target the local file.</p>
+<p>The runtime layer is read on configuration load/reload. Updated fragments affect
+new prompts and existing regeneration paths (for example conversation settings
+changes and model/tool changes). CLI <code class="docutils literal notranslate"><span class="pre">/model</span></code> and <code class="docutils literal notranslate"><span class="pre">/tools</span> <span class="pre">load</span></code> re-read user
+configuration before regenerating, preserving the active chat/project settings
+and loaded tools. Atomically replaced, removed, or disabled fragments therefore
+take effect without restarting the CLI. There is no file watcher or historical-log
+migration. Restarting the server alone does not rewrite a resumed conversation’s
+stored messages. Removing the runtime fragment is not immediate revocation of
+instructions already in a conversation.</p>
 </section>
 </section>
 <section id="project-config">
@@ -1017,6 +1095,7 @@ The variable name is derived from the parameter name in uppercase.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-model-selection-works">How model selection works</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-config-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-defaults-and-prompt-fragments">Runtime defaults and prompt fragments</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a><ul class="visible nav section-nav flex-column">

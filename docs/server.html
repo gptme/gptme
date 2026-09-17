@@ -578,6 +578,7 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#teaching-agents-about-app-previews">Teaching agents about app previews</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-as-a-systemd-service-pipx">Running as a systemd Service (pipx)</a></li>
@@ -617,6 +618,82 @@ running and hosting it; see <a class="reference internal" href="webui.html"><spa
 <p>The server and modern web UI share one origin by default, so no separate
 frontend process or CORS configuration is required.</p>
 <p>For more CLI options, see the <a class="reference internal" href="cli/gptme-server.html"><span class="doc">CLI reference</span></a>.</p>
+</section>
+<section id="teaching-agents-about-app-previews">
+<span id="server-preview-guidance"></span><h2>Teaching agents about app previews<a class="headerlink" href="#teaching-agents-about-app-previews" title="Link to this heading">#</a></h2>
+<p>The server proxies authenticated HTTP and WebSocket requests at
+<code class="docutils literal notranslate"><span class="pre">/preview/{port}/</span></code> to <code class="docutils literal notranslate"><span class="pre">127.0.0.1:{port}</span></code>. Allowed ports are 1024-65535 except
+5700 (the server) and 5900 (raw VNC). This does not start an app or provision
+noVNC. WebSocket forwarding requires a supported raw-socket WSGI transport.
+Validate the complete upgrade path, not just raw-socket availability, before
+advertising WebSocket/HMR or noVNC support.</p>
+<p>Operators can advertise that capability through
+<a class="reference internal" href="config.html#global-config-runtime"><span class="std std-ref">config.runtime.toml and named prompt fragments</span></a>,
+without editing user preferences or selecting a different agent profile.
+Only install the fragment when the deployment actually supports the described
+preview routes and interface.</p>
+<p>The following example assumes the webui and instance server share an origin
+and the instance is mounted at the origin root:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[prompt.fragments]</span>
+<span class="n">live_app_preview</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">This deployment exposes authenticated live app previews in the webui.</span>
+<span class="s1">Bind development apps to 127.0.0.1 on ports 1024-65535 except 5700/5900.</span>
+<span class="s1">They are reachable at /preview/{port}/ relative to the instance server URL.</span>
+<span class="s1">Configure absolute asset paths and HMR for the public preview base, e.g.</span>
+<span class="s1">vite --host 127.0.0.1 --port 5173 --strictPort --base=/preview/5173/</span>
+<span class="s1">WebSockets are supported by this deployment&#39;s proxy transport.</span>
+<span class="s1">If noVNC is running on 6080, use the computer preview panel; its</span>
+<span class="s1">/preview/6080/vnc.html URL includes the proxied websockify path parameter.</span>
+<span class="s1">Verify the app is responding before describing it as running.</span>
+<span class="s1">In the webui, if unsandboxed ipython is available, return this Message as</span>
+<span class="s1">the final expression (do not print JSON) to register a live_app panel:</span>
+<span class="s1">```ipython</span>
+<span class="s1">from gptme.message import Message</span>
+<span class="s1">Message(&quot;system&quot;, &quot;App preview ready.&quot;, metadata={&quot;panel_hints&quot;: [{</span>
+<span class="s1">    &quot;id&quot;: &quot;app-preview-5173&quot;,</span>
+<span class="s1">    &quot;kind&quot;: &quot;live_app&quot;,</span>
+<span class="s1">    &quot;title&quot;: &quot;App preview&quot;,</span>
+<span class="s1">    &quot;url&quot;: &quot;/preview/5173/&quot;,</span>
+<span class="s1">    &quot;status&quot;: &quot;running&quot;,</span>
+<span class="s1">    &quot;sandbox&quot;: [&quot;allow-scripts&quot;, &quot;allow-forms&quot;]</span>
+<span class="s1">}]})</span>
+<span class="s1">```</span>
+<span class="s1">Use a new ID for a new declaration; duplicate IDs do not update status.</span>
+<span class="s1">Tell the user to open/refresh the Panels sidebar. If Message passthrough</span>
+<span class="s1">or the webui is unavailable, give the preview link without claiming panel</span>
+<span class="s1">registration. Never disable sandboxing just to register a panel.</span>
+<span class="s1">&#39;&#39;&#39;</span>
+</pre></div>
+</div>
+<p>The panel convention is <code class="docutils literal notranslate"><span class="pre">Message.metadata.panel_hints</span></code>; <code class="docutils literal notranslate"><span class="pre">live_app</span></code> entries
+use <code class="docutils literal notranslate"><span class="pre">url</span></code> (not <code class="docutils literal notranslate"><span class="pre">src</span></code>) and need <code class="docutils literal notranslate"><span class="pre">status=&quot;running&quot;</span></code> to display the iframe.
+The unsandboxed IPython tool passes a returned <code class="docutils literal notranslate"><span class="pre">Message</span></code> through to the
+conversation log. Its Docker/Wasmtime execution modes do not. Printing a
+descriptor, writing a Markdown link, or posting metadata to the message-create
+API does not register a panel. Status is declarative, not automatic health
+monitoring, and duplicate IDs are first-wins. The panel list refreshes on load
+or manual refresh.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>Operators must substitute the actual <strong>browser-visible instance prefix</strong>
+into asset/HMR bases, panel URLs, and user links. For example, a same-origin
+server mounted at <code class="docutils literal notranslate"><span class="pre">/instances/example</span></code> needs
+<code class="docutils literal notranslate"><span class="pre">/instances/example/preview/5173/</span></code>, not just <code class="docutils literal notranslate"><span class="pre">/preview/5173/</span></code>. This path
+is illustrative, not a cloud routing API.</p>
+<p>Relative iframe URLs currently resolve against the <strong>webui origin</strong>, not
+its configured server base URL. The panel allowlist rejects non-loopback
+absolute URLs, so a remote absolute URL is not a workaround for a separately
+hosted webui. Such a topology needs an independently designed resolver;
+do not weaken the sandbox or allowlist. The existing computer preview
+component builds noVNC URLs from the server base URL and supplies the full
+prefixed <code class="docutils literal notranslate"><span class="pre">websockify</span></code> path.</p>
+</div>
+<p>Deployment startup owns atomic/idempotent runtime-file generation, the public
+URL/prefix, and knowledge of which tools and preview services are available.
+It must separately verify authenticated HTTP, WebSockets/HMR, noVNC if
+provisioned, actual panel rendering, and preservation of user config across
+restarts. Core config/prompt support alone does not establish cloud deployment
+readiness or public/shareable previews.</p>
 </section>
 <section id="self-hosting-with-docker-compose">
 <h2>Self-Hosting with Docker Compose<a class="headerlink" href="#self-hosting-with-docker-compose" title="Link to this heading">#</a></h2>
@@ -953,6 +1030,7 @@ minimize confused-deputy risk without breaking legitimate workflows.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#teaching-agents-about-app-previews">Teaching agents about app previews</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-as-a-systemd-service-pipx">Running as a systemd Service (pipx)</a></li>

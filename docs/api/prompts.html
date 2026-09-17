@@ -682,6 +682,8 @@ than shell interpolation, so commands can consume arbitrary prompt text.</p>
 <li><p>User identity/preferences (interactive only, from user config <code class="docutils literal notranslate"><span class="pre">[user]</span></code>;
 skipped in <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> since no human is present)</p></li>
 <li><p>Tool descriptions (when tools are loaded, controlled by <code class="docutils literal notranslate"><span class="pre">--tools</span></code>)</p></li>
+<li><p>Named additive <code class="docutils literal notranslate"><span class="pre">[prompt.fragments]</span></code> from global configuration, unless
+user context is disabled or <code class="docutils literal notranslate"><span class="pre">prompt=&quot;none&quot;</span></code></p></li>
 </ul>
 </li>
 <li><p><strong>Context</strong> (controlled by <code class="docutils literal notranslate"><span class="pre">--context</span></code>, independent of <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code>):</p>
@@ -719,8 +721,8 @@ Without it, all context is included (full mode).</p>
 <li><p><strong>agent_path</strong> – Agent identity workspace (if different from project workspace)</p></li>
 <li><p><strong>context_mode</strong> – Context mode (full or selective)</p></li>
 <li><p><strong>context_include</strong> – Components to include in selective mode</p></li>
-<li><p><strong>include_user_context</strong> – Whether to include user-level prompt files and
-agent instruction files from ~/.config/gptme</p></li>
+<li><p><strong>include_user_context</strong> – Whether to include configured prompt fragments,
+user-level prompt files, and agent instruction files from ~/.config/gptme</p></li>
 <li><p><strong>include_examples</strong> – Whether to include tool usage examples in the system
 prompt. Defaults to True. Also set to False automatically when
 <code class="docutils literal notranslate"><span class="pre">prompt</span> <span class="pre">==</span> <span class="pre">&quot;full-noexamples&quot;</span></code>.</p></li>
@@ -882,7 +884,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f0f9b221b20&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fd714bb5b20&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
