@@ -1291,6 +1291,9 @@ def test_context_rag_search_runtime_error(command):
     runner = CliRunner()
     with (
         patch("gptme.tools.rag._has_gptme_rag", return_value=True),
+        # retrieve calls init(); patch it so the test is hermetic (no real
+        # project-config/filesystem side effects in CI).
+        patch("gptme.tools.rag.init"),
         patch(
             "gptme.tools.rag.rag_search",
             side_effect=RuntimeError("gptme-rag command timed out after 60s"),
