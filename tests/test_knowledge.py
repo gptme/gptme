@@ -632,3 +632,216 @@ def test_format_knowledge_prompt_clips_long_tags():
     assert tags_lines
     assert "..." in tags_lines[0]
     assert len(tags_lines[0]) < 260
+
+
+# ---------------------------------------------------------------------------
+# Entry type tests
+# ---------------------------------------------------------------------------
+
+
+def test_save_default_entry_type():
+    from gptme.knowledge import knowledge_save
+
+    entry = knowledge_save("test problem", "test resolution")
+    assert entry["entry_type"] == "problem_resolution"
+
+
+def test_save_all_entry_types():
+    from gptme.knowledge import ENTRY_TYPES, knowledge_list, knowledge_save
+
+    for et in ENTRY_TYPES:
+        knowledge_save(f"primary {et}", f"secondary {et}", entry_type=et)
+
+    entries = knowledge_list()
+    saved_types = {e["entry_type"] for e in entries}
+    assert saved_types == set(ENTRY_TYPES)
+
+
+def test_save_invalid_entry_type_raises():
+    from gptme.knowledge import knowledge_save
+
+    with pytest.raises(ValueError, match="invalid entry_type"):
+        knowledge_save("problem", "resolution", entry_type="invalid")
+
+
+def test_save_null_entry_type_raises():
+    """Explicitly passing None is caught the same as an unknown type."""
+    from gptme.knowledge import knowledge_save
+
+    with pytest.raises((TypeError, ValueError)):
+        knowledge_save("problem", "resolution", entry_type=None)  # type: ignore[arg-type]
+
+
+def test_legacy_entry_without_type_is_valid():
+    """Entries saved before the entry_type field are still loadable."""
+    import json
+
+    from gptme.knowledge import _entries_file, _knowledge_dir, knowledge_list
+
+    _knowledge_dir().mkdir(parents=True, exist_ok=True)
+    import uuid
+    from datetime import datetime, timezone
+
+    legacy = {
+        "id": str(uuid.uuid4()),
+        "problem": "legacy problem",
+        "resolution": "legacy resolution",
+        "tags": ["old"],
+        "keywords": ["legacy", "problem", "resolution"],
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "memory_type": "knowledge_entry",
+        # no entry_type field — legacy format
+    }
+    _entries_file().write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+
+    entries = knowledge_list()
+    assert len(entries) == 1
+    assert entries[0]["problem"] == "legacy problem"
+
+
+def test_resolved_entry_type_for_legacy():
+    """_resolved_entry_type falls back to 'problem_resolution' for legacy entries."""
+    from gptme.knowledge import _resolved_entry_type
+
+    legacy: dict[str, object] = {
+        "id": "abc",
+        "problem": "x",
+        "resolution": "y",
+        "tags": [],
+        "keywords": [],
+        "created_at": "2024-01-01T00:00:00+00:00",
+        "memory_type": "knowledge_entry",
+    }
+    assert _resolved_entry_type(legacy) == "problem_resolution"
+
+
+def test_format_knowledge_prompt_type_aware_labels():
+    """format_knowledge_prompt uses per-type labels for each entry type."""
+    from gptme.knowledge import (
+        _ENTRY_TYPE_LABELS,
+        format_knowledge_prompt,
+        knowledge_save,
+    )
+
+    for et, (primary_label, secondary_label) in _ENTRY_TYPE_LABELS.items():
+        entry = knowledge_save("primary text", "secondary text", entry_type=et)
+        text = format_knowledge_prompt([entry])
+        assert primary_label + ":" in text, f"{primary_label} not in output for {et}"
+        assert secondary_label + ":" in text, (
+            f"{secondary_label} not in output for {et}"
+        )
+
+
+def test_format_knowledge_prompt_legacy_uses_default_labels():
+    """Legacy entries (no entry_type) render with Problem/Resolution labels."""
+    import json
+
+    from gptme.knowledge import (
+        _entries_file,
+        _knowledge_dir,
+        format_knowledge_prompt,
+        knowledge_list,
+    )
+
+    _knowledge_dir().mkdir(parents=True, exist_ok=True)
+    import uuid
+    from datetime import datetime, timezone
+
+    legacy = {
+        "id": str(uuid.uuid4()),
+        "problem": "legacy problem",
+        "resolution": "legacy resolution",
+        "tags": [],
+        "keywords": [],
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "memory_type": "knowledge_entry",
+    }
+    _entries_file().write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+
+    entries = knowledge_list()
+    text = format_knowledge_prompt(entries)
+    assert "Problem:" in text
+    assert "Resolution:" in text
+
+
+# CLI entry type tests
+
+
+def test_cli_save_with_type():
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "knowledge",
+            "save",
+            "switched auth library",
+            "Y has async support",
+            "--type",
+            "decision",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "decision" in result.output
+
+
+def test_cli_save_with_invalid_type():
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["knowledge", "save", "some problem", "some resolution", "--type", "bad_type"],
+    )
+    assert result.exit_code != 0
+    assert "invalid" in result.output.lower()
+
+
+def test_cli_save_default_type_no_suffix():
+    """Default type (problem_resolution) should not appear in the success output."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["knowledge", "save", "some problem", "some resolution"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "[problem_resolution]" not in result.output
+
+
+def test_cli_list_shows_type_for_non_default():
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["knowledge", "save", "a decision", "a rationale", "--type", "decision"],
+    )
+    result = runner.invoke(main, ["knowledge", "list"])
+    assert result.exit_code == 0, result.output
+    assert "(decision)" in result.output
+
+
+def test_cli_search_shows_type_label():
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        [
+            "knowledge",
+            "save",
+            "zfs fact topic",
+            "zfs uses copy-on-write",
+            "--type",
+            "fact",
+        ],
+    )
+    result = runner.invoke(main, ["knowledge", "search", "zfs fact"])
+    assert result.exit_code == 0, result.output
+    # The search result should show the type-aware labels
+    assert "Topic:" in result.output
+    assert "Fact:" in result.output
+
+
+def test_cli_search_json_includes_entry_type():
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["knowledge", "save", "how to deploy", "run make deploy", "--type", "how_to"],
+    )
+    result = runner.invoke(main, ["knowledge", "search", "how deploy", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data[0]["entry_type"] == "how_to"

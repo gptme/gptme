@@ -1,5 +1,5 @@
 """
-Cross-session knowledge base: save and retrieve problem/resolution pairs.
+Cross-session knowledge base: save and retrieve structured knowledge entries.
 
 Entries are stored as JSONL at ``~/.local/share/gptme/knowledge/entries.jsonl``
 (respects XDG_DATA_HOME).  Each entry carries ``memory_type="knowledge_entry"``
@@ -9,6 +9,14 @@ Retrieval without gptme-rag uses keyword search over problem + resolution
 text. Matching entries are injected at session start (see
 ``gptme.hooks.knowledge_inject``) when the initial prompt has enough
 signal to search.
+
+Entry types
+-----------
+``problem_resolution``  (default)  Problem / Resolution
+``decision``                        Decision / Rationale
+``fact``                            Topic / Fact
+``how_to``                          Task / Steps
+``note``                            Title / Content
 """
 
 from __future__ import annotations
@@ -29,6 +37,26 @@ if TYPE_CHECKING:
 
 from .dirs import get_data_dir
 
+# Supported entry types.  The first element is the default for new entries and
+# the fallback for legacy entries that were saved without an ``entry_type`` field.
+ENTRY_TYPES = (
+    "problem_resolution",
+    "decision",
+    "fact",
+    "how_to",
+    "note",
+)
+_DEFAULT_ENTRY_TYPE = ENTRY_TYPES[0]
+
+# Human-readable labels for each entry type: (primary_label, secondary_label).
+_ENTRY_TYPE_LABELS: dict[str, tuple[str, str]] = {
+    "problem_resolution": ("Problem", "Resolution"),
+    "decision": ("Decision", "Rationale"),
+    "fact": ("Topic", "Fact"),
+    "how_to": ("Task", "Steps"),
+    "note": ("Title", "Content"),
+}
+
 
 class KnowledgeEntry(TypedDict):
     id: str
@@ -38,6 +66,7 @@ class KnowledgeEntry(TypedDict):
     keywords: list[str]
     created_at: str
     memory_type: str  # always "knowledge_entry" — used by gptme-rag source filter
+    entry_type: str  # one of ENTRY_TYPES; absent in legacy entries → problem_resolution
 
 
 def _knowledge_dir() -> Path:
@@ -84,7 +113,7 @@ def _is_valid_entry(parsed: object) -> bool:
         uuid.UUID(parsed.get("id", ""))
     except (AttributeError, TypeError, ValueError):
         return False
-    return all(
+    required_ok = all(
         isinstance(parsed.get(key), expected_type)
         for key, expected_type in (
             ("problem", str),
@@ -93,6 +122,20 @@ def _is_valid_entry(parsed: object) -> bool:
             ("created_at", str),
         )
     ) and all(isinstance(tag, str) for tag in parsed["tags"])
+    if not required_ok:
+        return False
+    # entry_type is optional for backward compatibility with legacy entries;
+    # if present it must be a non-None string in ENTRY_TYPES.
+    et = parsed.get("entry_type")
+    return et is None or (isinstance(et, str) and et in ENTRY_TYPES)
+
+
+def _resolved_entry_type(entry: KnowledgeEntry | dict[str, object]) -> str:
+    """Return the entry_type, falling back to the default for legacy entries."""
+    et = entry.get("entry_type")
+    if isinstance(et, str) and et in ENTRY_TYPES:
+        return et
+    return _DEFAULT_ENTRY_TYPE
 
 
 def _load_entries() -> list[KnowledgeEntry]:
@@ -156,21 +199,35 @@ def knowledge_save(
     problem: str,
     resolution: str,
     tags: list[str] | None = None,
+    *,
+    entry_type: str = _DEFAULT_ENTRY_TYPE,
 ) -> KnowledgeEntry:
-    """Save a problem/resolution pair to the cross-session knowledge base.
+    """Save a knowledge entry to the cross-session knowledge base.
 
     Args:
-        problem: Description of the problem or question.
-        resolution: How it was resolved or answered.
+        problem: Primary content — the problem, decision, topic, task, or title
+            depending on *entry_type*.
+        resolution: Secondary content — the resolution, rationale, fact, steps,
+            or note body depending on *entry_type*.
         tags: Optional list of topic tags (e.g. ["git", "pytest"]).
+        entry_type: One of the supported entry types (see ``ENTRY_TYPES``).
+            Defaults to ``"problem_resolution"``.
 
     Returns:
         The saved entry dict.
+
+    Raises:
+        ValueError: If *problem* or *resolution* are empty, or *entry_type* is
+            not in ``ENTRY_TYPES``.
     """
     if not problem.strip():
         raise ValueError("problem cannot be empty")
     if not resolution.strip():
         raise ValueError("resolution cannot be empty")
+    if entry_type not in ENTRY_TYPES:
+        raise ValueError(
+            f"invalid entry_type {entry_type!r}; must be one of {list(ENTRY_TYPES)}"
+        )
 
     keywords = _extract_keywords(f"{problem} {resolution}")
     entry: KnowledgeEntry = {
@@ -181,6 +238,7 @@ def knowledge_save(
         "keywords": keywords,
         "created_at": datetime.now(tz=timezone.utc).isoformat(),
         "memory_type": "knowledge_entry",
+        "entry_type": entry_type,
     }
     _append_entry(entry)
     return entry
@@ -310,10 +368,14 @@ def format_knowledge_prompt(entries: list[KnowledgeEntry]) -> str:
         "",
     ]
     for i, entry in enumerate(entries, start=1):
-        problem = _clip(str(entry.get("problem", "")))
-        resolution = _clip(str(entry.get("resolution", "")))
-        lines.append(f"{i}. {problem}")
-        lines.append(f"   {resolution}")
+        et = _resolved_entry_type(entry)
+        primary_label, secondary_label = _ENTRY_TYPE_LABELS.get(
+            et, ("Problem", "Resolution")
+        )
+        primary = _clip(str(entry.get("problem", "")))
+        secondary = _clip(str(entry.get("resolution", "")))
+        lines.append(f"{i}. {primary_label}: {primary}")
+        lines.append(f"   {secondary_label}: {secondary}")
         tags = [t for t in entry.get("tags", []) if isinstance(t, str) and t.strip()]
         if tags:
             lines.append(f"   tags: {_clip(', '.join(tags))}")
