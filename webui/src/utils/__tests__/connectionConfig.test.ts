@@ -179,17 +179,20 @@ describe('processConnectionFromHash', () => {
 
   it('logs a readable cause when the exchange fetch itself rejects', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-    // Android logcat serializes a TypeError as `{}`; the message is what matters.
-    const networkError = new TypeError('Failed to fetch');
-    mockFetch.mockRejectedValue(networkError);
+    try {
+      // Android logcat serializes a TypeError as `{}`; the message is what matters.
+      const networkError = new TypeError('Failed to fetch');
+      mockFetch.mockRejectedValue(networkError);
 
-    await expect(processConnectionFromHash('code=net-fail')).rejects.toThrow('Failed to fetch');
+      await expect(processConnectionFromHash('code=net-fail')).rejects.toThrow('Failed to fetch');
 
-    expect(consoleError).toHaveBeenCalledWith(
-      '[ConnectionConfig] Auth code exchange failed: Failed to fetch',
-      networkError
-    );
-    consoleError.mockRestore();
+      expect(consoleError).toHaveBeenCalledWith(
+        '[ConnectionConfig] Auth code exchange failed: Failed to fetch',
+        networkError
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
 
