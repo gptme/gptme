@@ -267,6 +267,31 @@ describe('SandboxedIframePanel', () => {
     );
   });
 
+  it('does not re-bootstrap after gptme:ready fires a second time (bootstrap-once guard)', async () => {
+    // Simulates the navigation-bypass scenario: an opaque-origin frame
+    // navigates to an attacker-controlled document. The new document shares the
+    // same contentWindow (WindowProxy) and opaque "null" origin, so both
+    // identity checks pass — but the bootstrap must not fire a second time.
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, title: 'Bootstrap Once Test' }}
+        conversationId="conv-once"
+      />
+    );
+    const frame = screen.getByTitle('Bootstrap Once Test') as HTMLIFrameElement;
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    // First ready — bootstrap fires.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+
+    // Second ready (navigation) — bootstrap must NOT fire again.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+    expect(postMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('still blocks a foreign origin when an API base url is set', () => {
     render(
       <SandboxedIframePanel

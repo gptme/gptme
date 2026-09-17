@@ -36,6 +36,7 @@ interface Props {
 
 export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, apiBaseUrl }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const bootstrappedRef = useRef(false);
   const [autoHeight, setAutoHeight] = useState<number | null>(null);
 
   // Server-relative srcs (e.g. "/preview/5173/") belong to the instance server,
@@ -52,6 +53,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
   const opaqueOrigin = sandboxHasOpaqueOrigin(descriptor.sandbox);
 
   useEffect(() => {
+    bootstrappedRef.current = false;
     if (!allowed) return;
 
     const post = (message: GptmeIframeMessage) => {
@@ -77,12 +79,20 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
 
       switch (event.data.type) {
         case 'gptme:ready':
-          post({
-            type: 'gptme:bootstrap',
-            // Spread descriptor.bootstrap first so the prop-supplied
-            // conversationId always wins over any key in the bootstrap blob.
-            payload: { ...(descriptor.bootstrap ?? {}), conversation_id: conversationId },
-          });
+          // Bootstrap-once guard: a navigated document in the same iframe
+          // shares the same contentWindow (WindowProxy) and an opaque "null"
+          // origin, so it would otherwise pass both identity checks. Sending
+          // the bootstrap payload only once prevents a navigated attacker-
+          // controlled page from receiving conversation_id via a second ready.
+          if (!bootstrappedRef.current) {
+            bootstrappedRef.current = true;
+            post({
+              type: 'gptme:bootstrap',
+              // Spread descriptor.bootstrap first so the prop-supplied
+              // conversationId always wins over any key in the bootstrap blob.
+              payload: { ...(descriptor.bootstrap ?? {}), conversation_id: conversationId },
+            });
+          }
           break;
         case 'gptme:resize': {
           if (descriptor.resize !== 'auto') break;
