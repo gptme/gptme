@@ -1,11 +1,14 @@
 """Tests for shared LLM utility functions in gptme.llm.utils."""
 
+import re
 from typing import Any
 
 import pytest
 
 from gptme.llm.utils import apply_cache_control, parameters2dict, process_image_file
 from gptme.tools.base import Parameter
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 # --- parameters2dict tests ---
 
@@ -673,7 +676,9 @@ def test_reply_ipython_display_with_offline_provider(capsys, stream):
     request = "\n@ipython(offline): " + json.dumps({"code": source})
     result = reply([Message("user", request)], "mock/echo", stream=stream)
     assert result.content == "Echo: " + request
-    assert source in capsys.readouterr().out
+    # Strip ANSI escape codes before checking: the IPython block is rendered
+    # with syntax highlighting in the terminal, so the raw source won't match.
+    assert source in _ANSI_RE.sub("", capsys.readouterr().out)
 
 
 def test_reply_stream_on_token_callback(monkeypatch):
