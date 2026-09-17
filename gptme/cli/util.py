@@ -485,6 +485,10 @@ def context_retrieve(query: str, full: bool):
     """Search indexed documents for relevant context."""
     from ..tools.rag import _has_gptme_rag, init, rag_search  # fmt: skip
 
+    if not query.strip():
+        click.echo("Error: query cannot be empty.", err=True)
+        sys.exit(1)
+
     if not _has_gptme_rag():
         print(
             "Error: gptme-rag is not installed. Please install it to use this feature."
@@ -495,7 +499,11 @@ def context_retrieve(query: str, full: bool):
     init()
 
     # Search for the query
-    results = rag_search(query, return_full=full)
+    try:
+        results = rag_search(query, return_full=full)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
     print(results)
 
 
@@ -517,6 +525,10 @@ def context_search_conversations(query: str, top_k: int):
     """
     from ..tools.rag import _has_gptme_rag, init, rag_search  # fmt: skip
 
+    if not query.strip():
+        click.echo("Error: query cannot be empty.", err=True)
+        sys.exit(1)
+
     if not _has_gptme_rag():
         print(
             "Error: gptme-rag is not installed. Please install it to use this feature."
@@ -527,7 +539,11 @@ def context_search_conversations(query: str, top_k: int):
     init()
 
     # Search for the query
-    results = rag_search(query, return_full=True, top_k=top_k)
+    try:
+        results = rag_search(query, return_full=True, top_k=top_k)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     if not results.strip():
         print(

@@ -1255,6 +1255,24 @@ def test_context_search_conversations_top_k(tmp_path):
     mock_search.assert_called_once_with("pytest", return_full=True, top_k=5)
 
 
+def test_context_retrieve_empty_query():
+    """context retrieve rejects an empty query with exit code 1, no traceback."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["context", "retrieve", ""])
+    assert result.exit_code == 1
+    assert "Error: query cannot be empty" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_context_search_conversations_empty_query():
+    """context search-conversations rejects an empty query with exit code 1, no traceback."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["context", "search-conversations", ""])
+    assert result.exit_code == 1
+    assert "Error: query cannot be empty" in result.output
+    assert "Traceback" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # Knowledge sub-commands
 # ---------------------------------------------------------------------------
