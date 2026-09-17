@@ -171,38 +171,51 @@ def test_broken_pipe_zero_bytes_retries_command(shell, tmp_path, monkeypatch):
 
 
 def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
-    """EPIPE mid-payload must not re-send: the statement may have run."""
-    # Atomic rename so the marker only exists if the command fully completed:
-    # a killed `>>` open leaves an empty file behind (partial execution).
-    marker = tmp_path / "ran"
-    command = f"printf x > {tmp_path}/m.tmp && mv {tmp_path}/m.tmp {marker}"
+    """EPIPE mid-payload must not re-send: the statement may have run.
+
+    Tests the no-retry invariant directly: after BrokenPipeError fires on the
+    second write (the end-marker part of the shell protocol), the command bytes
+    must never be re-sent to the restarted shell's stdin.
+
+    Whether bash actually executed the delivered command before being restarted
+    is inherently racy (bash scheduling), so the assertion watches stdin writes
+    after the restart rather than depending on a marker file.
+    """
+    command = f"echo x >> {tmp_path}/ran"
     orig_write = os.write
     stdin_fd = shell.process.stdin.fileno()
-    state = {"partial": False, "raised": False}
+    state = {"partial": False, "raised": False, "retried": False}
 
     def write_fd(fd, data):
-        # First write: deliver everything through the command's own newline so
-        # the statement was genuinely handed to the shell (a tiny short write
-        # landing inside the start-marker echo would make the no-retry
-        # assertion vacuous). Then raise exactly once: the restarted shell
-        # often reuses the same stdin fd number, so a sticky EPIPE loops.
+        # First write: deliver through the command's newline (partial write).
         if fd == stdin_fd and not state["partial"]:
             state["partial"] = True
             cmd_bytes = command.encode()
             end = data.index(cmd_bytes) + len(cmd_bytes) + 1
             return orig_write(fd, data[:end])
+        # Second write: simulate mid-payload EPIPE.
         if fd == stdin_fd and not state["raised"]:
             state["raised"] = True
             raise BrokenPipeError
+        # After the restart: flag any write that re-sends the command bytes.
+        # The restarted shell often reuses the same stdin fd, so this check is
+        # live for all subsequent shell writes.
+        if fd == stdin_fd and command.encode() in data:
+            state["retried"] = True
         return orig_write(fd, data)
 
     monkeypatch.setattr(os, "write", write_fd)
     shell.run(command, output=False)
-    # The command was fully delivered, but whether bash scheduled it before
-    # the restart killed it is inherently racy. What is deterministic is the
-    # no-retry invariant: it ran at most once (never "x\nx\n"), and the
-    # restart notice explicitly says the in-flight command was not re-run.
-    assert not marker.exists() or marker.read_text() == "x"
+    assert state["partial"], (
+        "write_fd never delivered the command — test is misconfigured"
+    )
+    assert state["raised"], (
+        "BrokenPipeError was never triggered — test is misconfigured"
+    )
+    # The no-retry invariant: the command must not be re-sent after EPIPE.
+    assert not state["retried"], (
+        "command was re-sent to the restarted shell (retry bug)"
+    )
     notice = shell.consume_restart_notice()
     assert notice and "during this command" in notice
     assert shell.run("echo ok", output=False)[1].strip() == "ok"
