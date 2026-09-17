@@ -73,7 +73,7 @@ active development.
 
 ## 📚 Table of Contents
 
-- 📢 [News](#news)
+- 📢 [News](#-news)
 - 🎥 [Demos](#-demos)
 - 🌟 [Features](#-features)
   - [🛠 Tools](#-tools)
