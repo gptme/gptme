@@ -1915,6 +1915,15 @@ def main(
                     looks_like_builtin_typo,
                 )
 
+                # A preset mixed with a non-MCP tool ("Tool preset(s) ... cannot be
+                # combined with other tools") is a malformed manifest/preset
+                # combination, not an availability problem. Fail closed with the
+                # clear error instead of entering the unavailable-tool fallback
+                # below, which would silently produce a mangled allowlist (verified:
+                # neither the manifest boundary nor the defaults).
+                if "cannot be combined" in str(e):
+                    raise click.UsageError(str(e)) from e
+
                 # tool_allowlist_str still holds the raw CLI value (e.g. "code_review"
                 # or "code_review,extra_tool"). Expand only names that were resolved
                 # as aliases during the first setup attempt. Registered built-ins must

@@ -5356,3 +5356,75 @@ def test_resume_selection_loads_complete_history(
     assert seen == [(expected_dir, histories[expected_dir], expected_prompts)]
     for path, before in snapshots.items():
         assert (path / "conversation.jsonl").read_bytes() == before
+
+
+def test_tools_alias_malformed_preset_mix_fails_closed(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A manifest whose builtin_tools mixes a preset with a non-preset builtin
+    is malformed, not an availability problem. The --tools alias fallback must
+    fail closed with a clean UsageError, not enter the unavailable-tool
+    fallback path (which silently produces a mangled allowlist that is neither
+    the manifest boundary nor the defaults).
+    """
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[],"builtin_tools":["read-only","shell"]}\n',
+        encoding="utf-8",
+    )
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            # What _normalize_tool_allowlist produces for the malformed alias:
+            # preset name kept verbatim alongside a concrete builtin.
+            tools=["read-only", "shell"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+
+    def fake_init_tools(tools):
+        # Mirror expand_tool_allowlist_presets' real error for a preset mixed
+        # with a non-MCP tool.
+        raise ToolAllowlistError(
+            "Tool preset(s) read-only cannot be combined with other tools"
+        )
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Tool preset(s) read-only cannot be combined with other tools" in (
+        result.output
+    )
+    assert "Traceback" not in result.output
