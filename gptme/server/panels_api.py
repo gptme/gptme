@@ -208,7 +208,7 @@ def _build_iframe_panel(
 
     warnings: list[str] = []
     stripped_src = str(src).strip()
-    if stripped_src.startswith("/") and "allow-scripts" in sandbox:
+    if "allow-scripts" in sandbox:
         warnings.append(
             "Sandboxed panel with 'allow-scripts' has an opaque origin "
             "(allow-same-origin is dropped for scripted panels): postMessage traffic is "

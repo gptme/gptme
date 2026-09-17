@@ -338,8 +338,8 @@ class TestPanelsFromMessages:
         assert len(panel.warnings) == 1
         assert "opaque origin" in panel.warnings[0]
 
-    def test_no_warning_for_localhost_absolute_src(self):
-        """localhost absolute URL with allow-scripts gets no warning."""
+    def test_opaque_origin_warning_on_localhost_with_scripts(self):
+        """localhost absolute URL with allow-scripts also gets the opaque-origin warning."""
         manager = _make_manager(
             [
                 {
@@ -360,7 +360,8 @@ class TestPanelsFromMessages:
         panels = panels_from_messages(manager)
         panel = panels[0]
         assert isinstance(panel, IframePanelOut)
-        assert panel.warnings == []
+        assert len(panel.warnings) == 1
+        assert "opaque origin" in panel.warnings[0]
 
 
 class TestLiveAppPanels:
