@@ -71,7 +71,7 @@ def main(
 
     Args:
         resume_dir: Path to resume from. If 'auto', uses most recent run. If None, starts new run.
-        clear_branch: If True, clears the last conversation branch
+        branch_to_clear: Name of a conversation branch to clear before evaluating. None keeps all branches.
         **kwargs: Additional arguments passed to evaluate_instance
     """
     init_tools()
