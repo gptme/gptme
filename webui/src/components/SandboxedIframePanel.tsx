@@ -13,19 +13,31 @@ import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import type { GptmeIframeMessage, IframePanelDescriptor } from '@/types/panel';
 import { isGptmeIframeMessage } from '@/types/panel';
-import { iframeSrcOrigin, isAllowedIframeSrc, resolveSandbox } from '@/utils/iframePanelPolicy';
+import {
+  iframeSrcOrigin,
+  isAllowedIframeSrc,
+  resolvePanelSrc,
+  resolveSandbox,
+  urlOrigin,
+} from '@/utils/iframePanelPolicy';
 
 interface Props {
   descriptor: IframePanelDescriptor;
   conversationId: string;
+  /** Instance API base URL. Server-relative descriptor srcs resolve against it. */
+  apiBaseUrl?: string;
 }
 
-export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId }) => {
+export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, apiBaseUrl }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [autoHeight, setAutoHeight] = useState<number | null>(null);
 
-  const allowed = isAllowedIframeSrc(descriptor.src);
-  const expectedOrigin = allowed ? iframeSrcOrigin(descriptor.src) : null;
+  // Server-relative srcs (e.g. "/preview/5173/") belong to the instance server,
+  // which may be a different origin than the page rendering this panel.
+  const src = resolvePanelSrc(descriptor.src, apiBaseUrl);
+  const apiOrigin = urlOrigin(apiBaseUrl);
+  const allowed = isAllowedIframeSrc(src, apiOrigin);
+  const expectedOrigin = allowed ? iframeSrcOrigin(src, apiOrigin ?? undefined) : null;
 
   useEffect(() => {
     if (!allowed) return;
@@ -79,9 +91,9 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId }) 
       >
         <p className="font-medium text-foreground">Panel blocked</p>
         <p>
-          The panel source <code className="rounded bg-muted px-1">{descriptor.src}</code> is not an
-          allowed iframe origin. Only localhost tool servers and server-relative paths are
-          permitted.
+          The panel source <code className="rounded bg-muted px-1">{src}</code> is not an allowed
+          iframe origin. Only localhost tool servers, server-relative paths, and the connected
+          server are permitted.
         </p>
       </div>
     );
@@ -90,7 +102,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId }) 
   return (
     <iframe
       ref={iframeRef}
-      src={descriptor.src}
+      src={src}
       title={descriptor.title}
       sandbox={resolveSandbox(descriptor.sandbox)}
       allow={descriptor.allow ?? ''}

@@ -1,4 +1,10 @@
-import { iframeSrcOrigin, isAllowedIframeSrc, resolveSandbox } from '../iframePanelPolicy';
+import {
+  iframeSrcOrigin,
+  isAllowedIframeSrc,
+  resolvePanelSrc,
+  resolveSandbox,
+  urlOrigin,
+} from '../iframePanelPolicy';
 
 describe('isAllowedIframeSrc', () => {
   it('allows localhost and 127.0.0.1 origins on any port', () => {
@@ -30,6 +36,73 @@ describe('isAllowedIframeSrc', () => {
     expect(isAllowedIframeSrc('not a url')).toBe(false);
     // @ts-expect-error guarding non-string at runtime
     expect(isAllowedIframeSrc(undefined)).toBe(false);
+  });
+
+  it('allows the instance API origin when the caller supplies it', () => {
+    const api = 'https://fleet.gptme.ai/api/v1/instances/abc';
+    expect(isAllowedIframeSrc('https://fleet.gptme.ai/preview/5173/', api)).toBe(true);
+    // Same origin on a different path is still the same origin.
+    expect(isAllowedIframeSrc('https://fleet.gptme.ai/other/app', api)).toBe(true);
+  });
+
+  it('still rejects other origins even when an API origin is supplied', () => {
+    const api = 'https://fleet.gptme.ai';
+    expect(isAllowedIframeSrc('https://evil.example.com', api)).toBe(false);
+    expect(isAllowedIframeSrc('https://fleet.gptme.ai.evil.com', api)).toBe(false);
+    expect(isAllowedIframeSrc('http://fleet.gptme.ai', api)).toBe(false); // scheme differs
+  });
+
+  it('ignores a malformed API origin instead of opening the allowlist', () => {
+    expect(isAllowedIframeSrc('https://evil.example.com', 'not a url')).toBe(false);
+    expect(isAllowedIframeSrc('https://evil.example.com', '')).toBe(false);
+    expect(isAllowedIframeSrc('https://evil.example.com', null)).toBe(false);
+  });
+});
+
+describe('resolvePanelSrc', () => {
+  const api = 'https://fleet.gptme.ai/api/v1/instances/abc';
+
+  it('joins server-relative paths onto the API base, preserving the prefix', () => {
+    expect(resolvePanelSrc('/preview/5173/', api)).toBe(
+      'https://fleet.gptme.ai/api/v1/instances/abc/preview/5173/'
+    );
+    // Collapses doubled slashes at the join rather than emitting "//preview".
+    expect(resolvePanelSrc('//preview/5173/', api)).toBe('//preview/5173/');
+  });
+
+  it('tolerates a trailing slash on the base url', () => {
+    expect(resolvePanelSrc('/preview/5173/', `${api}/`)).toBe(
+      'https://fleet.gptme.ai/api/v1/instances/abc/preview/5173/'
+    );
+  });
+
+  it('leaves absolute and protocol-relative values unchanged', () => {
+    expect(resolvePanelSrc('http://localhost:5173/', api)).toBe('http://localhost:5173/');
+    expect(resolvePanelSrc('//evil.example.com/x', api)).toBe('//evil.example.com/x');
+  });
+
+  it('is a no-op without a base url', () => {
+    expect(resolvePanelSrc('/preview/5173/')).toBe('/preview/5173/');
+    expect(resolvePanelSrc('/preview/5173/', '')).toBe('/preview/5173/');
+    expect(resolvePanelSrc('/preview/5173/', null)).toBe('/preview/5173/');
+  });
+
+  it('produces a src that the allowlist then accepts', () => {
+    const resolved = resolvePanelSrc('/preview/5173/', api);
+    expect(isAllowedIframeSrc(resolved, urlOrigin(api))).toBe(true);
+  });
+});
+
+describe('urlOrigin', () => {
+  it('returns the origin of a base url', () => {
+    expect(urlOrigin('https://fleet.gptme.ai/api/v1/instances/abc')).toBe('https://fleet.gptme.ai');
+  });
+
+  it('returns null for missing or malformed values', () => {
+    expect(urlOrigin('')).toBe(null);
+    expect(urlOrigin(undefined)).toBe(null);
+    expect(urlOrigin(null)).toBe(null);
+    expect(urlOrigin('/relative/path')).toBe(null);
   });
 });
 

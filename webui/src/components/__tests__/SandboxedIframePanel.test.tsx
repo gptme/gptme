@@ -174,4 +174,63 @@ describe('SandboxedIframePanel', () => {
     expect(screen.getByText(/Panel blocked/)).toBeInTheDocument();
     expect(screen.queryByTitle('Webapp Preview')).not.toBeInTheDocument();
   });
+
+  it('resolves a server-relative src against the instance API base url', () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/', title: 'Live App' }}
+        conversationId="conv1"
+        apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
+      />
+    );
+    const frame = screen.getByTitle('Live App') as HTMLIFrameElement;
+    // The SPA origin is not the pod; the resolved src must point at the instance.
+    expect(frame.getAttribute('src')).toBe(
+      'https://fleet.gptme.ai/api/v1/instances/abc/preview/5173/'
+    );
+  });
+
+  it('leaves a server-relative src alone when no API base url is given', () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/', title: 'Live App' }}
+        conversationId="conv1"
+      />
+    );
+    // Local dev serves the SPA and the API from the same origin.
+    expect(screen.getByTitle('Live App').getAttribute('src')).toBe('/preview/5173/');
+  });
+
+  it('accepts a postMessage from the resolved API origin', async () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/', title: 'Live App' }}
+        conversationId="conv1"
+        apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
+      />
+    );
+    const frame = screen.getByTitle('Live App') as HTMLIFrameElement;
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    emitFromIframe(frame, 'https://fleet.gptme.ai', { type: 'gptme:ready' });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'gptme:bootstrap', payload: { conversation_id: 'conv1' } },
+      'https://fleet.gptme.ai'
+    );
+  });
+
+  it('still blocks a foreign origin when an API base url is set', () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: 'https://evil.example.com' }}
+        conversationId="conv1"
+        apiBaseUrl="https://fleet.gptme.ai"
+      />
+    );
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByTitle('Webapp Preview')).not.toBeInTheDocument();
+  });
 });

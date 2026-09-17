@@ -15,15 +15,58 @@ const SANDBOX_ALLOWLIST: ReadonlySet<string> = new Set<IframeSandboxToken>([
 ]);
 
 /**
+ * Origin of a base URL, or null when it is missing or malformed.
+ */
+export function urlOrigin(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a panel `src`/`url` against the instance API base URL.
+ *
+ * Server-relative paths (``/preview/5173/``) are relative to the *instance
+ * server*, not to the page rendering the panel. On deployments where the SPA
+ * and the API live on different origins (gptme.ai → fleet.gptme.ai), passing
+ * the relative value straight to the iframe loads it from the SPA origin and
+ * 404s. Joining against ``baseUrl`` preserves any instance path prefix — a
+ * ``urljoin``-style join would replace it.
+ *
+ * Absolute, protocol-relative, and unrecognized values pass through unchanged;
+ * the allowlist then decides whether they may load.
+ */
+export function resolvePanelSrc(src: string, baseUrl?: string | null): string {
+  if (typeof src !== 'string') return '';
+  const value = src.trim();
+  if (!baseUrl) return value;
+  // "//host" is protocol-relative and "/\host" is a backslash variant; both are
+  // absolute for policy purposes, so leave them for the allowlist to judge.
+  if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return value;
+
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  if (!base) return value;
+  return `${base}/${value.replace(/^\/+/, '')}`;
+}
+
+/**
  * Validate an iframe `src` before rendering. Accepted, in priority order:
  *   1. localhost / 127.0.0.1 origins (any scheme/port)
  *   2. server-relative paths (start with a single "/")
+ *   3. the instance API origin, when the caller supplies it
  * Everything else is rejected.
  *
+ * The API origin is the deployment that serves the conversation (and therefore
+ * the `/preview/{port}/` proxy). It is not a hole for arbitrary third-party
+ * embeds: the caller passes exactly one origin, and it must match.
+ *
  * Protocol-relative ("//host") and backslash-prefixed values are treated as
- * absolute and rejected unless they resolve to a localhost origin.
+ * absolute and rejected unless they resolve to an allowed origin.
  */
-export function isAllowedIframeSrc(src: string): boolean {
+export function isAllowedIframeSrc(src: string, allowedOrigin?: string | null): boolean {
   if (typeof src !== 'string' || src.trim() === '') return false;
   const value = src.trim();
 
@@ -41,7 +84,12 @@ export function isAllowedIframeSrc(src: string): boolean {
   }
 
   const host = url.hostname.toLowerCase();
-  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
+    return true;
+  }
+
+  const apiOrigin = urlOrigin(allowedOrigin);
+  return apiOrigin !== null && url.origin === apiOrigin;
 }
 
 /**

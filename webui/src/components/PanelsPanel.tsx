@@ -17,6 +17,7 @@ import type {
   IframePanelEntry,
 } from '@/types/panels';
 import type { IframePanelDescriptor } from '@/types/panel';
+import { useApi } from '@/contexts/ApiContext';
 import { usePanelsApi } from '@/utils/panelsApi';
 
 interface PanelsPanelProps {
@@ -79,6 +80,10 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
   const [error, setError] = useState<string | null>(null);
 
   const { listPanels } = usePanelsApi();
+  // Panel srcs may be server-relative ("/preview/5173/"); they are relative to
+  // the instance server, which can be a different origin than the SPA.
+  const { connectionConfig } = useApi();
+  const apiBaseUrl = connectionConfig.baseUrl;
   const controllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
@@ -197,6 +202,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
           <SandboxedIframePanel
             descriptor={toDescriptor(selected)}
             conversationId={conversationId}
+            apiBaseUrl={apiBaseUrl}
           />
         )}
         {selected && isLiveApp(selected) && selected.status === 'running' && (
@@ -210,6 +216,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
               resize: 'auto',
             }}
             conversationId={conversationId}
+            apiBaseUrl={apiBaseUrl}
           />
         )}
       </div>
