@@ -9,6 +9,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import click
+
 from ..gears import parse_gear, resolve_gear
 from ..profiles import get_profile
 from ..tools import ToolAllowlistError, get_available_tools, get_toolchain
@@ -727,6 +729,21 @@ def setup_config_from_cli(
     if agent_path is None and existing_chat_config and existing_chat_config.agent:
         # When resuming, use saved conversation agent unless CLI override provided
         resolved_agent_path = existing_chat_config.agent
+
+    # Validate a CLI-provided tool allowlist before the first filesystem side
+    # effect. lenient_unprefixed Click parsing defers unknown-name validation
+    # to here, so a typo (e.g. --tools readd) must fail via
+    # _normalize_tool_allowlist before the conversation log directory is
+    # created — not after, leaving an empty logdir behind.
+    if tool_allowlist is not None:
+        try:
+            _normalize_tool_allowlist(
+                resolved_tool_allowlist, workspace=manifest_workspace or workspace
+            )
+        except (ToolAllowlistError, ValueError) as e:
+            # Mirror the pre-alias Click parse-error UX: clean exit 2, no
+            # traceback, no logdir side effect.
+            raise click.UsageError(str(e)) from e
 
     # Create or load chat config with CLI overrides
     logdir.mkdir(parents=True, exist_ok=True)

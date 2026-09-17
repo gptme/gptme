@@ -5430,6 +5430,44 @@ def test_tools_alias_malformed_preset_mix_fails_closed(
     assert "Traceback" not in result.output
 
 
+def test_tools_typo_fails_before_logdir_creation(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A typo in --tools (e.g. 'readd') must fail before any filesystem side
+    effect. lenient_unprefixed Click parsing defers unknown-name validation to
+    setup_config_from_cli, which used to create the conversation log
+    directory before raising — leaving an empty logdir behind on every typo.
+    """
+
+    # Fail loudly if execution reaches config creation (which happens right
+    # after logdir.mkdir) — proving the typo error fires first.
+    def fail_load_or_create(**_):
+        raise AssertionError("config creation reached before tool validation")
+
+    monkeypatch.setattr(
+        "gptme.config.cli_setup.ChatConfig.load_or_create",
+        staticmethod(fail_load_or_create),
+    )
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "readd",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "readd" in result.output
+    assert "config creation reached" not in result.output
+    assert "Traceback" not in result.output
+
+
 def _malformed_mix_manifest(tmp_path: Path) -> Path:
     manifest_path = tmp_path / "state" / "task-manifests.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
