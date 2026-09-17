@@ -185,7 +185,12 @@ def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
     cmd_bytes = command.encode()
     orig_write = os.write
     stdin_fd = shell.process.stdin.fileno()
-    state = {"partial": False, "raised": False, "retried": False}
+    state: dict = {
+        "partial": False,
+        "raised": False,
+        "retried": False,
+        "post_epipe": bytearray(),
+    }
 
     def _is_shell_stdin(fd: int) -> bool:
         # The restarted shell gets a fresh stdin pipe; descriptor-number reuse
@@ -205,10 +210,13 @@ def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
         if fd == stdin_fd and not state["raised"]:
             state["raised"] = True
             raise BrokenPipeError
-        # After the restart: flag any write that re-sends the command bytes to
-        # the shell's stdin, regardless of which descriptor it now uses.
-        if state["raised"] and _is_shell_stdin(fd) and cmd_bytes in data:
-            state["retried"] = True
+        # After the restart: accumulate all stdin writes into a buffer so that
+        # a retry delivered in chunks (across multiple os.write calls) is still
+        # detected. A per-write substring check would miss such cases.
+        if state["raised"] and _is_shell_stdin(fd):
+            state["post_epipe"] += data
+            if cmd_bytes in state["post_epipe"]:
+                state["retried"] = True
         return orig_write(fd, data)
 
     monkeypatch.setattr(os, "write", write_fd)
