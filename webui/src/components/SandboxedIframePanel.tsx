@@ -37,6 +37,11 @@ interface Props {
 export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, apiBaseUrl }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bootstrappedRef = useRef(false);
+  // Track the src at which we last reset the bootstrap guard, so the guard
+  // only resets when the frame actually navigates to a new URL — not on every
+  // unrelated dep change (e.g. conversationId). Resetting on every re-run
+  // would let a navigated attacker document receive a second bootstrap.
+  const bootstrappedSrcRef = useRef<string | undefined>(undefined);
   const [autoHeight, setAutoHeight] = useState<number | null>(null);
 
   // Server-relative srcs (e.g. "/preview/5173/") belong to the instance server,
@@ -53,7 +58,15 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
   const opaqueOrigin = sandboxHasOpaqueOrigin(descriptor.sandbox);
 
   useEffect(() => {
-    bootstrappedRef.current = false;
+    // Reset the bootstrap guard only when the iframe src changes (frame navigates
+    // to a new URL). Do NOT reset on every effect re-run: if unrelated deps change
+    // (e.g. conversationId) while the frame is still showing the original document,
+    // a navigated attacker-controlled page sharing the same contentWindow would
+    // pass the identity check and receive a second bootstrap payload.
+    if (bootstrappedSrcRef.current !== src) {
+      bootstrappedSrcRef.current = src;
+      bootstrappedRef.current = false;
+    }
     if (!allowed) return;
 
     const post = (message: GptmeIframeMessage) => {
@@ -112,6 +125,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [
+    src,
     allowed,
     expectedOrigin,
     opaqueOrigin,

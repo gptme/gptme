@@ -292,6 +292,40 @@ describe('SandboxedIframePanel', () => {
     expect(postMessage).toHaveBeenCalledTimes(1);
   });
 
+  it('bootstrap guard persists after a conversationId re-render (dep change without src change)', async () => {
+    // If the effect resets the guard on every re-run, a dep change such as a
+    // conversationId update would allow a navigated attacker document in the
+    // same opaque-origin frame to receive a second bootstrap payload.
+    const { rerender } = render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, title: 'Guard Persist Test' }}
+        conversationId="conv-guard-1"
+      />
+    );
+    const frame = screen.getByTitle('Guard Persist Test') as HTMLIFrameElement;
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    // First ready — bootstrap fires once.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+
+    // Re-render with a new conversationId (same src — no frame navigation).
+    act(() => {
+      rerender(
+        <SandboxedIframePanel
+          descriptor={{ ...baseDescriptor, title: 'Guard Persist Test' }}
+          conversationId="conv-guard-2"
+        />
+      );
+    });
+
+    // Second ready in the same frame after re-render — guard must still hold.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+    expect(postMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('still blocks a foreign origin when an API base url is set', () => {
     render(
       <SandboxedIframePanel
