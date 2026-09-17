@@ -5,6 +5,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
+import click
 import pytest
 import tomlkit
 
@@ -2596,6 +2597,74 @@ def test_setup_config_from_cli_preset_exclusion_raises(tmp_path):
             interactive=False,
             agent_path=None,
         )
+
+
+def test_setup_config_from_cli_unavailable_tool_propagates_not_usageerror(tmp_path):
+    """Availability errors must reach the caller's manifest fallback, not die as UsageError.
+
+    Regression (PR #3736 Greptile P1): the pre-logdir validation block converted
+    every ToolAllowlistError to click.UsageError, which is not a ValueError, so
+    main.py's graceful manifest fallback (``except ValueError``) never ran and a
+    single unavailable manifest builtin hard-failed the session instead of
+    stripping it.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools import ToolAllowlistError, ToolUnavailableError
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+
+    read_spec = MagicMock()
+    read_spec.name = "read"
+
+    def _raises_unavailable(allowlist, **kwargs):
+        if "read" in allowlist:
+            raise ToolAllowlistError("Tool 'read' is unavailable: optional dep missing")
+        return []
+
+    with (
+        patch("gptme.config.cli_setup.get_toolchain", side_effect=_raises_unavailable),
+        patch("gptme.config.cli_setup.get_available_tools", return_value=[read_spec]),
+        patch(
+            "gptme.config.cli_setup.matching_allowlist_tools",
+            side_effect=lambda pattern, tools: [t for t in tools if t.name == pattern],
+        ),
+        pytest.raises(ToolUnavailableError, match="is unavailable"),
+    ):
+        setup_config_from_cli(
+            workspace=workspace,
+            logdir=logdir,
+            model=None,
+            tool_allowlist="read",
+            tool_format=None,
+            stream=True,
+            interactive=False,
+            agent_path=None,
+        )
+    # Validation failure must precede any logdir side effect.
+    assert not logdir.exists()
+
+
+def test_setup_config_from_cli_unknown_tool_still_usageerror(tmp_path):
+    """A genuine unknown-name typo must stay a clean usage error, no logdir side effect."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+
+    with pytest.raises(click.UsageError, match="not found"):
+        setup_config_from_cli(
+            workspace=workspace,
+            logdir=logdir,
+            model=None,
+            tool_allowlist="definitely-not-a-real-tool",
+            tool_format=None,
+            stream=True,
+            interactive=False,
+            agent_path=None,
+        )
+    assert not logdir.exists()
 
 
 def test_setup_config_from_cli_tool_allowlist_direct_trailing_comma(tmp_path):

@@ -13,7 +13,12 @@ import click
 
 from ..gears import parse_gear, resolve_gear
 from ..profiles import get_profile
-from ..tools import ToolAllowlistError, get_available_tools, get_toolchain
+from ..tools import (
+    ToolAllowlistError,
+    ToolUnavailableError,
+    get_available_tools,
+    get_toolchain,
+)
 from ..tools._allowlist import (
     TOOL_PRESETS,
     _is_mcp_tool_name,
@@ -116,11 +121,14 @@ def _resolve_manifest_aliases(
 
         try:
             get_toolchain([requested_tool])
-        except ValueError:
+        except ValueError as e:
             # Use membership check, not message wording — wording can vary.
             available_tools = get_available_tools()
             if matching_allowlist_tools(requested_tool, available_tools):
-                raise  # registered but unavailable — don't shadow with manifest
+                # Registered but unavailable — don't shadow with manifest.
+                # Typed so callers can distinguish availability (fallback-able)
+                # from unknown-name (usage error) failures.
+                raise ToolUnavailableError(str(e)) from e
             # A one-character typo of a known builtin (``shel`` for ``shell``)
             # must not silently become a workspace alias. Close matches still
             # fail as unknown tools; use --tool-manifest for the rare genuine
@@ -315,14 +323,14 @@ def _normalize_tool_allowlist(
                 normalized.append(toolspec.name)
                 seen.add(toolspec.name)
             continue
-        except ValueError:
+        except ValueError as e:
             # Re-raise when the tool IS registered but unavailable: the name is
             # known to the toolchain, so the manifest must not silently shadow it.
             # Only fall through to the manifest lookup when the name is truly not
             # registered at all ("not found").
             # Use membership check, not message wording — wording can vary.
             if matching_allowlist_tools(item, get_available_tools()):
-                raise
+                raise ToolUnavailableError(str(e)) from e
             # name is completely unknown — check manifest next unless the name
             # is a close misspelling of a known builtin/preset.
 
@@ -740,6 +748,13 @@ def setup_config_from_cli(
             _normalize_tool_allowlist(
                 resolved_tool_allowlist, workspace=manifest_workspace or workspace
             )
+        except ToolUnavailableError:
+            # An unavailable (registered but not currently loadable) tool must
+            # propagate so the caller's manifest fallback can strip it and
+            # retry — converting it to a usage error here would defeat that
+            # graceful fallback (raised before any logdir side effect either
+            # way).
+            raise
         except (ToolAllowlistError, ValueError) as e:
             # Mirror the pre-alias Click parse-error UX: clean exit 2, no
             # traceback, no logdir side effect.

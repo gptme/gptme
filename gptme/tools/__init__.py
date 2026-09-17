@@ -47,12 +47,24 @@ class ToolAllowlistError(ValueError):
     """An allowlist entry could not be resolved to an available tool."""
 
 
+class ToolUnavailableError(ToolAllowlistError):
+    """A tool is registered but its availability check failed.
+
+    Raised when a requested allowlist entry matches discovered tools whose
+    availability check fails (missing dependency, service not running, etc.).
+    Distinct from a plain :class:`ToolAllowlistError` (unknown name) so callers
+    can distinguish "typo — fail with a usage error" from "temporarily
+    unavailable — strip it and fall back gracefully".
+    """
+
+
 __all__ = [
     # types
     "ToolSpec",
     "ToolUse",
     "ToolFormat",
     "ToolAllowlistError",
+    "ToolUnavailableError",
     "ToolFunction",
     "Parameter",
     # functions
