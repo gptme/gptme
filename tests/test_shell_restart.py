@@ -249,15 +249,16 @@ def test_timeout_kills_command_but_keeps_shell(shell, tmp_path):
 
 
 def test_timeout_kills_grandchildren_and_term_ignoring_children(shell, tmp_path):
-    # Anchor the pgrep regex so it can't substring-match an unrelated process
-    # (e.g. a concurrent `sleep 300` in a shared CI/agent container).
+    # Use a unique sleep duration so pgrep doesn't match concurrent parallel test
+    # workers that also use `sleep 30` (pytest-xdist runs up to 16 workers; other
+    # test files start `sleep 30` processes that would cause a false count).
     pid = shell.process.pid
     rc, _, _ = shell.run(
-        "bash -c 'trap \"\" TERM; (sleep 30); sleep 30'", output=False, timeout=1.0
+        "bash -c 'trap \"\" TERM; (sleep 7979); sleep 7979'", output=False, timeout=1.0
     )
     assert rc == -124
     assert shell.process.pid == pid
-    rc, out, _ = shell.run("pgrep -f 'sleep 30$' | wc -l", output=False)
+    rc, out, _ = shell.run("pgrep -f 'sleep 7979$' | wc -l", output=False)
     assert out.strip() == "0"
 
 
