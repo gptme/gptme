@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use or refer to this software in your research, please cite it."
+authors:
+- family-names: "Bjäreholt"
+  given-names: "Erik"
+  orcid: "https://orcid.org/0000-0003-1350-9677"
+title: "gptme"
+abstract: "An open-source AI agent in your terminal, equipped with local tools: writes code, uses the terminal, browses the web."
+license: MIT
+url: "https://gptme.org"
+repository-code: "https://github.com/gptme/gptme"
+keywords:
+- AI agent
+- large language models
+- LLM
+- coding agent
+- terminal

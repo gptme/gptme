@@ -90,6 +90,7 @@ active development.
 - 🏷️ [Repository Badge](#%EF%B8%8F-repository-badge)
 - 💬 [Community](#-community)
 - 📊 [Stats](#-stats)
+- 📝 [Citation](#-citation)
 - 🔗 [Links](#-links)
 
 ## 📢 News
@@ -633,6 +634,22 @@ Community and usage numbers (stars, downloads, contributors) are collected daily
 
 [pepy]: https://pepy.tech/project/gptme
 [pypistats]: https://pypistats.org/packages/gptme
+
+## 📝 Citation
+
+If you use gptme in your research, please cite it. The citation metadata lives in
+[`CITATION.cff`](./CITATION.cff) (GitHub's "Cite this repository" button uses it).
+
+```bibtex
+@software{gptme,
+  author  = {Bjäreholt, Erik},
+  title   = {gptme},
+  year    = {2023},
+  url     = {https://github.com/gptme/gptme}
+}
+```
+
+If you publish work that uses gptme, we'd love to hear about it on [Discord][discord].
 
 ## 🔗 Links
 
