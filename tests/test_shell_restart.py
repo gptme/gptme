@@ -182,25 +182,32 @@ def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
     after the restart rather than depending on a marker file.
     """
     command = f"echo x >> {tmp_path}/ran"
+    cmd_bytes = command.encode()
     orig_write = os.write
     stdin_fd = shell.process.stdin.fileno()
     state = {"partial": False, "raised": False, "retried": False}
+
+    def _is_shell_stdin(fd: int) -> bool:
+        # The restarted shell gets a fresh stdin pipe; descriptor-number reuse
+        # is an implementation detail, so compare against the *current* stdin
+        # rather than the fd captured at setup. Otherwise a retry delivered on
+        # a different fd would be missed and this test would pass vacuously.
+        stdin = shell.process.stdin
+        return bool(stdin) and not stdin.closed and fd == stdin.fileno()
 
     def write_fd(fd, data):
         # First write: deliver through the command's newline (partial write).
         if fd == stdin_fd and not state["partial"]:
             state["partial"] = True
-            cmd_bytes = command.encode()
             end = data.index(cmd_bytes) + len(cmd_bytes) + 1
             return orig_write(fd, data[:end])
         # Second write: simulate mid-payload EPIPE.
         if fd == stdin_fd and not state["raised"]:
             state["raised"] = True
             raise BrokenPipeError
-        # After the restart: flag any write that re-sends the command bytes.
-        # The restarted shell often reuses the same stdin fd, so this check is
-        # live for all subsequent shell writes.
-        if fd == stdin_fd and command.encode() in data:
+        # After the restart: flag any write that re-sends the command bytes to
+        # the shell's stdin, regardless of which descriptor it now uses.
+        if state["raised"] and _is_shell_stdin(fd) and cmd_bytes in data:
             state["retried"] = True
         return orig_write(fd, data)
 
