@@ -5428,3 +5428,136 @@ def test_tools_alias_malformed_preset_mix_fails_closed(
         result.output
     )
     assert "Traceback" not in result.output
+
+
+def _malformed_mix_manifest(tmp_path: Path) -> Path:
+    manifest_path = tmp_path / "state" / "task-manifests.jsonl"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        '{"task_type":"research","tools":[],"builtin_tools":["read-only","shell"]}\n',
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _malformed_mix_fakes(monkeypatch, tmp_path: Path) -> list[list[str] | None]:
+    """Shared fakes: preset+concrete mix where 'shell' is unavailable.
+
+    init_tools reproduces the real behaviour: a preset mixed with a non-MCP
+    tool raises 'cannot be combined' regardless of availability; with the
+    unavailable member removed, the preset alone initializes fine.
+    """
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["read-only", "shell"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            no_confirm=True,
+            agent=None,
+            gear=None,
+            save=lambda: None,
+        ),
+        project=None,
+    )
+    init_calls: list[list[str] | None] = []
+
+    def fake_init_tools(tools):
+        init_calls.append(list(tools) if tools else tools)
+        if tools and "shell" in tools:
+            raise ToolAllowlistError(
+                "Tool preset(s) read-only cannot be combined with other tools"
+            )
+        return []
+
+    monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr("gptme.tools.init_tools", fake_init_tools)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda *_, **__: [ToolSpec("shell", "", available=False)],
+    )
+    monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
+    monkeypatch.setattr(
+        "gptme.prompts.get_prompt_stats",
+        lambda **_: SimpleNamespace(
+            sections=[],
+            total_messages=0,
+            total_chars=0,
+            total_tokens=0,
+            cacheable_tokens=0,
+            dynamic_tokens=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.format_prompt_stats", lambda *_, **__: "prompt-stats-output"
+    )
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+    monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+    import importlib
+
+    _chat_module = importlib.import_module("gptme.chat")
+    monkeypatch.setattr(_chat_module, "chat", lambda *_, **__: None)
+    return init_calls
+
+
+def test_tools_alias_malformed_preset_mix_unavailable_member_fails_closed(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Even when the mixed-in concrete builtin is unavailable, a preset mix is
+    malformed — not an availability problem. The init_tools fallback must not
+    strip the unavailable member and silently succeed with the preset alone
+    (a manifest boundary normal startup rejects must not be rewritten)."""
+    _malformed_mix_manifest(tmp_path)
+    init_calls = _malformed_mix_fakes(monkeypatch, tmp_path)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "research",
+            "hello",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Tool preset(s) read-only cannot be combined with other tools" in (
+        result.output
+    )
+    # The fallback must never have silently retried with the preset alone.
+    assert all("shell" in (call or []) for call in init_calls)
+
+
+def test_show_prompt_stats_alias_malformed_preset_mix_fails_closed(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Same contract under --show-prompt-stats: prompt-statistics mode must
+    reject the malformed preset mix instead of silently rewriting the
+    allowlist to the preset alone."""
+    _malformed_mix_manifest(tmp_path)
+    init_calls = _malformed_mix_fakes(monkeypatch, tmp_path)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--show-prompt-stats",
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "research",
+            "query",
+        ],
+        input="",
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Tool preset(s) read-only cannot be combined with other tools" in (
+        result.output
+    )
+    assert all("shell" in (call or []) for call in init_calls)

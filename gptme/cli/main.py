@@ -1690,6 +1690,14 @@ def main(
             try:
                 tools = init_tools(config.chat.tools)
             except ValueError as e:
+                if "cannot be combined" in str(e):
+                    # A preset mixed with a non-MCP tool is a malformed
+                    # manifest/preset combination, not an availability problem.
+                    # Fail closed even though the availability fallback below
+                    # could strip the unavailable member and "succeed" with the
+                    # preset alone — silently rewriting a boundary normal
+                    # startup rejects.
+                    raise click.UsageError(str(e)) from e
                 stats_fallback_allowlist = _init_tools_fallback_allowlist(
                     stats_tool_allowlist_str, manifest_workspace
                 )
@@ -2069,6 +2077,13 @@ def main(
     try:
         tools = init_tools(config.chat.tools)
     except ValueError as e:
+        if "cannot be combined" in str(e):
+            # A preset mixed with a non-MCP tool is a malformed manifest/preset
+            # combination, not an availability problem. Fail closed even though
+            # the availability fallback below could strip the unavailable member
+            # and "succeed" with the preset alone — silently rewriting a
+            # boundary the setup-stage alias fallback (above) already rejects.
+            raise click.UsageError(str(e)) from e
         fallback_allowlist = _init_tools_fallback_allowlist(
             tool_allowlist_str, manifest_workspace
         )
