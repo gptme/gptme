@@ -41,8 +41,25 @@ def _strip_controls(value: str) -> str:
 
 
 @click.group("knowledge")
-def knowledge():
-    """Cross-session knowledge base: save and retrieve knowledge entries."""
+@click.pass_context
+def knowledge(ctx: click.Context):
+    """Cross-session knowledge base: save and retrieve problem/resolution pairs.
+
+    \b
+    DEPRECATED: this subgroup will be removed in a future release.
+    Migrate your entries and use ``gptme-util memory`` instead:
+
+        gptme-util memory migrate-knowledge-jsonl
+        gptme-util memory recall QUERY
+        gptme-util memory save NAME DESCRIPTION
+    """
+    if ctx.invoked_subcommand is not None:
+        click.echo(
+            "DeprecationWarning: gptme-util knowledge is deprecated; "
+            "use gptme-util memory instead. "
+            "Migrate with: gptme-util memory migrate-knowledge-jsonl",
+            err=True,
+        )
 
 
 @knowledge.command("save")
