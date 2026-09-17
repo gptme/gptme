@@ -228,7 +228,7 @@ def init_hooks(
             )._subagent_control_hook,
             0,
         ),
-        # NOTE: subagent_completion is now registered via ToolSpec in tools/subagent.py
+        # NOTE: subagent_completion is now registered via ToolSpec in gptme/tools/subagent/__init__.py
         "test": lambda: __import__(
             "gptme.hooks.test", fromlist=["register_test_hooks"]
         ).register_test_hooks(),
