@@ -7,7 +7,12 @@
  * Bootstrap flow:
  *   1. Render <iframe sandbox=... src=...> but hold the bootstrap payload.
  *   2. Iframe loads and posts `gptme:ready`.
- *   3. Host validates the origin and replies with `gptme:bootstrap`.
+ *   3. Host validates the sender and replies with `gptme:bootstrap`.
+ *
+ * Because the sandbox drops `allow-same-origin` for any scripted panel (see
+ * `resolveSandbox`), the frame normally has an opaque origin: it speaks as
+ * `"null"` and must be addressed with `targetOrigin: "*"`. Identity is pinned by
+ * `event.source === contentWindow`, not by origin.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
@@ -18,6 +23,7 @@ import {
   isAllowedIframeSrc,
   resolvePanelSrc,
   resolveSandbox,
+  sandboxHasOpaqueOrigin,
   urlOrigin,
 } from '@/utils/iframePanelPolicy';
 
@@ -38,21 +44,35 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
   const apiOrigin = urlOrigin(apiBaseUrl);
   const allowed = isAllowedIframeSrc(src, apiOrigin);
   const expectedOrigin = allowed ? iframeSrcOrigin(src, apiOrigin ?? undefined) : null;
+  // A sandbox without `allow-same-origin` gives the frame an opaque origin: its
+  // messages arrive as `event.origin === "null"` and no concrete `targetOrigin`
+  // can address it. `resolveSandbox` drops `allow-same-origin` whenever
+  // `allow-scripts` is requested, so every scripted panel is opaque, and
+  // `event.source` is the only identity gate available.
+  const opaqueOrigin = sandboxHasOpaqueOrigin(descriptor.sandbox);
 
   useEffect(() => {
     if (!allowed) return;
 
     const post = (message: GptmeIframeMessage) => {
       const target = iframeRef.current?.contentWindow;
-      if (!target || !expectedOrigin) return;
-      target.postMessage(message, expectedOrigin);
+      if (!target) return;
+      const targetOrigin = opaqueOrigin ? '*' : expectedOrigin;
+      if (!targetOrigin) return;
+      target.postMessage(message, targetOrigin);
     };
 
     const handleMessage = (event: MessageEvent) => {
-      // Strict origin gate: only accept messages from the declared src origin.
-      // Fail closed: if expectedOrigin is null (origin unresolvable), reject all.
-      if (!expectedOrigin || event.origin !== expectedOrigin) return;
+      // Identity gate: only this panel's own frame may drive the protocol.
       if (event.source !== iframeRef.current?.contentWindow) return;
+      // Origin gate. An opaque-origin frame can only ever speak as "null", and
+      // the source check above is what authenticates it. Everything else must
+      // match the declared src origin; fail closed when it is unresolvable.
+      if (opaqueOrigin) {
+        if (event.origin !== 'null') return;
+      } else if (!expectedOrigin || event.origin !== expectedOrigin) {
+        return;
+      }
       if (!isGptmeIframeMessage(event.data)) return;
 
       switch (event.data.type) {
@@ -81,7 +101,14 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [allowed, expectedOrigin, conversationId, descriptor.bootstrap, descriptor.resize]);
+  }, [
+    allowed,
+    expectedOrigin,
+    opaqueOrigin,
+    conversationId,
+    descriptor.bootstrap,
+    descriptor.resize,
+  ]);
 
   if (!allowed) {
     return (

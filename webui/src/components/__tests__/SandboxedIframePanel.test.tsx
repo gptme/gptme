@@ -46,6 +46,28 @@ describe('SandboxedIframePanel', () => {
       configurable: true,
     });
 
+    // `allow-scripts` without `allow-same-origin` is an opaque origin, which
+    // browsers serialize as "null" — not the src's origin.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'gptme:bootstrap', payload: { conversation_id: 'conv-abc' } },
+      '*'
+    );
+  });
+
+  it('replies to the concrete src origin when the sandbox keeps the frame origin', async () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, sandbox: [] }}
+        conversationId="conv-abc"
+      />
+    );
+    const frame = getIframe();
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
     emitFromIframe(frame, 'http://localhost:8080', { type: 'gptme:ready' });
 
     await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
@@ -53,6 +75,24 @@ describe('SandboxedIframePanel', () => {
       { type: 'gptme:bootstrap', payload: { conversation_id: 'conv-abc' } },
       'http://localhost:8080'
     );
+  });
+
+  it('rejects a "null" origin from a frame that is not sandboxed (fail-closed)', async () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, sandbox: [] }}
+        conversationId="conv-abc"
+      />
+    );
+    const frame = getIframe();
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    // A frame with a real origin cannot legitimately claim to be opaque.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(postMessage).not.toHaveBeenCalled();
   });
 
   it('merges descriptor bootstrap fields into the bootstrap payload', async () => {
@@ -66,12 +106,12 @@ describe('SandboxedIframePanel', () => {
     const postMessage = jest.fn();
     Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
 
-    emitFromIframe(frame, 'http://localhost:8080', { type: 'gptme:ready' });
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
 
     await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
     expect(postMessage).toHaveBeenCalledWith(
       { type: 'gptme:bootstrap', payload: { conversation_id: 'conv-abc', artifact_id: 'art_01' } },
-      'http://localhost:8080'
+      '*'
     );
   });
 
@@ -93,7 +133,7 @@ describe('SandboxedIframePanel', () => {
     const postMessage = jest.fn();
     Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
 
-    emitFromIframe(frame, 'http://localhost:8080', { type: 'gptme:unknown' });
+    emitFromIframe(frame, 'null', { type: 'gptme:unknown' });
 
     await new Promise((r) => setTimeout(r, 10));
     expect(postMessage).not.toHaveBeenCalled();
@@ -110,32 +150,13 @@ describe('SandboxedIframePanel', () => {
     const postMessage = jest.fn();
     Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
 
-    emitFromIframe(frame, 'http://localhost:8080', { type: 'gptme:ready' });
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
 
     await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
     expect(postMessage).toHaveBeenCalledWith(
       { type: 'gptme:bootstrap', payload: { conversation_id: 'real-conv-id' } },
-      'http://localhost:8080'
+      '*'
     );
-  });
-
-  it('rejects postMessage when expectedOrigin cannot be resolved (fail-closed)', async () => {
-    // Simulate an iframe whose src produces a null origin by patching the policy.
-    // We do this indirectly: use a descriptor with an opaque-origin data: src that
-    // passes the allowlist check but returns null from iframeSrcOrigin. The
-    // simplest approach is to render with a server-relative src that resolves fine
-    // but then emit from 'null' (the serialised opaque origin browsers send for
-    // sandboxed iframes without allow-same-origin).
-    render(<SandboxedIframePanel descriptor={baseDescriptor} conversationId="conv-abc" />);
-    const frame = getIframe();
-    const postMessage = jest.fn();
-    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
-
-    // 'null' is what browsers serialize as the origin for opaque origins.
-    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
-
-    await new Promise((r) => setTimeout(r, 10));
-    expect(postMessage).not.toHaveBeenCalled();
   });
 
   it('caps resize height at 16 000 px', async () => {
@@ -152,7 +173,7 @@ describe('SandboxedIframePanel', () => {
     });
 
     await act(async () => {
-      emitFromIframe(frame, 'http://localhost:8080', {
+      emitFromIframe(frame, 'null', {
         type: 'gptme:resize',
         payload: { height: 1e15 },
       });
@@ -201,10 +222,34 @@ describe('SandboxedIframePanel', () => {
     expect(screen.getByTitle('Live App').getAttribute('src')).toBe('/preview/5173/');
   });
 
-  it('accepts a postMessage from the resolved API origin', async () => {
+  it('accepts opaque-origin messages from the panel frame and replies to it', async () => {
     render(
       <SandboxedIframePanel
         descriptor={{ ...baseDescriptor, src: '/preview/5173/', title: 'Live App' }}
+        conversationId="conv1"
+        apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
+      />
+    );
+    const frame = screen.getByTitle('Live App') as HTMLIFrameElement;
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    // The sandbox is `allow-scripts`, so the frame is opaque and speaks as
+    // "null". The reply targets "*" because a concrete origin can never match
+    // an opaque frame — but it is still bound to this exact contentWindow.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'gptme:bootstrap', payload: { conversation_id: 'conv1' } },
+      '*'
+    );
+  });
+
+  it('replies to the resolved API origin when the frame keeps its origin', async () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/', sandbox: [], title: 'Live App' }}
         conversationId="conv1"
         apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
       />

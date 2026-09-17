@@ -3,6 +3,7 @@ import {
   isAllowedIframeSrc,
   resolvePanelSrc,
   resolveSandbox,
+  sandboxHasOpaqueOrigin,
   urlOrigin,
 } from '../iframePanelPolicy';
 
@@ -149,5 +150,23 @@ describe('resolveSandbox', () => {
     expect(resolveSandbox(['allow-scripts', 'allow-scripts'])).toBe('allow-scripts');
     expect(resolveSandbox([])).toBe('');
     expect(resolveSandbox(undefined)).toBe('');
+  });
+});
+
+describe('sandboxHasOpaqueOrigin', () => {
+  it('is true for any sandbox without allow-same-origin', () => {
+    // A sandboxed frame without allow-same-origin has an opaque origin,
+    // serialized as "null" on postMessage.
+    expect(sandboxHasOpaqueOrigin(['allow-scripts'])).toBe(true);
+    expect(sandboxHasOpaqueOrigin(['allow-scripts', 'allow-same-origin'])).toBe(true);
+    expect(sandboxHasOpaqueOrigin(['allow-forms'])).toBe(true);
+  });
+
+  it('is false when the sandbox preserves the frame origin', () => {
+    // No sandbox attribute at all: the frame keeps its real origin.
+    expect(sandboxHasOpaqueOrigin([])).toBe(false);
+    expect(sandboxHasOpaqueOrigin(undefined)).toBe(false);
+    // allow-same-origin without allow-scripts survives resolveSandbox.
+    expect(sandboxHasOpaqueOrigin(['allow-same-origin'])).toBe(false);
   });
 });

@@ -210,9 +210,10 @@ def _build_iframe_panel(
     stripped_src = str(src).strip()
     if stripped_src.startswith("/") and "allow-scripts" in sandbox:
         warnings.append(
-            "Server-relative src with 'allow-scripts' sandbox has opaque origin; "
-            "postMessage bootstrap handshake will not work. "
-            "Use a localhost absolute URL for full functionality."
+            "Sandboxed panel with 'allow-scripts' has an opaque origin "
+            "(allow-same-origin is dropped for scripted panels): postMessage traffic is "
+            "authenticated by frame identity rather than origin, and the panel cannot "
+            "use cookies or storage."
         )
 
     if isinstance(hint.get("allow"), str):

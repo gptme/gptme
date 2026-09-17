@@ -129,3 +129,20 @@ export function resolveSandbox(tokens: readonly string[] | undefined): string {
   }
   return Array.from(allowed).join(' ');
 }
+
+/**
+ * True when the resolved sandbox attribute leaves the frame with an *opaque*
+ * origin — i.e. the frame is sandboxed at all but does not carry
+ * `allow-same-origin`.
+ *
+ * Browsers serialise an opaque origin as `"null"` on `postMessage`, so the
+ * host can neither match `event.origin` against a concrete origin nor address
+ * the frame with a concrete `targetOrigin`. Identity must be pinned by
+ * `event.source` instead. Since `resolveSandbox` drops `allow-same-origin`
+ * whenever `allow-scripts` is requested (the dangerous pairing), any sandboxed
+ * panel that can script is opaque.
+ */
+export function sandboxHasOpaqueOrigin(tokens: readonly string[] | undefined): boolean {
+  const sandbox = resolveSandbox(tokens);
+  return sandbox !== '' && !sandbox.split(' ').includes('allow-same-origin');
+}
