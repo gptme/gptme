@@ -200,6 +200,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
         )}
         {selected && isIframe(selected) && (
           <SandboxedIframePanel
+            key={conversationId}
             descriptor={toDescriptor(selected)}
             conversationId={conversationId}
             apiBaseUrl={apiBaseUrl}
@@ -207,6 +208,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
         )}
         {selected && isLiveApp(selected) && selected.status === 'running' && (
           <SandboxedIframePanel
+            key={conversationId}
             descriptor={{
               id: selected.id,
               kind: 'iframe',
