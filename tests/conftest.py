@@ -314,6 +314,23 @@ def auth_headers():
     return {"Authorization": "Bearer test-token-for-server-thread"}
 
 
+@pytest.fixture(autouse=True)
+def restore_cwd():
+    """Restore the process cwd after every test.
+
+    Several code paths still do a process-wide ``os.chdir()`` with no matching
+    restore (e.g. ``session_step.py``'s legacy fallback for tools that still use
+    ``Path.cwd()``). Under pytest-xdist a leaked cwd survives to the next test on
+    the same worker, making an unrelated test like ``test_shell_cd_chdir`` fail
+    deterministically depending on run order (gptme/gptme#3850). Defined first
+    among the autouse fixtures so its teardown runs last, undoing a chdir made
+    during another fixture's teardown too.
+    """
+    original_cwd = os.getcwd()
+    yield
+    os.chdir(original_cwd)
+
+
 #: nodeid -> leaked thread names, collected across the session for the summary.
 _thread_leaks: dict[str, list[str]] = {}
 
@@ -429,6 +446,14 @@ def cleanup_shell_after():
         except Exception as e:
             logger.warning(f"Error closing shell during test cleanup: {e}")
         shell_module._shell_var.set(None)
+    # A leaked `_workspace_cwd` makes `ShellSession._set_cwd` skip its
+    # process-wide `os.chdir()` in the *next* test too (it only chdirs when
+    # `get_workspace_cwd() is None`), so a server test that calls
+    # `set_workspace_cwd()` silently breaks an unrelated CLI-style shell test
+    # run afterward on the same worker (gptme/gptme#3850). pytest runs tests
+    # synchronously in one thread/context, so a bare `ContextVar.set()` with
+    # no matching `.reset()` persists past the test that made it.
+    shell_module._workspace_cwd.set(None)
 
 
 @pytest.fixture(autouse=True)
