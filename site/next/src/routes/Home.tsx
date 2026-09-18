@@ -550,7 +550,7 @@ function Ecosystem() {
           Open protocols, no lock-in, <a href={links.github}>MIT</a>
         </p>
       </div>
-      <ul className="m-0 grid list-none grid-cols-3 gap-4 p-0 max-md:grid-cols-1 max-sm:gap-[10px]">
+      <ul className="m-0 grid list-none grid-cols-2 gap-4 p-0 max-md:grid-cols-1 max-sm:gap-[10px]">
         {ecosystem.map((e) => (
           <li key={e.title}>
             <a
