@@ -446,6 +446,12 @@ See the [getting started guide in the documentation](https://docs.activitywatch.
     if add_version_header:
         output = f"# {tag}\n\n" + output
 
+    # Always end with exactly one trailing newline: the release workflow commits
+    # docs/releases/<tag>.md straight to master with a deploy key, bypassing
+    # pre-commit, so a missing newline only surfaces as an end-of-file-fixer
+    # failure in Lint on master (2026-09-18, v0.34.0).
+    output = output.rstrip("\n") + "\n"
+
     with open(output_path, "w") as f:
         f.write(output)
     print(f"Wrote {len(output.splitlines())} lines to {output_path}")
@@ -477,7 +483,7 @@ def _resolve_email(email: str) -> str | None:
         # if rate limit exceeded, back off
         except requests.exceptions.RequestException as e:
             if isinstance(e, requests.exceptions.HTTPError):
-                if e.response.status_code == 403:
+                if e.response is not None and e.response.status_code == 403:
                     logger.warning("Rate limit exceeded, backing off...")
                     backoff += 1
                     sleep(3)
