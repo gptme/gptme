@@ -843,7 +843,7 @@ def test_cli_search_json_includes_entry_type():
     )
     result = runner.invoke(main, ["knowledge", "search", "how deploy", "--json"])
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert data[0]["entry_type"] == "how_to"
 
 
