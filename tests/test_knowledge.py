@@ -336,6 +336,25 @@ def test_cli_search_no_results():
     assert "No matching" in result.output
 
 
+def test_cli_search_falls_back_to_keyword_when_rag_empty(monkeypatch):
+    """A successful-but-empty RAG result must not suppress keyword matches.
+
+    RAG indexing is asynchronous after save/delete (#3691), so a search inside
+    the staleness window can get `[]` from _rag_search even though matching
+    entries exist in the JSONL store. The search command must fall back to
+    keyword search instead of returning an empty result.
+    """
+    runner = CliRunner()
+    runner.invoke(
+        main, ["knowledge", "save", "stale rag problem", "prefix with stale_"]
+    )
+    # Simulate gptme-rag running successfully but finding no matches.
+    monkeypatch.setattr("gptme.cli.cmd_knowledge._rag_search", lambda *a, **k: [])
+    result = runner.invoke(main, ["knowledge", "search", "stale rag"])
+    assert result.exit_code == 0, result.output
+    assert "stale rag problem" in result.output
+
+
 def test_cli_search_json():
     runner = CliRunner()
     runner.invoke(main, ["knowledge", "save", "search json problem", "resolution"])

@@ -272,6 +272,9 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
     """Search the knowledge base for QUERY.
 
     Uses gptme-rag semantic search when available; falls back to keyword search.
+    RAG indexing is asynchronous after save/delete, so a search inside the
+    staleness window falls back to keyword search rather than returning an
+    empty result.
 
     Example:
 
@@ -332,6 +335,16 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
                     if wider is not None:
                         results = _filter(wider)
         else:
+            results = knowledge_search(
+                query, top_k=top_k, tags=list(tags) if tags else None
+            )
+
+        # RAG succeeded but returned no live entries: the index may be empty,
+        # stale (async re-index after save/delete, #3691), or the returned IDs
+        # no longer map to JSONL entries. A successful-but-empty RAG result is
+        # not authoritative — fall back to keyword search so a search inside
+        # the staleness window still returns matching entries.
+        if rag_ids is not None and not results:
             results = knowledge_search(
                 query, top_k=top_k, tags=list(tags) if tags else None
             )
