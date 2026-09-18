@@ -217,6 +217,7 @@ def _rag_search(
             [
                 "gptme-rag",
                 "search",
+                "--",
                 query,
                 str(rag_dir),
                 "--json",
@@ -283,9 +284,16 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
             all_entries = knowledge_list()
             entry_map = {e["id"]: e for e in all_entries}
             # Preserve rag ranking order; apply tag filter post-hoc.
+            # Fetch extra results from rag to account for tag filtering.
             tag_set = {t.strip().lower() for t in tags if t.strip()} if tags else set()
             results = []
-            for eid in rag_ids:
+            # If tags filter is active, re-query gptme-rag with a higher limit to
+            # ensure we get top_k results after filtering, not before.
+            fetch_ids = rag_ids
+            if tag_set and len(rag_ids) < top_k:
+                # Re-fetch with a higher limit to get more candidates for filtering.
+                fetch_ids = _rag_search(query, top_k * 3, rag_dir) or []
+            for eid in fetch_ids:
                 entry = entry_map.get(eid)
                 if entry is None:
                     continue
@@ -294,6 +302,8 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
                 ):
                     continue
                 results.append(entry)
+                if len(results) >= top_k:
+                    break
         else:
             results = knowledge_search(
                 query, top_k=top_k, tags=list(tags) if tags else None
