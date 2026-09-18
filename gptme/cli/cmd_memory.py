@@ -733,7 +733,7 @@ def memory_index(scope: str | None, write: bool, check: bool, budget: int | None
 @click.option(
     "--budget",
     type=click.IntRange(min=1),
-    help="Byte cap for cc view (same as 'index --budget').",
+    help="Byte cap for the export (same as 'index --budget'); applies to both views.",
 )
 def memory_export(view: Literal["cc", "codex"], scope: str | None, budget: int | None):
     """Export memory entries in a harness-specific format.
@@ -770,7 +770,7 @@ def memory_export(view: Literal["cc", "codex"], scope: str | None, budget: int |
             click.echo("(no living memory entries — nothing to export)", err=True)
             return
 
-        lines: list[str] = [
+        header = [
             "## Memory\n",
             "\n",
             "Run recall at session start to surface relevant entries:\n",
@@ -782,13 +782,7 @@ def memory_export(view: Literal["cc", "codex"], scope: str | None, budget: int |
             "Current entries:\n",
             "\n",
         ]
-        for entry in living:
-            type_tag = f"[{_clean(entry.type)}] " if entry.type else ""
-            lines.append(
-                f"- **{_clean(entry.name)}** — {type_tag}{_clean(entry.description)}\n"
-            )
-
-        lines += [
+        footer = [
             "\n",
             "Save a memory with:\n",
             "\n",
@@ -798,4 +792,34 @@ def memory_export(view: Literal["cc", "codex"], scope: str | None, budget: int |
             "EOF\n",
             "```\n",
         ]
-        click.echo("".join(lines), nl=False)
+
+        def build(n_entries: int) -> str:
+            lines = list(header)
+            for entry in living[:n_entries]:
+                type_tag = f"[{_clean(entry.type)}] " if entry.type else ""
+                lines.append(
+                    f"- **{_clean(entry.name)}** — {type_tag}{_clean(entry.description)}\n"
+                )
+            omitted = len(living) - n_entries
+            if omitted:
+                lines.append(
+                    f"- … {omitted} more entries omitted (budget {budget} bytes)\n"
+                )
+            lines += footer
+            return "".join(lines)
+
+        if budget is None:
+            text = build(len(living))
+        else:
+            n = len(living)
+            text = build(n)
+            while len(text.encode()) > budget and n > 0:
+                n -= 1
+                text = build(n)
+            if len(text.encode()) > budget:
+                click.echo(
+                    f"Error: budget {budget} is too small for the codex export header",
+                    err=True,
+                )
+                sys.exit(1)
+        click.echo(text, nl=False)

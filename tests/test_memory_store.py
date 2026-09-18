@@ -1010,6 +1010,26 @@ class TestCli:
         assert r.exit_code == 0
         assert "nothing to export" in r.output
 
+    def test_export_codex_view_respects_budget(self, env):
+        """--budget must cap codex output, not just cc output (docs promise both)."""
+        runner = CliRunner()
+        for i in range(20):
+            runner.invoke(
+                util_main,
+                ["memory", "save", f"codex-budget-entry-{i}", "A" * 200],
+                input="Body.\n",
+            )
+        unbounded = runner.invoke(util_main, ["memory", "export", "--view", "codex"])
+        assert unbounded.exit_code == 0
+        assert len(unbounded.output.encode()) > 500
+
+        bounded = runner.invoke(
+            util_main, ["memory", "export", "--view", "codex", "--budget", "500"]
+        )
+        assert bounded.exit_code == 0
+        assert len(bounded.output.encode()) <= 500
+        assert "more entries omitted" in bounded.output
+
 
 class TestCodexAgentsMdPattern:
     """Exercises the Codex / AGENTS.md integration pattern.
