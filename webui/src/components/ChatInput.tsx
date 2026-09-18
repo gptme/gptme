@@ -85,7 +85,7 @@ export interface ChatOptions {
 
 interface Props {
   conversationId?: string;
-  onSend?: (message: string, options?: ChatOptions) => void;
+  onSend?: (message: string, options?: ChatOptions) => void | Promise<void>;
   onInterrupt?: () => Promise<void>;
   isReadOnly?: boolean;
   defaultModel?: string;
@@ -919,10 +919,25 @@ export const ChatInput: FC<Props> = ({
       console.log('[ChatInput] Step completed, sending queued message', {
         remaining: messageQueue.length - 1,
       });
-      // Use options captured at queue time, not current options
-      onSend(nextMessage.text, nextMessage.options);
-      // Remove the sent message from queue
+      // Remove the message from queue first, then send. On a 409 (server still
+      // generating), put it back at the front of the queue — the message is not
+      // lost and will be retried when isBusy next transitions to false.
       setMessageQueue((prev) => prev.slice(1));
+      const result = onSend(nextMessage.text, nextMessage.options);
+      if (result instanceof Promise) {
+        result.catch((error: unknown) => {
+          const status =
+            error && typeof error === 'object' && 'status' in error
+              ? (error as { status: number }).status
+              : undefined;
+          if (status === 409) {
+            console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
+            setMessageQueue((prev) => [nextMessage, ...prev]);
+          } else {
+            console.error('[ChatInput] Failed to send queued message:', error);
+          }
+        });
+      }
     }
     wasBusy.current = isBusy;
   }, [isBusy, messageQueue, onSend]);

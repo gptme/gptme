@@ -53,6 +53,10 @@ export function useConversation(conversationId: string, serverId?: string) {
   const topP = use$(() => conversation$?.topP.get());
 
   const messageJustCompleted = useRef(false);
+  // Timer ID for the generation_complete 100ms fallback; cleared by step_complete
+  const generationCompleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last completed message content; used by onStepComplete for chime/TTS/notification
+  const lastCompletedMessageRef = useRef<Message | null>(null);
   // Stop during the new-chat handshake: onConnected / onMessageStart must not
   // restart generation after the user already cancelled the pending initial step.
   const stopRequestedRef = useRef(false);
@@ -267,6 +271,7 @@ export function useConversation(conversationId: string, serverId?: string) {
             },
             onMessageComplete: (message) => {
               messageJustCompleted.current = true;
+              lastCompletedMessageRef.current = message;
 
               // Update the last message with final content and metadata
               const messages$ = conversation$?.data.log;
@@ -284,10 +289,17 @@ export function useConversation(conversationId: string, serverId?: string) {
                 }
               }
 
-              // Use setTimeout with 100ms delay to allow potential onToolPending to fire first
-              // Increased from 0ms to give API events more breathing room
-              setTimeout(() => {
+              // Fallback: clear generating state after 100ms to allow onToolPending to
+              // fire first. On updated servers this timer is cancelled and superseded by
+              // onStepComplete (which fires after generating=False on the server), closing
+              // the race window between generation_complete and generating=False entirely.
+              if (generationCompleteTimerRef.current !== null) {
+                clearTimeout(generationCompleteTimerRef.current);
+              }
+              generationCompleteTimerRef.current = setTimeout(() => {
+                generationCompleteTimerRef.current = null;
                 if (messageJustCompleted.current) {
+                  messageJustCompleted.current = false;
                   setGenerating(conversationId, false);
                   playChime().catch((error) => {
                     console.warn('Failed to play completion chime:', error);
@@ -298,6 +310,35 @@ export function useConversation(conversationId: string, serverId?: string) {
                   });
                 }
               }, 100);
+            },
+            onStepComplete: () => {
+              // step_complete fires after session.generating=False on the server,
+              // so it's safe to clear generating immediately — no need to guess.
+              // Cancel the 100ms fallback timer from onMessageComplete if still pending;
+              // we take over its responsibilities here (chime, TTS, notification).
+              if (generationCompleteTimerRef.current !== null) {
+                clearTimeout(generationCompleteTimerRef.current);
+                generationCompleteTimerRef.current = null;
+              }
+              if (messageJustCompleted.current) {
+                // No tool continuation — finalize the turn with chime/TTS/notification
+                messageJustCompleted.current = false;
+                const completedMessage = lastCompletedMessageRef.current;
+                lastCompletedMessageRef.current = null;
+                setGenerating(conversationId, false);
+                playChime().catch((error) => {
+                  console.warn('Failed to play completion chime:', error);
+                });
+                if (completedMessage) {
+                  speakText(completedMessage.content);
+                }
+                notifyGenerationComplete(conversation$?.data.name.get()).catch((error) => {
+                  console.warn('Failed to show completion notification:', error);
+                });
+              } else {
+                // step_complete after an error or interrupt (no preceding generation_complete)
+                setGenerating(conversationId, false);
+              }
             },
             onMessageAdded: (message) => {
               // Check if this message already exists (ignoring timestamp)
@@ -650,6 +691,12 @@ export function useConversation(conversationId: string, serverId?: string) {
         setTopP(conversationId, options?.topP);
       } catch (error) {
         console.error('Error sending message:', error);
+        // 409 means the server is still generating — remove the optimistic message
+        // and re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
+        if (ApiClientError.isApiError(error) && error.status === 409) {
+          removeMessage(conversationId, userMessage.timestamp!);
+          throw error;
+        }
         const { title, description } = getApiErrorPresentation(error, {
           fallbackTitle: 'Failed to send',
           fallbackDescription: 'Failed to send message',

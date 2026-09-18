@@ -735,6 +735,7 @@ export class ApiClient {
           auto_confirm: boolean;
         }>;
       }) => void;
+      onStepComplete?: () => void;
       onConversationEdited?: (data: {
         index: number;
         truncated: boolean;
@@ -910,6 +911,11 @@ export class ApiClient {
           case 'generation_complete':
             console.log(`[ApiClient] Generation complete:`, data.message);
             callbacks.onMessageComplete(data.message);
+            break;
+
+          case 'step_complete':
+            console.log(`[ApiClient] Step complete`);
+            callbacks.onStepComplete?.();
             break;
 
           case 'tool_pending': {

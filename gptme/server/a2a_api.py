@@ -439,7 +439,12 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
             event_index += len(events)
             for event in events:
                 event_type = event.get("type") if isinstance(event, dict) else None
+                if event_type == "step_complete":
+                    # step_complete fires AFTER session.generating = False, so
+                    # _task_from_conversation sees the correct TASK_STATE_COMPLETED.
+                    return
                 if event_type == "generation_complete":
+                    # Legacy fallback for servers that don't emit step_complete yet.
                     # generation_complete fires BEFORE session.generating = False
                     # (the finally block runs after the event). Wait briefly for
                     # generating to settle so _task_from_conversation sees the

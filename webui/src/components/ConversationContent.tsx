@@ -486,8 +486,8 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     requestAnimationFrame(scrollToBottom);
   }, [conversationId, scrollToBottom]);
 
-  const handleSendMessage = (message: string, options?: ChatOptions) => {
-    sendMessage({ message, options });
+  const handleSendMessage = (message: string, options?: ChatOptions): Promise<void> => {
+    return sendMessage({ message, options });
   };
 
   const handleLoadOlderMessages = useCallback(async () => {

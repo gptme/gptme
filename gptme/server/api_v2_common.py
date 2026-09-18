@@ -125,6 +125,7 @@ class BaseEvent(TypedDict):
         "generation_started",
         "generation_progress",
         "generation_complete",
+        "step_complete",
         "tool_pending",
         "tool_executing",
         "tool_output",
@@ -173,6 +174,16 @@ class GenerationCompleteEvent(BaseEvent):
     """Sent when generation is complete."""
 
     message: MessageDict
+
+
+class StepCompleteEvent(BaseEvent):
+    """Sent after session.generating is set to False.
+
+    Unlike generation_complete (which fires before finalizer work), this event
+    fires only after the server's generating reservation has been fully released.
+    Clients should gate queued-message flushes on this event rather than
+    inferring state from generation_complete.
+    """
 
 
 class ToolPendingEvent(BaseEvent):
@@ -270,6 +281,7 @@ EventType = (
     | GenerationStartedEvent
     | GenerationProgressEvent
     | GenerationCompleteEvent
+    | StepCompleteEvent
     | ToolPendingEvent
     | ToolExecutingEvent
     | ToolOutputEvent

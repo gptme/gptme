@@ -447,6 +447,7 @@ async def _acp_step(
             )
             session.generating = False
             session.generating_since = None
+            SessionManager.add_event(conversation_id, {"type": "step_complete"})
             return
         acp_runtime = session.acp_runtime  # snapshot to avoid TOCTOU races
 
@@ -492,6 +493,7 @@ async def _acp_step(
             session.generating = False
             manager.write()
             session.generating_since = None
+            SessionManager.add_event(conversation_id, {"type": "step_complete"})
             return
 
         next_user_index = session.acp_last_user_msg_index + 1
@@ -504,6 +506,7 @@ async def _acp_step(
             SessionManager.add_event(conversation_id, duplicate_error_event)
             session.generating = False
             session.generating_since = None
+            SessionManager.add_event(conversation_id, {"type": "step_complete"})
             return
 
         SessionManager.add_event(conversation_id, {"type": "generation_started"})
@@ -589,6 +592,8 @@ async def _acp_step(
             acp_runtime.set_on_update(None)
             session.generating = False
             session.generating_since = None
+            # Emit step_complete AFTER generating=False so clients see consistent state
+            SessionManager.add_event(conversation_id, {"type": "step_complete"})
     finally:
         current_conversation_id.reset(conversation_token)
         current_session_id.reset(session_token)
@@ -710,11 +715,15 @@ def step(
         _persist_generation_error(manager, session, str(e))
         SessionManager.add_event(conversation_id, ws_error_event)
         session.last_error = str(e)
+        _released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
                 session.finish_skill_turn("failed")
                 session.generating = False
                 session.generating_since = None
+                _released = True
+        if _released:
+            SessionManager.add_event(conversation_id, {"type": "step_complete"})
         return
 
     # Set the model as default before triggering hooks
@@ -797,11 +806,15 @@ def step(
             "error": "No messages to process",
         }
         SessionManager.add_event(conversation_id, error_event)
+        _released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
                 session.finish_skill_turn("failed")
                 session.generating = False
                 session.generating_since = None
+                _released = True
+        if _released:
+            SessionManager.add_event(conversation_id, {"type": "step_complete"})
         return
 
     # Notify clients about generation status
@@ -1010,6 +1023,7 @@ def step(
         # The tool worker increments step_seq inside step_lock before handing
         # off, so the compare-and-clear below is atomic with respect to that
         # handoff.
+        _step_released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
                 if session.interrupted or not session.generating:
@@ -1020,6 +1034,7 @@ def step(
                     )
                 session.generating = False
                 session.generating_since = None
+                _step_released = True
             else:
                 logger.debug(
                     "step() finally: skipping generating=False — "
@@ -1027,6 +1042,11 @@ def step(
                     my_step_seq,
                     session.step_seq,
                 )
+        # Emit step_complete AFTER generating=False so clients see the released
+        # state. Only emit when this step owns the reservation; a continuation
+        # step will emit its own step_complete when it finishes.
+        if _step_released:
+            SessionManager.add_event(conversation_id, {"type": "step_complete"})
 
 
 def start_tool_execution(
