@@ -168,11 +168,17 @@ class Log:
         else:
             # Never truncate an acknowledged transcript in place. A failed
             # rewrite leaves the old inode recoverable until replacement.
-            existing_mode = output.stat().st_mode if output.exists() else None
+            #
+            # Replace through the symlink, not the link itself: a transcript
+            # symlinked onto another disk must keep pointing there. The
+            # temporary file goes in the *target* directory so the replacement
+            # stays on one filesystem. The append path follows symlinks too.
+            target = output.resolve()
+            existing_mode = target.stat().st_mode if target.exists() else None
             temp_path: Path | None = None
             try:
                 with NamedTemporaryFile(
-                    mode="w", encoding="utf-8", dir=output.parent, delete=False
+                    mode="w", encoding="utf-8", dir=target.parent, delete=False
                 ) as file:
                     temp_path = Path(file.name)
                     file.writelines(lines)
@@ -187,10 +193,10 @@ class Log:
                         else:
                             os.chmod(temp_path, existing_mode)
                     os.fsync(file.fileno())
-                os.replace(temp_path, output)
+                os.replace(temp_path, target)
                 # Direct rewrite callers (fork, undo, edit) acknowledge here
                 # without a later write(sync=True). No-op on Windows.
-                sync_directory(output.parent)
+                sync_directory(target.parent)
             finally:
                 if temp_path is not None:
                     temp_path.unlink(missing_ok=True)

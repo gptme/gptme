@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import logging
 import os
 import stat
 from pathlib import Path
@@ -193,9 +195,8 @@ class TestLogManagerTracePersistence:
         assert order == ["sync", "replace"]
 
     @pytest.mark.skipif(os.name == "nt", reason="No portable directory fsync")
-    def test_failed_directory_fsync_does_not_acknowledge_save(
-        self, tmp_path: Path
-    ) -> None:
+    def test_directory_io_error_does_not_acknowledge_save(self, tmp_path: Path) -> None:
+        """A real I/O error means the write did not land: fail the barrier."""
         from gptme.logmanager.manager import LogManager
 
         set_selection_trace(make_trace())
@@ -208,18 +209,54 @@ class TestLogManagerTracePersistence:
 
         def reject_directory(fd: int) -> None:
             if stat.S_ISDIR(os.fstat(fd).st_mode):
-                raise OSError("directory fsync unsupported")
+                raise OSError(errno.EIO, "directory fsync failed")
             real_fsync(fd)
 
         lm.write()
         with (
             patch.object(os, "fsync", side_effect=reject_directory),
-            pytest.raises(OSError, match="directory fsync unsupported"),
+            pytest.raises(OSError, match="directory fsync failed"),
         ):
             lm.write(sync=True)
 
         assert lm.logfile.exists()
         assert (tmp_path / "model_selection_trace.json").exists()
+
+    @pytest.mark.skipif(os.name == "nt", reason="No portable directory fsync")
+    def test_unsupported_directory_fsync_does_not_fail_save(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Filesystems without a directory barrier must not kill the turn.
+
+        Some network, overlay and FUSE mounts reject fsync on a directory fd.
+        The transcript is written and synced either way; only the namespace
+        guarantee is weaker, which is worth a warning and nothing more.
+        """
+        from gptme.logmanager.manager import LogManager
+
+        set_selection_trace(make_trace())
+        lm = LogManager(
+            [Message("user", "persist me", quiet=True)],
+            logdir=tmp_path,
+            lock=False,
+        )
+        real_fsync = os.fsync
+
+        def reject_directory(fd: int) -> None:
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                raise OSError(errno.EINVAL, "fsync not supported for this file")
+            real_fsync(fd)
+
+        lm.write()
+        with (
+            patch.object(os, "fsync", side_effect=reject_directory),
+            caplog.at_level(logging.WARNING),
+        ):
+            lm.write(sync=True)  # must not raise
+
+        assert lm.logfile.exists()
+        assert (tmp_path / "model_selection_trace.json").exists()
+        assert "No directory barrier available" in caplog.text
 
 
 # ---------------------------------------------------------------------------

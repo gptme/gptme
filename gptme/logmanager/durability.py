@@ -1,7 +1,44 @@
 """Filesystem barriers for acknowledged transcript writes."""
 
+import errno
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Errnos that mean "this filesystem has no directory barrier to offer", as
+# opposed to "the write did not land". Some network, overlay and FUSE mounts
+# reject fsync on a directory fd outright. A missing namespace barrier weakens
+# the guarantee; it is not a reason to fail a turn whose contents were written
+# and synced successfully, so these are warned about once and then tolerated.
+# Genuine I/O failures (EIO, ENOSPC, ...) still propagate.
+_TOLERATED_ERRNOS = frozenset(
+    {
+        errno.EACCES,
+        errno.EINVAL,
+        errno.ENOSYS,
+        errno.ENOTSUP,
+        errno.EOPNOTSUPP,
+        errno.EPERM,
+    }
+)
+
+# Warn once per directory: this runs on every acknowledged turn.
+_warned: set[Path] = set()
+
+
+def _tolerate_or_raise(path: Path, error: OSError) -> None:
+    if error.errno not in _TOLERATED_ERRNOS:
+        raise error
+    if path not in _warned:
+        _warned.add(path)
+        logger.warning(
+            "No directory barrier available for %s (%s). Transcript contents are "
+            "still synced; their directory entries are not.",
+            path,
+            error,
+        )
 
 
 def sync_directory(path: Path) -> None:
@@ -12,9 +49,15 @@ def sync_directory(path: Path) -> None:
     """
     if os.name == "nt":
         return
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError as error:
+        _tolerate_or_raise(path, error)
+        return
     try:
         os.fsync(fd)
+    except OSError as error:
+        _tolerate_or_raise(path, error)
     finally:
         os.close(fd)
 
@@ -33,7 +76,12 @@ def sync_directories(paths: set[Path], root: Path) -> None:
     root = root.resolve()
     for path in paths:
         path = path.resolve()
-        path.relative_to(root)
+        if not path.is_relative_to(root):
+            # A symlinked branch/view directory can resolve outside the logdir.
+            # Sync the target itself rather than walking to the filesystem root,
+            # and never fail the barrier over an unexpected layout.
+            directories.add(path)
+            continue
         while path != root:
             directories.add(path)
             path = path.parent

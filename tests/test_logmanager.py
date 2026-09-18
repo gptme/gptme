@@ -1055,6 +1055,54 @@ def test_write_jsonl_preserves_mode_without_fchmod(
     assert [message.content for message in Log.read_jsonl(jsonl_file)] == ["fresh"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
+def test_write_jsonl_rewrite_replaces_through_symlink(tmp_path: Path):
+    """A symlinked transcript must keep pointing at its target after a rewrite.
+
+    ``os.replace`` onto the link path would unlink the symlink and leave a
+    regular file in its place, silently orphaning the real transcript (which may
+    live on another disk). The append path follows the link, so the rewrite path
+    has to as well.
+    """
+    target_dir = tmp_path / "elsewhere"
+    target_dir.mkdir()
+    target = target_dir / "real.jsonl"
+    target.write_text('{"role":"user","content":"stale"}\n')
+    link = tmp_path / "conversation.jsonl"
+    link.symlink_to(target)
+
+    Log([Message("user", "fresh")]).write_jsonl(link)
+
+    assert link.is_symlink(), "rewrite replaced the symlink with a regular file"
+    assert link.resolve() == target.resolve()
+    assert [message.content for message in Log.read_jsonl(target)] == ["fresh"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
+def test_sync_directories_syncs_targets_outside_root(tmp_path: Path):
+    """A symlinked branch/view dir resolves outside the logdir; still sync it.
+
+    Walking to the filesystem root would fsync unrelated directories, and
+    failing the barrier would kill a turn whose data was written fine. Sync the
+    resolved target itself instead.
+    """
+    from gptme.logmanager.durability import sync_directories
+
+    root = tmp_path / "logdir"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "views").symlink_to(outside)
+
+    synced: list[Path] = []
+    with patch("gptme.logmanager.durability.sync_directory", side_effect=synced.append):
+        sync_directories({root / "views", root}, root=root)
+
+    assert outside.resolve() in synced
+    assert root.resolve() in synced
+    assert tmp_path.resolve() not in synced
+
+
 def test_write_jsonl_directory_sync_failure_prevents_acknowledgement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
