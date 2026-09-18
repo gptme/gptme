@@ -217,6 +217,7 @@ def _rag_search(
             [
                 "gptme-rag",
                 "search",
+                "--",
                 query,
                 str(rag_dir),
                 "--json",
