@@ -97,6 +97,34 @@ def test_migrate_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert not mem_dir.exists() or not list(mem_dir.glob("*.md"))
 
 
+def test_migrate_dry_run_reports_skips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dry-run correctly reports would-skip for already-migrated entries."""
+    jsonl = _make_jsonl(tmp_path / "entries.jsonl", [_ENTRY_A])
+    mem_dir = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem_dir))
+
+    runner = CliRunner()
+    # First run — actually migrate
+    r1 = runner.invoke(
+        util_main,
+        ["memory", "migrate-knowledge-jsonl", str(jsonl), "--scope", "explicit"],
+    )
+    assert r1.exit_code == 0, r1.output
+
+    # Dry-run on same source — should report would-skip, not would-migrate
+    r2 = runner.invoke(
+        util_main,
+        ["memory", "migrate-knowledge-jsonl", str(jsonl), "--dry-run"],
+    )
+    assert r2.exit_code == 0, r2.output
+    # Summary line says "would migrate 0, skipped 1" — that is expected.
+    # The per-entry line must be "would skip" not "would migrate:".
+    assert "would skip" in r2.output or "skipped 1" in r2.output
+    assert "  would migrate:" not in r2.output
+
+
 def test_migrate_skip_existing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Entries already in the store are skipped by default."""
     jsonl = _make_jsonl(tmp_path / "entries.jsonl", [_ENTRY_A])
@@ -150,6 +178,47 @@ def test_migrate_default_path_no_file(
         "nothing to migrate" in result.output.lower()
         or "No knowledge store" in result.output
     )
+
+
+def test_migrate_slug_collision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Entries with identical problem prefixes get distinct slugs via ID suffix."""
+    # Two entries whose first 80 chars of problem text are identical
+    long_prefix = "a" * 80
+    entry_c = {**_ENTRY_A, "problem": long_prefix + " extra-c", "id": "cccccccc-0000"}
+    entry_d = {**_ENTRY_B, "problem": long_prefix + " extra-d", "id": "dddddddd-0000"}
+    jsonl = _make_jsonl(tmp_path / "entries.jsonl", [entry_c, entry_d])
+    mem_dir = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem_dir))
+
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "migrate-knowledge-jsonl", str(jsonl), "--scope", "explicit"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "migrated 2" in result.output
+
+    store = MemoryStore([MemoryRoot("explicit", mem_dir)])
+    names = {e.name for e in store.entries()}
+    assert len(names) == 2, f"Expected 2 distinct names, got: {names}"
+
+
+def test_migrate_malformed_tags_does_not_abort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A null tags/keywords field is tolerated; migration continues for valid records."""
+    entry_bad = {**_ENTRY_A, "tags": None, "keywords": None}
+    jsonl = _make_jsonl(tmp_path / "entries.jsonl", [entry_bad, _ENTRY_B])
+    mem_dir = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem_dir))
+
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "migrate-knowledge-jsonl", str(jsonl), "--scope", "explicit"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "migrated 2" in result.output
 
 
 def test_knowledge_deprecation_warning(

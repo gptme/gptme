@@ -456,8 +456,7 @@ def memory_audit(scope: str | None, quiet: bool):
     help="Show what would be migrated without writing anything.",
 )
 @click.option(
-    "--skip-existing",
-    is_flag=True,
+    "--skip-existing/--no-skip-existing",
     default=True,
     show_default=True,
     help="Skip entries whose slugified name already exists in the store.",
@@ -521,23 +520,35 @@ def memory_migrate_knowledge_jsonl(
 
     store = _store()
     migrated = skipped = errors = 0
+    _seen_names: set[str] = set()
 
     for obj in entries:
         problem: str = obj["problem"]
         resolution: str = obj.get("resolution", "")
-        tags: list[str] = [t for t in obj.get("tags", []) if isinstance(t, str)]
-        keywords: list[str] = [k for k in obj.get("keywords", []) if isinstance(k, str)]
+        tags: list[str] = [t for t in (obj.get("tags") or []) if isinstance(t, str)]
+        keywords: list[str] = [
+            k for k in (obj.get("keywords") or []) if isinstance(k, str)
+        ]
         original_id: str = obj.get("id", "")
         created_at: str = obj.get("created_at", "")
 
         # Combine tags and keywords, deduplicate
         all_keywords = list(dict.fromkeys(tags + keywords))
 
-        # Build a slug from the problem text
+        # Build a slug from the problem text; append an ID suffix to avoid
+        # collisions when two entries share similar problem text.
         slug_source = problem[:80]
         name = slugify(slug_source)
         if not name:
             name = f"knowledge-{original_id[:8]}" if original_id else "knowledge-entry"
+        # Detect slug collision: if this name is already claimed by a *different*
+        # in-progress entry (tracked below), append the entry's ID suffix.
+        if name in _seen_names:
+            suffix = (
+                original_id[:8] if original_id else str(migrated + skipped + errors)
+            )
+            name = f"{name}-{suffix}"
+        _seen_names.add(name)
 
         description = _shorten(problem, width=120, placeholder="…")
 
@@ -549,14 +560,17 @@ def memory_migrate_knowledge_jsonl(
         if created_at:
             provenance["migrated_from_created_at"] = created_at
 
+        if skip_existing and store.get(name) is not None:
+            if dry_run:
+                click.echo(f"  would skip (exists): {name!r}", err=True)
+            else:
+                click.echo(f"  skip (exists): {name!r}", err=True)
+            skipped += 1
+            continue
+
         if dry_run:
             click.echo(f"  would migrate: {name!r} ({len(all_keywords)} keyword(s))")
             migrated += 1
-            continue
-
-        if skip_existing and store.get(name) is not None:
-            click.echo(f"  skip (exists): {name!r}", err=True)
-            skipped += 1
             continue
 
         try:
