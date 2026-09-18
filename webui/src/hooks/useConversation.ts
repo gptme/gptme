@@ -66,6 +66,8 @@ export function useConversation(conversationId: string, serverId?: string) {
   const stopRequestedRef = useRef(false);
   const generationEpochRef = useRef(0);
   const generationChainRef = useRef<Promise<void> | null>(null);
+  // Deferred step: set when post-persistence 409 retries exhaust; fired by onStepComplete.
+  const pendingStepRef = useRef<(() => Promise<void>) | null>(null);
   const loadingOlderMessagesRef = useRef(false);
   const isLoadingOlderMessages$ = useObservable(false);
   const isLoadingOlderMessages = use$(isLoadingOlderMessages$);
@@ -347,6 +349,14 @@ export function useConversation(conversationId: string, serverId?: string) {
                 // clearing it here is safe.  For non-auto-confirm tools,
                 // onToolPending already cleared generating, making this a no-op.
                 setGenerating(conversationId, false);
+              }
+              // Fire any step that was deferred because the retry window exhausted
+              // while the server was still busy.  step_complete is the authoritative
+              // idle signal, so the deferred call is safe to make now.
+              const pendingStep = pendingStepRef.current;
+              if (pendingStep) {
+                pendingStepRef.current = null;
+                void pendingStep();
               }
             },
             onMessageAdded: (message) => {
@@ -703,7 +713,27 @@ export function useConversation(conversationId: string, serverId?: string) {
             break;
           } catch (stepError) {
             const busy = ApiClientError.isApiError(stepError) && stepError.status === 409;
-            if (!busy || attempt >= STEP_409_BACKOFF_MS.length) throw stepError;
+            if (!busy) throw stepError;
+            if (attempt >= STEP_409_BACKOFF_MS.length) {
+              // Retry window exhausted; message is already persisted, so re-sending
+              // would duplicate it.  Instead, park the step call and fire it from
+              // onStepComplete — the authoritative server-idle signal — so the
+              // message is not falsely marked failed.
+              const capturedEpoch = epoch;
+              pendingStepRef.current = () => {
+                if (generationIsStale(capturedEpoch)) return Promise.resolve();
+                return api.step(
+                  conversationId,
+                  options?.model,
+                  options?.stream,
+                  'main',
+                  options?.maxTokens,
+                  options?.temperature,
+                  options?.topP
+                );
+              };
+              return;
+            }
             await new Promise((resolve) => setTimeout(resolve, STEP_409_BACKOFF_MS[attempt]));
             if (generationIsStale(epoch)) return;
           }
