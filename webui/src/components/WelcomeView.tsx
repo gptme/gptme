@@ -47,10 +47,12 @@ export const WelcomeView = () => {
   // effect — so we catch both early (seed pre-existed) and late (seed arrives
   // after mount) delivery. Only applied while the input is still empty, so a
   // late seed never clobbers a restored draft or text the user already typed.
+  // Always drain the pending seed (even after the first has been consumed) so a
+  // second, stale seed never sits in context state to be replayed by a later
+  // WelcomeView instance (e.g. after navigating away and back).
   useEffect(() => {
-    if (seedConsumedRef.current) return;
     const seed = consumeSeedPrompt();
-    if (seed) {
+    if (seed && !seedConsumedRef.current) {
       seedConsumedRef.current = true;
       setInputValue((current) => current || seed);
     }

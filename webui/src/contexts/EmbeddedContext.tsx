@@ -60,6 +60,29 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
         return;
       }
 
+      const seed = parseSeedPromptMessage(event.data);
+      if (seed !== null) {
+        // Seed prompts are injected directly into the chat input, so require a
+        // confirmed same-origin or confirmed parent origin — never fall back to
+        // allowing an unknown parent origin (that would let any page that can
+        // reach this window inject an arbitrary prompt before the real host does).
+        if (
+          !isEmbeddedContextEventAllowed(
+            event.origin,
+            parentOriginRef.current,
+            window.location.origin
+          )
+        ) {
+          return;
+        }
+        if (!parentOriginRef.current) {
+          parentOriginRef.current = event.origin;
+          setParentOrigin(event.origin);
+        }
+        setSeedPrompt(seed);
+        return;
+      }
+
       if (
         !isEmbeddedContextEventAllowed(
           event.origin,
@@ -74,12 +97,6 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
       if (!parentOriginRef.current) {
         parentOriginRef.current = event.origin;
         setParentOrigin(event.origin);
-      }
-
-      const seed = parseSeedPromptMessage(event.data);
-      if (seed !== null) {
-        setSeedPrompt(seed);
-        return;
       }
 
       const parsedItems = parseEmbeddedContextMessage(event.data);
