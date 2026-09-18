@@ -968,7 +968,7 @@ def test_cli_search_uses_rag_when_available(monkeypatch):
     runner = CliRunner()
     result = runner.invoke(main, ["knowledge", "search", "--json", "anything"])
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert len(data) == 2
     # rag ranking preserved: e2 is first
     assert data[0]["id"] == e2["id"]
@@ -986,7 +986,7 @@ def test_cli_search_falls_back_to_keyword_when_rag_unavailable(monkeypatch):
     runner = CliRunner()
     result = runner.invoke(main, ["knowledge", "search", "--json", "pytest"])
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert len(data) == 1
     assert data[0]["problem"] == "pytest discovery problem"
 
@@ -1017,7 +1017,7 @@ def test_cli_search_rag_tag_filter_applied_post_hoc(monkeypatch):
         main, ["knowledge", "search", "--json", "--tag", "pytest", "anything"]
     )
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert len(data) == 1
     assert data[0]["id"] == e1["id"]
 
@@ -1154,7 +1154,7 @@ def test_cli_search_rag_tag_filter_truncates_to_top_k(monkeypatch):
         ],
     )
     assert result.exit_code == 0, result.output
-    out = json.loads(result.output)
+    out = json.loads(result.stdout)
     assert len(out) == 2
     assert all("pytest" in e["tags"] for e in out)
 
@@ -1213,5 +1213,5 @@ def test_cli_search_rag_tag_filter_escalates_when_first_page_truncated(monkeypat
         ],
     )
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert [e["id"] for e in data] == [matching["id"]]
