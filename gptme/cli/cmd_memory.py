@@ -29,6 +29,20 @@ def _clean(value: str, *, keep_newlines: bool = False) -> str:
     return pattern.sub("", value)
 
 
+def _as_str_list(value: object) -> list[str]:
+    """Normalize a legacy tags/keywords field to a list of strings.
+
+    Hand-edited records may store a scalar string (``"tags": "git"``).
+    Iterating that directly would yield individual characters, silently
+    corrupting the migrated entry's keyword recall, so wrap it instead.
+    """
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple, set)):
+        return [v for v in value if isinstance(v, str)]
+    return []
+
+
 def _store():
     from ..memory import MemoryStore  # fmt: skip
 
@@ -532,10 +546,8 @@ def memory_migrate_knowledge_jsonl(
         entry_type: str = (
             raw_type if isinstance(raw_type, str) and raw_type else "problem_resolution"
         )
-        tags: list[str] = [t for t in (obj.get("tags") or []) if isinstance(t, str)]
-        keywords: list[str] = [
-            k for k in (obj.get("keywords") or []) if isinstance(k, str)
-        ]
+        tags = _as_str_list(obj.get("tags"))
+        keywords = _as_str_list(obj.get("keywords"))
         original_id: str = obj.get("id", "")
         created_at: str = obj.get("created_at", "")
 

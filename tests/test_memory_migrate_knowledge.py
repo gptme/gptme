@@ -11,6 +11,18 @@ from gptme.cli.util import main as util_main
 from gptme.memory import MemoryRoot, MemoryStore
 
 
+@pytest.fixture(autouse=True)
+def _clear_data_dir_cache():
+    """Keep XDG_DATA_HOME changes visible despite get_data_dir's lru_cache."""
+    from gptme import dirs
+
+    if hasattr(dirs.get_data_dir, "cache_clear"):
+        dirs.get_data_dir.cache_clear()
+    yield
+    if hasattr(dirs.get_data_dir, "cache_clear"):
+        dirs.get_data_dir.cache_clear()
+
+
 def _make_jsonl(path: Path, entries: list[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [json.dumps(e) for e in entries]
@@ -80,6 +92,30 @@ def test_migrate_basic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert "## Problem" in pytest_entry.body
     assert "## Resolution" in pytest_entry.body
     assert "prefixed with test_" in pytest_entry.body
+
+
+def test_migrate_scalar_tags_stay_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scalar string tag/keyword is kept as one value, not split per character."""
+    entry = {**_ENTRY_A, "tags": "git", "keywords": "non-fast-forward"}
+    jsonl = _make_jsonl(tmp_path / "entries.jsonl", [entry])
+    mem_dir = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem_dir))
+
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "migrate-knowledge-jsonl", str(jsonl), "--scope", "explicit"],
+    )
+    assert result.exit_code == 0, result.output
+
+    store = MemoryStore([MemoryRoot("explicit", mem_dir)])
+    migrated = store.entries()[0]
+    assert "git" in migrated.keywords
+    assert "non-fast-forward" in migrated.keywords
+    # Guard against the per-character regression (str is iterable)
+    assert "g" not in migrated.keywords
+    assert "i" not in migrated.keywords
 
 
 def test_migrate_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
