@@ -215,6 +215,10 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
   - Keyword, tool, and pattern-based matching.
   - Adapts to interactive vs autonomous modes.
   - Extend with your own lessons and [skills][docs-skills].
+- 🗃️ **[Cross-harness memory][docs-memory]**
+  - One local Markdown-based memory store shared by gptme, Claude Code, Codex, and any other harness.
+  - `gptme-util memory` CLI — save, recall, search, supersede, and audit entries from any terminal.
+  - Claude Code hook and Codex AGENTS.md integration included.
 - 🤖 **Support for many LLM [providers][docs-providers]**
   - Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, and more.
   - Use OpenRouter for access to 100+ models, or serve locally with `llama.cpp`.
@@ -687,6 +691,7 @@ If you publish work that uses gptme, we'd love to hear about it on [Discord][dis
 [docs-tools-computer]: https://gptme.org/docs/tools/computer.html
 [docs-lessons]: https://gptme.org/docs/lessons.html
 [docs-skills]: https://gptme.org/docs/skills.html
+[docs-memory]: https://gptme.org/docs/memory.html
 [docs-bot]: https://gptme.org/docs/bot.html
 [docs-server]: https://gptme.org/docs/server.html
 [docs-evals]: https://gptme.org/docs/evals.html
@@ -719,6 +724,7 @@ gptme is a **personal AI agent that runs anywhere a terminal runs** — your lap
 | **Web Browsing** | ✅ Playwright | ❌ | ❌ | ❌ |
 | **Vision** | ✅ Screenshots/Images | ✅ | ✅ | ❌ |
 | **Self-hosting** | ✅ Full control | ❌ | ❌ | ❌ |
+| **Cross-harness memory** | ✅ [`gptme-util memory`][docs-memory] | ❌ CC-only | ❌ | ❌ |
 
 ### How do I install gptme?
 

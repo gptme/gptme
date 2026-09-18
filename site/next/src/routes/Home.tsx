@@ -36,6 +36,12 @@ const ecosystem = [
     href: links.plugins,
     desc: "Plugins add tools, hooks and commands. Skills and lessons teach it your workflows in plain Markdown. gptme-contrib carries community packages: code graphs, multi-model consensus, LSP, image generation.",
   },
+  {
+    tag: "claude code · codex · gptme",
+    title: "Shared memory across harnesses",
+    href: links.memory,
+    desc: "gptme-util memory is a local Markdown memory store usable from any agent harness. Claude Code reads it via a hook, Codex via AGENTS.md, gptme natively — one recall CLI, zero lock-in.",
+  },
 ];
 
 // What each tool actually does, linked to its reference page. The full set is
