@@ -14,7 +14,7 @@ import {
   BookmarkCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { PromptTextarea } from '@/components/PromptTextarea';
 import {
   useState,
   useEffect,
@@ -24,7 +24,6 @@ import {
   type FC,
   type Dispatch,
   type FormEvent,
-  type KeyboardEvent,
   type DragEvent,
   type SetStateAction,
 } from 'react';
@@ -966,9 +965,7 @@ export const ChatInput: FC<Props> = ({
     [onEditSave, attachedFiles, message]
   );
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-
+  const submitMessage = async () => {
     // In edit mode, save instead of send
     if (editMode) {
       if (message.trim() || attachedFiles.length > 0) {
@@ -1051,53 +1048,52 @@ export const ChatInput: FC<Props> = ({
     }
   };
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    // Handle file autocomplete keyboard navigation first
+  const handleFormSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitMessage();
+  };
+
+  // Runs before the shell's own Enter/Escape handling. Returns true when the
+  // file autocomplete has fully consumed the keystroke (navigation, or a
+  // Tab/Enter selection), so the shell should not also treat it as submit.
+  const handleKeyDownCapture = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (!fileAutocomplete.state.isOpen) return false;
+    const handled = fileAutocomplete.handleKeyDown(e);
+    if (!handled) return false;
+    // If Tab or Enter was pressed with a selection, apply it
+    if (
+      (e.key === 'Tab' || e.key === 'Enter') &&
+      fileAutocomplete.state.files[fileAutocomplete.state.selectedIndex]
+    ) {
+      const newValue = fileAutocomplete.selectFile(
+        fileAutocomplete.state.files[fileAutocomplete.state.selectedIndex]
+      );
+      setMessage(newValue);
+    }
+    return true;
+  };
+
+  const handleEscape = () => {
+    // If autocomplete is open, close it first
     if (fileAutocomplete.state.isOpen) {
-      const handled = fileAutocomplete.handleKeyDown(e);
-      if (handled) {
-        // If Tab or Enter was pressed with a selection, apply it
-        if (
-          (e.key === 'Tab' || e.key === 'Enter') &&
-          fileAutocomplete.state.files[fileAutocomplete.state.selectedIndex]
-        ) {
-          const newValue = fileAutocomplete.selectFile(
-            fileAutocomplete.state.files[fileAutocomplete.state.selectedIndex]
-          );
-          setMessage(newValue);
-        }
-        return;
-      }
+      fileAutocomplete.close();
+      return;
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // If autocomplete is open, close it first
-      if (fileAutocomplete.state.isOpen) {
-        fileAutocomplete.close();
-        return;
-      }
-
-      // In edit mode, cancel editing
-      if (editMode && onEditCancel) {
-        onEditCancel();
-        return;
-      }
-
-      // If busy (generating or pending tool confirmation), interrupt
-      if (isBusy && onInterrupt) {
-        console.log('[ChatInput] Escape pressed, interrupting generation...');
-        onInterrupt();
-      }
-
-      // Always blur the input on Escape
-      textareaRef.current?.blur();
+    // In edit mode, cancel editing
+    if (editMode && onEditCancel) {
+      onEditCancel();
+      return;
     }
+
+    // If busy (generating or pending tool confirmation), interrupt
+    if (isBusy && onInterrupt) {
+      console.log('[ChatInput] Escape pressed, interrupting generation...');
+      onInterrupt();
+    }
+
+    // Always blur the input on Escape
+    textareaRef.current?.blur();
   };
 
   const handleTranscript = useCallback(
@@ -1128,19 +1124,15 @@ export const ChatInput: FC<Props> = ({
     [attachFiles]
   );
 
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value;
-    const cursorPos = e.target.selectionStart || 0;
+  // Auto-resize is handled by PromptTextarea itself; this only updates
+  // message state and the file autocomplete popup.
+  const handleTextareaValueChange = (newValue: string, cursorPos: number) => {
     setMessage(newValue);
-    // Auto-adjust height
-    e.target.style.height = 'auto';
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 400)}px`;
-    // Update file autocomplete
     fileAutocomplete.handleInputChange(newValue, cursorPos);
   };
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleFormSubmit}>
       <p id={inputHelpId} className="sr-only">
         Press Enter to send, Shift Enter for a new line, and Escape to cancel, stop generation, or
         leave the message field.
@@ -1219,12 +1211,14 @@ export const ChatInput: FC<Props> = ({
                   isOpen={fileAutocomplete.state.isOpen}
                   query={fileAutocomplete.state.query}
                 />
-                <Textarea
+                <PromptTextarea
                   ref={textareaRef}
                   value={message}
                   data-testid={editMode ? 'edit-input' : 'chat-input'}
-                  onChange={handleTextareaChange}
-                  onKeyDown={handleKeyDown}
+                  onValueChange={handleTextareaValueChange}
+                  onSubmit={() => void submitMessage()}
+                  onEscape={handleEscape}
+                  onKeyDownCapture={handleKeyDownCapture}
                   onPaste={handlePaste}
                   placeholder={editMode ? 'Edit message...' : placeholder}
                   aria-label={editMode ? 'Edit message' : 'Chat message'}
