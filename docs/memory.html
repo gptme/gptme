@@ -583,6 +583,8 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#text-search">Text search</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#export">Export</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#triggered-matching">Triggered matching</a><ul class="visible nav section-nav flex-column">
@@ -796,6 +798,36 @@ its TF-IDF index. A minimal gptme installation falls back to a stdlib
 token-overlap scorer. Output always reports the backend that actually ran; use
 <code class="docutils literal notranslate"><span class="pre">--backend</span> <span class="pre">tfidf</span></code> when fallback would be unacceptable.</p>
 </section>
+<section id="text-search">
+<h3>Text search<a class="headerlink" href="#text-search" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">search</span></code> is a lightweight alternative to <code class="docutils literal notranslate"><span class="pre">recall</span></code> when you want exact
+substring matching rather than relevance ranking.  It filters living entries
+whose name, description, or body contains the given pattern
+(case-insensitive):</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;deploy&quot;</span>
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;auth&quot;</span><span class="w"> </span>--type<span class="w"> </span>project
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;review&quot;</span><span class="w"> </span>--json
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">recall</span></code> when you have a natural-language query and want the best few
+hits; use <code class="docutils literal notranslate"><span class="pre">search</span></code> when you know a specific word or phrase and want all
+matching entries.</p>
+</section>
+<section id="export">
+<h3>Export<a class="headerlink" href="#export" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">export</span></code> renders the store in a format suited to a specific harness:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--view<span class="w"> </span>cc<span class="w"> </span>&gt;<span class="w"> </span>path/to/MEMORY.md
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--view<span class="w"> </span>codex<span class="w"> </span>&gt;&gt;<span class="w"> </span>AGENTS.md
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--view</span> <span class="pre">cc</span></code> produces the same MEMORY.md index that <code class="docutils literal notranslate"><span class="pre">index</span></code> generates,
+suitable for piping directly into Claude Code’s auto-loaded file or into a
+hook payload.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--view</span> <span class="pre">codex</span></code> produces a <code class="docutils literal notranslate"><span class="pre">##</span> <span class="pre">Memory</span></code> section listing living entries with
+the standard recall instruction, ready to paste into an <code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code> file
+when bootstrapping a new Codex workspace.  Both views respect <code class="docutils literal notranslate"><span class="pre">--scope</span></code> and
+<code class="docutils literal notranslate"><span class="pre">--budget</span></code>.</p>
+</section>
 </section>
 <section id="triggered-matching">
 <h2>Triggered matching<a class="headerlink" href="#triggered-matching" title="Link to this heading">#</a></h2>
@@ -971,6 +1003,8 @@ instead. Invalid JSON, a non-object, or a reserved key fails before writing.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#text-search">Text search</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#export">Export</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#triggered-matching">Triggered matching</a><ul class="visible nav section-nav flex-column">
