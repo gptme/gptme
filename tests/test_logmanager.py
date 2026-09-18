@@ -1,4 +1,5 @@
 import builtins
+import errno
 import json
 import os
 from contextlib import contextmanager
@@ -1076,6 +1077,25 @@ def test_write_jsonl_rewrite_replaces_through_symlink(tmp_path: Path):
     assert link.is_symlink(), "rewrite replaced the symlink with a regular file"
     assert link.resolve() == target.resolve()
     assert [message.content for message in Log.read_jsonl(target)] == ["fresh"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory fsync")
+def test_sync_directory_propagates_permission_denial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """EACCES is a policy denial, not an absent barrier.
+
+    Tolerating it would let the barrier report success having done nothing,
+    which is the failure mode the barrier exists to prevent.
+    """
+    from gptme.logmanager.durability import sync_directory
+
+    def denied(fd: int) -> None:
+        raise OSError(errno.EACCES, "permission denied")
+
+    monkeypatch.setattr(os, "fsync", denied)
+    with pytest.raises(OSError, match="permission denied"):
+        sync_directory(tmp_path)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")

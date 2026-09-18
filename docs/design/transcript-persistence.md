@@ -39,7 +39,8 @@ Callers:
 - **CLI** — before returning from a turn and before a successful session exit,
   in both cases after end-of-turn and session-end hooks have contributed their
   messages. Restart uses the same barrier.
-- **Server** — after `generation_complete`, then followed by `turn_persisted`.
+- **Server** — after the turn hooks and before `generation_complete`, so the
+  completion event is never emitted for a turn that failed to persist.
 - **Rewrites** — transcript rewrites and event-log checkpoint compaction sync a
   temporary file, replace atomically, then sync the containing directory. A
   symlinked transcript is replaced through the link, not in place of it.
@@ -47,18 +48,24 @@ Callers:
 Ordinary appends stay buffered by the operating system until a barrier. No
 maximum loss interval is promised for an unfinished turn.
 
-## Two server events, not one
+## Why completion waits
 
-`generation_complete` is emitted as soon as the assistant message has been
-appended, before turn hooks and before the barrier. It means *generation
-finished*, and it is what a rendering client should wait for: making it wait on
-arbitrary hook code and an `fsync` would be a visible latency regression for no
-benefit to the thing it drives.
+Emitting `generation_complete` before the barrier and adding a second
+acknowledgement event afterwards was tried and reverted. It costs more than it
+saves, because `generation_complete` is not what gates the client anyway.
 
-`turn_persisted` follows the barrier and is the durability acknowledgement.
-Clients that must not lose a turn (handoff, checkpointing, external ledgers)
-wait for that one. A barrier failure produces an `error` event and a visible
-system message in the transcript instead of a silent acknowledgement.
+What gates the client is `session.generating`, released in `step()`'s finalizer,
+and no event announces that release. The WebUI infers it from
+`generation_complete` and flushes a queued user message on the inferred idle,
+dequeueing whether or not the send was accepted; a send that arrives before the
+finalizer is rejected with 409 and the message is lost. Emitting completion
+early therefore does not buy interactivity, only an earlier chime, and it widens
+that window. A barrier failure instead produces an `error` event and a visible
+system message in the transcript, and no completion event at all.
+
+The window is not fully closed by this ordering — auto-naming still runs inside
+it — and closing it needs an explicit release signal rather than a client-side
+inference. Tracked separately.
 
 ## What this does not cover
 

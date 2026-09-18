@@ -12,15 +12,17 @@ logger = logging.getLogger(__name__)
 # reject fsync on a directory fd outright. A missing namespace barrier weakens
 # the guarantee; it is not a reason to fail a turn whose contents were written
 # and synced successfully, so these are warned about once and then tolerated.
-# Genuine I/O failures (EIO, ENOSPC, ...) still propagate.
+#
+# Deliberately excludes EACCES and EPERM: a permission or policy denial is not
+# evidence that the filesystem lacks a barrier, and suppressing it would let the
+# barrier report success having done nothing. Genuine I/O failures (EIO,
+# ENOSPC, ...) propagate for the same reason.
 _TOLERATED_ERRNOS = frozenset(
     {
-        errno.EACCES,
         errno.EINVAL,
         errno.ENOSYS,
         errno.ENOTSUP,
         errno.EOPNOTSUPP,
-        errno.EPERM,
     }
 )
 
