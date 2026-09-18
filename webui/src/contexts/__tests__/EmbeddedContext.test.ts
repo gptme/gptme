@@ -2,6 +2,7 @@ import {
   getEmbeddedParentOrigin,
   isEmbeddedContextEventAllowed,
   parseEmbeddedContextMessage,
+  parseSeedPromptMessage,
 } from '@/lib/embeddedContext';
 
 describe('EmbeddedContext helpers', () => {
@@ -109,5 +110,37 @@ describe('EmbeddedContext helpers', () => {
         allowUnknownParentOrigin: true,
       })
     ).toBe(true);
+  });
+
+  describe('parseSeedPromptMessage', () => {
+    it('parses a valid seed-prompt message', () => {
+      expect(
+        parseSeedPromptMessage({
+          type: 'gptme-host:seed-prompt',
+          payload: { prompt: 'tell me about gptme' },
+        })
+      ).toBe('tell me about gptme');
+    });
+
+    it('returns null for wrong message type', () => {
+      expect(
+        parseSeedPromptMessage({ type: 'gptme-host:embedded-context', payload: { prompt: 'x' } })
+      ).toBeNull();
+    });
+
+    it('returns null for empty prompt', () => {
+      expect(
+        parseSeedPromptMessage({ type: 'gptme-host:seed-prompt', payload: { prompt: '' } })
+      ).toBeNull();
+    });
+
+    it('returns null for missing payload', () => {
+      expect(parseSeedPromptMessage({ type: 'gptme-host:seed-prompt' })).toBeNull();
+    });
+
+    it('returns null for non-object input', () => {
+      expect(parseSeedPromptMessage('not-an-object')).toBeNull();
+      expect(parseSeedPromptMessage(null)).toBeNull();
+    });
   });
 });
