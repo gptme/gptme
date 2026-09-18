@@ -103,6 +103,53 @@ def memory_list(
         )
 
 
+@memory.command("search")
+@click.argument("pattern")
+@click.option("--type", "type_", help="Only entries of this type.")
+@click.option(
+    "--scope", help="Only entries from this root (project, cc, agent, user, explicit)."
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def memory_search(pattern: str, type_: str | None, scope: str | None, as_json: bool):
+    """Search entries by text pattern (name, description, or body).
+
+    PATTERN is matched case-insensitively as a substring against each
+    entry's name, description, and body.  Only living entries are searched;
+    use ``list --status superseded`` for archived entries.
+
+    Example:
+
+    \\b
+        gptme-util memory search "review"
+        gptme-util memory search "deploy" --type project --json
+    """
+    store = _store()
+    entries = store.entries(type=type_, scope=scope)
+    # Living entries only (mirrors recall behaviour)
+    entries = [e for e in entries if e.status not in ("superseded", "historical")]
+
+    pat = re.compile(re.escape(pattern), re.IGNORECASE)
+    matched = [
+        e
+        for e in entries
+        if pat.search(e.name)
+        or pat.search(e.description)
+        or (e.body and pat.search(e.body))
+    ]
+
+    if as_json:
+        click.echo(json.dumps([e.to_dict() for e in matched], indent=2, default=str))
+    else:
+        for e in matched:
+            click.echo(
+                f"{_clean(e.type):10s} {_clean(e.name)}  — {_clean(e.description)}"
+            )
+    if store.errors:
+        click.echo(
+            f"({len(store.errors)} file(s) skipped: not memory entries)", err=True
+        )
+
+
 @memory.command("show")
 @click.argument("name")
 @click.option(
@@ -666,3 +713,89 @@ def memory_index(scope: str | None, write: bool, check: bool, budget: int | None
     except (KeyError, OSError, ValueError, MemoryParseError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+@memory.command("export")
+@click.option(
+    "--view",
+    type=click.Choice(["cc", "codex"]),
+    default="cc",
+    show_default=True,
+    help=(
+        "Output format: "
+        "'cc' = MEMORY.md index (for CC always-on auto-load or context injection); "
+        "'codex' = AGENTS.md memory-section snippet."
+    ),
+)
+@click.option(
+    "--scope", help="Root to export from (default: write root for cc, all for codex)."
+)
+@click.option(
+    "--budget",
+    type=click.IntRange(min=1),
+    help="Byte cap for cc view (same as 'index --budget').",
+)
+def memory_export(view: Literal["cc", "codex"], scope: str | None, budget: int | None):
+    """Export memory entries in a harness-specific format.
+
+    cc:    MEMORY.md index — identical to ``index`` output; pipe into the file
+           that Claude Code auto-loads, or inject into a CC hook payload.
+
+    codex: AGENTS.md snippet — a ``## Memory`` section listing living entries
+           with recall instructions, ready to paste into an AGENTS.md file for
+           workspaces that need a memory bootstrap.
+
+    Example:
+
+    \\b
+        gptme-util memory export --view cc > path/to/MEMORY.md
+        gptme-util memory export --view codex >> AGENTS.md
+    """
+    from ..memory.schema import MemoryParseError  # fmt: skip
+
+    store = _store()
+
+    if view == "cc":
+        try:
+            text = store.render_root_index(scope, budget=budget)
+            click.echo(_clean(text, keep_newlines=True), nl=False)
+        except (KeyError, OSError, ValueError, MemoryParseError) as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+    else:  # view == "codex"
+        entries = store.entries(scope=scope)
+        living = [e for e in entries if e.status not in ("superseded", "historical")]
+        if not living:
+            click.echo("(no living memory entries — nothing to export)", err=True)
+            return
+
+        lines: list[str] = [
+            "## Memory\n",
+            "\n",
+            "Run recall at session start to surface relevant entries:\n",
+            "\n",
+            "```bash\n",
+            'gptme-util memory recall "<one-line task description>" -k 5\n',
+            "```\n",
+            "\n",
+            "Current entries:\n",
+            "\n",
+        ]
+        for entry in living:
+            type_tag = f"[{_clean(entry.type)}] " if entry.type else ""
+            lines.append(
+                f"- **{_clean(entry.name)}** — {type_tag}{_clean(entry.description)}\n"
+            )
+
+        lines += [
+            "\n",
+            "Save a memory with:\n",
+            "\n",
+            "```bash\n",
+            "gptme-util memory save <slug> \"<description>\" --type <type> <<'EOF'\n",
+            "<body>\n",
+            "EOF\n",
+            "```\n",
+        ]
+        click.echo("".join(lines), nl=False)

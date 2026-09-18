@@ -936,6 +936,80 @@ class TestCli:
         r = CliRunner().invoke(util_main, ["memory", "roots"])
         assert r.exit_code == 0 and "explicit" in r.output and "(missing)" in r.output
 
+    def test_search_finds_match_in_name_description_body(self, env):
+        runner = CliRunner()
+        # Save two entries
+        runner.invoke(
+            util_main,
+            ["memory", "save", "deploy-rule", "Deployment checklist."],
+            input="Run smoke tests before deploy.\n",
+        )
+        runner.invoke(
+            util_main,
+            ["memory", "save", "review-note", "Code review guidance."],
+            input="Always review diffs.\n",
+        )
+        # Match by name
+        r = runner.invoke(util_main, ["memory", "search", "deploy"])
+        assert r.exit_code == 0 and "deploy-rule" in r.output
+        assert "review-note" not in r.output
+        # Match by description
+        r = runner.invoke(util_main, ["memory", "search", "review guidance"])
+        assert r.exit_code == 0 and "review-note" in r.output
+        # Match by body
+        r = runner.invoke(util_main, ["memory", "search", "smoke tests"])
+        assert r.exit_code == 0 and "deploy-rule" in r.output
+        # No match returns empty output, exit 0
+        r = runner.invoke(util_main, ["memory", "search", "xyzzy-notfound"])
+        assert r.exit_code == 0 and r.output.strip() == ""
+
+    def test_search_json_flag(self, env):
+        runner = CliRunner()
+        runner.invoke(
+            util_main,
+            ["memory", "save", "search-json-test", "For JSON search test."],
+            input="body\n",
+        )
+        r = runner.invoke(util_main, ["memory", "search", "JSON search", "--json"])
+        assert r.exit_code == 0
+        import json as _json
+
+        data = _json.loads(r.output)
+        assert isinstance(data, list) and len(data) == 1
+        assert data[0]["name"] == "search-json-test"
+
+    def test_export_cc_view(self, env):
+        runner = CliRunner()
+        runner.invoke(
+            util_main,
+            ["memory", "save", "cc-export-entry", "An entry to export."],
+            input="Body.\n",
+        )
+        # Write the index first so check passes, then test export --view cc
+        runner.invoke(util_main, ["memory", "index", "--write"])
+        r = runner.invoke(util_main, ["memory", "export", "--view", "cc"])
+        assert r.exit_code == 0 and "cc-export-entry" in r.output
+        assert "# Persistent Memory" in r.output
+
+    def test_export_codex_view(self, env):
+        runner = CliRunner()
+        runner.invoke(
+            util_main,
+            ["memory", "save", "codex-export-entry", "A codex export entry."],
+            input="Body.\n",
+        )
+        r = runner.invoke(util_main, ["memory", "export", "--view", "codex"])
+        assert r.exit_code == 0
+        assert "## Memory" in r.output
+        assert "gptme-util memory recall" in r.output
+        assert "codex-export-entry" in r.output
+
+    def test_export_codex_view_empty(self, env):
+        """Export with no living entries prints a notice and exits 0."""
+        r = CliRunner().invoke(util_main, ["memory", "export", "--view", "codex"])
+        assert r.exit_code == 0
+        assert "nothing to export" in r.output
+
 
 class TestCodexAgentsMdPattern:
     """Exercises the Codex / AGENTS.md integration pattern.

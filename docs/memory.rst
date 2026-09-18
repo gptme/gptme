@@ -205,6 +205,43 @@ its TF-IDF index. A minimal gptme installation falls back to a stdlib
 token-overlap scorer. Output always reports the backend that actually ran; use
 ``--backend tfidf`` when fallback would be unacceptable.
 
+Text search
+~~~~~~~~~~~
+
+``search`` is a lightweight alternative to ``recall`` when you want exact
+substring matching rather than relevance ranking.  It filters living entries
+whose name, description, or body contains the given pattern
+(case-insensitive):
+
+.. code-block:: console
+
+   $ gptme-util memory search "deploy"
+   $ gptme-util memory search "auth" --type project
+   $ gptme-util memory search "review" --json
+
+Use ``recall`` when you have a natural-language query and want the best few
+hits; use ``search`` when you know a specific word or phrase and want all
+matching entries.
+
+Export
+~~~~~~
+
+``export`` renders the store in a format suited to a specific harness:
+
+.. code-block:: console
+
+   $ gptme-util memory export --view cc > path/to/MEMORY.md
+   $ gptme-util memory export --view codex >> AGENTS.md
+
+``--view cc`` produces the same MEMORY.md index that ``index`` generates,
+suitable for piping directly into Claude Code's auto-loaded file or into a
+hook payload.
+
+``--view codex`` produces a ``## Memory`` section listing living entries with
+the standard recall instruction, ready to paste into an ``AGENTS.md`` file
+when bootstrapping a new Codex workspace.  Both views respect ``--scope`` and
+``--budget``.
+
 Triggered matching
 ------------------
 
