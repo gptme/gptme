@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom';
 import { useState } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { EmbeddedContextProvider } from '@/contexts/EmbeddedContext';
@@ -70,7 +70,12 @@ jest.mock('@/stores/servers', () => {
 });
 
 jest.mock('../ChatInput', () => ({
-  ChatInput: ({ value }: { value: string }) => <div data-testid="chat-input">{value}</div>,
+  ChatInput: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <div>
+      <div data-testid="chat-input">{value}</div>
+      <button onClick={() => onChange('')}>clear-input</button>
+    </div>
+  ),
 }));
 
 jest.mock('../ExamplesSection', () => ({
@@ -156,7 +161,7 @@ describe('WelcomeView seed-prompt delivery', () => {
     });
   });
 
-  it('does not clobber an already-restored draft with a late-arriving seed', async () => {
+  it('drops (does not defer) a late seed that arrives while the input is non-empty', async () => {
     localStorage.setItem('gptme-draft-new', 'my unsent draft');
 
     render(
@@ -173,9 +178,15 @@ describe('WelcomeView seed-prompt delivery', () => {
       postSeed('a seed that must not overwrite user text');
     });
 
-    // Give the message handler a tick to run, then confirm the draft survived.
+    // The draft survives — the seed did not overwrite it.
     await waitFor(() => {
       expect(screen.getByTestId('chat-input')).toHaveTextContent('my unsent draft');
     });
+
+    // The seed is a one-shot delivery: it is not held onto and re-applied
+    // once the input becomes empty again. Clearing the input must not make
+    // the dropped seed reappear.
+    fireEvent.click(screen.getByRole('button', { name: 'clear-input' }));
+    expect(screen.getByTestId('chat-input')).toHaveTextContent('');
   });
 });
