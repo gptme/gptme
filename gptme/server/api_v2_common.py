@@ -125,6 +125,7 @@ class BaseEvent(TypedDict):
         "generation_started",
         "generation_progress",
         "generation_complete",
+        "turn_persisted",
         "tool_pending",
         "tool_executing",
         "tool_output",
@@ -240,6 +241,16 @@ class InterruptedEvent(BaseEvent):
     """Sent when generation is interrupted."""
 
 
+class TurnPersistedEvent(BaseEvent):
+    """Sent when the turn's transcript has been synced to disk.
+
+    ``generation_complete`` says the assistant finished generating; this says
+    the turn, including any turn-hook output, survived a persistence barrier.
+    Clients that only render output can ignore it; clients that must not lose a
+    turn (handoff, checkpointing, external ledgers) should wait for it.
+    """
+
+
 class ErrorEvent(BaseEvent):
     """Sent when an error occurs."""
 
@@ -270,6 +281,7 @@ EventType = (
     | GenerationStartedEvent
     | GenerationProgressEvent
     | GenerationCompleteEvent
+    | TurnPersistedEvent
     | ToolPendingEvent
     | ToolExecutingEvent
     | ToolOutputEvent

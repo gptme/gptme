@@ -912,6 +912,11 @@ export class ApiClient {
             callbacks.onMessageComplete(data.message);
             break;
 
+          case 'turn_persisted':
+            // Durability acknowledgement (server contract revision 3). Rendering
+            // already happened on generation_complete; nothing to do here.
+            break;
+
           case 'tool_pending': {
             console.log(`[ApiClient] Tool pending:`, data);
             const pendingToolEvent = data as ToolPendingEvent;

@@ -227,6 +227,8 @@ def test_generation_complete_keeps_assistant_payload_after_turn_post_hook(
 
         assert wait_for_event(event_listener, "generation_started")
         assert wait_for_event(event_listener, "generation_complete")
+        # Hook output lands after generation_complete and before the barrier.
+        assert wait_for_event(event_listener, "turn_persisted")
 
     generation_complete = next(
         event
@@ -247,7 +249,12 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
     auth_headers,
     failure_point,
 ):
-    """Failed assistant/hook persistence must not emit generation_complete."""
+    """Failed persistence must not be acknowledged.
+
+    ``generation_complete`` is a progress signal and still fires once the
+    assistant message is appended; ``turn_persisted`` is the durability
+    acknowledgement and must not fire when the barrier failed.
+    """
     from gptme.hooks import HookType
     from gptme.logmanager.manager import LogManager
     from gptme.message import Message
@@ -311,9 +318,16 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
         )
 
         assert wait_for_event(event_listener, "generation_started")
-        assert not wait_for_event(event_listener, "generation_complete", timeout=2)
-        # Append failure suppresses assistant message_added; barrier failure
-        # may follow provisional events. Both append a visible system error.
+        if failure_point == "append":
+            # append() writes before emitting SSE, so neither the assistant
+            # message_added nor generation_complete ever fires.
+            assert not wait_for_event(event_listener, "generation_complete", timeout=2)
+        else:
+            # The message generated fine; only the barrier failed.
+            assert wait_for_event(event_listener, "generation_complete")
+        # The turn was never acknowledged as durable, in either case.
+        assert not wait_for_event(event_listener, "turn_persisted", timeout=2)
+        # Both paths append a visible system error.
         assert wait_for_event(event_listener, "message_added")
         assert wait_for_event(event_listener, "error")
 
