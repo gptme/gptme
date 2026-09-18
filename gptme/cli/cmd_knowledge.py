@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 import click
 
 if TYPE_CHECKING:
-    pass
+    from ..knowledge import KnowledgeEntry
 
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -298,21 +298,39 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
             all_entries = knowledge_list(limit=sys.maxsize)
             entry_map = {e["id"]: e for e in all_entries}
             # Preserve rag ranking order; apply tag filter post-hoc, then
-            # truncate to top_k. RAG is over-fetched so post-hoc tag
-            # filtering can't leave eligible ranked matches unreported.
+            # truncate to top_k. The rag CLI has no metadata filter, so the
+            # tag filter can only run on the entries rag returned.
             tag_set = {t.strip().lower() for t in tags if t.strip()} if tags else set()
-            results = []
-            for eid in rag_ids:
-                entry = entry_map.get(eid)
-                if entry is None:
-                    continue
-                if tag_set and not tag_set.issubset(
-                    {t.lower() for t in entry.get("tags", [])}
-                ):
-                    continue
-                results.append(entry)
-                if len(results) >= top_k:
-                    break
+
+            def _filter(ids: list[str]) -> list[KnowledgeEntry]:
+                out = []
+                for eid in ids:
+                    entry = entry_map.get(eid)
+                    if entry is None:
+                        continue
+                    if tag_set and not tag_set.issubset(
+                        {t.lower() for t in entry.get("tags", [])}
+                    ):
+                        continue
+                    out.append(entry)
+                    if len(out) >= top_k:
+                        break
+                return out
+
+            results = _filter(rag_ids)
+
+            # Fixed over-fetch cannot *guarantee* top_k: eligible tagged
+            # entries ranked below the page are never seen. When the first
+            # page was truncated (rag filled the request) and the filter still
+            # cannot fill top_k, re-query the whole index, whose size bounds
+            # how many entries exist to rank. If rag returns fewer than asked,
+            # the index is exhausted and a wider query cannot help.
+            if tag_set and len(results) < top_k and len(rag_ids) >= rag_fetch_k:
+                total_indexed = sum(1 for _ in rag_dir.glob("*.md"))
+                if total_indexed > rag_fetch_k:
+                    wider = _rag_search(query, total_indexed, rag_dir)
+                    if wider is not None:
+                        results = _filter(wider)
         else:
             results = knowledge_search(
                 query, top_k=top_k, tags=list(tags) if tags else None

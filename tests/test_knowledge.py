@@ -1157,3 +1157,61 @@ def test_cli_search_rag_tag_filter_truncates_to_top_k(monkeypatch):
     out = json.loads(result.output)
     assert len(out) == 2
     assert all("pytest" in e["tags"] for e in out)
+
+
+def test_cli_search_rag_tag_filter_escalates_when_first_page_truncated(monkeypatch):
+    """A truncated first page escalates to the full index so tagged matches are found.
+
+    Regression guard for a fixed over-fetch (`top_k * 5`): when non-matching
+    entries fill that page, eligible tagged entries ranked below it were never
+    seen and the command reported fewer results than existed.
+    """
+    from gptme.knowledge import _knowledge_dir, knowledge_save
+
+    matching = knowledge_save("pytest problem", "resolution", tags=["pytest"])
+    non_matching = [
+        knowledge_save(f"git problem {i}", "resolution", tags=["git"])
+        for i in range(10)
+    ]
+
+    rag_dir = _knowledge_dir() / "rag"
+    rag_dir.mkdir(parents=True, exist_ok=True)
+    for e in [*non_matching, matching]:
+        (rag_dir / f"{e['id']}.md").write_text("x")
+
+    # First page (top_k * 5 = 10) is entirely non-matching; the matching entry
+    # only appears when the whole index (11) is requested.
+    first_page = [e["id"] for e in non_matching]
+    full_index = [*first_page, matching["id"]]
+
+    class _FakeResult:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(cmd, **kw):
+        n = int(cmd[cmd.index("--n-results") + 1])
+        ids = first_page if n <= len(first_page) else full_index
+        return _FakeResult(_make_rag_response(ids, rag_dir))
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.subprocess.run", fake_run)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "knowledge",
+            "search",
+            "--json",
+            "--top-k",
+            "2",
+            "--tag",
+            "pytest",
+            "anything",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert [e["id"] for e in data] == [matching["id"]]
