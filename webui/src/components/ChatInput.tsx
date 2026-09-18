@@ -910,6 +910,16 @@ export const ChatInput: FC<Props> = ({
   // tool execution/confirmation) completes.
   const wasBusy = useRef(false);
 
+  // After a 409 requeue the busy→idle transition may already have happened (the
+  // 100ms fallback timer can beat the server's release), so a transition-driven
+  // retry would never fire. Re-arm the flush effect on a timer instead.
+  const scheduleQueueRetry = () => {
+    setTimeout(() => {
+      wasBusy.current = true;
+      setMessageQueue((prev) => [...prev]);
+    }, 1000);
+  };
+
   // Send next queued message once the step is fully done (not just paused for a
   // tool confirmation, which would flush mid-step).
   useEffect(() => {
@@ -933,6 +943,7 @@ export const ChatInput: FC<Props> = ({
           if (status === 409) {
             console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
             setMessageQueue((prev) => [nextMessage, ...prev]);
+            scheduleQueueRetry();
           } else {
             console.error('[ChatInput] Failed to send queued message:', error);
           }
@@ -1068,6 +1079,7 @@ export const ChatInput: FC<Props> = ({
             // retried on the next isBusy -> false transition instead of lost.
             console.warn('[ChatInput] Direct send got 409, requeuing', sentMessage);
             setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
+            scheduleQueueRetry();
           } else {
             console.error('[ChatInput] Failed to send message:', error);
           }

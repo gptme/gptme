@@ -41,6 +41,10 @@ import { toastStepStartError } from '@/utils/stepErrorHandling';
 
 const MAX_CONNECTED_CONVERSATIONS = 3;
 
+// Delays between step() retries when the server still holds the generating
+// reservation (409) after the message is persisted.
+const STEP_409_BACKOFF_MS = [250, 500, 1000, 2000];
+
 export function useConversation(conversationId: string, serverId?: string) {
   const { getClient, isConnected$ } = useApi();
   // Use the client for the specific server, or primary if no serverId
@@ -668,32 +672,48 @@ export function useConversation(conversationId: string, serverId?: string) {
       // Add message to conversation (optimistic)
       addMessage(conversationId, userMessage);
 
+      let messageSent = false;
       try {
         // Send the message
         await api.sendMessage(conversationId, userMessage);
+        messageSent = true;
         setMessageStatus(conversationId, userMessage.timestamp!, 'sent');
 
         if (generationIsStale(epoch)) return;
 
-        // Start generation
-        await api.step(
-          conversationId,
-          options?.model,
-          options?.stream,
-          'main',
-          options?.maxTokens,
-          options?.temperature,
-          options?.topP
-        );
+        // Start generation. The message is already persisted, so a 409 here
+        // (server still finalizing a previous step) must retry step() only —
+        // re-sending the message would duplicate it in the log.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await api.step(
+              conversationId,
+              options?.model,
+              options?.stream,
+              'main',
+              options?.maxTokens,
+              options?.temperature,
+              options?.topP
+            );
+            break;
+          } catch (stepError) {
+            const busy = ApiClientError.isApiError(stepError) && stepError.status === 409;
+            if (!busy || attempt >= STEP_409_BACKOFF_MS.length) throw stepError;
+            await new Promise((resolve) => setTimeout(resolve, STEP_409_BACKOFF_MS[attempt]));
+            if (generationIsStale(epoch)) return;
+          }
+        }
         // Store generation params in conversation state so regenerate/rerun paths can use them
         setMaxTokens(conversationId, options?.maxTokens);
         setTemperature(conversationId, options?.temperature);
         setTopP(conversationId, options?.topP);
       } catch (error) {
         console.error('Error sending message:', error);
-        // 409 means the server is still generating — remove the optimistic message
-        // and re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
-        if (ApiClientError.isApiError(error) && error.status === 409) {
+        // 409 before the message was persisted: remove the optimistic copy and
+        // re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
+        // Once persisted, a 409 falls through to the failed-status path below —
+        // a requeue would re-send and duplicate the message.
+        if (!messageSent && ApiClientError.isApiError(error) && error.status === 409) {
           removeMessage(conversationId, userMessage.timestamp!);
           throw error;
         }

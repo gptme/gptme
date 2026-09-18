@@ -417,8 +417,11 @@ def test_acp_step_rejects_duplicate_without_new_user_message(
 
         prompt_calls_after = sum(len(c.prompt_calls) for c in created)
         assert prompt_calls_after == prompt_calls_before
-        assert session.events[-1]["type"] == "error"
-        err = session.events[-1]
+        # The error is followed by step_complete so strict clients see the release.
+        assert session.events[-1]["type"] == "step_complete"
+        assert not session.generating
+        err = session.events[-2]
+        assert err["type"] == "error"
         assert "No new user message" in str(err)
     finally:
         with SessionManager._lock:
@@ -481,8 +484,9 @@ def test_acp_step_processes_all_pending_user_messages(
 
         # A second run without a new user message should fail fast
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
-        assert session.events[-1]["type"] == "error"
-        assert "No new user message" in str(session.events[-1])
+        assert session.events[-1]["type"] == "step_complete"
+        assert session.events[-2]["type"] == "error"
+        assert "No new user message" in str(session.events[-2])
     finally:
         with SessionManager._lock:
             SessionManager._sessions.pop("sid-pending", None)

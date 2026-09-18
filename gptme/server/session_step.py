@@ -454,12 +454,14 @@ async def _acp_step(
                     "error": "Internal error: ACP runtime not initialized",
                 },
             )
-            # No generation was ever started, so don't emit step_complete: the
-            # WebUI's onError handler already clears isBusy for "error" events,
-            # and step_complete would trigger the completion chime/TTS/notify.
-            if session.step_seq == my_step_seq:
-                session.generating = False
-                session.generating_since = None
+            # Release the reservation and emit step_complete (matching the
+            # in-process step() early-exit paths and the documented
+            # contract) under step_lock so this can't race a new reservation.
+            with session.step_lock:
+                if session.step_seq == my_step_seq:
+                    session.generating = False
+                    session.generating_since = None
+                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
             return
         acp_runtime = session.acp_runtime  # snapshot to avoid TOCTOU races
 
@@ -503,12 +505,14 @@ async def _acp_step(
             }
             SessionManager.add_event(conversation_id, error_event)
             manager.write()
-            # No generation was ever started, so don't emit step_complete: the
-            # WebUI's onError handler already clears isBusy for "error" events,
-            # and step_complete would trigger the completion chime/TTS/notify.
-            if session.step_seq == my_step_seq:
-                session.generating = False
-                session.generating_since = None
+            # Release the reservation and emit step_complete (matching the
+            # in-process step() early-exit paths and the documented
+            # contract) under step_lock so this can't race a new reservation.
+            with session.step_lock:
+                if session.step_seq == my_step_seq:
+                    session.generating = False
+                    session.generating_since = None
+                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
             return
 
         next_user_index = session.acp_last_user_msg_index + 1
@@ -519,12 +523,14 @@ async def _acp_step(
                 "error": "No new user message to process",
             }
             SessionManager.add_event(conversation_id, duplicate_error_event)
-            # No generation was ever started, so don't emit step_complete: the
-            # WebUI's onError handler already clears isBusy for "error" events,
-            # and step_complete would trigger the completion chime/TTS/notify.
-            if session.step_seq == my_step_seq:
-                session.generating = False
-                session.generating_since = None
+            # Release the reservation and emit step_complete (matching the
+            # in-process step() early-exit paths and the documented
+            # contract) under step_lock so this can't race a new reservation.
+            with session.step_lock:
+                if session.step_seq == my_step_seq:
+                    session.generating = False
+                    session.generating_since = None
+                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
             return
 
         SessionManager.add_event(conversation_id, {"type": "generation_started"})
@@ -611,11 +617,13 @@ async def _acp_step(
             # A replacement step (interrupt + /step) bumps session.step_seq
             # before this worker's finally runs; a stale worker must not clear
             # the new step's generating flag or emit a stale step_complete.
-            if session.step_seq == my_step_seq:
-                session.generating = False
-                session.generating_since = None
-                # Emit step_complete AFTER generating=False so clients see consistent state
-                SessionManager.add_event(conversation_id, {"type": "step_complete"})
+            # Compare-and-clear and the event are atomic under step_lock, so a
+            # new reservation can't slip in between them.
+            with session.step_lock:
+                if session.step_seq == my_step_seq:
+                    session.generating = False
+                    session.generating_since = None
+                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
     finally:
         current_conversation_id.reset(conversation_token)
         current_session_id.reset(session_token)
@@ -740,15 +748,14 @@ def step(
         _persist_generation_error(manager, session, str(e))
         SessionManager.add_event(conversation_id, ws_error_event)
         session.last_error = str(e)
-        _released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
                 session.finish_skill_turn("failed")
                 session.generating = False
                 session.generating_since = None
-                _released = True
-        if _released:
-            SessionManager.add_event(conversation_id, {"type": "step_complete"})
+                # Emit while still holding step_lock — see step() finally
+                # for why the release and the event must be atomic.
+                SessionManager.add_event(conversation_id, {"type": "step_complete"})
         return
 
     # Set the model as default before triggering hooks
@@ -831,15 +838,14 @@ def step(
             "error": "No messages to process",
         }
         SessionManager.add_event(conversation_id, error_event)
-        _released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
                 session.finish_skill_turn("failed")
                 session.generating = False
                 session.generating_since = None
-                _released = True
-        if _released:
-            SessionManager.add_event(conversation_id, {"type": "step_complete"})
+                # Emit while still holding step_lock — see step() finally
+                # for why the release and the event must be atomic.
+                SessionManager.add_event(conversation_id, {"type": "step_complete"})
         return
 
     # Notify clients about generation status
@@ -1048,7 +1054,6 @@ def step(
         # The tool worker increments step_seq inside step_lock before handing
         # off, so the compare-and-clear below is atomic with respect to that
         # handoff.
-        _step_released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
                 if session.interrupted or not session.generating:
@@ -1059,7 +1064,12 @@ def step(
                     )
                 session.generating = False
                 session.generating_since = None
-                _step_released = True
+                # Emit step_complete while still holding step_lock so a
+                # concurrent /step or continuation can't acquire a new
+                # reservation (and start generating) in the gap between the
+                # release and the event — which would make this stale
+                # step_complete announce completion for the wrong epoch.
+                SessionManager.add_event(conversation_id, {"type": "step_complete"})
             else:
                 logger.debug(
                     "step() finally: skipping generating=False — "
@@ -1067,11 +1077,6 @@ def step(
                     my_step_seq,
                     session.step_seq,
                 )
-        # Emit step_complete AFTER generating=False so clients see the released
-        # state. Only emit when this step owns the reservation; a continuation
-        # step will emit its own step_complete when it finishes.
-        if _step_released:
-            SessionManager.add_event(conversation_id, {"type": "step_complete"})
 
 
 def start_tool_execution(
