@@ -217,7 +217,6 @@ def _rag_search(
             [
                 "gptme-rag",
                 "search",
-                "--",
                 query,
                 str(rag_dir),
                 "--json",
@@ -235,15 +234,22 @@ def _rag_search(
         return None
     try:
         data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    ids: list[str] = []
-    for r in data.get("results", []):
-        source = r.get("source", "")
-        if source:
+        results = data.get("results", [])
+        if not isinstance(results, list):
+            return None
+        ids: list[str] = []
+        for r in results:
+            if not isinstance(r, dict):
+                return None
+            source = r.get("source", "")
+            if not isinstance(source, str) or not source:
+                continue
             stem = Path(source).stem
             if stem:
                 ids.append(stem)
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+        # Malformed/aliens-shaped output falls back to keyword search.
+        return None
     return ids
 
 
@@ -277,23 +283,22 @@ def knowledge_search_cmd(query: str, top_k: int, tags: tuple[str, ...], as_json:
     try:
         kb_dir = _knowledge_dir()
         rag_dir = kb_dir / "rag"
-        rag_ids = _rag_search(query, top_k, rag_dir)
+        # Over-fetch when tag filtering is applied post-hoc, so filtered-out
+        # entries can be backfilled from deeper in the rag ranking.
+        rag_fetch_k = top_k * 5 if tags else top_k
+        rag_ids = _rag_search(query, rag_fetch_k, rag_dir)
 
         if rag_ids is not None:
-            # Build an ID-indexed map from the full JSONL store.
-            all_entries = knowledge_list()
+            # Build an ID-indexed map from the FULL JSONL store: RAG may rank
+            # any entry, not just the newest `knowledge_list()` default page.
+            all_entries = knowledge_list(limit=sys.maxsize)
             entry_map = {e["id"]: e for e in all_entries}
-            # Preserve rag ranking order; apply tag filter post-hoc.
-            # Fetch extra results from rag to account for tag filtering.
+            # Preserve rag ranking order; apply tag filter post-hoc, then
+            # truncate to top_k. RAG is over-fetched so post-hoc tag
+            # filtering can't leave eligible ranked matches unreported.
             tag_set = {t.strip().lower() for t in tags if t.strip()} if tags else set()
             results = []
-            # If tags filter is active, re-query gptme-rag with a higher limit to
-            # ensure we get top_k results after filtering, not before.
-            fetch_ids = rag_ids
-            if tag_set and len(rag_ids) < top_k:
-                # Re-fetch with a higher limit to get more candidates for filtering.
-                fetch_ids = _rag_search(query, top_k * 3, rag_dir) or []
-            for eid in fetch_ids:
+            for eid in rag_ids:
                 entry = entry_map.get(eid)
                 if entry is None:
                     continue

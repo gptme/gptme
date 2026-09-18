@@ -1052,3 +1052,73 @@ def test_cli_search_rag_passes_top_k(monkeypatch):
     assert "--n-results" in cmd
     n_idx = cmd.index("--n-results")
     assert cmd[n_idx + 1] == "3"
+
+
+def test_rag_search_malformed_json_shape_falls_back(monkeypatch, tmp_path):
+    """Valid JSON with an unexpected shape returns None (keyword fallback), not an exception."""
+    from gptme.knowledge import _knowledge_dir
+
+    rag_dir = _knowledge_dir() / "rag"
+    rag_dir.mkdir(parents=True, exist_ok=True)
+    (rag_dir / "dummy.md").write_text("x")
+
+    class _FakeResult:
+        returncode = 0
+        stdout = json.dumps({"results": "not-a-list", "source": 42})
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run", lambda *a, **kw: _FakeResult()
+    )
+
+    from gptme.cli.cmd_knowledge import _rag_search
+
+    assert _rag_search("query", 5, rag_dir) is None
+
+
+def test_cli_search_rag_tag_filter_truncates_to_top_k(monkeypatch):
+    """Post-hoc tag filtering with over-fetch still yields exactly top_k results."""
+    from gptme.knowledge import _knowledge_dir, knowledge_save
+
+    matching = [
+        knowledge_save(f"pytest problem {i}", "resolution", tags=["pytest"])
+        for i in range(3)
+    ]
+    non_matching = knowledge_save("git problem", "resolution", tags=["git"])
+
+    rag_dir = _knowledge_dir() / "rag"
+    rag_dir.mkdir(parents=True, exist_ok=True)
+    for e in [non_matching, *matching]:
+        (rag_dir / f"{e['id']}.md").write_text("x")
+
+    # git entry ranks first; 3 pytest entries follow — rag over-fetches so
+    # the post-hoc tag filter can still fill top_k=2.
+    ordered = [non_matching["id"], *[e["id"] for e in matching]]
+
+    class _FakeResult:
+        returncode = 0
+        stdout = _make_rag_response(ordered, rag_dir)
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run", lambda *a, **kw: _FakeResult()
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "knowledge",
+            "search",
+            "--json",
+            "--top-k",
+            "2",
+            "--tag",
+            "pytest",
+            "anything",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    out = json.loads(result.output)
+    assert len(out) == 2
+    assert all("pytest" in e["tags"] for e in out)
