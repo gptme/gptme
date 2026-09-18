@@ -40,6 +40,9 @@ gptme.telemetry.init_telemetry = lambda *args, **kwargs: None
 
 ready = Path(sys.argv[1])
 mode = sys.argv[2]
+# SIG_IGN survives exec; a pytest worker that leaked it would make the CLI skip
+# its handler. Start from the default disposition regardless of the parent.
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
 if mode == "ignore":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 elif mode == "custom":
