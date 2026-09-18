@@ -217,12 +217,15 @@ def _rag_search(
             [
                 "gptme-rag",
                 "search",
-                "--",
-                query,
-                str(rag_dir),
+                # Options must precede the ``--`` terminator; anything after it
+                # is treated as a positional argument (query/paths), so a
+                # trailing --json would be silently ignored.
                 "--json",
                 "--n-results",
                 str(top_k),
+                "--",
+                query,
+                str(rag_dir),
             ],
             capture_output=True,
             text=True,

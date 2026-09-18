@@ -1054,6 +1054,41 @@ def test_cli_search_rag_passes_top_k(monkeypatch):
     assert cmd[n_idx + 1] == "3"
 
 
+def test_rag_search_options_precede_terminator(monkeypatch, tmp_path):
+    """--json/--n-results must precede `--`; after it click treats them as paths.
+
+    Regression guard: with the options after the terminator `gptme-rag` parsed
+    them as positional paths, disabled JSON output, and silently fell back to
+    keyword search.
+    """
+    from gptme.cli.cmd_knowledge import _rag_search
+
+    rag_dir = tmp_path / "rag"
+    rag_dir.mkdir()
+    (rag_dir / "entry.md").write_text("x")
+
+    captured: list = []
+
+    class _FakeResult:
+        returncode = 0
+        stdout = json.dumps({"results": []})
+
+    def fake_run(cmd, **kw):
+        captured.append(cmd)
+        return _FakeResult()
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.subprocess.run", fake_run)
+
+    assert _rag_search("query", 3, rag_dir) == []
+    cmd = captured[0]
+    terminator = cmd.index("--")
+    assert cmd.index("--json") < terminator
+    assert cmd.index("--n-results") < terminator
+    # Query is the first positional after `--`, followed by the rag dir.
+    assert cmd[terminator + 1 : terminator + 3] == ["query", str(rag_dir)]
+
+
 def test_rag_search_malformed_json_shape_falls_back(monkeypatch, tmp_path):
     """Valid JSON with an unexpected shape returns None (keyword fallback), not an exception."""
     from gptme.knowledge import _knowledge_dir
