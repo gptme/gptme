@@ -119,10 +119,9 @@ def test_migrate_dry_run_reports_skips(
         ["memory", "migrate-knowledge-jsonl", str(jsonl), "--dry-run"],
     )
     assert r2.exit_code == 0, r2.output
-    # Summary line says "would migrate 0, skipped 1" — that is expected.
-    # The per-entry line must be "would skip" not "would migrate:".
-    assert "would skip" in r2.output or "skipped 1" in r2.output
-    assert "  would migrate:" not in r2.output
+    # The per-entry line goes to stderr (err=True); the summary goes to stdout.
+    assert "would skip" in r2.stderr
+    assert "  would migrate:" not in r2.stdout
 
 
 def test_migrate_skip_existing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
