@@ -471,10 +471,10 @@ def memory_migrate_knowledge_jsonl(
 
     JSONL_PATH defaults to ``~/.local/share/gptme/knowledge/entries.jsonl``.
 
-    Each problem/resolution pair becomes a ``general`` memory entry:
-    the name is slugified from the problem text, the body records both
-    fields in markdown sections, and existing tags and keywords are
-    preserved as memory keywords.
+    Each knowledge entry becomes a ``general`` memory entry: the name is
+    slugified from the primary text, the body records both fields under
+    type-aware section headings (entry_type is preserved in provenance),
+    and existing tags and keywords are preserved as memory keywords.
 
     After migration, ``gptme-util knowledge`` commands still work against the
     original JSONL; retire it once you are satisfied with the migrated entries.
@@ -490,6 +490,7 @@ def memory_migrate_knowledge_jsonl(
     from textwrap import shorten as _shorten
 
     from ..dirs import get_data_dir  # fmt: skip
+    from ..knowledge import _ENTRY_TYPE_LABELS  # fmt: skip
     from ..memory.schema import MemoryParseError, slugify  # fmt: skip
 
     if jsonl_path is None:
@@ -525,6 +526,7 @@ def memory_migrate_knowledge_jsonl(
     for obj in entries:
         problem: str = obj["problem"]
         resolution: str = obj.get("resolution", "")
+        entry_type: str = obj.get("entry_type") or "problem_resolution"
         tags: list[str] = [t for t in (obj.get("tags") or []) if isinstance(t, str)]
         keywords: list[str] = [
             k for k in (obj.get("keywords") or []) if isinstance(k, str)
@@ -552,9 +554,18 @@ def memory_migrate_knowledge_jsonl(
 
         description = _shorten(problem, width=120, placeholder="…")
 
-        body = f"## Problem\n\n{problem}\n\n## Resolution\n\n{resolution}\n"
+        # Type-aware section headings; typed entries keep their original
+        # type in provenance so the semantic type stays recoverable.
+        primary_label, secondary_label = _ENTRY_TYPE_LABELS.get(
+            entry_type, ("Problem", "Resolution")
+        )
+        body = (
+            f"## {primary_label}\n\n{problem}\n\n## {secondary_label}\n\n{resolution}\n"
+        )
 
         provenance: dict = {"source": "knowledge-jsonl"}
+        if entry_type != "problem_resolution":
+            provenance["original_entry_type"] = entry_type
         if original_id:
             provenance["original_id"] = original_id
         if created_at:

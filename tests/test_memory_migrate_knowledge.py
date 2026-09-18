@@ -179,6 +179,35 @@ def test_migrate_default_path_no_file(
     )
 
 
+def test_migrate_preserves_entry_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Typed knowledge entries keep type-aware headings and provenance."""
+    entry = {
+        **_ENTRY_A,
+        "problem": "Switched auth library from X to Y",
+        "resolution": "X had no async support; Y supports both sync and async callers.",
+        "entry_type": "decision",
+    }
+    jsonl = _make_jsonl(tmp_path / "entries.jsonl", [entry])
+    mem_dir = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem_dir))
+
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "migrate-knowledge-jsonl", str(jsonl), "--scope", "explicit"],
+    )
+    assert result.exit_code == 0, result.output
+
+    store = MemoryStore([MemoryRoot("explicit", mem_dir)])
+    entries = store.entries()
+    assert len(entries) == 1
+    saved = entries[0]
+    assert "## Decision" in saved.body
+    assert "## Rationale" in saved.body
+    assert saved.metadata.get("provenance", {}).get("original_entry_type") == "decision"
+
+
 def test_migrate_slug_collision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
