@@ -526,7 +526,12 @@ def memory_migrate_knowledge_jsonl(
     for obj in entries:
         problem: str = obj["problem"]
         resolution: str = obj.get("resolution", "")
-        entry_type: str = obj.get("entry_type") or "problem_resolution"
+        raw_type = obj.get("entry_type")
+        # Malformed/hand-edited records may carry a non-string entry_type
+        # (e.g. a list); fall back to the default instead of aborting.
+        entry_type: str = (
+            raw_type if isinstance(raw_type, str) and raw_type else "problem_resolution"
+        )
         tags: list[str] = [t for t in (obj.get("tags") or []) if isinstance(t, str)]
         keywords: list[str] = [
             k for k in (obj.get("keywords") or []) if isinstance(k, str)

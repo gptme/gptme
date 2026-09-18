@@ -249,6 +249,23 @@ def test_migrate_malformed_tags_does_not_abort(
     assert "migrated 2" in result.output
 
 
+def test_migrate_malformed_entry_type_does_not_abort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-string entry_type falls back to the default instead of aborting migration."""
+    entry_bad = {**_ENTRY_A, "entry_type": ["decision"]}
+    jsonl = _make_jsonl(tmp_path / "entries.jsonl", [entry_bad, _ENTRY_B])
+    mem_dir = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem_dir))
+
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "migrate-knowledge-jsonl", str(jsonl), "--scope", "explicit"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "migrated 2" in result.output
+
+
 def test_knowledge_deprecation_warning(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
