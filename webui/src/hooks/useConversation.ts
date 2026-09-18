@@ -356,7 +356,19 @@ export function useConversation(conversationId: string, serverId?: string) {
               const pendingStep = pendingStepRef.current;
               if (pendingStep) {
                 pendingStepRef.current = null;
-                void pendingStep();
+                pendingStep().catch((error) => {
+                  if (ApiClientError.isApiError(error) && error.status === 409) {
+                    // Server still busy; re-park and wait for the next step_complete.
+                    pendingStepRef.current = pendingStep;
+                  } else {
+                    console.error('Deferred step failed:', error);
+                    const { title, description } = getApiErrorPresentation(error, {
+                      fallbackTitle: 'Step failed',
+                      fallbackDescription: 'Failed to resume generation after retry',
+                    });
+                    toast({ variant: 'destructive', title, description });
+                  }
+                });
               }
             },
             onMessageAdded: (message) => {
