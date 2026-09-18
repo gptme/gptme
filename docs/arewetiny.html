@@ -320,6 +320,7 @@
 <li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.34.0.html">v0.34.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.33.0.html">v0.33.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.32.0.html">v0.32.0</a></li>
@@ -626,20 +627,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-      45037 |                 prompt_toolkit
-      46137 |               gptme.util.prompt
-      61912 |             gptme.message
-      79487 |           gptme.tools
-      82724 | gptme.cli.main
-      89857 |         gptme.config.cli_setup
-     109542 |       gptme.config
-     114600 |     gptme.llm
-     155442 |   gptme.commands
-     210173 | gptme.chat
+      63134 |                 prompt_toolkit
+      64529 |               gptme.util.prompt
+      84755 |             gptme.message
+     106926 | gptme.cli.main
+     108201 |           gptme.tools
+     122240 |         gptme.config.cli_setup
+     148252 |       gptme.config
+     155107 |     gptme.llm
+     212766 |   gptme.commands
+     284877 | gptme.chat
 
-real	0m0.991s
-user	0m0.794s
-sys	0m0.095s
+real	0m1.319s
+user	0m1.011s
+sys	0m0.163s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -647,23 +648,23 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     102.9 ms ±   2.1 ms    [User: 93.1 ms, System: 9.7 ms]
-  Range (min … max):   101.4 ms … 108.9 ms    10 runs
+  Time (mean ± σ):     132.5 ms ±   1.1 ms    [User: 113.4 ms, System: 19.1 ms]
+  Range (min … max):   130.6 ms … 134.2 ms    10 runs
+ 
+Benchmark 2: gptme --help
+  Time (mean ± σ):     555.8 ms ±  24.4 ms    [User: 491.6 ms, System: 63.9 ms]
+  Range (min … max):   542.9 ms … 624.0 ms    10 runs
  
   Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the &#39;--warmup&#39; or &#39;--prepare&#39; options.
  
-Benchmark 2: gptme --help
-  Time (mean ± σ):     418.7 ms ±   2.1 ms    [User: 382.6 ms, System: 35.9 ms]
-  Range (min … max):   415.1 ms … 422.2 ms    10 runs
- 
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):     764.1 ms ±  10.3 ms    [User: 633.6 ms, System: 316.2 ms]
-  Range (min … max):   754.0 ms … 781.7 ms    10 runs
+  Time (mean ± σ):      1.000 s ±  0.016 s    [User: 0.795 s, System: 0.551 s]
+  Range (min … max):    0.981 s …  1.025 s    10 runs
  
 Summary
   import gptme.cli.main ran
-    4.07 ± 0.09 times faster than gptme --help
-    7.43 ± 0.18 times faster than full start/exit cycle
+    4.19 ± 0.19 times faster than gptme --help
+    7.55 ± 0.14 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -3506,7 +3507,7 @@ Clone found (python)
 │ Total:     │ 520            │ 198903      │ 941994       │ 190          │ 2327 (1.17%)     │ 13178 (1.40%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 190 clones.
-time: 384.469ms
+time: 439.058ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

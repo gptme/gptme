@@ -1,0 +1,976 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>v0.34.0 &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.12.1.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/asciinema-player_3.12.1.js"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'releases/v0.34.0';</script>
+    <link rel="canonical" href="https://gptme.org/docs/releases/v0.34.0.html" />
+    <link rel="icon" href="../_static/logo.png"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="v0.33.0" href="v0.33.0.html" />
+    <link rel="prev" title="Changelog" href="../changelog.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <script>document.write(`<img src="../_static/logo.png" class="logo__image only-dark" alt="gptme - Home"/>`);</script>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../getting-started.html">Getting Started</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../system-dependencies.html">Extras and System Dependencies</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/choose-workflow.html">Choose a Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/minimal-context.html">Minimal Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/edit-files.html">Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/code-review.html">Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/debug-python.html">Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/refactor.html">Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/automate-task.html">Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/parallel-research.html">Parallel Research</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/computer-use.html">Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/skills-workflows.html">Reusable Skills</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/custom-tool-plugin.html">Custom Tool Plugin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/tts-setup.html">Text-to-Speech</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Using gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models.html">Models</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../providers-supported.html">Supported Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../providers-integration.html">Provider Integration Guide</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tool-formats.html">Tool Formats</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tools/read.html">Read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/save.html">Save</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/patch.html">Patch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/morph.html">Morph</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/hashline-edit.html">Hashline Edit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/python.html">Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/shell.html">Shell</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/gh.html">GitHub (gh)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/precommit.html">Precommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/autocommit.html">Autocommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/browser.html">Browser</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/rag.html">RAG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/chats.html">Chats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vision.html">Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/screenshot.html">Screenshot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/computer.html">Computer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/choice.html">Choice</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/elicit.html">Elicit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/form.html">Form</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/tmux.html">Tmux</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/subagent.html">Subagent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/complete.html">Complete</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/restart.html">Restart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vent.html">Vent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/request-tool-change.html">Request Tool Change</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/lessons.html">Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/todo.html">Todo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/mcp.html">MCP</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../automation.html">Automation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../security.html">Security</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Interfaces</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../cli.html">CLI</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/sessions.html">Sessions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/evaluation.html">Evaluation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../app.html">App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloud.html">Cloud</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../acp.html">ACP</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../channels.html">Channels</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bot.html">GitHub Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/email.html">Email</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/agent-messaging.html">Agent Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/chat.html">Chat Apps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/voice.html">Voice</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../webui.html">Web</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Context</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agents/workspace.html">Workspace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/autonomous.html">Running autonomously</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../profiles.html">Profiles</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../lessons.html">Lessons</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../skills.html">Skills</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../skills-gallery.html">Gallery</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../memory.html">Memory</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Extending gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mcp.html">MCP</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../pr-lifecycle.html">PR Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../building.html">Building Executables</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/llm.html">LLMs and Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/tools.html">Tools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/config.html">Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/plugins.html">Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/commands.html">Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/profiles.html">Profiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/memory.html">Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/prompts.html">Prompts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/server.html">Server</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../context-compression.html">Context Compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../design/index.html">Design Documents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/elicitation.html">Generalized Elicitation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/transcript-persistence.html">Transcript Persistence</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../projects.html">Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../timeline.html">Timeline</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">v0.34.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.33.0.html">v0.33.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.32.1.html">v0.32.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.32.0.html">v0.32.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/releases/v0.34.0.md" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/releases/v0.34.0.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>v0.34.0</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributors">Contributors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changelog">Changelog</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">📦 gptme</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#features-61">✨ Features (61)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes-123">🐛 Fixes (123)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#misc-42">🔨 Misc (42)</a></li>
+</ul>
+</li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="v0-34-0">
+<h1>v0.34.0<a class="headerlink" href="#v0-34-0" title="Link to this heading">#</a></h1>
+<p>These are the release notes for gptme version v0.34.0.</p>
+<section id="contributors">
+<h2>Contributors<a class="headerlink" href="#contributors" title="Link to this heading">#</a></h2>
+<p>Thanks to everyone who contributed to this release:</p>
+<p>&#64;AmaLS367, &#64;aniruddhaadak80, &#64;erikbjare, &#64;simpleqt, &#64;TimeToBuildBob</p>
+</section>
+<section id="changelog">
+<h2>Changelog<a class="headerlink" href="#changelog" title="Link to this heading">#</a></h2>
+<p>Changes since v0.33.0:</p>
+</section>
+<section id="gptme">
+<h2>📦 gptme<a class="headerlink" href="#gptme" title="Link to this heading">#</a></h2>
+<section id="features-61">
+<h3>✨ Features (61)<a class="headerlink" href="#features-61" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>feat(webui): add gptme-host:seed-prompt to pre-fill chat input from host (<a class="reference external" href="https://github.com/gptme/gptme/issues/3870">#3870</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/437eca576"><code class="docutils literal notranslate"><span class="pre">437eca576</span></code></a>)</p></li>
+<li><p>feat(memory): add search and export commands to complete <a class="reference external" href="https://github.com/gptme/gptme/issues/3734">#3734</a> CLI table (<a class="reference external" href="https://github.com/gptme/gptme/issues/3869">#3869</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a0418fe30"><code class="docutils literal notranslate"><span class="pre">a0418fe30</span></code></a>)</p></li>
+<li><p>feat(memory): migrate-knowledge-jsonl command + deprecate knowledge CLI (<a class="reference external" href="https://github.com/gptme/gptme/issues/3863">#3863</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/19f3ece8b"><code class="docutils literal notranslate"><span class="pre">19f3ece8b</span></code></a>)</p></li>
+<li><p>feat(cloud): default service URL → auth.gptme.ai custom domain (<a class="reference external" href="https://github.com/gptme/gptme/issues/3866">#3866</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d78c71188"><code class="docutils literal notranslate"><span class="pre">d78c71188</span></code></a>)</p></li>
+<li><p>feat(knowledge): wire search to gptme-rag semantic ranking (<a class="reference external" href="https://github.com/gptme/gptme/issues/3865">#3865</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/73074e58d"><code class="docutils literal notranslate"><span class="pre">73074e58d</span></code></a>)</p></li>
+<li><p>feat(knowledge): generalize schema with entry_type (problem_resolution, decision, fact, how_to, note) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3864">#3864</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b42d24b85"><code class="docutils literal notranslate"><span class="pre">b42d24b85</span></code></a>)</p></li>
+<li><p>feat(config): expose preview guidance through runtime prompt fragments (<a class="reference external" href="https://github.com/gptme/gptme/issues/3821">#3821</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c74602087"><code class="docutils literal notranslate"><span class="pre">c74602087</span></code></a>)</p></li>
+<li><p>feat(site): deploy design-v3 landing page to gptme.org (<a class="reference external" href="https://github.com/gptme/gptme/issues/3849">#3849</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/170f28bb4"><code class="docutils literal notranslate"><span class="pre">170f28bb4</span></code></a>)</p></li>
+<li><p>feat(site): prototype of new gptme.org site (design v3) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3839">#3839</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0881c1d98"><code class="docutils literal notranslate"><span class="pre">0881c1d98</span></code></a>)</p></li>
+<li><p>feat(memory): trigger keyworded entries through the lesson matcher (<a class="reference external" href="https://github.com/gptme/gptme/issues/3817">#3817</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/1ced9ccca"><code class="docutils literal notranslate"><span class="pre">1ced9ccca</span></code></a>)</p></li>
+<li><p>feat(subagent): persist registry metadata and rehydrate after restart (<a class="reference external" href="https://github.com/gptme/gptme/issues/3834">#3834</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/085bd7bec"><code class="docutils literal notranslate"><span class="pre">085bd7bec</span></code></a>)</p></li>
+<li><p>feat(skills): persist CostTracker ownership across TUI/server workers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3833">#3833</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3c4326778"><code class="docutils literal notranslate"><span class="pre">3c4326778</span></code></a>)</p></li>
+<li><p>feat(subagent): continue completed child conversations (<a class="reference external" href="https://github.com/gptme/gptme/issues/3820">#3820</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e4e0f6980"><code class="docutils literal notranslate"><span class="pre">e4e0f6980</span></code></a>)</p></li>
+<li><p>feat(skills): export lifecycle metrics and measured cost windows (<a class="reference external" href="https://github.com/gptme/gptme/issues/3793">#3793</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/6f9a5bdfc"><code class="docutils literal notranslate"><span class="pre">6f9a5bdfc</span></code></a>)</p></li>
+<li><p>feat(tools): conditional tool docs + companion tools (requires_tools) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3801">#3801</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/925eab097"><code class="docutils literal notranslate"><span class="pre">925eab097</span></code></a>)</p></li>
+<li><p>feat(memory): use layered MemoryStore in workspace prompt (<a class="reference external" href="https://github.com/gptme/gptme/issues/3789">#3789</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/31a385390"><code class="docutils literal notranslate"><span class="pre">31a385390</span></code></a>)</p></li>
+<li><p>feat(memory): preserve writer provenance through CLI metadata (<a class="reference external" href="https://github.com/gptme/gptme/issues/3792">#3792</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/1ecb322fc"><code class="docutils literal notranslate"><span class="pre">1ecb322fc</span></code></a>)</p></li>
+<li><p>feat(memory): persist always-on selection and byte budget (<a class="reference external" href="https://github.com/gptme/gptme/issues/3791">#3791</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/587048f44"><code class="docutils literal notranslate"><span class="pre">587048f44</span></code></a>)</p></li>
+<li><p>feat(models): add deepseek/deepseek-v4.1-flash (<a class="reference external" href="https://github.com/gptme/gptme/issues/3799">#3799</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0241c2592"><code class="docutils literal notranslate"><span class="pre">0241c2592</span></code></a>)</p></li>
+<li><p>feat(skills): record server and TUI invocation outcomes (<a class="reference external" href="https://github.com/gptme/gptme/issues/3787">#3787</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0e7033754"><code class="docutils literal notranslate"><span class="pre">0e7033754</span></code></a>)</p></li>
+<li><p>feat(memory): Codex/AGENTS.md integration for cross-harness memory (<a class="reference external" href="https://github.com/gptme/gptme/issues/3764">#3764</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b5374121c"><code class="docutils literal notranslate"><span class="pre">b5374121c</span></code></a>)</p></li>
+<li><p>feat(models): generate recommended-model docs from code; add DeepSeek V4 Flash 0731, GLM 5.3 Flash, GPT-6 Astra, Grok 4.6; OpenRouter provider allowlists (<a class="reference external" href="https://github.com/gptme/gptme/issues/3786">#3786</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a35b7fdf5"><code class="docutils literal notranslate"><span class="pre">a35b7fdf5</span></code></a>)</p></li>
+<li><p>feat(cli): add –track-tokens flag to print running token count per LLM call (<a class="reference external" href="https://github.com/gptme/gptme/issues/3646">#3646</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/235a3fb90"><code class="docutils literal notranslate"><span class="pre">235a3fb90</span></code></a>)</p></li>
+<li><p>feat(skills): persist explicit invocation lifecycle evidence (<a class="reference external" href="https://github.com/gptme/gptme/issues/3750">#3750</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/fc8024909"><code class="docutils literal notranslate"><span class="pre">fc8024909</span></code></a>)</p></li>
+<li><p>feat(llm): make reasoning effort controllable and observable for OpenAI-compatible providers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3781">#3781</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/75c65631c"><code class="docutils literal notranslate"><span class="pre">75c65631c</span></code></a>)</p></li>
+<li><p>feat(config): trust-on-first-use gate for project-level shell execution (<a class="reference external" href="https://github.com/gptme/gptme/issues/3782">#3782</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/dbd5f6173"><code class="docutils literal notranslate"><span class="pre">dbd5f6173</span></code></a>)</p></li>
+<li><p>feat(hooks): add guardrail TOOL_CONFIRM hook for headless safety (<a class="reference external" href="https://github.com/gptme/gptme/issues/3598">#3598</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3765">#3765</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c176aa62d"><code class="docutils literal notranslate"><span class="pre">c176aa62d</span></code></a>)</p></li>
+<li><p>feat(server): add /preview/{port}/ proxy for cloud port exposure (gptme-cloud<a class="reference external" href="https://github.com/gptme/gptme/issues/910">#910</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3767">#3767</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/5e6083c91"><code class="docutils literal notranslate"><span class="pre">5e6083c91</span></code></a>)</p></li>
+<li><p>feat(memory): add cross-harness lexical recall (<a class="reference external" href="https://github.com/gptme/gptme/issues/3740">#3740</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d4bcf8658"><code class="docutils literal notranslate"><span class="pre">d4bcf8658</span></code></a>)</p></li>
+<li><p>feat(tools): add ToolSpec.read_only flag; auto-approve in cli_confirm_hook (<a class="reference external" href="https://github.com/gptme/gptme/issues/3733">#3733</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9573ef16e"><code class="docutils literal notranslate"><span class="pre">9573ef16e</span></code></a>)</p></li>
+<li><p>feat(memory): gptme.memory package + gptme-util memory CLI (layered roots, CC-compatible) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3735">#3735</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/21334d854"><code class="docutils literal notranslate"><span class="pre">21334d854</span></code></a>)</p></li>
+<li><p>feat(shell): stream one-shot command output while it runs (<a class="reference external" href="https://github.com/gptme/gptme/issues/3579">#3579</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e3d15c571"><code class="docutils literal notranslate"><span class="pre">e3d15c571</span></code></a>)</p></li>
+<li><p>feat(memory): add memory write tool for cross-runtime memory sharing (<a class="reference external" href="https://github.com/gptme/gptme/issues/3638">#3638</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/39810873a"><code class="docutils literal notranslate"><span class="pre">39810873a</span></code></a>)</p></li>
+<li><p>feat(dataset): trajectory-to-env pipeline for fine-tuning dataset construction (<a class="reference external" href="https://github.com/gptme/gptme/issues/3719">#3719</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/86fc95533"><code class="docutils literal notranslate"><span class="pre">86fc95533</span></code></a>)</p></li>
+<li><p>feat(cli): add gptme capabilities export (<a class="reference external" href="https://github.com/gptme/gptme/issues/3705">#3705</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/6b7d53d1a"><code class="docutils literal notranslate"><span class="pre">6b7d53d1a</span></code></a>)</p></li>
+<li><p>feat(harness): actuate request_tool_change — enable/disable tools mid-session (Phase 2) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3656">#3656</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d3b39582d"><code class="docutils literal notranslate"><span class="pre">d3b39582d</span></code></a>)</p></li>
+<li><p>feat(lessons): class-aware dropout for validated_core (Phase 1) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3700">#3700</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/fb8a511b5"><code class="docutils literal notranslate"><span class="pre">fb8a511b5</span></code></a>)</p></li>
+<li><p>feat(context): add context-scout pre-pass (cheap model identifies relevant files) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3692">#3692</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b5ecb8ff8"><code class="docutils literal notranslate"><span class="pre">b5ecb8ff8</span></code></a>)</p></li>
+<li><p>feat(knowledge): inject matching KB entries at session start (<a class="reference external" href="https://github.com/gptme/gptme/issues/3678">#3678</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a89ef54b9"><code class="docutils literal notranslate"><span class="pre">a89ef54b9</span></code></a>)</p></li>
+<li><p>feat(providers): complete context compression plugin interface - Phase 2 (<a class="reference external" href="https://github.com/gptme/gptme/issues/3613">#3613</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/67de83b77"><code class="docutils literal notranslate"><span class="pre">67de83b77</span></code></a>)</p></li>
+<li><p>feat(shell): improve background job control (<a class="reference external" href="https://github.com/gptme/gptme/issues/3673">#3673</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/01b6ad50a"><code class="docutils literal notranslate"><span class="pre">01b6ad50a</span></code></a>)</p></li>
+<li><p>feat(tools): expose convert as auto-discovered structured tool (<a class="reference external" href="https://github.com/gptme/gptme/issues/3659">#3659</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/03529e2fa"><code class="docutils literal notranslate"><span class="pre">03529e2fa</span></code></a>)</p></li>
+<li><p>feat(knowledge): cross-session KB save/retrieve as gptme-util CLI (<a class="reference external" href="https://github.com/gptme/gptme/issues/3622">#3622</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b5152917d"><code class="docutils literal notranslate"><span class="pre">b5152917d</span></code></a>)</p></li>
+<li><p>feat(service-init): add optional local health probe (<a class="reference external" href="https://github.com/gptme/gptme/issues/3665">#3665</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/2ccf2ff02"><code class="docutils literal notranslate"><span class="pre">2ccf2ff02</span></code></a>)</p></li>
+<li><p>feat(browser): skip html→markdown when server returns text/markdown (<a class="reference external" href="https://github.com/gptme/gptme/issues/3647">#3647</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0565d1548"><code class="docutils literal notranslate"><span class="pre">0565d1548</span></code></a>)</p></li>
+<li><p>feat(doctor): add proxy URL format check (LLM_PROXY_URL) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3645">#3645</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c9193879b"><code class="docutils literal notranslate"><span class="pre">c9193879b</span></code></a>)</p></li>
+<li><p>feat(eval): route fable-5 and haiku-4.5 to tool format by default (<a class="reference external" href="https://github.com/gptme/gptme/issues/3655">#3655</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/1b23b5fb0"><code class="docutils literal notranslate"><span class="pre">1b23b5fb0</span></code></a>)</p></li>
+<li><p>feat(tools): add offline file format conversion tool (<a class="reference external" href="https://github.com/gptme/gptme/issues/3595">#3595</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b04893049"><code class="docutils literal notranslate"><span class="pre">b04893049</span></code></a>)</p></li>
+<li><p>feat(ci): use config-driven root structure validator (<a class="reference external" href="https://github.com/gptme/gptme/issues/3654">#3654</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0599fd6da"><code class="docutils literal notranslate"><span class="pre">0599fd6da</span></code></a>)</p></li>
+<li><p>feat(memory): load Claude Code memory in gptme workspace context (<a class="reference external" href="https://github.com/gptme/gptme/issues/3626">#3626</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f345aaeaf"><code class="docutils literal notranslate"><span class="pre">f345aaeaf</span></code></a>)</p></li>
+<li><p>feat(models): parallel-tool flags from provider docs; eval-format verdict (<a class="reference external" href="https://github.com/gptme/gptme/issues/3628">#3628</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b6a797dc0"><code class="docutils literal notranslate"><span class="pre">b6a797dc0</span></code></a>)</p></li>
+<li><p>feat(media): add 32x32-optimized gptme icon (colour + monochrome) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3583">#3583</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3ddaacaab"><code class="docutils literal notranslate"><span class="pre">3ddaacaab</span></code></a>)</p></li>
+<li><p>feat(cli): auto-discover local Ollama and LM Studio providers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3593">#3593</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/30e4b7f94"><code class="docutils literal notranslate"><span class="pre">30e4b7f94</span></code></a>)</p></li>
+<li><p>feat(skills): invoke skills as slash commands (/skill:<code class="docutils literal notranslate"><span class="pre">&lt;name&gt;</span></code>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3587">#3587</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d22602fb9"><code class="docutils literal notranslate"><span class="pre">d22602fb9</span></code></a>)</p></li>
+<li><p>feat(service-init): add launchd support for macOS agents (<a class="reference external" href="https://github.com/gptme/gptme/issues/3586">#3586</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7c52dc6f9"><code class="docutils literal notranslate"><span class="pre">7c52dc6f9</span></code></a>)</p></li>
+<li><p>feat(harness): audit assistant harness update requests (<a class="reference external" href="https://github.com/gptme/gptme/issues/3529">#3529</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/79750b000"><code class="docutils literal notranslate"><span class="pre">79750b000</span></code></a>)</p></li>
+<li><p>feat(cli): add gptme service init scaffold for headless agents (<a class="reference external" href="https://github.com/gptme/gptme/issues/3574">#3574</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d27f98d3a"><code class="docutils literal notranslate"><span class="pre">d27f98d3a</span></code></a>)</p></li>
+<li><p>feat(precommit): add check-root-structure hook from gptme-contrib (<a class="reference external" href="https://github.com/gptme/gptme/issues/3580">#3580</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/77010664a"><code class="docutils literal notranslate"><span class="pre">77010664a</span></code></a>)</p></li>
+<li><p>feat(server): BYOK key validation — warn not block when provider unreachable (<a class="reference external" href="https://github.com/gptme/gptme/issues/3569">#3569</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0fc8208e9"><code class="docutils literal notranslate"><span class="pre">0fc8208e9</span></code></a>)</p></li>
+<li><p>feat(shell): opt-in per-shell memory ceiling via GPTME_SHELL_MEMORY_LIMIT (<a class="reference external" href="https://github.com/gptme/gptme/issues/3565">#3565</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7092325b2"><code class="docutils literal notranslate"><span class="pre">7092325b2</span></code></a>)</p></li>
+<li><p>feat(computer): allow out-of-tree transports via register_transport() (<a class="reference external" href="https://github.com/gptme/gptme/issues/3577">#3577</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ddb9dea0f"><code class="docutils literal notranslate"><span class="pre">ddb9dea0f</span></code></a>)</p></li>
+</ul>
+</section>
+<section id="fixes-123">
+<h3>🐛 Fixes (123)<a class="headerlink" href="#fixes-123" title="Link to this heading">#</a></h3>
+<details><summary>Click to expand</summary>
+<p>
+<ul class="simple">
+<li><p>fix(logmanager): acknowledge completion after transcript barriers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3826">#3826</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f95c7ed13"><code class="docutils literal notranslate"><span class="pre">f95c7ed13</span></code></a>)</p></li>
+<li><p>fix(knowledge): fall back to keyword search when RAG returns no live entries (<a class="reference external" href="https://github.com/gptme/gptme/issues/3867">#3867</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e8f0e9989"><code class="docutils literal notranslate"><span class="pre">e8f0e9989</span></code></a>)</p></li>
+<li><p>fix(webui): resolve server-relative panel srcs against the instance API origin (<a class="reference external" href="https://github.com/gptme/gptme/issues/3861">#3861</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/97fdc483b"><code class="docutils literal notranslate"><span class="pre">97fdc483b</span></code></a>)</p></li>
+<li><p>fix(cli): validate non-empty query in context retrieve/search-conversations; catch RuntimeError (<a class="reference external" href="https://github.com/gptme/gptme/issues/3852">#3852</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/90d251ce0"><code class="docutils literal notranslate"><span class="pre">90d251ce0</span></code></a>)</p></li>
+<li><p>fix(eval): correct main’s docstring parameter name and semantics (<a class="reference external" href="https://github.com/gptme/gptme/issues/3858">#3858</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/69d02e4ef"><code class="docutils literal notranslate"><span class="pre">69d02e4ef</span></code></a>)</p></li>
+<li><p>fix(shell): restore cwd/env after a shell death and tell the model (<a class="reference external" href="https://github.com/gptme/gptme/issues/3844">#3844</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c09a0b3e9"><code class="docutils literal notranslate"><span class="pre">c09a0b3e9</span></code></a>)</p></li>
+<li><p>fix(tests): reset leaked shell workspace cwd state between tests (<a class="reference external" href="https://github.com/gptme/gptme/issues/3854">#3854</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/55be1b2aa"><code class="docutils literal notranslate"><span class="pre">55be1b2aa</span></code></a>)</p></li>
+<li><p>fix(webui): log readable auth-code exchange failure cause (<a class="reference external" href="https://github.com/gptme/gptme/issues/3853">#3853</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9d576ba93"><code class="docutils literal notranslate"><span class="pre">9d576ba93</span></code></a>)</p></li>
+<li><p>fix(cli): emit clean error on attest sign –out write failure (<a class="reference external" href="https://github.com/gptme/gptme/issues/3850">#3850</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f32f045c3"><code class="docutils literal notranslate"><span class="pre">f32f045c3</span></code></a>)</p></li>
+<li><p>fix(llm): _merge_consecutive must not merge parallel tool results with different call_ids (<a class="reference external" href="https://github.com/gptme/gptme/issues/3847">#3847</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/8dc34d3ff"><code class="docutils literal notranslate"><span class="pre">8dc34d3ff</span></code></a>)</p></li>
+<li><p>fix(eval): keep token counts on timeout instead of zeroing them (<a class="reference external" href="https://github.com/gptme/gptme/issues/3845">#3845</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/53fd88323"><code class="docutils literal notranslate"><span class="pre">53fd88323</span></code></a>)</p></li>
+<li><p>fix(shell): wake idle sessions on background completion (<a class="reference external" href="https://github.com/gptme/gptme/issues/3843">#3843</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/5fa6b67ef"><code class="docutils literal notranslate"><span class="pre">5fa6b67ef</span></code></a>)</p></li>
+<li><p>fix(webui): guard console-proxy injection against cross-origin iframes (<a class="reference external" href="https://github.com/gptme/gptme/issues/3840">#3840</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/424bd1df7"><code class="docutils literal notranslate"><span class="pre">424bd1df7</span></code></a>)</p></li>
+<li><p>fix(cli): emit clean error on dataset export -o write failure (<a class="reference external" href="https://github.com/gptme/gptme/issues/3842">#3842</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/76113984e"><code class="docutils literal notranslate"><span class="pre">76113984e</span></code></a>)</p></li>
+<li><p>fix(webui): guard undefined values before toLowerCase calls (<a class="reference external" href="https://github.com/gptme/gptme/issues/3841">#3841</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/1541e48c6"><code class="docutils literal notranslate"><span class="pre">1541e48c6</span></code></a>)</p></li>
+<li><p>fix(tools): raise ValueError with tool name when init() returns None (<a class="reference external" href="https://github.com/gptme/gptme/issues/3835">#3835</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7775e3f8b"><code class="docutils literal notranslate"><span class="pre">7775e3f8b</span></code></a>)</p></li>
+<li><p>fix(init): don’t warn when the optional model registry is absent (<a class="reference external" href="https://github.com/gptme/gptme/issues/3829">#3829</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7c8570587"><code class="docutils literal notranslate"><span class="pre">7c8570587</span></code></a>)</p></li>
+<li><p>fix(shell): strip shell operators from tokens before sensitive-path check (<a class="reference external" href="https://github.com/gptme/gptme/issues/3806">#3806</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3807">#3807</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/93c337cb5"><code class="docutils literal notranslate"><span class="pre">93c337cb5</span></code></a>)</p></li>
+<li><p>fix(llm): use instructions_format[“tool”] verbatim for tool-schema descriptions (<a class="reference external" href="https://github.com/gptme/gptme/issues/3823">#3823</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/db484f284"><code class="docutils literal notranslate"><span class="pre">db484f284</span></code></a>)</p></li>
+<li><p>fix(config): order model layers by specificity, unify resolution (<a class="reference external" href="https://github.com/gptme/gptme/issues/3825">#3825</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d819a9196"><code class="docutils literal notranslate"><span class="pre">d819a9196</span></code></a>)</p></li>
+<li><p>fix(config): align CLI model precedence (<a class="reference external" href="https://github.com/gptme/gptme/issues/3818">#3818</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/26242d520"><code class="docutils literal notranslate"><span class="pre">26242d520</span></code></a>)</p></li>
+<li><p>fix(cli): emit clean error on status -o write failure, auto-mkdir parent (<a class="reference external" href="https://github.com/gptme/gptme/issues/3824">#3824</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7c713aee4"><code class="docutils literal notranslate"><span class="pre">7c713aee4</span></code></a>)</p></li>
+<li><p>fix(subagent): deliver subprocess control and capture stderr (<a class="reference external" href="https://github.com/gptme/gptme/issues/3819">#3819</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/99eadc0a2"><code class="docutils literal notranslate"><span class="pre">99eadc0a2</span></code></a>)</p></li>
+<li><p>fix(shell): scope set -e per block to prevent persistent errexit deaths (<a class="reference external" href="https://github.com/gptme/gptme/issues/3810">#3810</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/50d776486"><code class="docutils literal notranslate"><span class="pre">50d776486</span></code></a>)</p></li>
+<li><p>fix(gh): dispatch structured ‘command’ kwarg calls (<a class="reference external" href="https://github.com/gptme/gptme/issues/3809">#3809</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a17e63542"><code class="docutils literal notranslate"><span class="pre">a17e63542</span></code></a>)</p></li>
+<li><p>fix(shell): bound captured subprocess output bytes (GPTME_SHELL_MAX_OUTPUT_BYTES) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3804">#3804</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a5d356fa2"><code class="docutils literal notranslate"><span class="pre">a5d356fa2</span></code></a>)</p></li>
+<li><p>fix(llm): keep tool_call pairing for unavailable tools; dedupe auto-naming threads (<a class="reference external" href="https://github.com/gptme/gptme/issues/3800">#3800</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a43d56930"><code class="docutils literal notranslate"><span class="pre">a43d56930</span></code></a>)</p></li>
+<li><p>fix(shell): parse <code class="docutils literal notranslate"><span class="pre">time</span></code> scripts, stop false syntax errors, unwrap transparent wrappers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3803">#3803</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/517771546"><code class="docutils literal notranslate"><span class="pre">517771546</span></code></a>)</p></li>
+<li><p>fix(webui): persist demo conversations to sessionStorage to survive reload (<a class="reference external" href="https://github.com/gptme/gptme/issues/3796">#3796</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/328c62894"><code class="docutils literal notranslate"><span class="pre">328c62894</span></code></a>)</p></li>
+<li><p>fix(llm): honor Retry-After during transient retries (<a class="reference external" href="https://github.com/gptme/gptme/issues/3797">#3797</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9ccf7d0dd"><code class="docutils literal notranslate"><span class="pre">9ccf7d0dd</span></code></a>)</p></li>
+<li><p>fix(openrouter): always send data_collection=deny for reasoning models (<a class="reference external" href="https://github.com/gptme/gptme/issues/3788">#3788</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/83ea90c65"><code class="docutils literal notranslate"><span class="pre">83ea90c65</span></code></a>)</p></li>
+<li><p>fix(memory): read index entries under the root lock (<a class="reference external" href="https://github.com/gptme/gptme/issues/3790">#3790</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d07a89ab1"><code class="docutils literal notranslate"><span class="pre">d07a89ab1</span></code></a>)</p></li>
+<li><p>fix: decode editable install file URLs (<a class="reference external" href="https://github.com/gptme/gptme/issues/3721">#3721</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0ab1daac3"><code class="docutils literal notranslate"><span class="pre">0ab1daac3</span></code></a>)</p></li>
+<li><p>fix(benchmark): raise cold startup threshold 6.0 → 8.0s for CI noise margin (<a class="reference external" href="https://github.com/gptme/gptme/issues/3777">#3777</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c9f1180aa"><code class="docutils literal notranslate"><span class="pre">c9f1180aa</span></code></a>)</p></li>
+<li><p>fix(server): do not execute caller-supplied agent fork commands (<a class="reference external" href="https://github.com/gptme/gptme/issues/3783">#3783</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/12a8be9ed"><code class="docutils literal notranslate"><span class="pre">12a8be9ed</span></code></a>)</p></li>
+<li><p>fix(shell): bound denylist matches to argument tokens (<a class="reference external" href="https://github.com/gptme/gptme/issues/3761">#3761</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/65d888f34"><code class="docutils literal notranslate"><span class="pre">65d888f34</span></code></a>)</p></li>
+<li><p>fix(server): detect “No provider configured” as config error in server fallback (<a class="reference external" href="https://github.com/gptme/gptme/issues/3784">#3784</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9e46dee08"><code class="docutils literal notranslate"><span class="pre">9e46dee08</span></code></a>)</p></li>
+<li><p>fix(docs/cli): mention subscription auth in no-provider error paths (<a class="reference external" href="https://github.com/gptme/gptme/issues/3775">#3775</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/8f8384965"><code class="docutils literal notranslate"><span class="pre">8f8384965</span></code></a>)</p></li>
+<li><p>fix(llm): fold non-leading system messages for models that reject them (fixes <a class="reference external" href="https://github.com/gptme/gptme/issues/3779">#3779</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3780">#3780</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f3f1fce54"><code class="docutils literal notranslate"><span class="pre">f3f1fce54</span></code></a>)</p></li>
+<li><p>fix(mcp): run TOOL_CONFIRM guardrails on MCP tool.execute() (<a class="reference external" href="https://github.com/gptme/gptme/issues/3776">#3776</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/34f1178e5"><code class="docutils literal notranslate"><span class="pre">34f1178e5</span></code></a>)</p></li>
+<li><p>fix(shell): use poll() in _run_with_tty reader (<a class="reference external" href="https://github.com/gptme/gptme/issues/3715">#3715</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3769">#3769</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b5aec1818"><code class="docutils literal notranslate"><span class="pre">b5aec1818</span></code></a>)</p></li>
+<li><p>fix(memory): reject reserved index names (<a class="reference external" href="https://github.com/gptme/gptme/issues/3772">#3772</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/88494416b"><code class="docutils literal notranslate"><span class="pre">88494416b</span></code></a>)</p></li>
+<li><p>fix(shell): use poll() in background job reader (<a class="reference external" href="https://github.com/gptme/gptme/issues/3715">#3715</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3770">#3770</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/aafe081a6"><code class="docutils literal notranslate"><span class="pre">aafe081a6</span></code></a>)</p></li>
+<li><p>fix(codeblock): track triple-quote state in ipython blocks (<a class="reference external" href="https://github.com/gptme/gptme/issues/3704">#3704</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3773">#3773</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e6d488231"><code class="docutils literal notranslate"><span class="pre">e6d488231</span></code></a>)</p></li>
+<li><p>fix(acp): attach host-supplied MCP servers to sessions (<a class="reference external" href="https://github.com/gptme/gptme/issues/3771">#3771</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c10397da4"><code class="docutils literal notranslate"><span class="pre">c10397da4</span></code></a>)</p></li>
+<li><p>fix(webui): use Bookmark icon for set-default (not Star — fixes confusion with favorites) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3768">#3768</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e905cf701"><code class="docutils literal notranslate"><span class="pre">e905cf701</span></code></a>)</p></li>
+<li><p>fix(webui): only show demo content in explicit demo mode, not on connect (<a class="reference external" href="https://github.com/gptme/gptme/issues/3754">#3754</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/8232933cc"><code class="docutils literal notranslate"><span class="pre">8232933cc</span></code></a>)</p></li>
+<li><p>fix(webui): drop auth-code bootstrap gate before the connection probe (<a class="reference external" href="https://github.com/gptme/gptme/issues/3751">#3751</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/4379da00b"><code class="docutils literal notranslate"><span class="pre">4379da00b</span></code></a>)</p></li>
+<li><p>fix(cli): render native tool calls as highlighted source (<a class="reference external" href="https://github.com/gptme/gptme/issues/3752">#3752</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/bd8e68526"><code class="docutils literal notranslate"><span class="pre">bd8e68526</span></code></a>)</p></li>
+<li><p>fix(webui): stop event-stream banner from flashing on conversation open (<a class="reference external" href="https://github.com/gptme/gptme/issues/3753">#3753</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9f54511ce"><code class="docutils literal notranslate"><span class="pre">9f54511ce</span></code></a>)</p></li>
+<li><p>fix(cli): skip root scans and keep path inclusion interruptible (<a class="reference external" href="https://github.com/gptme/gptme/issues/3762">#3762</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/797f322b9"><code class="docutils literal notranslate"><span class="pre">797f322b9</span></code></a>)</p></li>
+<li><p>fix(cli): reject ambiguous positional resume IDs (<a class="reference external" href="https://github.com/gptme/gptme/issues/3763">#3763</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ddbd6b42e"><code class="docutils literal notranslate"><span class="pre">ddbd6b42e</span></code></a>)</p></li>
+<li><p>fix(webui): clear stop flag before edit/rerun/regenerate (<a class="reference external" href="https://github.com/gptme/gptme/issues/3744">#3744</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/21125a614"><code class="docutils literal notranslate"><span class="pre">21125a614</span></code></a>)</p></li>
+<li><p>fix(codeblock): carry quote state across lines; close exec-lang blocks in streaming (<a class="reference external" href="https://github.com/gptme/gptme/issues/3730">#3730</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/af60f3292"><code class="docutils literal notranslate"><span class="pre">af60f3292</span></code></a>)</p></li>
+<li><p>fix(onboard): detect OAuth subscription providers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3720">#3720</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/62f5e4fa1"><code class="docutils literal notranslate"><span class="pre">62f5e4fa1</span></code></a>)</p></li>
+<li><p>fix(cli): show ‘gptme <code class="docutils literal notranslate"><span class="pre">&lt;cmd&gt;</span></code>’ instead of ‘gptme-util <code class="docutils literal notranslate"><span class="pre">&lt;cmd&gt;</span></code>’ in error messages (<a class="reference external" href="https://github.com/gptme/gptme/issues/3749">#3749</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/cd5e489ba"><code class="docutils literal notranslate"><span class="pre">cd5e489ba</span></code></a>)</p></li>
+<li><p>fix(review): explain repository-relative reads in isolated sessions (<a class="reference external" href="https://github.com/gptme/gptme/issues/3731">#3731</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ea22cddc1"><code class="docutils literal notranslate"><span class="pre">ea22cddc1</span></code></a>)</p></li>
+<li><p>fix(review-pr): name the offending stdout line when JSONL parsing fails (<a class="reference external" href="https://github.com/gptme/gptme/issues/3747">#3747</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/337e0d2f4"><code class="docutils literal notranslate"><span class="pre">337e0d2f4</span></code></a>)</p></li>
+<li><p>fix(telemetry): keep startup diagnostics out of JSON stdout (<a class="reference external" href="https://github.com/gptme/gptme/issues/3732">#3732</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7cb63efb7"><code class="docutils literal notranslate"><span class="pre">7cb63efb7</span></code></a>)</p></li>
+<li><p>fix(webui): pre-set generating state on new-chat placeholder to collapse microsteps (<a class="reference external" href="https://github.com/gptme/gptme/issues/3743">#3743</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a53524527"><code class="docutils literal notranslate"><span class="pre">a53524527</span></code></a>)</p></li>
+<li><p>fix(webui): repair dead conversations-list invalidation after create/delete/import (<a class="reference external" href="https://github.com/gptme/gptme/issues/3742">#3742</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/110a4eecd"><code class="docutils literal notranslate"><span class="pre">110a4eecd</span></code></a>)</p></li>
+<li><p>fix(webui): suppress ‘Cannot reach’ banner while auto-connecting (<a class="reference external" href="https://github.com/gptme/gptme/issues/3739">#3739</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b3b4501d4"><code class="docutils literal notranslate"><span class="pre">b3b4501d4</span></code></a>)</p></li>
+<li><p>fix(security): strip repo-local execution sinks from git inspection commands (<a class="reference external" href="https://github.com/gptme/gptme/issues/3727">#3727</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b65f699d5"><code class="docutils literal notranslate"><span class="pre">b65f699d5</span></code></a>)</p></li>
+<li><p>fix(tools): suppress duplicate terminal output for shell/IPython tools (<a class="reference external" href="https://github.com/gptme/gptme/issues/3708">#3708</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/8a176e21d"><code class="docutils literal notranslate"><span class="pre">8a176e21d</span></code></a>)</p></li>
+<li><p>fix: reduce lesson/hidden-message log spam in TUI (<a class="reference external" href="https://github.com/gptme/gptme/issues/3738">#3738</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/83325b32f"><code class="docutils literal notranslate"><span class="pre">83325b32f</span></code></a>)</p></li>
+<li><p>fix(webui): navigate before server response in new-chat flow (<a class="reference external" href="https://github.com/gptme/gptme/issues/3729">#3729</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a87301426"><code class="docutils literal notranslate"><span class="pre">a87301426</span></code></a>)</p></li>
+<li><p>fix(cli): clean error on malformed <code class="docutils literal notranslate"><span class="pre">capabilities</span> <span class="pre">--from-json</span></code> snapshots (<a class="reference external" href="https://github.com/gptme/gptme/issues/3726">#3726</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e8f7ae2f5"><code class="docutils literal notranslate"><span class="pre">e8f7ae2f5</span></code></a>)</p></li>
+<li><p>fix(reduce): cache proactive_summarize_log result by middle-message content hash (<a class="reference external" href="https://github.com/gptme/gptme/issues/3620">#3620</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/133a4b567"><code class="docutils literal notranslate"><span class="pre">133a4b567</span></code></a>)</p></li>
+<li><p>fix(codeblock): skip depth-1 look-ahead for execution langs (shell, ipython) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3703">#3703</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/1e7e5547c"><code class="docutils literal notranslate"><span class="pre">1e7e5547c</span></code></a>)</p></li>
+<li><p>fix(logmanager): bound trajectory write amplification (<a class="reference external" href="https://github.com/gptme/gptme/issues/3714">#3714</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d7496cb5c"><code class="docutils literal notranslate"><span class="pre">d7496cb5c</span></code></a>)</p></li>
+<li><p>fix(security): upgrade cryptography 46.0.5→50.0.1 and h2 4.3.0→4.4.1 (<a class="reference external" href="https://github.com/gptme/gptme/issues/3723">#3723</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b62ae3a1a"><code class="docutils literal notranslate"><span class="pre">b62ae3a1a</span></code></a>)</p></li>
+<li><p>fix(cli,tests): unbreak <code class="docutils literal notranslate"><span class="pre">models</span> <span class="pre">list</span> <span class="pre">--json</span></code> under warning providers; scope the gh sleep patch (<a class="reference external" href="https://github.com/gptme/gptme/issues/3717">#3717</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/002605256"><code class="docutils literal notranslate"><span class="pre">002605256</span></code></a>)</p></li>
+<li><p>fix(shell): use poll() instead of select() to survive fds above FD_SETSIZE (<a class="reference external" href="https://github.com/gptme/gptme/issues/3716">#3716</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ebeb21f57"><code class="docutils literal notranslate"><span class="pre">ebeb21f57</span></code></a>)</p></li>
+<li><p>fix(cli): handle capabilities output write errors (<a class="reference external" href="https://github.com/gptme/gptme/issues/3724">#3724</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/2789cef63"><code class="docutils literal notranslate"><span class="pre">2789cef63</span></code></a>)</p></li>
+<li><p>fix(cli): suppress ANSI in redirected tools list (<a class="reference external" href="https://github.com/gptme/gptme/issues/3712">#3712</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a3902b8a0"><code class="docutils literal notranslate"><span class="pre">a3902b8a0</span></code></a>)</p></li>
+<li><p>fix(server/tasks): reject invalid task IDs at API routes with 400 (<a class="reference external" href="https://github.com/gptme/gptme/issues/3711">#3711</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/582ce5b58"><code class="docutils literal notranslate"><span class="pre">582ce5b58</span></code></a>)</p></li>
+<li><p>fix(browser): gate PDF fetches with the shared URL helper (<a class="reference external" href="https://github.com/gptme/gptme/issues/3685">#3685</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d6f9a4724"><code class="docutils literal notranslate"><span class="pre">d6f9a4724</span></code></a>)</p></li>
+<li><p>fix(dirs): treat empty/whitespace env vars as unset; guard profile_name (<a class="reference external" href="https://github.com/gptme/gptme/issues/3660">#3660</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f22745729"><code class="docutils literal notranslate"><span class="pre">f22745729</span></code></a>)</p></li>
+<li><p>fix(cli): reject negative context tree depth (<a class="reference external" href="https://github.com/gptme/gptme/issues/3713">#3713</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/46e6dff06"><code class="docutils literal notranslate"><span class="pre">46e6dff06</span></code></a>)</p></li>
+<li><p>fix(telemetry): suppress repeated export errors after first occurrence (<a class="reference external" href="https://github.com/gptme/gptme/issues/3707">#3707</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b1e9f037d"><code class="docutils literal notranslate"><span class="pre">b1e9f037d</span></code></a>)</p></li>
+<li><p>fix(server): make /api/v2/server/health unauthenticated for monitoring integrations (<a class="reference external" href="https://github.com/gptme/gptme/issues/3702">#3702</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c5aee1038"><code class="docutils literal notranslate"><span class="pre">c5aee1038</span></code></a>)</p></li>
+<li><p>fix(models): stamp default_tool_format on dynamic listing constructors; serialize in model_to_dict (<a class="reference external" href="https://github.com/gptme/gptme/issues/3681">#3681</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/8a44e8a03"><code class="docutils literal notranslate"><span class="pre">8a44e8a03</span></code></a>)</p></li>
+<li><p>fix(shell): require confirmation for git-credentials and gptme config.toml reads (<a class="reference external" href="https://github.com/gptme/gptme/issues/3686">#3686</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3a929b4d0"><code class="docutils literal notranslate"><span class="pre">3a929b4d0</span></code></a>)</p></li>
+<li><p>fix(knowledge): don’t block on gptme-rag index after save/delete (<a class="reference external" href="https://github.com/gptme/gptme/issues/3691">#3691</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/63cb9f24d"><code class="docutils literal notranslate"><span class="pre">63cb9f24d</span></code></a>)</p></li>
+<li><p>fix(llm): stop double-retrying and survive 429s in interactive mode (<a class="reference external" href="https://github.com/gptme/gptme/issues/3669">#3669</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7294393dc"><code class="docutils literal notranslate"><span class="pre">7294393dc</span></code></a>)</p></li>
+<li><p>fix(util): handle embedded nulls in batch prompts (<a class="reference external" href="https://github.com/gptme/gptme/issues/3682">#3682</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f8354a042"><code class="docutils literal notranslate"><span class="pre">f8354a042</span></code></a>)</p></li>
+<li><p>fix(webui): gate task creation in demo mode (<a class="reference external" href="https://github.com/gptme/gptme/issues/3684">#3684</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b84ee8a3a"><code class="docutils literal notranslate"><span class="pre">b84ee8a3a</span></code></a>)</p></li>
+<li><p>fix(llm): pin Codex session_id to conversation instead of uuid4 per turn (<a class="reference external" href="https://github.com/gptme/gptme/issues/3679">#3679</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9f607ea2d"><code class="docutils literal notranslate"><span class="pre">9f607ea2d</span></code></a>)</p></li>
+<li><p>fix(server): return 400, not 500, for non-dict JSON bodies on tools QUERY and steer (<a class="reference external" href="https://github.com/gptme/gptme/issues/3676">#3676</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/77661b958"><code class="docutils literal notranslate"><span class="pre">77661b958</span></code></a>)</p></li>
+<li><p>fix(convert): handle non-UTF-8 converter stderr without crashing (<a class="reference external" href="https://github.com/gptme/gptme/issues/3677">#3677</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f5ae30fcf"><code class="docutils literal notranslate"><span class="pre">f5ae30fcf</span></code></a>)</p></li>
+<li><p>fix(prompts): move profile system prompts before cache boundary (Phases 2+3) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3616">#3616</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b8501f86c"><code class="docutils literal notranslate"><span class="pre">b8501f86c</span></code></a>)</p></li>
+<li><p>fix(models): per-model parallel-tool opt-out via PARALLEL_TOOL_CALL_EXCEPTIONS (<a class="reference external" href="https://github.com/gptme/gptme/issues/3633">#3633</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/1a1a3f8cf"><code class="docutils literal notranslate"><span class="pre">1a1a3f8cf</span></code></a>)</p></li>
+<li><p>fix(cli): suppress all shortcut dispatch after double dash (<a class="reference external" href="https://github.com/gptme/gptme/issues/3670">#3670</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/59ca891e7"><code class="docutils literal notranslate"><span class="pre">59ca891e7</span></code></a>)</p></li>
+<li><p>fix: match Claude Code’s cwd→project-dir encoding (CC memory + agent hook) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3672">#3672</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/dc593da2c"><code class="docutils literal notranslate"><span class="pre">dc593da2c</span></code></a>)</p></li>
+<li><p>fix(cli): reject unknown bare –model names before get_prompt() (<a class="reference external" href="https://github.com/gptme/gptme/issues/3640">#3640</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f4d71ca6a"><code class="docutils literal notranslate"><span class="pre">f4d71ca6a</span></code></a>)</p></li>
+<li><p>fix(security): route git subprocesses through GIT_CMD in review-pr and 3-way merge (<a class="reference external" href="https://github.com/gptme/gptme/issues/3674">#3674</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/00fe1fef5"><code class="docutils literal notranslate"><span class="pre">00fe1fef5</span></code></a>)</p></li>
+<li><p>fix(tests): join subagent threads before teardown in TestParentContextForwarding (<a class="reference external" href="https://github.com/gptme/gptme/issues/3675">#3675</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/8213fe835"><code class="docutils literal notranslate"><span class="pre">8213fe835</span></code></a>)</p></li>
+<li><p>fix(config): workspace fallback must not use process cwd (P1 follow-up from <a class="reference external" href="https://github.com/gptme/gptme/issues/3639">#3639</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3657">#3657</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9db4f880b"><code class="docutils literal notranslate"><span class="pre">9db4f880b</span></code></a>)</p></li>
+<li><p>fix(cli): forward nested help to utility shortcuts (<a class="reference external" href="https://github.com/gptme/gptme/issues/3630">#3630</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e8028b797"><code class="docutils literal notranslate"><span class="pre">e8028b797</span></code></a>)</p></li>
+<li><p>fix(browser): harden lynx URL validation (<a class="reference external" href="https://github.com/gptme/gptme/issues/3663">#3663</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/78ff262b9"><code class="docutils literal notranslate"><span class="pre">78ff262b9</span></code></a>)</p></li>
+<li><p>fix(shell): route all commands through TOOL_CONFIRM hook chain (closes <a class="reference external" href="https://github.com/gptme/gptme/issues/3598">#3598</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3636">#3636</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d4a6b8f65"><code class="docutils literal notranslate"><span class="pre">d4a6b8f65</span></code></a>)</p></li>
+<li><p>fix(convert): register gptme-convert console script and fix error message (<a class="reference external" href="https://github.com/gptme/gptme/issues/3658">#3658</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/1ad650ae3"><code class="docutils literal notranslate"><span class="pre">1ad650ae3</span></code></a>)</p></li>
+<li><p>fix(tests): give subagent thread-join guard a real liveness budget (<a class="reference external" href="https://github.com/gptme/gptme/issues/3662">#3662</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c574b83d3"><code class="docutils literal notranslate"><span class="pre">c574b83d3</span></code></a>)</p></li>
+<li><p>fix(tests): stop pytest-retry x tmp_path teardown KeyError failing green runs (<a class="reference external" href="https://github.com/gptme/gptme/issues/3661">#3661</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/c922c9b38"><code class="docutils literal notranslate"><span class="pre">c922c9b38</span></code></a>)</p></li>
+<li><p>fix(compat): improve Windows and cross-platform compatibility in tools and tests (<a class="reference external" href="https://github.com/gptme/gptme/issues/3639">#3639</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7e7430428"><code class="docutils literal notranslate"><span class="pre">7e7430428</span></code></a>)</p></li>
+<li><p>fix(status): serialize list/dict provider values as JSON in table format (<a class="reference external" href="https://github.com/gptme/gptme/issues/3651">#3651</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9b1d7fb06"><code class="docutils literal notranslate"><span class="pre">9b1d7fb06</span></code></a>)</p></li>
+<li><p>fix(cli): support stdin dash in slop check (<a class="reference external" href="https://github.com/gptme/gptme/issues/3650">#3650</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/958ca6b47"><code class="docutils literal notranslate"><span class="pre">958ca6b47</span></code></a>)</p></li>
+<li><p>fix(tests): assert webui html hint by content, not by index (<a class="reference external" href="https://github.com/gptme/gptme/issues/3635">#3635</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3a2af3318"><code class="docutils literal notranslate"><span class="pre">3a2af3318</span></code></a>)</p></li>
+<li><p>fix(tests): scope pytest timeouts to the function so retries can’t INTERNALERROR the run (<a class="reference external" href="https://github.com/gptme/gptme/issues/3634">#3634</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f636b9f70"><code class="docutils literal notranslate"><span class="pre">f636b9f70</span></code></a>)</p></li>
+<li><p>fix(server): preserve webui html hint on config patch (<a class="reference external" href="https://github.com/gptme/gptme/issues/3521">#3521</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/91caf5fd6"><code class="docutils literal notranslate"><span class="pre">91caf5fd6</span></code></a>)</p></li>
+<li><p>fix(prompts): keep volatile context after cache boundary (<a class="reference external" href="https://github.com/gptme/gptme/issues/3615">#3615</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/476e8f7a4"><code class="docutils literal notranslate"><span class="pre">476e8f7a4</span></code></a>)</p></li>
+<li><p>fix(models): propagation gap + default_tool_format for OpenAI-compat providers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3566">#3566</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/6a20ca2ed"><code class="docutils literal notranslate"><span class="pre">6a20ca2ed</span></code></a>)</p></li>
+<li><p>fix(webui): recover local-server bearer handshake after <a class="reference external" href="https://github.com/gptme/gptme/issues/3430">#3430</a> (<a class="reference external" href="https://github.com/gptme/gptme/issues/3606">#3606</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/717df0715"><code class="docutils literal notranslate"><span class="pre">717df0715</span></code></a>)</p></li>
+<li><p>fix(webui): stabilize multi-server query results (<a class="reference external" href="https://github.com/gptme/gptme/issues/3602">#3602</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/ea78d4658"><code class="docutils literal notranslate"><span class="pre">ea78d4658</span></code></a>)</p></li>
+<li><p>fix(server): use os.write() and re-entrance guard in SIGTERM handlers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3623">#3623</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/13284c336"><code class="docutils literal notranslate"><span class="pre">13284c336</span></code></a>)</p></li>
+<li><p>fix(server): guard startup SIGTERM handler against overriding custom handlers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3597">#3597</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/69ad48725"><code class="docutils literal notranslate"><span class="pre">69ad48725</span></code></a>)</p></li>
+<li><p>fix(server): treat missing X display as screenshot-unavailable (<a class="reference external" href="https://github.com/gptme/gptme/issues/3612">#3612</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/2e571b362"><code class="docutils literal notranslate"><span class="pre">2e571b362</span></code></a>)</p></li>
+<li><p>fix(server): don’t let step() finally clear a continuation reservation (<a class="reference external" href="https://github.com/gptme/gptme/issues/3592">#3592</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a46d9ea20"><code class="docutils literal notranslate"><span class="pre">a46d9ea20</span></code></a>)</p></li>
+<li><p>fix(service-init): make the scaffolded agent actually run gptme (<a class="reference external" href="https://github.com/gptme/gptme/issues/3609">#3609</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7641c015f"><code class="docutils literal notranslate"><span class="pre">7641c015f</span></code></a>)</p></li>
+<li><p>fix(server): install SIGTERM handler before slow init to prevent silent failure (<a class="reference external" href="https://github.com/gptme/gptme/issues/3591">#3591</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3cd609a9f"><code class="docutils literal notranslate"><span class="pre">3cd609a9f</span></code></a>)</p></li>
+<li><p>fix(precommit): update gptme-contrib rev to post-<a class="reference external" href="https://github.com/gptme/gptme/issues/1479">#1479</a> merge (<a class="reference external" href="https://github.com/gptme/gptme/issues/3584">#3584</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/904de13a1"><code class="docutils literal notranslate"><span class="pre">904de13a1</span></code></a>)</p></li>
+<li><p>fix(tauri): include pyproject.toml and lock file in sidecar freshness check (<a class="reference external" href="https://github.com/gptme/gptme/issues/3573">#3573</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/fe99c6635"><code class="docutils literal notranslate"><span class="pre">fe99c6635</span></code></a>)</p></li>
+<li><p>fix(android): open cloud sign-in in the system browser, not the app WebView (<a class="reference external" href="https://github.com/gptme/gptme/issues/3578">#3578</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f206f94a5"><code class="docutils literal notranslate"><span class="pre">f206f94a5</span></code></a>)</p></li>
+</ul>
+</p>
+</details>
+</section>
+<section id="misc-42">
+<h3>🔨 Misc (42)<a class="headerlink" href="#misc-42" title="Link to this heading">#</a></h3>
+<details><summary>Click to expand</summary>
+<p>
+<ul class="simple">
+<li><p>chore: bump version to 0.34.0 (<a class="reference external" href="https://github.com/gptme/gptme/commit/5a8912b64"><code class="docutils literal notranslate"><span class="pre">5a8912b64</span></code></a>)</p></li>
+<li><p>docs: position cross-harness memory in README and site (closes <a class="reference external" href="https://github.com/gptme/gptme/issues/3734">#3734</a> item 8) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3871">#3871</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3fb432ce7"><code class="docutils literal notranslate"><span class="pre">3fb432ce7</span></code></a>)</p></li>
+<li><p>docs: point the hooks comment at the subagent package (<a class="reference external" href="https://github.com/gptme/gptme/issues/3859">#3859</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/4fb6a6c86"><code class="docutils literal notranslate"><span class="pre">4fb6a6c86</span></code></a>)</p></li>
+<li><p>refactor(webui): extract presentational PromptTextarea shell from ChatInput (<a class="reference external" href="https://github.com/gptme/gptme/issues/3872">#3872</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d78b94314"><code class="docutils literal notranslate"><span class="pre">d78b94314</span></code></a>)</p></li>
+<li><p>chore: move root-structure allowlist under .github and drop gptme-extension tombstone (<a class="reference external" href="https://github.com/gptme/gptme/issues/3868">#3868</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/47cdf776c"><code class="docutils literal notranslate"><span class="pre">47cdf776c</span></code></a>)</p></li>
+<li><p>test(shell): pin no-retry invariant by watching stdin writes after EPIPE (<a class="reference external" href="https://github.com/gptme/gptme/issues/3860">#3860</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/08ce4995b"><code class="docutils literal notranslate"><span class="pre">08ce4995b</span></code></a>)</p></li>
+<li><p>test(webui): cap jest maxWorkers at 4 to prevent container thrash (<a class="reference external" href="https://github.com/gptme/gptme/issues/3862">#3862</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b827a9db4"><code class="docutils literal notranslate"><span class="pre">b827a9db4</span></code></a>)</p></li>
+<li><p>docs: fix a TOC anchor and the moved-extension link (<a class="reference external" href="https://github.com/gptme/gptme/issues/3857">#3857</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d33d60647"><code class="docutils literal notranslate"><span class="pre">d33d60647</span></code></a>)</p></li>
+<li><p>test(llm): strip ANSI codes before asserting IPython source in terminal output (<a class="reference external" href="https://github.com/gptme/gptme/issues/3856">#3856</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e81224353"><code class="docutils literal notranslate"><span class="pre">e81224353</span></code></a>)</p></li>
+<li><p>docs: add CITATION.cff and a Citation section to README (<a class="reference external" href="https://github.com/gptme/gptme/issues/3855">#3855</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/dff9d0e33"><code class="docutils literal notranslate"><span class="pre">dff9d0e33</span></code></a>)</p></li>
+<li><p>test(lessons): stop seeding the global RNG in dropout tests (<a class="reference external" href="https://github.com/gptme/gptme/issues/3851">#3851</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e60462be2"><code class="docutils literal notranslate"><span class="pre">e60462be2</span></code></a>)</p></li>
+<li><p>refactor(shell): background whole tool calls and fix exit stalls (<a class="reference external" href="https://github.com/gptme/gptme/issues/3802">#3802</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3411afec5"><code class="docutils literal notranslate"><span class="pre">3411afec5</span></code></a>)</p></li>
+<li><p>docs(readme): refresh demos with current screenshots and better asciinema thumbnails (<a class="reference external" href="https://github.com/gptme/gptme/issues/3837">#3837</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/deb26dc71"><code class="docutils literal notranslate"><span class="pre">deb26dc71</span></code></a>)</p></li>
+<li><p>docs: update timeline and README news through September 2026 (<a class="reference external" href="https://github.com/gptme/gptme/issues/3836">#3836</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/be6e3b256"><code class="docutils literal notranslate"><span class="pre">be6e3b256</span></code></a>)</p></li>
+<li><p>docs(readme): replace broken starchart.cc chart with gptme/stats (<a class="reference external" href="https://github.com/gptme/gptme/issues/3838">#3838</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d8f5720d9"><code class="docutils literal notranslate"><span class="pre">d8f5720d9</span></code></a>)</p></li>
+<li><p>docs(contributing): note toolchain drift between venv, lockfile and hooks (<a class="reference external" href="https://github.com/gptme/gptme/issues/3830">#3830</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f3b9c64bc"><code class="docutils literal notranslate"><span class="pre">f3b9c64bc</span></code></a>)</p></li>
+<li><p>docs: restructure navigation and page structure (<a class="reference external" href="https://github.com/gptme/gptme/issues/3813">#3813</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d4c57d992"><code class="docutils literal notranslate"><span class="pre">d4c57d992</span></code></a>)</p></li>
+<li><p>test(memory): assert legacy reads stay bounded (<a class="reference external" href="https://github.com/gptme/gptme/issues/3815">#3815</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/13be6aabf"><code class="docutils literal notranslate"><span class="pre">13be6aabf</span></code></a>)</p></li>
+<li><p>refactor(shell): parse Bash with tree-sitter and retain legacy fallback (<a class="reference external" href="https://github.com/gptme/gptme/issues/3808">#3808</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/4a7aff453"><code class="docutils literal notranslate"><span class="pre">4a7aff453</span></code></a>)</p></li>
+<li><p>docs: rewrite finetuning page as a working, measured recipe (<a class="reference external" href="https://github.com/gptme/gptme/issues/3778">#3778</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/7bcd9ae61"><code class="docutils literal notranslate"><span class="pre">7bcd9ae61</span></code></a>)</p></li>
+<li><p>ux: hint how to enable disabled-by-default tool in error message (<a class="reference external" href="https://github.com/gptme/gptme/issues/3748">#3748</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/9a0c2408a"><code class="docutils literal notranslate"><span class="pre">9a0c2408a</span></code></a>)</p></li>
+<li><p>test(webui): exercise live auto-connect banner transition (<a class="reference external" href="https://github.com/gptme/gptme/issues/3741">#3741</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f184a1532"><code class="docutils literal notranslate"><span class="pre">f184a1532</span></code></a>)</p></li>
+<li><p>docs(readme): tag gptme.ai acquisition link (<a class="reference external" href="https://github.com/gptme/gptme/issues/3725">#3725</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/43786e7da"><code class="docutils literal notranslate"><span class="pre">43786e7da</span></code></a>)</p></li>
+<li><p>docs: separate agent runtimes from providers (<a class="reference external" href="https://github.com/gptme/gptme/issues/3694">#3694</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/076e433cc"><code class="docutils literal notranslate"><span class="pre">076e433cc</span></code></a>)</p></li>
+<li><p>docs: add core domain guide (<a class="reference external" href="https://github.com/gptme/gptme/issues/3690">#3690</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/de6dd04fb"><code class="docutils literal notranslate"><span class="pre">de6dd04fb</span></code></a>)</p></li>
+<li><p>test(codeblock): load fixture files with pathlib so tests pass on Windows (<a class="reference external" href="https://github.com/gptme/gptme/issues/3637">#3637</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/5d40b35dc"><code class="docutils literal notranslate"><span class="pre">5d40b35dc</span></code></a>)</p></li>
+<li><p>docs: point the free on-ramp at live OpenRouter models (<a class="reference external" href="https://github.com/gptme/gptme/issues/3671">#3671</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/d94dbe1bd"><code class="docutils literal notranslate"><span class="pre">d94dbe1bd</span></code></a>)</p></li>
+<li><p>docs(mcp): surface bidirectional server support in README (<a class="reference external" href="https://github.com/gptme/gptme/issues/3664">#3664</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/5039ad147"><code class="docutils literal notranslate"><span class="pre">5039ad147</span></code></a>)</p></li>
+<li><p>docs(providers): link template and add integration FAQ (<a class="reference external" href="https://github.com/gptme/gptme/issues/3649">#3649</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/5a972d4f9"><code class="docutils literal notranslate"><span class="pre">5a972d4f9</span></code></a>)</p></li>
+<li><p>refactor(autocompact): rename /compact modes to ‘trim’ and ‘summarize’ (<a class="reference external" href="https://github.com/gptme/gptme/issues/3621">#3621</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/6c0a3f57d"><code class="docutils literal notranslate"><span class="pre">6c0a3f57d</span></code></a>)</p></li>
+<li><p>docs(getting-started): add free cloud providers section (OpenRouter, Gemini, Groq) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3631">#3631</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/fc98c881a"><code class="docutils literal notranslate"><span class="pre">fc98c881a</span></code></a>)</p></li>
+<li><p>refactor(agent-cmd): clarify scan scope and add create cross-references (<a class="reference external" href="https://github.com/gptme/gptme/issues/3619">#3619</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/19e03514f"><code class="docutils literal notranslate"><span class="pre">19e03514f</span></code></a>)</p></li>
+<li><p>test(webui): add opt-in vision_assert helper for generation E2E (<a class="reference external" href="https://github.com/gptme/gptme/issues/3607">#3607</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/dba4af2c3"><code class="docutils literal notranslate"><span class="pre">dba4af2c3</span></code></a>)</p></li>
+<li><p>docs: add curated skills gallery page to gptme.org (<a class="reference external" href="https://github.com/gptme/gptme/issues/3605">#3605</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/170d87681"><code class="docutils literal notranslate"><span class="pre">170d87681</span></code></a>)</p></li>
+<li><p>refactor(service-init): consolidate and document gptme-agent-template reference (<a class="reference external" href="https://github.com/gptme/gptme/issues/3614">#3614</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/e7107777e"><code class="docutils literal notranslate"><span class="pre">e7107777e</span></code></a>)</p></li>
+<li><p>docs(hooks): document TOOL_CONFIRM deny semantics and return contract (<a class="reference external" href="https://github.com/gptme/gptme/issues/3611">#3611</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0e3fb1aa7"><code class="docutils literal notranslate"><span class="pre">0e3fb1aa7</span></code></a>)</p></li>
+<li><p>test(subagent): de-flake test_subagent_wait_polls_cache_after_join_timeout (<a class="reference external" href="https://github.com/gptme/gptme/issues/3610">#3610</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/fccc316f4"><code class="docutils literal notranslate"><span class="pre">fccc316f4</span></code></a>)</p></li>
+<li><p>docs(plugins): fix hook type names and add TOOL_CONFIRM guardrail example (<a class="reference external" href="https://github.com/gptme/gptme/issues/3608">#3608</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/0b1897cf1"><code class="docutils literal notranslate"><span class="pre">0b1897cf1</span></code></a>)</p></li>
+<li><p>docs: add headless agents section with gptme service init example (<a class="reference external" href="https://github.com/gptme/gptme/issues/3588">#3588</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/a4d403a91"><code class="docutils literal notranslate"><span class="pre">a4d403a91</span></code></a>)</p></li>
+<li><p>test(server): add subprocess integration test for server startup (<a class="reference external" href="https://github.com/gptme/gptme/issues/3589">#3589</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3590">#3590</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/6e4e0015b"><code class="docutils literal notranslate"><span class="pre">6e4e0015b</span></code></a>)</p></li>
+<li><p>test(webui): add regression test for BYOK 422 invalid-key rejection (<a class="reference external" href="https://github.com/gptme/gptme/issues/3545">#3545</a>) (<a class="reference external" href="https://github.com/gptme/gptme/issues/3581">#3581</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/b36c05f41"><code class="docutils literal notranslate"><span class="pre">b36c05f41</span></code></a>)</p></li>
+<li><p>docs: document subscription auth (ChatGPT Plus/Pro, SuperGrok) in README and providers docs (<a class="reference external" href="https://github.com/gptme/gptme/issues/3582">#3582</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/433f47f28"><code class="docutils literal notranslate"><span class="pre">433f47f28</span></code></a>)</p></li>
+</ul>
+</p>
+</details>
+<p><em>(excluded 7 less relevant <a class="reference external" href="https://github.com/gptme/gptme/compare/v0.33.0...v0.34.0">commits</a>)</em></p>
+<p><strong>Full Changelog</strong>: https://github.com/gptme/gptme/compare/v0.33.0…v0.34.0</p>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../changelog.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Changelog</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="v0.33.0.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">v0.33.0</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributors">Contributors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changelog">Changelog</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">📦 gptme</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#features-61">✨ Features (61)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes-123">🐛 Fixes (123)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#misc-42">🔨 Misc (42)</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
