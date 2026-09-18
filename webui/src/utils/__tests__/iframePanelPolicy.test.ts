@@ -118,6 +118,9 @@ describe('resolvePanelSrc', () => {
     expect(resolvePanelSrc('/api/v1/instances/abc/../preview/5173/', api)).toBe('');
     expect(resolvePanelSrc('/api/v1/instances/abc/%2e%2e/preview/5173/', api)).toBe('');
     expect(resolvePanelSrc('/preview/../../admin', api)).toBe('');
+    // `%2f` is not decoded by `URL`, so the `..` only appears after decoding.
+    expect(resolvePanelSrc('/api/v1/instances/abc/..%2f..%2fadmin', api)).toBe('');
+    expect(resolvePanelSrc('/api/v1/instances/abc/..%2fadmin', api)).toBe('');
   });
 
   it('produces a src that the allowlist then accepts', () => {

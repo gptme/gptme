@@ -79,6 +79,20 @@ export function resolvePanelSrc(src: string, baseUrl?: string | null): string {
     ) {
       return '';
     }
+    // Defense in depth: reject any `..` segment that only appears *after*
+    // percent-decoding (`%2e%2e`, `%2f`-joined). `URL` normalizes the encoded
+    // dot forms it recognizes, but a server that decodes `%2f` before routing
+    // would still see a traversal. A literal `..` segment is never valid in a
+    // panel src.
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(resolved.pathname);
+    } catch {
+      return '';
+    }
+    if (decodedPath.split('/').some((segment) => segment === '..')) {
+      return '';
+    }
     return `${resolved.origin}${resolved.pathname}${resolved.search}`;
   } catch {
     // A non-URL base (relative path) has no origin/instance prefix to detect.
