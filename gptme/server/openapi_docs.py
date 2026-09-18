@@ -33,11 +33,7 @@ API_VERSION = 2
 #     it continue to work (they just lose the UNREACHABLE notification).
 #   - The 502 path was itself new in revision 1 (PR #3555) and had no stable consumers
 #     outside the SetupWizard, which is updated in this PR to handle the new field.
-# Revision 3 — additive SSE event: the v2 event stream now emits
-# "turn_persisted" after a turn's transcript passes its persistence barrier.
-# Purely additive: "generation_complete" keeps its meaning and position, and
-# clients that ignore the new event are unaffected.
-CONTRACT_REVISION = 3
+CONTRACT_REVISION = 2
 
 logger = logging.getLogger(__name__)
 

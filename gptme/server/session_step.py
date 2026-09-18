@@ -32,12 +32,7 @@ from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools
 from ..tools.shell import set_workspace_cwd
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
-from .api_v2_common import (
-    ConfigChangedEvent,
-    ErrorEvent,
-    TurnPersistedEvent,
-    msg2dict,
-)
+from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
 from .session_models import (
     ConversationSession,
     SessionManager,
@@ -50,11 +45,6 @@ if TYPE_CHECKING:
     from .acp_session_runtime import AcpSessionRuntime
 
 logger = logging.getLogger(__name__)
-
-
-def turn_persisted_event() -> TurnPersistedEvent:
-    """Acknowledge that the turn's transcript passed its persistence barrier."""
-    return {"type": "turn_persisted"}
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +546,8 @@ async def _acp_step(
                 for hook_msg in post_msgs:
                     _append_and_notify(manager, session, hook_msg)
 
+            manager.write(sync=True)
+
             if final_msg is None:
                 # Should not happen: pending_user_messages was non-empty above, but
                 # guard explicitly instead of using assert (disabled by python -O).
@@ -578,11 +570,6 @@ async def _acp_step(
                         ),
                     },
                 )
-
-            # Same contract as the streaming path: generation_complete is the
-            # progress signal, turn_persisted is the durability acknowledgement.
-            manager.write(sync=True)
-            SessionManager.add_event(conversation_id, turn_persisted_event())
 
             # Auto-generate display name AFTER signaling generation_complete,
             # so the event isn't blocked by a potentially slow LLM call.
@@ -915,20 +902,6 @@ def step(
 
         _append_and_notify(manager, session, msg)
 
-        # Signal generation_complete AFTER message_added but BEFORE turn hooks
-        # and the persistence barrier, so the frontend is not made to wait on
-        # arbitrary hook code or on fsync. The message itself is already on
-        # disk (append() writes); what is still provisional at this point is
-        # the durability of the turn as a whole.
-        logger.debug("Generation complete")
-        SessionManager.add_event(
-            conversation_id,
-            {
-                "type": "generation_complete",
-                "message": msg2dict(msg, manager.workspace, manager.logdir),
-            },
-        )
-
         # Trigger TURN_POST hook (turn.post - after message processing completes)
         if post_msgs := trigger_hook(
             HookType.TURN_POST,
@@ -937,11 +910,17 @@ def step(
             for hook_msg in post_msgs:
                 _append_and_notify(manager, session, hook_msg)
 
-        # The barrier covers the whole turn, hook output included. Clients that
-        # need a durability acknowledgement wait for turn_persisted; an I/O
-        # failure here reaches the error path instead of being acknowledged.
+        # Streamed tokens/message_added are provisional. Completion acknowledges
+        # the transcript, including hook output, only after its barrier succeeds.
         manager.write(sync=True)
-        SessionManager.add_event(conversation_id, turn_persisted_event())
+        logger.debug("Generation complete")
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "generation_complete",
+                "message": msg2dict(msg, manager.workspace, manager.logdir),
+            },
+        )
 
         # Auto-generate display name AFTER signaling generation_complete,
         # so the event isn't blocked by a potentially slow LLM call.
