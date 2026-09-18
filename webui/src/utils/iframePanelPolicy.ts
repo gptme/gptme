@@ -49,6 +49,27 @@ export function resolvePanelSrc(src: string, baseUrl?: string | null): string {
 
   const base = baseUrl.trim().replace(/\/+$/, '');
   if (!base) return value;
+
+  // Some hints already carry the instance path themselves instead of being
+  // instance-relative. Prepending the base again would double the prefix and
+  // produce a URL the server does not serve, so join those against the origin
+  // only. This makes the resolver idempotent for already-prefixed paths while
+  // keeping the documented `/preview/{port}/` convention instance-relative.
+  try {
+    const parsed = new URL(base);
+    const basePath = parsed.pathname.replace(/\/+$/, '');
+    const alreadyQualified =
+      (basePath !== '' && (value === basePath || value.startsWith(`${basePath}/`))) ||
+      // A host-qualified hint ("/instances/<id>/preview/...") already names the
+      // instance itself; the base prefix must not be added on top of it.
+      /^\/instances\/[^/]+(\/|$)/.test(value);
+    if (alreadyQualified) {
+      return `${parsed.origin}${value}`;
+    }
+  } catch {
+    // A non-URL base (relative path) has no origin/instance prefix to detect.
+  }
+
   return `${base}/${value.replace(/^\/+/, '')}`;
 }
 
@@ -131,9 +152,14 @@ export function resolveSandbox(tokens: readonly string[] | undefined): string {
 }
 
 /**
- * True when the resolved sandbox attribute leaves the frame with an *opaque*
- * origin — i.e. the frame is sandboxed at all but does not carry
- * `allow-same-origin`.
+ * True when the resolved sandbox leaves the frame with an *opaque* origin,
+ * i.e. the frame does not carry `allow-same-origin`.
+ *
+ * This mirrors exactly what the component renders: `sandbox={resolveSandbox(...)}`
+ * always emits the attribute, and an empty value (`sandbox=""`) is a
+ * *present* attribute — per the HTML spec it still activates every sandbox
+ * restriction, including the opaque origin. So the empty resolved sandbox is
+ * opaque too; only an explicit `allow-same-origin` preserves the frame origin.
  *
  * Browsers serialise an opaque origin as `"null"` on `postMessage`, so the
  * host can neither match `event.origin` against a concrete origin nor address
@@ -143,6 +169,5 @@ export function resolveSandbox(tokens: readonly string[] | undefined): string {
  * panel that can script is opaque.
  */
 export function sandboxHasOpaqueOrigin(tokens: readonly string[] | undefined): boolean {
-  const sandbox = resolveSandbox(tokens);
-  return sandbox !== '' && !sandbox.split(' ').includes('allow-same-origin');
+  return !resolveSandbox(tokens).split(' ').includes('allow-same-origin');
 }

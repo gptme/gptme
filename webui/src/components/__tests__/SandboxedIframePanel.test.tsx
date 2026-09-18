@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SandboxedIframePanel } from '../SandboxedIframePanel';
 import type { IframePanelDescriptor, IframeSandboxToken } from '@/types/panel';
 
@@ -60,7 +60,7 @@ describe('SandboxedIframePanel', () => {
   it('replies to the concrete src origin when the sandbox keeps the frame origin', async () => {
     render(
       <SandboxedIframePanel
-        descriptor={{ ...baseDescriptor, sandbox: [] }}
+        descriptor={{ ...baseDescriptor, sandbox: ['allow-same-origin'] }}
         conversationId="conv-abc"
       />
     );
@@ -78,9 +78,11 @@ describe('SandboxedIframePanel', () => {
   });
 
   it('rejects a "null" origin from a frame that is not sandboxed (fail-closed)', async () => {
+    // `allow-same-origin` is what keeps the frame's real origin; a frame that
+    // keeps its origin cannot legitimately claim to be opaque.
     render(
       <SandboxedIframePanel
-        descriptor={{ ...baseDescriptor, sandbox: [] }}
+        descriptor={{ ...baseDescriptor, sandbox: ['allow-same-origin'] }}
         conversationId="conv-abc"
       />
     );
@@ -249,7 +251,12 @@ describe('SandboxedIframePanel', () => {
   it('replies to the resolved API origin when the frame keeps its origin', async () => {
     render(
       <SandboxedIframePanel
-        descriptor={{ ...baseDescriptor, src: '/preview/5173/', sandbox: [], title: 'Live App' }}
+        descriptor={{
+          ...baseDescriptor,
+          src: '/preview/5173/',
+          sandbox: ['allow-same-origin'],
+          title: 'Live App',
+        }}
         conversationId="conv1"
         apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
       />
@@ -267,11 +274,9 @@ describe('SandboxedIframePanel', () => {
     );
   });
 
-  it('does not re-bootstrap after gptme:ready fires a second time (bootstrap-once guard)', async () => {
-    // Simulates the navigation-bypass scenario: an opaque-origin frame
-    // navigates to an attacker-controlled document. The new document shares the
-    // same contentWindow (WindowProxy) and opaque "null" origin, so both
-    // identity checks pass — but the bootstrap must not fire a second time.
+  it('does not re-bootstrap after gptme:ready fires a second time (bootstrap-once-per-document)', async () => {
+    // A document that posts `gptme:ready` twice (without reloading) must not
+    // receive the bootstrap payload twice.
     render(
       <SandboxedIframePanel
         descriptor={{ ...baseDescriptor, title: 'Bootstrap Once Test' }}
@@ -324,6 +329,60 @@ describe('SandboxedIframePanel', () => {
     emitFromIframe(frame, 'null', { type: 'gptme:ready' });
     await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
     expect(postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-bootstraps after the frame reloads (new document, same src)', async () => {
+    // A reload replaces the document in the same iframe. The new document needs
+    // the bootstrap payload too, so the guard must re-arm on the load event —
+    // otherwise every reloaded panel loses its conversation_id permanently.
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, title: 'Reload Test' }}
+        conversationId="conv-reload"
+      />
+    );
+    const frame = screen.getByTitle('Reload Test') as HTMLIFrameElement;
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+
+    // Reload: a fresh document finishes loading in the same frame.
+    act(() => {
+      fireEvent.load(frame);
+    });
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+    expect(postMessage).toHaveBeenNthCalledWith(
+      2,
+      { type: 'gptme:bootstrap', payload: { conversation_id: 'conv-reload' } },
+      '*'
+    );
+  });
+
+  it('treats an empty sandbox as opaque (present-but-empty attribute)', async () => {
+    // `sandbox: []` renders as `sandbox=""`, which still sandboxes the frame;
+    // it therefore speaks as "null" and is answered with targetOrigin "*".
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, sandbox: [], title: 'Empty Sandbox Test' }}
+        conversationId="conv-empty"
+      />
+    );
+    const frame = screen.getByTitle('Empty Sandbox Test') as HTMLIFrameElement;
+    expect(frame.getAttribute('sandbox')).toBe('');
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'gptme:bootstrap', payload: { conversation_id: 'conv-empty' } },
+      '*'
+    );
   });
 
   it('still blocks a foreign origin when an API base url is set', () => {

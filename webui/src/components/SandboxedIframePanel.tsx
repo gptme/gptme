@@ -14,7 +14,7 @@
  * `"null"` and must be addressed with `targetOrigin: "*"`. Identity is pinned by
  * `event.source === contentWindow`, not by origin.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import type { GptmeIframeMessage, IframePanelDescriptor } from '@/types/panel';
 import { isGptmeIframeMessage } from '@/types/panel';
@@ -37,11 +37,6 @@ interface Props {
 export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, apiBaseUrl }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bootstrappedRef = useRef(false);
-  // Track the src at which we last reset the bootstrap guard, so the guard
-  // only resets when the frame actually navigates to a new URL — not on every
-  // unrelated dep change (e.g. conversationId). Resetting on every re-run
-  // would let a navigated attacker document receive a second bootstrap.
-  const bootstrappedSrcRef = useRef<string | undefined>(undefined);
   const [autoHeight, setAutoHeight] = useState<number | null>(null);
 
   // Server-relative srcs (e.g. "/preview/5173/") belong to the instance server,
@@ -57,16 +52,20 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
   // `event.source` is the only identity gate available.
   const opaqueOrigin = sandboxHasOpaqueOrigin(descriptor.sandbox);
 
+  // Bootstrap is scoped to the *loaded document*, not to the effect lifecycle or
+  // to the src string. A document that finishes loading in this frame (initial
+  // load, reload, or an in-frame navigation) gets exactly one bootstrap, so a
+  // legitimate reload can complete the handshake again, while duplicate
+  // `gptme:ready` messages from the same document are still ignored.
+  const handleLoad = useCallback(() => {
+    bootstrappedRef.current = false;
+  }, []);
+
   useEffect(() => {
-    // Reset the bootstrap guard only when the iframe src changes (frame navigates
-    // to a new URL). Do NOT reset on every effect re-run: if unrelated deps change
-    // (e.g. conversationId) while the frame is still showing the original document,
-    // a navigated attacker-controlled page sharing the same contentWindow would
-    // pass the identity check and receive a second bootstrap payload.
-    if (bootstrappedSrcRef.current !== src) {
-      bootstrappedSrcRef.current = src;
-      bootstrappedRef.current = false;
-    }
+    // Note: the guard is NOT reset here on re-run. Resetting on every effect
+    // re-run (e.g. a conversationId change) would let a second `gptme:ready`
+    // from the already-loaded document re-bootstrap. Document changes are
+    // handled by `handleLoad` instead.
     if (!allowed) return;
 
     const post = (message: GptmeIframeMessage) => {
@@ -92,11 +91,11 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
 
       switch (event.data.type) {
         case 'gptme:ready':
-          // Bootstrap-once guard: a navigated document in the same iframe
-          // shares the same contentWindow (WindowProxy) and an opaque "null"
-          // origin, so it would otherwise pass both identity checks. Sending
-          // the bootstrap payload only once prevents a navigated attacker-
-          // controlled page from receiving conversation_id via a second ready.
+          // Bootstrap-once-per-document guard: duplicate `gptme:ready` messages
+          // from the same loaded document must not re-send the payload. The
+          // guard is re-armed by `handleLoad` when a new document finishes
+          // loading, so a legitimate reload recovers while a duplicate ready
+          // (e.g. a page posting it twice) does not.
           if (!bootstrappedRef.current) {
             bootstrappedRef.current = true;
             post({
@@ -125,7 +124,6 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [
-    src,
     allowed,
     expectedOrigin,
     opaqueOrigin,
@@ -155,6 +153,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
       ref={iframeRef}
       src={src}
       title={descriptor.title}
+      onLoad={handleLoad}
       sandbox={resolveSandbox(descriptor.sandbox)}
       allow={descriptor.allow ?? ''}
       className="w-full rounded-md border-0"

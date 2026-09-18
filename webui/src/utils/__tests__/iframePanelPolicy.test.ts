@@ -88,6 +88,29 @@ describe('resolvePanelSrc', () => {
     expect(resolvePanelSrc('/preview/5173/', null)).toBe('/preview/5173/');
   });
 
+  it('does not double the instance prefix for an already-prefixed src', () => {
+    // Some hints carry the instance path themselves rather than being
+    // instance-relative; prepending the base again would yield a URL the
+    // server does not serve.
+    expect(resolvePanelSrc('/api/v1/instances/abc/preview/5173/', api)).toBe(
+      'https://fleet.gptme.ai/api/v1/instances/abc/preview/5173/'
+    );
+    // The bare instance path is also already resolved.
+    expect(resolvePanelSrc('/api/v1/instances/abc', api)).toBe(
+      'https://fleet.gptme.ai/api/v1/instances/abc'
+    );
+    // A host-qualified hint (the instance segment is already present) joins
+    // against the origin only, regardless of which instance id it names.
+    expect(resolvePanelSrc('/instances/example/preview/5173/', api)).toBe(
+      'https://fleet.gptme.ai/instances/example/preview/5173/'
+    );
+    // A path that only shares a string prefix with the base path is still
+    // instance-relative and must keep the prefix.
+    expect(resolvePanelSrc('/api/v1/instances/abcdef/preview/1/', api)).toBe(
+      'https://fleet.gptme.ai/api/v1/instances/abc/api/v1/instances/abcdef/preview/1/'
+    );
+  });
+
   it('produces a src that the allowlist then accepts', () => {
     const resolved = resolvePanelSrc('/preview/5173/', api);
     expect(isAllowedIframeSrc(resolved, urlOrigin(api))).toBe(true);
@@ -162,11 +185,19 @@ describe('sandboxHasOpaqueOrigin', () => {
     expect(sandboxHasOpaqueOrigin(['allow-forms'])).toBe(true);
   });
 
-  it('is false when the sandbox preserves the frame origin', () => {
-    // No sandbox attribute at all: the frame keeps its real origin.
-    expect(sandboxHasOpaqueOrigin([])).toBe(false);
-    expect(sandboxHasOpaqueOrigin(undefined)).toBe(false);
-    // allow-same-origin without allow-scripts survives resolveSandbox.
+  it('is true for an empty resolved sandbox (present-but-empty attribute still sandboxes)', () => {
+    // The component always renders the sandbox attribute; an empty resolved
+    // value renders as `sandbox=""`, which per the HTML spec still activates
+    // every restriction, including the opaque origin.
+    expect(resolveSandbox([])).toBe('');
+    expect(sandboxHasOpaqueOrigin([])).toBe(true);
+    expect(sandboxHasOpaqueOrigin(undefined)).toBe(true);
+    expect(sandboxHasOpaqueOrigin(['allow-modals'])).toBe(true);
+  });
+
+  it('is false only when allow-same-origin survives resolveSandbox', () => {
+    // allow-same-origin without allow-scripts survives resolveSandbox and
+    // preserves the frame origin.
     expect(sandboxHasOpaqueOrigin(['allow-same-origin'])).toBe(false);
   });
 });
