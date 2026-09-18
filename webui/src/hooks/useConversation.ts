@@ -340,7 +340,12 @@ export function useConversation(conversationId: string, serverId?: string) {
                   console.warn('Failed to show completion notification:', error);
                 });
               } else {
-                // step_complete after an error or interrupt (no preceding generation_complete)
+                // step_complete without a preceding generation_complete, OR after
+                // onToolPending cleared messageJustCompleted (tool continuation that
+                // ends without another LLM round).  In all cases the server has
+                // already set generating=False before emitting step_complete, so
+                // clearing it here is safe.  For non-auto-confirm tools,
+                // onToolPending already cleared generating, making this a no-op.
                 setGenerating(conversationId, false);
               }
             },
