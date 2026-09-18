@@ -21,6 +21,7 @@ repos:
   rev: 13d63e63b35705bc16646ed4b0964dcfa176bc43  # gptme/gptme-contrib#1520
   hooks:
   - id: validate-root-structure
+    args: [--config=.github/root-structure-allowlist.yaml]
 - repo: local
   hooks:
   - id: check-rst-formatting

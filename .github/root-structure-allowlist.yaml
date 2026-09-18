@@ -1,6 +1,7 @@
 ---
 # Allowed top-level entries in the gptme repository.
 # Update this list deliberately when adding a new root file or directory.
+# Consumed by the validate-root-structure pre-commit hook (see .pre-commit-config.yaml).
 
 allowed_entries:
   # Files and configuration
@@ -21,12 +22,10 @@ allowed_entries:
   - mypy.ini
   - poetry.lock
   - pyproject.toml
-  - root-structure-allowlist.yaml
 
   # Directories
   - docs
   - gptme
-  - gptme-extension
   - media
   - packages
   - scripts
