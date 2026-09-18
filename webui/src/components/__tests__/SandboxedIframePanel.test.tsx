@@ -362,6 +362,52 @@ describe('SandboxedIframePanel', () => {
     );
   });
 
+  it('re-bootstraps when the src changes to one with a different origin policy', async () => {
+    // The message listener must be rebuilt when `src` changes, otherwise the
+    // new document is validated against the previous src's origin/opacity and
+    // never receives the bootstrap payload.
+    const { rerender } = render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, title: 'Src Change Test' }}
+        conversationId="conv-src"
+      />
+    );
+    let frame = screen.getByTitle('Src Change Test') as HTMLIFrameElement;
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    // First document: opaque origin (allow-scripts without allow-same-origin).
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+
+    // New src keeps the frame's real origin, so the listener must now accept
+    // the concrete origin instead of the stale opaque "null".
+    rerender(
+      <SandboxedIframePanel
+        descriptor={{
+          ...baseDescriptor,
+          title: 'Src Change Test',
+          src: 'http://localhost:9090',
+          sandbox: ['allow-same-origin'],
+        }}
+        conversationId="conv-src"
+      />
+    );
+    frame = screen.getByTitle('Src Change Test') as HTMLIFrameElement;
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+    act(() => {
+      fireEvent.load(frame);
+    });
+
+    emitFromIframe(frame, 'http://localhost:9090', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+    expect(postMessage).toHaveBeenNthCalledWith(
+      2,
+      { type: 'gptme:bootstrap', payload: { conversation_id: 'conv-src' } },
+      'http://localhost:9090'
+    );
+  });
+
   it('treats an empty sandbox as opaque (present-but-empty attribute)', async () => {
     // `sandbox: []` renders as `sandbox=""`, which still sandboxes the frame;
     // it therefore speaks as "null" and is answered with targetOrigin "*".

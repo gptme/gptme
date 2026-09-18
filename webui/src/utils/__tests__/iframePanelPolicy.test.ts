@@ -99,10 +99,11 @@ describe('resolvePanelSrc', () => {
     expect(resolvePanelSrc('/api/v1/instances/abc', api)).toBe(
       'https://fleet.gptme.ai/api/v1/instances/abc'
     );
-    // A host-qualified hint (the instance segment is already present) joins
-    // against the origin only, regardless of which instance id it names.
+    // A host-qualified hint naming another instance must NOT be lifted to the
+    // origin: that would load a different instance's route while still passing
+    // the allowlist. It stays instance-relative instead (and simply 404s).
     expect(resolvePanelSrc('/instances/example/preview/5173/', api)).toBe(
-      'https://fleet.gptme.ai/instances/example/preview/5173/'
+      'https://fleet.gptme.ai/api/v1/instances/abc/instances/example/preview/5173/'
     );
     // A path that only shares a string prefix with the base path is still
     // instance-relative and must keep the prefix.

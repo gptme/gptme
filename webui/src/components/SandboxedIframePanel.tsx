@@ -124,6 +124,11 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [
+    // `src` is required here: a src change re-resolves `expectedOrigin` and
+    // `opaqueOrigin`, and the listener must capture the new values or the new
+    // document is validated against the previous src's origin and never gets
+    // bootstrapped. (`handleLoad` re-arms the once-per-document guard.)
+    src,
     allowed,
     expectedOrigin,
     opaqueOrigin,

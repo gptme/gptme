@@ -55,14 +55,16 @@ export function resolvePanelSrc(src: string, baseUrl?: string | null): string {
   // produce a URL the server does not serve, so join those against the origin
   // only. This makes the resolver idempotent for already-prefixed paths while
   // keeping the documented `/preview/{port}/` convention instance-relative.
+  //
+  // Only the *exact* base path qualifies. A path that merely looks like an
+  // instance route (`/instances/<other-id>/...`) must not be joined against
+  // the origin, or a hint could load a different instance's route on our
+  // origin while still passing the allowlist (cross-instance leak).
   try {
     const parsed = new URL(base);
     const basePath = parsed.pathname.replace(/\/+$/, '');
     const alreadyQualified =
-      (basePath !== '' && (value === basePath || value.startsWith(`${basePath}/`))) ||
-      // A host-qualified hint ("/instances/<id>/preview/...") already names the
-      // instance itself; the base prefix must not be added on top of it.
-      /^\/instances\/[^/]+(\/|$)/.test(value);
+      basePath !== '' && (value === basePath || value.startsWith(`${basePath}/`));
     if (alreadyQualified) {
       return `${parsed.origin}${value}`;
     }
