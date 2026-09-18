@@ -10,3 +10,4 @@
  * (gptme/gptme#3754).
  */
 export const isViteDev: boolean = import.meta.env.DEV;
+export const isEmbeddedMode: boolean = import.meta.env.VITE_EMBEDDED_MODE === 'true';

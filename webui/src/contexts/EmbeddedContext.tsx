@@ -16,6 +16,7 @@ import {
   parseSeedPromptMessage,
   type EmbeddedMenuItem,
 } from '@/lib/embeddedContext';
+import { isEmbeddedMode } from '@/utils/viteEnv';
 
 interface EmbeddedContextValue {
   isEmbedded: boolean;
@@ -35,7 +36,7 @@ const EmbeddedContext = createContext<EmbeddedContextValue>({
 });
 
 export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => {
-  const isEmbedded = import.meta.env.VITE_EMBEDDED_MODE === 'true';
+  const isEmbedded = isEmbeddedMode;
   const [menuItems, setMenuItems] = useState<EmbeddedMenuItem[]>([]);
   const [parentOrigin, setParentOrigin] = useState<string | null>(null);
   // Ref so the message handler closure always reads the latest confirmed origin
