@@ -339,6 +339,17 @@ class Subagent:
     # thread.is_alive() is True but the chat loop has already stopped.
     prompt_queue_closed: threading.Event = field(default_factory=threading.Event)
 
+    def __post_init__(self) -> None:
+        # Identify subagents by resolved path. ``LogManager.logdir`` is resolved,
+        # but spawn sites build logdirs from ``get_logs_dir()``, which is not —
+        # so any symlink in the logs path (a symlinked data dir, macOS
+        # ``/tmp`` -> ``/private/tmp``) would make ``s.logdir == manager.logdir``
+        # silently false and drop the hooks that depend on that lookup.
+        for attribute in ("logdir", "parent_logdir"):
+            value = getattr(self, attribute)
+            if value is not None:
+                object.__setattr__(self, attribute, Path(value).resolve())
+
     def _normalize_json_result(self, result: str) -> str:
         """Normalize a complete-block result as canonical JSON.
 

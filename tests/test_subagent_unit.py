@@ -143,6 +143,46 @@ class TestSubagentControlChannel:
         # No control file should have been needed
         assert not (tmp_path / CONTROL_FILENAME).exists()
 
+    def test_control_hook_matches_symlinked_logdir(self, tmp_path):
+        """The registry lookup must survive a symlink in the logs path.
+
+        Spawn sites build logdirs from ``get_logs_dir()``, which is not resolved;
+        ``LogManager.logdir`` is. Any symlink in between (a symlinked data dir,
+        macOS ``/tmp`` -> ``/private/tmp``) used to make ``s.logdir ==
+        manager.logdir`` silently false, dropping the in-memory cancel fallback
+        and mis-deriving agent_id from ``logdir.name``.
+        """
+        real_root = tmp_path / "real"
+        session_dir = real_root / "subagent-real-agent-id-abcd"
+        session_dir.mkdir(parents=True)
+        linked_root = tmp_path / "logs"
+        linked_root.symlink_to(real_root)
+
+        # What the spawn site registers vs. what the running manager reports.
+        manager = MagicMock(logdir=session_dir)
+        sa = Subagent(
+            agent_id="real-agent-id",
+            prompt="test",
+            thread=None,
+            logdir=linked_root / session_dir.name,
+            model=None,
+        )
+        sa.cancel_event.set()
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+        try:
+            with pytest.raises(SessionCompleteException, match="cancelled"):
+                list(_subagent_control_hook(manager))
+        finally:
+            with _subagents_lock:
+                _subagents.remove(sa)
+
+        with _subagent_results_lock:
+            assert "real-agent-id" in _subagent_results
+
     def test_control_hook_stores_cancelled_status(self, tmp_path):
         """Hook must store 'cancelled' (not 'failure') when no prior result exists."""
         append_control_op(tmp_path, "cancel", agent_id="thread-agent")
