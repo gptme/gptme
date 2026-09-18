@@ -408,6 +408,40 @@ describe('SandboxedIframePanel', () => {
     );
   });
 
+  it('bootstraps a new document that posts ready before its load event fires', async () => {
+    // A cached/same-origin document can post `gptme:ready` before `load`.
+    // The guard must be re-armed on the src change itself, not only on load.
+    const { rerender } = render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, title: 'Race Test' }}
+        conversationId="conv-race"
+      />
+    );
+    let frame = screen.getByTitle('Race Test') as HTMLIFrameElement;
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <SandboxedIframePanel
+        descriptor={{
+          ...baseDescriptor,
+          title: 'Race Test',
+          src: 'http://localhost:9090',
+          sandbox: ['allow-same-origin'],
+        }}
+        conversationId="conv-race"
+      />
+    );
+    frame = screen.getByTitle('Race Test') as HTMLIFrameElement;
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    // Deliberately no `load` event — the new document speaks first.
+    emitFromIframe(frame, 'http://localhost:9090', { type: 'gptme:ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+  });
+
   it('treats an empty sandbox as opaque (present-but-empty attribute)', async () => {
     // `sandbox: []` renders as `sandbox=""`, which still sandboxes the frame;
     // it therefore speaks as "null" and is answered with targetOrigin "*".

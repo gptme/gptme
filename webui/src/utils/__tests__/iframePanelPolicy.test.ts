@@ -112,6 +112,14 @@ describe('resolvePanelSrc', () => {
     );
   });
 
+  it('refuses srcs that traverse out of the instance prefix', () => {
+    // `URL` normalizes `..` (and `%2e%2e`), so these would otherwise escape
+    // the instance prefix and load another route on the API origin.
+    expect(resolvePanelSrc('/api/v1/instances/abc/../preview/5173/', api)).toBe('');
+    expect(resolvePanelSrc('/api/v1/instances/abc/%2e%2e/preview/5173/', api)).toBe('');
+    expect(resolvePanelSrc('/preview/../../admin', api)).toBe('');
+  });
+
   it('produces a src that the allowlist then accepts', () => {
     const resolved = resolvePanelSrc('/preview/5173/', api);
     expect(isAllowedIframeSrc(resolved, urlOrigin(api))).toBe(true);

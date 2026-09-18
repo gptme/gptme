@@ -65,9 +65,21 @@ export function resolvePanelSrc(src: string, baseUrl?: string | null): string {
     const basePath = parsed.pathname.replace(/\/+$/, '');
     const alreadyQualified =
       basePath !== '' && (value === basePath || value.startsWith(`${basePath}/`));
-    if (alreadyQualified) {
-      return `${parsed.origin}${value}`;
+    const resolved = alreadyQualified
+      ? new URL(value, parsed.origin)
+      : new URL(`${base}/${value.replace(/^\/+/, '')}`);
+    // `URL` normalizes `..` and percent-encoded dot segments; verify the result
+    // still lives under the instance prefix. A hint like
+    // `/api/v1/instances/abc/../admin` would otherwise escape it and load
+    // another route on the API origin, which the allowlist accepts.
+    if (
+      basePath !== '' &&
+      resolved.pathname !== basePath &&
+      !resolved.pathname.startsWith(`${basePath}/`)
+    ) {
+      return '';
     }
+    return `${resolved.origin}${resolved.pathname}${resolved.search}`;
   } catch {
     // A non-URL base (relative path) has no origin/instance prefix to detect.
   }

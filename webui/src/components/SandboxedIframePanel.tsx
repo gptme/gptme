@@ -37,6 +37,8 @@ interface Props {
 export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, apiBaseUrl }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bootstrappedRef = useRef(false);
+  // The src whose document the once-per-document guard is currently armed for.
+  const bootstrappedSrcRef = useRef<string | null>(null);
   const [autoHeight, setAutoHeight] = useState<number | null>(null);
 
   // Server-relative srcs (e.g. "/preview/5173/") belong to the instance server,
@@ -62,10 +64,17 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
   }, []);
 
   useEffect(() => {
-    // Note: the guard is NOT reset here on re-run. Resetting on every effect
-    // re-run (e.g. a conversationId change) would let a second `gptme:ready`
-    // from the already-loaded document re-bootstrap. Document changes are
-    // handled by `handleLoad` instead.
+    // A src change loads a new document, so re-arm the once-per-document guard
+    // synchronously. `handleLoad` covers the same case, but a cached or
+    // same-origin document can post `gptme:ready` before its `load` event
+    // fires; without this reset that `ready` would be dropped and the panel
+    // would never receive its bootstrap payload. Other effect re-runs (e.g. a
+    // `conversationId` change) must NOT reset the guard: a duplicate `ready`
+    // from the already-loaded document has to stay ignored.
+    if (bootstrappedSrcRef.current !== src) {
+      bootstrappedSrcRef.current = src;
+      bootstrappedRef.current = false;
+    }
     if (!allowed) return;
 
     const post = (message: GptmeIframeMessage) => {
