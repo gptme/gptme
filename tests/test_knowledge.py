@@ -845,3 +845,210 @@ def test_cli_search_json_includes_entry_type():
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert data[0]["entry_type"] == "how_to"
+
+
+# ---------------------------------------------------------------------------
+# gptme-rag search integration
+# ---------------------------------------------------------------------------
+
+
+def _make_rag_response(entry_ids: list, rag_dir) -> str:
+    """Build a minimal gptme-rag JSON response for the given entry IDs."""
+    results = [
+        {"source": str(rag_dir / f"{eid}.md"), "relevance": 0.9, "content": "..."}
+        for eid in entry_ids
+    ]
+    return json.dumps({"query": "q", "total_results": len(results), "results": results})
+
+
+def test_rag_search_returns_none_when_unavailable(monkeypatch, tmp_path):
+    """_rag_search returns None when gptme-rag is not in PATH."""
+    from gptme.cli.cmd_knowledge import _rag_search
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: None)
+    assert _rag_search("any query", 5, tmp_path) is None
+
+
+def test_rag_search_returns_none_when_rag_dir_missing(monkeypatch, tmp_path):
+    """_rag_search returns None when rag_dir has no .md files."""
+    from gptme.cli.cmd_knowledge import _rag_search
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    empty_dir = tmp_path / "rag"
+    empty_dir.mkdir()
+    assert _rag_search("any query", 5, empty_dir) is None
+
+
+def test_rag_search_returns_none_on_subprocess_error(monkeypatch, tmp_path):
+    """_rag_search returns None when the subprocess errors or times out."""
+    import subprocess
+
+    from gptme.cli.cmd_knowledge import _rag_search
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    rag_dir = tmp_path / "rag"
+    rag_dir.mkdir()
+    (rag_dir / "abc.md").write_text("x")
+
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run",
+        lambda *a, **kw: (_ for _ in ()).throw(subprocess.TimeoutExpired("cmd", 30)),
+    )
+    assert _rag_search("query", 5, rag_dir) is None
+
+
+def test_rag_search_returns_none_on_nonzero_exit(monkeypatch, tmp_path):
+    """_rag_search returns None when gptme-rag exits with non-zero code."""
+    from gptme.cli.cmd_knowledge import _rag_search
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    rag_dir = tmp_path / "rag"
+    rag_dir.mkdir()
+    (rag_dir / "abc.md").write_text("x")
+
+    class _FakeResult:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run", lambda *a, **kw: _FakeResult()
+    )
+    assert _rag_search("query", 5, rag_dir) is None
+
+
+def test_rag_search_extracts_ids_from_source_filenames(monkeypatch, tmp_path):
+    """_rag_search extracts entry UUIDs from the source filename stems."""
+    from gptme.cli.cmd_knowledge import _rag_search
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    rag_dir = tmp_path / "rag"
+    rag_dir.mkdir()
+    (rag_dir / "id-one.md").write_text("x")
+
+    class _FakeResult:
+        returncode = 0
+        stdout = json.dumps(
+            {
+                "results": [
+                    {"source": str(rag_dir / "id-one.md"), "relevance": 0.9},
+                    {"source": str(rag_dir / "id-two.md"), "relevance": 0.8},
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run", lambda *a, **kw: _FakeResult()
+    )
+    ids = _rag_search("query", 5, rag_dir)
+    assert ids == ["id-one", "id-two"]
+
+
+def test_cli_search_uses_rag_when_available(monkeypatch):
+    """When gptme-rag is present and has indexed files, search uses rag ranking."""
+    from gptme.knowledge import _knowledge_dir, knowledge_save
+
+    e1 = knowledge_save("pytest discovery problem", "prefix with test_")
+    e2 = knowledge_save("git merge conflict", "use git mergetool")
+
+    # Simulate rag returning e2 ranked first (reverse keyword order).
+    rag_dir = _knowledge_dir() / "rag"
+    rag_dir.mkdir(parents=True, exist_ok=True)
+    (rag_dir / f"{e2['id']}.md").write_text("x")
+    (rag_dir / f"{e1['id']}.md").write_text("x")
+
+    class _FakeResult:
+        returncode = 0
+        stdout = _make_rag_response([e2["id"], e1["id"]], rag_dir)
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run", lambda *a, **kw: _FakeResult()
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["knowledge", "search", "--json", "anything"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert len(data) == 2
+    # rag ranking preserved: e2 is first
+    assert data[0]["id"] == e2["id"]
+    assert data[1]["id"] == e1["id"]
+
+
+def test_cli_search_falls_back_to_keyword_when_rag_unavailable(monkeypatch):
+    """When gptme-rag is absent, search falls back to keyword scoring."""
+    from gptme.knowledge import knowledge_save
+
+    knowledge_save("pytest discovery problem", "prefix with test_")
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: None)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["knowledge", "search", "--json", "pytest"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert len(data) == 1
+    assert data[0]["problem"] == "pytest discovery problem"
+
+
+def test_cli_search_rag_tag_filter_applied_post_hoc(monkeypatch):
+    """Tag filter is applied after rag search, preserving only matching entries."""
+    from gptme.knowledge import _knowledge_dir, knowledge_save
+
+    e1 = knowledge_save("pytest problem", "resolution", tags=["pytest"])
+    e2 = knowledge_save("git problem", "resolution", tags=["git"])
+
+    rag_dir = _knowledge_dir() / "rag"
+    rag_dir.mkdir(parents=True, exist_ok=True)
+    (rag_dir / f"{e1['id']}.md").write_text("x")
+    (rag_dir / f"{e2['id']}.md").write_text("x")
+
+    class _FakeResult:
+        returncode = 0
+        stdout = _make_rag_response([e1["id"], e2["id"]], rag_dir)
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    monkeypatch.setattr(
+        "gptme.cli.cmd_knowledge.subprocess.run", lambda *a, **kw: _FakeResult()
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["knowledge", "search", "--json", "--tag", "pytest", "anything"]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert len(data) == 1
+    assert data[0]["id"] == e1["id"]
+
+
+def test_cli_search_rag_passes_top_k(monkeypatch):
+    """--top-k is forwarded to the gptme-rag subprocess call."""
+    from gptme.knowledge import _knowledge_dir, knowledge_save
+
+    knowledge_save("a problem", "resolution")
+
+    rag_dir = _knowledge_dir() / "rag"
+    rag_dir.mkdir(parents=True, exist_ok=True)
+    (rag_dir / "dummy.md").write_text("x")
+
+    captured: list = []
+
+    class _FakeResult:
+        returncode = 0
+        stdout = json.dumps({"results": []})
+
+    def fake_run(cmd, **kw):
+        captured.append(cmd)
+        return _FakeResult()
+
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.shutil.which", lambda _: "gptme-rag")
+    monkeypatch.setattr("gptme.cli.cmd_knowledge.subprocess.run", fake_run)
+
+    runner = CliRunner()
+    runner.invoke(main, ["knowledge", "search", "--top-k", "3", "query"])
+    assert captured
+    cmd = captured[0]
+    assert "--n-results" in cmd
+    n_idx = cmd.index("--n-results")
+    assert cmd[n_idx + 1] == "3"
