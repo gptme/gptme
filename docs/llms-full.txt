@@ -18488,6 +18488,7 @@ Changes since v0.33.0:
 
 **Full Changelog**: https://github.com/gptme/gptme/compare/v0.33.0...v0.34.0
 
+
 # v0.33.0
 
 These are the release notes for gptme version v0.33.0.
