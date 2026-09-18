@@ -52,6 +52,13 @@ const embeddedContextMessageSchema = z.object({
   }),
 });
 
+const seedPromptMessageSchema = z.object({
+  type: z.literal('gptme-host:seed-prompt'),
+  payload: z.object({
+    prompt: z.string().min(1),
+  }),
+});
+
 export type EmbeddedMenuItem = z.infer<typeof embeddedMenuItemSchema>;
 
 export function getEmbeddedParentOrigin(referrer: string): string | null {
@@ -69,6 +76,11 @@ export function getEmbeddedParentOrigin(referrer: string): string | null {
 export function parseEmbeddedContextMessage(data: unknown): EmbeddedMenuItem[] | null {
   const parsed = embeddedContextMessageSchema.safeParse(data);
   return parsed.success ? parsed.data.payload.menuItems : null;
+}
+
+export function parseSeedPromptMessage(data: unknown): string | null {
+  const parsed = seedPromptMessageSchema.safeParse(data);
+  return parsed.success ? parsed.data.payload.prompt : null;
 }
 
 export function isEmbeddedContextEventAllowed(

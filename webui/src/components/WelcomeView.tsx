@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '@/contexts/ApiContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,14 +29,32 @@ import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
 import { formatUnknownError } from '@/utils/errors';
 import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
+import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
 export const WelcomeView = () => {
+  const { consumeSeedPrompt } = useEmbeddedContext();
   const [inputValue, setInputValue] = useState(
     () => (typeof window !== 'undefined' ? localStorage.getItem('gptme-draft-new') : null) || ''
   );
   const [hostedLoopbackReachable, setHostedLoopbackReachable] = useState(false);
+  const seedConsumedRef = useRef(false);
+
+  // Pick up a seed prompt from the host (e.g. gptme-cloud forwarding a prompt
+  // typed on the landing page before login). consumeSeedPrompt is stable-ref
+  // while null; it changes identity when a seed arrives, which fires this
+  // effect — so we catch both early (seed pre-existed) and late (seed arrives
+  // after mount) delivery.
+  useEffect(() => {
+    if (seedConsumedRef.current) return;
+    const seed = consumeSeedPrompt();
+    if (seed) {
+      seedConsumedRef.current = true;
+      setInputValue(seed);
+    }
+  }, [consumeSeedPrompt]);
+
   // Persist new-chat draft to localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return;

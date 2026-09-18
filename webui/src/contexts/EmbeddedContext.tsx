@@ -13,6 +13,7 @@ import {
   getEmbeddedParentOrigin,
   isEmbeddedContextEventAllowed,
   parseEmbeddedContextMessage,
+  parseSeedPromptMessage,
   type EmbeddedMenuItem,
 } from '@/lib/embeddedContext';
 
@@ -21,6 +22,8 @@ interface EmbeddedContextValue {
   menuItems: EmbeddedMenuItem[];
   parentOrigin: string | null;
   sendAction: (action: string, itemId?: string) => void;
+  /** Returns the pending seed prompt and clears it (one-shot). */
+  consumeSeedPrompt: () => string | null;
 }
 
 const EmbeddedContext = createContext<EmbeddedContextValue>({
@@ -28,6 +31,7 @@ const EmbeddedContext = createContext<EmbeddedContextValue>({
   menuItems: [],
   parentOrigin: null,
   sendAction: () => {},
+  consumeSeedPrompt: () => null,
 });
 
 export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => {
@@ -36,6 +40,8 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
   const [parentOrigin, setParentOrigin] = useState<string | null>(null);
   // Ref so the message handler closure always reads the latest confirmed origin
   const parentOriginRef = useRef<string | null>(null);
+  // State so consumers re-render when the seed arrives (ref alone would miss late arrivals)
+  const [seedPrompt, setSeedPrompt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isEmbedded || typeof window === 'undefined') {
@@ -50,11 +56,6 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
     const handleMessage = (event: MessageEvent) => {
       // Accept messages from parent frame (iframe case) or self (same-window case)
       if (inIframe ? event.source !== window.parent : event.source !== window) {
-        return;
-      }
-
-      const parsedItems = parseEmbeddedContextMessage(event.data);
-      if (!parsedItems) {
         return;
       }
 
@@ -74,6 +75,17 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
         setParentOrigin(event.origin);
       }
 
+      const seed = parseSeedPromptMessage(event.data);
+      if (seed !== null) {
+        setSeedPrompt(seed);
+        return;
+      }
+
+      const parsedItems = parseEmbeddedContextMessage(event.data);
+      if (!parsedItems) {
+        return;
+      }
+
       setMenuItems(parsedItems);
     };
 
@@ -90,6 +102,12 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
       window.removeEventListener('message', handleMessage);
     };
   }, [isEmbedded]);
+
+  const consumeSeedPrompt = useCallback((): string | null => {
+    const prompt = seedPrompt;
+    setSeedPrompt(null);
+    return prompt;
+  }, [seedPrompt]);
 
   const sendAction = useCallback(
     (action: string, itemId?: string) => {
@@ -123,8 +141,9 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
       menuItems,
       parentOrigin,
       sendAction,
+      consumeSeedPrompt,
     }),
-    [isEmbedded, menuItems, parentOrigin, sendAction]
+    [isEmbedded, menuItems, parentOrigin, sendAction, consumeSeedPrompt]
   );
 
   return <EmbeddedContext.Provider value={value}>{children}</EmbeddedContext.Provider>;
