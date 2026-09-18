@@ -303,9 +303,15 @@ def download_model():
     except ImportError:
         return
 
+    # DefaultEmbeddingFunction downloads the model lazily on first use;
+    # trigger a dummy embedding to pre-cache it before tests run
     ef = embedding_functions.DefaultEmbeddingFunction()
     if ef:
-        ef._download_model_if_not_exists()
+        try:
+            ef(["test"])
+        except Exception:
+            # Ignore errors; model will be downloaded on actual test use
+            pass
 
 
 @pytest.fixture
