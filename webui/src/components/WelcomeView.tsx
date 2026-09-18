@@ -45,13 +45,14 @@ export const WelcomeView = () => {
   // typed on the landing page before login). consumeSeedPrompt is stable-ref
   // while null; it changes identity when a seed arrives, which fires this
   // effect — so we catch both early (seed pre-existed) and late (seed arrives
-  // after mount) delivery.
+  // after mount) delivery. Only applied while the input is still empty, so a
+  // late seed never clobbers a restored draft or text the user already typed.
   useEffect(() => {
     if (seedConsumedRef.current) return;
     const seed = consumeSeedPrompt();
     if (seed) {
       seedConsumedRef.current = true;
-      setInputValue(seed);
+      setInputValue((current) => current || seed);
     }
   }, [consumeSeedPrompt]);
 
