@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Morph &#8212; gptme</title>
+    <title>Transcript Persistence &#8212; gptme</title>
   
   
   
@@ -43,13 +43,13 @@
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/asciinema-player_3.12.1.js"></script>
     <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'tools/morph';</script>
-    <link rel="canonical" href="https://gptme.org/docs/tools/morph.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'design/transcript-persistence';</script>
+    <link rel="canonical" href="https://gptme.org/docs/design/transcript-persistence.html" />
     <link rel="icon" href="../_static/logo.png"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Hashline Edit" href="hashline-edit.html" />
-    <link rel="prev" title="Patch" href="patch.html" />
+    <link rel="next" title="Alternatives" href="../alternatives.html" />
+    <link rel="prev" title="Design: Programmatic Tool Calling (PTC) Interface" href="ptc-tool-interface.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -185,7 +185,7 @@
 </details></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Using gptme</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../models.html">Models</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -195,35 +195,35 @@
 <li class="toctree-l2"><a class="reference internal" href="../tool-formats.html">Tool Formats</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="../tools.html">Tools</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="read.html">Read</a></li>
-<li class="toctree-l2"><a class="reference internal" href="save.html">Save</a></li>
-<li class="toctree-l2"><a class="reference internal" href="patch.html">Patch</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Morph</a></li>
-<li class="toctree-l2"><a class="reference internal" href="hashline-edit.html">Hashline Edit</a></li>
-<li class="toctree-l2"><a class="reference internal" href="python.html">Python</a></li>
-<li class="toctree-l2"><a class="reference internal" href="shell.html">Shell</a></li>
-<li class="toctree-l2"><a class="reference internal" href="gh.html">GitHub (gh)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="precommit.html">Precommit</a></li>
-<li class="toctree-l2"><a class="reference internal" href="autocommit.html">Autocommit</a></li>
-<li class="toctree-l2"><a class="reference internal" href="browser.html">Browser</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rag.html">RAG</a></li>
-<li class="toctree-l2"><a class="reference internal" href="chats.html">Chats</a></li>
-<li class="toctree-l2"><a class="reference internal" href="vision.html">Vision</a></li>
-<li class="toctree-l2"><a class="reference internal" href="screenshot.html">Screenshot</a></li>
-<li class="toctree-l2"><a class="reference internal" href="computer.html">Computer</a></li>
-<li class="toctree-l2"><a class="reference internal" href="choice.html">Choice</a></li>
-<li class="toctree-l2"><a class="reference internal" href="elicit.html">Elicit</a></li>
-<li class="toctree-l2"><a class="reference internal" href="form.html">Form</a></li>
-<li class="toctree-l2"><a class="reference internal" href="tmux.html">Tmux</a></li>
-<li class="toctree-l2"><a class="reference internal" href="subagent.html">Subagent</a></li>
-<li class="toctree-l2"><a class="reference internal" href="complete.html">Complete</a></li>
-<li class="toctree-l2"><a class="reference internal" href="restart.html">Restart</a></li>
-<li class="toctree-l2"><a class="reference internal" href="vent.html">Vent</a></li>
-<li class="toctree-l2"><a class="reference internal" href="request-tool-change.html">Request Tool Change</a></li>
-<li class="toctree-l2"><a class="reference internal" href="lessons.html">Lessons</a></li>
-<li class="toctree-l2"><a class="reference internal" href="todo.html">Todo</a></li>
-<li class="toctree-l2"><a class="reference internal" href="mcp.html">MCP</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tools/read.html">Read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/save.html">Save</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/patch.html">Patch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/morph.html">Morph</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/hashline-edit.html">Hashline Edit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/python.html">Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/shell.html">Shell</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/gh.html">GitHub (gh)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/precommit.html">Precommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/autocommit.html">Autocommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/browser.html">Browser</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/rag.html">RAG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/chats.html">Chats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vision.html">Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/screenshot.html">Screenshot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/computer.html">Computer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/choice.html">Choice</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/elicit.html">Elicit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/form.html">Form</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/tmux.html">Tmux</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/subagent.html">Subagent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/complete.html">Complete</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/restart.html">Restart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vent.html">Vent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/request-tool-change.html">Request Tool Change</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/lessons.html">Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/todo.html">Todo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/mcp.html">MCP</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../commands.html">Commands</a></li>
@@ -283,7 +283,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../mcp.html">MCP</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../pr-lifecycle.html">PR Lifecycle</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../building.html">Building Executables</a></li>
@@ -304,11 +304,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../evals.html">Evals</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../design/index.html">Design Documents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../design/hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../design/elicitation.html">Generalized Elicitation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../design/ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../design/transcript-persistence.html">Transcript Persistence</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Design Documents</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="elicitation.html">Generalized Elicitation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Transcript Persistence</a></li>
 </ul>
 </details></li>
 </ul>
@@ -454,7 +454,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/tools/morph.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/design/transcript-persistence.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -484,7 +484,7 @@
       
       
       
-      <li><a href="../_sources/tools/morph.rst" target="_blank"
+      <li><a href="../_sources/design/transcript-persistence.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -494,7 +494,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.rst</span>
+<span class="btn__text-container">.md</span>
 </a>
 </li>
       
@@ -555,7 +555,9 @@ document.write(`
   </button>
 `);
 </script>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -566,11 +568,22 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Morph</h1>
+    <h1>Transcript Persistence</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-problem">The problem</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-barrier">The barrier</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-completion-waits">Why completion waits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-this-does-not-cover">What this does not cover</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -580,66 +593,84 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="morph">
-<h1>Morph<a class="headerlink" href="#morph" title="Link to this heading">#</a></h1>
-<p>Gives the LLM agent the ability to edit files using Morph Fast Apply v2.</p>
-<p>Morph is a specialized code-patching LLM that applies edits at 4000+ tokens per second.
-It uses a different format than the patch tool: &lt;code&gt;original&lt;/code&gt;&lt;update&gt;changes&lt;/update&gt;</p>
-<dl class="simple">
-<dt>Environment Variables:</dt><dd><p>OPENROUTER_API_KEY: Required for accessing Morph via OpenRouter</p>
-</dd>
-</dl>
-<p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool to propose an edit to an existing file.
-
-<span class="gu">### When to use morph vs patch</span>
-
-Use morph for large or complex edits where the changed lines are scattered
-across a file and patch context markers would be verbose. Prefer patch for
-small, targeted edits with clear context. Morph requires OPENROUTER_API_KEY.
-
-Write a clear edit while minimizing unchanged code.
-List each edit in sequence, using <span class="sb">`// ... existing code ...`</span> for untouched spans.
-Repeat only enough original context to disambiguate the change.
-If you delete a section, include surrounding context to show what is removed.
-</pre></div>
-</div>
-<p class="rubric">Examples</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>```morph example.py
-// ... existing code ...
-FIRST_EDIT
-// ... existing code ...
-SECOND_EDIT
-// ... existing code ...
-THIRD_EDIT
-// ... existing code ...
-```
-</pre></div>
-</div>
-<dl class="py function">
-<dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">execute_morph</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../api/core.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
-<dd><p>Applies the morph edit.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">execute_morph_impl</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">expected_original_content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../api/core.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
-<dd><p>Actual morph implementation - writes the edited content to file.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">is_openrouter_available</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span></dt>
-<dd><p>Check if OpenRouter is available for Morph tool.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">preview_morph</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
-<dd><p>Prepare preview content for morph operation.</p>
-</dd></dl>
-
+  <section id="transcript-persistence">
+<h1>Transcript Persistence<a class="headerlink" href="#transcript-persistence" title="Link to this heading">#</a></h1>
+<p><strong>Status:</strong> implemented.</p>
+<p>What gptme promises about a conversation transcript surviving a crash, and what
+it deliberately does not promise.</p>
+<section id="the-problem">
+<h2>The problem<a class="headerlink" href="#the-problem" title="Link to this heading">#</a></h2>
+<p>Every <code class="docutils literal notranslate"><span class="pre">LogManager.append()</span></code> writes the transcript, but a write only reaches the
+operating system’s page cache. Data in the page cache survives a process crash;
+it does not survive a kernel panic or power loss until writeback happens, which
+can be seconds later. Both entry points used to report success before that:
+the CLI returned from a turn, and the server emitted <code class="docutils literal notranslate"><span class="pre">generation_complete</span></code>,
+while the turn was still only provisionally on disk.</p>
+<p>Two related defects made that worse than a timing window:</p>
+<ul class="simple">
+<li><p>Transcript rewrites (fork, undo, edit) truncated the file in place. A crash
+mid-rewrite left a partially written conversation with no recoverable copy.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">LogManager.logfile</span></code> resolved the main transcript through
+<code class="docutils literal notranslate"><span class="pre">get_logs_dir()</span> <span class="pre">/</span> <span class="pre">chat_id</span></code> instead of the manager’s own <code class="docutils literal notranslate"><span class="pre">logdir</span></code>, so a session
+with a custom log directory wrote its main transcript somewhere else.</p></li>
+</ul>
+</section>
+<section id="the-barrier">
+<h2>The barrier<a class="headerlink" href="#the-barrier" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">LogManager.write(sync=True)</span></code> syncs the written main, branch and view
+transcripts, the model-selection trace, and existing recovery event logs. On
+POSIX it then syncs their directories, including newly created ancestors up to
+the parent that already existed when the manager was created; that parent is
+assumed to have an established durable namespace.</p>
+<p>Callers:</p>
+<ul class="simple">
+<li><p><strong>CLI</strong> — before returning from a turn and before a successful session exit,
+in both cases after end-of-turn and session-end hooks have contributed their
+messages. Restart uses the same barrier.</p></li>
+<li><p><strong>Server</strong> — after the turn hooks and before <code class="docutils literal notranslate"><span class="pre">generation_complete</span></code>, so the
+completion event is never emitted for a turn that failed to persist.</p></li>
+<li><p><strong>Rewrites</strong> — transcript rewrites and event-log checkpoint compaction sync a
+temporary file, replace atomically, then sync the containing directory. A
+symlinked transcript is replaced through the link, not in place of it.</p></li>
+</ul>
+<p>Ordinary appends stay buffered by the operating system until a barrier. No
+maximum loss interval is promised for an unfinished turn.</p>
+</section>
+<section id="why-completion-waits">
+<h2>Why completion waits<a class="headerlink" href="#why-completion-waits" title="Link to this heading">#</a></h2>
+<p>Emitting <code class="docutils literal notranslate"><span class="pre">generation_complete</span></code> before the barrier and adding a second
+acknowledgement event afterwards was tried and reverted. It costs more than it
+saves, because <code class="docutils literal notranslate"><span class="pre">generation_complete</span></code> is not what gates the client anyway.</p>
+<p>What gates the client is <code class="docutils literal notranslate"><span class="pre">session.generating</span></code>, released in <code class="docutils literal notranslate"><span class="pre">step()</span></code>’s finalizer,
+and no event announces that release. The WebUI infers it from
+<code class="docutils literal notranslate"><span class="pre">generation_complete</span></code> and flushes a queued user message on the inferred idle,
+dequeueing whether or not the send was accepted; a send that arrives before the
+finalizer is rejected with 409 and the message is lost. Emitting completion
+early therefore does not buy interactivity, only an earlier chime, and it widens
+that window. A barrier failure instead produces an <code class="docutils literal notranslate"><span class="pre">error</span></code> event and a visible
+system message in the transcript, and no completion event at all.</p>
+<p>The window is not fully closed by this ordering — auto-naming still runs inside
+it — and closing it needs an explicit release signal rather than a client-side
+inference. Tracked separately.</p>
+</section>
+<section id="what-this-does-not-cover">
+<h2>What this does not cover<a class="headerlink" href="#what-this-does-not-cover" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Power loss.</strong> Tests exercise syscall ordering, I/O failures and isolated
+process termination. They do not certify physical power-loss behavior, which
+depends on the filesystem and the drive honoring the barrier.</p></li>
+<li><p><strong>Filesystems without a directory barrier.</strong> Some network, overlay and FUSE
+mounts reject <code class="docutils literal notranslate"><span class="pre">fsync</span></code> on a directory. gptme warns once per directory and
+continues: a weaker namespace guarantee is not a reason to fail a turn whose
+contents were written and synced. Genuine I/O errors still propagate.</p></li>
+<li><p><strong>Windows.</strong> Python exposes no portable directory barrier. File <code class="docutils literal notranslate"><span class="pre">fsync</span></code> still
+applies; namespace durability does not.</p></li>
+<li><p><strong>Atomicity across files.</strong> Each file is replaced atomically. A barrier is not
+a transaction spanning all of a session’s artifacts.</p></li>
+<li><p><strong>Other artifacts.</strong> Attachment snapshots, external ACP runtime databases, and
+auxiliary session/skill ledgers have their own persistence contracts.</p></li>
+</ul>
+</section>
 </section>
 
 
@@ -654,20 +685,20 @@ THIRD_EDIT
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="patch.html"
+       href="ptc-tool-interface.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Patch</p>
+        <p class="prev-next-title">Design: Programmatic Tool Calling (PTC) Interface</p>
       </div>
     </a>
     <a class="right-next"
-       href="hashline-edit.html"
+       href="../alternatives.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Hashline Edit</p>
+        <p class="prev-next-title">Alternatives</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -677,6 +708,24 @@ THIRD_EDIT
             </div>
             
             
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-problem">The problem</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-barrier">The barrier</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-completion-waits">Why completion waits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-this-does-not-cover">What this does not cover</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>

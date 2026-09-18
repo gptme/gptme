@@ -117,6 +117,7 @@
 - [Design: Hook-Based Tool Confirmations](https://gptme.org/docs/_sources/design/hook-based-confirmations.md)
 - [Design: Generalized Elicitation](https://gptme.org/docs/_sources/design/elicitation.md)
 - [Design: Programmatic Tool Calling (PTC) Interface](https://gptme.org/docs/_sources/design/ptc-tool-interface.md)
+- [Transcript Persistence](https://gptme.org/docs/_sources/design/transcript-persistence.md)
 - [Alternatives](https://gptme.org/docs/_sources/alternatives.rst)
 - [Projects](https://gptme.org/docs/_sources/projects.rst)
 - [Are we tiny?](https://gptme.org/docs/_sources/arewetiny.rst)

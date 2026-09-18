@@ -308,6 +308,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../design/hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../design/elicitation.html">Generalized Elicitation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../design/ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/transcript-persistence.html">Transcript Persistence</a></li>
 </ul>
 </details></li>
 </ul>
@@ -1063,7 +1064,8 @@ pass</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>branches</strong> – Whether to write other branches</p></li>
-<li><p><strong>sync</strong> – If True, force fsync to ensure data is on disk</p></li>
+<li><p><strong>sync</strong> – Sync written transcripts, recovery logs and namespace before
+returning. POSIX barrier failures propagate to the caller.</p></li>
 </ul>
 </dd>
 </dl>

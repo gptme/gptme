@@ -14,4 +14,5 @@ behind the code, so check the reference pages for current behavior.
 Hook-Based Tool Confirmations <hook-based-confirmations>
 Generalized Elicitation <elicitation>
 Programmatic Tool Calling (PTC) <ptc-tool-interface>
+Transcript Persistence <transcript-persistence>
 ```
