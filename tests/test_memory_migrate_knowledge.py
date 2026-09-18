@@ -167,4 +167,4 @@ def test_knowledge_deprecation_warning(
         ["list"],
         catch_exceptions=False,
     )
-    assert "deprecated" in result.output.lower()
+    assert "deprecated" in result.stderr.lower()

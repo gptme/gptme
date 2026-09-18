@@ -287,7 +287,7 @@ def test_cli_save_json_output():
         main, ["knowledge", "save", "--json", "json problem", "json resolution"]
     )
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert data["problem"] == "json problem"
     assert data["memory_type"] == "knowledge_entry"
 
@@ -341,7 +341,7 @@ def test_cli_search_json():
     runner.invoke(main, ["knowledge", "save", "search json problem", "resolution"])
     result = runner.invoke(main, ["knowledge", "search", "--json", "search json"])
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert isinstance(data, list)
     assert data[0]["problem"] == "search json problem"
 
@@ -369,7 +369,7 @@ def test_cli_json_output_escapes_control_characters():
     assert "\x07" not in list_result.output
     assert r"\u001b" in search_result.output
     assert r"\u0007" in search_result.output
-    assert json.loads(search_result.output)[0]["problem"] == "unsafe\x1b[2J problem"
+    assert json.loads(search_result.stdout)[0]["problem"] == "unsafe\x1b[2J problem"
 
 
 def test_cli_human_output_strips_control_characters():
@@ -470,7 +470,7 @@ def test_cli_list_json():
     runner.invoke(main, ["knowledge", "save", "list json problem", "resolution"])
     result = runner.invoke(main, ["knowledge", "list", "--json"])
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert isinstance(data, list)
     assert data[0]["problem"] == "list json problem"
 
