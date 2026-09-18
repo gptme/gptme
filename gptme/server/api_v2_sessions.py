@@ -486,6 +486,7 @@ def api_conversation_step(conversation_id: str):
                 session=session,
                 workspace=chat_config.workspace,
                 reserved=True,
+                step_seq=step_seq,
             )
         else:
             # model should be non-None here: the `if not model and not session.use_acp`

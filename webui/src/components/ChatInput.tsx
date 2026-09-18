@@ -1044,7 +1044,8 @@ export const ChatInput: FC<Props> = ({
         }
       }
     } else if (message.trim() || attachedFiles.length > 0) {
-      onSend(message, {
+      const sentMessage = message;
+      const sentOptions = {
         model: hasExplicitModelSelection ? effectiveModel : undefined,
         stream: streamingEnabled,
         workspace: selectedWorkspace || undefined,
@@ -1053,7 +1054,25 @@ export const ChatInput: FC<Props> = ({
         maxTokens,
         temperature,
         topP,
-      });
+      };
+      const result = onSend(sentMessage, sentOptions);
+      if (result instanceof Promise) {
+        result.catch((error: unknown) => {
+          const status =
+            error && typeof error === 'object' && 'status' in error
+              ? (error as { status: number }).status
+              : undefined;
+          if (status === 409) {
+            // Server was still generating (concurrent client). The optimistic
+            // message was already removed by sendMessage; requeue it so it's
+            // retried on the next isBusy -> false transition instead of lost.
+            console.warn('[ChatInput] Direct send got 409, requeuing', sentMessage);
+            setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
+          } else {
+            console.error('[ChatInput] Failed to send message:', error);
+          }
+        });
+      }
       setMessage('');
       cleanupAndClearFiles();
       // Reset textarea height to default by removing inline style

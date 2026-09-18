@@ -586,7 +586,9 @@ def test_start_acp_step_thread_propagates_contextvars(monkeypatch, tmp_path):
     seen: dict[str, str | None] = {}
     done = threading.Event()
 
-    async def _fake_acp_step(conversation_id: str, session, workspace) -> None:
+    async def _fake_acp_step(
+        conversation_id: str, session, workspace, step_seq: int | None = None
+    ) -> None:
         seen["caller_var"] = caller_var.get()
         seen["conversation_id"] = current_conversation_id.get()
         seen["session_id"] = current_session_id.get()
