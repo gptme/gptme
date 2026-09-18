@@ -21,6 +21,8 @@ import requests
 import requests.exceptions
 from rich.console import Console
 
+from ..llm.llm_gptme import DEFAULT_SERVICE_URL, is_supabase_service_url
+
 logger = logging.getLogger(__name__)
 console = Console()
 
@@ -33,7 +35,7 @@ def main():
 @main.command("login")
 @click.option(
     "--url",
-    default="https://kpkxgnfpyntahyhckhgm.supabase.co",
+    default=DEFAULT_SERVICE_URL,
     show_default=True,
     help="gptme service URL (used for LLM API and token storage).",
 )
@@ -66,9 +68,7 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
     Works great for SSH sessions and headless environments.
     """
     from ..llm.llm_gptme import (
-        DEFAULT_BASE_URL,
         DEFAULT_DEVICE_AUTH_URL,
-        DEFAULT_SERVICE_URL,
     )
 
     base_url = url.rstrip("/")
@@ -163,8 +163,8 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
             }
             # Only store base_url for the default Supabase service.
             # Custom server tokens rely on the server_url+/v1 fallback in get_base_url().
-            if base_url == DEFAULT_SERVICE_URL.rstrip("/"):
-                token_entry["base_url"] = DEFAULT_BASE_URL
+            if is_supabase_service_url(base_url):
+                token_entry["base_url"] = f"{base_url}/functions/v1/messages"
             _save_token(token_entry, base_url)
 
             console.print("\n")
@@ -211,7 +211,7 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 @main.command("logout")
 @click.option(
     "--url",
-    default="https://kpkxgnfpyntahyhckhgm.supabase.co",
+    default=DEFAULT_SERVICE_URL,
     show_default=True,
     help="gptme service URL to log out from.",
 )
@@ -247,7 +247,7 @@ def auth_logout(url: str):
 @main.command("status")
 @click.option(
     "--url",
-    default="https://kpkxgnfpyntahyhckhgm.supabase.co",
+    default=DEFAULT_SERVICE_URL,
     show_default=True,
     help="gptme service URL to check.",
 )

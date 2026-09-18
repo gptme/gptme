@@ -165,13 +165,11 @@ def test_get_base_url_from_token_explicit():
     token_data = {
         "access_token": "test",
         "server_url": "https://fleet.gptme.ai",
-        "base_url": "https://kpkxgnfpyntahyhckhgm.supabase.co/functions/v1/messages",
+        "base_url": "https://auth.gptme.ai/functions/v1/messages",
     }
     config = _mock_config()
     with patch("gptme.llm.llm_gptme._load_token", return_value=token_data):
-        assert get_base_url(config) == (
-            "https://kpkxgnfpyntahyhckhgm.supabase.co/functions/v1/messages"
-        )
+        assert get_base_url(config) == ("https://auth.gptme.ai/functions/v1/messages")
 
 
 def test_get_base_url_from_env():
@@ -261,6 +259,48 @@ def test_load_token_legacy_fleet_migration(tmp_path: Path):
     )
     assert result["access_token"] == "legacy-token"
     assert result["server_url"] == legacy_url
+
+
+def test_load_token_legacy_supabase_project_url_migration(tmp_path: Path):
+    """Should find a token keyed by the raw Supabase project URL.
+
+    Users who logged in before the auth.gptme.ai custom domain have their token
+    at the kpkxgnfpyntahyhckhgm.supabase.co hash path, with base_url pointing at
+    that host (which Supabase keeps serving). _load_token() must find it so they
+    are not logged out by the upgrade.
+    """
+    import hashlib
+
+    from gptme.llm.llm_gptme import _load_token, get_base_url
+
+    legacy_url = "https://kpkxgnfpyntahyhckhgm.supabase.co"
+    url_hash = hashlib.sha256(legacy_url.encode()).hexdigest()[:12]
+    legacy_token_path = tmp_path / f"gptme-cloud-{url_hash}.json"
+    token_data = {
+        "access_token": "pre-custom-domain-token",
+        "expires_at": time.time() + 3600,
+        "server_url": legacy_url,
+        "base_url": f"{legacy_url}/functions/v1/messages",
+    }
+    legacy_token_path.write_text(json.dumps(token_data))
+
+    with patch("gptme.llm.llm_gptme._TOKEN_DIR", tmp_path):
+        result = _load_token()
+        assert result is not None
+        assert result["access_token"] == "pre-custom-domain-token"
+        # Old tokens keep talking to the host they were issued for.
+        assert get_base_url(_mock_config()) == f"{legacy_url}/functions/v1/messages"
+
+
+def test_is_supabase_service_url():
+    from gptme.llm.llm_gptme import is_supabase_service_url
+
+    assert is_supabase_service_url("https://auth.gptme.ai")
+    assert is_supabase_service_url("https://auth.gptme.ai/")
+    assert is_supabase_service_url("https://auth.gptme.ai/functions/v1")
+    assert is_supabase_service_url("https://kpkxgnfpyntahyhckhgm.supabase.co")
+    assert not is_supabase_service_url("https://auth.gptme.ai.evil.example")
+    assert not is_supabase_service_url("https://my-server.example.com")
 
 
 def test_auth_status_shows_logged_in_for_legacy_fleet_token(tmp_path: Path):

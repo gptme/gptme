@@ -1500,9 +1500,7 @@ class TestInitModelInteractive:
         init_model(model="gptme/claude-sonnet-4-6", interactive=True)
 
         mock_console.input.assert_called_once()
-        mock_device_flow.assert_called_once_with(
-            server_url="https://kpkxgnfpyntahyhckhgm.supabase.co"
-        )
+        mock_device_flow.assert_called_once_with(server_url="https://auth.gptme.ai")
         assert mock_init_llm.call_args_list == [call("gptme"), call("gptme")]
 
     @patch("gptme.init.set_default_model")

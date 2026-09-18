@@ -57,7 +57,10 @@ class GptmeAuthError(KeyError):
 
 # All gptme cloud API traffic goes through Supabase edge functions.
 # fleet.gptme.ai is for user instance routing only (/api/v1/instances/, /api/v1/operator/).
-_SUPABASE_URL = "https://kpkxgnfpyntahyhckhgm.supabase.co"
+# auth.gptme.ai is the Supabase custom domain in front of the managed project
+# (kpkxgnfpyntahyhckhgm.supabase.co). Clients talk to the domain we control so a
+# later move to self-hosted Supabase is a DNS change, not a client release.
+_SUPABASE_URL = "https://auth.gptme.ai"
 _SUPABASE_FUNCTIONS_V1 = f"{_SUPABASE_URL}/functions/v1"
 
 # Chat completions endpoint — the messages function ignores sub-path, so the
@@ -78,11 +81,29 @@ _TOKEN_DIR = (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gptme" / "auth"
 )
 
+# Raw Supabase project URL that auth.gptme.ai fronts. Still served by Supabase;
+# tokens created before the custom domain are keyed by it and carry it as base_url.
+_LEGACY_SUPABASE_URL = "https://kpkxgnfpyntahyhckhgm.supabase.co"
+_SUPABASE_SERVICE_URLS = (DEFAULT_SERVICE_URL, _LEGACY_SUPABASE_URL)
+
 # Legacy service URLs whose token files should be checked as a migration fallback
 # when no token exists at the current DEFAULT_SERVICE_URL path.
 _LEGACY_SERVICE_URLS = [
+    _LEGACY_SUPABASE_URL,
     "https://fleet.gptme.ai",
 ]
+
+
+def is_supabase_service_url(url: str) -> bool:
+    """True if ``url`` is (or is under) the managed gptme.ai Supabase service.
+
+    Matches both the custom domain and the raw project URL so tokens and env
+    overrides that still use the old hostname keep the Supabase-specific paths.
+    """
+    stripped = url.rstrip("/")
+    return any(
+        stripped == u or stripped.startswith(u + "/") for u in _SUPABASE_SERVICE_URLS
+    )
 
 
 def _get_token_path(service_url: str | None = None) -> Path:
@@ -224,7 +245,7 @@ def get_models_url(config: Config) -> str:
     # at Supabase), use the same base URL for model listing — standard OpenAI-compatible
     # APIs serve both /chat/completions and /models from the same base.
     base_url = config.get_env("GPTME_CLOUD_BASE_URL")
-    if base_url and DEFAULT_SERVICE_URL not in base_url:
+    if base_url and not is_supabase_service_url(base_url):
         return base_url.rstrip("/")
 
     return DEFAULT_MODELS_BASE_URL
@@ -306,8 +327,8 @@ def device_flow_authenticate(
                 "expires_at": time.time() + token_data.get("expires_in", 86400),
                 "server_url": service_base,
             }
-            if service_base == DEFAULT_SERVICE_URL:
-                result["base_url"] = DEFAULT_BASE_URL
+            if is_supabase_service_url(service_base):
+                result["base_url"] = f"{service_base}/functions/v1/messages"
             _save_token(result, service_base)
             return result
 
