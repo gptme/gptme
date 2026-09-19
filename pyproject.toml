@@ -390,10 +390,6 @@ ignore_missing_imports = true
 module = ["docx", "magic"]
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-module = "tests.test_doctor"
-warn_unused_ignores = false
-
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
