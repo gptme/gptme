@@ -58,7 +58,14 @@ def run_server(binary: Path, timeout: float) -> tuple[bool, str]:
             "LANG": "C.UTF-8",
         }
         proc = subprocess.Popen(
-            [str(binary), "serve", "--host", "127.0.0.1", "--port", str(port)],
+            [
+                str(binary.resolve()),
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
             cwd=home,
             env=env,
             stdout=log,
