@@ -20,27 +20,22 @@ from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
 
+# Keep this under 1024 chars: it is the OpenAI tool description
+# (tests/test_tools.py::test_tool_descriptions_within_openai_limit).
 instructions = """
 Apply patches to multiple files atomically.
 Patches are validated in-memory: if ANY fails, NO files are written.
 
-Two formats:
-
-**Simple** (one hunk per file) — paths in the fence header:
-  ```patch_many path1.py path2.py
+Simple (one hunk per file), paths in the fence header:
+  ```patch_many path1.py
   <<<<<<< ORIGINAL
-  old content for path1
+  old content
   =======
-  new content for path1
-  >>>>>>> UPDATED
-  <<<<<<< ORIGINAL
-  old content for path2
-  =======
-  new content for path2
+  new content
   >>>>>>> UPDATED
   ```
 
-**Multi-hunk** (any number of hunks per file) — paths embedded with === PATH: ... === headers:
+Multi-hunk (any number of hunks per file), using `=== PATH: ... ===` headers:
   ```patch_many
   === PATH: path1.py ===
   <<<<<<< ORIGINAL
@@ -53,21 +48,15 @@ Two formats:
   =======
   second hunk updated
   >>>>>>> UPDATED
-  === PATH: path2.py ===
-  <<<<<<< ORIGINAL
-  path2 original
-  =======
-  path2 updated
-  >>>>>>> UPDATED
   ```
 
-Tool-call: pass `patches` as a JSON array of {"path": "...", "patch": "..."} entries.
-Each "patch" string may contain multiple ORIGINAL/UPDATED blocks for that file.
+Tool-call: `patches` is a JSON array of {"path": "...", "patch": "..."} entries.
+Each patch string may hold multiple ORIGINAL/UPDATED blocks, so one entry lands
+several hunks.
 
-You may list the same path in multiple entries — hunks apply in order, each seeing
-the result of the previous one. Prefer one entry per path with several
-ORIGINAL/UPDATED blocks (or the `=== PATH: ... ===` header form) for multi-hunk
-edits; use repeated entries only when later hunks depend on earlier ones landing.
+Repeated paths apply in order, each hunk seeing the previous result. Prefer one
+entry per path with multiple blocks; repeat a path only when a later hunk depends
+on an earlier one landing.
 """.strip()
 
 
