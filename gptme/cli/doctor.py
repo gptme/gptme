@@ -1220,6 +1220,18 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             continue
 
         for tool in tools:
+            if not isinstance(tool, ToolSpec):
+                # A malformed plugin manifest can put a non-ToolSpec entry in
+                # ``tools``; attribute it to the plugin instead of raising
+                # AttributeError and aborting the whole doctor run.
+                results.append(
+                    CheckResult(
+                        name=f"Plugins: {plugin.name}",
+                        status=CheckStatus.ERROR,
+                        message=f"Tool entry {tool!r} is not a ToolSpec",
+                    )
+                )
+                continue
             if not tool.init:
                 continue
             try:
