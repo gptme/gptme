@@ -659,7 +659,33 @@ _FAKE_COST = CostSummary(
 )
 
 
-def test_act_process_maps_subprocess_timeout_to_timeout_result():
+@pytest.fixture
+def isolate_process_globals():
+    """Undo the process-global side effects of calling ``act_process`` in-process.
+
+    ``act_process`` is written to run in a multiprocessing child (see
+    ``run_evals``), so it sets ``SIGTERM`` to ``SIG_IGN`` during cleanup and
+    calls ``os.setpgrp()`` — harmless in a throwaway child, but both leak out of
+    a pytest worker. ``SIG_IGN`` in particular is inherited across ``execve``,
+    so a later test that spawns a CLI subprocess gets a child that refuses
+    SIGTERM (this is what made tests/test_shell_sigterm.py flaky, gptme/gptme#3877).
+    """
+    original_sigterm = signal.getsignal(signal.SIGTERM)
+    original_pgrp = os.getpgrp()
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, original_sigterm)
+        if os.getpgrp() != original_pgrp:
+            try:
+                os.setpgid(0, original_pgrp)
+            except OSError:
+                pass
+
+
+def test_act_process_maps_subprocess_timeout_to_timeout_result(
+    isolate_process_globals,
+):
     sync_dict = cast(SyncedDict, {})
     agent = TimeoutAgent(model="claude-code/test")
 
@@ -687,7 +713,7 @@ def test_act_process_maps_subprocess_timeout_to_timeout_result():
     assert result["cost"]["request_count"] == 2
 
 
-def test_act_process_error_includes_cost():
+def test_act_process_error_includes_cost(isolate_process_globals):
     sync_dict = cast(SyncedDict, {})
     agent = ErrorAgent(model="claude-code/test")
 
@@ -711,7 +737,7 @@ def test_act_process_error_includes_cost():
     assert result["cost"]["total_input_tokens"] == 900
 
 
-def test_act_process_error_survives_cleanup_sigterm():
+def test_act_process_error_survives_cleanup_sigterm(isolate_process_globals):
     """error_handler must ignore SIGTERM during cleanup so error is not a timeout."""
     sync_dict = cast(SyncedDict, {})
     agent = ErrorAgent(model="claude-code/test")
