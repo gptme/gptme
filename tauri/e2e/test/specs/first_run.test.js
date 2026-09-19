@@ -17,8 +17,13 @@
 
 describe("Real first-run flow", () => {
   /**
-   * Poll the sidecar health endpoint from the webview until it responds.
+   * Poll the sidecar readiness endpoint from the webview until it responds.
    * The PyInstaller sidecar can take 2–3 s to cold-start on Linux.
+   *
+   * Uses `/api/v2/server/health`, which is unauthenticated by design for
+   * liveness/readiness probes (gptme#3701). The bearer-protected routes
+   * (e.g. `/api/v2/models`) return 401 to this unauthenticated request, so
+   * probing one of those would poll until timeout even on a healthy sidecar.
    */
   async function waitForSidecarReady(port, timeoutMs = 15000) {
     const deadline = Date.now() + timeoutMs;
@@ -29,7 +34,7 @@ describe("Real first-run flow", () => {
             fetch(url, { method: "GET" })
               .then((r) => r.status)
               .catch(() => 0),
-          `http://127.0.0.1:${port}/api/v2/models`
+          `http://127.0.0.1:${port}/api/v2/server/health`
         );
         if (result === 200) return;
       } catch (_e) {
@@ -105,19 +110,35 @@ describe("Real first-run flow", () => {
     await connectBtn.click();
 
     // 8. Wait for the connection to succeed. The button text changes to
-    //    "Continue" when connected, or the wizard advances to the provider step.
+    //    "Continue" when connected, and the wizard shows a "Connected to
+    //    server" indicator; it may also auto-advance to the provider step,
+    //    which removes the button. Accept any of those signals, plus the
+    //    persisted loopback server URL (asserted in step 9).
     await browser.waitUntil(
       async () => {
         try {
-          const continueBtn = await $("button=Continue");
-          return await continueBtn.isExisting();
+          if (await (await $("button=Continue")).isExisting()) return true;
+          if (await (await $("*=Connected to server")).isExisting()) return true;
+          return await browser.execute(() => {
+            try {
+              const raw = localStorage.getItem("gptme_servers");
+              if (!raw) return false;
+              const registry = JSON.parse(raw);
+              const active = registry.servers?.find(
+                (s) => s.id === registry.activeServerId
+              );
+              return /^http:\/\/127\.0\.0\.1:\d+/.test(active?.baseUrl || "");
+            } catch {
+              return false;
+            }
+          });
         } catch (_e) {
           return false;
         }
       },
       {
-        timeout: 10000,
-        timeoutMsg: "Connect did not succeed within 10s (button never became 'Continue')",
+        timeout: 15000,
+        timeoutMsg: "Connect did not succeed within 15s (no connected signal appeared)",
       }
     );
 
