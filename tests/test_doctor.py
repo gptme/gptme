@@ -1723,6 +1723,49 @@ class TestCheckPlugins:
             for r in plugin_results
         )
 
+    def test_package_submodule_tool_init_runs_once(self, tmp_path, monkeypatch):
+        """A tool defined in a submodule of a package tool module must have its
+        init() run exactly once: _import_module_tree() returns the package AND
+        its submodules, and discovery on the package already covers submodule
+        tools — without cross-call dedup the same init() would run twice."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        pkg = tmp_path / "doctor_dup_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "submod.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "calls = []\n"
+            "def _init():\n"
+            "    calls.append(1)\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='dupsubtool', desc='ok', init=_init)\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("dupplugin", [])
+        plugin.tool_modules = ["doctor_dup_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: dupplugin"]
+        assert any(
+            r.status == CheckStatus.OK and "dupsubtool" in r.message
+            for r in plugin_results
+        )
+        import doctor_dup_pkg.submod as submod
+
+        assert len(submod.calls) == 1
+
     def test_submodule_missing_dependency_flagged(self, tmp_path, monkeypatch):
         """A package submodule whose dependency is missing must be flagged,
         not silently dropped by _discover_tools' ModuleNotFoundError handling."""
