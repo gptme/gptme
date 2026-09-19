@@ -55,42 +55,24 @@ describe("Real first-run flow", () => {
   }
 
   /**
-   * Read the port the Tauri shell actually launched the sidecar on, straight
-   * from the app (`get_server_status`, exposed via withGlobalTauri). Probing a
-   * guessed port silently fails when the app does not inherit the CI's
-   * GPTME_SERVER_PORT; asking the app removes that guess. Falls back to the
-   * env var / default when the IPC is unavailable.
+   * The port the app launches its managed sidecar on. CI sets
+   * GPTME_SERVER_PORT and the Rust side reads the same variable
+   * (`server_port()` in tauri/src-tauri/src/lib.rs), so the env var is the
+   * single source of truth.
+   *
+   * Do NOT try to read this back from the app via
+   * `browser.execute(() => window.__TAURI__.core.invoke(...))`: WebDriver's
+   * script context is isolated from page globals (and page storage), so
+   * `window.__TAURI__` is undefined there. The previous probe therefore
+   * always logged "get_server_status reported no port" and fell through to the
+   * fallback, which only looked like it was asking the app.
    */
-  async function resolveSidecarPort() {
-    const fallback = process.env.GPTME_SERVER_PORT || "5700";
-    try {
-      const status = await browser.execute(() => {
-        const invoke =
-          window.__TAURI__?.core?.invoke ?? window.__TAURI_INTERNALS__?.invoke;
-        if (typeof invoke !== "function") return null;
-        return invoke("get_server_status").then(
-          (s) => ({ running: s?.running ?? null, port: s?.port ?? null }),
-          () => null
-        );
-      });
-      if (status?.port) {
-        console.log(
-          `[e2e] app reports sidecar port ${status.port} (running=${status.running})`
-        );
-        return status.port;
-      }
-      console.log("[e2e] get_server_status reported no port; falling back to", fallback);
-    } catch (err) {
-      console.log(
-        "[e2e] get_server_status failed:",
-        err instanceof Error ? err.message : String(err)
-      );
-    }
-    return fallback;
+  function resolveSidecarPort() {
+    return Number(process.env.GPTME_SERVER_PORT || "5700");
   }
 
   it("completes Local setup → Connect and reaches connected state", async () => {
-    const sidecarPort = await resolveSidecarPort();
+    const sidecarPort = resolveSidecarPort();
 
     // 1. Wait for the app to load
     await browser.waitUntil(
@@ -101,58 +83,33 @@ describe("Real first-run flow", () => {
     // 2. Wait for the sidecar to be ready before clicking Connect
     await waitForSidecarReady(sidecarPort);
 
-    // 3. Open the setup wizard directly to the Local step.
-    //    The wizard does not auto-open on first run; it is triggered from
-    //    WelcomeView which varies by build configuration (Tauri vs browser,
-    //    local-managed vs remote-only). Driving via JS avoids fragility.
-    await browser.execute(() => {
-      // gptme's setupWizard$ is a Legendapp observable in window scope
-      // because the webui bundle loads it as a module. We expose it via
-      // the global window.__setupWizard hook that the store sets up,
-      // or we can dispatch a custom event that the app listens for.
-      // Fallback: mutate localStorage to simulate a first-run state
-      // and reload, then the WelcomeView CTA appears.
-      //
-      // Simpler: directly open the wizard by simulating the observable set.
-      // The observable object is not on window by default, but we can
-      // trigger it through React devtools or a custom event.
-      //
-      // Most robust: set localStorage to force first-visit, reload,
-      // then click the CTA button.
-      const settings = JSON.parse(localStorage.getItem("gptme-settings") || "{}");
-      settings.hasCompletedSetup = false;
-      localStorage.setItem("gptme-settings", JSON.stringify(settings));
-    });
+    // 3. No first-run forcing is needed. With no persisted settings (clean CI
+    //    profile) `defaultSettings.hasCompletedSetup` is false, so SetupWizard
+    //    opens itself and shows the "Get started" button. The webui also
+    //    degrades to those defaults when localStorage throws, so this holds
+    //    either way.
+    //
+    //    Forcing it through `browser.execute(() => localStorage...)` is not an
+    //    option anyway: WebDriver's script context is isolated from page
+    //    storage, and the read/write throws SecurityError ("The operation is
+    //    insecure.") before the wizard is ever exercised.
 
-    // Reload so WelcomeView reads the first-visit state
-    await browser.execute(() => {
-      window.location.reload();
-    });
-
-    await browser.waitUntil(
-      async () => (await browser.execute(() => document.readyState)) === "complete",
-      { timeout: 30000, timeoutMsg: "App did not reload within 30s" }
-    );
-
-    // 4. Wait for sidecar again after reload
-    await waitForSidecarReady(sidecarPort);
-
-    // 5. Click "Get started" to open the wizard
+    // 4. Click "Get started" on the auto-opened wizard
     const getStartedBtn = await $("button=Get started");
     await expect(getStartedBtn).toExist();
     await getStartedBtn.click();
 
-    // 6. In "Choose your setup", click "Local"
+    // 5. In "Choose your setup", click "Local"
     const localBtn = await $("//button[contains(., 'Local')]");
     await expect(localBtn).toExist();
     await localBtn.click();
 
-    // 7. In "Local setup", click "Connect"
+    // 6. In "Local setup", click "Connect"
     const connectBtn = await $("button=Connect");
     await expect(connectBtn).toExist();
     await connectBtn.click();
 
-    // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted
+    // 7. Wait for a genuine *connected* signal. Do NOT accept the persisted
     //    server registry as proof: `ApiContext.connect()` calls
     //    `updateServer()` (which persists the active baseUrl) and only then
     //    runs `checkConnection()`, so a failed connect still leaves a
@@ -180,25 +137,14 @@ describe("Real first-run flow", () => {
       }
     );
 
-    // 9. Verify the active server URL is the real loopback, NOT tauri://localhost
-    //    (regression guard for gptme#3606 → #3882). This is a URL-correctness
-    //    assertion, not evidence of connection — step 8 owns that.
-    const serverUrl = await browser.execute(() => {
-      try {
-        const raw = localStorage.getItem("gptme_servers");
-        if (!raw) return null;
-        const registry = JSON.parse(raw);
-        const active = registry.servers?.find(
-          (s) => s.id === registry.activeServerId
-        );
-        return active?.baseUrl || null;
-      } catch {
-        return null;
-      }
-    });
-
-    expect(serverUrl).toBeTruthy();
-    expect(serverUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
-    expect(serverUrl).not.toContain("tauri://");
+    // 9. The gptme#3606 → #3882 regression (Local preset retargeted to
+    //    `tauri://localhost`) is guarded behaviourally: with that bug the
+    //    connect fails, `isConnected` stays false, and step 8 times out with
+    //    no "Connected to server" / "Continue" signal.
+    //
+    //    An explicit baseUrl assertion is not possible from here: it lived in
+    //    `localStorage.gptme_servers`, and WebDriver's isolated script context
+    //    cannot read page storage (SecurityError: "The operation is insecure.").
+    //    The connected signal asserted in step 7 is the observable proxy.
   });
 });
