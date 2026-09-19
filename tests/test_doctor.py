@@ -1947,3 +1947,27 @@ class TestCheckPlugins:
         assert bad.status == CheckStatus.ERROR
         assert "throwtool" in bad.message
         assert "boom" in bad.message
+
+    def test_broken_tool_module_attributed_to_plugin(self, monkeypatch):
+        """A plugin whose tool module fails to import must be flagged."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # Simulate a plugin declaring a tool module that cannot be imported.
+        broken_plugin = self._make_plugin("brokenplugin", tools=[])
+        broken_plugin.tool_modules = ["nonexistent.module.does_not_exist"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            broken_plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: brokenplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "failed to import" in bad.message
+        assert "nonexistent.module.does_not_exist" in bad.message

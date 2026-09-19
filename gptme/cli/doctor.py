@@ -1319,19 +1319,35 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
     for plugin in plugins:
         tools: list[ToolSpec] = list(plugin.tools)
         if plugin.tool_modules:
+            # Validate each tool module imports successfully before collecting
+            # tools. _discover_tools() swallows ModuleNotFoundError per module,
+            # so a misspelled/missing-dependency module would otherwise be
+            # silently dropped and doctor would report a broken plugin as OK.
+            module_ok = True
+            for module_name in plugin.tool_modules:
+                try:
+                    importlib.import_module(module_name)
+                except Exception as exc:
+                    module_ok = False
+                    results.append(
+                        CheckResult(
+                            name=f"Plugins: {plugin.name}",
+                            status=CheckStatus.ERROR,
+                            message=(
+                                f"Tool module {module_name!r} failed to import: "
+                                f"{type(exc).__name__}: {exc}"
+                            ),
+                        )
+                    )
+            if not module_ok:
+                # Don't still try to validate the (maybe partly loadable) spec:
+                # the contract check is meaningless for an unimportable module,
+                # and we've already surfaced the actionable error above.
+                continue
+
             from ..tools import _discover_tools
 
-            try:
-                tools.extend(_discover_tools(plugin.tool_modules))
-            except Exception as exc:
-                results.append(
-                    CheckResult(
-                        name=f"Plugins: {plugin.name}",
-                        status=CheckStatus.ERROR,
-                        message=f"Tool module discovery failed: {exc}",
-                    )
-                )
-                continue
+            tools.extend(_discover_tools(plugin.tool_modules))
 
         if not tools:
             # Plugin provides no tools (hooks/commands/providers only) — nothing
