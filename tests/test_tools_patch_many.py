@@ -535,3 +535,80 @@ def test_patch_many_tool_is_discoverable():
     tool = get_tool("patch_many")
     assert tool is not None
     assert tool.name == "patch_many"
+
+
+def test_duplicate_paths_accumulate_both_hunks(tmp_path):
+    """Two entries for one path must both land, not clobber each other."""
+    f = tmp_path / "file.py"
+    f.write_text("a = 1\nb = 2\nc = 3\n")
+
+    patches = [
+        (f, Patch("a = 1", "a = 10")),
+        (f, Patch("b = 2", "b = 20")),
+        (f, Patch("c = 3", "c = 30")),
+    ]
+
+    messages = list(execute_patch_many_impl(patches))
+    assert messages
+    assert "atomically" in messages[0].content.lower()
+    assert "aborted" not in messages[0].content.lower()
+    assert f.read_text() == "a = 10\nb = 20\nc = 30\n"
+
+
+def test_duplicate_paths_message_counts_surviving_patches(tmp_path):
+    """The success message must not claim more patches than were applied."""
+    f = tmp_path / "file.py"
+    f.write_text("a = 1\nb = 2\n")
+
+    patches = [
+        (f, Patch("a = 1", "a = 10")),
+        (f, Patch("b = 2", "b = 20")),
+    ]
+
+    messages = list(execute_patch_many_impl(patches))
+    assert messages
+    # 2 hunks applied, but the file is listed once
+    assert "2 patch(es)" in messages[0].content
+    assert "1 file(s)" in messages[0].content
+    assert messages[0].content.count(str(f)) == 1
+
+
+def test_duplicate_paths_atomic_when_later_hunk_fails(tmp_path):
+    """If a later hunk for a path fails, nothing is written (atomicity holds)."""
+    f = tmp_path / "file.py"
+    g = tmp_path / "other.py"
+    f.write_text("a = 1\n")
+    g.write_text("keep me\n")
+
+    patches = [
+        (f, Patch("a = 1", "a = 10")),
+        (g, Patch("keep me", "changed")),
+        (f, Patch("does not exist", "boom")),
+    ]
+
+    messages = list(execute_patch_many_impl(patches))
+    assert messages
+    assert "aborted" in messages[0].content.lower()
+    assert "patch failed" in messages[0].content.lower()
+    assert f.read_text() == "a = 1\n"
+    assert g.read_text() == "keep me\n"
+
+
+def test_duplicate_paths_via_kwargs_round_trip(tmp_path):
+    """The kwargs entrypoint accumulates repeated paths too."""
+    f = tmp_path / "file.py"
+    f.write_text("first\nsecond\n")
+
+    kwargs = {
+        "patches": json.dumps(
+            [
+                {"path": str(f), "patch": _patch_text("first", "FIRST")},
+                {"path": str(f), "patch": _patch_text("second", "SECOND")},
+            ]
+        )
+    }
+
+    messages = list(execute_patch_many(None, None, kwargs))
+    assert messages
+    assert "atomically" in messages[0].content.lower()
+    assert f.read_text() == "FIRST\nSECOND\n"

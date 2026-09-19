@@ -63,6 +63,10 @@ Two formats:
 
 Tool-call: pass `patches` as a JSON array of {"path": "...", "patch": "..."} entries.
 Each "patch" string may contain multiple ORIGINAL/UPDATED blocks for that file.
+
+Repeating the same path across entries is supported: entries are applied in order
+to the content built by earlier entries for that path, so N entries for one path
+land N hunks (rather than only the last one).
 """.strip()
 
 
@@ -203,31 +207,42 @@ def execute_patch_many_impl(
         yield Message("system", "Atomic patch aborted: no patches were provided.")
         return
 
-    resolved: list[tuple[Path, str]] = []
+    # Repeated paths accumulate: each entry patches the working content built by
+    # earlier entries for that path, not the pristine on-disk text. Without this,
+    # a second entry for one path would be applied to the original text and its
+    # write would clobber the first (silent partial application).
+    current: dict[Path, str] = {}
     originals: dict[Path, str] = {}
+    order: list[Path] = []
+    applied = 0
 
     for path, patch_src in patches:
-        if not path.exists():
-            yield Message(
-                "system",
-                f"Atomic patch aborted: file not found `{path}`. No files were written.",
-            )
-            return
+        if path not in current:
+            if not path.exists():
+                yield Message(
+                    "system",
+                    f"Atomic patch aborted: file not found `{path}`. No files were written.",
+                )
+                return
 
-        try:
-            original = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, PermissionError, OSError) as e:
-            yield Message(
-                "system",
-                f"Atomic patch aborted: could not read `{path}`: {e}. No files were written.",
-            )
-            return
+            try:
+                original = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, PermissionError, OSError) as e:
+                yield Message(
+                    "system",
+                    f"Atomic patch aborted: could not read `{path}`: {e}. No files were written.",
+                )
+                return
+
+            originals[path] = original
+            current[path] = original
+            order.append(path)
 
         try:
             if isinstance(patch_src, Patch):
-                new_content = patch_src.apply(original)
+                new_content = patch_src.apply(current[path])
             else:
-                new_content = apply(patch_src, original)
+                new_content = apply(patch_src, current[path])
         except ValueError as e:
             yield Message(
                 "system",
@@ -236,13 +251,13 @@ def execute_patch_many_impl(
             )
             return
 
-        resolved.append((path, new_content))
-        originals[path] = original
+        current[path] = new_content
+        applied += 1
 
     written: list[Path] = []
-    for path, new_content in resolved:
+    for path in order:
         try:
-            path.write_text(new_content, encoding="utf-8")
+            path.write_text(current[path], encoding="utf-8")
         except OSError as e:
             # Roll back any already-written files to preserve atomicity
             for rolled_back in written:
@@ -260,7 +275,7 @@ def execute_patch_many_impl(
 
     yield Message(
         "system",
-        f"Applied {len(written)} patch(es) atomically to:\n"
+        f"Applied {applied} patch(es) atomically to {len(written)} file(s):\n"
         + "\n".join(f"  - {p}" for p in written),
     )
 
