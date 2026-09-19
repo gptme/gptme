@@ -17,37 +17,80 @@
 
 describe("Real first-run flow", () => {
   /**
-   * Poll the sidecar readiness endpoint from the webview until it responds.
-   * The PyInstaller sidecar can take 2–3 s to cold-start on Linux.
+   * Poll the sidecar readiness endpoint from the host (Node), not from the
+   * webview. A webview-side probe collapses two different failures into a
+   * bare `0`: "the sidecar is not listening yet" and "the webview refused a
+   * cross-origin fetch to http://127.0.0.1". Probing from Node sees the real
+   * socket state, so the error can name what actually went wrong.
    *
    * Uses `/api/v2/server/health`, which is unauthenticated by design for
-   * liveness/readiness probes (gptme#3701). The bearer-protected routes
-   * (e.g. `/api/v2/models`) return 401 to this unauthenticated request, so
-   * probing one of those would poll until timeout even on a healthy sidecar.
+   * liveness/readiness probes (gptme#3701).
+   *
+   * The PyInstaller onefile sidecar must extract its whole bundle before it
+   * can bind the port, which is slow on cold CI runners; hence the generous
+   * budget. (It is started by the Tauri app's setup hook, not by this test.)
    */
-  async function waitForSidecarReady(port, timeoutMs = 15000) {
+  async function waitForSidecarReady(port, timeoutMs = 60000) {
+    const url = `http://127.0.0.1:${port}/api/v2/server/health`;
     const deadline = Date.now() + timeoutMs;
+    let lastError = "no attempt made";
+    let lastLogged = null;
     while (Date.now() < deadline) {
       try {
-        const result = await browser.execute(
-          (url) =>
-            fetch(url, { method: "GET" })
-              .then((r) => r.status)
-              .catch(() => 0),
-          `http://127.0.0.1:${port}/api/v2/server/health`
-        );
-        if (result === 200) return;
-      } catch (_e) {
-        // ignore
+        const res = await fetch(url, { method: "GET" });
+        if (res.status === 200) return;
+        lastError = `HTTP ${res.status}`;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+      if (lastError !== lastLogged) {
+        console.log(`[e2e] waiting for sidecar on ${url}: ${lastError}`);
+        lastLogged = lastError;
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    throw new Error(`Sidecar did not become ready on port ${port} within ${timeoutMs}ms`);
+    throw new Error(
+      `Sidecar did not become ready on ${url} within ${timeoutMs}ms (last: ${lastError})`
+    );
+  }
+
+  /**
+   * Read the port the Tauri shell actually launched the sidecar on, straight
+   * from the app (`get_server_status`, exposed via withGlobalTauri). Probing a
+   * guessed port silently fails when the app does not inherit the CI's
+   * GPTME_SERVER_PORT; asking the app removes that guess. Falls back to the
+   * env var / default when the IPC is unavailable.
+   */
+  async function resolveSidecarPort() {
+    const fallback = process.env.GPTME_SERVER_PORT || "5700";
+    try {
+      const status = await browser.execute(() => {
+        const invoke =
+          window.__TAURI__?.core?.invoke ?? window.__TAURI_INTERNALS__?.invoke;
+        if (typeof invoke !== "function") return null;
+        return invoke("get_server_status").then(
+          (s) => ({ running: s?.running ?? null, port: s?.port ?? null }),
+          () => null
+        );
+      });
+      if (status?.port) {
+        console.log(
+          `[e2e] app reports sidecar port ${status.port} (running=${status.running})`
+        );
+        return status.port;
+      }
+      console.log("[e2e] get_server_status reported no port; falling back to", fallback);
+    } catch (err) {
+      console.log(
+        "[e2e] get_server_status failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+    return fallback;
   }
 
   it("completes Local setup → Connect and reaches connected state", async () => {
-    // The sidecar port is set via GPTME_SERVER_PORT in CI to avoid collisions.
-    const sidecarPort = process.env.GPTME_SERVER_PORT || "5700";
+    const sidecarPort = await resolveSidecarPort();
 
     // 1. Wait for the app to load
     await browser.waitUntil(
