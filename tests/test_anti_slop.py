@@ -133,6 +133,20 @@ def test_gate_fails_short_combined_tells():
     assert sum(h["weight"] for h in hits) >= 3
 
 
+def test_gate_fails_short_three_soft_tells():
+    """Pin the deliberate weight-agnostic policy: three distinct weight-1
+    tells in short text fail, same as weight-2 + weight-1. Short text dense
+    enough to hit three curated slop tells is dense slop by definition —
+    the evidence gate corroborates the extrapolated score regardless of the
+    weight mix."""
+    report = evaluate_gate("Our robust, seamless, comprehensive platform.")
+    assert report["status"] == "fail"
+    assert report["smell_report"]["word_count"] < MIN_WORDS_FOR_GATE
+    hits = report["smell_report"]["hits"]
+    assert len(hits) >= 3
+    assert all(h["weight"] == 1 for h in hits)
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------

@@ -287,10 +287,15 @@ def evaluate_gate(
     # a single soft (weight-1) tell like "robust" in a 10-word text scores
     # ~100 and would fail ordinary prose. Below the word-count minimum we
     # therefore only fail when the additive evidence strength (sum of tell
-    # weights) is at least 3 — equivalent to one high-confidence tell, or a
-    # combination like weight-2 + weight-1 — and the score already exceeds
-    # the fail threshold; the word-count minimum otherwise guards the
-    # pass/warn direction (don't claim "pass" on too-short text).
+    # weights) is at least 3 AND the score already exceeds the fail
+    # threshold. Deliberate policy: the gate is weight-agnostic about how
+    # the evidence sums — one weight-3 tell, weight-2 + weight-1, or three
+    # distinct weight-1 tells all qualify. Short text dense enough to hit
+    # three curated slop tells is dense slop by this detector's definition;
+    # three distinct weight-1 hits corroborate the extrapolated score the
+    # same way a weight-2 + weight-1 pair does. The word-count minimum
+    # otherwise guards the pass/warn direction (don't claim "pass" on
+    # too-short text).
     evidence_weight = sum(h["weight"] for h in smell_report["hits"])
     if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
         if score >= _fail and evidence_weight >= 3:
