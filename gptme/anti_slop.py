@@ -286,12 +286,14 @@ def evaluate_gate(
     # The per-1k-word score extrapolation is unreliable on short samples:
     # a single soft (weight-1) tell like "robust" in a 10-word text scores
     # ~100 and would fail ordinary prose. Below the word-count minimum we
-    # therefore only fail on a high-confidence (weight-3) tell at/above the
-    # fail threshold; the word-count minimum otherwise guards the
+    # therefore only fail when the additive evidence strength (sum of tell
+    # weights) is at least 3 — equivalent to one high-confidence tell, or a
+    # combination like weight-2 + weight-1 — and the score already exceeds
+    # the fail threshold; the word-count minimum otherwise guards the
     # pass/warn direction (don't claim "pass" on too-short text).
-    has_strong_tell = any(h["weight"] >= 3 for h in smell_report["hits"])
+    evidence_weight = sum(h["weight"] for h in smell_report["hits"])
     if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
-        if score >= _fail and has_strong_tell:
+        if score >= _fail and evidence_weight >= 3:
             status = "fail"
             reason = f"weighted_score {score:g} >= fail_threshold {_fail:g}"
         else:

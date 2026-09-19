@@ -121,6 +121,18 @@ def test_gate_skips_short_single_soft_tell():
     assert report["smell_report"]["total_hits"] >= 1
 
 
+def test_gate_fails_short_combined_tells():
+    """A short text whose combined tell weights sum to >= 3 (e.g. one
+    weight-2 plus one weight-1 tell) exceeds the fail threshold and fails,
+    even though no single tell is high-confidence (weight >= 3)."""
+    report = evaluate_gate("This underscores our robust framework for shipping.")
+    assert report["status"] == "fail"
+    assert report["smell_report"]["word_count"] < MIN_WORDS_FOR_GATE
+    hits = report["smell_report"]["hits"]
+    assert all(h["weight"] < 3 for h in hits)
+    assert sum(h["weight"] for h in hits) >= 3
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
