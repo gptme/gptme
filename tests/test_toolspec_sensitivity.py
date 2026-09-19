@@ -6,10 +6,17 @@ Design: knowledge/technical-designs/2026-09-18-per-tool-approval-gate-managed-se
 from dataclasses import replace
 from importlib import import_module
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
-from gptme.tools.base import ToolFunction, ToolSensitivity, ToolSpec
+from gptme.tools.base import (
+    SENSITIVITY_ORDER,
+    ToolFunction,
+    ToolSensitivity,
+    ToolSpec,
+    sensitivity_rank,
+)
 
 
 def _make_spec(name: str, **kwargs) -> ToolSpec:
@@ -40,8 +47,10 @@ BUILTIN_SENSITIVITY = {
     "append": ("gptme.tools.save", "tool_append", "moderate"),
     "browser": ("gptme.tools.browser", "tool", "sensitive"),
     "computer": ("gptme.tools.computer", "tool", "dangerous"),
+    "gh": ("gptme.tools.gh", "tool", "sensitive"),
     "hashline_edit": ("gptme.tools.hashline_edit", "tool", "moderate"),
     "ipython": ("gptme.tools.python", "tool", "dangerous"),
+    "morph": ("gptme.tools.morph", "tool", "moderate"),
     "patch": ("gptme.tools.patch", "tool", "moderate"),
     "patch_many": ("gptme.tools.patch_many", "tool_patch_many", "moderate"),
     "save": ("gptme.tools.save", "tool_save", "moderate"),
@@ -55,6 +64,17 @@ BUILTIN_SENSITIVITY = {
 def test_builtin_tool_sensitivity(module: str, attr: str, expected: str):
     spec = getattr(import_module(module), attr)
     assert spec.sensitivity == expected
+
+
+def test_sensitivity_rank_follows_severity_not_string_order():
+    """The rank helper is the ordering contract; plain string order is wrong."""
+    assert sensitivity_rank("safe") < sensitivity_rank("moderate")
+    assert sensitivity_rank("moderate") < sensitivity_rank("sensitive")
+    assert sensitivity_rank("sensitive") < sensitivity_rank("dangerous")
+    # Alphabetically "dangerous" sorts first; the rank must not follow that.
+    assert sorted(SENSITIVITY_ORDER, key=str) != sorted(
+        SENSITIVITY_ORDER, key=sensitivity_rank
+    )
 
 
 @pytest.mark.parametrize("tool_name", ["read", "rag", "vision", "screenshot"])
@@ -109,7 +129,10 @@ def _annotations(**kwargs: object) -> SimpleNamespace:
         (_annotations(), "dangerous"),
     ],
 )
-def test_mcp_sensitivity_from_annotations(annotations: object, expected: str):
+def test_mcp_sensitivity_from_annotations(annotations: Any, expected: str):
+    # `annotations` is a duck-typed stand-in for mcp.types.ToolAnnotations (the
+    # MCP package is an optional extra), so it is intentionally typed `Any`
+    # rather than `object` — the latter fails mypy at the call below.
     from gptme.tools.mcp_adapter import sensitivity_from_annotations
 
     assert sensitivity_from_annotations(annotations) == expected

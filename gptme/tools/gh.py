@@ -766,6 +766,8 @@ tool: ToolSpec = ToolSpec(
     examples=examples,
     execute=execute_gh,
     block_types=["gh"],
+    # External side effects: can open PRs, comment, and merge — not read-only.
+    sensitivity="sensitive",
     parameters=[
         Parameter(
             name="command",

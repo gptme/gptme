@@ -259,6 +259,8 @@ tool = ToolSpec(
     execute=execute_morph,
     block_types=["morph"],
     available=is_openrouter_available,
+    # Local, reversible file mutation — same class as patch/save, not a read.
+    sensitivity="moderate",
     parameters=[
         Parameter(
             name="path",

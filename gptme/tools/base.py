@@ -71,6 +71,23 @@ ToolFormat: TypeAlias = Literal["markdown", "xml", "tool"]
 # local and reversible).
 ToolSensitivity: TypeAlias = Literal["safe", "moderate", "sensitive", "dangerous"]
 
+# Canonical severity ranks, from least to most disruptive. This mapping — not
+# string comparison — is the ordering contract: alphabetically "dangerous"
+# sorts before "safe", so an approval gate comparing the literals directly
+# would invert the decision. Compare through `sensitivity_rank()` instead.
+SENSITIVITY_ORDER: dict[ToolSensitivity, int] = {
+    "safe": 0,
+    "moderate": 1,
+    "sensitive": 2,
+    "dangerous": 3,
+}
+
+
+def sensitivity_rank(level: ToolSensitivity) -> int:
+    """Rank a sensitivity level (higher = riskier) for threshold comparisons."""
+    return SENSITIVITY_ORDER[level]
+
+
 # tooluse format
 tool_format: ToolFormat = "markdown"
 
