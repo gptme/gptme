@@ -2251,3 +2251,46 @@ class TestCheckPlugins:
             and "failed to import" in r.message
             for r in plugin_results
         )
+
+    def test_non_toolspec_entry_flagged_not_crash(self):
+        """A plugin whose ``tools`` list holds a non-ToolSpec entry must yield
+        an attributable ERROR instead of raising AttributeError out of
+        ``_check_plugins`` and aborting the whole doctor run."""
+
+        from typing import Any, cast
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        malformed = self._make_plugin("malformedplugin", [])
+        # Simulate a malformed plugin manifest: the annotation says ToolSpec,
+        # but a plugin can put anything here at runtime.
+        malformed.tools = cast(list[Any], ["not-a-toolspec"])
+        good_plugin = self._make_plugin(
+            "goodplugin2",
+            [
+                self._make_tool(
+                    "goodtool2",
+                    init=lambda: self._make_tool("goodtool2"),
+                )
+            ],
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            malformed,
+            good_plugin,
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: malformedplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "not a ToolSpec" in bad.message
+
+        # The malformed entry does not prevent the valid plugin from being
+        # validated.
+        good = next(r for r in results if r.name == "Plugins: goodplugin2")
+        assert good.status == CheckStatus.OK
