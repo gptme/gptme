@@ -154,6 +154,11 @@ DEFAULT_MODE = "balanced"
 # Scores are unreliable below this threshold; evaluate_gate() returns "skip".
 MIN_WORDS_FOR_GATE = 20
 
+# Categories that detect_smells() reports but that are NOT curated slop tells
+# from the pattern registry: they are cadence/punctuation artifacts. They are
+# excluded from the short-text evidence gate below.
+_ARTIFACT_CATEGORIES = frozenset({"em_dash", "staccato"})
+
 
 def _count_staccato_runs(text: str) -> int:
     sentences = _SENT_END.split(text)
@@ -300,16 +305,15 @@ def evaluate_gate(
     # label contributes once: evidence_weight is the sum over DISTINCT
     # tells — repeating one soft tell ("robust robust robust") adds weight
     # 1, not 3.
-    # Only curated pattern-registry tells count as corroborating evidence.
-    # The em-dash and staccato entries are cadence/punctuation artifacts
-    # whose per-1k extrapolation is exactly what the word-count minimum
-    # exists to distrust: below MIN_WORDS_FOR_GATE the em-dash tolerance
-    # rounds to zero, so a lone em-dash in ordinary short prose would
-    # otherwise contribute weight 1 and manufacture "evidence" the stated
-    # policy does not recognize.
-    _tell_categories = {cat for cat, _weight, _rx, _label in _COMPILED}
+    # Only curated pattern-registry tells count as corroborating evidence,
+    # so the cadence/punctuation artifacts are filtered out. Below
+    # MIN_WORDS_FOR_GATE the em-dash tolerance rounds to zero, so a lone
+    # em-dash in ordinary short prose would otherwise contribute weight 1
+    # and manufacture "evidence" the stated policy does not recognize.
     evidence_weight = sum(
-        h["weight"] for h in smell_report["hits"] if h["category"] in _tell_categories
+        h["weight"]
+        for h in smell_report["hits"]
+        if h["category"] not in _ARTIFACT_CATEGORIES
     )
     if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
         if score >= _fail and evidence_weight >= 3:
