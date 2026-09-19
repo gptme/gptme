@@ -57,6 +57,20 @@ InitFunc: TypeAlias = Callable[[], "ToolSpec"]
 
 ToolFormat: TypeAlias = Literal["markdown", "xml", "tool"]
 
+# How much user supervision a tool call warrants. Ordered from least to most
+# disruptive; approval gates compare this against a session threshold.
+#   safe:      read-only, no side effects
+#   moderate:  local mutations (file writes, patches, git commits)
+#   sensitive: external side effects (email, calendar, API mutations, browsing)
+#   dangerous: irreversible or high-blast-radius (arbitrary exec, payments, deletes)
+#
+# This is a separate axis from `hints`: hints are free-form allowlist tags
+# ("read-only", "file-ops", "destructive"), whereas sensitivity is the ordered
+# severity an approval gate can compare. A tool may be hinted "destructive"
+# (it mutates state) while being only "moderate" to approve (the mutation is
+# local and reversible).
+ToolSensitivity: TypeAlias = Literal["safe", "moderate", "sensitive", "dangerous"]
+
 # tooluse format
 tool_format: ToolFormat = "markdown"
 
@@ -487,6 +501,14 @@ class ToolSpec:
         disabled_by_default: Whether this tool should be disabled by default.
         requires_tools: Names of companion tools that are loaded together with
             this one (a tool whose docs or workflow depend on another tool).
+        sensitivity: Supervision level this tool warrants (safe/moderate/
+            sensitive/dangerous). Defaults to "safe" so that adding the field
+            is non-breaking. Note the default is the value reported for an
+            unannotated ToolSpec, so it is not a statement that every
+            unannotated tool is safe; a consumer gating on this must treat
+            explicit per-tool labels as the source of truth, and should treat
+            the *absence* of a ToolSpec entirely (raw shell, an MCP tool with
+            no annotated spec) as "moderate".
         hooks: Hooks to register when this tool is loaded.
         commands: User slash-commands (/example) to register when this tool is loaded.
     """
@@ -515,6 +537,7 @@ class ToolSpec:
     is_mcp: bool = False
     hints: frozenset[str] = field(default_factory=frozenset)
     read_only: bool = False
+    sensitivity: ToolSensitivity = "safe"
     hooks: dict[str, tuple[str, HookFunc, int]] = field(default_factory=dict)
     commands: dict[str, Callable] = field(default_factory=dict)
 
@@ -538,6 +561,7 @@ class ToolSpec:
         is_mcp: bool = False,
         hints: frozenset[str] | None = None,
         read_only: bool = False,
+        sensitivity: ToolSensitivity = "safe",
         hooks: dict[str, tuple[str, HookFunc, int]] | None = None,
         commands: dict[str, Callable] | None = None,
     ):
@@ -563,6 +587,7 @@ class ToolSpec:
         object.__setattr__(self, "is_mcp", is_mcp)
         object.__setattr__(self, "hints", hints or frozenset())
         object.__setattr__(self, "read_only", read_only)
+        object.__setattr__(self, "sensitivity", sensitivity)
         object.__setattr__(self, "hooks", hooks or {})
         object.__setattr__(self, "commands", commands or {})
 
@@ -774,6 +799,10 @@ class ToolSpec:
                     sub,
                     name=f"{self.name}.{tf.name}",
                     hints=tf.hints,
+                    # A helper function is no less sensitive than the tool it
+                    # belongs to (e.g. browser.click_element), so inherit rather
+                    # than falling back to the "safe" default.
+                    sensitivity=self.sensitivity,
                     desc=tf.description or sub.desc,
                     parameters=list(tf.parameters) if tf.parameters else sub.parameters,
                     available=self.available,

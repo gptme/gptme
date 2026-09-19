@@ -3416,5 +3416,6 @@ tool = ToolSpec(
         "session_end": ("session.end", _session_end_shell_cleanup, 0),
     },
     hints=frozenset({"code-exec", "destructive"}),
+    sensitivity="dangerous",
 )
 __doc__ = tool.get_doc(__doc__)

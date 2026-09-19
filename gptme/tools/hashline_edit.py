@@ -1006,6 +1006,7 @@ tool = ToolSpec(
         ),
     ],
     hints=frozenset({"file-ops", "destructive"}),
+    sensitivity="moderate",
 )
 
 __doc__ = tool.get_doc(__doc__)
