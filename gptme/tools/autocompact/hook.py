@@ -18,6 +18,7 @@ from ..base import ToolSpec
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
 from .decision import should_auto_compact
+from .events import append_compaction_event
 from .handlers import cmd_compact_handler
 from .resume import _resume_via_llm
 
@@ -152,6 +153,16 @@ def autocompact_hook(
                 if original_tokens > 0
                 else 0.0
             )
+            append_compaction_event(
+                manager.logdir,
+                trigger="budget",
+                method="trim",
+                tokens_before=original_tokens,
+                tokens_after=compacted_tokens,
+                messages_before=original_count,
+                messages_after=compacted_count,
+                elapsed_seconds=time.time() - current_time,
+            )
             # Yield a message indicating what happened
             yield Message(
                 "system",
@@ -172,10 +183,21 @@ def autocompact_hook(
         try:
             m = get_default_model()
             original_tokens = len_tokens(messages, m.model) if m else 0
+            original_count = len(messages)
 
             yield from _resume_via_llm(manager, messages, use_view_branch=True)
 
             compacted_tokens = len_tokens(manager.log.messages, m.model) if m else 0
+            append_compaction_event(
+                manager.logdir,
+                trigger="budget",
+                method="summarize",
+                tokens_before=original_tokens,
+                tokens_after=compacted_tokens,
+                messages_before=original_count,
+                messages_after=len(manager.log.messages),
+                elapsed_seconds=time.time() - current_time,
+            )
 
             # Trigger CACHE_INVALIDATED hook — resume is even more aggressive
             # than rule-based compaction, so plugins need to know
