@@ -1575,3 +1575,57 @@ class TestCheckPlugins:
         assert bad.status == CheckStatus.ERROR
         assert "failed to import" in bad.message
         assert "nonexistent.module.does_not_exist" in bad.message
+
+    def test_partly_broken_module_keeps_other_tools(self, tmp_path, monkeypatch):
+        """A plugin with one broken tool module must still validate tools from
+        its direct specs and its modules that import successfully."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # A real importable module exposing one ToolSpec.
+        pkg = tmp_path / "doctor_ok_toolmod"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "def _init():\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='oktool', desc='ok', init=_init)\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin(
+            "mixedplugin",
+            [
+                self._make_tool(
+                    "directtool",
+                    init=lambda: self._make_tool("directtool"),
+                )
+            ],
+        )
+        plugin.tool_modules = [
+            "doctor_ok_toolmod",
+            "nonexistent.module.does_not_exist",
+        ]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        errors = [r for r in results if r.name == "Plugins: mixedplugin"]
+        # The broken module is flagged...
+        assert any(
+            r.status == CheckStatus.ERROR
+            and "nonexistent.module.does_not_exist" in r.message
+            for r in errors
+        )
+        # ...but tools from the working module and direct specs are validated.
+        assert any(
+            r.status == CheckStatus.OK and "directtool" in r.message for r in errors
+        )
+        assert any(r.status == CheckStatus.OK and "oktool" in r.message for r in errors)
