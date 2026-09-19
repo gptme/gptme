@@ -283,25 +283,31 @@ def evaluate_gate(
 
     score = float(smell_report["weighted_score"])
 
-    # A short text that already exceeds the fail threshold is a confident
-    # fail — the density of high-confidence slop tells is so high that the
-    # small sample is not the limiting factor. The word-count minimum only
-    # guards the pass/warn direction (don't claim "pass" on too-short text);
-    # it must not suppress a confident fail.
-    if score >= _fail:
+    # The per-1k-word score extrapolation is unreliable on short samples:
+    # a single soft (weight-1) tell like "robust" in a 10-word text scores
+    # ~100 and would fail ordinary prose. Below the word-count minimum we
+    # therefore only fail on a high-confidence (weight-3) tell at/above the
+    # fail threshold; the word-count minimum otherwise guards the
+    # pass/warn direction (don't claim "pass" on too-short text).
+    has_strong_tell = any(h["weight"] >= 3 for h in smell_report["hits"])
+    if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
+        if score >= _fail and has_strong_tell:
+            status = "fail"
+            reason = f"weighted_score {score:g} >= fail_threshold {_fail:g}"
+        else:
+            return {
+                "status": "skip",
+                "reason": (
+                    f"text too short to score reliably "
+                    f"({smell_report['word_count']} words < {MIN_WORDS_FOR_GATE} minimum)"
+                ),
+                "mode": _mode,
+                "thresholds": thresholds,
+                "smell_report": smell_report,
+            }
+    elif score >= _fail:
         status = "fail"
         reason = f"weighted_score {score:g} >= fail_threshold {_fail:g}"
-    elif smell_report["word_count"] < MIN_WORDS_FOR_GATE:
-        return {
-            "status": "skip",
-            "reason": (
-                f"text too short to score reliably "
-                f"({smell_report['word_count']} words < {MIN_WORDS_FOR_GATE} minimum)"
-            ),
-            "mode": _mode,
-            "thresholds": thresholds,
-            "smell_report": smell_report,
-        }
     elif score >= _warn:
         status = "warn"
         reason = f"weighted_score {score:g} >= warn_threshold {_warn:g}"

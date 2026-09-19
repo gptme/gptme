@@ -111,6 +111,16 @@ def test_gate_fails_short_dense_slop():
     assert report["smell_report"]["word_count"] < MIN_WORDS_FOR_GATE
 
 
+def test_gate_skips_short_single_soft_tell():
+    """A single soft (weight-1) tell in short text must not fail: the per-1k
+    extrapolation is unreliable below the word-count minimum, and one word
+    like "robust" in ordinary prose is not slop."""
+    report = evaluate_gate("We built a robust pipeline for handling retries.")
+    assert report["status"] == "skip"
+    assert report["smell_report"]["word_count"] < MIN_WORDS_FOR_GATE
+    assert report["smell_report"]["total_hits"] >= 1
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
