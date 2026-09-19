@@ -64,13 +64,37 @@ exports.config = {
   port: 4444,
   path: "/",
 
-  // Clear the Tauri app's WebKit user-data directory before every session so
-  // each test starts with a clean localStorage/profile. Without this, the
-  // smoke-test session's SetupWizard.closeWizard() (triggered when tauri-driver
-  // calls deleteSession → closes the window) writes hasCompletedSetup=true to
-  // the shared profile, causing the first_run test to find the wizard already
-  // "completed" and never show "Get started".
-  beforeSession: () => {
+  // Clean up between sessions:
+  //
+  // 1. Kill the orphaned gptme-server sidecar. When tauri-driver's deleteSession
+  //    kills the Tauri binary, the sidecar (externalBin) is reparented to init
+  //    and keeps running on GPTME_SERVER_PORT. A live sidecar causes the next
+  //    session's ApiContext to see isConnected=true immediately, which triggers
+  //    SetupWizard's auto-advance effect (checkProviderAndAdvance) before the
+  //    test can interact with the welcome step.
+  //
+  // 2. Clear the Tauri WebKit user-data directory so each test starts with a
+  //    clean localStorage / hasCompletedSetup=false.
+  beforeSession: async () => {
+    const { execSync } = require("child_process");
+    const sidecarPort = Number(process.env.GPTME_SERVER_PORT || "5700");
+
+    // Kill whatever process owns the sidecar port (graceful then forceful).
+    try {
+      execSync(`fuser -k -TERM ${sidecarPort}/tcp 2>/dev/null || true`, {
+        shell: true,
+        stdio: "ignore",
+      });
+      await new Promise((r) => setTimeout(r, 1000));
+      execSync(`fuser -k -KILL ${sidecarPort}/tcp 2>/dev/null || true`, {
+        shell: true,
+        stdio: "ignore",
+      });
+      await new Promise((r) => setTimeout(r, 500));
+    } catch (_) {
+      // fuser not available or no process on port — that's fine
+    }
+
     const candidates = [
       join(homedir(), ".local", "share", "org.gptme.tauri"),
       join(homedir(), ".local", "share", "gptme-tauri"),
