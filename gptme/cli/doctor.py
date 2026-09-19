@@ -1380,9 +1380,21 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                 # would discard the discovery result for valid siblings too.
                 # One try/except per module keeps the blast radius at that
                 # module.
+                #
+                # Dedupe across calls: _import_module_tree() returns both a
+                # package and its submodules, and _discover_tools() on the
+                # package already discovers submodule tools — without a
+                # cross-call seen-set the same ToolSpec.init() would run
+                # twice (duplicate side effects + diagnostics). _discover_tools'
+                # dedup is per-call only, so track seen specs here.
+                seen_specs: set[int] = {id(t) for t in tools}
                 for ok_module in ok_modules:
                     try:
-                        tools.extend(_discover_tools([ok_module]))
+                        for spec in _discover_tools([ok_module]):
+                            if id(spec) in seen_specs:
+                                continue
+                            seen_specs.add(id(spec))
+                            tools.append(spec)
                     except Exception as exc:
                         results.append(
                             CheckResult(
