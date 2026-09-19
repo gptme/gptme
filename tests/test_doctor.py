@@ -2071,3 +2071,36 @@ class TestCheckPlugins:
             r.status == CheckStatus.OK and "directtool" in r.message
             for r in plugin_results
         )
+
+    def test_submodule_missing_dependency_flagged(self, tmp_path, monkeypatch):
+        """A package submodule whose dependency is missing must be flagged,
+        not silently dropped by _discover_tools' ModuleNotFoundError handling."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        pkg = tmp_path / "doctor_dep_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "needsdep.py").write_text("import nonexistent_dependency_xyz\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("deppplugin", tools=[])
+        plugin.tool_modules = ["doctor_dep_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: deppplugin"]
+        assert any(
+            r.status == CheckStatus.ERROR
+            and "needsdep" in r.message
+            and "failed to import" in r.message
+            for r in plugin_results
+        )

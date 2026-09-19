@@ -10,6 +10,7 @@ Usage:
 import importlib.util
 import logging
 import os
+import pkgutil
 import shutil
 import subprocess
 import sys
@@ -1262,6 +1263,34 @@ def _check_mcp_stdio_server(
     ]
 
 
+def _import_module_tree(
+    module_name: str,
+) -> tuple[list[str], list[tuple[str, Exception]]]:
+    """Import a module and recursively all its public submodules.
+
+    Returns ``(ok_module_names, errors)`` where errors are ``(module_name,
+    exception)`` pairs. Unlike :func:`gptme.tools._discover_tools`, no import
+    error is swallowed: every submodule that fails to import (missing
+    dependency or otherwise) is reported.
+    """
+    ok: list[str] = []
+    errors: list[tuple[str, Exception]] = []
+    try:
+        module = importlib.import_module(module_name)
+    except Exception as exc:
+        return [], [(module_name, exc)]
+    ok.append(module_name)
+    if hasattr(module, "__path__"):
+        for _, submodule_name, _ in pkgutil.iter_modules(module.__path__):
+            if submodule_name.startswith("_"):
+                continue
+            full_name = f"{module_name}.{submodule_name}"
+            sub_ok, sub_errors = _import_module_tree(full_name)
+            ok.extend(sub_ok)
+            errors.extend(sub_errors)
+    return ok, errors
+
+
 def _check_plugins(verbose: bool = False) -> list[CheckResult]:
     """Validate plugin tool contracts in isolation.
 
@@ -1325,11 +1354,11 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             # silently dropped and doctor would report a broken plugin as OK.
             ok_modules: list[str] = []
             for module_name in plugin.tool_modules:
-                try:
-                    importlib.import_module(module_name)
-                    ok_modules.append(module_name)
-                except Exception as exc:
-                    # Flag the broken module, but keep collecting tools from
+                imported, import_errors = _import_module_tree(module_name)
+                ok_modules.extend(imported)
+                for failed_name, import_exc in import_errors:
+                    # Flag the broken module (including submodules with
+                    # missing dependencies), but keep collecting tools from
                     # modules that import successfully — a plugin with one bad
                     # module still has validatable tools in the others.
                     results.append(
@@ -1337,8 +1366,8 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                             name=f"Plugins: {plugin.name}",
                             status=CheckStatus.ERROR,
                             message=(
-                                f"Tool module {module_name!r} failed to import: "
-                                f"{type(exc).__name__}: {exc}"
+                                f"Tool module {failed_name!r} failed to import: "
+                                f"{type(import_exc).__name__}: {import_exc}"
                             ),
                         )
                     )
