@@ -16,7 +16,7 @@ repos:
   hooks:
   - id: mypy
     additional_dependencies: [types-tabulate, types-docutils, tomli, tomli_w, opentelemetry-api, opentelemetry-sdk, prometheus-client, prompt_toolkit, click, pytest, openai==1.101.0, rich, tomlkit, dspy, textual]
-    args: [--ignore-missing-imports, --check-untyped-defs]
+    args: [--ignore-missing-imports, --check-untyped-defs, --no-warn-unused-ignores]
 - repo: https://github.com/gptme/gptme-contrib
   rev: 13d63e63b35705bc16646ed4b0964dcfa176bc43  # gptme/gptme-contrib#1520
   hooks:
