@@ -64,9 +64,10 @@ Two formats:
 Tool-call: pass `patches` as a JSON array of {"path": "...", "patch": "..."} entries.
 Each "patch" string may contain multiple ORIGINAL/UPDATED blocks for that file.
 
-Repeating the same path across entries is supported: entries are applied in order
-to the content built by earlier entries for that path, so N entries for one path
-land N hunks (rather than only the last one).
+You may list the same path in multiple entries — hunks apply in order, each seeing
+the result of the previous one. Prefer one entry per path with several
+ORIGINAL/UPDATED blocks (or the `=== PATH: ... ===` header form) for multi-hunk
+edits; use repeated entries only when later hunks depend on earlier ones landing.
 """.strip()
 
 
@@ -214,7 +215,7 @@ def execute_patch_many_impl(
     current: dict[Path, str] = {}
     originals: dict[Path, str] = {}
     order: list[Path] = []
-    applied = 0
+    hunks = 0
 
     for path, patch_src in patches:
         if path not in current:
@@ -239,9 +240,13 @@ def execute_patch_many_impl(
             order.append(path)
 
         try:
+            # Count hunks: a Patch is one hunk; a codeblock string may hold
+            # multiple ORIGINAL/UPDATED blocks, each applying as its own hunk.
             if isinstance(patch_src, Patch):
+                hunks += 1
                 new_content = patch_src.apply(current[path])
             else:
+                hunks += patch_src.count(ORIGINAL)
                 new_content = apply(patch_src, current[path])
         except ValueError as e:
             yield Message(
@@ -252,7 +257,6 @@ def execute_patch_many_impl(
             return
 
         current[path] = new_content
-        applied += 1
 
     written: list[Path] = []
     for path in order:
@@ -275,7 +279,7 @@ def execute_patch_many_impl(
 
     yield Message(
         "system",
-        f"Applied {applied} patch(es) atomically to {len(written)} file(s):\n"
+        f"Applied {hunks} hunk(s) atomically to {len(written)} file(s):\n"
         + "\n".join(f"  - {p}" for p in written),
     )
 

@@ -568,7 +568,7 @@ def test_duplicate_paths_message_counts_surviving_patches(tmp_path):
     messages = list(execute_patch_many_impl(patches))
     assert messages
     # 2 hunks applied, but the file is listed once
-    assert "2 patch(es)" in messages[0].content
+    assert "2 hunk(s)" in messages[0].content
     assert "1 file(s)" in messages[0].content
     assert messages[0].content.count(str(f)) == 1
 
@@ -612,3 +612,23 @@ def test_duplicate_paths_via_kwargs_round_trip(tmp_path):
     assert messages
     assert "atomically" in messages[0].content.lower()
     assert f.read_text() == "FIRST\nSECOND\n"
+
+
+def test_multi_block_entry_counts_each_hunk(tmp_path):
+    """One entry with two ORIGINAL/UPDATED blocks reports 2 hunks, not 1."""
+    f = tmp_path / "f.txt"
+    f.write_text("alpha\nbeta\n")
+    patches = [
+        (
+            f,
+            (
+                "<<<<<<< ORIGINAL\nalpha\n=======\nALPHA\n>>>>>>> UPDATED\n"
+                "<<<<<<< ORIGINAL\nbeta\n=======\nBETA\n>>>>>>> UPDATED\n"
+            ),
+        )
+    ]
+
+    messages = list(execute_patch_many_impl(patches))
+    assert f.read_text() == "ALPHA\nBETA\n"
+    assert "2 hunk(s)" in messages[0].content
+    assert "1 file(s)" in messages[0].content
