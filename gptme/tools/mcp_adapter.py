@@ -208,6 +208,8 @@ def sensitivity_from_annotations(
     """
     if annotations is None:
         return "moderate"
+    if annotations.destructiveHint is True:
+        return "dangerous"
     if annotations.readOnlyHint:
         return "safe"
     if annotations.destructiveHint is not False:

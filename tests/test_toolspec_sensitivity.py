@@ -121,7 +121,10 @@ def _annotations(**kwargs: object) -> SimpleNamespace:
         (_annotations(readOnlyHint=True), "safe"),
         (_annotations(destructiveHint=True), "dangerous"),
         (_annotations(destructiveHint=False), "moderate"),
-        (_annotations(readOnlyHint=True, destructiveHint=True), "safe"),
+        # hints are independent: explicit destructiveHint=True wins over
+        # readOnlyHint=True (a tool can delete a resource yet return nothing)
+        (_annotations(readOnlyHint=True, destructiveHint=True), "dangerous"),
+        (_annotations(readOnlyHint=True, destructiveHint=False), "safe"),
         # destructiveHint unset mirrors the MCP default (true) -> destructive
         (_annotations(), "dangerous"),
     ],
