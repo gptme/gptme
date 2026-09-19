@@ -80,6 +80,8 @@ function normalizeRegistry(parsed: ServerRegistry): ServerRegistry {
   }
   // Migrate: remove stale Cloud preset (it pointed at a broken URL)
   migrateCloudPreset(parsed);
+  // Migrate: repair a preset an affected release persisted as the Tauri asset origin
+  migrateTauriOriginPreset(parsed);
   // Validate activeServerId points to an existing server
   if (parsed.servers.length > 0 && !parsed.servers.some((s) => s.id === parsed.activeServerId)) {
     parsed.activeServerId = parsed.servers[0].id;
@@ -126,6 +128,24 @@ export function migrateCloudPreset(registry: ServerRegistry): void {
   registry.servers = registry.servers.filter(
     (s) => normalized(s.baseUrl) !== normalized(STALE_CLOUD_URL)
   );
+}
+
+/** Migration: repair a preset persisted as the Tauri webview origin.
+ *  Releases v0.33.1.dev20260827 through v0.34.0 rewrote the Local preset to
+ *  `tauri://localhost` (see getBundledLoopbackOrigin) and saved it. Nothing at
+ *  that origin serves the API, so without this the guard above only helps fresh
+ *  installs and upgrading users stay stuck on the stored bad URL. */
+export function migrateTauriOriginPreset(registry: ServerRegistry): void {
+  for (const server of registry.servers) {
+    if (!server.isPreset) continue;
+    try {
+      if (new URL(server.baseUrl).protocol === 'tauri:') {
+        server.baseUrl = DEFAULT_SERVER_CONFIG.baseUrl;
+      }
+    } catch {
+      // Malformed URL: leave it for the user to correct in Settings.
+    }
+  }
 }
 
 function migrateFromLegacy(): ServerRegistry {

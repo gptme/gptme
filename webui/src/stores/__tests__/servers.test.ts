@@ -4,6 +4,7 @@ import {
   deriveServerName,
   getBundledLoopbackOrigin,
   migrateCloudPreset,
+  migrateTauriOriginPreset,
   retargetPresetLocalToBundledOrigin,
 } from '../servers';
 
@@ -170,5 +171,44 @@ describe('migrateCloudPreset', () => {
         baseUrl: 'http://127.0.0.1:5700',
       }),
     ]);
+  });
+});
+
+describe('migrateTauriOriginPreset', () => {
+  const makeServer = (over: Partial<ServerRegistry['servers'][number]>) => ({
+    id: 'local',
+    name: 'Local',
+    baseUrl: 'http://127.0.0.1:5700',
+    authToken: null,
+    useAuthToken: false,
+    createdAt: 1,
+    lastUsedAt: 1,
+    ...over,
+  });
+  const makeRegistry = (servers: ServerRegistry['servers']): ServerRegistry => ({
+    activeServerId: 'local',
+    connectedServerIds: ['local'],
+    servers,
+  });
+
+  it('repairs a Local preset persisted as the Tauri asset origin by an affected release', () => {
+    const registry = makeRegistry([
+      makeServer({ baseUrl: 'tauri://localhost', isPreset: true, authToken: 'keep-me' }),
+    ]);
+
+    migrateTauriOriginPreset(registry);
+    expect(registry.servers[0].baseUrl).toBe('http://127.0.0.1:5700');
+    expect(registry.servers[0].authToken).toBe('keep-me');
+  });
+
+  it('leaves healthy presets and user-defined servers alone', () => {
+    const registry = makeRegistry([
+      makeServer({ baseUrl: 'http://127.0.0.1:5799', isPreset: true }),
+      makeServer({ id: 'custom', baseUrl: 'tauri://localhost' }),
+    ]);
+
+    migrateTauriOriginPreset(registry);
+    expect(registry.servers[0].baseUrl).toBe('http://127.0.0.1:5799');
+    expect(registry.servers[1].baseUrl).toBe('tauri://localhost');
   });
 });
