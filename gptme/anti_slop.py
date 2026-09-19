@@ -296,6 +296,10 @@ def evaluate_gate(
     # same way a weight-2 + weight-1 pair does. The word-count minimum
     # otherwise guards the pass/warn direction (don't claim "pass" on
     # too-short text).
+    # `hits` is per-label (occurrences aggregated into h["count"]), so each
+    # label contributes once: evidence_weight is the sum over DISTINCT
+    # tells — repeating one soft tell ("robust robust robust") adds weight
+    # 1, not 3.
     evidence_weight = sum(h["weight"] for h in smell_report["hits"])
     if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
         if score >= _fail and evidence_weight >= 3:
