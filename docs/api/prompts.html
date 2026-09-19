@@ -886,7 +886,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fd458d491c0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f2b5a6dd1c0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2034,23 +2034,16 @@ Never reuse anchors from a previous ``view_anchored`` call.
 <span class="gs">**Instructions:**</span> Apply patches to multiple files atomically.
 Patches are validated in-memory: if ANY fails, NO files are written.
 
-Two formats:
-
-<span class="gs">**Simple**</span> (one hunk per file) — paths in the fence header:
-<span class="sb">  ```patch_many</span><span class="w"> </span>path1.py path2.py
+Simple (one hunk per file), paths in the fence header:
+<span class="sb">  ```patch_many</span><span class="w"> </span>path1.py
 <span class="s">  &lt;&lt;&lt;&lt;&lt;&lt;&lt; ORIGINAL</span>
-<span class="s">  old content for path1</span>
+<span class="s">  old content</span>
 <span class="s">  =======</span>
-<span class="s">  new content for path1</span>
-<span class="s">  &gt;&gt;&gt;&gt;&gt;&gt;&gt; UPDATED</span>
-<span class="s">  &lt;&lt;&lt;&lt;&lt;&lt;&lt; ORIGINAL</span>
-<span class="s">  old content for path2</span>
-<span class="s">  =======</span>
-<span class="s">  new content for path2</span>
+<span class="s">  new content</span>
 <span class="s">  &gt;&gt;&gt;&gt;&gt;&gt;&gt; UPDATED</span>
 <span class="sb">  ```</span>
 
-<span class="gs">**Multi-hunk**</span> (any number of hunks per file) — paths embedded with === PATH: ... === headers:
+Multi-hunk (any number of hunks per file), using <span class="sb">`=== PATH: ... ===`</span> headers:
 <span class="sb">  ```patch_many</span>
 <span class="s">  === PATH: path1.py ===</span>
 <span class="s">  &lt;&lt;&lt;&lt;&lt;&lt;&lt; ORIGINAL</span>
@@ -2063,16 +2056,15 @@ Two formats:
 <span class="s">  =======</span>
 <span class="s">  second hunk updated</span>
 <span class="s">  &gt;&gt;&gt;&gt;&gt;&gt;&gt; UPDATED</span>
-<span class="s">  === PATH: path2.py ===</span>
-<span class="s">  &lt;&lt;&lt;&lt;&lt;&lt;&lt; ORIGINAL</span>
-<span class="s">  path2 original</span>
-<span class="s">  =======</span>
-<span class="s">  path2 updated</span>
-<span class="s">  &gt;&gt;&gt;&gt;&gt;&gt;&gt; UPDATED</span>
 <span class="sb">  ```</span>
 
-Tool-call: pass <span class="sb">`patches`</span> as a JSON array of {&quot;path&quot;: &quot;...&quot;, &quot;patch&quot;: &quot;...&quot;} entries.
-Each &quot;patch&quot; string may contain multiple ORIGINAL/UPDATED blocks for that file.
+Tool-call: <span class="sb">`patches`</span> is a JSON array of {&quot;path&quot;: &quot;...&quot;, &quot;patch&quot;: &quot;...&quot;} entries.
+Each patch string may hold multiple ORIGINAL/UPDATED blocks, so one entry lands
+several hunks.
+
+Repeated paths apply in order, each hunk seeing the previous result. Prefer one
+entry per path with multiple blocks; repeat a path only when a later hunk depends
+on an earlier one landing.
 
 <span class="gu">## precommit</span>
 
@@ -3048,7 +3040,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20173</p>
+<p>Tokens: 20142</p>
 </dd></dl>
 
 <dl class="py function">
