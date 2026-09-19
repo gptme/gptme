@@ -58,6 +58,13 @@ describe('getBundledLoopbackOrigin', () => {
     expect(getBundledLoopbackOrigin('http://127.0.0.1:4173')).toBeNull();
     expect(getBundledLoopbackOrigin('http://127.0.0.1:5701')).toBeNull();
   });
+
+  it('ignores the Tauri webview origin, which is not a gptme-server', () => {
+    // Linux/macOS desktop app; Windows uses http://tauri.localhost (non-loopback host).
+    expect(getBundledLoopbackOrigin('tauri://localhost')).toBeNull();
+    expect(getBundledLoopbackOrigin('http://tauri.localhost')).toBeNull();
+    expect(getBundledLoopbackOrigin('file://localhost')).toBeNull();
+  });
 });
 
 describe('retargetPresetLocalToBundledOrigin', () => {
@@ -101,6 +108,28 @@ describe('retargetPresetLocalToBundledOrigin', () => {
     };
 
     retargetPresetLocalToBundledOrigin(registry, 'http://127.0.0.1:5799');
+    expect(registry.servers[0].baseUrl).toBe('http://127.0.0.1:5700');
+  });
+
+  it('keeps the Local preset on the sidecar when running inside the Tauri webview', () => {
+    const registry: ServerRegistry = {
+      activeServerId: 'local',
+      connectedServerIds: ['local'],
+      servers: [
+        {
+          id: 'local',
+          name: 'Local',
+          baseUrl: 'http://127.0.0.1:5700',
+          authToken: null,
+          useAuthToken: false,
+          isPreset: true,
+          createdAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
+    };
+
+    retargetPresetLocalToBundledOrigin(registry, 'tauri://localhost');
     expect(registry.servers[0].baseUrl).toBe('http://127.0.0.1:5700');
   });
 });

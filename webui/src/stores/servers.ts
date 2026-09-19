@@ -24,7 +24,10 @@ const DEV_SERVER_PORTS = new Set(['5173', '4173', '5701']);
  * process and never recovers from the same-origin 401.
  *
  * Returns null for hosted pages (chat.gptme.org), Vite/Playwright dev servers,
- * and non-loopback origins.
+ * non-loopback origins, and non-HTTP origins. The Tauri webview serves its
+ * assets from `tauri://localhost` (Linux/macOS): that is not a gptme-server,
+ * so treating it as one points the Local preset at an origin that answers
+ * `/api/v2` with `index.html`.
  */
 export function getBundledLoopbackOrigin(
   pageOrigin: string = typeof window !== 'undefined' ? window.location.origin : ''
@@ -32,6 +35,7 @@ export function getBundledLoopbackOrigin(
   if (!pageOrigin) return null;
   try {
     const parsed = new URL(pageOrigin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
     if (!isLoopback) return null;
     if (DEV_SERVER_PORTS.has(parsed.port)) return null;
