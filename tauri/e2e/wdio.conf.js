@@ -1,6 +1,8 @@
 const net = require("net");
 const { spawn } = require("child_process");
-const { resolve } = require("path");
+const { resolve, join } = require("path");
+const { homedir } = require("os");
+const { rmSync, existsSync } = require("fs");
 
 let tauriDriver;
 
@@ -61,6 +63,27 @@ exports.config = {
   hostname: "localhost",
   port: 4444,
   path: "/",
+
+  // Clear the Tauri app's WebKit user-data directory before every session so
+  // each test starts with a clean localStorage/profile. Without this, the
+  // smoke-test session's SetupWizard.closeWizard() (triggered when tauri-driver
+  // calls deleteSession → closes the window) writes hasCompletedSetup=true to
+  // the shared profile, causing the first_run test to find the wizard already
+  // "completed" and never show "Get started".
+  beforeSession: () => {
+    const candidates = [
+      join(homedir(), ".local", "share", "org.gptme.tauri"),
+      join(homedir(), ".local", "share", "gptme-tauri"),
+      join(homedir(), ".config", "org.gptme.tauri"),
+      join(homedir(), ".config", "gptme-tauri"),
+    ];
+    for (const dir of candidates) {
+      if (existsSync(dir)) {
+        console.log(`[wdio] Clearing Tauri profile: ${dir}`);
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
 
   onPrepare: async () => {
     // Launch tauri-driver alongside tests and wait for it to accept sessions.
