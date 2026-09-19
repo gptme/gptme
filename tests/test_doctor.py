@@ -1629,3 +1629,49 @@ class TestCheckPlugins:
             r.status == CheckStatus.OK and "directtool" in r.message for r in errors
         )
         assert any(r.status == CheckStatus.OK and "oktool" in r.message for r in errors)
+
+    def test_submodule_error_does_not_abort_diagnostics(self, tmp_path, monkeypatch):
+        """A package whose public submodule raises (not ModuleNotFoundError) at
+        import time must be attributed to the plugin, not abort the whole
+        doctor run."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # Package imports fine; its public submodule raises RuntimeError.
+        pkg = tmp_path / "doctor_boom_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "boommod.py").write_text("raise RuntimeError('submodule boom')\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin(
+            "boomplugin",
+            [
+                self._make_tool(
+                    "directtool",
+                    init=lambda: self._make_tool("directtool"),
+                )
+            ],
+        )
+        plugin.tool_modules = ["doctor_boom_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: boomplugin"]
+        assert any(
+            r.status == CheckStatus.ERROR and "submodule boom" in r.message
+            for r in plugin_results
+        )
+        # Direct specs are still validated despite the discovery failure.
+        assert any(
+            r.status == CheckStatus.OK and "directtool" in r.message
+            for r in plugin_results
+        )
