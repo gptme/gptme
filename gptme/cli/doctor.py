@@ -1186,40 +1186,33 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                         )
                     )
             if ok_modules:
-                from ..tools import _discover_tools
+                from ..tools import _iter_tool_specs
 
-                # Discover per module: _discover_tools() only swallows
-                # ModuleNotFoundError, so a batched call over a package whose
-                # submodule raises any other exception during re-discovery
-                # would discard the discovery result for valid siblings too.
-                # One try/except per module keeps the blast radius at that
-                # module.
+                # Collect specs from the modules that imported cleanly, using the
+                # already-imported module objects. Re-walking the package with
+                # _discover_tools() would re-import submodules whose import
+                # already failed (they are evicted from sys.modules when they
+                # raise), producing a second ERROR for the same defect and
+                # aborting discovery for the package itself — which drops a
+                # ToolSpec defined in the package's __init__.py.
+                # _import_module_tree() already returned the root module and
+                # every submodule that imported, so iterating them covers the
+                # same set without re-executing failures.
                 #
-                # Dedupe across calls: _import_module_tree() returns both a
-                # package and its submodules, and _discover_tools() on the
-                # package already discovers submodule tools — without a
-                # cross-call seen-set the same ToolSpec.init() would run
-                # twice (duplicate side effects + diagnostics). _discover_tools'
-                # dedup is per-call only, so track seen specs here.
+                # Dedupe across modules: a package and its submodules can expose
+                # the same ToolSpec object, and validating it twice would run
+                # init() side effects twice. _discover_tools' dedup is per-call
+                # only, so track seen specs here.
                 seen_specs: set[int] = {id(t) for t in tools}
                 for ok_module in ok_modules:
-                    try:
-                        for spec in _discover_tools([ok_module]):
-                            if id(spec) in seen_specs:
-                                continue
-                            seen_specs.add(id(spec))
-                            tools.append(spec)
-                    except Exception as exc:
-                        results.append(
-                            CheckResult(
-                                name=f"Plugins: {plugin.name}",
-                                status=CheckStatus.ERROR,
-                                message=(
-                                    f"Tool discovery failed for "
-                                    f"{ok_module!r}: {type(exc).__name__}: {exc}"
-                                ),
-                            )
-                        )
+                    module = sys.modules.get(ok_module)
+                    if module is None:
+                        continue
+                    for spec in _iter_tool_specs(module):
+                        if id(spec) in seen_specs:
+                            continue
+                        seen_specs.add(id(spec))
+                        tools.append(spec)
 
         if not tools:
             # Plugin provides no tools (hooks/commands/providers only) — nothing

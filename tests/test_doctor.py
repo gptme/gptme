@@ -1723,6 +1723,56 @@ class TestCheckPlugins:
             for r in plugin_results
         )
 
+    def test_submodule_error_keeps_package_own_tool(self, tmp_path, monkeypatch):
+        """A package tool module whose own ``__init__.py`` defines a ToolSpec
+        must still have that tool validated when a sibling submodule raises at
+        import time, and the failure must be reported exactly once.
+
+        Re-walking the package with ``_discover_tools`` would re-import the
+        raising submodule (evicted from ``sys.modules`` when it failed),
+        producing a second ERROR and aborting discovery for the package
+        before its ``__init__`` ToolSpec was collected."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        pkg = tmp_path / "doctor_root_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "def _init():\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='roottool', desc='ok', init=_init)\n"
+        )
+        (pkg / "boom.py").write_text("raise RuntimeError('root boom')\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("rootplugin", [])
+        plugin.tool_modules = ["doctor_root_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: rootplugin"]
+        # The package's own tool is still validated...
+        assert any(
+            r.status == CheckStatus.OK and "roottool" in r.message
+            for r in plugin_results
+        ), [r.message for r in plugin_results]
+        # ...and the raising submodule is reported exactly once.
+        boom_errors = [
+            r
+            for r in plugin_results
+            if r.status == CheckStatus.ERROR and "boom" in r.message
+        ]
+        assert len(boom_errors) == 1, [r.message for r in boom_errors]
+
     def test_package_submodule_tool_init_runs_once(self, tmp_path, monkeypatch):
         """A tool defined in a submodule of a package tool module must have its
         init() run exactly once: _import_module_tree() returns the package AND
@@ -1762,7 +1812,14 @@ class TestCheckPlugins:
             r.status == CheckStatus.OK and "dupsubtool" in r.message
             for r in plugin_results
         )
-        import doctor_dup_pkg.submod as submod  # type: ignore[import-not-found]
+        import importlib
+        from typing import Any
+
+        # Imported dynamically: the package is created at runtime under
+        # tmp_path, so a static import would need a type: ignore that mypy
+        # flags as unused under the pre-commit hook (which ignores missing
+        # imports). A dynamic import needs no suppression at all.
+        submod: Any = importlib.import_module("doctor_dup_pkg.submod")
 
         assert len(submod.calls) == 1
 
