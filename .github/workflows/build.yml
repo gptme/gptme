@@ -242,6 +242,10 @@ jobs:
         ./dist/gptme-server --help
         echo "✅ gptme-server --help executed successfully"
 
+    - name: Smoke-test server startup (Unix)
+      if: runner.os != 'Windows'
+      run: python3 scripts/smoke_frozen_server.py dist/gptme-server
+
     - name: Test executable (Windows)
       if: runner.os == 'Windows'
       run: |
