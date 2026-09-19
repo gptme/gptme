@@ -80,23 +80,21 @@ describe("Real first-run flow", () => {
       { timeout: 30000, timeoutMsg: "App did not reach readyState=complete within 30s" }
     );
 
-    // 2. Wait for the sidecar to be ready before clicking Connect
-    await waitForSidecarReady(sidecarPort);
-
-    // 3. No first-run forcing is needed. With no persisted settings (clean CI
-    //    profile) `defaultSettings.hasCompletedSetup` is false, so SetupWizard
-    //    opens itself and shows the "Get started" button. The webui also
-    //    degrades to those defaults when localStorage throws, so this holds
-    //    either way.
+    // 2. Wait for the wizard's "Get started" button. The wizard auto-opens when
+    //    `hasCompletedSetup` is false (the default on a clean profile).
+    //    We do NOT probe the sidecar here: it is only needed at step 6 (Connect),
+    //    and probing before the UI renders means a lingering sidecar from a prior
+    //    Tauri session would cause the probe to return immediately — before React
+    //    has mounted the wizard. Give React time with an explicit 30s wait.
     //
-    //    Forcing it through `browser.execute(() => localStorage...)` is not an
-    //    option anyway: WebDriver's script context is isolated from page
-    //    storage, and the read/write throws SecurityError ("The operation is
-    //    insecure.") before the wizard is ever exercised.
-
-    // 4. Click "Get started" on the auto-opened wizard
+    //    Forcing `hasCompletedSetup` via `browser.execute(() => localStorage...)`
+    //    is not possible: WebDriver's script context cannot access page storage on
+    //    tauri:// origins (SecurityError: "The operation is insecure.").
     const getStartedBtn = await $("button=Get started");
-    await expect(getStartedBtn).toExist();
+    await getStartedBtn.waitForExist({
+      timeout: 30000,
+      timeoutMsg: "SetupWizard 'Get started' button did not appear within 30s",
+    });
     await getStartedBtn.click();
 
     // 5. In "Choose your setup", click "Local"
@@ -104,12 +102,17 @@ describe("Real first-run flow", () => {
     await expect(localBtn).toExist();
     await localBtn.click();
 
-    // 6. In "Local setup", click "Connect"
+    // 6. Wait for the sidecar to be ready before clicking Connect. Now that we
+    //    are past the wizard's first step the UI is fully mounted, so the probe
+    //    is no longer racing against React rendering.
+    await waitForSidecarReady(sidecarPort);
+
+    // 7. In "Local setup", click "Connect"
     const connectBtn = await $("button=Connect");
     await expect(connectBtn).toExist();
     await connectBtn.click();
 
-    // 7. Wait for a genuine *connected* signal. Do NOT accept the persisted
+    // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted
     //    server registry as proof: `ApiContext.connect()` calls
     //    `updateServer()` (which persists the active baseUrl) and only then
     //    runs `checkConnection()`, so a failed connect still leaves a
@@ -137,7 +140,7 @@ describe("Real first-run flow", () => {
       }
     );
 
-    // 9. The gptme#3606 → #3882 regression (Local preset retargeted to
+    // 10. The gptme#3606 → #3882 regression (Local preset retargeted to
     //    `tauri://localhost`) is guarded behaviourally: with that bug the
     //    connect fails, `isConnected` stays false, and step 8 times out with
     //    no "Connected to server" / "Continue" signal.
