@@ -103,23 +103,21 @@ else
     [[ -d ".venv" ]] || uv venv .venv
     uv pip install --quiet ".[server]" pyinstaller
 fi
-uv run pyinstaller \
-    --onefile \
-    --name gptme-server \
-    --distpath "$BINS_DIR" \
-    gptme/server/__main__.py
+# Build using the spec so hiddenimports (hooks, context providers, etc.)
+# are collected correctly. The spec already defines onefile mode and name.
+uv run pyinstaller scripts/pyinstaller/gptme-server.spec
 
 # Rename to include target triple (Tauri sidecar convention)
 _uvlock_state=0; if [[ -f "$REPO_ROOT/uv.lock" ]]; then _uvlock_state=1; fi
-if [[ -f "$BINS_DIR/gptme-server.exe" ]]; then
-    mv "$BINS_DIR/gptme-server.exe" "${BINS_DIR}/gptme-server-${TRIPLE}.exe"
-    echo "Sidecar built: ${BINS_DIR}/gptme-server-${TRIPLE}.exe"
-    echo "$_uvlock_state" > "${BINS_DIR}/gptme-server-${TRIPLE}.exe.uvlock-present"
-elif [[ -f "$BINS_DIR/gptme-server" ]]; then
-    mv "$BINS_DIR/gptme-server" "$BINS_DIR/gptme-server-${TRIPLE}"
+if [[ -f "dist/gptme-server.exe" ]]; then
+    mv "dist/gptme-server.exe" "$BINS_DIR/gptme-server-${TRIPLE}.exe"
+    echo "Sidecar built: $BINS_DIR/gptme-server-${TRIPLE}.exe"
+    echo "$_uvlock_state" > "$BINS_DIR/gptme-server-${TRIPLE}.exe.uvlock-present"
+elif [[ -f "dist/gptme-server" ]]; then
+    mv "dist/gptme-server" "$BINS_DIR/gptme-server-${TRIPLE}"
     echo "Sidecar built: $BINS_DIR/gptme-server-${TRIPLE}"
     echo "$_uvlock_state" > "$BINS_DIR/gptme-server-${TRIPLE}.uvlock-present"
 else
-    echo "ERROR: PyInstaller did not produce gptme-server in $BINS_DIR" >&2
+    echo "ERROR: PyInstaller did not produce gptme-server in dist/" >&2
     exit 1
 fi

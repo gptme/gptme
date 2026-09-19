@@ -163,12 +163,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: tauri/e2e/package-lock.json
 
-      - name: Create placeholder sidecar for tauri-build
-        run: |
-          mkdir -p tauri/bins
-          TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
-          touch "tauri/bins/gptme-server-${TRIPLE}"
-
       - name: Create placeholder icons for tauri::generate_context!
         run: |
           mkdir -p tauri/src-tauri/icons
@@ -177,6 +171,17 @@ jobs:
           cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
           touch tauri/src-tauri/icons/icon.icns
           touch tauri/src-tauri/icons/icon.ico
+
+      - name: Build webui dist
+        run: |
+          cd webui
+          npm ci
+          npm run build
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Build sidecar binary
+        run: make tauri-build-sidecar
 
       - name: Create webui placeholder for E2E (chat mock)
         run: |
@@ -258,18 +263,13 @@ jobs:
       - name: Verify tauri-driver installation
         run: command -v tauri-driver
 
-      - name: Serve webui mock on devUrl port (5701)
-        run: |
-          python3 -m http.server 5701 --directory webui/dist &
-          echo $! > /tmp/webui-server.pid
-          timeout 15 bash -c 'until curl -sf http://localhost:5701 > /dev/null; do sleep 0.5; done'
-          echo "webui mock server ready on port 5701"
-
       - name: Install E2E test dependencies
         run: cd tauri/e2e && npm ci
 
-      - name: Run E2E tests (smoke + chat flow)
-        run: xvfb-run --auto-servernum npm --prefix tauri/e2e test
+      - name: Run E2E tests (smoke + first-run)
+        env:
+          GPTME_SERVER_PORT: 15700
+        run: xvfb-run --auto-servernum npm --prefix tauri/e2e test -- --spec ./test/specs/smoke.test.js --spec ./test/specs/first_run.test.js
 
   build:
     name: Build (${{ matrix.platform }})
