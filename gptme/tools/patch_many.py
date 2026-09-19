@@ -357,5 +357,6 @@ tool_patch_many = ToolSpec(
             required=True,
         )
     ],
+    sensitivity="moderate",
 )
 __doc__ = tool_patch_many.get_doc(__doc__)

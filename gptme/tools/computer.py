@@ -2955,6 +2955,7 @@ tool = ToolSpec(
         ToolFunction.from_callable(start_recording),
     ],
     disabled_by_default=True,
+    sensitivity="dangerous",
 )
 
 __doc__ = tool.get_doc(__doc__)

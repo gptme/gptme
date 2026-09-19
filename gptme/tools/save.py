@@ -372,6 +372,7 @@ tool_save = ToolSpec(
         ),
     ],
     hints=frozenset({"file-ops", "destructive"}),
+    sensitivity="moderate",
 )
 __doc__ = tool_save.get_doc(__doc__)
 
@@ -398,5 +399,6 @@ tool_append = ToolSpec(
         ),
     ],
     hints=frozenset({"file-ops", "destructive"}),
+    sensitivity="moderate",
 )
 __doc__ = tool_append.get_doc(__doc__)

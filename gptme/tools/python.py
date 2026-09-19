@@ -618,5 +618,8 @@ tool = ToolSpec(
     ],
     load_priority=10,
     hints=frozenset({"code-exec", "destructive"}),
+    # Arbitrary code execution in the workspace — not sandboxed, so it is no
+    # less disruptive than shell.
+    sensitivity="dangerous",
 )
 __doc__ = tool.get_doc(__doc__)

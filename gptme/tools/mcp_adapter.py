@@ -22,6 +22,7 @@ from .base import (
     ExecuteFunc,
     Parameter,
     ToolFormat,
+    ToolSensitivity,
     ToolSpec,
     ToolUse,
 )
@@ -196,6 +197,26 @@ def _call_mcp_tool_with_retry(
     raise last_error
 
 
+def sensitivity_from_annotations(
+    annotations: mcp_types.ToolAnnotations | None,
+) -> ToolSensitivity:
+    """Map MCP ToolAnnotations onto ToolSpec.sensitivity.
+
+    An unannotated server — or one that declares itself neither read-only nor
+    destructive — is treated as ``"moderate"``: an MCP tool may have side
+    effects we cannot see, so ``"safe"`` is not a safe default.
+    """
+    if annotations is None:
+        return "moderate"
+    if annotations.destructiveHint is True:
+        return "dangerous"
+    if annotations.readOnlyHint:
+        return "safe"
+    if annotations.destructiveHint is not False:
+        return "dangerous"
+    return "moderate"
+
+
 # Function to create MCP tools
 def create_mcp_tools(
     config: Config,
@@ -312,6 +333,7 @@ def create_mcp_tools(
                     block_types=[name],
                     is_mcp=True,
                     hints=hints,
+                    sensitivity=sensitivity_from_annotations(mcp_tool.annotations),
                 )
 
                 tool_specs.append(tool_spec)

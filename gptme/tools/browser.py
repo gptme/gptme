@@ -1379,5 +1379,6 @@ services with APIs, prefer shell or Python over scraping.""",
     available=has_browser_tool,
     init=init,
     hints=frozenset({"web", "destructive"}),
+    sensitivity="sensitive",
 )
 __doc__ = tool.get_doc(__doc__)
