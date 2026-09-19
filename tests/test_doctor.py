@@ -1856,3 +1856,94 @@ class TestCheckComputer:
         assert names["Computer: ffmpeg"].status == CheckStatus.WARNING
         hint = names["Computer: ffmpeg"].fix_hint or ""
         assert "brew install ffmpeg" in hint
+
+
+class TestCheckPlugins:
+    """Test the plugin tool-contract validation check."""
+
+    def _make_plugin(self, name, tools):
+        from gptme.plugins.plugin import GptmePlugin
+
+        return GptmePlugin(name=name, tools=tools)
+
+    def _make_tool(self, name, init=None):
+        from gptme.tools.base import ToolSpec
+
+        return ToolSpec(name=name, desc="test tool", init=init)
+
+    def test_no_plugins_skipped(self):
+        """No plugins configured should be SKIPPED, not an error."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: []
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        assert results[0].status == CheckStatus.SKIPPED
+        assert "No plugins" in results[0].message
+
+    def test_bad_init_returns_none_attributed_to_plugin(self):
+        """A tool whose init() returns None must be attributed to its plugin."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        bad_plugin = self._make_plugin(
+            "badplugin", [self._make_tool("badtool", init=lambda: None)]
+        )
+        good_plugin = self._make_plugin(
+            "goodplugin",
+            [
+                self._make_tool(
+                    "goodtool",
+                    init=lambda: self._make_tool("goodtool"),
+                )
+            ],
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            bad_plugin,
+            good_plugin,
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: badplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "badtool" in bad.message
+        assert "NoneType" in bad.message
+
+        good = next(r for r in results if r.name == "Plugins: goodplugin")
+        assert good.status == CheckStatus.OK
+
+    def test_init_raises_attributed_to_plugin(self):
+        """A tool whose init() raises must be attributed to its plugin."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        def throw_init():
+            raise RuntimeError("boom")
+
+        throw_plugin = self._make_plugin(
+            "throwplugin", [self._make_tool("throwtool", init=throw_init)]
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            throw_plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: throwplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "throwtool" in bad.message
+        assert "boom" in bad.message
