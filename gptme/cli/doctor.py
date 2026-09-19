@@ -1374,24 +1374,26 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             if ok_modules:
                 from ..tools import _discover_tools
 
-                try:
-                    tools.extend(_discover_tools(ok_modules))
-                except Exception as exc:
-                    # _discover_tools only swallows ModuleNotFoundError per
-                    # module; a public submodule raising any other exception
-                    # (e.g. at package import time) would otherwise abort the
-                    # whole doctor run. Attribute it to the plugin and keep
-                    # validating the rest.
-                    results.append(
-                        CheckResult(
-                            name=f"Plugins: {plugin.name}",
-                            status=CheckStatus.ERROR,
-                            message=(
-                                f"Tool discovery failed for {plugin.name!r}: "
-                                f"{type(exc).__name__}: {exc}"
-                            ),
+                # Discover per module: _discover_tools() only swallows
+                # ModuleNotFoundError, so a batched call over a package whose
+                # submodule raises any other exception during re-discovery
+                # would discard the discovery result for valid siblings too.
+                # One try/except per module keeps the blast radius at that
+                # module.
+                for ok_module in ok_modules:
+                    try:
+                        tools.extend(_discover_tools([ok_module]))
+                    except Exception as exc:
+                        results.append(
+                            CheckResult(
+                                name=f"Plugins: {plugin.name}",
+                                status=CheckStatus.ERROR,
+                                message=(
+                                    f"Tool discovery failed for "
+                                    f"{ok_module!r}: {type(exc).__name__}: {exc}"
+                                ),
+                            )
                         )
-                    )
 
         if not tools:
             # Plugin provides no tools (hooks/commands/providers only) — nothing

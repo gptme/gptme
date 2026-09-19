@@ -2072,6 +2072,53 @@ class TestCheckPlugins:
             for r in plugin_results
         )
 
+    def test_submodule_error_keeps_valid_sibling_tools(self, tmp_path, monkeypatch):
+        """A package with one valid tool module and one submodule that raises
+        (not ModuleNotFoundError) must still validate the sibling's tools:
+        per-module discovery must not let the raising submodule discard the
+        whole discovery result."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # Package imports fine; one public submodule raises RuntimeError, the
+        # other exposes a valid ToolSpec.
+        pkg = tmp_path / "doctor_sibling_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "boommod.py").write_text("raise RuntimeError('sibling boom')\n")
+        (pkg / "goodmod.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "def _init():\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='siblingtool', desc='ok', init=_init)\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("siblingplugin", [])
+        plugin.tool_modules = ["doctor_sibling_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: siblingplugin"]
+        # The raising submodule is flagged.
+        assert any(
+            r.status == CheckStatus.ERROR and "sibling boom" in r.message
+            for r in plugin_results
+        )
+        # The valid sibling module's tool is still discovered and validated.
+        assert any(
+            r.status == CheckStatus.OK and "siblingtool" in r.message
+            for r in plugin_results
+        )
+
     def test_submodule_missing_dependency_flagged(self, tmp_path, monkeypatch):
         """A package submodule whose dependency is missing must be flagged,
         not silently dropped by _discover_tools' ModuleNotFoundError handling."""
