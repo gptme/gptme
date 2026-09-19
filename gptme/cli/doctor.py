@@ -10,6 +10,7 @@ Usage:
 import importlib.util
 import logging
 import os
+import pkgutil
 import shutil
 import subprocess
 import sys
@@ -1076,6 +1077,197 @@ def _check_mcp_stdio_server(
     ]
 
 
+def _import_module_tree(
+    module_name: str,
+) -> tuple[list[str], list[tuple[str, Exception]]]:
+    """Import a module and recursively all its public submodules.
+
+    Returns ``(ok_module_names, errors)`` where errors are ``(module_name,
+    exception)`` pairs. Unlike :func:`gptme.tools._discover_tools`, no import
+    error is swallowed: every submodule that fails to import (missing
+    dependency or otherwise) is reported.
+    """
+    ok: list[str] = []
+    errors: list[tuple[str, Exception]] = []
+    try:
+        module = importlib.import_module(module_name)
+    except Exception as exc:
+        return [], [(module_name, exc)]
+    ok.append(module_name)
+    if hasattr(module, "__path__"):
+        for _, submodule_name, _ in pkgutil.iter_modules(module.__path__):
+            if submodule_name.startswith("_"):
+                continue
+            full_name = f"{module_name}.{submodule_name}"
+            sub_ok, sub_errors = _import_module_tree(full_name)
+            ok.extend(sub_ok)
+            errors.extend(sub_errors)
+    return ok, errors
+
+
+def _check_plugins(verbose: bool = False) -> list[CheckResult]:
+    """Validate plugin tool contracts in isolation.
+
+    Discovers plugins and, for each, checks that every provided tool's
+    ``init()`` returns a :class:`~gptme.tools.base.ToolSpec` (not ``None`` or
+    another type). A contract violation in one plugin is attributed to that
+    plugin/tool instead of surfacing as an unattributed crash during tool
+    init (the gptme#3828 failure mode).
+
+    Each tool is validated independently so one bad plugin does not mask the
+    health of the others.
+    """
+    results: list[CheckResult] = []
+
+    from ..config import get_config
+    from ..plugins.registry import discover_all_plugins
+    from ..tools.base import ToolSpec
+
+    config = get_config()
+    paths, enabled = config.get_plugin_config()
+
+    try:
+        plugins = discover_all_plugins(folder_paths=paths, enabled_plugins=enabled)
+    except Exception as exc:
+        results.append(
+            CheckResult(
+                name="Plugins: discovery",
+                status=CheckStatus.ERROR,
+                message=f"Plugin discovery failed: {exc}",
+            )
+        )
+        return results
+
+    if not plugins:
+        results.append(
+            CheckResult(
+                name="Plugins: status",
+                status=CheckStatus.SKIPPED,
+                message="No plugins configured",
+            )
+        )
+        return results
+
+    results.append(
+        CheckResult(
+            name="Plugins: status",
+            status=CheckStatus.OK,
+            message=f"{len(plugins)} plugin(s) discovered",
+            details=", ".join(p.name for p in plugins) if verbose else None,
+        )
+    )
+
+    # Collect each plugin's tools (direct specs + tool_modules) and validate
+    # each tool's init() contract in isolation.
+    for plugin in plugins:
+        tools: list[ToolSpec] = list(plugin.tools)
+        if plugin.tool_modules:
+            # Validate each tool module imports successfully before collecting
+            # tools. _discover_tools() swallows ModuleNotFoundError per module,
+            # so a misspelled/missing-dependency module would otherwise be
+            # silently dropped and doctor would report a broken plugin as OK.
+            ok_modules: list[str] = []
+            for module_name in plugin.tool_modules:
+                imported, import_errors = _import_module_tree(module_name)
+                ok_modules.extend(imported)
+                for failed_name, import_exc in import_errors:
+                    # Flag the broken module (including submodules with
+                    # missing dependencies), but keep collecting tools from
+                    # modules that import successfully — a plugin with one bad
+                    # module still has validatable tools in the others.
+                    results.append(
+                        CheckResult(
+                            name=f"Plugins: {plugin.name}",
+                            status=CheckStatus.ERROR,
+                            message=(
+                                f"Tool module {failed_name!r} failed to import: "
+                                f"{type(import_exc).__name__}: {import_exc}"
+                            ),
+                        )
+                    )
+            if ok_modules:
+                from ..tools import _iter_tool_specs
+
+                # Collect specs from the modules that imported cleanly, using the
+                # already-imported module objects. Re-walking the package with
+                # _discover_tools() would re-import submodules whose import
+                # already failed (they are evicted from sys.modules when they
+                # raise), producing a second ERROR for the same defect and
+                # aborting discovery for the package itself — which drops a
+                # ToolSpec defined in the package's __init__.py.
+                # _import_module_tree() already returned the root module and
+                # every submodule that imported, so iterating them covers the
+                # same set without re-executing failures.
+                #
+                # Dedupe across modules: a package and its submodules can expose
+                # the same ToolSpec object, and validating it twice would run
+                # init() side effects twice. _discover_tools' dedup is per-call
+                # only, so track seen specs here.
+                seen_specs: set[int] = {id(t) for t in tools}
+                for ok_module in ok_modules:
+                    module = sys.modules.get(ok_module)
+                    if module is None:
+                        continue
+                    for spec in _iter_tool_specs(module):
+                        if id(spec) in seen_specs:
+                            continue
+                        seen_specs.add(id(spec))
+                        tools.append(spec)
+
+        if not tools:
+            # Plugin provides no tools (hooks/commands/providers only) — nothing
+            # to validate here.
+            continue
+
+        for tool in tools:
+            if not isinstance(tool, ToolSpec):
+                # A malformed plugin manifest can put a non-ToolSpec entry in
+                # ``tools``; attribute it to the plugin instead of raising
+                # AttributeError and aborting the whole doctor run.
+                results.append(
+                    CheckResult(
+                        name=f"Plugins: {plugin.name}",
+                        status=CheckStatus.ERROR,
+                        message=f"Tool entry {tool!r} is not a ToolSpec",
+                    )
+                )
+                continue
+            if not tool.init:
+                continue
+            try:
+                initialized = tool.init()
+            except Exception as exc:
+                results.append(
+                    CheckResult(
+                        name=f"Plugins: {plugin.name}",
+                        status=CheckStatus.ERROR,
+                        message=f"Tool {tool.name!r} init() raised: {exc}",
+                    )
+                )
+                continue
+            if not isinstance(initialized, ToolSpec):
+                results.append(
+                    CheckResult(
+                        name=f"Plugins: {plugin.name}",
+                        status=CheckStatus.ERROR,
+                        message=(
+                            f"Tool {tool.name!r} init() returned "
+                            f"{type(initialized).__name__}; must return a ToolSpec"
+                        ),
+                    )
+                )
+                continue
+            results.append(
+                CheckResult(
+                    name=f"Plugins: {plugin.name}",
+                    status=CheckStatus.OK,
+                    message=f"Tool {tool.name!r} contract ok",
+                )
+            )
+
+    return results
+
+
 def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     """Run all diagnostic checks.
 
@@ -1095,6 +1287,7 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     all_results.extend(_check_computer(verbose))
     all_results.extend(_check_browser(verbose))
     all_results.extend(_check_mcp(verbose))
+    all_results.extend(_check_plugins(verbose))
     all_results.extend(_check_permissions(verbose))
 
     # Calculate summary

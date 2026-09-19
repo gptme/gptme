@@ -1460,3 +1460,441 @@ class TestCheckComputer:
         assert names["Computer: ffmpeg"].status == CheckStatus.WARNING
         hint = names["Computer: ffmpeg"].fix_hint or ""
         assert "brew install ffmpeg" in hint
+
+
+class TestCheckPlugins:
+    """Test the plugin tool-contract validation check."""
+
+    def _make_plugin(self, name, tools):
+        from gptme.plugins.plugin import GptmePlugin
+
+        return GptmePlugin(name=name, tools=tools)
+
+    def _make_tool(self, name, init=None):
+        from gptme.tools.base import ToolSpec
+
+        return ToolSpec(name=name, desc="test tool", init=init)
+
+    def test_no_plugins_skipped(self):
+        """No plugins configured should be SKIPPED, not an error."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: []
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        assert results[0].status == CheckStatus.SKIPPED
+        assert "No plugins" in results[0].message
+
+    def test_bad_init_returns_none_attributed_to_plugin(self):
+        """A tool whose init() returns None must be attributed to its plugin."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        bad_plugin = self._make_plugin(
+            "badplugin", [self._make_tool("badtool", init=lambda: None)]
+        )
+        good_plugin = self._make_plugin(
+            "goodplugin",
+            [
+                self._make_tool(
+                    "goodtool",
+                    init=lambda: self._make_tool("goodtool"),
+                )
+            ],
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            bad_plugin,
+            good_plugin,
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: badplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "badtool" in bad.message
+        assert "NoneType" in bad.message
+
+        good = next(r for r in results if r.name == "Plugins: goodplugin")
+        assert good.status == CheckStatus.OK
+
+    def test_init_raises_attributed_to_plugin(self):
+        """A tool whose init() raises must be attributed to its plugin."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        def throw_init():
+            raise RuntimeError("boom")
+
+        throw_plugin = self._make_plugin(
+            "throwplugin", [self._make_tool("throwtool", init=throw_init)]
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            throw_plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: throwplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "throwtool" in bad.message
+        assert "boom" in bad.message
+
+    def test_broken_tool_module_attributed_to_plugin(self, monkeypatch):
+        """A plugin whose tool module fails to import must be flagged."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # Simulate a plugin declaring a tool module that cannot be imported.
+        broken_plugin = self._make_plugin("brokenplugin", tools=[])
+        broken_plugin.tool_modules = ["nonexistent.module.does_not_exist"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            broken_plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: brokenplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "failed to import" in bad.message
+        assert "nonexistent.module.does_not_exist" in bad.message
+
+    def test_partly_broken_module_keeps_other_tools(self, tmp_path, monkeypatch):
+        """A plugin with one broken tool module must still validate tools from
+        its direct specs and its modules that import successfully."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # A real importable module exposing one ToolSpec.
+        pkg = tmp_path / "doctor_ok_toolmod"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "def _init():\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='oktool', desc='ok', init=_init)\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin(
+            "mixedplugin",
+            [
+                self._make_tool(
+                    "directtool",
+                    init=lambda: self._make_tool("directtool"),
+                )
+            ],
+        )
+        plugin.tool_modules = [
+            "doctor_ok_toolmod",
+            "nonexistent.module.does_not_exist",
+        ]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        errors = [r for r in results if r.name == "Plugins: mixedplugin"]
+        # The broken module is flagged...
+        assert any(
+            r.status == CheckStatus.ERROR
+            and "nonexistent.module.does_not_exist" in r.message
+            for r in errors
+        )
+        # ...but tools from the working module and direct specs are validated.
+        assert any(
+            r.status == CheckStatus.OK and "directtool" in r.message for r in errors
+        )
+        assert any(r.status == CheckStatus.OK and "oktool" in r.message for r in errors)
+
+    def test_submodule_error_does_not_abort_diagnostics(self, tmp_path, monkeypatch):
+        """A package whose public submodule raises (not ModuleNotFoundError) at
+        import time must be attributed to the plugin, not abort the whole
+        doctor run."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # Package imports fine; its public submodule raises RuntimeError.
+        pkg = tmp_path / "doctor_boom_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "boommod.py").write_text("raise RuntimeError('submodule boom')\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin(
+            "boomplugin",
+            [
+                self._make_tool(
+                    "directtool",
+                    init=lambda: self._make_tool("directtool"),
+                )
+            ],
+        )
+        plugin.tool_modules = ["doctor_boom_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: boomplugin"]
+        assert any(
+            r.status == CheckStatus.ERROR and "submodule boom" in r.message
+            for r in plugin_results
+        )
+        # Direct specs are still validated despite the discovery failure.
+        assert any(
+            r.status == CheckStatus.OK and "directtool" in r.message
+            for r in plugin_results
+        )
+
+    def test_submodule_error_keeps_valid_sibling_tools(self, tmp_path, monkeypatch):
+        """A package with one valid tool module and one submodule that raises
+        (not ModuleNotFoundError) must still validate the sibling's tools:
+        per-module discovery must not let the raising submodule discard the
+        whole discovery result."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # Package imports fine; one public submodule raises RuntimeError, the
+        # other exposes a valid ToolSpec.
+        pkg = tmp_path / "doctor_sibling_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "boommod.py").write_text("raise RuntimeError('sibling boom')\n")
+        (pkg / "goodmod.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "def _init():\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='siblingtool', desc='ok', init=_init)\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("siblingplugin", [])
+        plugin.tool_modules = ["doctor_sibling_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: siblingplugin"]
+        # The raising submodule is flagged.
+        assert any(
+            r.status == CheckStatus.ERROR and "sibling boom" in r.message
+            for r in plugin_results
+        )
+        # The valid sibling module's tool is still discovered and validated.
+        assert any(
+            r.status == CheckStatus.OK and "siblingtool" in r.message
+            for r in plugin_results
+        )
+
+    def test_submodule_error_keeps_package_own_tool(self, tmp_path, monkeypatch):
+        """A package tool module whose own ``__init__.py`` defines a ToolSpec
+        must still have that tool validated when a sibling submodule raises at
+        import time, and the failure must be reported exactly once.
+
+        Re-walking the package with ``_discover_tools`` would re-import the
+        raising submodule (evicted from ``sys.modules`` when it failed),
+        producing a second ERROR and aborting discovery for the package
+        before its ``__init__`` ToolSpec was collected."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        pkg = tmp_path / "doctor_root_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "def _init():\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='roottool', desc='ok', init=_init)\n"
+        )
+        (pkg / "boom.py").write_text("raise RuntimeError('root boom')\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("rootplugin", [])
+        plugin.tool_modules = ["doctor_root_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: rootplugin"]
+        # The package's own tool is still validated...
+        assert any(
+            r.status == CheckStatus.OK and "roottool" in r.message
+            for r in plugin_results
+        ), [r.message for r in plugin_results]
+        # ...and the raising submodule is reported exactly once.
+        boom_errors = [
+            r
+            for r in plugin_results
+            if r.status == CheckStatus.ERROR and "boom" in r.message
+        ]
+        assert len(boom_errors) == 1, [r.message for r in boom_errors]
+
+    def test_package_submodule_tool_init_runs_once(self, tmp_path, monkeypatch):
+        """A tool defined in a submodule of a package tool module must have its
+        init() run exactly once: _import_module_tree() returns the package AND
+        its submodules, and discovery on the package already covers submodule
+        tools — without cross-call dedup the same init() would run twice."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        pkg = tmp_path / "doctor_dup_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "submod.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "calls = []\n"
+            "def _init():\n"
+            "    calls.append(1)\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='dupsubtool', desc='ok', init=_init)\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("dupplugin", [])
+        plugin.tool_modules = ["doctor_dup_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: dupplugin"]
+        assert any(
+            r.status == CheckStatus.OK and "dupsubtool" in r.message
+            for r in plugin_results
+        )
+        import importlib
+        from typing import Any
+
+        # Imported dynamically: the package is created at runtime under
+        # tmp_path, so a static import would need a type: ignore that mypy
+        # flags as unused under the pre-commit hook (which ignores missing
+        # imports). A dynamic import needs no suppression at all.
+        submod: Any = importlib.import_module("doctor_dup_pkg.submod")
+
+        assert len(submod.calls) == 1
+
+    def test_submodule_missing_dependency_flagged(self, tmp_path, monkeypatch):
+        """A package submodule whose dependency is missing must be flagged,
+        not silently dropped by _discover_tools' ModuleNotFoundError handling."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        pkg = tmp_path / "doctor_dep_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "needsdep.py").write_text("import nonexistent_dependency_xyz\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin("deppplugin", tools=[])
+        plugin.tool_modules = ["doctor_dep_pkg"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        plugin_results = [r for r in results if r.name == "Plugins: deppplugin"]
+        assert any(
+            r.status == CheckStatus.ERROR
+            and "needsdep" in r.message
+            and "failed to import" in r.message
+            for r in plugin_results
+        )
+
+    def test_non_toolspec_entry_flagged_not_crash(self):
+        """A plugin whose ``tools`` list holds a non-ToolSpec entry must yield
+        an attributable ERROR instead of raising AttributeError out of
+        ``_check_plugins`` and aborting the whole doctor run."""
+
+        from typing import Any, cast
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        malformed = self._make_plugin("malformedplugin", [])
+        # Simulate a malformed plugin manifest: the annotation says ToolSpec,
+        # but a plugin can put anything here at runtime.
+        malformed.tools = cast(list[Any], ["not-a-toolspec"])
+        good_plugin = self._make_plugin(
+            "goodplugin2",
+            [
+                self._make_tool(
+                    "goodtool2",
+                    init=lambda: self._make_tool("goodtool2"),
+                )
+            ],
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            malformed,
+            good_plugin,
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: malformedplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "not a ToolSpec" in bad.message
+
+        # The malformed entry does not prevent the valid plugin from being
+        # validated.
+        good = next(r for r in results if r.name == "Plugins: goodplugin2")
+        assert good.status == CheckStatus.OK
