@@ -281,7 +281,17 @@ def evaluate_gate(
     smell_report = detect_smells(text, em_dash_tolerance=_em_tol)
     thresholds = {"warn": _warn, "fail": _fail, "em_dash_tolerance": _em_tol}
 
-    if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
+    score = float(smell_report["weighted_score"])
+
+    # A short text that already exceeds the fail threshold is a confident
+    # fail — the density of high-confidence slop tells is so high that the
+    # small sample is not the limiting factor. The word-count minimum only
+    # guards the pass/warn direction (don't claim "pass" on too-short text);
+    # it must not suppress a confident fail.
+    if score >= _fail:
+        status = "fail"
+        reason = f"weighted_score {score:g} >= fail_threshold {_fail:g}"
+    elif smell_report["word_count"] < MIN_WORDS_FOR_GATE:
         return {
             "status": "skip",
             "reason": (
@@ -292,12 +302,6 @@ def evaluate_gate(
             "thresholds": thresholds,
             "smell_report": smell_report,
         }
-
-    score = float(smell_report["weighted_score"])
-
-    if score >= _fail:
-        status = "fail"
-        reason = f"weighted_score {score:g} >= fail_threshold {_fail:g}"
     elif score >= _warn:
         status = "warn"
         reason = f"weighted_score {score:g} >= warn_threshold {_warn:g}"

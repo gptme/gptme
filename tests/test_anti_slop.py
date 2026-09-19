@@ -101,6 +101,16 @@ def test_gate_skips_at_boundary():
     assert evaluate_gate(text)["status"] == "pass"
 
 
+def test_gate_fails_short_dense_slop():
+    """A short text that already exceeds the fail threshold is a confident
+    fail, not a skip — the word-count minimum must not suppress dense slop."""
+    report = evaluate_gate(
+        "It's worth noting we delve into the tapestry of innovation."
+    )
+    assert report["status"] == "fail"
+    assert report["smell_report"]["word_count"] < MIN_WORDS_FOR_GATE
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
@@ -181,6 +191,20 @@ def test_cli_check_skips_short_text():
 def test_cli_check_fails_on_slop():
     runner = CliRunner()
     result = runner.invoke(anti_slop, ["check", "--text", _SLOP_20W])
+    assert result.exit_code == 1
+    assert "FAIL" in result.output
+
+
+def test_cli_check_fails_short_dense_slop():
+    runner = CliRunner()
+    result = runner.invoke(
+        anti_slop,
+        [
+            "check",
+            "--text",
+            "It's worth noting we delve into the tapestry of innovation.",
+        ],
+    )
     assert result.exit_code == 1
     assert "FAIL" in result.output
 
