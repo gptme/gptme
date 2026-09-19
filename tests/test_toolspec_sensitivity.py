@@ -57,6 +57,11 @@ BUILTIN_SENSITIVITY = {
     "patch_many": ("gptme.tools.patch_many", "tool_patch_many", "moderate"),
     "save": ("gptme.tools.save", "tool_save", "moderate"),
     "shell": ("gptme.tools.shell", "tool", "dangerous"),
+    # Read-only tools stay at the default level — they must never be gated.
+    "rag": ("gptme.tools.rag", "tool", "safe"),
+    "read": ("gptme.tools.read", "tool", "safe"),
+    "screenshot": ("gptme.tools.screenshot", "tool", "safe"),
+    "vision": ("gptme.tools.vision", "tool", "safe"),
 }
 
 
@@ -77,16 +82,6 @@ def test_sensitivity_rank_follows_severity_not_string_order():
     assert sorted(SENSITIVITY_ORDER, key=str) != sorted(
         SENSITIVITY_ORDER, key=sensitivity_rank
     )
-
-
-@pytest.mark.parametrize("tool_name", ["read", "rag", "vision", "screenshot"])
-def test_read_only_tools_are_not_gated(tool_name: str):
-    """Read-only tools must stay at the default 'safe' level."""
-    from gptme.tools import get_available_tools
-
-    matches = [t for t in get_available_tools() if t.name == tool_name]
-    assert matches, f"tool {tool_name!r} not found"
-    assert matches[0].sensitivity == "safe"
 
 
 def test_function_subtools_inherit_parent_sensitivity():
