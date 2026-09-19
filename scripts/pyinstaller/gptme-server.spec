@@ -74,8 +74,11 @@ hiddenimports = [
 # gptme/hooks/__init__.py, plugin entrypoints), so PyInstaller's static analysis
 # never sees them. Without this the frozen server starts with most hooks missing
 # ("No module named 'gptme.hooks.cwd_changed'", ...).
-hiddenimports += collect_submodules('gptme.hooks')
-hiddenimports += collect_submodules('gptme.context')
+hiddenimports += [
+    m
+    for m in collect_submodules('gptme.hooks') + collect_submodules('gptme.context')
+    if '.tests' not in m
+]
 
 # Exclude modules that might cause issues or aren't needed
 excludes = [
