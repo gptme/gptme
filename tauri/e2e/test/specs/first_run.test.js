@@ -109,29 +109,24 @@ describe("Real first-run flow", () => {
     await expect(connectBtn).toExist();
     await connectBtn.click();
 
-    // 8. Wait for the connection to succeed. The button text changes to
-    //    "Continue" when connected, and the wizard shows a "Connected to
-    //    server" indicator; it may also auto-advance to the provider step,
-    //    which removes the button. Accept any of those signals, plus the
-    //    persisted loopback server URL (asserted in step 9).
+    // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted
+    //    server registry as proof: `ApiContext.connect()` calls
+    //    `updateServer()` (which persists the active baseUrl) and only then
+    //    runs `checkConnection()`, so a failed connect still leaves a
+    //    loopback URL saved in localStorage. Only the isConnected-derived UI
+    //    can distinguish "reachable" from "stored":
+    //      - "Connected to server" indicator / "Continue" button label (both
+    //        render only while isConnected is true), or
+    //      - the wizard advancing past the Local step (checkProviderAndAdvance
+    //        runs only on a successful connect): provider step or complete step.
     await browser.waitUntil(
       async () => {
         try {
           if (await (await $("button=Continue")).isExisting()) return true;
           if (await (await $("*=Connected to server")).isExisting()) return true;
-          return await browser.execute(() => {
-            try {
-              const raw = localStorage.getItem("gptme_servers");
-              if (!raw) return false;
-              const registry = JSON.parse(raw);
-              const active = registry.servers?.find(
-                (s) => s.id === registry.activeServerId
-              );
-              return /^http:\/\/127\.0\.0\.1:\d+/.test(active?.baseUrl || "");
-            } catch {
-              return false;
-            }
-          });
+          if (await (await $("*=You're all set!")).isExisting()) return true;
+          if (await (await $("*=Bring your own API key")).isExisting()) return true;
+          return false;
         } catch (_e) {
           return false;
         }
@@ -143,6 +138,8 @@ describe("Real first-run flow", () => {
     );
 
     // 9. Verify the active server URL is the real loopback, NOT tauri://localhost
+    //    (regression guard for gptme#3606 → #3882). This is a URL-correctness
+    //    assertion, not evidence of connection — step 8 owns that.
     const serverUrl = await browser.execute(() => {
       try {
         const raw = localStorage.getItem("gptme_servers");
