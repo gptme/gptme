@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 # Add the current directory to the path (should be project root)
 project_root = Path.cwd()
 sys.path.insert(0, str(project_root))
@@ -67,6 +69,13 @@ hiddenimports = [
     'tiktoken_ext.openai_public',
     'tiktoken_ext',
 ]
+
+# Hooks and context providers are loaded by name via importlib (see
+# gptme/hooks/__init__.py, plugin entrypoints), so PyInstaller's static analysis
+# never sees them. Without this the frozen server starts with most hooks missing
+# ("No module named 'gptme.hooks.cwd_changed'", ...).
+hiddenimports += collect_submodules('gptme.hooks')
+hiddenimports += collect_submodules('gptme.context')
 
 # Exclude modules that might cause issues or aren't needed
 excludes = [
