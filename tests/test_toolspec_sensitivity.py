@@ -50,7 +50,9 @@ BUILTIN_SENSITIVITY = {
     "gh": ("gptme.tools.gh", "tool", "sensitive"),
     "hashline_edit": ("gptme.tools.hashline_edit", "tool", "moderate"),
     "ipython": ("gptme.tools.python", "tool", "dangerous"),
-    "morph": ("gptme.tools.morph", "tool", "moderate"),
+    # sensitive, not moderate: the file contents are sent to an external
+    # service (OpenRouter/Morph) before the local write.
+    "morph": ("gptme.tools.morph", "tool", "sensitive"),
     "patch": ("gptme.tools.patch", "tool", "moderate"),
     "patch_many": ("gptme.tools.patch_many", "tool_patch_many", "moderate"),
     "save": ("gptme.tools.save", "tool_save", "moderate"),

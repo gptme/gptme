@@ -259,8 +259,11 @@ tool = ToolSpec(
     execute=execute_morph,
     block_types=["morph"],
     available=is_openrouter_available,
-    # Local, reversible file mutation — same class as patch/save, not a read.
-    sensitivity="moderate",
+    # The write itself is local and reversible, but execute_morph first sends
+    # the target file's full contents (plus the edit instructions) to the
+    # external OpenRouter/Morph service, so workspace data leaves the machine.
+    # Classified with the external-interaction tools, not with patch/save.
+    sensitivity="sensitive",
     parameters=[
         Parameter(
             name="path",
