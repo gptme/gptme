@@ -2158,7 +2158,7 @@ class TestCheckPlugins:
             r.status == CheckStatus.OK and "dupsubtool" in r.message
             for r in plugin_results
         )
-        import doctor_dup_pkg.submod as submod
+        import doctor_dup_pkg.submod as submod  # type: ignore[import-not-found]
 
         assert len(submod.calls) == 1
 
