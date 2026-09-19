@@ -300,7 +300,17 @@ def evaluate_gate(
     # label contributes once: evidence_weight is the sum over DISTINCT
     # tells — repeating one soft tell ("robust robust robust") adds weight
     # 1, not 3.
-    evidence_weight = sum(h["weight"] for h in smell_report["hits"])
+    # Only curated pattern-registry tells count as corroborating evidence.
+    # The em-dash and staccato entries are cadence/punctuation artifacts
+    # whose per-1k extrapolation is exactly what the word-count minimum
+    # exists to distrust: below MIN_WORDS_FOR_GATE the em-dash tolerance
+    # rounds to zero, so a lone em-dash in ordinary short prose would
+    # otherwise contribute weight 1 and manufacture "evidence" the stated
+    # policy does not recognize.
+    _tell_categories = {cat for cat, _weight, _rx, _label in _COMPILED}
+    evidence_weight = sum(
+        h["weight"] for h in smell_report["hits"] if h["category"] in _tell_categories
+    )
     if smell_report["word_count"] < MIN_WORDS_FOR_GATE:
         if score >= _fail and evidence_weight >= 3:
             status = "fail"

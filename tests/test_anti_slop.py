@@ -147,6 +147,22 @@ def test_gate_fails_short_three_soft_tells():
     assert all(h["weight"] == 1 for h in hits)
 
 
+def test_gate_skips_short_artifact_only_evidence():
+    """Cadence/punctuation artifacts are not corroborating tells. Below the
+    word-count minimum the em-dash tolerance rounds to zero, so a short text
+    dense in em-dashes or staccato would otherwise reach an evidence weight of
+    3+ without a single curated slop tell and be failed on extrapolation
+    alone."""
+    text = "Build it — ship it — merge it — learn fast. Ship more. Iterate."
+    report = evaluate_gate(text)
+    assert report["status"] == "skip"
+    assert report["smell_report"]["word_count"] < MIN_WORDS_FOR_GATE
+    # The artifacts are present and scored, but only artifact hits exist.
+    hits = report["smell_report"]["hits"]
+    assert hits
+    assert all(h["category"] in ("em_dash", "staccato") for h in hits)
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
