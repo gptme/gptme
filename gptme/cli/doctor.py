@@ -1323,12 +1323,15 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             # tools. _discover_tools() swallows ModuleNotFoundError per module,
             # so a misspelled/missing-dependency module would otherwise be
             # silently dropped and doctor would report a broken plugin as OK.
-            module_ok = True
+            ok_modules: list[str] = []
             for module_name in plugin.tool_modules:
                 try:
                     importlib.import_module(module_name)
+                    ok_modules.append(module_name)
                 except Exception as exc:
-                    module_ok = False
+                    # Flag the broken module, but keep collecting tools from
+                    # modules that import successfully — a plugin with one bad
+                    # module still has validatable tools in the others.
                     results.append(
                         CheckResult(
                             name=f"Plugins: {plugin.name}",
@@ -1339,15 +1342,10 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                             ),
                         )
                     )
-            if not module_ok:
-                # Don't still try to validate the (maybe partly loadable) spec:
-                # the contract check is meaningless for an unimportable module,
-                # and we've already surfaced the actionable error above.
-                continue
+            if ok_modules:
+                from ..tools import _discover_tools
 
-            from ..tools import _discover_tools
-
-            tools.extend(_discover_tools(plugin.tool_modules))
+                tools.extend(_discover_tools(ok_modules))
 
         if not tools:
             # Plugin provides no tools (hooks/commands/providers only) — nothing
