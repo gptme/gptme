@@ -1076,6 +1076,133 @@ def _check_mcp_stdio_server(
     ]
 
 
+def _check_plugins(verbose: bool = False) -> list[CheckResult]:
+    """Validate plugin tool contracts in isolation.
+
+    Discovers plugins and, for each, checks that every provided tool's
+    ``init()`` returns a :class:`~gptme.tools.base.ToolSpec` (not ``None`` or
+    another type). A contract violation in one plugin is attributed to that
+    plugin/tool instead of surfacing as an unattributed crash during tool
+    init (the gptme#3828 failure mode).
+
+    Each tool is validated independently so one bad plugin does not mask the
+    health of the others.
+    """
+    results: list[CheckResult] = []
+
+    from ..config import get_config
+    from ..plugins.registry import discover_all_plugins
+    from ..tools.base import ToolSpec
+
+    config = get_config()
+    paths, enabled = config.get_plugin_config()
+
+    try:
+        plugins = discover_all_plugins(folder_paths=paths, enabled_plugins=enabled)
+    except Exception as exc:
+        results.append(
+            CheckResult(
+                name="Plugins: discovery",
+                status=CheckStatus.ERROR,
+                message=f"Plugin discovery failed: {exc}",
+            )
+        )
+        return results
+
+    if not plugins:
+        results.append(
+            CheckResult(
+                name="Plugins: status",
+                status=CheckStatus.SKIPPED,
+                message="No plugins configured",
+            )
+        )
+        return results
+
+    results.append(
+        CheckResult(
+            name="Plugins: status",
+            status=CheckStatus.OK,
+            message=f"{len(plugins)} plugin(s) discovered",
+            details=", ".join(p.name for p in plugins) if verbose else None,
+        )
+    )
+
+    # Collect each plugin's tools (direct specs + tool_modules) and validate
+    # each tool's init() contract in isolation.
+    for plugin in plugins:
+        tools: list[ToolSpec] = list(plugin.tools)
+        if plugin.tool_modules:
+            # Validate each tool module imports successfully before collecting
+            # tools. _discover_tools() swallows ModuleNotFoundError per module,
+            # so a misspelled/missing-dependency module would otherwise be
+            # silently dropped and doctor would report a broken plugin as OK.
+            ok_modules: list[str] = []
+            for module_name in plugin.tool_modules:
+                try:
+                    importlib.import_module(module_name)
+                    ok_modules.append(module_name)
+                except Exception as exc:
+                    # Flag the broken module, but keep collecting tools from
+                    # modules that import successfully — a plugin with one bad
+                    # module still has validatable tools in the others.
+                    results.append(
+                        CheckResult(
+                            name=f"Plugins: {plugin.name}",
+                            status=CheckStatus.ERROR,
+                            message=(
+                                f"Tool module {module_name!r} failed to import: "
+                                f"{type(exc).__name__}: {exc}"
+                            ),
+                        )
+                    )
+            if ok_modules:
+                from ..tools import _discover_tools
+
+                tools.extend(_discover_tools(ok_modules))
+
+        if not tools:
+            # Plugin provides no tools (hooks/commands/providers only) — nothing
+            # to validate here.
+            continue
+
+        for tool in tools:
+            if not tool.init:
+                continue
+            try:
+                initialized = tool.init()
+            except Exception as exc:
+                results.append(
+                    CheckResult(
+                        name=f"Plugins: {plugin.name}",
+                        status=CheckStatus.ERROR,
+                        message=f"Tool {tool.name!r} init() raised: {exc}",
+                    )
+                )
+                continue
+            if not isinstance(initialized, ToolSpec):
+                results.append(
+                    CheckResult(
+                        name=f"Plugins: {plugin.name}",
+                        status=CheckStatus.ERROR,
+                        message=(
+                            f"Tool {tool.name!r} init() returned "
+                            f"{type(initialized).__name__}; must return a ToolSpec"
+                        ),
+                    )
+                )
+                continue
+            results.append(
+                CheckResult(
+                    name=f"Plugins: {plugin.name}",
+                    status=CheckStatus.OK,
+                    message=f"Tool {tool.name!r} contract ok",
+                )
+            )
+
+    return results
+
+
 def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     """Run all diagnostic checks.
 
@@ -1095,6 +1222,7 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     all_results.extend(_check_computer(verbose))
     all_results.extend(_check_browser(verbose))
     all_results.extend(_check_mcp(verbose))
+    all_results.extend(_check_plugins(verbose))
     all_results.extend(_check_permissions(verbose))
 
     # Calculate summary

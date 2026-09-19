@@ -1460,3 +1460,172 @@ class TestCheckComputer:
         assert names["Computer: ffmpeg"].status == CheckStatus.WARNING
         hint = names["Computer: ffmpeg"].fix_hint or ""
         assert "brew install ffmpeg" in hint
+
+
+class TestCheckPlugins:
+    """Test the plugin tool-contract validation check."""
+
+    def _make_plugin(self, name, tools):
+        from gptme.plugins.plugin import GptmePlugin
+
+        return GptmePlugin(name=name, tools=tools)
+
+    def _make_tool(self, name, init=None):
+        from gptme.tools.base import ToolSpec
+
+        return ToolSpec(name=name, desc="test tool", init=init)
+
+    def test_no_plugins_skipped(self):
+        """No plugins configured should be SKIPPED, not an error."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: []
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        assert results[0].status == CheckStatus.SKIPPED
+        assert "No plugins" in results[0].message
+
+    def test_bad_init_returns_none_attributed_to_plugin(self):
+        """A tool whose init() returns None must be attributed to its plugin."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        bad_plugin = self._make_plugin(
+            "badplugin", [self._make_tool("badtool", init=lambda: None)]
+        )
+        good_plugin = self._make_plugin(
+            "goodplugin",
+            [
+                self._make_tool(
+                    "goodtool",
+                    init=lambda: self._make_tool("goodtool"),
+                )
+            ],
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            bad_plugin,
+            good_plugin,
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: badplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "badtool" in bad.message
+        assert "NoneType" in bad.message
+
+        good = next(r for r in results if r.name == "Plugins: goodplugin")
+        assert good.status == CheckStatus.OK
+
+    def test_init_raises_attributed_to_plugin(self):
+        """A tool whose init() raises must be attributed to its plugin."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        def throw_init():
+            raise RuntimeError("boom")
+
+        throw_plugin = self._make_plugin(
+            "throwplugin", [self._make_tool("throwtool", init=throw_init)]
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            throw_plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: throwplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "throwtool" in bad.message
+        assert "boom" in bad.message
+
+    def test_broken_tool_module_attributed_to_plugin(self, monkeypatch):
+        """A plugin whose tool module fails to import must be flagged."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # Simulate a plugin declaring a tool module that cannot be imported.
+        broken_plugin = self._make_plugin("brokenplugin", tools=[])
+        broken_plugin.tool_modules = ["nonexistent.module.does_not_exist"]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            broken_plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        bad = next(r for r in results if r.name == "Plugins: brokenplugin")
+        assert bad.status == CheckStatus.ERROR
+        assert "failed to import" in bad.message
+        assert "nonexistent.module.does_not_exist" in bad.message
+
+    def test_partly_broken_module_keeps_other_tools(self, tmp_path, monkeypatch):
+        """A plugin with one broken tool module must still validate tools from
+        its direct specs and its modules that import successfully."""
+
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        # A real importable module exposing one ToolSpec.
+        pkg = tmp_path / "doctor_ok_toolmod"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "def _init():\n"
+            "    return tool\n"
+            "tool = ToolSpec(name='oktool', desc='ok', init=_init)\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        plugin = self._make_plugin(
+            "mixedplugin",
+            [
+                self._make_tool(
+                    "directtool",
+                    init=lambda: self._make_tool("directtool"),
+                )
+            ],
+        )
+        plugin.tool_modules = [
+            "doctor_ok_toolmod",
+            "nonexistent.module.does_not_exist",
+        ]
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
+            plugin
+        ]
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        errors = [r for r in results if r.name == "Plugins: mixedplugin"]
+        # The broken module is flagged...
+        assert any(
+            r.status == CheckStatus.ERROR
+            and "nonexistent.module.does_not_exist" in r.message
+            for r in errors
+        )
+        # ...but tools from the working module and direct specs are validated.
+        assert any(
+            r.status == CheckStatus.OK and "directtool" in r.message for r in errors
+        )
+        assert any(r.status == CheckStatus.OK and "oktool" in r.message for r in errors)

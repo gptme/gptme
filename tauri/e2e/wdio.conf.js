@@ -1,6 +1,8 @@
 const net = require("net");
 const { spawn } = require("child_process");
-const { resolve } = require("path");
+const { resolve, join } = require("path");
+const { homedir } = require("os");
+const { rmSync, existsSync } = require("fs");
 
 let tauriDriver;
 
@@ -61,6 +63,51 @@ exports.config = {
   hostname: "localhost",
   port: 4444,
   path: "/",
+
+  // Clean up between sessions:
+  //
+  // 1. Kill the orphaned gptme-server sidecar. When tauri-driver's deleteSession
+  //    kills the Tauri binary, the sidecar (externalBin) is reparented to init
+  //    and keeps running on GPTME_SERVER_PORT. A live sidecar causes the next
+  //    session's ApiContext to see isConnected=true immediately, which triggers
+  //    SetupWizard's auto-advance effect (checkProviderAndAdvance) before the
+  //    test can interact with the welcome step.
+  //
+  // 2. Clear the Tauri WebKit user-data directory so each test starts with a
+  //    clean localStorage / hasCompletedSetup=false.
+  beforeSession: async () => {
+    const { execSync } = require("child_process");
+    const sidecarPort = Number(process.env.GPTME_SERVER_PORT || "5700");
+
+    // Kill whatever process owns the sidecar port (graceful then forceful).
+    try {
+      execSync(`fuser -k -TERM ${sidecarPort}/tcp 2>/dev/null || true`, {
+        shell: true,
+        stdio: "ignore",
+      });
+      await new Promise((r) => setTimeout(r, 1000));
+      execSync(`fuser -k -KILL ${sidecarPort}/tcp 2>/dev/null || true`, {
+        shell: true,
+        stdio: "ignore",
+      });
+      await new Promise((r) => setTimeout(r, 500));
+    } catch (_) {
+      // fuser not available or no process on port — that's fine
+    }
+
+    const candidates = [
+      join(homedir(), ".local", "share", "org.gptme.tauri"),
+      join(homedir(), ".local", "share", "gptme-tauri"),
+      join(homedir(), ".config", "org.gptme.tauri"),
+      join(homedir(), ".config", "gptme-tauri"),
+    ];
+    for (const dir of candidates) {
+      if (existsSync(dir)) {
+        console.log(`[wdio] Clearing Tauri profile: ${dir}`);
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
 
   onPrepare: async () => {
     // Launch tauri-driver alongside tests and wait for it to accept sessions.
