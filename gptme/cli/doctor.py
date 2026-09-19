@@ -1345,7 +1345,24 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             if ok_modules:
                 from ..tools import _discover_tools
 
-                tools.extend(_discover_tools(ok_modules))
+                try:
+                    tools.extend(_discover_tools(ok_modules))
+                except Exception as exc:
+                    # _discover_tools only swallows ModuleNotFoundError per
+                    # module; a public submodule raising any other exception
+                    # (e.g. at package import time) would otherwise abort the
+                    # whole doctor run. Attribute it to the plugin and keep
+                    # validating the rest.
+                    results.append(
+                        CheckResult(
+                            name=f"Plugins: {plugin.name}",
+                            status=CheckStatus.ERROR,
+                            message=(
+                                f"Tool discovery failed for {plugin.name!r}: "
+                                f"{type(exc).__name__}: {exc}"
+                            ),
+                        )
+                    )
 
         if not tools:
             # Plugin provides no tools (hooks/commands/providers only) — nothing
