@@ -2,9 +2,13 @@
  * Chat interaction flow — Slice 2 E2E tests.
  *
  * These tests run against the webui mock served on devUrl (port 5701).
- * In CI, the "Create webui placeholder for E2E" step writes webui/dist/index.html
- * and "Serve webui mock on devUrl port" starts python3 http.server on 5701.
- * Locally: run `python3 -m http.server 5701 --directory webui/dist` first.
+ * Locally: run `python3 -m http.server 5701 --directory webui/dist` first
+ * (after writing the mock `webui/dist/index.html`).
+ *
+ * NOTE: The CI e2e job no longer runs these tests — it now builds the real
+ * webui `dist` and the Tauri binary embeds it via `frontendDist`, so a mock
+ * overwrite is not possible in that job. Restoring mock-based chat coverage
+ * needs a separate job that builds a mock-frontend binary.
  *
  * Covers:
  * - Chat input and send button are present
