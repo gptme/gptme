@@ -644,6 +644,10 @@ and the system packages individual tools need.</p></li>
 <p>This will start an interactive chat session with the AI assistant.</p>
 <p>If you haven’t set a <a class="reference internal" href="providers.html"><span class="doc">LLM provider</span></a> API key in the environment or <a class="reference internal" href="config.html"><span class="doc">configuration</span></a>, you will be prompted for one which will be saved in the configuration file.</p>
 <p>If you already subscribe to ChatGPT Plus/Pro or SuperGrok, you can sign in directly — no separate API key purchase required. See <a class="reference internal" href="#subscriptions"><span class="std std-ref">Subscriptions (ChatGPT Plus/Pro, SuperGrok)</span></a> below.</p>
+<p>If provider setup is missing or no longer works, run <code class="docutils literal notranslate"><span class="pre">gptme-doctor</span> <span class="pre">--fix</span></code> in
+a terminal. It diagnoses the current configuration, offers the existing
+provider setup flow, and checks the result once more. Piped and <code class="docutils literal notranslate"><span class="pre">--json</span></code>
+invocations stay read-only.</p>
 <p>For detailed usage instructions, see <a class="reference internal" href="usage.html"><span class="doc">Usage</span></a>.</p>
 <p>You can also try the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a>.</p>
 </section>

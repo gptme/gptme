@@ -64,6 +64,11 @@ If you haven't set a :doc:`LLM provider <providers>` API key in the environment 
 
 If you already subscribe to ChatGPT Plus/Pro or SuperGrok, you can sign in directly — no separate API key purchase required. See :ref:`subscriptions` below.
 
+If provider setup is missing or no longer works, run ``gptme-doctor --fix`` in
+a terminal. It diagnoses the current configuration, offers the existing
+provider setup flow, and checks the result once more. Piped and ``--json``
+invocations stay read-only.
+
 For detailed usage instructions, see :doc:`usage`.
 
 You can also try the :doc:`examples`.
