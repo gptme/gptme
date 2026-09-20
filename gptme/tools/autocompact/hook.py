@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
 from ...message import Message, len_tokens
+from ...util.context_budget import get_context_budget
 from ..base import ToolSpec
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
@@ -106,8 +107,14 @@ def autocompact_hook(
         return
 
     messages = manager.log.messages
+    model = get_default_model()
+    budget = (
+        get_context_budget(model.context, max_output=model.max_output or 8192)
+        if model is not None
+        else None
+    )
 
-    action = should_auto_compact(messages)
+    action = should_auto_compact(messages, limit=budget)
     if action == "none":
         return
 
@@ -120,6 +127,7 @@ def autocompact_hook(
         try:
             provider = get_context_provider("default")
             config = CompressionConfig(
+                limit=budget,
                 logdir=manager.logdir,
                 keep_head=_get_keep_head(),
             )

@@ -1,5 +1,18 @@
 """Tests for the context budget computation (Phase 1 of #3812)."""
 
+import math
+
+import pytest
+
+from gptme.config import (
+    Config,
+    ContextConfig,
+    ProjectConfig,
+    UserConfig,
+    get_config,
+    load_user_config,
+    set_config,
+)
 from gptme.util.context_budget import get_context_budget
 
 
@@ -37,6 +50,54 @@ def test_env_budget_fraction(monkeypatch):
     assert budget == int(0.75 * 200_000)
 
 
+def test_explicit_budget_is_clamped_to_safe_input_ceiling(monkeypatch):
+    """Explicit fractions and absolute values cannot consume output headroom."""
+    monkeypatch.setenv("GPTME_CONTEXT_BUDGET", "1.0")
+    assert get_context_budget(200_000, max_output=64_000, headroom=1_000) == 135_000
+
+    monkeypatch.setenv("GPTME_CONTEXT_BUDGET", "500000")
+    assert get_context_budget(200_000, max_output=64_000, headroom=1_000) == 135_000
+
+
+def test_non_finite_env_budget_falls_back(monkeypatch):
+    monkeypatch.setenv("GPTME_CONTEXT_BUDGET", "inf")
+    assert get_context_budget(200_000) == 180_000
+
+
+def test_config_budget_resolution_prefers_project_over_user(monkeypatch):
+    monkeypatch.delenv("GPTME_CONTEXT_BUDGET", raising=False)
+    previous = get_config()
+    try:
+        set_config(
+            Config(
+                user=UserConfig(context=ContextConfig(budget=0.7)),
+                project=ProjectConfig(context=ContextConfig(budget=0.8)),
+            )
+        )
+        assert get_context_budget(200_000) == 160_000
+
+        set_config(Config(user=UserConfig(context=ContextConfig(budget=0.7))))
+        assert get_context_budget(200_000) == 140_000
+    finally:
+        set_config(previous)
+
+
+def test_user_context_budget_is_loaded(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[context]\nbudget = 0.7\n", encoding="utf-8")
+
+    config = load_user_config(str(config_path))
+
+    assert config.context.budget == 0.7
+    assert "[context]" in config_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, math.inf, math.nan])
+def test_context_config_rejects_invalid_budget(value):
+    with pytest.raises(ValueError, match="context.budget"):
+        ContextConfig.from_dict({"budget": value})
+
+
 def test_env_budget_invalid_ignored(monkeypatch):
     """Invalid GPTME_CONTEXT_BUDGET falls back to default."""
     monkeypatch.setenv("GPTME_CONTEXT_BUDGET", "not-a-number")
@@ -66,6 +127,10 @@ def test_large_window_uses_fraction():
 
 
 def test_minimum_budget_clamp():
-    """Very small windows produce at least 1000 tokens (minimum clamp)."""
+    """Very small windows produce at least 1000 tokens when safely possible."""
     budget = get_context_budget(1500, max_output=0, headroom=0)
     assert budget >= 1000
+
+
+def test_minimum_budget_does_not_exceed_safe_ceiling():
+    assert get_context_budget(1500, max_output=1000, headroom=100) == 400

@@ -15,7 +15,10 @@ The context compression system has one unified pipeline:
 2. **Automatic Compaction** - Triggered after each turn when the log approaches the budget; also retried once on provider context-length overflow
 3. **Plugin Interface** - Allows third-party packages to provide custom compression strategies
 
-The budget defaults to ``min(0.9 × window, window − max_output − headroom)`` (≈167k for 200k-window models). For 1M-window models this computes to 900k, so compaction fires long before sessions reach the provider limit.
+The budget defaults to ``min(0.9 × window, window − max_output − headroom)``.
+For a 200k-window model with 64k maximum output this is 135k; for a 1M-window
+model with an 8k maximum output it is 900k. Explicit budgets are clamped to the
+same output/headroom ceiling so they cannot make provider requests overflow.
 
 Configuring the Context Budget
 ===============================
@@ -23,7 +26,9 @@ Configuring the Context Budget
 The budget can be set at multiple levels (first match wins):
 
 - **Environment variable**: ``GPTME_CONTEXT_BUDGET=0.85`` (fraction) or ``GPTME_CONTEXT_BUDGET=300000`` (absolute tokens)
-- **Project/user config**: ``[context] budget = 0.85`` or ``budget = 300000`` in ``gptme.toml``
+- **Project config**: ``[context] budget = 0.85`` or ``budget = 300000`` in ``gptme.toml``
+- **User config**: the same ``[context]`` section in ``~/.config/gptme/config.toml``
+  (project config overrides user config)
 - **Default**: ``min(0.9 × window, window − max_output − headroom)``
 
 Note: ``GPTME_CONTEXT_LENGTH`` overrides the *provider window* for local models; ``GPTME_CONTEXT_BUDGET`` controls when compaction fires.

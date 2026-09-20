@@ -1,5 +1,6 @@
 """Unified context configuration."""
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -71,12 +72,20 @@ class ContextConfig:
         budget: float | int | None = None
         if budget_raw is not None:
             try:
-                f = float(budget_raw)
-                budget = int(f) if f > 1 else f
+                value = float(budget_raw)
             except (TypeError, ValueError) as e:
                 raise ValueError(
                     f"context.budget must be a fraction (0<x≤1) or absolute token count (>1), got {budget_raw!r}"
                 ) from e
+            if (
+                not math.isfinite(value)
+                or value <= 0
+                or (value > 1 and not value.is_integer())
+            ):
+                raise ValueError(
+                    f"context.budget must be a fraction (0<x≤1) or absolute token count (>1), got {budget_raw!r}"
+                )
+            budget = int(value) if value > 1 else value
 
         return cls(
             enabled=config_dict.get("enabled", False),

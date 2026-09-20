@@ -53,7 +53,7 @@ def auto_compact_log(
 
     Args:
         log: List of messages to compact
-        limit: Token limit (defaults to 80% of model context)
+        limit: Token limit (defaults to 80% of model context for direct callers)
         max_tool_result_tokens: Maximum tokens allowed in a tool result before removal
         reasoning_strip_age_threshold: Strip reasoning from messages >N positions back
         logdir: Path to conversation directory for saving removed outputs
@@ -80,9 +80,8 @@ def auto_compact_log(
     if limit is None:
         limit = int(0.8 * model.context)
 
-    # if we are below the limit AND don't need compacting, return the log as-is
+    # If we are below the configured limit and no safe projection applies, return as-is.
     tokens = len_tokens(log, model=model.model)
-    close_to_limit = tokens >= int(0.7 * model.context)
 
     # Calculate message positions from end (for age-based reasoning stripping)
     log_length = len(log)
@@ -93,7 +92,7 @@ def auto_compact_log(
         and ("<think>" in msg.content or "<thinking>" in msg.content)
         for idx, msg in enumerate(log)
     )
-    needs_compacting = tokens > limit or close_to_limit
+    needs_compacting = tokens >= limit
 
     # Check if any messages need Phase 3 compression
     needs_phase3_compression = any(
@@ -158,7 +157,7 @@ def auto_compact_log(
     tool_result_tokens_saved = 0
     compression_tokens_saved = 0
     current_tokens = len_tokens(compacted_log, model.model)
-    target_tokens = int(0.8 * model.context)  # Target 80% of context
+    target_tokens = limit
 
     if current_tokens > target_tokens:
         # Identify all candidate tool results for truncation (with original indices)

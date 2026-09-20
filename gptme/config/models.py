@@ -241,6 +241,9 @@ class UserConfig:
     providers: list[ProviderConfig] = field(default_factory=list)
     lessons: "LessonsConfig | None" = None
 
+    # Context management defaults, layered below project configuration.
+    context: ContextConfig = field(default_factory=ContextConfig)
+
     # Model-related preferences (favorites, ...), under a [models] section.
     models: "ModelsConfig" = field(default_factory=lambda: ModelsConfig())
 

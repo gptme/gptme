@@ -131,14 +131,14 @@ def _register_core_compaction_hook() -> None:
     Compaction is core behavior (not opt-in) as of Phase 1 of #3812.
     The hook is registered here rather than relying on the autocompact *tool*
     being explicitly loaded, so it fires regardless of the tool allowlist.
-    If the tool is also loaded, its own register_hooks() call is a no-op because
-    the hook is already registered under the same name.
+    It uses the tool-qualified registry name so either registration replaces the
+    other instead of running the expensive decision twice.
     """
     from .hooks import HookType, register_hook  # fmt: skip
     from .tools.autocompact.hook import autocompact_hook  # fmt: skip
 
     register_hook(
-        "autocompact",
+        "autocompact.autocompact",
         HookType.TURN_POST,
         autocompact_hook,
         priority=100,

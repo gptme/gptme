@@ -17,6 +17,7 @@ Why keep it separate from the window:
 """
 
 import logging
+import math
 import os
 
 logger = logging.getLogger(__name__)
@@ -48,67 +49,57 @@ def get_context_budget(
     Returns:
         Token count at which compaction should be triggered.
     """
+    safe_ceiling = model_context - max_output - headroom
+    if safe_ceiling <= 0:
+        raise ValueError(
+            "model context must exceed reserved output tokens and headroom"
+        )
+
+    def resolve(value: float | int) -> int | None:
+        parsed = float(value)
+        if not math.isfinite(parsed) or parsed <= 0:
+            return None
+        if parsed <= 1:
+            return min(int(parsed * model_context), safe_ceiling)
+        if parsed.is_integer():
+            return min(int(parsed), safe_ceiling)
+        return None
+
     # 1. Environment variable override
     env_val = os.environ.get("GPTME_CONTEXT_BUDGET")
     if env_val:
         try:
-            parsed = float(env_val)
-            if parsed > 1:
-                budget = int(parsed)
-                logger.debug(
-                    "Context budget from GPTME_CONTEXT_BUDGET: %d tokens", budget
-                )
-                return budget
-            if 0 < parsed <= 1:
-                budget = int(parsed * model_context)
-                logger.debug(
-                    "Context budget from GPTME_CONTEXT_BUDGET (%.2f × %d): %d tokens",
-                    parsed,
-                    model_context,
-                    budget,
-                )
-                return budget
-            logger.warning(
-                "GPTME_CONTEXT_BUDGET=%r is not a valid fraction (0<x≤1) or "
-                "absolute token count (>1); using default",
-                env_val,
-            )
+            budget = resolve(float(env_val))
         except ValueError:
-            logger.warning(
-                "GPTME_CONTEXT_BUDGET=%r is not a number; using default", env_val
-            )
+            budget = None
+        if budget is not None:
+            logger.debug("Context budget from GPTME_CONTEXT_BUDGET: %d tokens", budget)
+            return min(max(budget, 1000), safe_ceiling)
+        logger.warning(
+            "GPTME_CONTEXT_BUDGET=%r is not a valid fraction (0<x≤1) or "
+            "absolute token count (>1); using config/default",
+            env_val,
+        )
 
-    # 2. Config-level budget
-    try:
-        from ..config import get_config  # fmt: skip
+    # 2. Config-level budget (project overrides user).
+    from ..config import get_config  # fmt: skip
 
-        cfg = get_config()
-        budget_cfg = cfg.context.budget if hasattr(cfg, "context") else None
-        if budget_cfg is not None:
-            if isinstance(budget_cfg, float) and 0 < budget_cfg <= 1:
-                budget = int(budget_cfg * model_context)
-                logger.debug(
-                    "Context budget from config (%.2f × %d): %d tokens",
-                    budget_cfg,
-                    model_context,
-                    budget,
-                )
-                return budget
-            if isinstance(budget_cfg, int) and budget_cfg > 1:
-                logger.debug(
-                    "Context budget from config (absolute): %d tokens", budget_cfg
-                )
-                return budget_cfg
-    except Exception:
-        pass  # Config not yet loaded; fall through to default
+    cfg = get_config()
+    budget_cfg = (
+        cfg.project.context.budget
+        if cfg.project is not None and cfg.project.context.budget is not None
+        else cfg.user.context.budget
+    )
+    if budget_cfg is not None:
+        budget = resolve(budget_cfg)
+        if budget is not None:
+            logger.debug("Context budget from config: %d tokens", budget)
+            return min(max(budget, 1000), safe_ceiling)
 
     # 3. Dynamic default
-    budget = min(
-        int(_DEFAULT_FRACTION * model_context),
-        model_context - max_output - headroom,
-    )
-    # Clamp to a sensible minimum so tiny test models still trigger compaction.
-    budget = max(budget, 1000)
+    budget = min(int(_DEFAULT_FRACTION * model_context), safe_ceiling)
+    # Prefer a 1000-token minimum when the safe ceiling permits it.
+    budget = min(max(budget, 1000), safe_ceiling)
     logger.debug(
         "Context budget (default): %d tokens (window=%d)", budget, model_context
     )

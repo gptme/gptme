@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from dotenv import load_dotenv
 
 from .config import Config, set_config
-from .init import init_hooks, init_tools
+from .init import _register_core_compaction_hook, init_hooks, init_tools
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -63,6 +63,7 @@ def prepare_execution_environment(
 
     # Initialize tools and hooks
     initialized_tools = init_tools(tools)
+    _register_core_compaction_hook()
     init_hooks()
 
     return config, initialized_tools

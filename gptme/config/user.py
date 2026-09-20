@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 from ..util import path_with_tilde
 from .models import (
+    ContextConfig,
     HooksConfig,
     LessonsConfig,
     MCPConfig,
@@ -579,6 +580,11 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         else None
     )
 
+    context_data = config.pop("context", {})
+    if not isinstance(context_data, dict):
+        raise ValueError("context must be an object")
+    context = ContextConfig.from_dict(context_data)
+
     # Parse [plugins] section (search paths + enabled allowlist)
     plugins_data = config.pop("plugins", {})
     if not isinstance(plugins_data, dict):
@@ -622,6 +628,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         mcp=mcp,
         providers=providers,
         lessons=lessons,
+        context=context,
         models=models_config,
         plugins=plugins,
         settings=settings,

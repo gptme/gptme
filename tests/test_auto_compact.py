@@ -906,6 +906,13 @@ def test_load_context_files_truncates_long_files(tmp_path):
     assert "truncated" in loaded[0][1].lower()
 
 
+def test_should_auto_compact_uses_budget_for_massive_tool_result_threshold():
+    """A massive tool result below the configured budget must not trigger."""
+    messages = [Message("system", "x " * 2500)]
+
+    assert should_auto_compact(messages, limit=100_000) == "none"
+
+
 def test_should_auto_compact_returns_summarize_when_over_limit_low_savings():
     """Test that should_auto_compact returns 'summarize' when over limit but rule-based savings are too low."""
     # Many short user messages: over a low limit but nothing to rule-based compact
