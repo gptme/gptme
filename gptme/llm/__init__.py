@@ -1231,9 +1231,14 @@ def _summarize_helper(s: str, tok_max_start=400, tok_max_end=400) -> str:
     return summary
 
 
-def list_available_providers() -> list[tuple[Provider, str]]:
+def list_available_providers(
+    config: Config | None = None,
+) -> list[tuple[Provider, str]]:
     """
     List all available providers based on configured API keys or OAuth tokens.
+
+    Args:
+        config: Configuration to inspect. Defaults to the current context config.
 
     Returns:
         List of tuples (provider, auth_source) for configured providers.
@@ -1242,7 +1247,7 @@ def list_available_providers() -> list[tuple[Provider, str]]:
     """
     from ..credentials import STORED_CREDENTIALS_SOURCE, list_stored_credentials
 
-    config = get_config()
+    config = config or get_config()
     available = []
     seen: set[str] = set()
 
