@@ -443,7 +443,7 @@ class LessonIndex:
                         has_frontmatter = lesson_file.read_text(
                             encoding="utf-8"
                         ).startswith("---")
-                    except OSError:
+                    except (OSError, UnicodeDecodeError):
                         logger.warning(f"Skipping unreadable skill file: {lesson_file}")
                         continue
                     if has_frontmatter:

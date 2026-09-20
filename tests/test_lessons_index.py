@@ -309,6 +309,29 @@ Lesson, not a skill.
 
         assert len(index.lessons) == 0  # skipped, not crashed
 
+    def test_undecodable_skill_file_does_not_abort_index(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A nameless SKILL.md that becomes non-UTF-8 between parse and the
+        frontmatter re-read raises UnicodeDecodeError (not OSError) — it must
+        also be skipped instead of aborting the index build."""
+        clear_cache()
+        skills_dir = tmp_path / "skills"
+        self._write_skill(skills_dir, "pack-a", "deploy-helper", "content")
+
+        real_read_text = Path.read_text
+
+        def exploding_read_text(self: Path, *args, **kwargs):
+            if self.name.upper() == "SKILL.MD":
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", exploding_read_text)
+
+        index = LessonIndex([skills_dir])
+
+        assert len(index.lessons) == 0  # skipped, not crashed
+
 
 class TestLessonDeduplication:
     """Tests for lesson deduplication feature.
