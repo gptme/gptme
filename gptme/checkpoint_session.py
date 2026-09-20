@@ -34,7 +34,7 @@ _TOOL_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 _NATIVE_TOOL_RE = re.compile(
-    r"^@(?P<tool>[\w.]+)\([^)]+\):\s*(?P<payload>\{.*\})",
+    r"^@(?P<tool>[\w.]+)\([^)]+\):\s*(?P<payload>\{[^\n]*\})$",
     re.MULTILINE,
 )
 
@@ -103,21 +103,32 @@ class ConversationCheckpoint:
                 f"this gptme supports version {SCHEMA_VERSION}."
             )
         try:
+            label = validate_label(data["label"])
+            timestamp = data["timestamp"]
+            datetime.fromisoformat(timestamp)
+            model = data.get("model")
+            summary = data["summary"]
+            conversation_id = data["conversation_id"]
+            if not all(
+                isinstance(value, str)
+                for value in (timestamp, summary, conversation_id)
+            ) or (model is not None and not isinstance(model, str)):
+                raise TypeError("string fields have invalid types")
             return cls(
                 version=version,
-                label=str(data["label"]),
-                timestamp=str(data["timestamp"]),
-                model=(str(data["model"]) if data.get("model") else None),
+                label=label,
+                timestamp=timestamp,
+                model=model,
                 context_boundary=ContextBoundary(**data["context_boundary"]),
-                summary=str(data["summary"]),
+                summary=summary,
                 last_tool_calls=[
                     ToolCallSnapshot(**item) for item in data["last_tool_calls"]
                 ],
                 file_changes=[FileChange(**item) for item in data["file_changes"]],
                 message_count=int(data["message_count"]),
-                conversation_id=str(data["conversation_id"]),
+                conversation_id=conversation_id,
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, OverflowError, TypeError, ValueError) as exc:
             raise ConversationCheckpointError(
                 f"Invalid conversation checkpoint: {exc}"
             ) from exc
@@ -232,7 +243,9 @@ def _snapshot_tool_call(
     kwargs: dict[str, Any] | None = None,
 ) -> ToolCallSnapshot:
     def value(key: str) -> str | None:
-        return str(kwargs[key]) if kwargs and key in kwargs else None
+        if not kwargs or key not in kwargs or kwargs[key] is None:
+            return None
+        return str(kwargs[key])
 
     file_path = next((value(key) for key in _FILE_KEYS if value(key)), None)
     if file_path is None and tool in _WRITE_TOOLS and args:
@@ -349,10 +362,11 @@ def save_conversation_checkpoint(
     summary: str | None = None,
     model_limit: int | None = None,
     overwrite: bool = False,
+    messages: list[Message] | None = None,
 ) -> tuple[ConversationCheckpoint, Path]:
     """Create and atomically persist a checkpoint for one conversation."""
     label = validate_label(label)
-    messages = load_messages(logdir)
+    messages = list(messages) if messages is not None else load_messages(logdir)
     model = _model_from_messages(messages, logdir)
     try:
         workspace = ChatConfig.from_logdir(logdir).workspace

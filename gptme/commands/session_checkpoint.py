@@ -27,8 +27,9 @@ def _print_usage() -> None:
 
 
 def _save(manager: LogManager, label: str) -> None:
-    manager.write(sync=True)
-    checkpoint, path = save_conversation_checkpoint(manager.logdir, label)
+    checkpoint, path = save_conversation_checkpoint(
+        manager.logdir, label, messages=manager.log.messages
+    )
     print(
         f"Saved conversation checkpoint {checkpoint.label!r} "
         f"({checkpoint.message_count} messages): {path}"

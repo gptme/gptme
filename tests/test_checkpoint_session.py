@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from unittest.mock import ANY, patch
 
 import pytest
 from click.testing import CliRunner
@@ -123,6 +124,25 @@ def test_save_rejects_unsafe_labels(logs_dir: Path, label: str) -> None:
         save_conversation_checkpoint(logdir, label)
 
 
+def test_list_skips_corrupt_checkpoint(logs_dir: Path) -> None:
+    logdir = _make_session(logs_dir)
+    saved, _ = save_conversation_checkpoint(logdir, "good")
+    (logdir / "checkpoints" / "broken.json").write_text("not json")
+
+    assert list_conversation_checkpoints(logdir) == [saved]
+
+
+def test_list_skips_overflowing_message_count(logs_dir: Path) -> None:
+    logdir = _make_session(logs_dir)
+    saved, _ = save_conversation_checkpoint(logdir, "good")
+    data = saved.to_dict()
+    data["label"] = "broken"
+    data["message_count"] = float("inf")
+    (logdir / "checkpoints" / "broken.json").write_text(json.dumps(data))
+
+    assert list_conversation_checkpoints(logdir) == [saved]
+
+
 def test_load_rejects_unknown_schema_version(logs_dir: Path) -> None:
     logdir = _make_session(logs_dir)
     _, path = save_conversation_checkpoint(logdir, "future")
@@ -132,6 +152,16 @@ def test_load_rejects_unknown_schema_version(logs_dir: Path) -> None:
 
     with pytest.raises(ConversationCheckpointError, match="Unsupported"):
         load_conversation_checkpoint(logdir, "future")
+
+
+def test_recent_native_tool_calls_do_not_merge() -> None:
+    content = (
+        '@shell(call-1): {"command": "echo 1"}\n@shell(call-2): {"command": "echo 2"}'
+    )
+
+    calls = recent_tool_calls([Message("assistant", content)])
+
+    assert [call.command for call in calls] == ["echo 1", "echo 2"]
 
 
 def test_recent_tool_calls_respects_limit() -> None:
@@ -192,6 +222,9 @@ def test_slash_command_saves_current_conversation(
 ) -> None:
     logdir = _make_session(logs_dir)
     manager = LogManager.load(logdir, lock=False)
+    # The command framework removes the slash-command message before invoking
+    # the handler. This in-memory message is the latest durable conversation state.
+    manager.log = manager.log.append(Message("assistant", "unsaved but checkpointed"))
     context = CommandContext(
         args=["save", "before-change"],
         full_args="save before-change",
@@ -200,7 +233,9 @@ def test_slash_command_saves_current_conversation(
 
     cmd_session_checkpoint(context)
 
-    assert (logdir / "checkpoints" / "before-change.json").exists()
+    path = logdir / "checkpoints" / "before-change.json"
+    assert path.exists()
+    assert load_conversation_checkpoint(logdir, "before-change").message_count == 5
     assert "Saved conversation checkpoint" in capsys.readouterr().out
 
 
@@ -211,3 +246,18 @@ def test_util_dispatch_exposes_checkpoint_session(logs_dir: Path) -> None:
     result = CliRunner().invoke(util_main, ["checkpoint-session", "--help"])
     assert result.exit_code == 0, result.output
     assert "durable conversation checkpoints" in result.output
+
+
+def test_main_cli_forwards_checkpoint_session() -> None:
+    from gptme.cli.main import main
+
+    with (
+        patch("gptme.cli.main.shutil.which", return_value="/usr/local/bin/gptme-util"),
+        patch("gptme.cli.main.subprocess.call", return_value=0) as call,
+    ):
+        result = CliRunner().invoke(main, ["checkpoint-session", "list"])
+
+    assert result.exit_code == 0
+    call.assert_called_once_with(
+        ["/usr/local/bin/gptme-util", "checkpoint-session", "list"], env=ANY
+    )

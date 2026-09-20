@@ -85,7 +85,7 @@ def checkpoint_save(
             model_limit=model_limit,
             overwrite=overwrite,
         )
-    except ConversationCheckpointError as exc:
+    except (ConversationCheckpointError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(
         f"Saved checkpoint {checkpoint.label!r} for {checkpoint.conversation_id} "
