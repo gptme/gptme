@@ -24,8 +24,10 @@ from gptme.cli.doctor import (
     _check_python_version,
     _check_tools,
     _check_version,
+    _model_override_blocking_repair,
     _provider_repair_needed,
     _subscription_default_candidate,
+    _validate_oauth_for_repair,
     main,
     print_results,
     run_diagnostics,
@@ -719,7 +721,13 @@ class TestCLI:
         assert "--fix cannot be used with --json" in result.output
         mock_diagnostics.assert_not_called()
 
-    @patch("gptme.cli.setup.ask_for_api_key")
+    @patch("gptme.config.set_config_value")
+    @patch(
+        "gptme.llm.models.get_model",
+        return_value=SimpleNamespace(model="gpt-5.6-sol"),
+    )
+    @patch("gptme.cli.setup.ask_for_api_key", return_value=("openai", "test-key"))
+    @patch("gptme.cli.doctor._model_override_blocking_repair", return_value=None)
     @patch("gptme.cli.doctor._subscription_default_candidate", return_value=None)
     @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
     @patch("gptme.cli.doctor.print_results", side_effect=[1, 0])
@@ -730,7 +738,10 @@ class TestCLI:
         mock_print,
         mock_terminal,
         mock_subscription,
+        mock_blocking_override,
         mock_setup,
+        mock_get_model,
+        mock_set_config,
     ):
         mock_diagnostics.side_effect = [
             self._no_provider_diagnostics(),
@@ -741,6 +752,7 @@ class TestCLI:
 
         assert result.exit_code == 0
         mock_setup.assert_called_once_with()
+        mock_set_config.assert_called_once_with("models.default", "openai/gpt-5.6-sol")
         assert mock_diagnostics.call_count == 2
         assert mock_print.call_count == 2
 
@@ -761,6 +773,7 @@ class TestCLI:
         mock_diagnostics.assert_called_once_with(False)
 
     @patch("gptme.cli.setup.ask_for_api_key")
+    @patch("gptme.cli.doctor._model_override_blocking_repair", return_value=None)
     @patch("gptme.cli.doctor._subscription_default_candidate", return_value=None)
     @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
     @patch("gptme.cli.doctor.print_results", return_value=1)
@@ -771,6 +784,7 @@ class TestCLI:
         mock_print,
         mock_terminal,
         mock_subscription,
+        mock_blocking_override,
         mock_setup,
     ):
         mock_diagnostics.return_value = self._no_provider_diagnostics()
@@ -781,8 +795,32 @@ class TestCLI:
         mock_setup.assert_not_called()
         mock_diagnostics.assert_called_once_with(False)
 
+    @patch("gptme.cli.setup.ask_for_api_key")
+    @patch("gptme.cli.doctor._model_override_blocking_repair", return_value="MODEL")
+    @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
+    @patch("gptme.cli.doctor.print_results", return_value=1)
+    @patch("gptme.cli.doctor.run_diagnostics")
+    def test_fix_refuses_higher_precedence_model_override(
+        self,
+        mock_diagnostics,
+        mock_print,
+        mock_terminal,
+        mock_blocking_override,
+        mock_setup,
+    ):
+        mock_diagnostics.return_value = self._no_provider_diagnostics()
+
+        result = CliRunner().invoke(main, ["--fix"])
+
+        assert result.exit_code == 1
+        assert "cannot replace the active MODEL model override" in result.output
+        mock_setup.assert_not_called()
+        mock_diagnostics.assert_called_once_with(False)
+
     @patch("gptme.config.set_config_value")
     @patch("gptme.llm.models.get_recommended_model", return_value="gpt-6-astra")
+    @patch("gptme.cli.doctor._validate_oauth_for_repair")
+    @patch("gptme.cli.doctor._model_override_blocking_repair", return_value=None)
     @patch(
         "gptme.cli.doctor._subscription_default_candidate",
         return_value="openai-subscription",
@@ -796,6 +834,8 @@ class TestCLI:
         mock_print,
         mock_terminal,
         mock_subscription,
+        mock_blocking_override,
+        mock_oauth_validation,
         mock_recommended,
         mock_set_config,
     ):
@@ -823,6 +863,7 @@ class TestCLI:
         assert mock_diagnostics.call_count == 2
 
     @patch("gptme.cli.setup.ask_for_api_key", side_effect=RuntimeError("login failed"))
+    @patch("gptme.cli.doctor._model_override_blocking_repair", return_value=None)
     @patch("gptme.cli.doctor._subscription_default_candidate", return_value=None)
     @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
     @patch("gptme.cli.doctor.print_results", return_value=1)
@@ -833,6 +874,7 @@ class TestCLI:
         mock_print,
         mock_terminal,
         mock_subscription,
+        mock_blocking_override,
         mock_setup,
     ):
         mock_diagnostics.return_value = self._no_provider_diagnostics()
@@ -1172,6 +1214,83 @@ class TestCheckDefaultModel:
 
         assert result.status == CheckStatus.WARNING
         assert "Could not verify" in result.message
+
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("openaix/model", "models.default"),
+    )
+    @patch("gptme.cli.doctor.list_available_providers", return_value=[])
+    @patch("gptme.cli.doctor.is_plugin_provider", return_value=False)
+    @patch("gptme.cli.doctor.is_custom_provider", return_value=False)
+    @patch("gptme.cli.doctor.get_config")
+    def test_unknown_provider_prefix_is_error(
+        self,
+        mock_config,
+        mock_custom_provider,
+        mock_plugin_provider,
+        mock_providers,
+        mock_resolve,
+    ):
+        result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.ERROR
+        assert "Unknown provider 'openaix'" in result.message
+
+
+class TestOAuthRepairValidation:
+    """Test OAuth health validation used by interactive repair."""
+
+    @patch(
+        "gptme.llm.llm_openai_subscription.get_auth",
+        side_effect=ValueError("refresh failed"),
+    )
+    def test_stale_oauth_becomes_repairable_error(self, mock_get_auth):
+        results = [
+            CheckResult(
+                "Auth: openai-subscription", CheckStatus.OK, "Authenticated (OAuth)"
+            ),
+            CheckResult(
+                "Model: Default",
+                CheckStatus.OK,
+                "openai-subscription/gpt-6-astra (models.default)",
+            ),
+        ]
+
+        _validate_oauth_for_repair(results)
+
+        assert results[0].status == CheckStatus.ERROR
+        assert "refresh failed" in results[0].message
+        assert "gptme-auth openai-subscription" in (results[0].fix_hint or "")
+        assert _provider_repair_needed(results)
+        mock_get_auth.assert_called_once_with(timeout=5)
+
+    @patch("gptme.llm.llm_grok_subscription.get_auth")
+    def test_valid_oauth_is_confirmed(self, mock_get_auth):
+        results = [
+            CheckResult(
+                "Auth: grok-subscription", CheckStatus.OK, "Authenticated (OAuth)"
+            )
+        ]
+
+        _validate_oauth_for_repair(results)
+
+        assert results[0].status == CheckStatus.OK
+        assert "token valid" in results[0].message
+        mock_get_auth.assert_called_once_with(timeout=5)
+
+
+class TestModelOverrideRepair:
+    """Test higher-precedence model override detection."""
+
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("openaix/model", "MODEL"),
+    )
+    @patch("gptme.cli.doctor.get_config")
+    def test_environment_model_override_blocks_user_default_write(
+        self, mock_config, mock_resolve
+    ):
+        assert _model_override_blocking_repair() == "MODEL"
 
 
 class TestProviderRepairNeeded:

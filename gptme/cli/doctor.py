@@ -27,8 +27,8 @@ from rich.text import Text
 from ..__version__ import __version__
 from ..config import MCPServerConfig, config_path, get_config, resolve_model_source
 from ..info import get_config_info, get_installed_extras
-from ..llm import PROVIDER_API_KEYS, list_available_providers
-from ..llm.models import PROVIDERS
+from ..llm import PROVIDER_API_KEYS, is_plugin_provider, list_available_providers
+from ..llm.models import PROVIDERS, is_custom_provider
 from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
 logger = logging.getLogger(__name__)
@@ -227,12 +227,27 @@ def _check_default_model(verbose: bool = False) -> list[CheckResult]:
             )
         ]
 
+    if (
+        provider in PROVIDERS
+        or is_custom_provider(provider)
+        or is_plugin_provider(provider)
+    ):
+        return [
+            CheckResult(
+                name="Model: Default",
+                status=CheckStatus.WARNING,
+                message=f"Could not verify provider authentication for: {model}",
+                details=f"Configured via {source}" if verbose else None,
+            )
+        ]
+
     return [
         CheckResult(
             name="Model: Default",
-            status=CheckStatus.WARNING,
-            message=f"Could not verify provider authentication for: {model}",
-            details=f"Configured via {source}" if verbose else None,
+            status=CheckStatus.ERROR,
+            message=f"Unknown provider '{provider}' in configured model",
+            details=f"Configured via {source}: {model}" if verbose else None,
+            fix_hint="Run: gptme-doctor --fix",
         )
     ]
 
@@ -246,11 +261,14 @@ def _provider_repair_needed(results: list[CheckResult]) -> bool:
         result.status in (CheckStatus.OK, CheckStatus.WARNING)
         for result in auth_results
     )
-    rejected_providers = {
-        result.name.removeprefix("API Key: ")
-        for result in auth_results
-        if result.name.startswith("API Key: ") and result.status == CheckStatus.ERROR
-    }
+    rejected_providers = set()
+    for result in auth_results:
+        if result.status != CheckStatus.ERROR:
+            continue
+        for prefix in ("API Key: ", "Auth: "):
+            if result.name.startswith(prefix):
+                rejected_providers.add(result.name.removeprefix(prefix))
+                break
     has_broken_default = any(
         result.name == "Model: Default" and result.status == CheckStatus.ERROR
         for result in results
@@ -300,6 +318,40 @@ def _subscription_default_candidate(
 def _is_interactive_terminal() -> bool:
     """Return whether provider repair can safely prompt and mutate config."""
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _validate_oauth_for_repair(results: list[CheckResult]) -> None:
+    """Validate or refresh OAuth credentials before interactive repair routing."""
+    for result in results:
+        if not result.name.startswith("Auth: ") or result.status != CheckStatus.OK:
+            continue
+
+        provider = result.name.removeprefix("Auth: ")
+        try:
+            if provider == "openai-subscription":
+                from ..llm.llm_openai_subscription import get_auth as get_openai_auth
+
+                get_openai_auth(timeout=5)
+            elif provider == "grok-subscription":
+                from ..llm.llm_grok_subscription import get_auth as get_grok_auth
+
+                get_grok_auth(timeout=5)
+            else:
+                continue
+        except Exception as exc:
+            result.status = CheckStatus.ERROR
+            result.message = f"Authentication failed: {str(exc).splitlines()[0]}"
+            result.fix_hint = f"Re-authenticate with: gptme-auth {provider}"
+        else:
+            result.message = "Authenticated (OAuth token valid)"
+
+
+def _model_override_blocking_repair() -> str | None:
+    """Return a higher-precedence model source that user config cannot replace."""
+    resolution = resolve_model_source(get_config())
+    if resolution is not None and resolution[1] != "models.default":
+        return resolution[1]
+    return None
 
 
 def _check_tools(verbose: bool = False) -> list[CheckResult]:
@@ -1210,7 +1262,18 @@ def _check_mcp_stdio_server(
     ]
 
 
-def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
+def _summarize_results(results: list[CheckResult]) -> dict[str, int]:
+    """Count diagnostic results by status."""
+    return {
+        "total": len(results),
+        "ok": sum(1 for result in results if result.status == CheckStatus.OK),
+        "warning": sum(1 for result in results if result.status == CheckStatus.WARNING),
+        "error": sum(1 for result in results if result.status == CheckStatus.ERROR),
+        "skipped": sum(1 for result in results if result.status == CheckStatus.SKIPPED),
+    }
+
+
+def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict[str, int]]:
     """Run all diagnostic checks.
 
     Returns:
@@ -1232,19 +1295,12 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     all_results.extend(_check_mcp(verbose))
     all_results.extend(_check_permissions(verbose))
 
-    # Calculate summary
-    summary = {
-        "total": len(all_results),
-        "ok": sum(1 for r in all_results if r.status == CheckStatus.OK),
-        "warning": sum(1 for r in all_results if r.status == CheckStatus.WARNING),
-        "error": sum(1 for r in all_results if r.status == CheckStatus.ERROR),
-        "skipped": sum(1 for r in all_results if r.status == CheckStatus.SKIPPED),
-    }
-
-    return all_results, summary
+    return all_results, _summarize_results(all_results)
 
 
-def print_results(results: list[CheckResult], summary: dict, verbose: bool = False):
+def print_results(
+    results: list[CheckResult], summary: dict[str, int], verbose: bool = False
+) -> int:
     """Print diagnostic results in a formatted table."""
     console.print(
         Panel.fit(
@@ -1341,6 +1397,10 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
         raise click.UsageError("--fix cannot be used with --json")
 
     results, summary = run_diagnostics(verbose)
+    interactive_repair = fix and _is_interactive_terminal()
+    if interactive_repair:
+        _validate_oauth_for_repair(results)
+        summary = _summarize_results(results)
 
     if output_json:
         import json
@@ -1364,8 +1424,16 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
     if not fix or not _provider_repair_needed(results):
         sys.exit(exit_code)
 
-    if not _is_interactive_terminal():
+    if not interactive_repair:
         click.echo("Interactive repair skipped: run gptme-doctor --fix in a terminal")
+        sys.exit(exit_code)
+
+    blocking_source = _model_override_blocking_repair()
+    if blocking_source:
+        click.echo(
+            f"Provider repair cannot replace the active {blocking_source} model "
+            "override. Update or unset that override, then rerun gptme-doctor --fix."
+        )
         sys.exit(exit_code)
 
     subscription = _subscription_default_candidate(results)
@@ -1389,7 +1457,14 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
                 sys.exit(exit_code)
             from .setup import ask_for_api_key
 
-            ask_for_api_key()
+            provider, _ = ask_for_api_key()
+            from ..config import set_config_value
+            from ..llm.models import get_model
+
+            selected_model = get_model(provider).model
+            if not selected_model.startswith(f"{provider}/"):
+                selected_model = f"{provider}/{selected_model}"
+            set_config_value("models.default", selected_model)
     except (KeyboardInterrupt, click.Abort):
         click.echo("\nProvider repair cancelled.")
         sys.exit(exit_code)
