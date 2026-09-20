@@ -210,8 +210,13 @@ jobs:
         run: cd tauri/e2e && npm ci
 
       - name: Run E2E tests (smoke + first-run)
-        # wdio.conf.js assigns one free sidecar port to the app and tests.
-        run: xvfb-run --auto-servernum npm --prefix tauri/e2e test -- --spec ./test/specs/smoke.test.js --spec ./test/specs/first_run.test.js
+        # Give each WebDriver session its own WDIO launcher and sidecar port.
+        # Reusing one port across separate specs races the previous sidecar's
+        # --watch-pid shutdown, so the next app can see the old token-gated
+        # process and then probe it with its newly generated token.
+        run: |
+          xvfb-run --auto-servernum npm --prefix tauri/e2e test -- --spec ./test/specs/smoke.test.js
+          xvfb-run --auto-servernum npm --prefix tauri/e2e test -- --spec ./test/specs/first_run.test.js
 
   build:
     name: Build (${{ matrix.platform }})

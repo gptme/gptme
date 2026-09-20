@@ -5,6 +5,8 @@ const { homedir } = require("os");
 const { rmSync, existsSync } = require("fs");
 
 let tauriDriver;
+const DRIVER_EXIT_TIMEOUT_MS = 5000;
+const SIDECAR_EXIT_POLL_MS = 100;
 
 async function reserveSidecarPort() {
   return new Promise((resolvePort, rejectPort) => {
@@ -71,6 +73,41 @@ async function waitForDriverReady(driverProcess, port, timeoutMs = 10000) {
   );
 }
 
+async function stopDriver(driverProcess, timeoutMs = DRIVER_EXIT_TIMEOUT_MS) {
+  if (!driverProcess || driverProcess.exitCode !== null || driverProcess.signalCode !== null) {
+    return;
+  }
+
+  await new Promise((resolveExit, rejectExit) => {
+    const timeout = setTimeout(() => {
+      rejectExit(new Error(`tauri-driver did not exit within ${timeoutMs}ms`));
+    }, timeoutMs);
+    driverProcess.once("exit", () => {
+      clearTimeout(timeout);
+      resolveExit();
+    });
+    driverProcess.kill();
+  });
+}
+
+async function waitForPortAvailable(port, timeoutMs = DRIVER_EXIT_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const available = await new Promise((resolveAvailable) => {
+      const server = net.createServer();
+      server.once("error", () => resolveAvailable(false));
+      server.listen(port, "127.0.0.1", () => {
+        server.close(() => resolveAvailable(true));
+      });
+    });
+    if (available) return;
+    await new Promise((resolveRetry) => setTimeout(resolveRetry, SIDECAR_EXIT_POLL_MS));
+  }
+
+  throw new Error(`sidecar port ${port} did not become available within ${timeoutMs}ms`);
+}
+
 exports.config = {
   specs: ["./test/specs/**/*.js"],
   maxInstances: 1,
@@ -131,11 +168,15 @@ exports.config = {
     await waitForDriverReady(tauriDriver, 4444);
   },
 
-  onComplete: () => {
-    // Shut down tauri-driver when tests finish. The Tauri sidecar also receives
-    // --watch-pid and exits when its owning app process disappears.
-    if (tauriDriver) {
-      tauriDriver.kill();
+  onComplete: async () => {
+    // Shut down tauri-driver when tests finish, then wait for the managed
+    // sidecar to observe its app PID disappearing and release the shared port.
+    // Without this barrier, the next spec can launch while the previous
+    // token-gated sidecar still owns the port.
+    const sidecarPort = Number(process.env.GPTME_SERVER_PORT);
+    await stopDriver(tauriDriver);
+    if (Number.isInteger(sidecarPort) && sidecarPort > 0) {
+      await waitForPortAvailable(sidecarPort);
     }
   },
 };
