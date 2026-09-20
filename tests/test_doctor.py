@@ -641,6 +641,29 @@ class TestRunDiagnostics:
         assert summary["total"] == counted_total
         assert summary["total"] == len(results)
 
+    def test_plugins_checked_before_provider_diagnostics(self):
+        """Plugin providers must be registered before provider checks run."""
+        calls: list[str] = []
+
+        def check(name):
+            def _check(verbose=False):
+                calls.append(name)
+                return []
+
+            return _check
+
+        with (
+            patch("gptme.cli.doctor._check_plugins", new=check("plugins")),
+            patch("gptme.cli.doctor._check_api_keys", new=check("api_keys")),
+            patch(
+                "gptme.cli.doctor._check_default_model",
+                new=check("default_model"),
+            ),
+        ):
+            run_diagnostics()
+
+        assert calls == ["plugins", "api_keys", "default_model"]
+
 
 class TestCLI:
     """Test CLI interface."""
@@ -2362,6 +2385,53 @@ class TestCheckPlugins:
         assert "bad module attrs" in malformed_result.message
         good_result = next(
             result for result in results if result.name == "Plugins: goodplugin"
+        )
+        assert good_result.status == CheckStatus.OK
+
+    def test_lazy_tool_collection_error_does_not_abort_later_plugins(self, monkeypatch):
+        """Errors raised while iterating tool specs stay plugin-local."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        broken = SimpleNamespace(__name__="lazy_broken_tools")
+        malformed = self._make_plugin("lazy-malformed", [])
+        malformed.tool_modules = ["lazy_broken_tools"]
+        good = self._make_plugin(
+            "later-good",
+            [self._make_tool("later-tool", init=lambda: self._make_tool("later-tool"))],
+        )
+
+        monkeypatch.setattr(
+            "gptme.cli.doctor._import_module_tree",
+            lambda name: ([name], []),
+        )
+        monkeypatch.setitem(__import__("sys").modules, "lazy_broken_tools", broken)
+
+        def iter_then_raise(module):
+            yield from ()
+            raise RuntimeError("lazy bad module attrs")
+
+        monkeypatch.setattr("gptme.tools._iter_tool_specs", iter_then_raise)
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [
+                malformed,
+                good,
+            ]
+        )
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        malformed_result = next(
+            result for result in results if result.name == "Plugins: lazy-malformed"
+        )
+        assert malformed_result.status == CheckStatus.ERROR
+        assert "lazy bad module attrs" in malformed_result.message
+        good_result = next(
+            result for result in results if result.name == "Plugins: later-good"
         )
         assert good_result.status == CheckStatus.OK
 

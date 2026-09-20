@@ -1411,7 +1411,10 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                     if module is None:
                         continue
                     try:
-                        specs = _iter_tool_specs(module)
+                        # _iter_tool_specs is a generator, so materialize it
+                        # here to keep attribute-access failures inside this
+                        # per-module isolation boundary.
+                        specs = list(_iter_tool_specs(module))
                     except Exception as exc:
                         results.append(
                             CheckResult(
@@ -1519,6 +1522,9 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict[str,
     all_results.extend(_check_version(verbose))
     all_results.extend(_check_config(verbose))
     all_results.extend(_check_proxy(verbose))
+    # Plugin discovery initializes the unified registry used by provider
+    # checks, so it must run before API-key and default-model validation.
+    all_results.extend(_check_plugins(verbose))
     all_results.extend(_check_api_keys(verbose))
     all_results.extend(_check_default_model(verbose))
     all_results.extend(_check_tools(verbose))
@@ -1526,7 +1532,6 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict[str,
     all_results.extend(_check_computer(verbose))
     all_results.extend(_check_browser(verbose))
     all_results.extend(_check_mcp(verbose))
-    all_results.extend(_check_plugins(verbose))
     all_results.extend(_check_permissions(verbose))
 
     return all_results, _summarize_results(all_results)
