@@ -314,22 +314,37 @@ Lesson, not a skill.
     ):
         """A nameless SKILL.md that becomes non-UTF-8 between parse and the
         frontmatter re-read raises UnicodeDecodeError (not OSError) — it must
-        also be skipped instead of aborting the index build."""
+        also be skipped instead of aborting the index build.
+
+        The first read (the parse) must succeed with a nameless skill so the
+        guarded re-read is actually reached; only the subsequent read raises.
+        """
         clear_cache()
         skills_dir = tmp_path / "skills"
-        self._write_skill(skills_dir, "pack-a", "deploy-helper", "content")
+        skill_dir = skills_dir / "pack-a" / "deploy-helper"
+        skill_dir.mkdir(parents=True)
+        # No frontmatter: the parse yields a nameless lesson, so the guarded
+        # frontmatter re-read in _claim... actually runs.
+        (skill_dir / "SKILL.md").write_text("Just body content, no frontmatter.\n")
 
         real_read_text = Path.read_text
+        reads = {"n": 0}
 
         def exploding_read_text(self: Path, *args, **kwargs):
             if self.name.upper() == "SKILL.MD":
-                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+                reads["n"] += 1
+                if reads["n"] > 1:
+                    raise UnicodeDecodeError(
+                        "utf-8", b"\xff", 0, 1, "invalid start byte"
+                    )
             return real_read_text(self, *args, **kwargs)
 
         monkeypatch.setattr(Path, "read_text", exploding_read_text)
 
         index = LessonIndex([skills_dir])
 
+        # The parse read succeeded; the guarded re-read raised and was caught.
+        assert reads["n"] >= 2
         assert len(index.lessons) == 0  # skipped, not crashed
 
 
