@@ -44,7 +44,7 @@ interface ApiContextType {
   isExchangingAuthCode: boolean;
   connectionConfig: ConnectionConfig;
   updateConfig: (config: Partial<ConnectionConfig>) => void;
-  connect: (config?: Partial<ConnectionConfig>) => Promise<void>;
+  connect: (config?: Partial<ConnectionConfig>, serverId?: string) => Promise<void>;
   switchServer: (serverId: string) => Promise<void>;
   stopAutoConnect: () => void;
 }
@@ -147,14 +147,15 @@ export function ApiProvider({
 
   // Connect to API — tests connectivity of the active server
   const connect = useCallback(
-    async (config?: Partial<ConnectionConfig>) => {
+    async (config?: Partial<ConnectionConfig>, serverId?: string) => {
       stopAutoConnect();
 
-      // Use the render snapshot that backs this provider. Reading Legend State
-      // imperatively here can lag one React commit behind after the Tauri sync
-      // effect, which made the first manual Connect probe reuse an unauthenticated
-      // client even though the UI already rendered the managed sidecar config.
-      const activeServer = activeServerRef.current;
+      // Use the render snapshot that backs this provider by default. Callers that
+      // mutate the active server and connect in the same tick pass its ID so we do
+      // not target the previous render's server.
+      const activeServer = serverId
+        ? serverRegistry$.get().servers.find((server) => server.id === serverId)
+        : activeServerRef.current;
       let client: IApiClient;
       if (activeServer) {
         const updates: Partial<ServerConfig> = {
@@ -292,11 +293,14 @@ export function ApiProvider({
 
       try {
         // Connect tests the new primary (pool creates/returns client for this server)
-        await connect({
-          baseUrl: server.baseUrl,
-          authToken: server.authToken,
-          useAuthToken: server.useAuthToken,
-        });
+        await connect(
+          {
+            baseUrl: server.baseUrl,
+            authToken: server.authToken,
+            useAuthToken: server.useAuthToken,
+          },
+          serverId
+        );
       } catch (error) {
         // Rollback: restore previous active server
         setActiveServer(previousActiveId);

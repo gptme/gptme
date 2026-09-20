@@ -358,6 +358,65 @@ describe('ApiProvider mobile auto-connect', () => {
     });
   });
 
+  it('connects a newly selected server instead of the previous render snapshot', async () => {
+    const selectedServer = {
+      id: 'server-2',
+      name: 'Remote',
+      baseUrl: 'https://remote.example.com',
+      authToken: 'remote-token',
+      useAuthToken: true,
+      createdAt: 1,
+      lastUsedAt: 1,
+    };
+    const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
+      serverRegistry$: {
+        get: () => {
+          activeServerId: string;
+          connectedServerIds: string[];
+          servers: Array<Record<string, unknown>>;
+        };
+        set: (value: unknown) => void;
+      };
+    };
+    const registry = serverRegistry$.get();
+    serverRegistry$.set({
+      ...registry,
+      servers: [...registry.servers, selectedServer],
+    });
+    mockSetActiveServer.mockImplementation((serverId: string) => {
+      serverRegistry$.set({ ...serverRegistry$.get(), activeServerId: serverId });
+    });
+
+    let switchServerFromProbe!: (serverId: string) => Promise<void>;
+    function SwitchServerProbe() {
+      switchServerFromProbe = useApi().switchServer;
+      return null;
+    }
+    const queryClient = new QueryClient();
+    render(
+      <ApiProvider queryClient={queryClient}>
+        <SwitchServerProbe />
+      </ApiProvider>
+    );
+
+    await switchServerFromProbe(selectedServer.id);
+
+    expect(mockUpdateServer).toHaveBeenCalledWith(selectedServer.id, {
+      baseUrl: selectedServer.baseUrl,
+      authToken: selectedServer.authToken,
+      useAuthToken: selectedServer.useAuthToken,
+    });
+    expect(mockGetClientForServerConfig).toHaveBeenCalledWith(selectedServer.id, {
+      baseUrl: selectedServer.baseUrl,
+      authToken: selectedServer.authToken,
+      useAuthToken: selectedServer.useAuthToken,
+    });
+    expect(mockUpdateServer).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ baseUrl: selectedServer.baseUrl })
+    );
+  });
+
   it('stops retrying after a 401 (token required, not transient)', async () => {
     setActiveServerBaseUrl('http://127.0.0.1:5799');
 
