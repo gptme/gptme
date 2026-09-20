@@ -434,16 +434,27 @@ class LessonIndex:
             if lesson_file.name.upper() == "SKILL.MD":
                 if lesson.metadata.name:
                     skill_name = lesson.metadata.name.lower()
-                elif lesson_file.read_text(encoding="utf-8").startswith("---"):
-                    # Frontmatter delimiter present but nothing parsed: the
-                    # frontmatter failed to parse. Skip it — and do not
-                    # reserve the skill name, so a later valid copy of the
-                    # same skill is still indexable.
-                    logger.warning(
-                        f"Skipping skill with unparseable frontmatter: {lesson_file}"
-                    )
-                    continue
                 else:
+                    # No declared name: check whether frontmatter exists but
+                    # failed to parse. The re-read is guarded — the file can
+                    # change or disappear between parse and this check, and an
+                    # unhandled error here would abort the whole index build.
+                    try:
+                        has_frontmatter = lesson_file.read_text(
+                            encoding="utf-8"
+                        ).startswith("---")
+                    except OSError:
+                        logger.warning(f"Skipping unreadable skill file: {lesson_file}")
+                        continue
+                    if has_frontmatter:
+                        # Frontmatter delimiter present but nothing parsed: the
+                        # frontmatter failed to parse. Skip it — and do not
+                        # reserve the skill name, so a later valid copy of the
+                        # same skill is still indexable.
+                        logger.warning(
+                            f"Skipping skill with unparseable frontmatter: {lesson_file}"
+                        )
+                        continue
                     # No frontmatter at all: fall back to the directory name.
                     skill_name = lesson_file.parent.name.lower()
             if skill_name is not None and skill_name in seen_skill_names:
