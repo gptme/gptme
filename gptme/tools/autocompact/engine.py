@@ -159,7 +159,7 @@ def auto_compact_log(
     current_tokens = len_tokens(compacted_log, model.model)
     target_tokens = limit
 
-    if current_tokens > target_tokens:
+    if current_tokens >= target_tokens:
         # Identify all candidate tool results for truncation (with original indices)
         candidates: list[tuple[int, int, Message]] = []  # (idx, tokens, msg)
         for idx, msg in enumerate(compacted_log):

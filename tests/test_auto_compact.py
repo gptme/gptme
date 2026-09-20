@@ -913,6 +913,25 @@ def test_should_auto_compact_uses_budget_for_massive_tool_result_threshold():
     assert should_auto_compact(messages, limit=100_000) == "none"
 
 
+def test_auto_compact_trims_at_exact_budget(monkeypatch):
+    """Decision and engine use the same inclusive budget boundary."""
+    messages = [Message("system", "x " * 2500)]
+    from gptme.tools.autocompact import engine
+
+    real_len_tokens = engine.len_tokens
+    monkeypatch.setattr(
+        engine,
+        "len_tokens",
+        lambda value, model=None: (
+            100 if value is messages else real_len_tokens(value, model=model)
+        ),
+    )
+
+    compacted = list(auto_compact_log(messages, limit=100))
+
+    assert compacted[0].content != messages[0].content
+
+
 def test_should_auto_compact_returns_summarize_when_over_limit_low_savings():
     """Test that should_auto_compact returns 'summarize' when over limit but rule-based savings are too low."""
     # Many short user messages: over a low limit but nothing to rule-based compact
