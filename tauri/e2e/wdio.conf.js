@@ -5,6 +5,7 @@ const { homedir } = require("os");
 const { rmSync, existsSync } = require("fs");
 
 let tauriDriver;
+let sidecarPort;
 
 async function waitForDriverReady(driverProcess, port, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
@@ -64,40 +65,34 @@ exports.config = {
   port: 4444,
   path: "/",
 
-  // Clean up between sessions:
-  //
-  // 1. Kill the orphaned gptme-server sidecar. When tauri-driver's deleteSession
-  //    kills the Tauri binary, the sidecar (externalBin) is reparented to init
-  //    and keeps running on GPTME_SERVER_PORT. A live sidecar causes the next
-  //    session's ApiContext to see isConnected=true immediately, which triggers
-  //    SetupWizard's auto-advance effect (checkProviderAndAdvance) before the
-  //    test can interact with the welcome step.
-  //
-  // 2. Clear the Tauri WebKit user-data directory so each test starts with a
-  //    clean localStorage / hasCompletedSetup=false.
+  // Give every E2E run an OS-assigned sidecar port. This isolates the suite
+  // from independently managed local servers and removes the need to kill an
+  // arbitrary process that happens to own the default port. Both the Tauri app
+  // and first_run.test.js inherit this environment variable.
   beforeSession: async () => {
-    const { execSync } = require("child_process");
-    const sidecarPort = Number(process.env.GPTME_SERVER_PORT || "5700");
-
-    // Kill whatever process owns the sidecar port.
-    // Use pkill (universally available) as primary; fuser as secondary for
-    // the port-level kill (catches non-gptme processes on that port).
-    try {
-      execSync("pkill -9 -f gptme-server 2>/dev/null || true", {
-        shell: true,
-        stdio: "ignore",
+    if (!sidecarPort) {
+      sidecarPort = await new Promise((resolvePort, rejectPort) => {
+        const server = net.createServer();
+        server.once("error", rejectPort);
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          if (!address || typeof address === "string") {
+            server.close();
+            rejectPort(new Error("Could not allocate an E2E sidecar port"));
+            return;
+          }
+          server.close((error) => {
+            if (error) rejectPort(error);
+            else resolvePort(address.port);
+          });
+        });
       });
-    } catch (_) {}
-    try {
-      execSync(`fuser -k -KILL ${sidecarPort}/tcp 2>/dev/null || true`, {
-        shell: true,
-        stdio: "ignore",
-      });
-    } catch (_) {
-      // fuser not available — pkill above is sufficient
+      process.env.GPTME_SERVER_PORT = String(sidecarPort);
+      console.log(`[wdio] Reserved sidecar port ${sidecarPort}`);
     }
-    await new Promise((r) => setTimeout(r, 1000));
 
+    // Clear the Tauri WebKit user-data directory so each test starts with a
+    // clean localStorage / hasCompletedSetup=false.
     const candidates = [
       join(homedir(), ".local", "share", "org.gptme.tauri"),
       join(homedir(), ".local", "share", "gptme-tauri"),
@@ -124,12 +119,10 @@ exports.config = {
   },
 
   onComplete: () => {
-    // Shut down tauri-driver when tests finish
+    // Shut down tauri-driver when tests finish. The Tauri sidecar also receives
+    // --watch-pid and exits when its owning app process disappears.
     if (tauriDriver) {
       tauriDriver.kill();
     }
-    // Kill any lingering sidecar that survived tauri-driver termination.
-    const { spawnSync } = require("child_process");
-    spawnSync("pkill", ["-9", "-f", "gptme-server"], { stdio: "ignore" });
   },
 };

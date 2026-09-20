@@ -55,10 +55,10 @@ describe("Real first-run flow", () => {
   }
 
   /**
-   * The port the app launches its managed sidecar on. CI sets
-   * GPTME_SERVER_PORT and the Rust side reads the same variable
-   * (`server_port()` in tauri/src-tauri/src/lib.rs), so the env var is the
-   * single source of truth.
+   * The port the app launches its managed sidecar on. wdio.conf.js assigns an
+   * isolated port before launching the app, and the Rust side reads the same
+   * GPTME_SERVER_PORT variable (`server_port()` in tauri/src-tauri/src/lib.rs),
+   * so the env var is the single source of truth.
    *
    * Do NOT try to read this back from the app via
    * `browser.execute(() => window.__TAURI__.core.invoke(...))`: WebDriver's
@@ -68,7 +68,11 @@ describe("Real first-run flow", () => {
    * fallback, which only looked like it was asking the app.
    */
   function resolveSidecarPort() {
-    return Number(process.env.GPTME_SERVER_PORT || "5700");
+    const port = Number(process.env.GPTME_SERVER_PORT);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error("wdio.conf.js did not assign a valid GPTME_SERVER_PORT");
+    }
+    return port;
   }
 
   /**
@@ -77,7 +81,9 @@ describe("Real first-run flow", () => {
    * (e.g. a dev-mode binary pointing at an unserved devUrl).
    */
   async function describeWebview() {
-    const url = await browser.getUrl().catch((e) => `<getUrl failed: ${e.message}>`);
+    const url = await browser
+      .getUrl()
+      .catch((e) => `<getUrl failed: ${e.message}>`);
     const body = await $("body")
       .getText()
       .then((t) => t.replace(/\s+/g, " ").slice(0, 500))
@@ -90,8 +96,12 @@ describe("Real first-run flow", () => {
 
     // 1. Wait for the app to load
     await browser.waitUntil(
-      async () => (await browser.execute(() => document.readyState)) === "complete",
-      { timeout: 30000, timeoutMsg: "App did not reach readyState=complete within 30s" }
+      async () =>
+        (await browser.execute(() => document.readyState)) === "complete",
+      {
+        timeout: 30000,
+        timeoutMsg: "App did not reach readyState=complete within 30s",
+      }
     );
 
     // 2. Wait for the wizard's "Get started" button. The wizard auto-opens when
@@ -145,9 +155,11 @@ describe("Real first-run flow", () => {
         async () => {
           try {
             if (await (await $("button=Continue")).isExisting()) return true;
-            if (await (await $("*=Connected to server")).isExisting()) return true;
+            if (await (await $("*=Connected to server")).isExisting())
+              return true;
             if (await (await $("*=You're all set!")).isExisting()) return true;
-            if (await (await $("*=Bring your own API key")).isExisting()) return true;
+            if (await (await $("*=Bring your own API key")).isExisting())
+              return true;
             return false;
           } catch (_e) {
             return false;

@@ -210,9 +210,7 @@ jobs:
         run: cd tauri/e2e && npm ci
 
       - name: Run E2E tests (smoke + first-run)
-        # Default sidecar port (5700): the path a fresh install takes. Do not
-        # override GPTME_SERVER_PORT here, it adds a port-sync variable to a
-        # spec that exists to guard the default Local -> Connect flow.
+        # wdio.conf.js assigns one free sidecar port to the app and tests.
         run: xvfb-run --auto-servernum npm --prefix tauri/e2e test -- --spec ./test/specs/smoke.test.js --spec ./test/specs/first_run.test.js
 
   build:

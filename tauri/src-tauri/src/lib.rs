@@ -258,18 +258,19 @@ async fn start_server() -> Result<u16, String> {
 
 #[cfg(desktop)]
 fn desktop_cors_origin() -> &'static str {
-    if cfg!(debug_assertions) {
-        "http://localhost:5701"
-    } else {
-        // Webview origin differs per platform and Tauri version:
-        //   - WKWebView (macOS) / WebKitGTK (Linux) send tauri://localhost
-        //   - WebView2 (Windows) sends http://tauri.localhost
-        //     (and historically https://tauri.localhost)
-        // gptme-server accepts a comma-separated list, so allow all known
-        // origins and let the running webview match whichever it sends.
-        // See: gptme/gptme#2226
-        "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
-    }
+    // A debug build normally loads the Vite dev server, but E2E and other
+    // custom-protocol debug builds load the embedded frontend instead. Allow
+    // both sets of origins so the Rust build profile does not decide which
+    // frontend can reach its managed sidecar.
+    //
+    // Webview origin differs per platform and Tauri version:
+    //   - WKWebView (macOS) / WebKitGTK (Linux) send tauri://localhost
+    //   - WebView2 (Windows) sends http://tauri.localhost
+    //     (and historically https://tauri.localhost)
+    // gptme-server accepts a comma-separated list, so allow all known origins
+    // and let the running webview match whichever it sends.
+    // See: gptme/gptme#2226
+    "http://localhost:5701,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
 }
 
 #[cfg(desktop)]
@@ -1201,6 +1202,15 @@ mod tests {
         let state = app.state::<ServerProcess>();
         assert!(state.child.lock().unwrap().is_none());
         assert!(!state.owns_port.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_desktop_cors_origin_allows_dev_and_embedded_frontends() {
+        let origins: Vec<_> = desktop_cors_origin().split(',').collect();
+        assert!(origins.contains(&"http://localhost:5701"));
+        assert!(origins.contains(&"tauri://localhost"));
+        assert!(origins.contains(&"http://tauri.localhost"));
+        assert!(origins.contains(&"https://tauri.localhost"));
     }
 
     #[test]

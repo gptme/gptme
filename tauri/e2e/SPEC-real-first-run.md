@@ -18,8 +18,12 @@ Release builds are slower and already covered by the `build` matrix job. The deb
 
 ### Scope boundary
 - **In scope**: Local setup → Connect → green connected indicator.
-- **Out of scope**: Chat message send/receive (covered by mock-based chat_flow tests), Cloud setup, provider configuration, first reply generation.
+- **Out of scope**: Chat message send/receive, Cloud setup, provider configuration, first reply generation.
 - **One test file**: `test/specs/first_run.test.js`.
+
+The old `chat_flow.test.js` exercised a hand-written mock page rather than the
+shipped app and is removed by this change. Real desktop chat coverage remains
+follow-up work.
 
 ---
 
@@ -40,14 +44,9 @@ Release builds are slower and already covered by the `build` matrix job. The deb
    ```
    This runs `tauri/scripts/build-sidecar.sh`, which uses PyInstaller with the corrected spec (post-#3883).
 
-3. **Keep the Tauri debug binary build** (`cargo build`), but now it picks up the real `frontendDist` and `externalBin` automatically from `tauri.conf.json`.
+3. **Build the Tauri debug binary with `tauri/custom-protocol`** so it embeds the real `frontendDist` instead of loading an unserved Vite `devUrl`.
 
-4. **Add a `GPTME_SERVER_PORT` env var** to avoid colliding with any stray 5700 listener on the runner:
-   ```yaml
-   env:
-     GPTME_SERVER_PORT: 15700
-   ```
-   The frontend's `getBundledLoopbackOrigin()` ignores port, so this is safe.
+4. **Assign `GPTME_SERVER_PORT` dynamically in `wdio.conf.js`** before the app starts. The app and test inherit the same isolated port, avoiding collisions without killing unrelated listeners.
 
 ### Runtime estimate
 - `npm ci` in `webui/`: ~1 min (cached)
@@ -63,16 +62,15 @@ The current E2E job finishes in ~7 min (build + driver install + test). This wou
 ## Test Design (`first_run.test.js`)
 
 ### Prerequisites
-- A fresh Tauri app launch with no prior localStorage (tauri-driver starts a clean profile).
+- A fresh Tauri app launch after the E2E hook clears its WebKit profile.
 - The sidecar starts automatically (Tauri manages `externalBin`).
-- The app opens to the SetupWizard because no server is configured.
+- The app opens to the SetupWizard because setup is incomplete.
 
 ### Steps
 1. Wait for the SetupWizard dialog to appear.
 2. Click "Local setup" (the button that selects the local server path).
 3. Click "Connect".
-4. Wait for the connection status to show connected (green indicator or `connectedServerIds` non-empty).
-5. Assert the active server baseUrl is `http://127.0.0.1:<port>/api/v2` (not `tauri://localhost`).
+4. Wait for an `isConnected`-derived UI signal or the provider/completion step.
 
 ### Negative control
 A build with #3882 reverted (or a manually broken `getBundledLoopbackOrigin()`) should fail step 4 or 5. This validates the test's sensitivity.
@@ -94,4 +92,4 @@ Polling is preferred because it makes the test deterministic.
 - [ ] `first_run.test.js` is added and passes on a build that includes #3882 and #3883.
 - [ ] Reverting #3882 causes the test to fail (negative control).
 - [ ] The E2E job runtime stays under 12 min.
-- [ ] The existing `chat_flow.test.js` and `smoke.test.js` still pass (no regression).
+- [ ] `smoke.test.js` still passes.
