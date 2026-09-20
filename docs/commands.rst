@@ -452,6 +452,22 @@ The ``<sha>`` is the short SHA shown by ``/snapshot list``.
    # ab1234     before-attempt-1
    /snapshot restore ab1234           # roll back; try a different approach
 
+/session-checkpoint
+^^^^^^^^^^^^^^^^^^^
+
+Save a durable, user-visible handoff point for the current conversation. The
+checkpoint records a compact summary, recent tool calls, changed workspace
+files, and the context boundary without modifying the lossless conversation
+log. Resume it from another process with ``gptme checkpoint-session resume``.
+
+.. code-block:: text
+
+   /session-checkpoint save before-api-refactor
+   /session-checkpoint list
+
+This is distinct from ``/checkpoint`` (Git workspace recovery) and
+``/backtrack`` (rewinding the live conversation).
+
 /backtrack
 ^^^^^^^^^^
 

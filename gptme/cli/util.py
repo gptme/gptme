@@ -53,6 +53,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "attest": (".cmd_attest", "attest"),
     "batch": (".cmd_batch", "batch_cmd"),
     "chats": (".cmd_chats", "chats"),
+    "checkpoint-session": (".cmd_checkpoint_session", "checkpoint_session"),
     "computer": (".cmd_computer", "computer"),
     "explain": (".cmd_explain", "explain"),
     "hooks": (".cmd_hooks", "hooks"),

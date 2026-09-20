@@ -13,6 +13,10 @@ Commands for handing off, resuming, checkpointing, and analyzing gptme sessions.
    :prog: gptme-resume
    :nested: full
 
+.. click:: gptme.cli.cmd_checkpoint_session:checkpoint_session
+   :prog: gptme checkpoint-session
+   :nested: full
+
 .. click:: gptme.cli.checkpoint:main
    :prog: gptme-checkpoint
    :nested: full

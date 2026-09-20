@@ -27,6 +27,7 @@ from . import (  # noqa: F401
     meta,
     rag,
     session,
+    session_checkpoint,
     snapshot,
 )
 
