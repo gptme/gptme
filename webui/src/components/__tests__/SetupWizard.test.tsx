@@ -142,7 +142,9 @@ jest.mock('@/components/ui/dialog', () => {
     },
     DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    DialogHeader: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+      <div {...props}>{children}</div>
+    ),
     DialogTitle: ({ children }: { children: React.ReactNode }) => <h1>{children}</h1>,
   };
 });
@@ -1568,6 +1570,7 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
 
     await waitFor(() => {
+      expect(screen.getByTestId('setup-wizard-provider')).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
     });
 

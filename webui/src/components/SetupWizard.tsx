@@ -884,7 +884,7 @@ export function SetupWizard() {
 
         {step === 'provider' && (
           <>
-            <DialogHeader>
+            <DialogHeader data-testid="setup-wizard-provider">
               <DialogTitle>Configure a provider</DialogTitle>
               <DialogDescription>
                 The server is running, but it does not have an LLM provider yet.

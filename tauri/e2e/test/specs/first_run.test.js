@@ -50,7 +50,7 @@ describe("Real first-run flow", () => {
       await new Promise((r) => setTimeout(r, 500));
     }
     throw new Error(
-      `Sidecar did not become ready on ${url} within ${timeoutMs}ms (last: ${lastError})`
+      `Sidecar did not become ready on ${url} within ${timeoutMs}ms (last: ${lastError})`,
     );
   }
 
@@ -101,7 +101,7 @@ describe("Real first-run flow", () => {
       {
         timeout: 30000,
         timeoutMsg: "App did not reach readyState=complete within 30s",
-      }
+      },
     );
 
     // 2. Wait for the wizard's "Get started" button. The wizard auto-opens when
@@ -120,7 +120,7 @@ describe("Real first-run flow", () => {
     } catch (err) {
       throw new Error(
         "SetupWizard 'Get started' button did not appear within 30s: " +
-          (await describeWebview())
+          (await describeWebview()),
       );
     }
     await getStartedBtn.click();
@@ -151,6 +151,11 @@ describe("Real first-run flow", () => {
     //        render only while isConnected is true), or
     //      - the wizard advancing past the Local step (checkProviderAndAdvance
     //        runs only on a successful connect): provider step or complete step.
+    //
+    //    Use a stable test contract for the provider step. WebDriver's partial
+    //    link-text selector only matches anchors, so it cannot find the
+    //    existing "Bring your own API key" paragraph even when connection and
+    //    provider detection both succeeded.
     try {
       await browser.waitUntil(
         async () => {
@@ -159,21 +164,25 @@ describe("Real first-run flow", () => {
             if (await (await $("*=Connected to server")).isExisting())
               return true;
             if (await (await $("*=You're all set!")).isExisting()) return true;
-            if (await (await $("*=Bring your own API key")).isExisting())
+            if (
+              await (
+                await $("[data-testid='setup-wizard-provider']")
+              ).isExisting()
+            )
               return true;
             return false;
           } catch (_e) {
             return false;
           }
         },
-        { timeout: 15000 }
+        { timeout: 15000 },
       );
     } catch (err) {
       // Same reason as the wizard wait above: name what the UI showed (a
       // connect error toast/message, or the wizard stuck on the Local step).
       throw new Error(
         "Connect did not succeed within 15s (no connected signal appeared): " +
-          (await describeWebview())
+          (await describeWebview()),
       );
     }
 
