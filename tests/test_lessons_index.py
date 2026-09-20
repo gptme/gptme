@@ -234,6 +234,59 @@ Lesson, not a skill.
         # The duplicate skill collapses, but the unrelated lesson survives.
         assert len(index.lessons) == 2
 
+    def test_dedup_uses_declared_name_not_directory(self, tmp_path: Path):
+        """Declared metadata.name is the identity, not the parent directory.
+
+        Two skills with different declared names under same-named directories
+        (e.g. two ``shared/`` dirs) must both survive; two copies with the
+        same declared name under differently named dirs must collapse.
+        """
+        clear_cache()
+        skills_dir = tmp_path / "skills"
+        self._write_skill(skills_dir, "shared", "alpha", "first")
+        self._write_skill(skills_dir, "snapshot-x", "beta", "second")
+
+        index = LessonIndex([skills_dir])
+
+        assert len(index.lessons) == 2
+        assert {lesson.metadata.name for lesson in index.lessons} == {
+            "alpha",
+            "beta",
+        }
+
+        # Same declared name under different directory names collapses.
+        clear_cache()
+        skills_dir2 = tmp_path / "skills2"
+        self._write_skill(skills_dir2, "pack-one", "deploy-helper", "first")
+        self._write_skill(skills_dir2, "other-name", "deploy-helper", "second")
+
+        index2 = LessonIndex([skills_dir2])
+
+        assert len(index2.lessons) == 1
+        assert index2.lessons[0].metadata.name == "deploy-helper"
+
+    def test_malformed_skill_does_not_block_valid_copy(self, tmp_path: Path):
+        """A parse failure must not reserve the skill name.
+
+        If an earlier directory contains a malformed copy, the later valid
+        copy must still be indexed instead of being rejected as a duplicate.
+        """
+        clear_cache()
+        bad_dir = tmp_path / "bad" / "skills"
+        bad_skill = bad_dir / "deploy-helper"
+        bad_skill.mkdir(parents=True)
+        (bad_skill / "SKILL.md").write_text("---\nname: [unclosed\n")
+
+        good_dir = tmp_path / "good" / "skills"
+        self._write_skill(good_dir, "snapshot-a", "deploy-helper", "valid")
+
+        index = LessonIndex([bad_dir, good_dir])
+
+        assert len(index.lessons) == 1
+        assert index.lessons[0].metadata.name == "deploy-helper"
+        assert "good" in index.lessons[0].path.as_posix()
+        assert "Content for valid." in index.lessons[0].body
+
 
 class TestLessonDeduplication:
     """Tests for lesson deduplication feature.

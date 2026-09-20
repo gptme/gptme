@@ -359,8 +359,16 @@ class LessonIndex:
                 directory,
                 seen_paths,
                 seen_rel_paths,
-                seen_skill_names,
             ):
+                skipped_duplicates += 1
+                continue
+
+            stub_skill_name = (lesson.metadata.name or lesson.path.parent.name).lower()
+            if stub_skill_name in seen_skill_names:
+                logger.debug(
+                    f"Skipping duplicate skill: {stub_skill_name} "
+                    f"(same skill name already indexed from earlier directory)"
+                )
                 skipped_duplicates += 1
                 continue
 
@@ -370,6 +378,7 @@ class LessonIndex:
                 )
                 continue
 
+            seen_skill_names.add(stub_skill_name)
             self.lessons.append(lesson)
 
         # Find both .md and .mdc files
@@ -400,7 +409,6 @@ class LessonIndex:
                 directory,
                 seen_paths,
                 seen_rel_paths,
-                seen_skill_names,
             ):
                 skipped_duplicates += 1
                 continue
@@ -411,17 +419,51 @@ class LessonIndex:
                     cache_hits += 1
                 else:
                     cache_misses += 1
+            except Exception as e:
+                # Parse failures must not reserve the skill name: a later,
+                # valid copy of the same skill should still be indexed.
+                logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
+                continue
 
-                # Filter based on status - only include active lessons
-                if lesson.metadata.status != "active":
-                    logger.debug(
-                        f"Skipping {lesson.metadata.status} lesson: {lesson_file.relative_to(directory)}"
+            # Skills are identified by their declared name, not by file path:
+            # the file is always SKILL.md, so relative-path dedup can never
+            # collapse two copies of the same skill (backup/snapshot dirs,
+            # versioned skill packs). The name is reserved only after the
+            # lesson parses cleanly.
+            skill_name: str | None = None
+            if lesson_file.name.upper() == "SKILL.MD":
+                if lesson.metadata.name:
+                    skill_name = lesson.metadata.name.lower()
+                elif lesson_file.read_text(encoding="utf-8").startswith("---"):
+                    # Frontmatter delimiter present but nothing parsed: the
+                    # frontmatter failed to parse. Skip it — and do not
+                    # reserve the skill name, so a later valid copy of the
+                    # same skill is still indexable.
+                    logger.warning(
+                        f"Skipping skill with unparseable frontmatter: {lesson_file}"
                     )
                     continue
+                else:
+                    # No frontmatter at all: fall back to the directory name.
+                    skill_name = lesson_file.parent.name.lower()
+            if skill_name is not None and skill_name in seen_skill_names:
+                logger.debug(
+                    f"Skipping duplicate skill: {skill_name} "
+                    f"(same skill name already indexed from earlier directory)"
+                )
+                skipped_duplicates += 1
+                continue
 
-                self.lessons.append(lesson)
-            except Exception as e:
-                logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
+            # Filter based on status - only include active lessons
+            if lesson.metadata.status != "active":
+                logger.debug(
+                    f"Skipping {lesson.metadata.status} lesson: {lesson_file.relative_to(directory)}"
+                )
+                continue
+
+            if skill_name is not None:
+                seen_skill_names.add(skill_name)
+            self.lessons.append(lesson)
 
         return cache_hits, cache_misses, skipped_duplicates
 
@@ -558,9 +600,8 @@ class LessonIndex:
         directory: Path,
         seen_paths: set[str],
         seen_rel_paths: set[str],
-        seen_skill_names: set[str],
     ) -> bool:
-        """Reserve a lesson slot for deduplication, first directory wins."""
+        """Reserve a lesson path slot for deduplication, first directory wins."""
         try:
             relative_name = lesson_file.relative_to(directory).as_posix()
         except ValueError:
@@ -584,26 +625,8 @@ class LessonIndex:
             )
             return False
 
-        # Skills are identified by name, not by file path: the skill directory
-        # is named after the skill and the file is always SKILL.md. Without this
-        # check, two copies of the same skill (e.g. a backup/snapshot dir or a
-        # versioned skill pack) are both indexed and listed as separate skills.
-        skill_name = (
-            lesson_file.parent.name.lower()
-            if lesson_file.name.upper() == "SKILL.MD"
-            else None
-        )
-        if skill_name is not None and skill_name in seen_skill_names:
-            logger.debug(
-                f"Skipping duplicate skill: {skill_name} "
-                f"(same skill name already indexed from earlier directory)"
-            )
-            return False
-
         seen_paths.add(resolved_path)
         seen_rel_paths.add(relative_name)
-        if skill_name is not None:
-            seen_skill_names.add(skill_name)
         return True
 
     def materialize_lesson(self, lesson: Lesson) -> Lesson:
