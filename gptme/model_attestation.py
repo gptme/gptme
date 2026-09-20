@@ -24,7 +24,14 @@ class ModelSelectionSource:
     """Describes where the model selection came from."""
 
     kind: Literal[
-        "cli", "api_request", "chat_config", "models.default", "MODEL", "acp_runtime"
+        "cli",
+        "api_request",
+        "chat_config",
+        "environment",
+        "project",
+        "models.default",
+        "MODEL",
+        "acp_runtime",
     ]
     """Source of the model selection."""
 
@@ -211,7 +218,14 @@ def create_selection_trace(
     requested_model: str,
     resolved_model: str,
     source_kind: Literal[
-        "cli", "api_request", "chat_config", "models.default", "MODEL", "acp_runtime"
+        "cli",
+        "api_request",
+        "chat_config",
+        "environment",
+        "project",
+        "models.default",
+        "MODEL",
+        "acp_runtime",
     ],
     source_value: str,
     transport_provider: str,

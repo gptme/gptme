@@ -26,6 +26,7 @@ from gptme.config.user import (
     USER_CONFIG_SOURCE_RUNTIME,
     default_config,
     get_default_model_source,
+    get_model_source_origin,
     get_user_config_env_source,
     get_user_config_paths,
     get_user_config_runtime_info,
@@ -1058,7 +1059,7 @@ def restore_config_var():
             "anthropic/claude-sonnet-4-6",
             None,
             "xai/grok-4",
-            "MODEL",
+            "environment",
         ),
         # A project's gptme.toml [env].MODEL beats a global [models].default.
         (
@@ -1069,7 +1070,7 @@ def restore_config_var():
             "anthropic/claude-sonnet-4-6",
             None,
             "openai/gpt-4o",
-            "MODEL",
+            "project",
         ),
         # [models].default still beats [env].MODEL in that same user config.
         (
@@ -1105,7 +1106,7 @@ def restore_config_var():
             "anthropic/claude-sonnet-4-6",
             "openai/gpt-4o-mini",
             "openai/gpt-4o-mini",
-            "MODEL",
+            "environment",
         ),
         # Same collision via a project gptme.toml rather than the shell.
         (
@@ -1116,7 +1117,7 @@ def restore_config_var():
             "anthropic/claude-sonnet-4-6",
             "openai/gpt-4o-mini",
             "openai/gpt-4o-mini",
-            "MODEL",
+            "project",
         ),
     ],
 )
@@ -1201,7 +1202,7 @@ def test_setup_config_resumed_chat_env_model_beats_default(
 
     assert config.chat is not None
     assert config.chat.model == "openai/gpt-4o"
-    assert config._model_source == ("MODEL", "openai/gpt-4o")
+    assert config._model_source == ("chat_config", "openai/gpt-4o")
 
 
 def test_reload_config_clears_tools(monkeypatch, tmp_path):
@@ -1726,6 +1727,27 @@ def test_runtime_config_source_precedence(
             USER_CONFIG_SOURCE_ENV if section == "env" else USER_CONFIG_SOURCE_LOCAL
         )
         monkeypatch.delenv(env_key)
+
+
+def test_model_source_origin_distinguishes_default_from_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    main = tmp_path / "config.toml"
+    main.write_text(
+        '[env]\nMODEL = "openai/gpt-4o-mini"\n\n[models]\ndefault = "openai/gpt-4o"\n',
+        encoding="utf-8",
+    )
+
+    assert get_model_source_origin("models.default", str(main)) == (
+        USER_CONFIG_SOURCE_MAIN
+    )
+    assert get_model_source_origin("MODEL", str(main)) == USER_CONFIG_SOURCE_MAIN
+
+    local = tmp_path / "config.local.toml"
+    local.write_text('[env]\nMODEL = "local/model"\n', encoding="utf-8")
+    assert get_model_source_origin("MODEL", str(main)) == USER_CONFIG_SOURCE_LOCAL
 
 
 def test_runtime_models_default_preserves_priority_over_env(

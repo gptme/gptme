@@ -30,7 +30,14 @@ from .user import load_user_config
 
 logger = logging.getLogger(__name__)
 
-ModelSourceKind = Literal["cli", "chat_config", "models.default", "MODEL"]
+ModelSourceKind = Literal[
+    "cli",
+    "chat_config",
+    "environment",
+    "project",
+    "models.default",
+    "MODEL",
+]
 
 
 @dataclass()
@@ -298,18 +305,18 @@ def resolve_model_source(
     env_model = config.get_env("MODEL")
     if env_model:
         user_env_model = config.user.env.get("MODEL")
-        if env_model != user_env_model:
-            return env_model, "MODEL"
-        # Same string as the user config's [env].MODEL. A more specific layer
-        # may hold that string too, and those still outrank [models].default.
         if env_model in (
             os.environ.get("GPTME_MODEL"),
             os.environ.get("MODEL"),
         ):
-            return env_model, "MODEL"
+            return env_model, "environment"
         if config.chat and config.chat.env.get("MODEL") == env_model:
-            return env_model, "MODEL"
+            return env_model, "chat_config"
         if config.project and config.project.env.get("MODEL") == env_model:
+            return env_model, "project"
+        if env_model != user_env_model:
+            # Defensive fallback for a future Config.get_env layer that has not
+            # yet been represented structurally above.
             return env_model, "MODEL"
 
     if default := config.user.models.default:

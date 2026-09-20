@@ -358,7 +358,7 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
 
 
 def get_default_model_source(path: str | None = None) -> str | None:
-    """Return where the default model comes from.
+    """Return where the effective default model comes from.
 
     Precedence mirrors model resolution: ``[models].default`` (local, main,
     then runtime defaults) takes priority, then ``MODEL`` env var / ``[env]``.
@@ -378,6 +378,16 @@ def get_default_model_source(path: str | None = None) -> str | None:
     ):
         return USER_CONFIG_SOURCE_RUNTIME
     return get_user_config_env_source("MODEL", path)
+
+
+def get_model_source_origin(source_kind: str, path: str | None = None) -> str | None:
+    """Resolve a structural model source to its concrete user-config layer."""
+    if source_kind == "MODEL":
+        return get_user_config_env_source("MODEL", path)
+    if source_kind == "models.default":
+        source = get_default_model_source(path)
+        return source if source != USER_CONFIG_SOURCE_ENV else None
+    return None
 
 
 def get_user_config_runtime_info(path: str | None = None) -> dict[str, str | bool]:

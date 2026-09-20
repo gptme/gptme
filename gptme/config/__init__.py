@@ -32,6 +32,7 @@ from .models import (
     LessonsConfig,
     MCPConfig,
     MCPServerConfig,
+    ModelsConfig,
     PluginsConfig,
     ProjectConfig,
     ProviderConfig,
@@ -52,6 +53,8 @@ from .trust import (
 from .user import (
     config_path,
     default_config,
+    get_default_model_source,
+    get_model_source_origin,
     load_user_config,
     save_provider_config,
     set_config_value,
@@ -68,6 +71,7 @@ __all__ = [
     "LessonsConfig",
     "MCPConfig",
     "MCPServerConfig",
+    "ModelsConfig",
     "PluginsConfig",
     "ProjectConfig",
     "ProviderConfig",
@@ -87,6 +91,8 @@ __all__ = [
     "set_config_from_workspace",
     "reload_config",
     # Loading functions
+    "get_default_model_source",
+    "get_model_source_origin",
     "load_user_config",
     "get_project_config",
     "setup_config_from_cli",
