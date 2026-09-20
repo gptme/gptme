@@ -197,8 +197,10 @@ If you already subscribe to ChatGPT Plus/Pro or SuperGrok, you can sign in direc
 
 If provider setup is missing or no longer works, run ``gptme-doctor --fix`` in
 a terminal. It diagnoses the current configuration, offers the existing
-provider setup flow, and checks the result once more. Piped and ``--json``
-invocations stay read-only.
+provider setup flow, and checks the result once more. Provider checks validate
+authentication without sending a paid completion; where a provider exposes
+free quota metadata, doctor warns when that quota is exhausted. Piped and
+``--json`` invocations stay read-only.
 
 For detailed usage instructions, see :doc:`usage`.
 
