@@ -23,8 +23,9 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
 
 
 def _strip_controls(value: str) -> str:
-    """Strip terminal control characters from human-readable output."""
-    return _CONTROL_CHARS_RE.sub("", value)
+    """Make persisted text safe for a strict UTF-8 terminal."""
+    without_controls = _CONTROL_CHARS_RE.sub("", value)
+    return without_controls.encode("utf-8", errors="backslashreplace").decode("utf-8")
 
 
 def _resolve_session(session: str | None) -> Path:

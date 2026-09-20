@@ -297,6 +297,13 @@ def test_save_preserves_non_utf8_workspace_path(logs_dir: Path) -> None:
     assert any(change.path == expected_path for change in loaded.file_changes)
     assert b"invalid-\\udcff.txt" in path.read_bytes()
 
+    resumed = CliRunner().invoke(
+        checkpoint_session,
+        ["resume", "non-utf8-path", "--session", str(logdir)],
+    )
+    assert resumed.exit_code == 0, resumed.output
+    assert r"invalid-\udcff.txt" in resumed.output
+
 
 def test_cli_save_list_and_resume(logs_dir: Path) -> None:
     logdir = _make_session(logs_dir)
