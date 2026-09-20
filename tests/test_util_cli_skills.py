@@ -268,3 +268,98 @@ def test_skills_dirs(tmp_path, mocker):
     assert "-" in result.output  # missing dir marker
     assert "1 files" in result.output
     assert "not found" in result.output
+
+
+def test_skills_hidden_subdirs_excluded(tmp_path, mocker):
+    """Skills in hidden subdirectories (e.g. .trash/) are not indexed."""
+    # Live skill under the scan root
+    live_dir = tmp_path / "deploy-helper"
+    live_dir.mkdir(parents=True)
+    (live_dir / "SKILL.md").write_text(
+        """---
+name: deploy-helper
+description: Automates deployment workflows
+---
+
+# Deploy Helper
+
+Live skill content.
+"""
+    )
+
+    # Also add a unique skill that lives only in .trash/ — it must be fully suppressed
+    trash_dir = tmp_path / ".trash" / "snap-a" / "trash-only-skill"
+    trash_dir.mkdir(parents=True)
+    (trash_dir / "SKILL.md").write_text(
+        """---
+name: trash-only-skill
+description: Should not appear
+---
+
+# Trash Only Skill
+
+Deleted skill content.
+"""
+    )
+
+    # A hidden-dir copy of the live skill should also be suppressed
+    trash_live = tmp_path / ".trash" / "snap-a" / "deploy-helper"
+    trash_live.mkdir(parents=True)
+    (trash_live / "SKILL.md").write_text(
+        """---
+name: deploy-helper
+description: Old deleted copy
+---
+
+# Deploy Helper
+
+Deleted skill content.
+"""
+    )
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "list"])
+    assert result.exit_code == 0
+
+    # Hidden-dir-only skill is fully suppressed
+    assert "trash-only-skill" not in result.output
+    assert "Should not appear" not in result.output
+    # Live skill is present; deleted copy description must not appear
+    assert "Automates deployment workflows" in result.output
+    assert "Old deleted copy" not in result.output
+
+
+def test_skills_hidden_scan_root_still_indexed(tmp_path, mocker):
+    """A hidden scan root (e.g. ~/.claude/skills) is itself indexed normally."""
+    # The scan root directory name starts with '.' — must still be scanned
+    hidden_root = tmp_path / ".claude" / "skills"
+    hidden_root.mkdir(parents=True)
+
+    skill_dir = hidden_root / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: my-skill
+description: Skill under a hidden scan root
+---
+
+# My Skill
+
+Content.
+"""
+    )
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[hidden_root],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "list"])
+    assert result.exit_code == 0
+    assert "my-skill" in result.output

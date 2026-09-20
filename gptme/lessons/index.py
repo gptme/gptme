@@ -384,6 +384,15 @@ class LessonIndex:
                 logger.debug(f"Skipping lesson in excluded directory: {lesson_file}")
                 continue
 
+            # Skip files in hidden subdirectories below the scan root.
+            # E.g. ~/.claude/skills/.trash/<snap>/<skill>/SKILL.md should not win
+            # over the live copy. The scan root itself may be hidden (e.g.
+            # ~/.claude/skills) — only sub-components are checked.
+            rel_parts = lesson_file.relative_to(directory).parts
+            if any(part.startswith(".") for part in rel_parts[:-1]):
+                logger.debug(f"Skipping lesson in hidden subdirectory: {lesson_file}")
+                continue
+
             if not self._claim_lesson_slot(
                 lesson_file, directory, seen_paths, seen_rel_paths
             ):
