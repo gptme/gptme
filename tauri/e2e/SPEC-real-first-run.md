@@ -46,7 +46,7 @@ follow-up work.
 
 3. **Build the Tauri debug binary with `tauri/custom-protocol`** so it embeds the real `frontendDist` instead of loading an unserved Vite `devUrl`.
 
-4. **Assign `GPTME_SERVER_PORT` dynamically in `wdio.conf.js`** before the app starts. The app and test inherit the same isolated port, avoiding collisions without killing unrelated listeners.
+4. **Assign `GPTME_SERVER_PORT` dynamically in `wdio.conf.js`'s `onPrepare` hook** before `tauri-driver` starts. The driver, app, and test inherit the same isolated port, avoiding collisions without killing unrelated listeners. `beforeSession` is too late because it runs in the worker after the launcher has spawned `tauri-driver`.
 
 ### Runtime estimate
 - `npm ci` in `webui/`: ~1 min (cached)
@@ -68,9 +68,10 @@ The current E2E job finishes in ~7 min (build + driver install + test). This wou
 
 ### Steps
 1. Wait for the SetupWizard dialog to appear.
-2. Click "Local setup" (the button that selects the local server path).
-3. Click "Connect".
-4. Wait for an `isConnected`-derived UI signal or the provider/completion step.
+2. Select the stable `setup-wizard-get-started` test hook.
+3. Select the stable `setup-wizard-local` test hook.
+4. Click "Connect".
+5. Wait for an `isConnected`-derived UI signal or the provider/completion step.
 
 ### Negative control
 A build with #3882 reverted (or a manually broken `getBundledLoopbackOrigin()`) should fail step 4 or 5. This validates the test's sensitivity.

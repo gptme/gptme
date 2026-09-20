@@ -114,7 +114,7 @@ describe("Real first-run flow", () => {
     //    Forcing `hasCompletedSetup` via `browser.execute(() => localStorage...)`
     //    is not possible: WebDriver's script context cannot access page storage on
     //    tauri:// origins (SecurityError: "The operation is insecure.").
-    const getStartedBtn = await $("button=Get started");
+    const getStartedBtn = await $("[data-testid='setup-wizard-get-started']");
     try {
       await getStartedBtn.waitForExist({ timeout: 30000 });
     } catch (err) {
@@ -125,8 +125,9 @@ describe("Real first-run flow", () => {
     }
     await getStartedBtn.click();
 
-    // 5. In "Choose your setup", click "Local"
-    const localBtn = await $("//button[contains(., 'Local')]");
+    // 5. In "Choose your setup", click the Local option through its stable
+    //    test contract rather than matching user-facing copy.
+    const localBtn = await $("[data-testid='setup-wizard-local']");
     await expect(localBtn).toExist();
     await localBtn.click();
 

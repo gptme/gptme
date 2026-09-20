@@ -5,7 +5,37 @@ const { homedir } = require("os");
 const { rmSync, existsSync } = require("fs");
 
 let tauriDriver;
-let sidecarPort;
+
+async function reserveSidecarPort() {
+  return new Promise((resolvePort, rejectPort) => {
+    const server = net.createServer();
+    let settled = false;
+    const rejectOnce = (error) => {
+      if (settled) return;
+      settled = true;
+      rejectPort(error);
+    };
+
+    server.once("error", rejectOnce);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        rejectOnce(new Error("Could not allocate an E2E sidecar port"));
+        return;
+      }
+      server.close((error) => {
+        if (error) {
+          rejectOnce(error);
+          return;
+        }
+        if (settled) return;
+        settled = true;
+        resolvePort(address.port);
+      });
+    });
+  });
+}
 
 async function waitForDriverReady(driverProcess, port, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
@@ -65,32 +95,7 @@ exports.config = {
   port: 4444,
   path: "/",
 
-  // Give every E2E run an OS-assigned sidecar port. This isolates the suite
-  // from independently managed local servers and removes the need to kill an
-  // arbitrary process that happens to own the default port. Both the Tauri app
-  // and first_run.test.js inherit this environment variable.
   beforeSession: async () => {
-    if (!sidecarPort) {
-      sidecarPort = await new Promise((resolvePort, rejectPort) => {
-        const server = net.createServer();
-        server.once("error", rejectPort);
-        server.listen(0, "127.0.0.1", () => {
-          const address = server.address();
-          if (!address || typeof address === "string") {
-            server.close();
-            rejectPort(new Error("Could not allocate an E2E sidecar port"));
-            return;
-          }
-          server.close((error) => {
-            if (error) rejectPort(error);
-            else resolvePort(address.port);
-          });
-        });
-      });
-      process.env.GPTME_SERVER_PORT = String(sidecarPort);
-      console.log(`[wdio] Reserved sidecar port ${sidecarPort}`);
-    }
-
     // Clear the Tauri WebKit user-data directory so each test starts with a
     // clean localStorage / hasCompletedSetup=false.
     const candidates = [
@@ -108,9 +113,17 @@ exports.config = {
   },
 
   onPrepare: async () => {
+    // Reserve the sidecar port before tauri-driver starts. The driver launches
+    // each Tauri app process, so assigning the variable in beforeSession is too
+    // late: only the worker/test would see it, while the app would use 5700.
+    const sidecarPort = await reserveSidecarPort();
+    process.env.GPTME_SERVER_PORT = String(sidecarPort);
+    console.log(`[wdio] Reserved sidecar port ${sidecarPort}`);
+
     // Launch tauri-driver alongside tests and wait for it to accept sessions.
     tauriDriver = spawn("tauri-driver", [], {
       stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
     });
     tauriDriver.stdout.pipe(process.stdout);
     tauriDriver.stderr.pipe(process.stderr);

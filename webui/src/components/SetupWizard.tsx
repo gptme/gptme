@@ -594,7 +594,11 @@ export function SetupWizard() {
               <Button variant="ghost" onClick={closeWizard}>
                 Skip for now
               </Button>
-              <Button onClick={() => setStep('mode')} className="gap-2">
+              <Button
+                onClick={() => setStep('mode')}
+                className="gap-2"
+                data-testid="setup-wizard-get-started"
+              >
                 Get started
                 <ArrowRight className="h-4 w-4" />
               </Button>
@@ -613,6 +617,7 @@ export function SetupWizard() {
                 onClick={() => setStep('local')}
                 disabled={isDeterminingTauriMode}
                 className="flex items-start gap-4 rounded-lg border p-4 text-left transition-colors hover:bg-accent"
+                data-testid="setup-wizard-local"
               >
                 <Monitor className="mt-0.5 h-6 w-6 shrink-0" />
                 <div>
