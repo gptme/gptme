@@ -28,6 +28,7 @@ from gptme.commands.base import CommandContext
 from gptme.commands.session_checkpoint import cmd_session_checkpoint
 from gptme.logmanager import LogManager
 from gptme.message import Message
+from gptme.tools import ToolUse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -160,6 +161,17 @@ def test_concurrent_save_without_overwrite_has_one_winner(logs_dir: Path) -> Non
     assert load_conversation_checkpoint(logdir, "milestone").summary == successes[0]
 
 
+def test_save_syncs_checkpoint_namespace(logs_dir: Path) -> None:
+    logdir = _make_session(logs_dir)
+
+    with patch("gptme.checkpoint_session.sync_directories") as sync:
+        save_conversation_checkpoint(logdir, "durable")
+
+    sync.assert_called_once()
+    assert sync.call_args.args == ({logdir / "checkpoints"},)
+    assert sync.call_args.kwargs == {"root": logdir}
+
+
 @pytest.mark.parametrize("label", ["../escape", "two words", "", "/absolute"])
 def test_save_rejects_unsafe_labels(logs_dir: Path, label: str) -> None:
     logdir = _make_session(logs_dir)
@@ -183,7 +195,11 @@ def test_list_skips_corrupt_checkpoint(logs_dir: Path) -> None:
         ("context_boundary.model_limit", False),
         ("context_boundary.pct_used", "0.5"),
         ("last_tool_calls", [{"tool": 1, "description": "shell"}]),
+        ("last_tool_calls", [{"tool": None, "description": "shell"}]),
+        ("last_tool_calls", [{"tool": "shell", "description": None}]),
         ("file_changes", [{"path": "x", "action": [], "lines": None}]),
+        ("file_changes", [{"path": None, "action": "modified", "lines": None}]),
+        ("file_changes", [{"path": "x", "action": None, "lines": None}]),
     ],
 )
 def test_list_skips_checkpoint_with_invalid_field_types(
@@ -224,6 +240,34 @@ def test_recent_native_tool_calls_do_not_merge() -> None:
     assert [call.command for call in calls] == ["echo 1", "echo 2"]
 
 
+def test_recent_tool_calls_supports_all_formats() -> None:
+    markdown = ToolUse("shell", [], "echo markdown").to_output("markdown")
+    xml = ToolUse("save", ["note.txt"], "saved").to_output("xml")
+    native = '@shell(call-1): {\n  "command": "echo native"\n}'
+
+    calls = recent_tool_calls([Message("assistant", f"{markdown}\n{xml}\n{native}")])
+
+    assert [call.tool for call in calls] == ["shell", "save", "shell"]
+    assert calls[0].command == "echo markdown"
+    assert calls[1].file == "note.txt"
+    assert calls[2].command == "echo native"
+
+
+def test_summary_compacts_xml_and_four_backtick_tool_calls() -> None:
+    content = "\n".join(
+        (
+            ToolUse("shell", [], "echo xml").to_output("xml"),
+            "````shell\necho fenced\n````",
+        )
+    )
+
+    summary = default_summary([Message("assistant", content)])
+
+    assert summary.count("[tool call: shell]") == 2
+    assert "echo xml" not in summary
+    assert "echo fenced" not in summary
+
+
 def test_ordinary_code_fences_are_preserved_in_summary() -> None:
     content = "Use this implementation:\n\n```python\nprint('keep me')\n```"
 
@@ -242,6 +286,21 @@ def test_recent_tool_calls_respects_limit() -> None:
     assert len(calls) == 5
     assert calls[0].command == "echo 2"
     assert calls[-1].command == "echo 6"
+
+
+def test_working_tree_changes_disables_external_diff_hooks(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
+
+    with patch("gptme.checkpoint_session.subprocess.run") as run:
+        run.return_value.returncode = 0
+        run.return_value.stdout = b""
+        working_tree_changes(workspace)
+
+    numstat = run.call_args_list[1].args[0]
+    assert "--no-textconv" in numstat
+    assert "--no-ext-diff" in numstat
 
 
 def test_working_tree_changes_preserves_unusual_paths(tmp_path: Path) -> None:

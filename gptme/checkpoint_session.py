@@ -22,7 +22,9 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from .config import ChatConfig
 from .llm.models import get_model
 from .logmanager import Log
+from .logmanager.durability import existing_parent, sync_directories
 from .tools import get_available_tools, get_tools
+from .tools.base import ToolFormat, ToolUse, find_json_end, toolcall_re
 from .util.git_cmd import git_inspect_cmd
 from .util.tokens import len_tokens
 
@@ -32,12 +34,12 @@ _LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 _FILE_KEYS = ("path", "file", "filename")
 _WRITE_TOOLS = frozenset({"append", "morph", "patch", "save"})
 _TOOL_BLOCK_RE = re.compile(
-    r"```(?P<tool>[A-Za-z0-9_.-]+)(?P<args>[^\n]*)\n(?P<content>.*?)```",
+    r"(?P<fence>`{3,})(?P<tool>[A-Za-z0-9_.-]+)(?P<args>[^\n]*)\n"
+    r"(?P<content>.*?)(?P=fence)",
     re.DOTALL,
 )
-_NATIVE_TOOL_RE = re.compile(
-    r"^@(?P<tool>[\w.]+)\([^)]+\):\s*(?P<payload>\{[^\n]*\})$",
-    re.MULTILINE,
+_XML_TOOL_RE = re.compile(
+    r"<(?:tool-use|function_calls)>.*?</(?:tool-use|function_calls)>", re.DOTALL
 )
 
 if TYPE_CHECKING:
@@ -189,6 +191,10 @@ def _decode_records(
 ) -> list[_RecordT]:
     if not isinstance(value, list):
         raise TypeError(f"{field_name} must be a list")
+    required = {
+        ToolCallSnapshot: frozenset({"tool", "description"}),
+        FileChange: frozenset({"path", "action"}),
+    }[record_type]
     records: list[_RecordT] = []
     for item in value:
         if not isinstance(item, dict):
@@ -196,7 +202,13 @@ def _decode_records(
         record = record_type(**item)
         for field in dataclasses.fields(cast(Any, record)):
             field_value = getattr(record, field.name)
-            if field_value is not None and not isinstance(field_value, str):
+            if field.name in required and not isinstance(field_value, str):
+                raise TypeError(f"{field_name}.{field.name} must be a string")
+            if (
+                field.name not in required
+                and field_value is not None
+                and not isinstance(field_value, str)
+            ):
                 raise TypeError(f"{field_name}.{field.name} must be a string or null")
         records.append(record)
     return records
@@ -279,9 +291,28 @@ def _strip_tool_payloads(content: str) -> str:
         ),
         content,
     )
-    return _NATIVE_TOOL_RE.sub(
-        lambda match: f"[tool call: {match.group('tool')}]", content
-    )
+
+    def replace_xml(match: re.Match[str]) -> str:
+        markers = [
+            f"[tool call: {tool_use.tool}]"
+            for tool_use in ToolUse.iter_from_content(
+                match.group(0), tool_format_override="xml"
+            )
+        ]
+        return "\n".join(markers) if markers else match.group(0)
+
+    content = _XML_TOOL_RE.sub(replace_xml, content)
+    native_ranges: list[tuple[int, int, str]] = []
+    search_from = 0
+    while match := toolcall_re.search(content, search_from):
+        json_end = find_json_end(content, match.start(3))
+        if json_end is None:
+            break
+        native_ranges.append((match.start(), json_end, match.group(1)))
+        search_from = json_end
+    for start, end, tool in reversed(native_ranges):
+        content = f"{content[:start]}[tool call: {tool}]{content[end:]}"
+    return content
 
 
 def default_summary(messages: list[Message], max_chars: int = 4000) -> str:
@@ -329,6 +360,8 @@ def _snapshot_tool_call(
     file_path = next((value(key) for key in _FILE_KEYS if value(key)), None)
     if file_path is None and tool in _WRITE_TOOLS and args:
         file_path = args[0]
+        if file_path.startswith(f"{tool} "):
+            file_path = file_path.removeprefix(f"{tool} ")
     command = value("command")
     if command is None and tool in {"shell", "shell_compact"}:
         command = content
@@ -344,30 +377,22 @@ def _snapshot_tool_call(
 
 def _tool_calls_from_content(content: str) -> list[ToolCallSnapshot]:
     calls: list[tuple[int, ToolCallSnapshot]] = []
-    block_names = _tool_block_names()
-    for match in _TOOL_BLOCK_RE.finditer(content):
-        tool = match.group("tool")
-        if tool not in block_names:
-            continue
-        args = match.group("args").strip().split()
-        calls.append(
-            (
-                match.start(),
-                _snapshot_tool_call(
-                    tool, args=args or None, content=match.group("content").rstrip()
-                ),
-            )
-        )
-    for match in _NATIVE_TOOL_RE.finditer(content):
-        try:
-            payload = json.loads(match.group("payload"))
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
+    for tool_format in cast(tuple[ToolFormat, ...], ("markdown", "xml", "tool")):
+        for tool_use in ToolUse.iter_from_content(
+            content, tool_format_override=tool_format
+        ):
+            if tool_format == "tool" and tool_use._format != "tool":
+                continue
+            position = tool_use.start if tool_use.start is not None else len(content)
             calls.append(
                 (
-                    match.start(),
-                    _snapshot_tool_call(match.group("tool"), kwargs=payload),
+                    position,
+                    _snapshot_tool_call(
+                        tool_use.tool,
+                        args=tool_use.args,
+                        content=tool_use.content,
+                        kwargs=tool_use.kwargs,
+                    ),
                 )
             )
     return [snapshot for _, snapshot in sorted(calls, key=lambda item: item[0])]
@@ -410,7 +435,18 @@ def working_tree_changes(workspace: Path) -> list[FileChange]:
     if status is None:
         return []
 
-    numstat = _git_output(workspace, "diff", "--numstat", "-z", "HEAD") or b""
+    numstat = (
+        _git_output(
+            workspace,
+            "diff",
+            "--no-textconv",
+            "--no-ext-diff",
+            "--numstat",
+            "-z",
+            "HEAD",
+        )
+        or b""
+    )
     line_counts: dict[str, str] = {}
     for record in numstat.split(b"\0"):
         if not record:
@@ -490,6 +526,7 @@ def save_conversation_checkpoint(
         raise ConversationCheckpointError(
             f"Checkpoint {label!r} already exists; pass --overwrite to replace it."
         )
+    sync_root = existing_parent(path.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
     try:
@@ -511,6 +548,7 @@ def save_conversation_checkpoint(
             os.fsync(output.fileno())
         if overwrite:
             os.replace(temporary, path)
+            temporary = None
         else:
             try:
                 os.link(temporary, path)
@@ -519,6 +557,9 @@ def save_conversation_checkpoint(
                     f"Checkpoint {label!r} already exists; "
                     "pass --overwrite to replace it."
                 ) from exc
+            temporary.unlink()
+            temporary = None
+        sync_directories({path.parent}, root=sync_root)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
