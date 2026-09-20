@@ -4,7 +4,7 @@ Diagnostic command for gptme system health.
 Usage:
     gptme-doctor              # Run all diagnostics
     gptme-doctor --verbose    # Include detailed output
-    gptme-doctor --fix        # Attempt to fix issues (future)
+    gptme-doctor --fix        # Interactively repair provider setup
 """
 
 import importlib.util
@@ -16,6 +16,7 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 import click
 from rich.console import Console
@@ -24,9 +25,9 @@ from rich.table import Table
 from rich.text import Text
 
 from ..__version__ import __version__
-from ..config import MCPServerConfig, config_path, get_config
+from ..config import MCPServerConfig, config_path, get_config, resolve_model_source
 from ..info import get_config_info, get_installed_extras
-from ..llm import list_available_providers
+from ..llm import PROVIDER_API_KEYS, list_available_providers
 from ..llm.models import PROVIDERS
 from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
@@ -166,6 +167,139 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
             )
 
     return results
+
+
+def _check_default_model(verbose: bool = False) -> list[CheckResult]:
+    """Check that the selected model routes through an available provider."""
+    config = get_config()
+    available = [str(provider) for provider, _ in list_available_providers()]
+    resolution = resolve_model_source(config)
+
+    if resolution is None:
+        if available:
+            return [
+                CheckResult(
+                    name="Model: Default",
+                    status=CheckStatus.OK,
+                    message=f"Auto-detected provider: {available[0]}",
+                    details="No explicit default model configured" if verbose else None,
+                )
+            ]
+        return [
+            CheckResult(
+                name="Model: Default",
+                status=CheckStatus.ERROR,
+                message="No model or provider configured",
+                fix_hint="Run: gptme-doctor --fix",
+            )
+        ]
+
+    model, source = resolution
+    provider = model.split("/", 1)[0] if "/" in model else model
+    if provider in available:
+        return [
+            CheckResult(
+                name="Model: Default",
+                status=CheckStatus.OK,
+                message=f"{model} ({source})",
+            )
+        ]
+
+    if "/" not in model:
+        return [
+            CheckResult(
+                name="Model: Default",
+                status=CheckStatus.WARNING,
+                message=f"Could not verify provider for unqualified model: {model}",
+                details=f"Configured via {source}" if verbose else None,
+            )
+        ]
+
+    observable_providers = set(PROVIDER_API_KEYS) | OAUTH_PROVIDERS
+    if provider in observable_providers:
+        return [
+            CheckResult(
+                name="Model: Default",
+                status=CheckStatus.ERROR,
+                message=f"Provider '{provider}' is not configured",
+                details=f"Configured via {source}: {model}" if verbose else None,
+                fix_hint="Run: gptme-doctor --fix",
+            )
+        ]
+
+    return [
+        CheckResult(
+            name="Model: Default",
+            status=CheckStatus.WARNING,
+            message=f"Could not verify provider authentication for: {model}",
+            details=f"Configured via {source}" if verbose else None,
+        )
+    ]
+
+
+def _provider_repair_needed(results: list[CheckResult]) -> bool:
+    """Return whether provider setup blocks a usable default model."""
+    auth_results = [
+        result for result in results if result.name.startswith(("API Key: ", "Auth: "))
+    ]
+    has_working_auth = any(
+        result.status in (CheckStatus.OK, CheckStatus.WARNING)
+        for result in auth_results
+    )
+    rejected_providers = {
+        result.name.removeprefix("API Key: ")
+        for result in auth_results
+        if result.name.startswith("API Key: ") and result.status == CheckStatus.ERROR
+    }
+    has_broken_default = any(
+        result.name == "Model: Default" and result.status == CheckStatus.ERROR
+        for result in results
+    )
+    model_result = next(
+        (result for result in results if result.name == "Model: Default"), None
+    )
+    selected_provider = None
+    if model_result and model_result.status == CheckStatus.OK:
+        if model_result.message.startswith("Auto-detected provider: "):
+            selected_provider = model_result.message.removeprefix(
+                "Auto-detected provider: "
+            )
+        elif "/" in model_result.message:
+            selected_provider = model_result.message.split("/", 1)[0]
+    has_rejected_default = selected_provider in rejected_providers
+    has_configured_model = any(
+        result.name == "Model: Default"
+        and result.status in (CheckStatus.OK, CheckStatus.WARNING)
+        for result in results
+    )
+    return (
+        has_broken_default
+        or has_rejected_default
+        or (not has_working_auth and not has_configured_model)
+    )
+
+
+def _subscription_default_candidate(
+    results: list[CheckResult],
+) -> Literal["openai-subscription", "grok-subscription"] | None:
+    """Choose an existing subscription when only the selected model is broken."""
+    if not any(
+        result.name == "Model: Default" and result.status == CheckStatus.ERROR
+        for result in results
+    ):
+        return None
+
+    available = {str(provider) for provider, _ in list_available_providers()}
+    if "openai-subscription" in available:
+        return "openai-subscription"
+    if "grok-subscription" in available:
+        return "grok-subscription"
+    return None
+
+
+def _is_interactive_terminal() -> bool:
+    """Return whether provider repair can safely prompt and mutate config."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _check_tools(verbose: bool = False) -> list[CheckResult]:
@@ -1090,6 +1224,7 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict]:
     all_results.extend(_check_config(verbose))
     all_results.extend(_check_proxy(verbose))
     all_results.extend(_check_api_keys(verbose))
+    all_results.extend(_check_default_model(verbose))
     all_results.extend(_check_tools(verbose))
     all_results.extend(_check_python_deps(verbose))
     all_results.extend(_check_computer(verbose))
@@ -1184,7 +1319,12 @@ def print_results(results: list[CheckResult], summary: dict, verbose: bool = Fal
 @click.command()
 @click.option("-v", "--verbose", is_flag=True, help="Show detailed output")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
-def main(verbose: bool = False, output_json: bool = False):
+@click.option(
+    "--fix",
+    is_flag=True,
+    help="Interactively repair provider authentication and model selection",
+)
+def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
     """Run system diagnostics for gptme.
 
     Checks API keys, tools, dependencies, configuration, and permissions
@@ -1195,7 +1335,11 @@ def main(verbose: bool = False, output_json: bool = False):
         gptme-doctor              # Quick health check
         gptme-doctor --verbose    # Detailed output with paths and hints
         gptme-doctor --json       # Machine-readable output
+        gptme-doctor --fix        # Repair provider setup in a terminal
     """
+    if fix and output_json:
+        raise click.UsageError("--fix cannot be used with --json")
+
     results, summary = run_diagnostics(verbose)
 
     if output_json:
@@ -1216,9 +1360,46 @@ def main(verbose: bool = False, output_json: bool = False):
         }
         click.echo(json.dumps(output, indent=2))
         sys.exit(1 if summary["error"] > 0 else 0)
-    else:
-        exit_code = print_results(results, summary, verbose)
+    exit_code = print_results(results, summary, verbose)
+    if not fix or not _provider_repair_needed(results):
         sys.exit(exit_code)
+
+    if not _is_interactive_terminal():
+        click.echo("Interactive repair skipped: run gptme-doctor --fix in a terminal")
+        sys.exit(exit_code)
+
+    subscription = _subscription_default_candidate(results)
+    try:
+        if subscription:
+            from ..config import set_config_value
+            from ..llm.models import get_recommended_model
+
+            model = f"{subscription}/{get_recommended_model(subscription)}"
+            if not click.confirm(
+                f"Use the detected {subscription} login as the default ({model})?",
+                default=True,
+            ):
+                sys.exit(exit_code)
+            set_config_value("models.default", model)
+        else:
+            if not click.confirm(
+                "No working provider is configured. Run provider setup now?",
+                default=True,
+            ):
+                sys.exit(exit_code)
+            from .setup import ask_for_api_key
+
+            ask_for_api_key()
+    except (KeyboardInterrupt, click.Abort):
+        click.echo("\nProvider repair cancelled.")
+        sys.exit(exit_code)
+    except Exception as exc:
+        click.echo(f"Provider repair failed: {exc}", err=True)
+        sys.exit(1)
+
+    repaired_results, repaired_summary = run_diagnostics(verbose)
+    repaired_exit_code = print_results(repaired_results, repaired_summary, verbose)
+    sys.exit(repaired_exit_code)
 
 
 if __name__ == "__main__":

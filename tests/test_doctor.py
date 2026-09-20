@@ -16,6 +16,7 @@ from gptme.cli.doctor import (
     _check_browser,
     _check_computer,
     _check_config,
+    _check_default_model,
     _check_mcp,
     _check_permissions,
     _check_proxy,
@@ -23,6 +24,8 @@ from gptme.cli.doctor import (
     _check_python_version,
     _check_tools,
     _check_version,
+    _provider_repair_needed,
+    _subscription_default_candidate,
     main,
     print_results,
     run_diagnostics,
@@ -640,6 +643,26 @@ class TestRunDiagnostics:
 class TestCLI:
     """Test CLI interface."""
 
+    @staticmethod
+    def _no_provider_diagnostics():
+        results = [
+            CheckResult("API Key: openai", CheckStatus.SKIPPED, "Not configured"),
+            CheckResult(
+                "Model: Default", CheckStatus.ERROR, "No model or provider configured"
+            ),
+        ]
+        summary = {"total": 2, "ok": 0, "warning": 0, "error": 1, "skipped": 1}
+        return results, summary
+
+    @staticmethod
+    def _healthy_provider_diagnostics():
+        results = [
+            CheckResult("API Key: openai", CheckStatus.OK, "Configured and valid"),
+            CheckResult("Model: Default", CheckStatus.OK, "openai/gpt-5.4"),
+        ]
+        summary = {"total": 2, "ok": 2, "warning": 0, "error": 0, "skipped": 0}
+        return results, summary
+
     def test_cli_runs(self):
         """Test that CLI runs without error."""
         runner = CliRunner()
@@ -687,6 +710,138 @@ class TestCLI:
             assert "name" in first_result
             assert "status" in first_result
             assert "message" in first_result
+
+    @patch("gptme.cli.doctor.run_diagnostics")
+    def test_fix_rejected_with_json_before_diagnostics(self, mock_diagnostics):
+        result = CliRunner().invoke(main, ["--json", "--fix"])
+
+        assert result.exit_code == 2
+        assert "--fix cannot be used with --json" in result.output
+        mock_diagnostics.assert_not_called()
+
+    @patch("gptme.cli.setup.ask_for_api_key")
+    @patch("gptme.cli.doctor._subscription_default_candidate", return_value=None)
+    @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
+    @patch("gptme.cli.doctor.print_results", side_effect=[1, 0])
+    @patch("gptme.cli.doctor.run_diagnostics")
+    def test_fix_runs_setup_then_rechecks_once(
+        self,
+        mock_diagnostics,
+        mock_print,
+        mock_terminal,
+        mock_subscription,
+        mock_setup,
+    ):
+        mock_diagnostics.side_effect = [
+            self._no_provider_diagnostics(),
+            self._healthy_provider_diagnostics(),
+        ]
+
+        result = CliRunner().invoke(main, ["--fix"], input="y\n")
+
+        assert result.exit_code == 0
+        mock_setup.assert_called_once_with()
+        assert mock_diagnostics.call_count == 2
+        assert mock_print.call_count == 2
+
+    @patch("gptme.cli.setup.ask_for_api_key")
+    @patch("gptme.cli.doctor._is_interactive_terminal", return_value=False)
+    @patch("gptme.cli.doctor.print_results", return_value=1)
+    @patch("gptme.cli.doctor.run_diagnostics")
+    def test_fix_without_tty_is_read_only(
+        self, mock_diagnostics, mock_print, mock_terminal, mock_setup
+    ):
+        mock_diagnostics.return_value = self._no_provider_diagnostics()
+
+        result = CliRunner().invoke(main, ["--fix"])
+
+        assert result.exit_code == 1
+        assert "Interactive repair skipped" in result.output
+        mock_setup.assert_not_called()
+        mock_diagnostics.assert_called_once_with(False)
+
+    @patch("gptme.cli.setup.ask_for_api_key")
+    @patch("gptme.cli.doctor._subscription_default_candidate", return_value=None)
+    @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
+    @patch("gptme.cli.doctor.print_results", return_value=1)
+    @patch("gptme.cli.doctor.run_diagnostics")
+    def test_fix_cancellation_preserves_diagnostic_exit(
+        self,
+        mock_diagnostics,
+        mock_print,
+        mock_terminal,
+        mock_subscription,
+        mock_setup,
+    ):
+        mock_diagnostics.return_value = self._no_provider_diagnostics()
+
+        result = CliRunner().invoke(main, ["--fix"], input="n\n")
+
+        assert result.exit_code == 1
+        mock_setup.assert_not_called()
+        mock_diagnostics.assert_called_once_with(False)
+
+    @patch("gptme.config.set_config_value")
+    @patch("gptme.llm.models.get_recommended_model", return_value="gpt-6-astra")
+    @patch(
+        "gptme.cli.doctor._subscription_default_candidate",
+        return_value="openai-subscription",
+    )
+    @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
+    @patch("gptme.cli.doctor.print_results", side_effect=[1, 0])
+    @patch("gptme.cli.doctor.run_diagnostics")
+    def test_fix_switches_broken_default_to_existing_subscription(
+        self,
+        mock_diagnostics,
+        mock_print,
+        mock_terminal,
+        mock_subscription,
+        mock_recommended,
+        mock_set_config,
+    ):
+        broken = (
+            [
+                CheckResult(
+                    "Auth: openai-subscription", CheckStatus.OK, "Authenticated"
+                ),
+                CheckResult(
+                    "Model: Default",
+                    CheckStatus.ERROR,
+                    "Provider 'anthropic' is not configured",
+                ),
+            ],
+            {"total": 2, "ok": 1, "warning": 0, "error": 1, "skipped": 0},
+        )
+        mock_diagnostics.side_effect = [broken, self._healthy_provider_diagnostics()]
+
+        result = CliRunner().invoke(main, ["--fix"], input="y\n")
+
+        assert result.exit_code == 0
+        mock_set_config.assert_called_once_with(
+            "models.default", "openai-subscription/gpt-6-astra"
+        )
+        assert mock_diagnostics.call_count == 2
+
+    @patch("gptme.cli.setup.ask_for_api_key", side_effect=RuntimeError("login failed"))
+    @patch("gptme.cli.doctor._subscription_default_candidate", return_value=None)
+    @patch("gptme.cli.doctor._is_interactive_terminal", return_value=True)
+    @patch("gptme.cli.doctor.print_results", return_value=1)
+    @patch("gptme.cli.doctor.run_diagnostics")
+    def test_fix_setup_failure_has_no_traceback(
+        self,
+        mock_diagnostics,
+        mock_print,
+        mock_terminal,
+        mock_subscription,
+        mock_setup,
+    ):
+        mock_diagnostics.return_value = self._no_provider_diagnostics()
+
+        result = CliRunner().invoke(main, ["--fix"], input="y\n")
+
+        assert result.exit_code == 1
+        assert "Provider repair failed: login failed" in result.output
+        assert "Traceback" not in result.output
 
 
 class TestPrintResults:
@@ -956,6 +1111,128 @@ class TestCheckApiKeys:
         openai_sub = [r for r in auth_results if "openai-subscription" in r.name]
         assert len(openai_sub) == 1
         assert openai_sub[0].status == CheckStatus.OK
+
+
+class TestCheckDefaultModel:
+    """Test default-model/provider consistency checks."""
+
+    @patch("gptme.cli.doctor.resolve_model_source", return_value=None)
+    @patch("gptme.cli.doctor.list_available_providers", return_value=[])
+    @patch("gptme.cli.doctor.get_config")
+    def test_no_model_or_provider_is_error(
+        self, mock_config, mock_providers, mock_resolve
+    ):
+        result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.ERROR
+        assert "No model or provider" in result.message
+
+    @patch("gptme.cli.doctor.resolve_model_source", return_value=None)
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    @patch("gptme.cli.doctor.get_config")
+    def test_available_provider_can_be_auto_detected(
+        self, mock_config, mock_providers, mock_resolve
+    ):
+        result = _check_default_model(verbose=True)[0]
+
+        assert result.status == CheckStatus.OK
+        assert "openai-subscription" in result.message
+        assert result.details == "No explicit default model configured"
+
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("anthropic/claude-sonnet-4-6", "models.default"),
+    )
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    @patch("gptme.cli.doctor.get_config")
+    def test_default_using_unavailable_provider_is_error(
+        self, mock_config, mock_providers, mock_resolve
+    ):
+        result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.ERROR
+        assert "anthropic" in result.message
+
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("local/llama3", "models.default"),
+    )
+    @patch("gptme.cli.doctor.list_available_providers", return_value=[])
+    @patch("gptme.cli.doctor.get_config")
+    def test_local_provider_is_not_reported_as_broken_remote_auth(
+        self, mock_config, mock_providers, mock_resolve
+    ):
+        result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.WARNING
+        assert "Could not verify" in result.message
+
+
+class TestProviderRepairNeeded:
+    """Test provider-repair dispatch conditions."""
+
+    def test_rejected_key_needs_repair(self):
+        results = [
+            CheckResult("API Key: openai", CheckStatus.ERROR, "Invalid key"),
+            CheckResult("Model: Default", CheckStatus.OK, "openai/gpt-5.4"),
+        ]
+        assert _provider_repair_needed(results)
+
+    def test_rejected_unused_key_does_not_override_working_provider(self):
+        results = [
+            CheckResult("API Key: openai", CheckStatus.ERROR, "Invalid key"),
+            CheckResult("API Key: anthropic", CheckStatus.OK, "Configured and valid"),
+            CheckResult(
+                "Model: Default", CheckStatus.OK, "anthropic/claude-sonnet-4-6"
+            ),
+        ]
+        assert not _provider_repair_needed(results)
+
+    def test_rejected_auto_detected_provider_needs_repair(self):
+        results = [
+            CheckResult("API Key: openai", CheckStatus.ERROR, "Invalid key"),
+            CheckResult(
+                "Model: Default", CheckStatus.OK, "Auto-detected provider: openai"
+            ),
+        ]
+        assert _provider_repair_needed(results)
+
+    def test_transient_validation_warning_does_not_force_repair(self):
+        results = [
+            CheckResult("API Key: openai", CheckStatus.WARNING, "Timed out"),
+            CheckResult("Model: Default", CheckStatus.OK, "openai/gpt-5.4"),
+        ]
+        assert not _provider_repair_needed(results)
+
+    def test_unverifiable_local_model_does_not_force_remote_setup(self):
+        results = [
+            CheckResult(
+                "Model: Default",
+                CheckStatus.WARNING,
+                "Could not verify provider authentication for: local/llama3",
+            )
+        ]
+        assert not _provider_repair_needed(results)
+
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    def test_broken_default_selects_existing_subscription(self, mock_providers):
+        results = [
+            CheckResult(
+                "Model: Default",
+                CheckStatus.ERROR,
+                "Provider 'anthropic' is not configured",
+            )
+        ]
+        assert _subscription_default_candidate(results) == "openai-subscription"
 
 
 class TestCheckMCP:
