@@ -627,20 +627,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-      62919 |                 prompt_toolkit
-      64344 |               gptme.util.prompt
-      84196 |             gptme.message
-     107329 | gptme.cli.main
-     107420 |           gptme.tools
-     121549 |         gptme.config.cli_setup
-     147370 |       gptme.config
-     154136 |     gptme.llm
-     211323 |   gptme.commands
-     281649 | gptme.chat
+      63958 |                 prompt_toolkit
+      65471 |               gptme.util.prompt
+      86010 |             gptme.message
+     109492 | gptme.cli.main
+     109849 |           gptme.tools
+     124134 |         gptme.config.cli_setup
+     150530 |       gptme.config
+     157461 |     gptme.llm
+     216737 |   gptme.commands
+     288539 | gptme.chat
 
-real	0m1.198s
-user	0m1.046s
-sys	0m0.150s
+real	0m1.344s
+user	0m1.038s
+sys	0m0.153s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -648,23 +648,21 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     131.5 ms ±   1.2 ms    [User: 112.4 ms, System: 19.1 ms]
-  Range (min … max):   130.3 ms … 134.0 ms    10 runs
+  Time (mean ± σ):     142.9 ms ±   2.5 ms    [User: 124.8 ms, System: 18.0 ms]
+  Range (min … max):   138.7 ms … 147.0 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     554.7 ms ±   7.0 ms    [User: 486.1 ms, System: 68.3 ms]
-  Range (min … max):   544.8 ms … 570.1 ms    10 runs
+  Time (mean ± σ):     605.2 ms ±  14.6 ms    [User: 538.3 ms, System: 66.6 ms]
+  Range (min … max):   582.4 ms … 620.9 ms    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      1.025 s ±  0.021 s    [User: 0.815 s, System: 0.557 s]
-  Range (min … max):    1.008 s …  1.071 s    10 runs
- 
-  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the &#39;--warmup&#39; or &#39;--prepare&#39; options.
+  Time (mean ± σ):      1.072 s ±  0.024 s    [User: 0.862 s, System: 0.566 s]
+  Range (min … max):    1.033 s …  1.122 s    10 runs
  
 Summary
   import gptme.cli.main ran
-    4.22 ± 0.07 times faster than gptme --help
-    7.80 ± 0.17 times faster than full start/exit cycle
+    4.23 ± 0.13 times faster than gptme --help
+    7.50 ± 0.22 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -1030,7 +1028,7 @@ tests/test_agent.py                                                205          
 tests/test_acp_session_runtime.py                                  222             77            704
 tests/test_hooks_registry.py                                       247             89            696
 tests/test_llm_anthropic.py                                        153             51            691
-tests/test_llm_models_resolution.py                                222            179            666
+tests/test_llm_models_resolution.py                                221            179            664
 tests/test_json_output.py                                          114             84            640
 tests/test_cli_status.py                                           244            137            633
 tests/test_subagent_budget.py                                      166            144            626
@@ -1390,7 +1388,7 @@ tests/test_llm_summarize_terminal_projection.py                      9          
 tests/test_screenshot.py                                             9              6             15
 tests/retry_compat.py                                                8             22              6
 ----------------------------------------------------------------------------------------------------
-SUM:                                                             40990          27267         146560
+SUM:                                                             40989          27267         146558
 ----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1521,8 +1519,8 @@ tests/test_llm_anthropic.py                                                     
 gptme/server/tasks_api.py                                                                     193            130            680
 gptme/llm/models/data.py                                                                       18            156            679
 gptme/tools/browser.py                                                                        274            436            673
-tests/test_llm_models_resolution.py                                                           222            179            666
 gptme/tools/_browser_playwright.py                                                            234            276            665
+tests/test_llm_models_resolution.py                                                           221            179            664
 tests/test_json_output.py                                                                     114             84            640
 gptme/cli/cmd_memory.py                                                                        95             91            639
 gptme/eval/dspy/tasks.py                                                                      170            374            639
@@ -2333,7 +2331,7 @@ gptme/dataset/__init__.py                                                       
 gptme/oauth/__init__.py                                                                         1              4              0
 gptme/tui/__init__.py                                                                           4             12              0
 -------------------------------------------------------------------------------------------------------------------------------
-SUM:                                                                                        70750          66707         268710
+SUM:                                                                                        70749          66707         268708
 -------------------------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -2349,7 +2347,7 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Project Overview:
   Files: 906
   Total blocks: 19678
-  Average complexity: 3.762475861368025
+  Average complexity: 3.7622725886777113
 
 Most Complex Functions (D+):
   gptme/plugins/__init__.py
@@ -2719,7 +2717,7 @@ Largest Files (&gt;300 SLOC):
    692 tests/test_llm_anthropic.py
    680 gptme/tools/_browser_playwright.py
    680 gptme/server/tasks_api.py
-   666 tests/test_llm_models_resolution.py
+   664 tests/test_llm_models_resolution.py
    640 tests/test_json_output.py
    639 gptme/cli/cmd_memory.py
    637 gptme/cli/cmd_service.py
@@ -3517,7 +3515,7 @@ Clone found (python)
 │ Total:     │ 523            │ 199956      │ 947013       │ 191          │ 2341 (1.17%)     │ 13295 (1.40%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 191 clones.
-time: 455.591ms
+time: 463.748ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
