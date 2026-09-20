@@ -11,7 +11,11 @@ import {
   setActiveServer,
   connectServer,
 } from '@/stores/servers';
-import { getClientForServer, getPrimaryClient } from '@/stores/serverClients';
+import {
+  getClientForServer,
+  getClientForServerConfig,
+  getPrimaryClient,
+} from '@/stores/serverClients';
 import type { ServerConfig } from '@/types/servers';
 import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 import { isTauriEnvironment } from '@/utils/tauri';
@@ -138,6 +142,7 @@ export function ApiProvider({
       stopAutoConnect();
 
       const activeServer = getActiveServer();
+      let client: IApiClient;
       if (activeServer) {
         const updates: Partial<ServerConfig> = {
           ...(config?.baseUrl !== undefined && { baseUrl: config.baseUrl }),
@@ -166,10 +171,20 @@ export function ApiProvider({
         if (Object.keys(updates).length > 0) {
           updateServer(activeServer.id, updates);
         }
-      }
 
-      // Get a fresh client from the pool (picks up any config changes)
-      const client = getPrimaryClient();
+        // Legend State propagates the registry update to React asynchronously.
+        // Build/cache the client from the same effective config now, rather than
+        // re-reading a potentially stale registry snapshot and dropping the
+        // managed sidecar token on this first request.
+        client = getClientForServerConfig(activeServer.id, {
+          baseUrl: updates.baseUrl !== undefined ? updates.baseUrl : activeServer.baseUrl,
+          authToken: updates.authToken !== undefined ? updates.authToken : activeServer.authToken,
+          useAuthToken:
+            updates.useAuthToken !== undefined ? updates.useAuthToken : activeServer.useAuthToken,
+        });
+      } else {
+        client = getPrimaryClient();
+      }
 
       if (client.isConnected$.get()) {
         console.log('[ApiContext] Already connected, skipping connection');

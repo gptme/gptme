@@ -8,6 +8,7 @@
 import { createApiClient, type IApiClient } from '@/utils/api';
 import { createDemoApiClient } from '@/utils/demoApiClient';
 import { isDemoMode } from '@/utils/connectionConfig';
+import type { ServerConfig } from '@/types/servers';
 import { serverRegistry$ } from './servers';
 
 const clientPool = new Map<string, IApiClient>();
@@ -29,6 +30,25 @@ function getDemoClient(): IApiClient {
  * Clients are cached and invalidated when baseUrl or auth changes.
  * In demo mode (`?demo=1`) every server resolves to the offline demo client.
  */
+export function getClientForServerConfig(
+  serverId: string,
+  config: Pick<ServerConfig, 'baseUrl' | 'authToken' | 'useAuthToken'>
+): IApiClient {
+  if (_isDemoMode) {
+    return getDemoClient();
+  }
+
+  const authHeader = config.useAuthToken && config.authToken ? `Bearer ${config.authToken}` : null;
+  const existing = clientPool.get(serverId);
+  if (existing && existing.baseUrl === config.baseUrl && existing.authHeader === authHeader) {
+    return existing;
+  }
+
+  const client = createApiClient(config.baseUrl, authHeader);
+  clientPool.set(serverId, client);
+  return client;
+}
+
 export function getClientForServer(serverId: string): IApiClient | null {
   if (_isDemoMode) {
     return getDemoClient();
@@ -38,16 +58,7 @@ export function getClientForServer(serverId: string): IApiClient | null {
   const server = registry.servers.find((s) => s.id === serverId);
   if (!server) return null;
 
-  const authHeader = server.useAuthToken && server.authToken ? `Bearer ${server.authToken}` : null;
-
-  const existing = clientPool.get(serverId);
-  if (existing && existing.baseUrl === server.baseUrl && existing.authHeader === authHeader) {
-    return existing;
-  }
-
-  const client = createApiClient(server.baseUrl, authHeader);
-  clientPool.set(serverId, client);
-  return client;
+  return getClientForServerConfig(serverId, server);
 }
 
 /** Get the client for the primary (active) server. */

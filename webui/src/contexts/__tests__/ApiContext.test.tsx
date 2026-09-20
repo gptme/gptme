@@ -10,6 +10,7 @@ const mockSetConnected = jest.fn();
 const mockGetConnectionConfigFromSources = jest.fn();
 const mockProcessConnectionFromHash = jest.fn();
 const mockGetClientForServer = jest.fn();
+const mockGetClientForServerConfig = jest.fn();
 const mockGetPrimaryClient = jest.fn();
 const mockGetActiveServer = jest.fn();
 const mockUpdateServer = jest.fn();
@@ -60,6 +61,7 @@ jest.mock('@/stores/servers', () => ({
 
 jest.mock('@/stores/serverClients', () => ({
   getClientForServer: (...args: unknown[]) => mockGetClientForServer(...args),
+  getClientForServerConfig: (...args: unknown[]) => mockGetClientForServerConfig(...args),
   getPrimaryClient: () => mockGetPrimaryClient(),
 }));
 
@@ -153,6 +155,7 @@ describe('ApiProvider mobile auto-connect', () => {
     mockCheckConnection.mockResolvedValue(true);
     mockGetPrimaryClient.mockReturnValue(mockClient);
     mockGetClientForServer.mockReturnValue(mockClient);
+    mockGetClientForServerConfig.mockReturnValue(mockClient);
     mockUpdateServer.mockImplementation(applyMockServerUpdate);
     mockGetActiveServer.mockImplementation(() => {
       const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
@@ -270,7 +273,36 @@ describe('ApiProvider mobile auto-connect', () => {
       authToken: 'sidecar-token',
       useAuthToken: true,
     });
+    expect(mockGetClientForServerConfig).toHaveBeenCalledWith('server-1', {
+      baseUrl: 'http://127.0.0.1:5712',
+      authToken: 'sidecar-token',
+      useAuthToken: true,
+    });
     expect(mockCheckConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves an explicit request to clear authentication', async () => {
+    setActiveServerBaseUrl('https://bob.example.com');
+
+    let connectFromProbe!: (config: { authToken: null; useAuthToken: false }) => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    const queryClient = new QueryClient();
+    render(
+      <ApiProvider queryClient={queryClient}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    await connectFromProbe({ authToken: null, useAuthToken: false });
+
+    expect(mockGetClientForServerConfig).toHaveBeenCalledWith('server-1', {
+      baseUrl: 'https://bob.example.com',
+      authToken: null,
+      useAuthToken: false,
+    });
   });
 
   it('stops retrying after a 401 (token required, not transient)', async () => {
