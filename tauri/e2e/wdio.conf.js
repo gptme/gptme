@@ -6,7 +6,6 @@ const { rmSync, existsSync } = require("fs");
 
 let tauriDriver;
 const DRIVER_EXIT_TIMEOUT_MS = 5000;
-const SIDECAR_EXIT_POLL_MS = 100;
 
 async function reserveSidecarPort() {
   return new Promise((resolvePort, rejectPort) => {
@@ -90,24 +89,6 @@ async function stopDriver(driverProcess, timeoutMs = DRIVER_EXIT_TIMEOUT_MS) {
   });
 }
 
-async function waitForPortAvailable(port, timeoutMs = DRIVER_EXIT_TIMEOUT_MS) {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const available = await new Promise((resolveAvailable) => {
-      const server = net.createServer();
-      server.once("error", () => resolveAvailable(false));
-      server.listen(port, "127.0.0.1", () => {
-        server.close(() => resolveAvailable(true));
-      });
-    });
-    if (available) return;
-    await new Promise((resolveRetry) => setTimeout(resolveRetry, SIDECAR_EXIT_POLL_MS));
-  }
-
-  throw new Error(`sidecar port ${port} did not become available within ${timeoutMs}ms`);
-}
-
 exports.config = {
   specs: ["./test/specs/**/*.js"],
   maxInstances: 1,
@@ -169,14 +150,9 @@ exports.config = {
   },
 
   onComplete: async () => {
-    // Shut down tauri-driver when tests finish, then wait for the managed
-    // sidecar to observe its app PID disappearing and release the shared port.
-    // Without this barrier, the next spec can launch while the previous
-    // token-gated sidecar still owns the port.
-    const sidecarPort = Number(process.env.GPTME_SERVER_PORT);
+    // Shut down tauri-driver and wait for the launcher process itself. Each CI
+    // spec uses a new sidecar port, so any PyInstaller child still unwinding
+    // cannot be mistaken for the next app's managed server.
     await stopDriver(tauriDriver);
-    if (Number.isInteger(sidecarPort) && sidecarPort > 0) {
-      await waitForPortAvailable(sidecarPort);
-    }
   },
 };

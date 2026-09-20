@@ -136,9 +136,18 @@ describe("Real first-run flow", () => {
     //    is no longer racing against React rendering.
     await waitForSidecarReady(sidecarPort);
 
-    // 7. In "Local setup", click "Connect"
+    // 7. In "Local setup", click "Connect". The sidecar readiness probe
+    // proves only that the socket is ready; React may still be finishing the
+    // asynchronous Tauri-status render that enables this control.
     const connectBtn = await $("button=Connect");
-    await expect(connectBtn).toExist();
+    try {
+      await connectBtn.waitForExist({ timeout: 15000 });
+    } catch (err) {
+      throw new Error(
+        "SetupWizard 'Connect' button did not appear within 15s: " +
+          (await describeWebview()),
+      );
+    }
     await connectBtn.click();
 
     // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted
