@@ -22,7 +22,15 @@ import { isTauriEnvironment } from '@/utils/tauri';
 import { type Observable, observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import type { QueryClient } from '@tanstack/react-query';
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { toast } from 'sonner';
 
 interface ApiContextType {
@@ -120,6 +128,7 @@ export function ApiProvider({
   queryClient: QueryClient;
 }) {
   const [isExchangingAuthCode, setIsExchangingAuthCode] = useState(needsAuthCodeExchange);
+  const activeServerRef = useRef<ServerConfig | undefined>(getActiveServer());
   const isTauri = isTauriEnvironment();
   const {
     isLoading: isLoadingTauriStatus,
@@ -141,7 +150,11 @@ export function ApiProvider({
     async (config?: Partial<ConnectionConfig>) => {
       stopAutoConnect();
 
-      const activeServer = getActiveServer();
+      // Use the render snapshot that backs this provider. Reading Legend State
+      // imperatively here can lag one React commit behind after the Tauri sync
+      // effect, which made the first manual Connect probe reuse an unauthenticated
+      // client even though the UI already rendered the managed sidecar config.
+      const activeServer = activeServerRef.current;
       let client: IApiClient;
       if (activeServer) {
         const updates: Partial<ServerConfig> = {
@@ -423,6 +436,7 @@ export function ApiProvider({
   // Derive connectionConfig from the active server (single source of truth)
   const registry = use$(serverRegistry$);
   const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
+  activeServerRef.current = activeServer;
   const connectionConfig: ConnectionConfig = activeServer
     ? {
         baseUrl: activeServer.baseUrl,

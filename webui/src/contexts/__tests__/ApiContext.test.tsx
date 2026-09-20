@@ -281,6 +281,59 @@ describe('ApiProvider mobile auto-connect', () => {
     expect(mockCheckConnection).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the latest rendered server snapshot when an imperative store read lags', async () => {
+    setActiveServerBaseUrl('http://127.0.0.1:5712');
+    mockGetActiveServer.mockReturnValue({
+      id: 'server-1',
+      name: 'Local',
+      baseUrl: 'http://127.0.0.1:5700',
+      authToken: null,
+      useAuthToken: false,
+      createdAt: 0,
+      lastUsedAt: 0,
+    });
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: (config: {
+      baseUrl: string;
+      authToken: string;
+      useAuthToken: true;
+    }) => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    const queryClient = new QueryClient();
+    render(
+      <ApiProvider queryClient={queryClient}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    await connectFromProbe({
+      baseUrl: 'http://127.0.0.1:5712',
+      authToken: 'sidecar-token',
+      useAuthToken: true,
+    });
+
+    expect(mockGetClientForServerConfig).toHaveBeenCalledWith('server-1', {
+      baseUrl: 'http://127.0.0.1:5712',
+      authToken: 'sidecar-token',
+      useAuthToken: true,
+    });
+  });
+
   it('preserves an explicit request to clear authentication', async () => {
     setActiveServerBaseUrl('https://bob.example.com');
 
