@@ -772,6 +772,8 @@ def _setup_custom_provider(
     while require_default_model and not default_model:
         console.print("[red]A default model is required for first-run setup.[/red]")
         default_model = Prompt.ask(default_model_prompt, default="").strip()
+    if default_model.startswith(f"{name}/"):
+        default_model = default_model.split("/", 1)[1]
 
     provider = ProviderConfig(
         name=name,

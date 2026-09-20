@@ -116,6 +116,25 @@ def test_custom_provider_requires_default_for_first_run(monkeypatch):
     assert prompt.call_count == 5
 
 
+def test_custom_provider_strips_matching_provider_prefix(monkeypatch):
+    prompt = MagicMock(
+        side_effect=["custom", "http://localhost:8000/v1", "", "custom/llama3"]
+    )
+    save_provider = MagicMock()
+    monkeypatch.setattr("gptme.cli.setup.Prompt.ask", prompt)
+    monkeypatch.setattr("gptme.cli.setup.save_provider_config", save_provider)
+    monkeypatch.setattr(
+        "gptme.cli.setup.get_user_config_paths",
+        lambda: (Path("/config.toml"), Path("/config.local.toml")),
+    )
+
+    provider, credential = _setup_custom_provider(require_default_model=True)
+
+    assert provider == "custom"
+    assert credential == ""
+    assert save_provider.call_args.args[0].default_model == "llama3"
+
+
 def test_provider_setup_forwards_default_model_requirement(monkeypatch):
     setup_custom = MagicMock(return_value=("custom", ""))
     monkeypatch.setattr("gptme.cli.setup._choose_first_run_auth", lambda: "6")
