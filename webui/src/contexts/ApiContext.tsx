@@ -137,15 +137,34 @@ export function ApiProvider({
     async (config?: Partial<ConnectionConfig>) => {
       stopAutoConnect();
 
-      if (config) {
-        // Update the active server in the registry (pool will pick up changes)
-        const activeServer = getActiveServer();
-        if (activeServer) {
-          updateServer(activeServer.id, {
-            ...(config.baseUrl !== undefined && { baseUrl: config.baseUrl }),
-            ...(config.authToken !== undefined && { authToken: config.authToken }),
-            ...(config.useAuthToken !== undefined && { useAuthToken: config.useAuthToken }),
-          });
+      const activeServer = getActiveServer();
+      if (activeServer) {
+        const updates: Partial<ServerConfig> = {
+          ...(config?.baseUrl !== undefined && { baseUrl: config.baseUrl }),
+          ...(config?.authToken !== undefined && { authToken: config.authToken }),
+          ...(config?.useAuthToken !== undefined && { useAuthToken: config.useAuthToken }),
+        };
+
+        // A manual click can race the effect that copies the Tauri-managed
+        // sidecar's dynamic URL and token into the registry. Fold those values
+        // into this atomic update so the fresh client below never probes the
+        // sidecar unauthenticated or on the default port.
+        if (
+          managesLocalServer &&
+          tauriServerStatus &&
+          isDefaultLoopbackTarget(activeServer.baseUrl)
+        ) {
+          if (config?.baseUrl === undefined) {
+            updates.baseUrl = `http://127.0.0.1:${tauriServerStatus.port}`;
+          }
+          if (config?.authToken === undefined && tauriServerStatus.auth_token) {
+            updates.authToken = tauriServerStatus.auth_token;
+            updates.useAuthToken = true;
+          }
+        }
+
+        if (Object.keys(updates).length > 0) {
+          updateServer(activeServer.id, updates);
         }
       }
 
@@ -222,7 +241,7 @@ export function ApiProvider({
         isConnecting$.set(false);
       }
     },
-    [queryClient]
+    [managesLocalServer, queryClient, tauriServerStatus]
   );
 
   // Atomic server switch: changes the primary server with rollback on failure

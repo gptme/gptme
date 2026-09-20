@@ -104,6 +104,24 @@ function setActiveServerBaseUrl(baseUrl: string) {
   });
 }
 
+function applyMockServerUpdate(id: string, updates: Record<string, unknown>) {
+  const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
+    serverRegistry$: {
+      get: () => {
+        servers: Array<Record<string, unknown>>;
+      };
+      set: (value: unknown) => void;
+    };
+  };
+  const registry = serverRegistry$.get();
+  serverRegistry$.set({
+    ...registry,
+    servers: registry.servers.map((server) =>
+      server.id === id ? { ...server, ...updates } : server
+    ),
+  });
+}
+
 function getActiveServerBaseUrl() {
   const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
     serverRegistry$: { get: () => { servers: Array<{ baseUrl: string }> } };
@@ -135,6 +153,7 @@ describe('ApiProvider mobile auto-connect', () => {
     mockCheckConnection.mockResolvedValue(true);
     mockGetPrimaryClient.mockReturnValue(mockClient);
     mockGetClientForServer.mockReturnValue(mockClient);
+    mockUpdateServer.mockImplementation(applyMockServerUpdate);
     mockGetActiveServer.mockImplementation(() => {
       const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
         serverRegistry$: { get: () => { servers: unknown[] } };
@@ -216,6 +235,42 @@ describe('ApiProvider mobile auto-connect', () => {
     // After the sync completes (registry updates), the next render should proceed
     // with auto-connect. This is tested in integration/e2e scenarios where the
     // full reactive chain (update → registry change → component re-render) works.
+  });
+
+  it('connects with the Tauri-managed URL and token even before the sync effect settles', async () => {
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: true,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: () => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    const queryClient = new QueryClient();
+    render(
+      <ApiProvider queryClient={queryClient}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    await connectFromProbe();
+
+    expect(mockUpdateServer).toHaveBeenCalledWith('server-1', {
+      baseUrl: 'http://127.0.0.1:5712',
+      authToken: 'sidecar-token',
+      useAuthToken: true,
+    });
+    expect(mockCheckConnection).toHaveBeenCalledTimes(1);
   });
 
   it('stops retrying after a 401 (token required, not transient)', async () => {

@@ -70,7 +70,7 @@ The current E2E job finishes in ~7 min (build + driver install + test). This wou
 1. Wait for the SetupWizard dialog to appear.
 2. Select the stable `setup-wizard-get-started` test hook.
 3. Select the stable `setup-wizard-local` test hook.
-4. Click "Connect".
+4. Click "Connect" immediately after the Local step renders; this intentionally exercises the race where the Tauri status effect may not have persisted the managed sidecar URL/token yet.
 5. Wait for an `isConnected`-derived UI signal or the provider/completion step.
 
 ### Negative control
