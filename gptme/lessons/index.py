@@ -304,6 +304,11 @@ class LessonIndex:
         # This handles same-named lessons in different configured directories
         # (e.g. lessons/social/foo.md and gptme-contrib/lessons/social/foo.md)
         seen_rel_paths: set[str] = set()
+        # Track seen skill names for cross-directory deduplication.
+        # Skills live in a directory named after the skill and every file is
+        # called SKILL.md, so relative-path dedup can never collapse two copies
+        # of the same skill (backup/snapshot dirs, versioned skill packs).
+        seen_skill_names: set[str] = set()
 
         for lesson_dir in self.lesson_dirs:
             if not lesson_dir.exists():
@@ -311,7 +316,7 @@ class LessonIndex:
                 continue
 
             hits, misses, skipped = self._index_directory(
-                lesson_dir, seen_paths, seen_rel_paths
+                lesson_dir, seen_paths, seen_rel_paths, seen_skill_names
             )
             cache_hits += hits
             cache_misses += misses
@@ -328,6 +333,7 @@ class LessonIndex:
         directory: Path,
         seen_paths: set[str],
         seen_rel_paths: set[str],
+        seen_skill_names: set[str],
     ) -> tuple[int, int, int]:
         """Index all lessons in a directory (with caching and deduplication).
 
@@ -335,6 +341,7 @@ class LessonIndex:
             directory: Directory to scan for lessons
             seen_paths: Set of resolved lesson paths already indexed (for deduplication)
             seen_rel_paths: Set of relative paths already indexed (cross-dir dedup)
+            seen_skill_names: Set of skill names already indexed (cross-dir dedup)
 
         Returns:
             Tuple of (cache_hits, cache_misses, skipped_duplicates)
@@ -348,7 +355,11 @@ class LessonIndex:
         )
         for lesson in manifest_lessons:
             if not self._claim_lesson_slot(
-                lesson.path, directory, seen_paths, seen_rel_paths
+                lesson.path,
+                directory,
+                seen_paths,
+                seen_rel_paths,
+                seen_skill_names,
             ):
                 skipped_duplicates += 1
                 continue
@@ -385,7 +396,11 @@ class LessonIndex:
                 continue
 
             if not self._claim_lesson_slot(
-                lesson_file, directory, seen_paths, seen_rel_paths
+                lesson_file,
+                directory,
+                seen_paths,
+                seen_rel_paths,
+                seen_skill_names,
             ):
                 skipped_duplicates += 1
                 continue
@@ -543,6 +558,7 @@ class LessonIndex:
         directory: Path,
         seen_paths: set[str],
         seen_rel_paths: set[str],
+        seen_skill_names: set[str],
     ) -> bool:
         """Reserve a lesson slot for deduplication, first directory wins."""
         try:
@@ -568,8 +584,26 @@ class LessonIndex:
             )
             return False
 
+        # Skills are identified by name, not by file path: the skill directory
+        # is named after the skill and the file is always SKILL.md. Without this
+        # check, two copies of the same skill (e.g. a backup/snapshot dir or a
+        # versioned skill pack) are both indexed and listed as separate skills.
+        skill_name = (
+            lesson_file.parent.name.lower()
+            if lesson_file.name.upper() == "SKILL.MD"
+            else None
+        )
+        if skill_name is not None and skill_name in seen_skill_names:
+            logger.debug(
+                f"Skipping duplicate skill: {skill_name} "
+                f"(same skill name already indexed from earlier directory)"
+            )
+            return False
+
         seen_paths.add(resolved_path)
         seen_rel_paths.add(relative_name)
+        if skill_name is not None:
+            seen_skill_names.add(skill_name)
         return True
 
     def materialize_lesson(self, lesson: Lesson) -> Lesson:

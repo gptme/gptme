@@ -138,6 +138,103 @@ Content about deployments.
         assert "Content about deployments." in materialized.body
 
 
+class TestSkillDeduplication:
+    """Skills are identified by name, not by file path.
+
+    Every skill file is named ``SKILL.md`` and lives in a directory named after
+    the skill, so path-based dedup can never collapse two copies of the same
+    skill (e.g. a ``.trash/`` backup dir, a synced snapshot, or a versioned
+    skill pack). Without name-based identity the same skill is listed twice.
+    """
+
+    @staticmethod
+    def _write_skill(root: Path, subdir: str, name: str, marker: str) -> Path:
+        skill_dir = root / subdir / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"""---
+name: {name}
+description: Automates {name} workflows {marker}
+keywords:
+  - {name} trigger
+---
+
+# {name} {marker}
+
+Content for {marker}.
+"""
+        )
+        return skill_dir
+
+    def test_same_skill_name_in_different_dirs_deduplicated(self, tmp_path: Path):
+        """Same skill name in two configured dirs: first dir wins."""
+        clear_cache()
+        dir1 = tmp_path / "one" / "skills"
+        dir2 = tmp_path / "two" / "skills"
+        self._write_skill(dir1, "snapshot-a", "deploy-helper", "first")
+        self._write_skill(dir2, "snapshot-b", "deploy-helper", "second")
+
+        index = LessonIndex([dir1, dir2])
+
+        assert len(index.lessons) == 1
+        assert index.lessons[0].metadata.name == "deploy-helper"
+        # First configured directory wins.
+        assert "snapshot-a" in index.lessons[0].path.as_posix()
+        assert "Content for first." in index.lessons[0].body
+
+    def test_same_skill_name_in_same_dir_deduplicated(self, tmp_path: Path):
+        """Two snapshots of one skill under the same root are deduplicated."""
+        clear_cache()
+        skills_dir = tmp_path / "skills"
+        self._write_skill(skills_dir, "snapshot-a", "deploy-helper", "first")
+        self._write_skill(skills_dir, "snapshot-b", "deploy-helper", "second")
+
+        index = LessonIndex([skills_dir])
+
+        assert len(index.lessons) == 1
+        assert index.lessons[0].metadata.name == "deploy-helper"
+
+    def test_distinct_skill_names_not_deduplicated(self, tmp_path: Path):
+        """Different skill names under the same root stay distinct."""
+        clear_cache()
+        skills_dir = tmp_path / "skills"
+        self._write_skill(skills_dir, "snapshot-a", "deploy-helper", "first")
+        self._write_skill(skills_dir, "snapshot-a", "release-helper", "second")
+
+        index = LessonIndex([skills_dir])
+
+        assert len(index.lessons) == 2
+        assert {lesson.metadata.name for lesson in index.lessons} == {
+            "deploy-helper",
+            "release-helper",
+        }
+
+    def test_lesson_files_with_same_stem_not_affected(self, tmp_path: Path):
+        """A non-skill lesson sharing a stem with a skill is still indexed."""
+        clear_cache()
+        skills_dir = tmp_path / "skills"
+        self._write_skill(skills_dir, "snapshot-a", "deploy-helper", "first")
+        snap_b = skills_dir / "snapshot-b" / "deploy-helper"
+        snap_b.mkdir(parents=True)
+        (snap_b / "notes.md").write_text(
+            """---
+match:
+  keywords: ["deployment notes"]
+status: active
+---
+
+# Deployment Notes
+
+Lesson, not a skill.
+"""
+        )
+
+        index = LessonIndex([skills_dir])
+
+        # The duplicate skill collapses, but the unrelated lesson survives.
+        assert len(index.lessons) == 2
+
+
 class TestLessonDeduplication:
     """Tests for lesson deduplication feature.
 
