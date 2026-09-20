@@ -256,9 +256,9 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
 
 
 def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
-    """Validate OpenRouter API key by listing models."""
+    """Validate OpenRouter authentication and observable quota state."""
     response = requests.get(
-        "https://openrouter.ai/api/v1/models",
+        "https://openrouter.ai/api/v1/key",
         headers={
             "Authorization": f"Bearer {api_key}",
             "HTTP-Referer": "https://github.com/gptme/gptme",
@@ -268,6 +268,34 @@ def _validate_openrouter(api_key: str, timeout: int) -> tuple[bool, str]:
     )
 
     if response.status_code == 200:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        key_data = payload.get("data", {}) if isinstance(payload, dict) else {}
+        if not isinstance(key_data, dict):
+            key_data = {}
+
+        if key_data.get("limit_remaining") == 0:
+            reset = key_data.get("limit_reset")
+            reset_hint = f" (reset: {reset})" if reset else ""
+            return (
+                True,
+                (
+                    "OpenRouter API key is authenticated, but its credit limit is "
+                    f"exhausted{reset_hint}."
+                ),
+            )
+
+        free_quota = key_data.get("free_model_daily_requests")
+        if isinstance(free_quota, dict) and free_quota.get("remaining") == 0:
+            return (
+                True,
+                (
+                    "OpenRouter API key is authenticated, but its daily free-model "
+                    "quota is exhausted; paid models may still work."
+                ),
+            )
         return True, ""
     if response.status_code == 401:
         return False, "Invalid API key. Please check your key and try again."

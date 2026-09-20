@@ -983,6 +983,29 @@ class TestCheckApiKeys:
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
     @patch("gptme.cli.doctor.validate_api_key")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_quota_blocked_api_key_is_warning(
+        self, mock_validate, mock_config, mock_providers
+    ):
+        """Authenticated-but-quota-blocked keys should remain configured."""
+        mock_providers.return_value = [("openrouter", None)]
+        mock_config.return_value.get_env.return_value = "sk-or-quota-blocked"
+        mock_validate.return_value = (
+            True,
+            "OpenRouter API key is authenticated, but its credit limit is exhausted.",
+        )
+
+        results = _check_api_keys()
+
+        openrouter_result = next(
+            result for result in results if result.name == "API Key: openrouter"
+        )
+        assert openrouter_result.status == CheckStatus.WARNING
+        assert "credit limit is exhausted" in openrouter_result.message
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor.validate_api_key")
     @patch.dict("os.environ", {"OPENAI_API_KEY": "sk-invalid"}, clear=True)
     def test_invalid_api_key(self, mock_validate, mock_config, mock_providers):
         """Test that invalid API keys are reported as ERROR."""

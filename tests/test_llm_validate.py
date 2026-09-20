@@ -270,11 +270,86 @@ class TestValidateOpenRouter:
 
     @patch("gptme.llm.validate.requests.get")
     def test_valid_key_returns_true(self, mock_get):
-        """Valid API key should return (True, '')."""
-        mock_get.return_value = Mock(status_code=200)
+        """A usable key should pass the free metadata probe."""
+        mock_get.return_value = Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "data": {
+                        "limit_remaining": None,
+                        "free_model_daily_requests": {
+                            "used": 0,
+                            "limit": 50,
+                            "remaining": 50,
+                        },
+                    }
+                }
+            ),
+        )
+
         is_valid, error = _validate_openrouter("sk-or-valid-key", 10)
+
         assert is_valid
         assert error == ""
+        mock_get.assert_called_once_with(
+            "https://openrouter.ai/api/v1/key",
+            headers={
+                "Authorization": "Bearer sk-or-valid-key",
+                "HTTP-Referer": "https://github.com/gptme/gptme",
+                "X-Title": "gptme",
+            },
+            timeout=10,
+        )
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_exhausted_key_credit_limit_returns_warning(self, mock_get):
+        """A valid key with no spend remaining must not look completion-ready."""
+        mock_get.return_value = Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "data": {
+                        "limit": 1,
+                        "limit_remaining": 0,
+                        "limit_reset": None,
+                        "free_model_daily_requests": {
+                            "used": 0,
+                            "limit": 50,
+                            "remaining": 50,
+                        },
+                    }
+                }
+            ),
+        )
+
+        is_valid, error = _validate_openrouter("sk-or-quota-blocked", 10)
+
+        assert is_valid
+        assert "credit limit is exhausted" in error.lower()
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_exhausted_free_model_daily_limit_returns_warning(self, mock_get):
+        """Daily free-model exhaustion is observable without a paid completion."""
+        mock_get.return_value = Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "data": {
+                        "limit_remaining": None,
+                        "free_model_daily_requests": {
+                            "used": 50,
+                            "limit": 50,
+                            "remaining": 0,
+                        },
+                    }
+                }
+            ),
+        )
+
+        is_valid, error = _validate_openrouter("sk-or-daily-blocked", 10)
+
+        assert is_valid
+        assert "daily free-model quota is exhausted" in error.lower()
 
     @patch("gptme.llm.validate.requests.get")
     def test_invalid_key_returns_false(self, mock_get):
@@ -283,6 +358,31 @@ class TestValidateOpenRouter:
         is_valid, error = _validate_openrouter("sk-or-invalid-key", 10)
         assert not is_valid
         assert "Invalid API key" in error
+
+    @pytest.mark.parametrize(
+        "payload",
+        [None, [], {"data": None}, {"data": []}],
+    )
+    @patch("gptme.llm.validate.requests.get")
+    def test_malformed_metadata_does_not_reject_authenticated_key(
+        self, mock_get, payload
+    ):
+        """Schema drift must not turn successful authentication into rejection."""
+        mock_get.return_value = Mock(status_code=200, json=Mock(return_value=payload))
+
+        is_valid, error = _validate_openrouter("sk-or-valid-key", 10)
+
+        assert is_valid
+        assert error == ""
+
+    @patch("gptme.llm.validate.requests.get")
+    def test_invalid_json_does_not_reject_authenticated_key(self, mock_get):
+        mock_get.return_value = Mock(status_code=200, json=Mock(side_effect=ValueError))
+
+        is_valid, error = _validate_openrouter("sk-or-valid-key", 10)
+
+        assert is_valid
+        assert error == ""
 
 
 class TestValidateOpenAICompatible:
