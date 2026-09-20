@@ -113,7 +113,11 @@ export function SetupWizard() {
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
-  const { isLoading: isLoadingTauriStatus, managesLocalServer } = useTauriServerStatus();
+  const {
+    isLoading: isLoadingTauriStatus,
+    managesLocalServer,
+    serverStatus,
+  } = useTauriServerStatus();
   const externalOpen = use$(setupWizard$.open);
   const externalStep = use$(setupWizard$.step);
   const isRemoteOnlyTauri = isTauri && managesLocalServer === false;
@@ -415,11 +419,21 @@ export function SetupWizard() {
     setIsConnecting(true);
     setConnectError(null);
     try {
+      const managedServerConfig =
+        managesLocalServer && serverStatus
+          ? {
+              baseUrl: `http://127.0.0.1:${serverStatus.port}`,
+              authToken: serverStatus.auth_token,
+              useAuthToken: Boolean(serverStatus.auth_token),
+            }
+          : null;
       const trimmedAuthToken = remoteAuthToken.trim();
-      await connect({
-        authToken: trimmedAuthToken || null,
-        useAuthToken: Boolean(trimmedAuthToken),
-      });
+      await connect(
+        managedServerConfig ?? {
+          authToken: trimmedAuthToken || null,
+          useAuthToken: Boolean(trimmedAuthToken),
+        }
+      );
       // The isConnected useEffect will fire and call checkProviderAndAdvance.
     } catch (err) {
       setConnectError(

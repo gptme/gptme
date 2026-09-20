@@ -54,6 +54,7 @@ type MockTauriServerStatus = {
   port: number;
   port_available: boolean;
   manages_local_server: boolean;
+  auth_token?: string | null;
 };
 
 type MockUseTauriServerStatusResult = {
@@ -770,6 +771,40 @@ describe('SetupWizard', () => {
     expect(mockOpen).not.toHaveBeenCalled();
     expect(screen.queryByText(/waiting for sign-in to complete/i)).not.toBeInTheDocument();
     warnSpy.mockRestore();
+  });
+
+  it('sends the managed sidecar URL and token atomically on Connect', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        auth_token: 'managed-sidecar-token',
+      },
+    });
+    mockConnect.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith({
+        baseUrl: 'http://127.0.0.1:5712',
+        authToken: 'managed-sidecar-token',
+        useAuthToken: true,
+      });
+    });
   });
 
   it('sends the pasted local-server token on Connect', async () => {
