@@ -274,13 +274,11 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 ### Background Jobs
 
-Set `background: true` for long jobs. Foreground calls still running after
-`GPTME_SHELL_FOREGROUND_TIMEOUT` (default 120s) are promoted automatically.
-Both paths return a conversation-owned job ID and report completion. Exact `jobs`,
-`output <id> [--new]`, `wait <id> [timeout]`, and `kill <id>` calls manage jobs.
-Keep working while a job runs: completion is delivered before the next model
-step, and non-interactive sessions wait when idle (up to
-`GPTME_WATCH_IDLE_MAX` seconds, default 1800). `wait` is the blocking fallback.
+Use `background: true` for work you already know will run long — dev servers,
+builds, test suites. A foreground command that outruns the soft timeout is
+promoted for you: keep doing other useful work, and the result arrives
+automatically before the next model step. Use `wait` only when later steps
+need that result.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -615,6 +613,21 @@ class ShellSession:
     def get_cwd(self) -> Path:
         """Return the persistent shell's effective working directory."""
         return Path(self._cwd or os.getcwd())
+
+    def live_cwd(self) -> Path:
+        """Return the process cwd if readable, else the last tracked cwd.
+
+        Tracked cwd is only updated when a command finishes and emits its PWD
+        marker. During a long ``cd dir; sleep ...`` the process has already
+        changed directory, so promotion must seed the replacement shell from
+        the live process cwd rather than the stale tracked value.
+        """
+        pid = getattr(self.process, "pid", None)
+        if pid:
+            live = _live_process_cwd(pid)
+            if live and os.path.isdir(live):
+                return Path(live)
+        return self.get_cwd()
 
     def _set_cwd(self, cwd: str) -> None:
         """Synchronize the tracked cwd with the persistent shell."""
@@ -2282,8 +2295,9 @@ def set_shell(shell: ShellSession) -> None:
 
 
 def _replace_promoted_shell(shell: ShellSession) -> None:
-    """Release a busy shell and seed the next shell with its tracked cwd."""
+    """Release a busy shell and seed the next shell with its live cwd."""
     shell.detach()
+    _workspace_cwd.set(str(shell.live_cwd()))
     _shell_var.set(None)
     from ..hooks import current_conversation_id
 
@@ -2780,67 +2794,89 @@ def execute_shell_impl(
 
         worker = threading.Thread(target=run_foreground, daemon=True)
         worker.start()
-        worker.join(foreground_timeout)
-        if worker.is_alive():
-            # The command is already executing in ``shell``. Register that shell as
-            # the job and let the existing worker publish its eventual result.
-            process = PromotedJobProcess()
-
-            def kill_promoted() -> None:
+        try:
+            worker.join(foreground_timeout)
+        except KeyboardInterrupt as e:
+            # Ctrl-C lands on the main thread while it is blocked in join.
+            # The worker and command keep running unless we use the same
+            # cleanup as the synchronous path; otherwise a later tool call
+            # reuses a busy shell.
+            stdout, stderr = _partial_output_from_interrupt(e, shell)
+            _terminate_interrupted_shell(shell)
+            worker.join(2.0)
+            if worker.is_alive():
                 _kill_descendants(shell.process.pid)
-                process.finish(-signal.SIGTERM)
+                worker.join(1.0)
+            if "value" in result:
+                returncode, stdout, stderr = result["value"]
+            else:
+                returncode = shell.process.returncode
+            interrupted = True
+            timed_out = False
+            byte_cap_exceeded = False
+            promoted = False
+        else:
+            if worker.is_alive():
+                # The command is already executing in ``shell``. Register that
+                # shell as the job and let the existing worker publish its
+                # eventual result.
+                process = PromotedJobProcess()
 
-            job = register_background_job(
-                cmd,
-                process,
-                start_time=time.time() - (time.monotonic() - start_time),
-                kill_callback=kill_promoted,
-                close_callback=shell.close,
-                output_callback=shell.active_output,
-            )
-            _replace_promoted_shell(shell)
+                def kill_promoted() -> None:
+                    _kill_descendants(shell.process.pid)
+                    process.finish(-signal.SIGTERM)
 
-            def publish() -> None:
-                worker.join()
-                job_returncode: int | None
-                if error:
-                    job_returncode, stdout, stderr = -1, "", str(error[0])
-                else:
-                    job_returncode, stdout, stderr = result["value"]
-                process.finish(job_returncode if job_returncode is not None else -1)
-                complete_background_job(job, stdout, stderr)
-                shell.close()
-                job._close_callback = None
+                job = register_background_job(
+                    cmd,
+                    process,
+                    start_time=time.time() - (time.monotonic() - start_time),
+                    kill_callback=kill_promoted,
+                    close_callback=shell.close,
+                    output_callback=shell.active_output,
+                )
+                _replace_promoted_shell(shell)
 
-            threading.Thread(target=publish, daemon=True).start()
-            partial_stdout, partial_stderr = shell.active_output()
-            tail = ""
-            if partial_stdout:
-                tail += "\n\n" + md_codeblock("stdout", partial_stdout[-8000:])
-            if partial_stderr:
-                tail += "\n\n" + md_codeblock("stderr", partial_stderr[-2000:])
-            msg = (
-                f"Promoted to background shell job #{job.id} after "
-                f"{foreground_timeout:g}s: `{cmd}`\n\n"
-                "The command is still running. Completion will be reported "
-                f"automatically; use `output {job.id}` for current output.{tail}"
-            )
-            yield Message(
-                "system",
-                msg,
-                terminal_display_content=(
+                def publish() -> None:
+                    worker.join()
+                    job_returncode: int | None
+                    if error:
+                        job_returncode, stdout, stderr = -1, "", str(error[0])
+                    else:
+                        job_returncode, stdout, stderr = result["value"]
+                    process.finish(job_returncode if job_returncode is not None else -1)
+                    complete_background_job(job, stdout, stderr)
+                    shell.close()
+                    job._close_callback = None
+
+                threading.Thread(target=publish, daemon=True).start()
+                partial_stdout, partial_stderr = shell.active_output()
+                tail = ""
+                if partial_stdout:
+                    tail += "\n\n" + md_codeblock("stdout", partial_stdout[-8000:])
+                if partial_stderr:
+                    tail += "\n\n" + md_codeblock("stderr", partial_stderr[-2000:])
+                msg = (
                     f"Promoted to background shell job #{job.id} after "
-                    f"{foreground_timeout:g}s; completion will be reported automatically."
-                ),
-            )
-            return
-        if error:
-            raise error[0]
-        returncode, stdout, stderr = result["value"]
-        if stdout:
-            print(stdout, file=sys.stdout)
-        if stderr:
-            print(stderr, file=sys.stderr)
+                    f"{foreground_timeout:g}s: `{cmd}`\n\n"
+                    "The command is still running. Completion will be reported "
+                    f"automatically; use `output {job.id}` for current output.{tail}"
+                )
+                yield Message(
+                    "system",
+                    msg,
+                    terminal_display_content=(
+                        f"Promoted to background shell job #{job.id} after "
+                        f"{foreground_timeout:g}s; completion will be reported automatically."
+                    ),
+                )
+                return
+            if error:
+                raise error[0]
+            returncode, stdout, stderr = result["value"]
+            if stdout:
+                print(stdout, file=sys.stdout)
+            if stderr:
+                print(stderr, file=sys.stderr)
     else:
         try:
             returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
@@ -3014,6 +3050,42 @@ def _check_workspace_config() -> Message | None:
         f"```\n"
         f"The subagent will load the workspace config from `{config_file}`.",
     )
+
+
+def _live_process_cwd(pid: int) -> str | None:
+    """Best-effort live cwd for a running shell process."""
+    if _is_windows:
+        return None
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        pass
+    if sys.platform != "darwin":
+        return None
+    try:
+        out = subprocess.check_output(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in out.splitlines():
+        if line.startswith("n"):
+            return line[1:]
+    return None
+
+
+def _partial_output_from_interrupt(
+    exc: KeyboardInterrupt, shell: ShellSession
+) -> tuple[str, str]:
+    """Prefer KeyboardInterrupt payload, else output captured so far."""
+    if exc.args and isinstance(exc.args[0], tuple) and len(exc.args[0]) == 2:
+        stdout, stderr = exc.args[0]
+        if isinstance(stdout, str) and isinstance(stderr, str):
+            return stdout, stderr
+    return shell.active_output()
 
 
 def _terminate_interrupted_shell(

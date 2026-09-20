@@ -1,5 +1,6 @@
 """Foreground shell commands promote to conversation-owned jobs at a soft timeout."""
 
+import threading
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -104,6 +105,55 @@ def test_promoted_command_releases_a_shell_seeded_with_tracked_cwd(
     returncode, stdout, _ = replacement.run("pwd")
     assert returncode == 0
     assert stdout == str(workdir)
+
+
+def test_promoted_command_seeds_replacement_from_live_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """In-command cd is visible on the process before the PWD marker lands."""
+    # 0.05s is too tight: bash may not have executed `cd` yet. 0.25s is still
+    # well under the remaining sleep, and /proc cwd has updated by ~0.10s.
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.25")
+    dest = tmp_path / "services" / "api"
+    dest.mkdir(parents=True)
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+
+    messages = list(execute_shell_impl(f"cd {dest}; sleep 1", logdir=None, timeout=2))
+
+    assert "Promoted to background shell job" in messages[-1].content
+    replacement = get_shell()
+    assert replacement is not shell
+    assert replacement.get_cwd() == dest
+    returncode, stdout, _ = replacement.run("pwd")
+    assert returncode == 0
+    assert stdout == str(dest)
+
+
+def test_keyboard_interrupt_before_promotion_terminates_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ctrl-C during the soft-timeout wait must not leave a busy shell."""
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.5")
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    real_join = threading.Thread.join
+
+    def join_soft_timeout(self: threading.Thread, timeout: float | None = None) -> None:
+        if timeout == 0.5 and threading.current_thread() is threading.main_thread():
+            raise KeyboardInterrupt
+        return real_join(self, timeout)
+
+    monkeypatch.setattr(threading.Thread, "join", join_soft_timeout)
+
+    with pytest.raises(KeyboardInterrupt):
+        list(execute_shell_impl("sleep 30", logdir=None, timeout=60))
+
+    assert list_background_jobs() == []
+    recovered = get_shell()
+    returncode, stdout, _ = recovered.run("printf recovered")
+    assert returncode == 0
+    assert "recovered" in stdout
 
 
 def test_fast_command_is_not_promoted(

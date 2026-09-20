@@ -192,10 +192,19 @@ class BackgroundJob:
         _notify_completion(self)
 
     def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:
-        """Append data to a locked buffer, enforcing the size limit."""
+        """Append data to a locked buffer, enforcing the size limit.
+
+        Oversized single appends (including promoted-command completions) keep
+        only the tail so one 32 MiB result cannot pin the registry.
+        """
+        if not data:
+            return 0
+        removed_size = 0
+        if len(data) > _MAX_BUFFER_SIZE:
+            removed_size += len(data) - _MAX_BUFFER_SIZE
+            data = data[-_MAX_BUFFER_SIZE:]
         buffer.append(data)
         total_size = sum(len(s) for s in buffer)
-        removed_size = 0
         while total_size > _MAX_BUFFER_SIZE and len(buffer) > 1:
             removed = buffer.pop(0)
             total_size -= len(removed)

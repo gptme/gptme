@@ -22,6 +22,7 @@ from gptme.tools.shell_background import (
     BackgroundJob,
     _wait_readable,
     cleanup_finished_jobs,
+    complete_background_job,
     execute_bg_command,
     execute_jobs_command,
     execute_kill_command,
@@ -70,19 +71,31 @@ class TestAppendToBuffer:
         # Buffer at limit — next append should evict the oldest
         job._append_to_buffer(job.stdout_buffer, "overflow")
         total = sum(len(s) for s in job.stdout_buffer)
-        assert total <= _MAX_BUFFER_SIZE + len("overflow")
+        assert total <= _MAX_BUFFER_SIZE
         # The first chunk should have been removed
         assert job.stdout_buffer[0] == chunk  # second chunk kept
         assert job.stdout_buffer[-1] == "overflow"
         assert len(job.stdout_buffer) == 2
 
-    def test_single_entry_never_evicted(self):
-        """A single buffer entry should never be removed even if oversized."""
+    def test_oversized_single_entry_keeps_tail(self):
+        """A single oversized append must not pin more than _MAX_BUFFER_SIZE."""
         job = _make_job()
-        huge = "x" * (_MAX_BUFFER_SIZE + 100)
+        huge = "head" + ("x" * _MAX_BUFFER_SIZE) + "tail"
         job._append_to_buffer(job.stdout_buffer, huge)
-        assert len(job.stdout_buffer) == 1
-        assert job.stdout_buffer[0] == huge
+        total = sum(len(s) for s in job.stdout_buffer)
+        assert total <= _MAX_BUFFER_SIZE
+        joined = "".join(job.stdout_buffer)
+        assert joined.endswith("tail")
+        assert not joined.startswith("head")
+
+    def test_complete_background_job_truncates_promoted_output(self):
+        job = _make_job()
+        huge = "head" + ("x" * (_MAX_BUFFER_SIZE + 50)) + "tail"
+        complete_background_job(job, huge, "")
+        stdout, _ = job.get_output()
+        assert len(stdout) <= _MAX_BUFFER_SIZE
+        assert stdout.endswith("tail")
+        assert not stdout.startswith("head")
 
 
 # ---------------------------------------------------------------------------
