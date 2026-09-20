@@ -925,7 +925,7 @@ def _monitor_subprocess(
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
     try:
-        summary = _summarize_result(final_result, max_chars=200)
+        summary = _summarize_result(final_result, max_chars=2000)
         notify_completion(subagent.agent_id, status, summary)
     except Exception as e:
         logger.warning(f"Failed to notify subagent completion: {e}")

@@ -1807,6 +1807,79 @@ def test_external_session_gptme_directory_no_jsonl_skipped(tmp_path: Path):
     assert items == [], f"Expected no sessions, got: {items}"
 
 
+def test_watch_wake_reserves_idle_step(monkeypatch, tmp_path):
+    """A model-armed watch reuses the server's atomic step reservation."""
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = "watch-wake-test"
+    session = SessionManager.create_session(conversation_id)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    started = unittest.mock.MagicMock(return_value=True)
+    manager = unittest.mock.MagicMock()
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        LogManager, "load", unittest.mock.MagicMock(return_value=manager)
+    )
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    try:
+        completion = Message("system", "✅ Subagent done")
+        assert SessionManager.request_watch_wake(conversation_id, completion) is True
+        manager.append.assert_called_once_with(completion)
+        manager.write.assert_called_once_with(sync=True)
+        assert session.generating is True
+        assert session.step_seq == 1
+        started.assert_called_once()
+        assert started.call_args.kwargs["reserved"] is True
+        assert started.call_args.kwargs["step_seq"] == 1
+
+        # A second completion while generation owns the conversation is refused.
+        assert SessionManager.request_watch_wake(conversation_id, completion) is False
+    finally:
+        SessionManager.remove_session(session.id)
+
+
+def test_watch_wake_respects_conversation_opt_out(monkeypatch, tmp_path):
+    from gptme.config import ChatConfig
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = "watch-wake-disabled"
+    session = SessionManager.create_session(conversation_id)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=False,
+    )
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    try:
+        from gptme.message import Message
+
+        assert (
+            SessionManager.request_watch_wake(
+                conversation_id, Message("system", "done")
+            )
+            is False
+        )
+        assert session.generating is False
+        assert session.step_seq == 0
+    finally:
+        SessionManager.remove_session(session.id)
+
+
 def test_v2_server_health_empty(client: FlaskClient, monkeypatch):
     """Server health endpoint returns green status with no active sessions."""
     monkeypatch.setattr(

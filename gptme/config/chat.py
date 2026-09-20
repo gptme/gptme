@@ -122,6 +122,8 @@ class ChatConfig:
     stream: bool = True
     interactive: bool = True
     no_confirm: bool | None = None
+    # Whether model-armed asynchronous work may wake an idle server conversation.
+    watch_autowake: bool = True
     # Max tokens for the model's response. None = provider/model default.
     max_tokens: int | None = None
     # Sampling temperature override. None = use TEMPERATURE constant (env default 0).
@@ -217,6 +219,13 @@ class ChatConfig:
                 raise ValueError(
                     f"chat.{field_name} must be a number, got {type(val).__name__}"
                 )
+        watch_autowake_val = chat_data.get("watch_autowake")
+        if watch_autowake_val is not None and not isinstance(watch_autowake_val, bool):
+            raise ValueError(
+                "chat.watch_autowake must be a boolean, "
+                f"got {type(watch_autowake_val).__name__}"
+            )
+
         max_tokens_val = chat_data.get("max_tokens")
         if max_tokens_val is not None and (
             not isinstance(max_tokens_val, int) or isinstance(max_tokens_val, bool)

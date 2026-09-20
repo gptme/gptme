@@ -757,7 +757,7 @@ def subagent(
                     notify_completion(
                         agent_id,
                         status,
-                        _exec._summarize_result(result, max_chars=200),
+                        _exec._summarize_result(result, max_chars=2000),
                     )
                 except Exception as e:
                     logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
@@ -1059,7 +1059,7 @@ def subagent(
                             )
                         return
                     try:
-                        summary = _exec._summarize_result(result, max_chars=200)
+                        summary = _exec._summarize_result(result, max_chars=2000)
                         notify_completion(agent_id, result.status, summary)
                     except Exception as e:
                         logger.warning(f"Failed to notify subagent completion: {e}")
@@ -1555,7 +1555,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                 notify_completion(
                     agent_id,
                     result.status,
-                    _exec._summarize_result(result, max_chars=200),
+                    _exec._summarize_result(result, max_chars=2000),
                 )
         finally:
             prompt_queue_closed.set()
@@ -1799,9 +1799,11 @@ def subagent_wait(
         try:
             sa.process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            logger.warning(f"Subagent {agent_id} timed out after {timeout}s")
-            sa.process.kill()
-            sa.process.wait()  # reap the killed process
+            logger.info(
+                "Subagent %s is still running after %ss wait; leaving it running",
+                agent_id,
+                timeout,
+            )
     elif sa.execution_mode == "acp" and sa.thread:
         # ACP mode: wait for the wrapper thread
         sa.thread.join(timeout=timeout)

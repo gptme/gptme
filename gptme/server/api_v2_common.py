@@ -135,6 +135,7 @@ class BaseEvent(TypedDict):
         "error",
         "config_changed",
         "conversation_edited",
+        "watch_event",
     ]
 
 
@@ -184,6 +185,15 @@ class StepCompleteEvent(BaseEvent):
     Clients should gate queued-message flushes on this event rather than
     inferring state from generation_complete.
     """
+
+
+class WatchEvent(BaseEvent):
+    """Sent when watched asynchronous work has an update for a conversation."""
+
+    kind: str
+    status: str
+    ref: str
+    message: str
 
 
 class ToolPendingEvent(BaseEvent):
@@ -282,6 +292,7 @@ EventType = (
     | GenerationProgressEvent
     | GenerationCompleteEvent
     | StepCompleteEvent
+    | WatchEvent
     | ToolPendingEvent
     | ToolExecutingEvent
     | ToolOutputEvent

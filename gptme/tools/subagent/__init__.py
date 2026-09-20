@@ -557,6 +557,11 @@ tool = ToolSpec(
             _subagent_completion_hook,
             50,  # High priority to ensure timely delivery
         ),
+        "completion_step_pre": (
+            "step.pre",
+            _subagent_completion_hook,
+            950,  # Drain before model generation in CLI, server, and ACP
+        ),
         "session_end": (
             "session.end",  # HookType.SESSION_END.value
             _session_end_subagent_cleanup,

@@ -288,6 +288,78 @@ class SessionManager:
             session.touch()
             session.event_flag.set()
 
+    @classmethod
+    def request_watch_wake(cls, conversation_id: str, message: Message) -> bool:
+        """Persist a watch message and reserve one idle server step."""
+        from ..config import ChatConfig
+        from ..dirs import get_logs_dir
+        from ..llm.models import get_default_model
+        from .session_step import _start_step_thread
+
+        sessions = cls.get_sessions_for_conversation(conversation_id)
+        if not sessions:
+            return False
+        session = max(sessions, key=lambda item: item.last_activity)
+        with cls.conversation_lock(conversation_id), session.step_lock:
+            if (
+                cls.conversation_generating(conversation_id)
+                or cls.command_is_active(conversation_id)
+                or session.pending_tools
+                or session._executing_tools
+            ):
+                return False
+            config = ChatConfig.load_or_create(
+                get_logs_dir() / conversation_id, ChatConfig()
+            )
+            if not config.watch_autowake:
+                return False
+            model = config.model
+            if model is None:
+                default_model = get_default_model()
+                model = default_model.full if default_model is not None else None
+            if model is None:
+                return False
+            try:
+                from ..logmanager import LogManager
+
+                manager = LogManager.load(conversation_id, lock=False)
+                manager.append(message)
+                manager.write(sync=True)
+            except (OSError, ValueError):
+                logger.warning(
+                    "Could not persist watch event for conversation %s",
+                    conversation_id,
+                    exc_info=True,
+                )
+                return False
+            session.step_seq += 1
+            step_seq = session.step_seq
+            session.generating = True
+            session.generating_since = datetime.now(tz=timezone.utc)
+            session.interrupted = False
+        try:
+            started = _start_step_thread(
+                conversation_id,
+                session,
+                model,
+                config.workspace,
+                stream=config.stream,
+                reserved=True,
+                step_seq=step_seq,
+            )
+            if not started:
+                with session.step_lock:
+                    if session.step_seq == step_seq:
+                        session.generating = False
+                        session.generating_since = None
+            return started
+        except Exception:
+            with session.step_lock:
+                if session.step_seq == step_seq:
+                    session.generating = False
+                    session.generating_since = None
+            raise
+
     _STUCK_GENERATING_TIMEOUT_MINUTES = 10
 
     @classmethod

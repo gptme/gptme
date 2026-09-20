@@ -156,7 +156,7 @@ class TestThreadModeCompletionRoundtrip:
 
         # The completion hook should have queued a notification
         assert not _completion_queue.empty()
-        agent_id, status, summary = _completion_queue.get_nowait()
+        _parent_logdir, agent_id, status, summary = _completion_queue.get_nowait()
         assert agent_id == "hook-test"
         assert status == "success"
 
@@ -180,7 +180,7 @@ class TestThreadModeCompletionRoundtrip:
             sa.thread.join(timeout=10)
 
         # Drain the hook — it should yield a system message
-        manager = MagicMock()
+        manager = MagicMock(logdir=sa.parent_logdir)
         messages = list(
             _subagent_completion_hook(manager, interactive=False, prompt_queue=None)
         )
@@ -188,6 +188,25 @@ class TestThreadModeCompletionRoundtrip:
         assert messages[0].role == "system"
         assert "hook-delivery" in messages[0].content
         assert "✅" in messages[0].content
+
+    def test_completion_notification_contains_full_report(self, monkeypatch, tmp_path):
+        """Completion delivery uses the same 2k report budget as subagent_wait."""
+        _setup_patches(monkeypatch, tmp_path)
+        report = "R" * 1500
+
+        def fast_thread(**kwargs):
+            _make_log_file(kwargs["logdir"], f"```complete\n{report}\n```")
+
+        monkeypatch.setattr(subagent_api._exec, "_create_subagent_thread", fast_thread)
+        subagent("full-report", "task")
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "full-report")
+        assert sa.thread is not None
+        sa.thread.join(timeout=10)
+
+        _parent_logdir, _agent_id, _status, summary = _completion_queue.get_nowait()
+        assert report in summary
+        assert len(summary) > 200
 
     def test_result_stored_in_cache_for_subagent_wait(self, monkeypatch, tmp_path):
         """After thread completes, result is in _subagent_results for subagent_wait."""
@@ -252,7 +271,7 @@ class TestClarificationRoundtrip:
         if sa.thread:
             sa.thread.join(timeout=10)
 
-        manager = MagicMock()
+        manager = MagicMock(logdir=sa.parent_logdir)
         messages = list(
             _subagent_completion_hook(manager, interactive=False, prompt_queue=None)
         )

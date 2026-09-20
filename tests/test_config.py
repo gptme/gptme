@@ -718,6 +718,18 @@ def test_chat_config_temperature_top_p_roundtrip():
     assert config_new.top_p == 0.9
 
 
+def test_chat_config_watch_autowake_roundtrip():
+    config = ChatConfig.from_dict({"chat": {"watch_autowake": False}})
+
+    assert config.watch_autowake is False
+    assert config.to_dict()["chat"]["watch_autowake"] is False
+
+
+def test_chat_config_watch_autowake_rejects_non_boolean():
+    with pytest.raises(ValueError, match="chat.watch_autowake must be a boolean"):
+        ChatConfig.from_dict({"chat": {"watch_autowake": "false"}})
+
+
 def test_chat_config_numeric_fields_reject_wrong_types():
     """temperature, top_p, and max_tokens raise ValueError for non-numeric input."""
     with pytest.raises(ValueError, match="temperature"):
