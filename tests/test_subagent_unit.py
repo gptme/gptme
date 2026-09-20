@@ -321,6 +321,9 @@ class TestCompletionNotifications:
     def test_notify_emits_server_watch_event_and_requests_wake(
         self, tmp_path, monkeypatch
     ):
+        pytest.importorskip(
+            "flask", reason="flask not installed, install server extras (-E server)"
+        )
         from gptme.server.session_models import SessionManager
 
         parent = tmp_path / "server-parent"
