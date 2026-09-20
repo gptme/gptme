@@ -79,21 +79,24 @@ exports.config = {
     const { execSync } = require("child_process");
     const sidecarPort = Number(process.env.GPTME_SERVER_PORT || "5700");
 
-    // Kill whatever process owns the sidecar port (graceful then forceful).
+    // Kill whatever process owns the sidecar port.
+    // Use pkill (universally available) as primary; fuser as secondary for
+    // the port-level kill (catches non-gptme processes on that port).
     try {
-      execSync(`fuser -k -TERM ${sidecarPort}/tcp 2>/dev/null || true`, {
+      execSync("pkill -9 -f gptme-server 2>/dev/null || true", {
         shell: true,
         stdio: "ignore",
       });
-      await new Promise((r) => setTimeout(r, 1000));
+    } catch (_) {}
+    try {
       execSync(`fuser -k -KILL ${sidecarPort}/tcp 2>/dev/null || true`, {
         shell: true,
         stdio: "ignore",
       });
-      await new Promise((r) => setTimeout(r, 500));
     } catch (_) {
-      // fuser not available or no process on port — that's fine
+      // fuser not available — pkill above is sufficient
     }
+    await new Promise((r) => setTimeout(r, 1000));
 
     const candidates = [
       join(homedir(), ".local", "share", "org.gptme.tauri"),
@@ -125,5 +128,8 @@ exports.config = {
     if (tauriDriver) {
       tauriDriver.kill();
     }
+    // Kill any lingering sidecar that survived tauri-driver termination.
+    const { spawnSync } = require("child_process");
+    spawnSync("pkill", ["-9", "-f", "gptme-server"], { stdio: "ignore" });
   },
 };
