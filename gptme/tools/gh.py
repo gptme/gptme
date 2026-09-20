@@ -766,8 +766,9 @@ tool: ToolSpec = ToolSpec(
     examples=examples,
     execute=execute_gh,
     block_types=["gh"],
-    # External side effects: can open PRs, comment, and merge — not read-only.
-    sensitivity="sensitive",
+    # Arbitrary `gh` pass-through includes destructive API calls and settings
+    # changes, so the tool must be gated at the highest supervision level.
+    sensitivity="dangerous",
     parameters=[
         Parameter(
             name="command",

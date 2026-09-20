@@ -39,6 +39,43 @@ def test_sensitivity_is_a_dataclass_field():
     assert replace(spec, name="other").sensitivity == "dangerous"
 
 
+def test_sensitivity_does_not_shift_existing_positional_parameters():
+    """The new field must not break plugins passing hooks/commands positionally."""
+
+    def hook(*_args: object) -> None:
+        pass
+
+    def command() -> None:
+        pass
+
+    positional: list[Any] = [
+        "",
+        None,
+        "",
+        None,
+        None,
+        None,
+        None,
+        True,
+        None,
+        None,
+        0,
+        False,
+        None,
+        False,
+        None,
+        False,
+        {"hook": ("pre", hook, 0)},
+        {"command": command},
+    ]
+
+    spec = ToolSpec("t", "test", *positional)
+
+    assert spec.hooks == {"hook": ("pre", hook, 0)}
+    assert spec.commands == {"command": command}
+    assert spec.sensitivity == "safe"
+
+
 # (module, attribute, expected level) for the built-in spec objects. Asserting
 # against the module-level specs rather than get_available_tools() keeps this
 # independent of runtime availability (browser needs a backend; computer is
@@ -47,7 +84,7 @@ BUILTIN_SENSITIVITY = {
     "append": ("gptme.tools.save", "tool_append", "moderate"),
     "browser": ("gptme.tools.browser", "tool", "sensitive"),
     "computer": ("gptme.tools.computer", "tool", "dangerous"),
-    "gh": ("gptme.tools.gh", "tool", "sensitive"),
+    "gh": ("gptme.tools.gh", "tool", "dangerous"),
     "hashline_edit": ("gptme.tools.hashline_edit", "tool", "moderate"),
     "ipython": ("gptme.tools.python", "tool", "dangerous"),
     # sensitive, not moderate: the file contents are sent to an external

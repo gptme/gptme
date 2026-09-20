@@ -554,9 +554,9 @@ class ToolSpec:
     is_mcp: bool = False
     hints: frozenset[str] = field(default_factory=frozenset)
     read_only: bool = False
-    sensitivity: ToolSensitivity = "safe"
     hooks: dict[str, tuple[str, HookFunc, int]] = field(default_factory=dict)
     commands: dict[str, Callable] = field(default_factory=dict)
+    sensitivity: ToolSensitivity = "safe"
 
     def __init__(
         self,
@@ -578,9 +578,9 @@ class ToolSpec:
         is_mcp: bool = False,
         hints: frozenset[str] | None = None,
         read_only: bool = False,
-        sensitivity: ToolSensitivity = "safe",
         hooks: dict[str, tuple[str, HookFunc, int]] | None = None,
         commands: dict[str, Callable] | None = None,
+        sensitivity: ToolSensitivity = "safe",
     ):
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "desc", desc)

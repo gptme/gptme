@@ -202,9 +202,10 @@ def sensitivity_from_annotations(
 ) -> ToolSensitivity:
     """Map MCP ToolAnnotations onto ToolSpec.sensitivity.
 
-    An unannotated server — or one that declares itself neither read-only nor
-    destructive — is treated as ``"moderate"``: an MCP tool may have side
-    effects we cannot see, so ``"safe"`` is not a safe default.
+    A missing annotations object is ``"moderate"``. Once an annotations
+    object exists, an omitted ``destructiveHint`` retains MCP's destructive
+    default and is therefore ``"dangerous"``; only explicit
+    ``destructiveHint=False`` can lower that classification.
     """
     if annotations is None:
         return "moderate"
