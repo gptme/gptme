@@ -758,6 +758,7 @@ def subagent(
                         agent_id,
                         status,
                         _exec._summarize_result(result, max_chars=2000),
+                        parent_logdir=parent_logdir,
                     )
                 except Exception as e:
                     logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
@@ -765,7 +766,12 @@ def subagent(
                         agent_id, ReturnType("failure", str(e))
                     ):
                         return
-                    notify_completion(agent_id, "failure", f"ACP error: {e}")
+                    notify_completion(
+                        agent_id,
+                        "failure",
+                        f"ACP error: {e}",
+                        parent_logdir=parent_logdir,
+                    )
                 finally:
                     with _subagents_lock:
                         sa_ref = next(
@@ -886,7 +892,12 @@ def subagent(
                 if set_subagent_result_if_absent(
                     agent_id, ReturnType("failure", str(e))
                 ):
-                    notify_completion(agent_id, "failure", f"Subprocess failed: {e}")
+                    notify_completion(
+                        agent_id,
+                        "failure",
+                        f"Subprocess failed: {e}",
+                        parent_logdir=sa.parent_logdir,
+                    )
                 _exec._cleanup_isolation(sa)
             finally:
                 # Mark the prompt queue as closed: the subprocess has exited (or
@@ -1006,7 +1017,12 @@ def subagent(
                             _exec._cleanup_isolation(sa)
                         return
                     try:
-                        notify_completion(agent_id, "failure", f"Execution failed: {e}")
+                        notify_completion(
+                            agent_id,
+                            "failure",
+                            f"Execution failed: {e}",
+                            parent_logdir=parent_logdir,
+                        )
                     except Exception as notify_err:
                         logger.warning(f"Failed to notify subagent error: {notify_err}")
                     # Clean up worktree isolation even on failure
@@ -1060,7 +1076,12 @@ def subagent(
                         return
                     try:
                         summary = _exec._summarize_result(result, max_chars=2000)
-                        notify_completion(agent_id, result.status, summary)
+                        notify_completion(
+                            agent_id,
+                            result.status,
+                            summary,
+                            parent_logdir=sa.parent_logdir,
+                        )
                     except Exception as e:
                         logger.warning(f"Failed to notify subagent completion: {e}")
             finally:
@@ -1160,7 +1181,12 @@ def _timeout_subagent(
             "(thread will stop at its next checkpoint)."
         )
 
-    notify_completion(agent_id, "timeout", f"Timed out after {max_time}s")
+    notify_completion(
+        agent_id,
+        "timeout",
+        f"Timed out after {max_time}s",
+        parent_logdir=sa.parent_logdir,
+    )
 
 
 def subagent_cancel(agent_id: str) -> str:
@@ -1556,6 +1582,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                     agent_id,
                     result.status,
                     _exec._summarize_result(result, max_chars=2000),
+                    parent_logdir=sa.parent_logdir,
                 )
         finally:
             prompt_queue_closed.set()

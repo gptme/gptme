@@ -96,6 +96,9 @@ def create_app(
     server_default_model = get_default_model()
     if server_default_model:
         app.config["SERVER_DEFAULT_MODEL"] = server_default_model
+        from .session_models import SessionManager
+
+        SessionManager.set_server_default_model(server_default_model.full)
 
         @app.before_request
         def propagate_default_model():

@@ -790,10 +790,13 @@ def _poll_subprocess_progress(
     file_pos = 0
     POLL_INTERVAL = 0.5
 
+    def _notify(agent_id: str, message: str) -> None:
+        notify_progress(agent_id, message, parent_logdir=subagent.parent_logdir)
+
     def _drain() -> None:
         nonlocal file_pos
         file_pos = _drain_progress_file(
-            progress_file, file_pos, subagent.agent_id, notify_progress
+            progress_file, file_pos, subagent.agent_id, _notify
         )
 
     while not stop_event.is_set():
@@ -926,7 +929,12 @@ def _monitor_subprocess(
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
     try:
         summary = _summarize_result(final_result, max_chars=2000)
-        notify_completion(subagent.agent_id, status, summary)
+        notify_completion(
+            subagent.agent_id,
+            status,
+            summary,
+            parent_logdir=subagent.parent_logdir,
+        )
     except Exception as e:
         logger.warning(f"Failed to notify subagent completion: {e}")
 
@@ -1135,6 +1143,7 @@ def _run_planner(
                                 _sa.agent_id,
                                 "failure",
                                 f"Executor subprocess failed: {e}",
+                                parent_logdir=_sa.parent_logdir,
                             )
                         _cleanup_isolation(_sa)
                         return

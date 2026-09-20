@@ -311,6 +311,38 @@ export type EventStreamConnectionState =
     }
   | { status: 'disconnected'; message: string };
 
+export interface WatchEvent {
+  type: 'watch_event';
+  kind: string;
+  status: string;
+  ref: string;
+  message: string;
+}
+
+function formatWatchEventContent(event: {
+  status?: string;
+  ref?: string;
+  message?: string;
+}): string {
+  const ref = event.ref ?? 'unknown';
+  const summary = event.message ?? '';
+  switch (event.status) {
+    case 'success':
+      return `✅ Subagent '${ref}' completed: ${summary}`;
+    case 'clarification_needed':
+      return (
+        `❓ Subagent '${ref}' needs clarification: ${summary}\n` +
+        `Call subagent_reply('${ref}', '<your answer>') to continue.`
+      );
+    case 'timeout':
+      return `⏱️ Subagent '${ref}' timed out: ${summary}`;
+    case 'running':
+      return `⏳ Subagent '${ref}' progress: ${summary}`;
+    default:
+      return `❌ Subagent '${ref}' failed: ${summary}`;
+  }
+}
+
 export class ApiClient {
   public baseUrl: string;
   public authHeader: string | null = null;
@@ -742,6 +774,12 @@ export class ApiClient {
         log: Message[];
         branches: Record<string, Message[]>;
       }) => void;
+      onWatchEvent?: (event: {
+        kind: string;
+        status: string;
+        ref: string;
+        message: string;
+      }) => void;
     },
     reconnectAttempt = 0
   ): Promise<void> {
@@ -1001,6 +1039,23 @@ export class ApiClient {
               callbacks.onConfigChanged(data.config, data.changed_fields || []);
             }
             break;
+
+          case 'watch_event': {
+            console.log(`[ApiClient] Watch event:`, data);
+            const watch = data as {
+              kind: string;
+              status: string;
+              ref: string;
+              message: string;
+            };
+            callbacks.onWatchEvent?.(watch);
+            callbacks.onMessageAdded({
+              role: 'system',
+              content: formatWatchEventContent(watch),
+              timestamp: new Date().toISOString(),
+            });
+            break;
+          }
 
           default:
             console.warn(`[ApiClient] Unknown event type:`, data);

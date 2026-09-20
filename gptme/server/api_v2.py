@@ -521,6 +521,9 @@ def _persist_default_model(model: str) -> bool:
         init_llm(cast(Provider, model_meta.provider))
         set_default_model(model_meta)
         flask.current_app.config["SERVER_DEFAULT_MODEL"] = model_meta
+        from .session_models import SessionManager
+
+        SessionManager.set_server_default_model(model_meta.full)
         return False
     except Exception:
         logger.warning(

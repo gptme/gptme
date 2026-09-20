@@ -10,6 +10,7 @@ children and zombie threads with dangling concurrency slots.
 """
 
 import logging
+import threading
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -224,18 +225,49 @@ def _get_complete_instruction(
     return instruction
 
 
-def _notification_parent(agent_id: str) -> Path | None:
-    """Return the owning parent logdir for the newest matching run."""
+def _notification_parent(
+    agent_id: str,
+    *,
+    parent_logdir: Path | None = None,
+) -> Path | None:
+    """Return the owning parent logdir for this originating run.
+
+    Agent IDs are not globally unique and completed entries stay in
+    ``_subagents``. Never resolve ownership from the newest matching ID —
+    that cross-routes an older run onto a later conversation that reused
+    the same ID. Prefer the originating run's stored ``parent_logdir``.
+    """
+    if parent_logdir is not None:
+        return Path(parent_logdir).resolve()
+
+    current = threading.current_thread()
     with _subagents_lock:
-        subagent = next(
-            (item for item in reversed(_subagents) if item.agent_id == agent_id), None
-        )
-    return subagent.parent_logdir if subagent is not None else None
+        matches = [item for item in _subagents if item.agent_id == agent_id]
+    if not matches:
+        return None
+    for item in reversed(matches):
+        if item.thread is current:
+            return item.parent_logdir
+    if len(matches) == 1:
+        return matches[0].parent_logdir
+    logger.warning(
+        "Reused agent_id '%s' has %d registry entries; "
+        "pass parent_logdir from the originating run",
+        agent_id,
+        len(matches),
+    )
+    return None
 
 
-def notify_completion(agent_id: str, status: Status, summary: str) -> None:
+def notify_completion(
+    agent_id: str,
+    status: Status,
+    summary: str,
+    *,
+    parent_logdir: Path | None = None,
+) -> None:
     """Queue a completion for delivery to its owning parent conversation."""
-    parent_logdir = _notification_parent(agent_id)
+    parent_logdir = _notification_parent(agent_id, parent_logdir=parent_logdir)
     if not _notify_server(parent_logdir, agent_id, status, summary):
         _completion_queue.put((parent_logdir, agent_id, status, summary))
         logger.debug(
@@ -344,9 +376,14 @@ def _session_end_subagent_cleanup(
     yield from ()
 
 
-def notify_progress(agent_id: str, message: str) -> None:
+def notify_progress(
+    agent_id: str,
+    message: str,
+    *,
+    parent_logdir: Path | None = None,
+) -> None:
     """Queue progress for delivery to its owning parent conversation."""
-    parent_logdir = _notification_parent(agent_id)
+    parent_logdir = _notification_parent(agent_id, parent_logdir=parent_logdir)
     _progress_queue.put((parent_logdir, agent_id, message))
     logger.debug(f"Queued progress notification for subagent '{agent_id}'")
     _notify_server(parent_logdir, agent_id, "running", message, wake=False)

@@ -767,6 +767,35 @@ describe('ApiClient event stream reconnection', () => {
 
     expect(MockEventSource.instances).toHaveLength(1);
   });
+
+  it('handles watch_event without warning and surfaces it as a system message', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    first.emitOpen();
+    first.emitMessage({
+      type: 'watch_event',
+      kind: 'subagent',
+      status: 'running',
+      ref: 'worker-1',
+      message: 'halfway',
+    });
+
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Unknown event type'),
+      expect.anything()
+    );
+    expect(callbacks.onMessageAdded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'system',
+        content: "⏳ Subagent 'worker-1' progress: halfway",
+      })
+    );
+  });
 });
 
 describe('getApiErrorPresentation', () => {

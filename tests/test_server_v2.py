@@ -1880,6 +1880,89 @@ def test_watch_wake_respects_conversation_opt_out(monkeypatch, tmp_path):
         SessionManager.remove_session(session.id)
 
 
+def test_watch_wake_uses_server_default_model_without_contextvar(monkeypatch, tmp_path):
+    """Idle chats with config.model=None still wake from the captured server default."""
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = "watch-wake-default-model"
+    session = SessionManager.create_session(conversation_id)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model=None,
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    started = unittest.mock.MagicMock(return_value=True)
+    manager = unittest.mock.MagicMock()
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        LogManager, "load", unittest.mock.MagicMock(return_value=manager)
+    )
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    monkeypatch.setattr(
+        "gptme.llm.models.get_default_model", unittest.mock.MagicMock(return_value=None)
+    )
+    previous = SessionManager._server_default_model_full
+    SessionManager.set_server_default_model("openai/gpt-4")
+    try:
+        assert (
+            SessionManager.request_watch_wake(
+                conversation_id, Message("system", "done")
+            )
+            is True
+        )
+        started.assert_called_once()
+        assert started.call_args.args[2] == "openai/gpt-4"
+    finally:
+        SessionManager.set_server_default_model(previous)
+        SessionManager.remove_session(session.id)
+
+
+def test_watch_wake_persist_then_dispatch_fail_does_not_duplicate(
+    monkeypatch, tmp_path
+):
+    """A dispatch failure after persist must still count as delivered."""
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = "watch-wake-dispatch-fail"
+    session = SessionManager.create_session(conversation_id)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    manager = unittest.mock.MagicMock()
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        LogManager, "load", unittest.mock.MagicMock(return_value=manager)
+    )
+    monkeypatch.setattr(
+        session_step,
+        "_start_step_thread",
+        unittest.mock.MagicMock(side_effect=RuntimeError("boom")),
+    )
+    try:
+        completion = Message("system", "✅ Subagent done")
+        assert SessionManager.request_watch_wake(conversation_id, completion) is True
+        manager.append.assert_called_once_with(completion)
+        assert session.generating is False
+    finally:
+        SessionManager.remove_session(session.id)
+
+
 def test_v2_server_health_empty(client: FlaskClient, monkeypatch):
     """Server health endpoint returns green status with no active sessions."""
     monkeypatch.setattr(

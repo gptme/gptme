@@ -27,6 +27,35 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _resolve_watch_wake_model(config_model: str | None) -> str | None:
+    """Resolve a wake model independently of the notifying thread's context.
+
+    Idle conversations often persist ``config.model is None`` and use the
+    server default. ``get_default_model()`` is a ContextVar that is only
+    propagated into Flask request threads, so completion monitors can see
+    ``None`` even when the server has a usable default.
+    """
+    if config_model:
+        return config_model
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context():
+            stored = current_app.config.get("SERVER_DEFAULT_MODEL")
+            if stored is not None:
+                return stored.full if hasattr(stored, "full") else str(stored)
+    except ImportError:
+        pass
+    if SessionManager._server_default_model_full:
+        return SessionManager._server_default_model_full
+    from ..llm.models import get_default_model
+
+    default_model = get_default_model()
+    if default_model is not None:
+        return default_model.full
+    return None
+
+
 class ToolStatus(Enum):
     """Status of a tool execution."""
 
@@ -198,6 +227,15 @@ class SessionManager:
     # This reservation keeps generation and mutations from racing that work.
     _active_commands: set[str] = set()
     _lock = threading.Lock()
+    # Captured at server startup / default-model persist so background
+    # watch-wake threads can resolve a model without Flask request context
+    # or the notifying thread's ContextVar.
+    _server_default_model_full: str | None = None
+
+    @classmethod
+    def set_server_default_model(cls, model: str | None) -> None:
+        """Record the process-wide server default model for watch-wake."""
+        cls._server_default_model_full = model
 
     @classmethod
     def conversation_lock(cls, conversation_id: str) -> threading.RLock:
@@ -293,7 +331,6 @@ class SessionManager:
         """Persist a watch message and reserve one idle server step."""
         from ..config import ChatConfig
         from ..dirs import get_logs_dir
-        from ..llm.models import get_default_model
         from .session_step import _start_step_thread
 
         sessions = cls.get_sessions_for_conversation(conversation_id)
@@ -313,10 +350,7 @@ class SessionManager:
             )
             if not config.watch_autowake:
                 return False
-            model = config.model
-            if model is None:
-                default_model = get_default_model()
-                model = default_model.full if default_model is not None else None
+            model = _resolve_watch_wake_model(config.model)
             if model is None:
                 return False
             try:
@@ -348,17 +382,28 @@ class SessionManager:
                 step_seq=step_seq,
             )
             if not started:
+                logger.warning(
+                    "Watch wake persisted for %s but dispatch did not start",
+                    conversation_id,
+                )
                 with session.step_lock:
                     if session.step_seq == step_seq:
                         session.generating = False
                         session.generating_since = None
-            return started
+            # Persist succeeded. Returning False would queue the same
+            # completion for STEP_PRE and duplicate it in the log.
+            return True
         except Exception:
+            logger.warning(
+                "Watch wake persisted for %s but dispatch failed",
+                conversation_id,
+                exc_info=True,
+            )
             with session.step_lock:
                 if session.step_seq == step_seq:
                     session.generating = False
                     session.generating_since = None
-            raise
+            return True
 
     _STUCK_GENERATING_TIMEOUT_MINUTES = 10
 

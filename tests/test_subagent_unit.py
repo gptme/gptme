@@ -318,6 +318,58 @@ class TestCompletionNotifications:
                 for agent in agents:
                     _subagents.remove(agent)
 
+    def test_reused_agent_id_routes_to_originating_parent(self, tmp_path):
+        """Older runs must not inherit a later spawn's parent via newest-ID lookup."""
+        parent_a = tmp_path / "parent-a"
+        parent_b = tmp_path / "parent-b"
+        agents = [
+            Subagent(
+                "worker",
+                "test",
+                None,
+                tmp_path / "child-old",
+                None,
+                parent_logdir=parent_a,
+            ),
+            Subagent(
+                "worker",
+                "test",
+                None,
+                tmp_path / "child-new",
+                None,
+                parent_logdir=parent_b,
+            ),
+        ]
+        with _subagents_lock:
+            _subagents.extend(agents)
+        try:
+            notify_completion("worker", "success", "old-done", parent_logdir=parent_a)
+            notify_completion("worker", "success", "new-done", parent_logdir=parent_b)
+
+            messages_a = list(
+                _subagent_completion_hook(
+                    MagicMock(logdir=parent_a.resolve()),
+                    interactive=False,
+                    prompt_queue=[],
+                )
+            )
+            messages_b = list(
+                _subagent_completion_hook(
+                    MagicMock(logdir=parent_b.resolve()),
+                    interactive=False,
+                    prompt_queue=[],
+                )
+            )
+
+            assert any("old-done" in message.content for message in messages_a)
+            assert not any("new-done" in message.content for message in messages_a)
+            assert any("new-done" in message.content for message in messages_b)
+            assert not any("old-done" in message.content for message in messages_b)
+        finally:
+            with _subagents_lock:
+                for agent in agents:
+                    _subagents.remove(agent)
+
     def test_notify_emits_server_watch_event_and_requests_wake(
         self, tmp_path, monkeypatch
     ):
@@ -1167,7 +1219,9 @@ class TestSubagentCancel:
 
         notify_calls: list[tuple[str, str, str]] = []
 
-        def fake_notify_completion(agent_id: str, status: str, summary: str) -> None:
+        def fake_notify_completion(
+            agent_id: str, status: str, summary: str, **_kwargs
+        ) -> None:
             notify_calls.append((agent_id, status, summary))
 
         def fake_set_subagent_result_if_absent(
@@ -1271,7 +1325,9 @@ class TestSubagentCancel:
         def fake_cleanup(sa: Subagent) -> None:
             cleanup_calls.append(sa.agent_id)
 
-        def fake_notify_completion(agent_id: str, status: str, summary: str) -> None:
+        def fake_notify_completion(
+            agent_id: str, status: str, summary: str, **_kwargs
+        ) -> None:
             notify_calls.append((agent_id, status, summary))
 
         def fake_set_subagent_result_if_absent(
