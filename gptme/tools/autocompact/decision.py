@@ -9,6 +9,7 @@ from typing import Literal
 
 from ...llm.models import get_default_model, get_model
 from ...message import Message, len_tokens
+from ...util.context_budget import get_context_budget
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def estimate_compaction_savings(
     log_length = len(log)
 
     if limit is None:
-        limit = int(0.9 * model.context)
+        limit = get_context_budget(model.context)
 
     # Match actual compaction logic: only remove tool results when over/close to limit
     close_to_limit = total_tokens >= int(0.8 * model.context)
@@ -125,7 +126,7 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> Compact
 
     model = get_default_model() or get_model("gpt-4")
     if limit is None:
-        limit = int(0.9 * model.context)
+        limit = get_context_budget(model.context)
 
     total_tokens = len_tokens(log, model.model)
     close_to_limit = total_tokens >= int(

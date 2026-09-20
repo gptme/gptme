@@ -48,8 +48,6 @@ from ..util.conversation_ids import conversation_id_error, validate_conversation
 from ..util.reduce import (
     _drop_orphaned_tool_pairs,
     limit_log,
-    proactive_summarize_log,
-    reduce_log,
 )
 from ..util.uri import URI
 from . import eventlog
@@ -1102,35 +1100,34 @@ def prepare_messages(
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)
 
-    # Proactively summarize older turns when approaching the context limit.
-    # No-op unless GPTME_AUTO_SUMMARIZE_THRESHOLD is set (e.g. export GPTME_AUTO_SUMMARIZE_THRESHOLD=0.8).
-    msgs = proactive_summarize_log(msgs)
-
-    # Use regular reduction
-    msgs_reduced = list(reduce_log(msgs))
-
-    # Prune expired ephemeral messages (e.g. thinking blocks) after reduction
-    # but before hard context limiting, so the budget goes to durable content.
+    # Prune expired ephemeral messages (e.g. thinking blocks).
     # Adjacent same-role messages created by pruning are merged before provider
     # formatting; strict APIs reject consecutive user/assistant turns.
-    msgs_pruned = prune_ephemeral_messages(msgs_reduced)
-    if len(msgs_reduced) != len(msgs_pruned):
+    msgs_pruned = prune_ephemeral_messages(msgs)
+    if len(msgs) != len(msgs_pruned):
         logger.debug(
             "Pruned/merged "
-            f"{len(msgs_reduced) - len(msgs_pruned)} messages during ephemeral cleanup"
+            f"{len(msgs) - len(msgs_pruned)} messages during ephemeral cleanup"
         )
 
     model = get_default_model()
     if model is None:
         raise ValueError("No model loaded")
-    if (len_from := len_tokens(msgs, model.model)) != (
-        len_to := len_tokens(msgs_pruned, model.model)
-    ):
-        logger.debug(f"Reduced log from {len_from // 1} to {len_to // 1} tokens")
+
+    # Last-resort hard limit against the provider window.
+    # This should never fire in normal operation — compaction (via the TURN_POST
+    # autocompact hook) keeps the log below the context budget before we get here.
+    # If it fires, something bypassed compaction; log a warning so it's visible.
     msgs_limited = limit_log(msgs_pruned)
     if len(msgs_pruned) != len(msgs_limited):
-        logger.info(
-            f"Limited log from {len(msgs_pruned)} to {len(msgs_limited)} messages"
+        tokens_before = len_tokens(msgs_pruned, model.model)
+        tokens_after = len_tokens(msgs_limited, model.model)
+        logger.warning(
+            "limit_log fired as last resort: dropped %d messages (%d→%d tokens). "
+            "Compaction should have prevented this — check autocompact is enabled.",
+            len(msgs_pruned) - len(msgs_limited),
+            tokens_before,
+            tokens_after,
         )
 
     # Evidence replay: re-inject relevant earlier messages lost to compaction.
