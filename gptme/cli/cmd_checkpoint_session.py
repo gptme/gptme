@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import click
@@ -17,6 +18,13 @@ from ..checkpoint_session import (
 )
 from ..dirs import get_logs_dir
 from .cmd_resume import _list_sessions
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+
+
+def _strip_controls(value: str) -> str:
+    """Strip terminal control characters from human-readable output."""
+    return _CONTROL_CHARS_RE.sub("", value)
 
 
 def _resolve_session(session: str | None) -> Path:
@@ -136,4 +144,4 @@ def checkpoint_resume(label: str, session: str | None) -> None:
         checkpoint = load_conversation_checkpoint(logdir, label)
     except ConversationCheckpointError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(checkpoint_resume_prompt(checkpoint))
+    click.echo(_strip_controls(checkpoint_resume_prompt(checkpoint)))

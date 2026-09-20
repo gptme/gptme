@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
 import re
 import subprocess
@@ -16,11 +17,12 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .config import ChatConfig
 from .llm.models import get_model
 from .logmanager import Log
+from .tools import get_available_tools, get_tools
 from .util.git_cmd import git_inspect_cmd
 from .util.tokens import len_tokens
 
@@ -104,34 +106,100 @@ class ConversationCheckpoint:
             )
         try:
             label = validate_label(data["label"])
-            timestamp = data["timestamp"]
+            timestamp = _required_str(data, "timestamp")
             datetime.fromisoformat(timestamp)
             model = data.get("model")
-            summary = data["summary"]
-            conversation_id = data["conversation_id"]
-            if not all(
-                isinstance(value, str)
-                for value in (timestamp, summary, conversation_id)
-            ) or (model is not None and not isinstance(model, str)):
-                raise TypeError("string fields have invalid types")
+            if model is not None and not isinstance(model, str):
+                raise TypeError("model must be a string or null")
+            context_boundary = _decode_context_boundary(data["context_boundary"])
+            tool_calls = _decode_records(
+                data["last_tool_calls"], ToolCallSnapshot, "last_tool_calls"
+            )
+            file_changes = _decode_records(
+                data["file_changes"], FileChange, "file_changes"
+            )
+            message_count = data["message_count"]
+            if not _is_int(message_count) or message_count < 0:
+                raise TypeError("message_count must be a non-negative integer")
             return cls(
                 version=version,
                 label=label,
                 timestamp=timestamp,
                 model=model,
-                context_boundary=ContextBoundary(**data["context_boundary"]),
-                summary=summary,
-                last_tool_calls=[
-                    ToolCallSnapshot(**item) for item in data["last_tool_calls"]
-                ],
-                file_changes=[FileChange(**item) for item in data["file_changes"]],
-                message_count=int(data["message_count"]),
-                conversation_id=conversation_id,
+                context_boundary=context_boundary,
+                summary=_required_str(data, "summary"),
+                last_tool_calls=tool_calls,
+                file_changes=file_changes,
+                message_count=message_count,
+                conversation_id=_required_str(data, "conversation_id"),
             )
         except (KeyError, OverflowError, TypeError, ValueError) as exc:
             raise ConversationCheckpointError(
                 f"Invalid conversation checkpoint: {exc}"
             ) from exc
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _required_str(data: dict[str, Any], key: str) -> str:
+    value = data[key]
+    if not isinstance(value, str):
+        raise TypeError(f"{key} must be a string")
+    return value
+
+
+def _decode_context_boundary(value: object) -> ContextBoundary:
+    if not isinstance(value, dict):
+        raise TypeError("context_boundary must be an object")
+    if set(value) - {"total_tokens", "model_limit", "pct_used"}:
+        raise TypeError("context_boundary has unknown fields")
+    raw_total_tokens = value.get("total_tokens")
+    raw_model_limit = value.get("model_limit")
+    raw_pct_used = value.get("pct_used")
+    if not _is_int(raw_total_tokens) or cast(int, raw_total_tokens) < 0:
+        raise TypeError("context_boundary.total_tokens must be a non-negative integer")
+    if raw_model_limit is not None and (
+        not _is_int(raw_model_limit) or cast(int, raw_model_limit) <= 0
+    ):
+        raise TypeError(
+            "context_boundary.model_limit must be a positive integer or null"
+        )
+    if raw_pct_used is not None and (
+        isinstance(raw_pct_used, bool)
+        or not isinstance(raw_pct_used, (int, float))
+        or not math.isfinite(raw_pct_used)
+        or raw_pct_used < 0
+    ):
+        raise TypeError("context_boundary.pct_used must be a finite number or null")
+    total_tokens = cast(int, raw_total_tokens)
+    model_limit = cast(int | None, raw_model_limit)
+    pct_used = cast(int | float | None, raw_pct_used)
+    return ContextBoundary(
+        total_tokens, model_limit, float(pct_used) if pct_used is not None else None
+    )
+
+
+_RecordT = TypeVar("_RecordT")
+
+
+def _decode_records(
+    value: object, record_type: type[_RecordT], field_name: str
+) -> list[_RecordT]:
+    if not isinstance(value, list):
+        raise TypeError(f"{field_name} must be a list")
+    records: list[_RecordT] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise TypeError(f"{field_name} entries must be objects")
+        record = record_type(**item)
+        for field in dataclasses.fields(cast(Any, record)):
+            field_value = getattr(record, field.name)
+            if field_value is not None and not isinstance(field_value, str):
+                raise TypeError(f"{field_name}.{field.name} must be a string or null")
+        records.append(record)
+    return records
 
 
 def validate_label(label: str) -> str:
@@ -196,9 +264,20 @@ def _context_boundary(
     )
 
 
+def _tool_block_names() -> frozenset[str]:
+    tools = [*get_tools(), *get_available_tools(include_mcp=False)]
+    return frozenset(block_type for tool in tools for block_type in tool.block_types)
+
+
 def _strip_tool_payloads(content: str) -> str:
+    block_names = _tool_block_names()
     content = _TOOL_BLOCK_RE.sub(
-        lambda match: f"[tool call: {match.group('tool')}]", content
+        lambda match: (
+            f"[tool call: {match.group('tool')}]"
+            if match.group("tool") in block_names
+            else match.group(0)
+        ),
+        content,
     )
     return _NATIVE_TOOL_RE.sub(
         lambda match: f"[tool call: {match.group('tool')}]", content
@@ -265,8 +344,11 @@ def _snapshot_tool_call(
 
 def _tool_calls_from_content(content: str) -> list[ToolCallSnapshot]:
     calls: list[tuple[int, ToolCallSnapshot]] = []
+    block_names = _tool_block_names()
     for match in _TOOL_BLOCK_RE.finditer(content):
         tool = match.group("tool")
+        if tool not in block_names:
+            continue
         args = match.group("args").strip().split()
         calls.append(
             (
@@ -302,14 +384,13 @@ def recent_tool_calls(
     return calls[-limit:]
 
 
-def _git_output(workspace: Path, *args: str) -> str | None:
+def _git_output(workspace: Path, *args: str) -> bytes | None:
     try:
         result = subprocess.run(
             [*git_inspect_cmd(), *args],
             cwd=workspace,
             check=False,
             capture_output=True,
-            text=True,
             timeout=10,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -317,28 +398,46 @@ def _git_output(workspace: Path, *args: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def _decode_git_path(value: bytes) -> str:
+    return value.decode("utf-8", errors="surrogateescape")
+
+
 def working_tree_changes(workspace: Path) -> list[FileChange]:
     """Return tracked and untracked workspace changes without executing Git hooks."""
-    status = _git_output(workspace, "status", "--porcelain=v1", "--untracked-files=all")
+    status = _git_output(
+        workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+    )
     if status is None:
         return []
 
-    numstat = _git_output(workspace, "diff", "--numstat", "HEAD") or ""
+    numstat = _git_output(workspace, "diff", "--numstat", "-z", "HEAD") or b""
     line_counts: dict[str, str] = {}
-    for line in numstat.splitlines():
-        fields = line.split("\t", maxsplit=2)
+    for record in numstat.split(b"\0"):
+        if not record:
+            continue
+        fields = record.split(b"\t", maxsplit=2)
         if len(fields) == 3:
-            added, removed, path = fields
-            line_counts[path] = f"+{added}/-{removed}"
+            added, removed, raw_path = fields
+            line_counts[_decode_git_path(raw_path)] = (
+                f"+{added.decode('ascii')}/-{removed.decode('ascii')}"
+            )
 
     changes: list[FileChange] = []
-    for line in status.splitlines():
-        if len(line) < 4:
+    records = status.split(b"\0")
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if len(record) < 4:
             continue
-        code = line[:2]
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
+        code = record[:2].decode("ascii")
+        path = _decode_git_path(record[3:])
+        if "R" in code or "C" in code:
+            if index >= len(records):
+                break
+            # In porcelain v1 -z, the first path is the destination and the
+            # following NUL record is the source.
+            index += 1
         if code == "??":
             action = "untracked"
         elif "D" in code:
@@ -407,7 +506,16 @@ def save_conversation_checkpoint(
             output.write("\n")
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temporary, path)
+        if overwrite:
+            os.replace(temporary, path)
+        else:
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise ConversationCheckpointError(
+                    f"Checkpoint {label!r} already exists; "
+                    "pass --overwrite to replace it."
+                ) from exc
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
