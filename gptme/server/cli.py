@@ -53,9 +53,13 @@ from gptme.config import set_config_from_workspace
 
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
-from .app import create_app
-from .auth import get_server_token, init_auth
 from .constants import _pick_fallback_model
+
+# NOTE: `.app` and `.auth` import flask at module scope, so they are imported
+# inside the commands that need them rather than here.  Importing them at
+# module scope makes the `server` extras check in main() below unreachable:
+# `gptme-server` dies with `ModuleNotFoundError: No module named 'flask'`
+# during the console-script import, before any gptme code runs (gptme/gptme#290).
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +309,9 @@ def serve(
     default_profile: str | None,
 ):  # pragma: no cover
     """Starts a server and web UI for gptme."""
+    from .app import create_app
+    from .auth import init_auth
+
     init_logging(verbose, compact=False)
     # Upgrade the module-level startup SIGTERM handler (stderr-only) to the
     # logger-aware version now that init_logging() has run.
@@ -398,6 +405,8 @@ def serve(
 @main.command("token")
 def show_token():
     """Display the server authentication token."""
+    from .auth import get_server_token
+
     token = get_server_token()
     if token:
         click.echo("=" * 60)
@@ -425,6 +434,8 @@ def show_token():
 @click.option("-o", "--output", default="openapi.json", help="Output file path")
 def generate_openapi(output: str):
     """Generate OpenAPI specification without starting server."""
+    from .app import create_app
+
     app = create_app()
     with app.app_context():
         from .openapi_docs import generate_openapi_spec

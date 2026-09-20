@@ -5,7 +5,7 @@ This allows running the module as:
 python -m gptme.eval.dspy [command] [options]
 """
 
-from .cli import main
+from . import main
 
 if __name__ == "__main__":
     main()
