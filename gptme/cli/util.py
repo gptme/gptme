@@ -1312,11 +1312,20 @@ def models_info(model_name: str, as_json: bool):
     """Show detailed information about a specific model."""
     from ..llm.models import get_model  # fmt: skip
 
+    # Model resolution can log fallback warnings. Keep JSON stdout machine-readable
+    # even when an earlier command configured Rich logging to use the shared stdout
+    # console; the explicit unknown-provider warning below still goes to stderr.
+    previous_logging_disable = logging.root.manager.disable
+    if as_json:
+        logging.disable(logging.CRITICAL)
     try:
         model = get_model(model_name)
     except Exception as e:
         print(f"Error getting model info: {e}")
         sys.exit(1)
+    finally:
+        if as_json:
+            logging.disable(previous_logging_disable)
 
     # Warn (on stderr, so it never corrupts stdout/JSON) when the provider
     # prefix isn't recognized — get_model() returns generic fallback metadata
