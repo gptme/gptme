@@ -274,13 +274,10 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 ### Background Jobs
 
-Set `background: true` on a structured shell call to run its whole script as a
-conversation-owned process. Foreground calls still running after
-`GPTME_SHELL_FOREGROUND_TIMEOUT` (default 120 seconds) are promoted automatically.
-The call returns a job ID and completion is reported automatically. Exact `jobs`,
-`output <id> [--new]`, `wait <id> [timeout]`, and `kill <id>` calls manage matching
-harness jobs; otherwise Bash owns those commands. Use explicit background mode for
-dev servers and long builds.
+Set `background: true` for long jobs. Foreground calls still running after
+`GPTME_SHELL_FOREGROUND_TIMEOUT` (default 120s) are promoted automatically.
+Both paths return a conversation-owned job ID and report completion. Exact `jobs`,
+`output <id> [--new]`, `wait <id> [timeout]`, and `kill <id>` calls manage jobs.
 Keep working while a job runs: completion is delivered before the next model
 step, and non-interactive sessions wait when idle (up to
 `GPTME_WATCH_IDLE_MAX` seconds, default 1800). `wait` is the blocking fallback.
@@ -2287,7 +2284,6 @@ def set_shell(shell: ShellSession) -> None:
 def _replace_promoted_shell(shell: ShellSession) -> None:
     """Release a busy shell and seed the next shell with its tracked cwd."""
     shell.detach()
-    _workspace_cwd.set(str(shell.get_cwd()))
     _shell_var.set(None)
     from ..hooks import current_conversation_id
 
