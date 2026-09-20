@@ -742,7 +742,9 @@ def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
     return api_key, provider, env_var
 
 
-def _setup_custom_provider() -> tuple[str, str]:  # pragma: no cover
+def _setup_custom_provider(
+    require_default_model: bool = False,
+) -> tuple[str, str]:  # pragma: no cover
     """Interactively configure a custom OpenAI-compatible provider."""
     console.print(
         Panel.fit(
@@ -761,9 +763,15 @@ def _setup_custom_provider() -> tuple[str, str]:  # pragma: no cover
     api_key = Prompt.ask(
         "API key (leave blank to skip)", password=True, default=""
     ).strip()
-    default_model = Prompt.ask(
-        "Default model (leave blank to skip)", default=""
-    ).strip()
+    default_model_prompt = (
+        "Default model"
+        if require_default_model
+        else "Default model (leave blank to skip)"
+    )
+    default_model = Prompt.ask(default_model_prompt, default="").strip()
+    while require_default_model and not default_model:
+        console.print("[red]A default model is required for first-run setup.[/red]")
+        default_model = Prompt.ask(default_model_prompt, default="").strip()
 
     provider = ProviderConfig(
         name=name,
@@ -888,7 +896,7 @@ def _setup_gptme_ai() -> tuple[str, str]:  # pragma: no cover
     return provider, "device-flow"
 
 
-def ask_for_api_key():  # pragma: no cover
+def ask_for_api_key(require_default_model: bool = False):  # pragma: no cover
     """Interactively configure subscription, API-key, or custom provider auth."""
     console.print(
         Panel.fit(
@@ -908,7 +916,7 @@ def ask_for_api_key():  # pragma: no cover
     if choice == "4":
         return _setup_gptme_ai()
     if choice == "6":
-        return _setup_custom_provider()
+        return _setup_custom_provider(require_default_model=require_default_model)
 
     _show_api_key_sources()
     # Save to config

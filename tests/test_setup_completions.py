@@ -1,12 +1,15 @@
 """Tests for setup helpers."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from gptme.cli.setup import (
     _choose_first_run_auth,
     _generate_click_completion,
+    _setup_custom_provider,
     _setup_grok_subscription,
     _setup_openai_subscription,
+    ask_for_api_key,
 )
 
 
@@ -91,3 +94,32 @@ def test_setup_grok_subscription_persists_default_model(monkeypatch):
     set_value.assert_called_once_with("models.default", "grok-subscription/grok-4.5")
     assert provider == "grok-subscription"
     assert credential == "oauth"
+
+
+def test_custom_provider_requires_default_for_first_run(monkeypatch):
+    prompt = MagicMock(
+        side_effect=["custom", "http://localhost:8000/v1", "", "", "llama3"]
+    )
+    save_provider = MagicMock()
+    monkeypatch.setattr("gptme.cli.setup.Prompt.ask", prompt)
+    monkeypatch.setattr("gptme.cli.setup.save_provider_config", save_provider)
+    monkeypatch.setattr(
+        "gptme.cli.setup.get_user_config_paths",
+        lambda: (Path("/config.toml"), Path("/config.local.toml")),
+    )
+
+    provider, credential = _setup_custom_provider(require_default_model=True)
+
+    assert provider == "custom"
+    assert credential == ""
+    assert save_provider.call_args.args[0].default_model == "llama3"
+    assert prompt.call_count == 5
+
+
+def test_provider_setup_forwards_default_model_requirement(monkeypatch):
+    setup_custom = MagicMock(return_value=("custom", ""))
+    monkeypatch.setattr("gptme.cli.setup._choose_first_run_auth", lambda: "6")
+    monkeypatch.setattr("gptme.cli.setup._setup_custom_provider", setup_custom)
+
+    assert ask_for_api_key(require_default_model=True) == ("custom", "")
+    setup_custom.assert_called_once_with(require_default_model=True)

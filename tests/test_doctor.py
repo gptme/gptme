@@ -751,7 +751,7 @@ class TestCLI:
         result = CliRunner().invoke(main, ["--fix"], input="y\n")
 
         assert result.exit_code == 0
-        mock_setup.assert_called_once_with()
+        mock_setup.assert_called_once_with(require_default_model=True)
         mock_set_config.assert_called_once_with("models.default", "openai/gpt-5.6-sol")
         assert mock_diagnostics.call_count == 2
         assert mock_print.call_count == 2

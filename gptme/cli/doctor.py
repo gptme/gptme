@@ -1457,7 +1457,7 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
                 sys.exit(exit_code)
             from .setup import ask_for_api_key
 
-            provider, _ = ask_for_api_key()
+            provider, _ = ask_for_api_key(require_default_model=True)
             from ..config import set_config_value
             from ..llm.models import get_model
 
