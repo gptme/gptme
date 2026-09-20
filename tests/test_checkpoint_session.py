@@ -277,8 +277,15 @@ def test_working_tree_changes_preserves_unusual_paths(tmp_path: Path) -> None:
     os.name == "nt", reason="POSIX filenames may contain non-UTF-8 bytes"
 )
 def test_save_preserves_non_utf8_workspace_path(logs_dir: Path) -> None:
+    workspace = logs_dir / "workspace"
+    workspace.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
     logdir = _make_session(logs_dir)
-    raw_path = os.fsencode(logdir) + b"/invalid-\xff.txt"
+    (logdir / "config.toml").write_text(
+        f'[chat]\nname = "{logdir.name}"\nworkspace = "{workspace}"\n',
+        encoding="utf-8",
+    )
+    raw_path = os.fsencode(workspace) + b"/invalid-\xff.txt"
     descriptor = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o644)
     os.close(descriptor)
 
