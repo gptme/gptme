@@ -256,6 +256,40 @@ jobs:
           tests/test_cli.py::test_help `
           tests/test_cli.py::test_version
 
+  # uv-native smoke: Poetry CI cannot catch a broken [dependency-groups] table.
+  # `uv run pytest` is the command this PR exists to fix; run it in a fresh
+  # environment so a missing pytest/requests still fails the check.
+  test-uv:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    name: Test with uv (PEP 735 smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE: false
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      DEEPSEEK_API_KEY: ''
+      OPENROUTER_API_KEY: ''
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: astral-sh/setup-uv@v7
+      with:
+        python-version: '3.12'
+
+    - name: Install project + PEP 735 dev group
+      run: uv sync
+
+    - name: Smoke uv run pytest
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: |
+        uv run pytest -q \
+          tests/test_cli.py::test_help \
+          tests/test_cli.py::test_version
+
   # API tests: only run requires_api tests, across multiple cheap models
   # Skipped on docs/config-only PRs to reduce API spend (~$30+/day in Haiku costs)
   # Note: Anthropic tests route through OpenRouter (OPENROUTER_API_KEY) for cost controls
