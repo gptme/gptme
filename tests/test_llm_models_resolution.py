@@ -479,23 +479,20 @@ class TestLogWarnOnce:
 
         assert state["calls"] == 1
 
-    def test_get_model_unknown_warns_once(self, caplog):
+    def test_get_model_unknown_warns_once(self):
         """get_model on an unknown model should warn once across repeated calls.
 
         Regression: the bare-name fallback used raw logger.warning instead of
         log_warn_once, so resolving the same unknown model twice (as the CLI
         does during setup) logged "Unknown model ..." twice.
         """
-        import logging
-
         unknown = f"definitely-not-a-real-model-{id(self)}"
-        with caplog.at_level(logging.WARNING):
+        with patch("gptme.llm.models.resolution.logger.warning") as warning:
             get_model(unknown)
             get_model(unknown)
-        warnings = [
-            r for r in caplog.records if f"Unknown model {unknown}" in r.getMessage()
-        ]
-        assert len(warnings) == 1
+        warning.assert_called_once_with(
+            f"Unknown model {unknown}, using fallback metadata"
+        )
 
 
 # ── Custom provider resolution ───────────────────────────────────────────
