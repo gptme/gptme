@@ -137,6 +137,48 @@ Content about deployments.
         assert materialized.title == "Production Deployment Tool"
         assert "Content about deployments." in materialized.body
 
+    def test_manifest_entry_in_hidden_subdir_skipped(self, tmp_path: Path):
+        """A manifest entry pointing into a hidden subdirectory must be skipped.
+
+        Regression test: the recursive scan filters hidden subdirs, but manifest
+        entries bypassed that filter and kept archived copies (e.g.
+        .trash/<snap>/<skill>) discoverable.
+        """
+        clear_cache()
+        skills_dir = tmp_path / "skills"
+        live_dir = skills_dir / "deploy-helper"
+        live_dir.mkdir(parents=True)
+        (live_dir / "SKILL.md").write_text(
+            "---\nname: deploy-helper\ndescription: live\n---\n\nlive body\n"
+        )
+        trash_skill = skills_dir / ".trash" / "snap1" / "deploy-helper"
+        trash_skill.mkdir(parents=True)
+        (trash_skill / "SKILL.md").write_text(
+            "---\nname: deploy-helper\ndescription: archived\n---\n\narchived body\n"
+        )
+        (skills_dir / "index.json").write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "skills": [
+                        {
+                            "name": "deploy-helper",
+                            "description": "archived",
+                            "path": ".trash/snap1/deploy-helper",
+                        }
+                    ],
+                }
+            )
+        )
+
+        index = LessonIndex([skills_dir])
+        # The live copy is indexed; the archived manifest stub is not.
+        assert len(index.lessons) == 1
+        lesson = index.lessons[0]
+        assert lesson.is_stub is False
+        assert lesson.path == live_dir / "SKILL.md"
+        assert lesson.metadata.description == "live"
+
 
 class TestLessonDeduplication:
     """Tests for lesson deduplication feature.
