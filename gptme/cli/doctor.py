@@ -26,6 +26,7 @@ from rich.text import Text
 
 from ..__version__ import __version__
 from ..config import MCPServerConfig, config_path, get_config, resolve_model_source
+from ..credentials import STORED_CREDENTIALS_SOURCE, get_stored_api_key
 from ..info import get_config_info, get_installed_extras
 from ..llm import PROVIDER_API_KEYS, is_plugin_provider, list_available_providers
 from ..llm.models import PROVIDERS, is_custom_provider
@@ -107,8 +108,11 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
             # Key is configured, validate it
             env_var = special_env_vars.get(provider, f"{provider.upper()}_API_KEY")
 
-            # Try to get the API key
+            # Retrieve the key from the same source that made the provider available.
+            source = available_provider_map[provider]
             api_key = os.environ.get(env_var) or config.get_env(env_var)
+            if not api_key and source == STORED_CREDENTIALS_SOURCE:
+                api_key = get_stored_api_key(provider)
 
             if api_key:
                 # Validate the key

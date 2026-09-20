@@ -981,15 +981,17 @@ class TestCheckApiKeys:
         assert "valid" in openai_result.message.lower()
 
     @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_stored_api_key")
     @patch("gptme.cli.doctor.get_config")
     @patch("gptme.cli.doctor.validate_api_key")
     @patch.dict("os.environ", {}, clear=True)
-    def test_quota_blocked_api_key_is_warning(
-        self, mock_validate, mock_config, mock_providers
+    def test_stored_quota_blocked_api_key_is_warning(
+        self, mock_validate, mock_config, mock_stored_key, mock_providers
     ):
-        """Authenticated-but-quota-blocked keys should remain configured."""
-        mock_providers.return_value = [("openrouter", None)]
-        mock_config.return_value.get_env.return_value = "sk-or-quota-blocked"
+        """Stored authenticated-but-quota-blocked keys should remain configured."""
+        mock_providers.return_value = [("openrouter", "credentials.toml")]
+        mock_config.return_value.get_env.return_value = None
+        mock_stored_key.return_value = "sk-or-quota-blocked"
         mock_validate.return_value = (
             True,
             "OpenRouter API key is authenticated, but its credit limit is exhausted.",
@@ -1002,6 +1004,8 @@ class TestCheckApiKeys:
         )
         assert openrouter_result.status == CheckStatus.WARNING
         assert "credit limit is exhausted" in openrouter_result.message
+        mock_stored_key.assert_called_once_with("openrouter")
+        mock_validate.assert_called_once_with("sk-or-quota-blocked", "openrouter")
 
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
