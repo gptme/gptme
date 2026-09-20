@@ -71,6 +71,20 @@ describe("Real first-run flow", () => {
     return Number(process.env.GPTME_SERVER_PORT || "5700");
   }
 
+  /**
+   * What the webview actually shows, for failure messages. A bare "element did
+   * not appear" timeout cannot tell "feature broken" from "page never loaded"
+   * (e.g. a dev-mode binary pointing at an unserved devUrl).
+   */
+  async function describeWebview() {
+    const url = await browser.getUrl().catch((e) => `<getUrl failed: ${e.message}>`);
+    const body = await $("body")
+      .getText()
+      .then((t) => t.replace(/\s+/g, " ").slice(0, 500))
+      .catch((e) => `<body text failed: ${e.message}>`);
+    return `url=${url}, body=${JSON.stringify(body)}`;
+  }
+
   it("completes Local setup → Connect and reaches connected state", async () => {
     const sidecarPort = resolveSidecarPort();
 
@@ -94,17 +108,9 @@ describe("Real first-run flow", () => {
     try {
       await getStartedBtn.waitForExist({ timeout: 30000 });
     } catch (err) {
-      // Name what the webview actually rendered: a bare timeout cannot tell
-      // "wizard did not open" from "the page never loaded" (e.g. a dev-mode
-      // binary pointing at an unserved devUrl).
-      const url = await browser.getUrl().catch((e) => `<getUrl failed: ${e.message}>`);
-      const body = await $("body")
-        .getText()
-        .then((t) => t.slice(0, 300))
-        .catch((e) => `<body text failed: ${e.message}>`);
       throw new Error(
-        `SetupWizard 'Get started' button did not appear within 30s ` +
-          `(url=${url}, body=${JSON.stringify(body)})`
+        "SetupWizard 'Get started' button did not appear within 30s: " +
+          (await describeWebview())
       );
     }
     await getStartedBtn.click();
@@ -134,23 +140,29 @@ describe("Real first-run flow", () => {
     //        render only while isConnected is true), or
     //      - the wizard advancing past the Local step (checkProviderAndAdvance
     //        runs only on a successful connect): provider step or complete step.
-    await browser.waitUntil(
-      async () => {
-        try {
-          if (await (await $("button=Continue")).isExisting()) return true;
-          if (await (await $("*=Connected to server")).isExisting()) return true;
-          if (await (await $("*=You're all set!")).isExisting()) return true;
-          if (await (await $("*=Bring your own API key")).isExisting()) return true;
-          return false;
-        } catch (_e) {
-          return false;
-        }
-      },
-      {
-        timeout: 15000,
-        timeoutMsg: "Connect did not succeed within 15s (no connected signal appeared)",
-      }
-    );
+    try {
+      await browser.waitUntil(
+        async () => {
+          try {
+            if (await (await $("button=Continue")).isExisting()) return true;
+            if (await (await $("*=Connected to server")).isExisting()) return true;
+            if (await (await $("*=You're all set!")).isExisting()) return true;
+            if (await (await $("*=Bring your own API key")).isExisting()) return true;
+            return false;
+          } catch (_e) {
+            return false;
+          }
+        },
+        { timeout: 15000 }
+      );
+    } catch (err) {
+      // Same reason as the wizard wait above: name what the UI showed (a
+      // connect error toast/message, or the wizard stuck on the Local step).
+      throw new Error(
+        "Connect did not succeed within 15s (no connected signal appeared): " +
+          (await describeWebview())
+      );
+    }
 
     // 10. The gptme#3606 → #3882 regression (Local preset retargeted to
     //    `tauri://localhost`) is guarded behaviourally: with that bug the
