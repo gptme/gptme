@@ -189,7 +189,12 @@ jobs:
         run: make tauri-build-sidecar
 
       - name: Build Tauri debug binary
-        run: cd tauri/src-tauri && cargo build
+        # `custom-protocol` makes the binary serve the embedded frontendDist
+        # (webui/dist) from tauri://localhost, exactly like a shipped build.
+        # A bare `cargo build` is a dev-mode binary: it loads `devUrl`
+        # (http://localhost:5701), nothing listens there, and the webview
+        # renders an empty error page that still satisfies the smoke spec.
+        run: cd tauri/src-tauri && cargo build --features tauri/custom-protocol
 
       - name: Add tauri-driver to PATH
         run: echo "$HOME/.cargo-tauri-driver/bin" >> "$GITHUB_PATH"

@@ -91,10 +91,22 @@ describe("Real first-run flow", () => {
     //    is not possible: WebDriver's script context cannot access page storage on
     //    tauri:// origins (SecurityError: "The operation is insecure.").
     const getStartedBtn = await $("button=Get started");
-    await getStartedBtn.waitForExist({
-      timeout: 30000,
-      timeoutMsg: "SetupWizard 'Get started' button did not appear within 30s",
-    });
+    try {
+      await getStartedBtn.waitForExist({ timeout: 30000 });
+    } catch (err) {
+      // Name what the webview actually rendered: a bare timeout cannot tell
+      // "wizard did not open" from "the page never loaded" (e.g. a dev-mode
+      // binary pointing at an unserved devUrl).
+      const url = await browser.getUrl().catch((e) => `<getUrl failed: ${e.message}>`);
+      const body = await $("body")
+        .getText()
+        .then((t) => t.slice(0, 300))
+        .catch((e) => `<body text failed: ${e.message}>`);
+      throw new Error(
+        `SetupWizard 'Get started' button did not appear within 30s ` +
+          `(url=${url}, body=${JSON.stringify(body)})`
+      );
+    }
     await getStartedBtn.click();
 
     // 5. In "Choose your setup", click "Local"
