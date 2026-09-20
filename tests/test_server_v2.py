@@ -1963,6 +1963,48 @@ def test_watch_wake_persist_then_dispatch_fail_does_not_duplicate(
         SessionManager.remove_session(session.id)
 
 
+def test_create_app_clears_stale_server_default_model(monkeypatch):
+    """A later app without a default must not keep an earlier app's captured model."""
+    from gptme.server.app import create_app
+    from gptme.server.session_models import SessionManager
+
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
+    monkeypatch.setattr(
+        "gptme.llm.models.get_default_model",
+        unittest.mock.MagicMock(return_value=None),
+    )
+    previous = SessionManager._server_default_model_full
+    SessionManager.set_server_default_model("openai/stale-model")
+    try:
+        create_app()
+        assert SessionManager._server_default_model_full is None
+    finally:
+        SessionManager.set_server_default_model(previous)
+
+
+def test_create_app_captures_server_default_model(monkeypatch):
+    """create_app records the current default even if a previous app had none."""
+    from types import SimpleNamespace
+
+    from gptme.server.app import create_app
+    from gptme.server.session_models import SessionManager
+
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
+    monkeypatch.setattr(
+        "gptme.llm.models.get_default_model",
+        unittest.mock.MagicMock(
+            return_value=SimpleNamespace(full="anthropic/claude-sonnet-4")
+        ),
+    )
+    previous = SessionManager._server_default_model_full
+    SessionManager.set_server_default_model(None)
+    try:
+        create_app()
+        assert SessionManager._server_default_model_full == "anthropic/claude-sonnet-4"
+    finally:
+        SessionManager.set_server_default_model(previous)
+
+
 def test_v2_server_health_empty(client: FlaskClient, monkeypatch):
     """Server health endpoint returns green status with no active sessions."""
     monkeypatch.setattr(

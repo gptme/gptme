@@ -94,10 +94,13 @@ def create_app(
     from ..llm.models import get_default_model, set_default_model
 
     server_default_model = get_default_model()
+    from .session_models import SessionManager
+
+    # Always refresh the process-wide capture, including clearing it when
+    # this app has no default. A later create_app() in the same process
+    # (tests, embedded servers) must not inherit a stale previous model.
     if server_default_model:
         app.config["SERVER_DEFAULT_MODEL"] = server_default_model
-        from .session_models import SessionManager
-
         SessionManager.set_server_default_model(server_default_model.full)
 
         @app.before_request
@@ -106,6 +109,9 @@ def create_app(
             # Only set if not already set in this context
             if get_default_model() is None:
                 set_default_model(server_default_model)
+    else:
+        app.config.pop("SERVER_DEFAULT_MODEL", None)
+        SessionManager.set_server_default_model(None)
 
     # Register v2 API, workspace API, tasks API, and auth API
     # noreorder
