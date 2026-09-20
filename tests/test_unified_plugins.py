@@ -252,6 +252,30 @@ class TestEntrypointDiscovery:
         assert len(result) == 0
         clear_entrypoint_cache()
 
+    def test_load_error_available_to_diagnostics_after_cached_discovery(self):
+        """Cached tolerant discovery retains failures for diagnostic callers."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+
+        clear_entrypoint_cache()
+        mock_ep = MagicMock()
+        mock_ep.name = "broken"
+        mock_ep.module = "broken"
+        mock_ep.load.side_effect = ImportError("missing dep")
+
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
+            assert discover_entrypoint_plugins() == ()
+            errors: list[tuple[str, Exception]] = []
+            assert discover_entrypoint_plugins(errors=errors) == ()
+
+        assert len(errors) == 1
+        assert errors[0][0] == "broken"
+        assert isinstance(errors[0][1], ImportError)
+        mock_ep.load.assert_called_once()
+        clear_entrypoint_cache()
+
     def test_enabled_filter_skips_without_loading(self):
         """Disabled plugins are skipped before ep.load() runs (perf: loading
         imports the plugin's whole package)."""
@@ -457,6 +481,33 @@ class TestUnifiedRegistry:
             result = discover_all_plugins()
 
         assert len(result) == 1
+
+    def test_plugin_init_failure_available_to_diagnostics(self):
+        """Plugin init failures are retained when a caller asks for them."""
+
+        def bad_init(config):
+            raise RuntimeError("init failed")
+
+        plugin = GptmePlugin(name="bad_init", init=bad_init)
+        errors: list[tuple[str, Exception]] = []
+        with (
+            patch(
+                "gptme.plugins.registry.discover_entrypoint_plugins",
+                return_value=(plugin,),
+            ),
+            patch(
+                "gptme.plugins.registry._discover_legacy_provider_plugins",
+                return_value=[],
+            ),
+            patch("gptme.config.get_config") as mock_config,
+        ):
+            mock_config.return_value = MagicMock()
+            result = discover_all_plugins(errors=errors)
+
+        assert result == [plugin]
+        assert len(errors) == 1
+        assert errors[0][0] == "bad_init"
+        assert isinstance(errors[0][1], RuntimeError)
 
 
 # --- Provider plugin backward compatibility ---

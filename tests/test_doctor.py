@@ -1877,7 +1877,9 @@ class TestCheckPlugins:
         from gptme.plugins import registry as reg
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: []
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: []
+        )
         try:
             results = _check_plugins()
         finally:
@@ -1885,6 +1887,29 @@ class TestCheckPlugins:
 
         assert results[0].status == CheckStatus.SKIPPED
         assert "No plugins" in results[0].message
+
+    def test_discovery_errors_are_attributed_even_without_plugins(self):
+        """Tolerated discovery failures must not become a clean skip."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        orig = reg.discover_all_plugins
+
+        def discover(folder_paths=None, enabled_plugins=None, errors=None):
+            assert errors is not None
+            errors.append(("broken-entrypoint", ImportError("missing dep")))
+            return []
+
+        reg.discover_all_plugins = discover
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        assert results[0].name == "Plugins: broken-entrypoint"
+        assert results[0].status == CheckStatus.ERROR
+        assert "missing dep" in results[0].message
+        assert results[1].status == CheckStatus.SKIPPED
 
     def test_bad_init_returns_none_attributed_to_plugin(self):
         """A tool whose init() returns None must be attributed to its plugin."""
@@ -1905,10 +1930,12 @@ class TestCheckPlugins:
         )
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            bad_plugin,
-            good_plugin,
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [
+                bad_plugin,
+                good_plugin,
+            ]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -1935,9 +1962,9 @@ class TestCheckPlugins:
         )
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            throw_plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [throw_plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -1959,9 +1986,9 @@ class TestCheckPlugins:
         broken_plugin.tool_modules = ["nonexistent.module.does_not_exist"]
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            broken_plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [broken_plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -2005,9 +2032,9 @@ class TestCheckPlugins:
         ]
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -2053,9 +2080,9 @@ class TestCheckPlugins:
         plugin.tool_modules = ["doctor_boom_pkg"]
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -2099,9 +2126,9 @@ class TestCheckPlugins:
         plugin.tool_modules = ["doctor_sibling_pkg"]
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -2147,9 +2174,9 @@ class TestCheckPlugins:
         plugin.tool_modules = ["doctor_root_pkg"]
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -2195,9 +2222,9 @@ class TestCheckPlugins:
         plugin.tool_modules = ["doctor_dup_pkg"]
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -2236,9 +2263,9 @@ class TestCheckPlugins:
         plugin.tool_modules = ["doctor_dep_pkg"]
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            plugin
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
         try:
             results = _check_plugins()
         finally:
@@ -2251,6 +2278,92 @@ class TestCheckPlugins:
             and "failed to import" in r.message
             for r in plugin_results
         )
+
+    def test_unavailable_tool_is_not_initialized(self):
+        """Doctor mirrors runtime filtering for unavailable tools."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        init = pytest.fail
+        tool = self._make_tool("optional", init=lambda: init("init called"))
+        object.__setattr__(tool, "available", False)
+        plugin = self._make_plugin("optional-plugin", [tool])
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        assert not any(result.name == "Plugins: optional-plugin" for result in results)
+
+    def test_disabled_by_default_tool_is_not_initialized(self):
+        """Doctor does not execute initializers for tools runtime skips by default."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        tool = self._make_tool("opt-in", init=lambda: pytest.fail("init called"))
+        object.__setattr__(tool, "disabled_by_default", True)
+        plugin = self._make_plugin("opt-in-plugin", [tool])
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [plugin]
+        )
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        assert not any(result.name == "Plugins: opt-in-plugin" for result in results)
+
+    def test_tool_collection_error_does_not_abort_later_plugins(self, monkeypatch):
+        """A malformed module is attributed without masking later plugins."""
+        from gptme.cli.doctor import _check_plugins
+        from gptme.plugins import registry as reg
+
+        broken = SimpleNamespace(__name__="broken_tools")
+        good = self._make_plugin(
+            "goodplugin",
+            [self._make_tool("goodtool", init=lambda: self._make_tool("goodtool"))],
+        )
+        malformed = self._make_plugin("malformed", [])
+        malformed.tool_modules = ["broken_tools"]
+
+        monkeypatch.setattr(
+            "gptme.cli.doctor._import_module_tree",
+            lambda name: ([name], []),
+        )
+        monkeypatch.setitem(__import__("sys").modules, "broken_tools", broken)
+        monkeypatch.setattr(
+            "gptme.tools._iter_tool_specs",
+            lambda module: (_ for _ in ()).throw(RuntimeError("bad module attrs")),
+        )
+
+        orig = reg.discover_all_plugins
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [
+                malformed,
+                good,
+            ]
+        )
+        try:
+            results = _check_plugins()
+        finally:
+            reg.discover_all_plugins = orig
+
+        malformed_result = next(
+            result for result in results if result.name == "Plugins: malformed"
+        )
+        assert malformed_result.status == CheckStatus.ERROR
+        assert "bad module attrs" in malformed_result.message
+        good_result = next(
+            result for result in results if result.name == "Plugins: goodplugin"
+        )
+        assert good_result.status == CheckStatus.OK
 
     def test_non_toolspec_entry_flagged_not_crash(self):
         """A plugin whose ``tools`` list holds a non-ToolSpec entry must yield
@@ -2277,10 +2390,12 @@ class TestCheckPlugins:
         )
 
         orig = reg.discover_all_plugins
-        reg.discover_all_plugins = lambda folder_paths=None, enabled_plugins=None: [
-            malformed,
-            good_plugin,
-        ]
+        reg.discover_all_plugins = (
+            lambda folder_paths=None, enabled_plugins=None, errors=None: [
+                malformed,
+                good_plugin,
+            ]
+        )
         try:
             results = _check_plugins()
         finally:

@@ -36,12 +36,19 @@ def get_all_plugins() -> list[GptmePlugin]:
 def discover_all_plugins(
     folder_paths: list[Path] | None = None,
     enabled_plugins: list[str] | None = None,
+    errors: list[tuple[str, Exception]] | None = None,
 ) -> list[GptmePlugin]:
     """Run all discovery mechanisms and merge results.
 
     Args:
         folder_paths: Paths to search for folder-based plugins.
         enabled_plugins: Optional allowlist of plugin names (None = all).
+        errors: Optional sink for per-plugin failures that discovery normally
+            tolerates (and only logs): entry points that fail to load or
+            coerce, and plugin-level ``init()`` exceptions. Tolerant runtime
+            callers omit it; diagnostics (gptme-doctor) pass a list so a
+            broken plugin is reported instead of silently omitted from the
+            returned list.
 
     Returns:
         List of all discovered :class:`GptmePlugin` instances.
@@ -65,7 +72,7 @@ def discover_all_plugins(
     # register the same plugin both as a folder plugin and an entry-point plugin.
     folder_names = {p.name for p in plugins}
     enabled_set = frozenset(enabled_plugins) if enabled_plugins is not None else None
-    for ep_plugin in discover_entrypoint_plugins(enabled_set):
+    for ep_plugin in discover_entrypoint_plugins(enabled_set, errors=errors):
         if ep_plugin.name in folder_names:
             # Warn if the entry-point version has capabilities the folder adapter doesn't carry
             if ep_plugin.provider or ep_plugin.tools:
@@ -100,6 +107,8 @@ def discover_all_plugins(
                 _initialized_plugins.add(p.name)
             except Exception as exc:
                 logger.warning("Plugin %r init failed: %s", p.name, exc)
+                if errors is not None:
+                    errors.append((p.name, exc))
 
     _all_plugins[:] = plugins
     _initialized = True

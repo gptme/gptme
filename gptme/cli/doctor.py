@@ -1312,8 +1312,13 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
     config = get_config()
     paths, enabled = config.get_plugin_config()
 
+    discovery_errors: list[tuple[str, Exception]] = []
     try:
-        plugins = discover_all_plugins(folder_paths=paths, enabled_plugins=enabled)
+        plugins = discover_all_plugins(
+            folder_paths=paths,
+            enabled_plugins=enabled,
+            errors=discovery_errors,
+        )
     except Exception as exc:
         results.append(
             CheckResult(
@@ -1323,6 +1328,17 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             )
         )
         return results
+
+    for plugin_name, discovery_exc in discovery_errors:
+        results.append(
+            CheckResult(
+                name=f"Plugins: {plugin_name}",
+                status=CheckStatus.ERROR,
+                message=(
+                    f"Discovery failed: {type(discovery_exc).__name__}: {discovery_exc}"
+                ),
+            )
+        )
 
     if not plugins:
         results.append(
@@ -1394,7 +1410,21 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                     module = sys.modules.get(ok_module)
                     if module is None:
                         continue
-                    for spec in _iter_tool_specs(module):
+                    try:
+                        specs = _iter_tool_specs(module)
+                    except Exception as exc:
+                        results.append(
+                            CheckResult(
+                                name=f"Plugins: {plugin.name}",
+                                status=CheckStatus.ERROR,
+                                message=(
+                                    f"Tool collection failed for {ok_module!r}: "
+                                    f"{type(exc).__name__}: {exc}"
+                                ),
+                            )
+                        )
+                        continue
+                    for spec in specs:
                         if id(spec) in seen_specs:
                             continue
                         seen_specs.add(id(spec))
@@ -1418,7 +1448,18 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                     )
                 )
                 continue
-            if not tool.init:
+            try:
+                is_available = tool.is_available
+            except Exception as exc:
+                results.append(
+                    CheckResult(
+                        name=f"Plugins: {plugin.name}",
+                        status=CheckStatus.ERROR,
+                        message=f"Tool {tool.name!r} availability check raised: {exc}",
+                    )
+                )
+                continue
+            if not is_available or tool.disabled_by_default or not tool.init:
                 continue
             try:
                 initialized = tool.init()
