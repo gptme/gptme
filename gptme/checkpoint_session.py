@@ -502,7 +502,10 @@ def save_conversation_checkpoint(
             delete=False,
         ) as output:
             temporary = Path(output.name)
-            json.dump(checkpoint.to_dict(), output, indent=2, ensure_ascii=False)
+            # Git paths may contain arbitrary POSIX bytes decoded with
+            # surrogateescape. Escaping non-ASCII keeps those surrogate code
+            # points representable in a strict UTF-8 JSON file.
+            json.dump(checkpoint.to_dict(), output, indent=2, ensure_ascii=True)
             output.write("\n")
             output.flush()
             os.fsync(output.fileno())

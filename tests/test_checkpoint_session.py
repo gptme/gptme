@@ -273,6 +273,24 @@ def test_working_tree_changes_preserves_unusual_paths(tmp_path: Path) -> None:
     assert any(change.path == "line\nbreak.txt" for change in changes)
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX filenames may contain non-UTF-8 bytes"
+)
+def test_save_preserves_non_utf8_workspace_path(logs_dir: Path) -> None:
+    logdir = _make_session(logs_dir)
+    raw_path = os.fsencode(logdir) + b"/invalid-\xff.txt"
+    descriptor = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o644)
+    os.close(descriptor)
+
+    checkpoint, path = save_conversation_checkpoint(logdir, "non-utf8-path")
+
+    expected_path = os.fsdecode(b"invalid-\xff.txt")
+    assert any(change.path == expected_path for change in checkpoint.file_changes)
+    loaded = load_conversation_checkpoint(logdir, "non-utf8-path")
+    assert any(change.path == expected_path for change in loaded.file_changes)
+    assert b"invalid-\\udcff.txt" in path.read_bytes()
+
+
 def test_cli_save_list_and_resume(logs_dir: Path) -> None:
     logdir = _make_session(logs_dir)
     runner = CliRunner()
