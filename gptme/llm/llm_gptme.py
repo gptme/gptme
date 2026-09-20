@@ -52,7 +52,15 @@ logger = logging.getLogger(__name__)
 
 
 class GptmeAuthError(KeyError):
-    """Raised when no valid gptme.ai credentials are found."""
+    """Raised when no valid gptme.ai credentials are found.
+
+    Subclasses ``KeyError`` for backward compatibility with existing handlers.
+    ``KeyError.__str__`` returns the *repr* of a single argument, which would
+    print the multi-line hint as ``'...\\n  1. Run ...'``; render it verbatim.
+    """
+
+    def __str__(self) -> str:
+        return str(self.args[0]) if len(self.args) == 1 else super().__str__()
 
 
 # All gptme cloud API traffic goes through Supabase edge functions.

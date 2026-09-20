@@ -136,6 +136,31 @@ def test_get_api_key_missing():
         get_api_key(config)
 
 
+def test_auth_error_str_is_plain_message():
+    """str(GptmeAuthError) must be the readable hint, not KeyError's repr.
+
+    ``KeyError.__str__`` wraps a lone argument in quotes and escapes newlines,
+    so ``gptme-util models list`` used to print ``'...requires authentication.
+    Either:\\n  1. Run ...'`` on one line.
+    """
+    from gptme.llm.llm_gptme import GptmeAuthError, get_api_key
+
+    config = _mock_config()
+    with (
+        patch("gptme.llm.llm_gptme._load_token", return_value=None),
+        pytest.raises(GptmeAuthError) as excinfo,
+    ):
+        get_api_key(config)
+
+    text = str(excinfo.value)
+    assert text.startswith("gptme provider requires authentication.")
+    assert "\n  1. Run `gptme-auth login`" in text
+    assert "\\n" not in text
+    assert not text.startswith("'")
+    # Still a KeyError, so existing `except KeyError` handlers keep working.
+    assert isinstance(excinfo.value, KeyError)
+
+
 def test_get_base_url_default():
     """Should return default URL when no token or env."""
     from gptme.llm.llm_gptme import DEFAULT_BASE_URL, get_base_url
