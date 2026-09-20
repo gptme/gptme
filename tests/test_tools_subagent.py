@@ -1154,15 +1154,17 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
     """_poll_subprocess_progress reads progress.jsonl and calls notify_progress."""
     import json
     import threading
+    from pathlib import Path
     from unittest.mock import MagicMock, patch
 
     from gptme.tools.subagent.execution import _poll_subprocess_progress
 
     progress_file = tmp_path / "progress.jsonl"
-    delivered: list[tuple[str, str]] = []
+    parent_logdir = tmp_path / "parent"
+    delivered: list[tuple[str, str, Path | None]] = []
 
-    def fake_notify(agent_id, message):
-        delivered.append((agent_id, message))
+    def fake_notify(agent_id, message, *, parent_logdir=None):
+        delivered.append((agent_id, message, parent_logdir))
 
     # Write a progress entry to the file before polling starts
     entry = json.dumps({"agent_id": "poll-agent", "message": "Step 1 done"})
@@ -1174,6 +1176,7 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
     mock_sa = MagicMock()
     mock_sa.agent_id = "poll-agent"
     mock_sa.logdir = tmp_path
+    mock_sa.parent_logdir = parent_logdir
 
     with patch("gptme.tools.subagent.execution.notify_progress", fake_notify):
         # Set stop immediately so the loop exits after the final drain
@@ -1181,7 +1184,7 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
         _poll_subprocess_progress(mock_sa, stop_event)
 
     assert len(delivered) >= 1
-    assert delivered[0] == ("poll-agent", "Step 1 done")
+    assert delivered[0] == ("poll-agent", "Step 1 done", parent_logdir)
 
 
 def test_drain_progress_file_partial_write_retry(tmp_path):
