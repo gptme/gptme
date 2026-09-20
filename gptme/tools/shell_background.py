@@ -19,7 +19,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
@@ -93,7 +93,7 @@ class BackgroundJob:
 
     id: int
     command: str
-    process: subprocess.Popen
+    process: Any
     start_time: float
     stdout_buffer: list[str] = field(default_factory=list)
     stderr_buffer: list[str] = field(default_factory=list)
@@ -108,6 +108,11 @@ class BackgroundJob:
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _completion_notified: bool = field(default=False, repr=False)
     _wait_expired: bool = field(default=False, repr=False)
+    _kill_callback: Callable[[], None] | None = field(default=None, repr=False)
+    _close_callback: Callable[[], None] | None = field(default=None, repr=False)
+    _output_callback: Callable[[], tuple[str, str]] | None = field(
+        default=None, repr=False
+    )
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
@@ -119,11 +124,11 @@ class BackgroundJob:
         text = data.decode("utf-8", errors="replace")
         with self._buffer_lock:
             if fd == stdout_fd:
-                self._stdout_buffer_start += self._append_to_buffer(
+                self._stdout_buffer_start += self._append_to_buffer_locked(
                     self.stdout_buffer, text
                 )
             else:
-                self._stderr_buffer_start += self._append_to_buffer(
+                self._stderr_buffer_start += self._append_to_buffer_locked(
                     self.stderr_buffer, text
                 )
 
@@ -186,10 +191,9 @@ class BackgroundJob:
 
         _notify_completion(self)
 
-    def _append_to_buffer(self, buffer: list[str], data: str) -> int:
-        """Append data to buffer, enforcing size limit."""
+    def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:
+        """Append data to a locked buffer, enforcing the size limit."""
         buffer.append(data)
-        # Check total size and truncate from front if needed
         total_size = sum(len(s) for s in buffer)
         removed_size = 0
         while total_size > _MAX_BUFFER_SIZE and len(buffer) > 1:
@@ -198,11 +202,19 @@ class BackgroundJob:
             removed_size += len(removed)
         return removed_size
 
+    def _append_to_buffer(self, buffer: list[str], data: str) -> int:
+        """Append data to a buffer, enforcing size limit thread-safely."""
+        with self._buffer_lock:
+            return self._append_to_buffer_locked(buffer, data)
+
     def get_output(self, *, incremental: bool = False) -> tuple[str, str]:
         """Get accumulated stdout and stderr, optionally since the last read."""
         with self._buffer_lock:
-            stdout = "".join(self.stdout_buffer)
-            stderr = "".join(self.stderr_buffer)
+            if self._output_callback is not None:
+                stdout, stderr = self._output_callback()
+            else:
+                stdout = "".join(self.stdout_buffer)
+                stderr = "".join(self.stderr_buffer)
             if not incremental:
                 return stdout, stderr
 
@@ -230,14 +242,18 @@ class BackgroundJob:
         """Terminate the background job and its process group."""
         if self.process.poll() is None:
             try:
-                if _is_windows:
+                if self._kill_callback is not None:
+                    self._kill_callback()
+                elif _is_windows:
                     self.process.terminate()
                 else:
                     assert self.process_group_id is not None
                     os.killpg(self.process_group_id, signal.SIGTERM)
                 self.process.wait(timeout=2.0)
             except subprocess.TimeoutExpired:
-                if _is_windows:
+                if self._kill_callback is not None:
+                    self._kill_callback()
+                elif _is_windows:
                     self.process.kill()
                 else:
                     assert self.process_group_id is not None
@@ -254,6 +270,8 @@ class BackgroundJob:
                 self._reader_thread.join(timeout=1.0)
         if self._reader_thread and self._reader_thread.is_alive():
             logger.warning("Background output reader did not stop for job #%s", self.id)
+        if self._close_callback is not None:
+            self._close_callback()
 
 
 # Jobs are scoped to the active conversation. A ``None`` key covers direct
@@ -312,6 +330,43 @@ def _get_background_job(
 ) -> BackgroundJob | None:
     with _job_lock:
         return _background_jobs.get(conversation_id, {}).get(job_id)
+
+
+def register_background_job(
+    command: str,
+    process: Any,
+    *,
+    start_time: float | None = None,
+    kill_callback: Callable[[], None] | None = None,
+    close_callback: Callable[[], None] | None = None,
+    output_callback: Callable[[], tuple[str, str]] | None = None,
+) -> BackgroundJob:
+    """Register an already-running command without starting an output reader."""
+    conversation_id = _current_conversation_id()
+    with _job_lock:
+        job = BackgroundJob(
+            id=_get_next_job_id_locked(conversation_id),
+            command=command,
+            process=process,
+            start_time=time.time() if start_time is None else start_time,
+            conversation_id=conversation_id,
+            _kill_callback=kill_callback,
+            _close_callback=close_callback,
+            _output_callback=output_callback,
+        )
+        _jobs_for(conversation_id)[job.id] = job
+    return job
+
+
+def complete_background_job(job: BackgroundJob, stdout: str, stderr: str) -> None:
+    """Store final output and publish one completion for a registered job."""
+    with job._buffer_lock:
+        job._output_callback = None
+        if stdout:
+            job._append_to_buffer_locked(job.stdout_buffer, stdout)
+        if stderr:
+            job._append_to_buffer_locked(job.stderr_buffer, stderr)
+    _notify_completion(job)
 
 
 def start_background_job(

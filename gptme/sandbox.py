@@ -80,6 +80,7 @@ _DEFAULT_ENV_ALLOWLIST = frozenset(
         "GIT_COMMITTER_EMAIL",
         # gptme internal
         "GPTME_SHELL_TIMEOUT",
+        "GPTME_SHELL_FOREGROUND_TIMEOUT",
         "GPTME_SHELL_TRUNC_PRE_TOKENS",
         "GPTME_SHELL_TRUNC_POST_TOKENS",
     ]

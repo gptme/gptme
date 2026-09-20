@@ -9,6 +9,10 @@ Configuration:
         - Invalid values default to 1200 seconds (20 minutes)
         - If not set, defaults to 1200 seconds (20 minutes)
 
+    GPTME_SHELL_FOREGROUND_TIMEOUT: Soft timeout before a foreground command is
+        promoted to a conversation-owned background job. Defaults to 120 seconds.
+        Set to 0 to disable promotion. GPTME_SHELL_TIMEOUT remains the hard limit.
+
     GPTME_SHELL_MEMORY_LIMIT: Optional per-shell address-space ceiling (POSIX only,
         off by default). Accepts a plain byte count or a binary suffix (e.g.
         "512M", "1G"). Applies to the persistent shell and any command it runs
@@ -36,6 +40,7 @@ Configuration:
 import atexit
 import codecs
 import logging
+import math
 import os
 import re
 import select
@@ -49,6 +54,7 @@ import threading
 import time
 from collections.abc import Generator
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
@@ -76,11 +82,13 @@ from .pruner import plan_tool_output_prune
 from .shell_background import (
     background_job_completion_hook,
     background_job_wait_hook,
+    complete_background_job,
     execute_jobs_command,
     execute_kill_command,
     execute_output_command,
     execute_wait_command,
     get_background_job,
+    register_background_job,
 )
 from .shell_background import (
     list_background_jobs as list_background_jobs,
@@ -267,10 +275,12 @@ existing commands and tests. Prefer the repo over answering from memory.
 ### Background Jobs
 
 Set `background: true` on a structured shell call to run its whole script as a
-conversation-owned process. The call returns a job ID immediately and completion
-is reported automatically. Exact `jobs`, `output <id> [--new]`, `wait <id>
-[timeout]`, and `kill <id>` calls manage matching harness jobs; otherwise Bash
-owns those commands. Use this for dev servers and long builds.
+conversation-owned process. Foreground calls still running after
+`GPTME_SHELL_FOREGROUND_TIMEOUT` (default 120 seconds) are promoted automatically.
+The call returns a job ID and completion is reported automatically. Exact `jobs`,
+`output <id> [--new]`, `wait <id> [timeout]`, and `kill <id>` calls manage matching
+harness jobs; otherwise Bash owns those commands. Use explicit background mode for
+dev servers and long builds.
 Keep working while a job runs: completion is delivered before the next model
 step, and non-interactive sessions wait when idle (up to
 `GPTME_WATCH_IDLE_MAX` seconds, default 1800). `wait` is the blocking fallback.
@@ -551,6 +561,31 @@ def _describe_exit_status(status: int | None) -> str:
     return f"code {status}"
 
 
+@dataclass
+class PromotedJobProcess:
+    """Process-like state for a command still running in a detached shell."""
+
+    returncode: int | None = None
+    _done: threading.Event = field(default_factory=threading.Event, repr=False)
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        if not self._done.wait(timeout):
+            raise subprocess.TimeoutExpired(
+                "promoted shell command", timeout if timeout is not None else 0
+            )
+        assert self.returncode is not None
+        return self.returncode
+
+    def finish(self, returncode: int) -> None:
+        if self._done.is_set():
+            return
+        self.returncode = returncode
+        self._done.set()
+
+
 class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
@@ -563,6 +598,8 @@ class ShellSession:
     _restart_notice: str | None  # pending note for the model about a restart
     _restarting: bool
     _closed: bool
+    _active_output: tuple[list[str], list[str]] | None
+    _output_lock: threading.Lock
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
@@ -570,6 +607,8 @@ class ShellSession:
         self._restart_notice = None
         self._restarting = False
         self._closed = False
+        self._active_output = None
+        self._output_lock = threading.Lock()
         self._state_path = self._create_state_file()
         self._init()
 
@@ -686,6 +725,26 @@ class ShellSession:
             return os.path.getsize(state_path) > 0
         except OSError:
             return False
+
+    def active_output(self) -> tuple[str, str]:
+        """Return the output captured so far by the active pipe command."""
+        with self._output_lock:
+            if self._active_output is None:
+                return "", ""
+            stdout, stderr = self._active_output
+            return (
+                trim_blank_lines("".join(stdout)),
+                trim_blank_lines("".join(stderr)),
+            )
+
+    def _capture_output(
+        self, target: list[str], text: str, *, stream: IO[str], output: bool
+    ) -> None:
+        """Capture one output chunk and optionally stream it to the terminal."""
+        with self._output_lock:
+            target.append(text)
+        if output:
+            print(text, end="", file=stream)
 
     def consume_restart_notice(self) -> str | None:
         """Return (and clear) the pending note about a shell restart, if any."""
@@ -1012,6 +1071,11 @@ class ShellSession:
             trim_blank_lines("".join(stderr_chunks)),
         )
 
+    def detach(self) -> None:
+        """Retire this shell from foreground use without stopping its process."""
+        self._closed = True
+        atexit.unregister(self.close)
+
     def _run(
         self, command: str, output=True, tries=0, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
@@ -1182,6 +1246,7 @@ class ShellSession:
 
         stdout: list[str] = []
         stderr: list[str] = []
+        self._active_output = (stdout, stderr)
         return_code: int | None = None
         start_time = time.time() if timeout else None
         max_output_bytes = _get_max_output_bytes()
@@ -1858,9 +1923,9 @@ class ShellSession:
                             rc_pos = line.rfind("ReturnCode:")
                             if rc_pos > 0:
                                 prefix = line[:rc_pos]
-                                stdout.append(prefix)
-                                if output:
-                                    print(prefix, end="", file=sys.stdout)
+                                self._capture_output(
+                                    stdout, prefix, stream=sys.stdout, output=output
+                                )
 
                             # Diagnostic logging for Issue #408
                             logger.debug(
@@ -1925,9 +1990,9 @@ class ShellSession:
                                 drain_empty_count = 0
                                 captured_bytes += len(drain_raw)
                                 drain_data = drain_raw.decode("utf-8", errors="replace")
-                                stderr.append(drain_data)
-                                if output:
-                                    print(drain_data, end="", file=sys.stderr)
+                                self._capture_output(
+                                    stderr, drain_data, stream=sys.stderr, output=output
+                                )
                             if captured_bytes > max_output_bytes:
                                 return self._kill_for_byte_cap(
                                     stdout, stderr, output, max_output_bytes
@@ -1938,13 +2003,13 @@ class ShellSession:
                                 trim_blank_lines("".join(stderr)),
                             )
                         if fd == self.stdout_fd:
-                            stdout.append(line)
-                            if output:
-                                print(line, end="", file=sys.stdout)
+                            self._capture_output(
+                                stdout, line, stream=sys.stdout, output=output
+                            )
                         elif fd == self.stderr_fd:
-                            stderr.append(line)
-                            if output:
-                                print(line, end="", file=sys.stderr)
+                            self._capture_output(
+                                stderr, line, stream=sys.stderr, output=output
+                            )
 
                         if captured_bytes > max_output_bytes:
                             return self._kill_for_byte_cap(
@@ -2217,6 +2282,19 @@ def get_shell() -> ShellSession:
 def set_shell(shell: ShellSession) -> None:
     """Set the shell session for the current context (for testing)."""
     _shell_var.set(shell)
+
+
+def _replace_promoted_shell(shell: ShellSession) -> None:
+    """Release a busy shell and seed the next shell with its tracked cwd."""
+    shell.detach()
+    _workspace_cwd.set(str(shell.get_cwd()))
+    _shell_var.set(None)
+    from ..hooks import current_conversation_id
+
+    if conversation_id := current_conversation_id.get():
+        with _conv_shell_lock:
+            if _conversation_shells.get(conversation_id) is shell:
+                _conversation_shells.pop(conversation_id, None)
 
 
 def _register_conversation_shell(shell: ShellSession) -> None:
@@ -2687,25 +2765,112 @@ def execute_shell_impl(
     allowlisted = is_allowlisted(cmd, cwd=shell.get_cwd())
 
     start_time = time.monotonic()
-    try:
-        returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
+    foreground_timeout = _get_foreground_timeout()
+    promoted = (
+        not _is_windows
+        and foreground_timeout is not None
+        and (timeout is None or foreground_timeout < timeout)
+        and not shell._needs_tty(cmd)
+    )
+    if promoted:
+        result: dict[str, tuple[int | None, str, str]] = {}
+        error: list[BaseException] = []
+
+        def run_foreground() -> None:
+            try:
+                result["value"] = shell.run(cmd, output=False, timeout=timeout)
+            except BaseException as exc:
+                error.append(exc)
+
+        worker = threading.Thread(target=run_foreground, daemon=True)
+        worker.start()
+        worker.join(foreground_timeout)
+        if worker.is_alive():
+            # The command is already executing in ``shell``. Register that shell as
+            # the job and let the existing worker publish its eventual result.
+            process = PromotedJobProcess()
+
+            def kill_promoted() -> None:
+                _kill_descendants(shell.process.pid)
+                process.finish(-signal.SIGTERM)
+
+            job = register_background_job(
+                cmd,
+                process,
+                start_time=time.time() - (time.monotonic() - start_time),
+                kill_callback=kill_promoted,
+                close_callback=shell.close,
+                output_callback=shell.active_output,
+            )
+            _replace_promoted_shell(shell)
+
+            def publish() -> None:
+                worker.join()
+                job_returncode: int | None
+                if error:
+                    job_returncode, stdout, stderr = -1, "", str(error[0])
+                else:
+                    job_returncode, stdout, stderr = result["value"]
+                process.finish(job_returncode if job_returncode is not None else -1)
+                complete_background_job(job, stdout, stderr)
+                shell.close()
+                job._close_callback = None
+
+            threading.Thread(target=publish, daemon=True).start()
+            partial_stdout, partial_stderr = shell.active_output()
+            tail = ""
+            if partial_stdout:
+                tail += "\n\n" + md_codeblock("stdout", partial_stdout[-8000:])
+            if partial_stderr:
+                tail += "\n\n" + md_codeblock("stderr", partial_stderr[-2000:])
+            msg = (
+                f"Promoted to background shell job #{job.id} after "
+                f"{foreground_timeout:g}s: `{cmd}`\n\n"
+                "The command is still running. Completion will be reported "
+                f"automatically; use `output {job.id}` for current output.{tail}"
+            )
+            yield Message(
+                "system",
+                msg,
+                terminal_display_content=(
+                    f"Promoted to background shell job #{job.id} after "
+                    f"{foreground_timeout:g}s; completion will be reported automatically."
+                ),
+            )
+            return
+        if error:
+            raise error[0]
+        returncode, stdout, stderr = result["value"]
+        if stdout:
+            print(stdout, file=sys.stdout)
+        if stderr:
+            print(stderr, file=sys.stderr)
+    else:
+        try:
+            returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
+        except KeyboardInterrupt as e:
+            # Extract partial output and handle subprocess termination
+            stdout = stderr = ""
+            if e.args and isinstance(e.args[0], tuple) and len(e.args[0]) == 2:
+                stdout, stderr = e.args[0]
+
+            _terminate_interrupted_shell(shell)
+
+            returncode = shell.process.returncode
+            interrupted = True
+            timed_out = False
+            byte_cap_exceeded = False
+        except Exception as e:
+            raise ValueError(f"Shell error: {e}") from None
+        else:
+            interrupted = False
+            timed_out = returncode == -124
+            byte_cap_exceeded = returncode == -125
+
+    if promoted:
         interrupted = False
-        timed_out = returncode == -124  # Our timeout return code
-        byte_cap_exceeded = returncode == -125  # Output byte cap return code
-    except KeyboardInterrupt as e:
-        # Extract partial output and handle subprocess termination
-        stdout = stderr = ""
-        if e.args and isinstance(e.args[0], tuple) and len(e.args[0]) == 2:
-            stdout, stderr = e.args[0]
-
-        _terminate_interrupted_shell(shell)
-
-        returncode = shell.process.returncode
-        interrupted = True
-        timed_out = False
-        byte_cap_exceeded = False
-    except Exception as e:
-        raise ValueError(f"Shell error: {e}") from None
+        timed_out = returncode == -124
+        byte_cap_exceeded = returncode == -125
     duration = time.monotonic() - start_time
 
     # Format and yield output
@@ -2886,6 +3051,21 @@ def get_path_fn(*args, **kwargs) -> Path | None:
 
     manager = LogManager.get_current_log()
     return manager.logdir if manager and manager.logdir else None
+
+
+def _get_foreground_timeout() -> float | None:
+    """Return the foreground soft timeout; zero disables promotion."""
+    raw = os.environ.get("GPTME_SHELL_FOREGROUND_TIMEOUT", "120")
+    try:
+        timeout = float(raw)
+        if not math.isfinite(timeout):
+            raise ValueError
+    except ValueError:
+        logger.warning(
+            "Invalid GPTME_SHELL_FOREGROUND_TIMEOUT value: %s, using 120s", raw
+        )
+        return 120.0
+    return timeout if timeout > 0 else None
 
 
 def _get_timeout() -> float | None:
