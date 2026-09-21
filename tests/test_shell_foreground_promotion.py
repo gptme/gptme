@@ -222,6 +222,31 @@ def test_promoted_command_preserves_exported_environment(
     assert stdout.strip() == "restored"
 
 
+def test_promoted_command_preserves_inflight_exports(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Exports in the promoted command itself must seed the replacement shell."""
+    # Same timing as live-cwd: 0.05s can fire before bash reaches `export`.
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.25")
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+
+    messages = list(
+        execute_shell_impl(
+            "export GPTME_PROMOTION_TEST=inflight; sleep 1",
+            logdir=None,
+            timeout=2,
+        )
+    )
+
+    assert "Promoted to background shell job" in messages[-1].content
+    replacement = get_shell()
+    assert replacement is not shell
+    returncode, stdout, _ = replacement.run('printf %s "$GPTME_PROMOTION_TEST"')
+    assert returncode == 0
+    assert stdout.strip() == "inflight"
+
+
 def test_detached_promoted_shell_does_not_chdir_process(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

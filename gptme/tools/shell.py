@@ -1214,20 +1214,25 @@ class ShellSession:
         # process dies and is restarted, so we only need to clear it on the
         # success path.
         full_command = f"echo {start_marker_pattern}\n"  # Start marker first
-        full_command += f"{command}\n"
         # Capture the status before querying the physical cwd. Hex gives
         # arbitrary valid path bytes a portable, single-line encoding.
         # Snapshot cwd + exported env before reporting completion. This
         # closes the race where run() returned and the shell died before
         # the state from the successful command reached the snapshot.
         snapshot = ""
+        snapshot_trap = ""
+        restore_trap = ""
         if self._state_path:
-            snapshot = (
-                "{ printf 'cd -- %q\\n' \"$(pwd -P)\"; export -p; } > "
-                f"{shlex.quote(self._state_path)} 2>/dev/null || true; "
+            snapshot = _shell_state_snapshot_cmd(self._state_path) + "; "
+            snapshot_trap = _inflight_state_trap(self._state_path)
+            restore_trap = (
+                'eval "${__gptme_old_debug:-trap - DEBUG}"; unset __gptme_old_debug; '
             )
+        full_command += snapshot_trap
+        full_command += f"{command}\n"
         full_command += (
             "__gptme_rc=$?; "
+            f"{restore_trap}"
             f"{snapshot}"
             "__gptme_pwd=$(pwd -P | od -An -v -tx1 | "
             "tr -d ' \n'); __gptme_pwd=${__gptme_pwd%0a}; printf "
@@ -2243,10 +2248,11 @@ class ShellSession:
 
         state_path = getattr(self, "_state_path", None)
         if state_path and not getattr(self, "_restarting", False):
-            try:
-                os.unlink(state_path)
-            except OSError:
-                pass
+            for path in (state_path, state_path + ".tmp"):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
     def restart(self):
         if getattr(self, "_closed", False):
@@ -2319,8 +2325,87 @@ def set_shell(shell: ShellSession) -> None:
     _shell_var.set(shell)
 
 
+# Fast bash builtins skipped by the in-flight DEBUG snapshot. External
+# commands (sleep, make, pytest, ...) are the ones that outlive the soft
+# timeout; snapshot immediately before those so prefix `export`/`cd` in
+# `export X=1; sleep 180` is on disk when promotion reads the state file.
+# `wait`/`read` are intentionally not in this list — they can block.
+_FAST_BASH_BUILTINS = (
+    "echo",
+    "printf",
+    "cd",
+    "pwd",
+    "export",
+    "unset",
+    "declare",
+    "typeset",
+    "local",
+    "readonly",
+    "alias",
+    "unalias",
+    "true",
+    "false",
+    "test",
+    ":",
+    "set",
+    "shift",
+    "let",
+    "return",
+    "break",
+    "continue",
+    "hash",
+    "type",
+    "builtin",
+    "eval",
+    "source",
+    ".",
+    "trap",
+    "bind",
+    "enable",
+    "help",
+    "history",
+    "jobs",
+    "ulimit",
+    "umask",
+    "getopts",
+)
+
+
+def _shell_state_snapshot_cmd(state_path: str) -> str:
+    """Write cwd + exported env to ``state_path`` (best-effort, never fatal)."""
+    quoted = shlex.quote(state_path)
+    quoted_tmp = shlex.quote(state_path + ".tmp")
+    return (
+        f"{{ printf 'cd -- %q\\n' \"$(pwd -P)\"; export -p; }} > {quoted_tmp} "
+        f"2>/dev/null && mv -f {quoted_tmp} {quoted} || true"
+    )
+
+
+def _inflight_state_trap(state_path: str) -> str:
+    """Install a DEBUG trap that snapshots before a command that may block.
+
+    DEBUG runs *before* each simple command. Snapshotting then captures prefix
+    side effects of a still-running compound list (``export X=1; sleep 180``)
+    without waiting for the post-command snapshot that only runs at completion.
+    """
+    skip = "|".join(_FAST_BASH_BUILTINS)
+    body = (
+        f"case ${{BASH_COMMAND%% *}} in {skip}) ;; "
+        f"*) {_shell_state_snapshot_cmd(state_path)} ;; "
+        "esac"
+    )
+    return (
+        "__gptme_old_debug=$(trap -p DEBUG 2>/dev/null || true)\n"
+        f"trap {shlex.quote(body)} DEBUG\n"
+    )
+
+
 def _snapshot_promoted_state(shell: ShellSession) -> str | None:
-    """Copy the last completed-command env snapshot before the file is unlinked."""
+    """Copy the live env snapshot before the promoted shell's file is unlinked.
+
+    Prefers the in-flight DEBUG snapshot (prefix exports of the command being
+    promoted) and falls back to the last completed-command snapshot.
+    """
     if not shell._has_state_snapshot() or not shell._state_path:
         return None
     try:
