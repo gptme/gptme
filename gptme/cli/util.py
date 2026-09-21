@@ -593,6 +593,22 @@ class _IgnoreRule(NamedTuple):
     anchored: bool
 
 
+def _trim_unescaped_trailing_spaces(line: str) -> str:
+    """Git drops unescaped trailing spaces; an escaped trailing space is kept."""
+    i = len(line)
+    while i > 0 and line[i - 1] == " ":
+        bs = 0
+        j = i - 2
+        while j >= 0 and line[j] == "\\":
+            bs += 1
+            j -= 1
+        if bs % 2 == 1:
+            # ``foo\\ `` → pattern ``foo `` (backslash consumed, space kept)
+            return line[: i - 2] + " "
+        i -= 1
+    return line[:i]
+
+
 def _parse_gitignore_pattern(raw: str) -> _IgnoreRule | None:
     """Parse a single gitignore line into a match rule.
 
@@ -600,8 +616,11 @@ def _parse_gitignore_pattern(raw: str) -> _IgnoreRule | None:
     when it used ``Path.match`` on absolute paths: ``#`` comments, ``!``
     negation (last match wins), trailing ``/`` (directories only), and a
     leading ``/`` or any interior ``/`` (anchored to the gitignore directory).
+
+    Git does not strip leading whitespace: `` !secret`` is a pattern, not a
+    negation, and ``#`` comments only when ``#`` is the first character.
     """
-    line = raw.strip()
+    line = _trim_unescaped_trailing_spaces(raw.rstrip("\r\n"))
     if not line or line.startswith("#"):
         return None
 
@@ -648,30 +667,48 @@ def _read_gitignore(path: str) -> list[_IgnoreRule]:
     return rules
 
 
+def _fnmatch_part(name: str, pat: str) -> bool:
+    """Match one path component. Windows follows Git's default ignoreCase."""
+    if os.name == "nt":
+        return fnmatch.fnmatch(name, pat)
+    return fnmatch.fnmatchcase(name, pat)
+
+
 def _glob_match_parts(text_parts: list[str], pattern_parts: list[str]) -> bool:
     """Match path components against a gitignore glob, including ``**``.
 
     ``*`` / ``?`` do not cross ``/``. ``**`` as a whole component matches zero
     or more directories; a trailing ``/**`` matches one or more descendants
     (contents of the prefix, not the prefix itself).
+
+    Iterative DP so a rule with many ``**/`` components cannot explode or
+    overflow the recursion limit on a long walked path.
     """
+    n = len(text_parts)
+    m = len(pattern_parts)
+    reachable = [False] * (n + 1)
+    reachable[0] = True
 
-    def rec(ti: int, pi: int) -> bool:
-        while pi < len(pattern_parts):
-            pat = pattern_parts[pi]
-            if pat == "**":
-                if pi == len(pattern_parts) - 1:
-                    return ti < len(text_parts)
-                return any(rec(k, pi + 1) for k in range(ti, len(text_parts) + 1))
-            if ti >= len(text_parts):
-                return False
-            if not fnmatch.fnmatchcase(text_parts[ti], pat):
-                return False
-            ti += 1
-            pi += 1
-        return ti == len(text_parts)
+    for pi, pat in enumerate(pattern_parts):
+        nxt = [False] * (n + 1)
+        if pat == "**":
+            if pi == m - 1:
+                return any(reachable[ti] for ti in range(n))
+            filled = False
+            for ti in range(n + 1):
+                if reachable[ti]:
+                    filled = True
+                if filled:
+                    nxt[ti] = True
+        else:
+            for ti in range(n):
+                if reachable[ti] and _fnmatch_part(text_parts[ti], pat):
+                    nxt[ti + 1] = True
+        reachable = nxt
+        if not any(reachable):
+            return False
 
-    return rec(0, 0)
+    return reachable[n]
 
 
 def _glob_match(text: str, pattern: str) -> bool:
@@ -806,9 +843,11 @@ def context_tree(path: str, max_depth: int):
 
     root = Path(path)
     rules = _read_gitignore(path)
-    # Always hide the git metadata dir, even when .gitignore doesn't mention it.
+    # Always hide git metadata, even when .gitignore doesn't mention it.
+    # Linked worktrees and submodules use a ``.git`` *file*, so this is not
+    # directory-only — basename ``.git`` is hidden regardless of type.
     rules.append(
-        _IgnoreRule(pattern=".git", negated=False, dir_only=True, anchored=False)
+        _IgnoreRule(pattern=".git", negated=False, dir_only=False, anchored=False)
     )
     abs_path = os.path.abspath(path)
     tree = Tree(abs_path, guide_style="bold bright_blue")

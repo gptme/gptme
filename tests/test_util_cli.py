@@ -1214,6 +1214,53 @@ def test_gitignore_globstar_matches_nested_paths():
     assert _path_is_ignored("build/js/app.js", False, rules)
 
 
+def test_gitignore_globstar_is_linear():
+    """Many ``**/`` components must not explode or RecursionError."""
+    import time
+
+    from gptme.cli.util import _glob_match_parts
+
+    pattern = ["**"] * 40 + ["nomatch"]
+    text = ["a"] * 20
+    start = time.perf_counter()
+    assert not _glob_match_parts(text, pattern)
+    assert time.perf_counter() - start < 0.25
+    assert _glob_match_parts(["a", "b", "cache.pyc"], ["**", "*.pyc"])
+    assert _glob_match_parts(["build", "js"], ["build", "**"])
+    assert not _glob_match_parts(["build"], ["build", "**"])
+
+
+def test_parse_gitignore_preserves_leading_whitespace():
+    """Git keeps leading spaces; `` !secret`` is not a negation of ``secret``."""
+    from gptme.cli.util import _parse_gitignore_pattern, _path_is_ignored
+
+    star = _parse_gitignore_pattern("*")
+    spaced = _parse_gitignore_pattern(" !secret")
+    assert star is not None
+    assert spaced is not None
+    assert not spaced.negated
+    rules = [star, spaced]
+    assert _path_is_ignored("secret", False, rules)
+
+    negated = _parse_gitignore_pattern("!secret")
+    assert negated is not None and negated.negated
+    assert not _path_is_ignored("secret", False, [star, negated])
+
+    trailing = _parse_gitignore_pattern("foo  \n")
+    assert trailing is not None
+    assert trailing.pattern == "foo"
+
+
+def test_forced_git_rule_hides_git_file():
+    """Always-hide ``.git`` covers the control file used by linked worktrees."""
+    from gptme.cli.util import _IgnoreRule, _path_is_ignored
+
+    rule = _IgnoreRule(pattern=".git", negated=False, dir_only=False, anchored=False)
+    assert _path_is_ignored(".git", True, [rule])
+    assert _path_is_ignored(".git", False, [rule])
+    assert _path_is_ignored("sub/.git", False, [rule])
+
+
 def test_repo_gitignore_outranks_global(tmp_path, monkeypatch):
     """Repository .gitignore wins over ~/.config/git/ignore (git precedence)."""
     from gptme.cli.util import _path_is_ignored, _read_gitignore
