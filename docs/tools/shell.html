@@ -595,6 +595,11 @@ document.write(`
 </ul>
 </div></blockquote>
 <dl class="simple">
+<dt>GPTME_SHELL_FOREGROUND_TIMEOUT: Soft timeout before a foreground command is</dt><dd><p>promoted to a conversation-owned background job. Defaults to 120 seconds.
+Set to 0 to disable promotion. GPTME_SHELL_TIMEOUT remains the hard limit.
+POSIX only — Windows has no process-group promotion path, so this setting
+is ignored there and long commands wait for GPTME_SHELL_TIMEOUT.</p>
+</dd>
 <dt>GPTME_SHELL_MEMORY_LIMIT: Optional per-shell address-space ceiling (POSIX only,</dt><dd><p>off by default). Accepts a plain byte count or a binary suffix (e.g.
 “512M”, “1G”). Applies to the persistent shell and any command it runs
 via <cite>ulimit -v</cite>, so a runaway build fails with an allocation error
@@ -637,14 +642,11 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 <span class="gu">### Background Jobs</span>
 
-Set <span class="sb">`background: true`</span> on a structured shell call to run its whole script as a
-conversation-owned process. The call returns a job ID immediately and completion
-is reported automatically. Exact <span class="sb">`jobs`</span>, <span class="sb">`output &lt;id&gt; [--new]`</span>, `wait &lt;id&gt;
-[timeout]`, and <span class="sb">`kill &lt;id&gt;`</span> calls manage matching harness jobs; otherwise Bash
-owns those commands. Use this for dev servers and long builds.
-Keep working while a job runs: completion is delivered before the next model
-step, and non-interactive sessions wait when idle (up to
-<span class="sb">`GPTME_WATCH_IDLE_MAX`</span> seconds, default 1800). <span class="sb">`wait`</span> is the blocking fallback.
+Use <span class="sb">`background: true`</span> for work you already know will run long — dev servers,
+builds, test suites. A foreground command that outruns the soft timeout is
+promoted for you: keep doing other useful work, and the result arrives
+automatically before the next model step. Use <span class="sb">`wait`</span> only when later steps
+need that result.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -867,7 +869,18 @@ Command: `npm run dev`
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Terminated job #1: `npm run dev`</pre>
   </td>
 </tr>
-</table><dl class="py function">
+</table><dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.shell.</span></span><span class="sig-name descname"><span class="pre">PromotedJobProcess</span></span></dt>
+<dd><p>Process-like state for a command still running in a detached shell.</p>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">returncode:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_done:</span> <span class="pre">~threading.Event</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_finish_lock:</span> <span class="pre">~_thread.allocate_lock</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.shell.</span></span><span class="sig-name descname"><span class="pre">close_conversation_shell</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">conversation_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
 <dd><p>Close and remove the shell session for a conversation.</p>
