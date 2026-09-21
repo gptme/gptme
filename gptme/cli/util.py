@@ -630,12 +630,15 @@ def _parse_gitignore_pattern(raw: str) -> _IgnoreRule | None:
     )
 
 
+def _global_gitignore_path() -> str:
+    return os.path.expanduser("~/.config/git/ignore")
+
+
 def _read_gitignore(path: str) -> list[_IgnoreRule]:
+    # Git applies core.excludesFile / ~/.config/git/ignore first, then the
+    # repository .gitignore. Last-match-wins, so repo rules must come last.
     rules: list[_IgnoreRule] = []
-    for fp in [
-        os.path.join(path, ".gitignore"),
-        os.path.expanduser("~/.config/git/ignore"),
-    ]:
+    for fp in [_global_gitignore_path(), os.path.join(path, ".gitignore")]:
         if os.path.exists(fp):
             with open(fp) as f:
                 for raw in f:
@@ -645,46 +648,68 @@ def _read_gitignore(path: str) -> list[_IgnoreRule]:
     return rules
 
 
-def _component_fnmatch(text: str, pattern: str) -> bool:
-    """fnmatch where ``*`` / ``?`` do not cross ``/`` (gitignore glob rules)."""
-    text_parts = text.split("/")
-    pattern_parts = pattern.split("/")
-    if len(text_parts) != len(pattern_parts):
-        return False
-    return all(
-        fnmatch.fnmatchcase(t, p)
-        for t, p in zip(text_parts, pattern_parts, strict=True)
-    )
+def _glob_match_parts(text_parts: list[str], pattern_parts: list[str]) -> bool:
+    """Match path components against a gitignore glob, including ``**``.
+
+    ``*`` / ``?`` do not cross ``/``. ``**`` as a whole component matches zero
+    or more directories; a trailing ``/**`` matches one or more descendants
+    (contents of the prefix, not the prefix itself).
+    """
+
+    def rec(ti: int, pi: int) -> bool:
+        while pi < len(pattern_parts):
+            pat = pattern_parts[pi]
+            if pat == "**":
+                if pi == len(pattern_parts) - 1:
+                    return ti < len(text_parts)
+                return any(rec(k, pi + 1) for k in range(ti, len(text_parts) + 1))
+            if ti >= len(text_parts):
+                return False
+            if not fnmatch.fnmatchcase(text_parts[ti], pat):
+                return False
+            ti += 1
+            pi += 1
+        return ti == len(text_parts)
+
+    return rec(0, 0)
+
+
+def _glob_match(text: str, pattern: str) -> bool:
+    return _glob_match_parts(text.split("/"), pattern.split("/"))
 
 
 def _rule_matches(rule: _IgnoreRule, rel: str, is_dir: bool) -> bool:
+    """True if *rule* matches this path itself (not an ancestor)."""
     if rule.dir_only and not is_dir:
         return False
-
     if rule.anchored:
-        if _component_fnmatch(rel, rule.pattern):
-            return True
-        # Ignoring a directory also ignores its contents.
-        rel_parts = rel.split("/")
-        pat_parts = rule.pattern.split("/")
-        if len(rel_parts) > len(pat_parts):
-            return _component_fnmatch(
-                "/".join(rel_parts[: len(pat_parts)]), rule.pattern
-            )
-        return False
-
-    # Unanchored: match the pattern against any path component (and therefore
-    # against a directory name anywhere in the tree).
-    return any(fnmatch.fnmatchcase(part, rule.pattern) for part in rel.split("/"))
+        return _glob_match(rel, rule.pattern)
+    # Unanchored patterns match the basename in any directory (git).
+    return _glob_match(rel.rsplit("/", 1)[-1], rule.pattern)
 
 
-def _path_is_ignored(rel: str, is_dir: bool, rules: list[_IgnoreRule]) -> bool:
-    """Return whether *rel* is ignored. Last matching rule wins (gitignore)."""
+def _self_is_ignored(rel: str, is_dir: bool, rules: list[_IgnoreRule]) -> bool:
     ignored = False
     for rule in rules:
         if _rule_matches(rule, rel, is_dir):
             ignored = not rule.negated
     return ignored
+
+
+def _path_is_ignored(rel: str, is_dir: bool, rules: list[_IgnoreRule]) -> bool:
+    """Return whether *rel* is ignored. Last matching rule wins (gitignore).
+
+    An ignored parent directory keeps its descendants ignored: git does not
+    re-include a file whose parent is excluded. Negations therefore apply only
+    to the path they match, not to descendants of that path.
+    """
+    if not rel:
+        return False
+    parts = rel.split("/")
+    for i in range(1, len(parts)):
+        if _self_is_ignored("/".join(parts[:i]), True, rules):
+            return True
+    return _self_is_ignored(rel, is_dir, rules)
 
 
 def _walk_directory(

@@ -1163,6 +1163,110 @@ def test_context_tree_respects_gitignore_anchored_and_negation(tmp_path):
     assert ".gitignore" in result.output
 
 
+def test_gitignore_negation_does_not_unignore_descendants():
+    """Negating a basename un-ignores that entry, not its descendants.
+
+    Regression: matching unanchored patterns against every path component made
+    ``*.log`` + ``!important`` expose ``important/file.log``. Git applies
+    ``!important`` only to an entry named ``important``.
+    """
+    from gptme.cli.util import _parse_gitignore_pattern, _path_is_ignored
+
+    def rules_from(*raw: str):
+        rules = []
+        for line in raw:
+            rule = _parse_gitignore_pattern(line)
+            assert rule is not None
+            rules.append(rule)
+        return rules
+
+    rules = rules_from("*.log", "!important")
+    assert not _path_is_ignored("important", True, rules)
+    assert not _path_is_ignored("important", False, rules)
+    # ``!important`` is exact-basename, not a prefix of ``important.log``.
+    assert _path_is_ignored("important.log", False, rules)
+    assert _path_is_ignored("important/file.log", False, rules)
+    assert _path_is_ignored("other/file.log", False, rules)
+
+    # Same leak on the anchored prefix branch: ``!/src`` un-ignores the
+    # directory, not ``src/secret.log``.
+    rules = rules_from("*.log", "!/src")
+    assert not _path_is_ignored("src", True, rules)
+    assert _path_is_ignored("src/secret.log", False, rules)
+
+
+def test_gitignore_globstar_matches_nested_paths():
+    """``**`` matches zero or more directories (git wildmatch)."""
+    from gptme.cli.util import _parse_gitignore_pattern, _path_is_ignored
+
+    rules = []
+    for raw in ("**/*.pyc", "a/**/keep.txt", "build/**"):
+        rule = _parse_gitignore_pattern(raw)
+        assert rule is not None
+        rules.append(rule)
+    assert _path_is_ignored("cache.pyc", False, rules)
+    assert _path_is_ignored("a/b/cache.pyc", False, rules)
+    assert not _path_is_ignored("a/b/cache.py", False, rules)
+    assert _path_is_ignored("a/keep.txt", False, rules)
+    assert _path_is_ignored("a/x/y/keep.txt", False, rules)
+    assert not _path_is_ignored("b/keep.txt", False, rules)
+    assert not _path_is_ignored("build", True, rules)
+    assert _path_is_ignored("build/js/app.js", False, rules)
+
+
+def test_repo_gitignore_outranks_global(tmp_path, monkeypatch):
+    """Repository .gitignore wins over ~/.config/git/ignore (git precedence)."""
+    from gptme.cli.util import _path_is_ignored, _read_gitignore
+
+    xdg = tmp_path / "xdg"
+    xdg.mkdir()
+    (xdg / "ignore").write_text("*.log\n")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "src").mkdir()
+    (repo / "src" / "keep.log").write_text("keep")
+    (repo / "src" / "drop.log").write_text("drop")
+    (repo / ".gitignore").write_text("!src/keep.log\n")
+
+    monkeypatch.setattr(
+        "gptme.cli.util._global_gitignore_path", lambda: str(xdg / "ignore")
+    )
+    rules = _read_gitignore(str(repo))
+    assert _path_is_ignored("src/drop.log", False, rules)
+    assert not _path_is_ignored("src/keep.log", False, rules)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["context", "tree", "--path", str(repo), "--max-depth", "3"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "keep.log" in result.output
+    assert "drop.log" not in result.output
+
+
+def test_context_tree_gitignore_globstar_and_descendant_negation(tmp_path):
+    """context tree hides nested ``**/*.pyc`` and does not leak negated dirs."""
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    (tmp_path / "important").mkdir()
+    (tmp_path / "a" / "b" / "cache.pyc").write_text("ignored")
+    (tmp_path / "a" / "b" / "app.py").write_text("print(1)\n")
+    (tmp_path / "important" / "file.log").write_text("still-ignored")
+    (tmp_path / "important.log").write_text("kept")
+    (tmp_path / ".gitignore").write_text(
+        "**/*.pyc\n*.log\n!important\n!important.log\n"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["context", "tree", "--path", str(tmp_path), "--max-depth", "4"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "app.py" in result.output
+    assert "cache.pyc" not in result.output
+    assert "important.log" in result.output
+    assert "file.log" not in result.output
+
+
 def test_context_tree_rejects_file_path(tmp_path):
     """context tree --path must be a directory, not a file."""
     runner = CliRunner()
