@@ -377,6 +377,9 @@ def subagent(
     parent_logdir = (
         getattr(parent_log, "logdir", None) if parent_log is not None else None
     )
+    parent_branch = (
+        getattr(parent_log, "current_branch", None) if parent_log is not None else None
+    )
 
     parent_messages = None
     if context_turns is not None:
@@ -513,6 +516,7 @@ def subagent(
             context_window=context_window,
             max_time=max_time,
             parent_logdir=parent_logdir,
+            parent_branch=parent_branch,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -540,6 +544,7 @@ def subagent(
                 context_window=context_window,
                 workdir=workdir_path,
                 parent_logdir=parent_logdir,
+                parent_branch=parent_branch,
             )
         finally:
             if _timer is not None:
@@ -810,7 +815,7 @@ def subagent(
             acp_command=acp_command,
             workdir=workspace,
             base_workdir=base_workdir,
-            isolated=isolated,
+            isolated=bool(isolated),
             isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
@@ -818,6 +823,7 @@ def subagent(
             max_time=max_time,
             context_turns=context_turns,
             parent_logdir=parent_logdir,
+            parent_branch=parent_branch,
         )
         # Append sa before starting the thread so the finally block can find it
         # (avoids race condition where fast completion can't locate sa in _subagents)
@@ -944,7 +950,7 @@ def subagent(
             execution_mode="subprocess",
             workdir=workspace,
             base_workdir=base_workdir,
-            isolated=isolated,
+            isolated=bool(isolated),
             isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
@@ -953,6 +959,7 @@ def subagent(
             max_time=max_time,
             context_turns=context_turns,
             parent_logdir=parent_logdir,
+            parent_branch=parent_branch,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -1113,7 +1120,7 @@ def subagent(
             execution_mode="thread",
             workdir=workspace,
             base_workdir=base_workdir,
-            isolated=isolated,
+            isolated=bool(isolated),
             isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
@@ -1123,6 +1130,7 @@ def subagent(
             max_time=max_time,
             context_turns=context_turns,
             parent_logdir=parent_logdir,
+            parent_branch=parent_branch,
             prompt_queue_closed=_pqc,
         )
         with _subagents_lock:
@@ -1617,6 +1625,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
         max_time=sa.max_time,
         context_turns=sa.context_turns,
         parent_logdir=sa.parent_logdir,
+        parent_branch=sa.parent_branch,
         prompt_queue_closed=prompt_queue_closed,
     )
     # Re-check while replacing the registry entry: two callers can otherwise

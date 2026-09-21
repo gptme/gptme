@@ -123,7 +123,8 @@ class ChatConfig:
     interactive: bool = True
     no_confirm: bool | None = None
     # Whether model-armed asynchronous work may wake an idle server conversation.
-    watch_autowake: bool = True
+    # None means omitted/default-on so PATCH can re-enable a stored false.
+    watch_autowake: bool | None = None
     # Max tokens for the model's response. None = provider/model default.
     max_tokens: int | None = None
     # Sampling temperature override. None = use TEMPERATURE constant (env default 0).
@@ -483,14 +484,30 @@ class ChatConfig:
                 config = replace(config, workspace=cli_value)
             # For optional fields that default to None, check if explicitly provided
             elif (
-                field_name in ["model", "tool_format", "gear", "tools", "agent"]
+                field_name
+                in [
+                    "model",
+                    "tool_format",
+                    "gear",
+                    "tools",
+                    "agent",
+                    "watch_autowake",
+                ]
                 and cli_value is not None
             ):
                 logger.debug(f"Overriding {field_name} with CLI value: {cli_value}")
                 config = replace(config, **{field_name: cli_value})
             # For other fields, use the original logic (differs from defaults)
             elif (
-                field_name not in ["model", "tool_format", "gear", "tools", "agent"]
+                field_name
+                not in [
+                    "model",
+                    "tool_format",
+                    "gear",
+                    "tools",
+                    "agent",
+                    "watch_autowake",
+                ]
                 and cli_value != default_value
             ):
                 logger.debug(f"Overriding {field_name} with CLI value: {cli_value}")

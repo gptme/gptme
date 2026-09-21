@@ -323,6 +323,9 @@ class Subagent:
     # Used by SESSION_END cleanup to scope cancellation to the correct session and
     # prevent cross-conversation interference in multi-session server deployments.
     parent_logdir: Path | None = field(default=None)
+    # Conversation branch the parent was on at spawn. Watch-wake must append to
+    # this branch instead of always writing to main.
+    parent_branch: str | None = field(default=None)
     # In-memory fallback cancellation signal for thread mode.
     # Set by subagent_cancel() when the control-file write fails (OSError), so the
     # STEP_PRE checkpoint hook can still stop the thread without the file.

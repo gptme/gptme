@@ -327,59 +327,85 @@ class SessionManager:
             session.event_flag.set()
 
     @classmethod
-    def request_watch_wake(cls, conversation_id: str, message: Message) -> bool:
+    def request_watch_wake(
+        cls,
+        conversation_id: str,
+        message: Message,
+        *,
+        branch: str = "main",
+    ) -> bool:
         """Persist a watch message and reserve one idle server step."""
         from ..config import ChatConfig
         from ..dirs import get_logs_dir
         from .session_step import _start_step_thread
 
-        sessions = cls.get_sessions_for_conversation(conversation_id)
-        if not sessions:
-            return False
-        session = max(sessions, key=lambda item: item.last_activity)
-        with cls.conversation_lock(conversation_id), session.step_lock:
-            if (
-                cls.conversation_generating(conversation_id)
-                or cls.command_is_active(conversation_id)
-                or session.pending_tools
-                or session._executing_tools
-            ):
+        with cls.conversation_lock(conversation_id):
+            sessions = cls.get_sessions_for_conversation(conversation_id)
+            if not sessions:
                 return False
-            config = ChatConfig.load_or_create(
-                get_logs_dir() / conversation_id, ChatConfig()
-            )
-            if not config.watch_autowake:
-                return False
-            model = _resolve_watch_wake_model(config.model)
-            if model is None:
-                return False
-            try:
-                from ..logmanager import LogManager
-
-                manager = LogManager.load(conversation_id, lock=False)
-                manager.append(message)
-                manager.write(sync=True)
-            except (OSError, ValueError):
-                logger.warning(
-                    "Could not persist watch event for conversation %s",
-                    conversation_id,
-                    exc_info=True,
+            session = max(sessions, key=lambda item: item.last_activity)
+            with session.step_lock:
+                if (
+                    cls.conversation_generating(conversation_id)
+                    or cls.command_is_active(conversation_id)
+                    or any(
+                        item.pending_tools or item._executing_tools for item in sessions
+                    )
+                ):
+                    return False
+                config = ChatConfig.load_or_create(
+                    get_logs_dir() / conversation_id, ChatConfig()
                 )
-                return False
-            session.step_seq += 1
-            step_seq = session.step_seq
-            session.generating = True
-            session.generating_since = datetime.now(tz=timezone.utc)
-            session.interrupted = False
+                if config.watch_autowake is False:
+                    return False
+                model = _resolve_watch_wake_model(config.model)
+                if model is None:
+                    return False
+                progress_items: list[tuple[str, str]] = []
+                logdir = (get_logs_dir() / conversation_id).resolve()
+                try:
+                    from ..logmanager import LogManager
+                    from ..tools.subagent.hooks import (
+                        progress_message,
+                        take_queued_progress,
+                    )
+                    from ..tools.subagent.types import _progress_queue
+
+                    manager = LogManager.load(
+                        conversation_id, branch=branch, lock=False
+                    )
+                    progress_items = take_queued_progress(logdir)
+                    for agent_id, progress in progress_items:
+                        manager.append(progress_message(agent_id, progress))
+                    manager.append(message)
+                    manager.write(sync=True)
+                except (OSError, ValueError):
+                    from ..tools.subagent.types import _progress_queue
+
+                    for agent_id, progress in progress_items:
+                        _progress_queue.put((logdir, agent_id, progress))
+                    logger.warning(
+                        "Could not persist watch event for conversation %s",
+                        conversation_id,
+                        exc_info=True,
+                    )
+                    return False
+                session.step_seq += 1
+                step_seq = session.step_seq
+                session.generating = True
+                session.generating_since = datetime.now(tz=timezone.utc)
+                session.interrupted = False
         try:
             started = _start_step_thread(
                 conversation_id,
                 session,
                 model,
                 config.workspace,
+                branch=branch,
                 stream=config.stream,
                 reserved=True,
                 step_seq=step_seq,
+                inherit_context=False,
             )
             if not started:
                 logger.warning(
@@ -404,6 +430,33 @@ class SessionManager:
                     session.generating = False
                     session.generating_since = None
             return True
+
+    @classmethod
+    def retry_deferred_watch_wakes(cls, conversation_id: str) -> None:
+        """Wake once if a completion arrived while this conversation was busy."""
+        from ..dirs import get_logs_dir
+        from ..tools.subagent.hooks import (
+            _completion_message,
+            _notification_branch,
+            take_queued_completions,
+        )
+        from ..tools.subagent.types import _completion_queue
+
+        logdir = (get_logs_dir() / conversation_id).resolve()
+        queued = take_queued_completions(logdir)
+        if not queued:
+            return
+        first, *rest = queued
+        for agent_id, status, summary in rest:
+            _completion_queue.put((logdir, agent_id, status, summary))
+        agent_id, status, summary = first
+        delivered = cls.request_watch_wake(
+            conversation_id,
+            _completion_message(agent_id, status, summary),
+            branch=_notification_branch(agent_id, logdir),
+        )
+        if not delivered:
+            _completion_queue.put((logdir, agent_id, status, summary))
 
     _STUCK_GENERATING_TIMEOUT_MINUTES = 10
 

@@ -619,11 +619,15 @@ async def _acp_step(
             # the new step's generating flag or emit a stale step_complete.
             # Compare-and-clear and the event are atomic under step_lock, so a
             # new reservation can't slip in between them.
+            released = False
             with session.step_lock:
                 if session.step_seq == my_step_seq:
                     session.generating = False
                     session.generating_since = None
                     SessionManager.add_event(conversation_id, {"type": "step_complete"})
+                    released = True
+            if released:
+                SessionManager.retry_deferred_watch_wakes(conversation_id)
     finally:
         current_conversation_id.reset(conversation_token)
         current_session_id.reset(session_token)
@@ -1054,6 +1058,7 @@ def step(
         # The tool worker increments step_seq inside step_lock before handing
         # off, so the compare-and-clear below is atomic with respect to that
         # handoff.
+        released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
                 if session.interrupted or not session.generating:
@@ -1070,6 +1075,7 @@ def step(
                 # release and the event — which would make this stale
                 # step_complete announce completion for the wrong epoch.
                 SessionManager.add_event(conversation_id, {"type": "step_complete"})
+                released = True
             else:
                 logger.debug(
                     "step() finally: skipping generating=False — "
@@ -1077,6 +1083,8 @@ def step(
                     my_step_seq,
                     session.step_seq,
                 )
+        if released:
+            SessionManager.retry_deferred_watch_wakes(conversation_id)
 
 
 def start_tool_execution(
@@ -1431,6 +1439,7 @@ def _start_step_thread(
     *,
     reserved: bool = False,
     step_seq: int | None = None,
+    inherit_context: bool = True,
 ) -> bool:
     """Start a step unless another operation has already reserved it.
 
@@ -1486,7 +1495,9 @@ def _start_step_thread(
 
     # Propagate ContextVars (model, config) from the caller into the step thread.
     # Each thread gets its own copy so mutations stay isolated between sessions.
-    ctx = contextvars.copy_context()
+    # Watch-wake must NOT inherit: it is invoked from the completing subagent
+    # thread, whose tools/hooks/config would otherwise leak into the parent step.
+    ctx = contextvars.copy_context() if inherit_context else contextvars.Context()
     try:
         thread = threading.Thread(target=ctx.run, args=(step_thread,))
         thread.daemon = True

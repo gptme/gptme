@@ -730,6 +730,21 @@ def test_chat_config_watch_autowake_rejects_non_boolean():
         ChatConfig.from_dict({"chat": {"watch_autowake": "false"}})
 
 
+def test_chat_config_load_or_create_can_reenable_watch_autowake(tmp_path):
+    """PATCHing watch_autowake=true must override a persisted false."""
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    ChatConfig(_logdir=logdir, watch_autowake=False).save()
+    loaded = ChatConfig.load_or_create(logdir, ChatConfig(watch_autowake=True))
+    assert loaded.watch_autowake is True
+
+
+def test_chat_config_watch_autowake_default_is_omitted():
+    config = ChatConfig()
+    assert config.watch_autowake is None
+    assert "watch_autowake" not in config.to_dict().get("chat", {})
+
+
 def test_chat_config_numeric_fields_reject_wrong_types():
     """temperature, top_p, and max_tokens raise ValueError for non-numeric input."""
     with pytest.raises(ValueError, match="temperature"):

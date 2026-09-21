@@ -952,6 +952,7 @@ def _run_planner(
     context_window: int | None = None,
     workdir: Path | None = None,
     parent_logdir: Path | None = None,
+    parent_branch: str | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -1094,6 +1095,7 @@ def _run_planner(
                 repo_path=repo_path,
                 role=subtask_role,
                 parent_logdir=parent_logdir,
+                parent_branch=parent_branch,
             )
 
             # Subprocess mode: a combined thread acquires the concurrency slot before
@@ -1182,6 +1184,7 @@ def _run_planner(
                 repo_path=repo_path,
                 role=subtask_role,
                 parent_logdir=parent_logdir,
+                parent_branch=parent_branch,
             )
 
             def run_executor(
@@ -1247,6 +1250,7 @@ def _run_planner(
                 repo_path=repo_path,
                 role=subtask_role,
                 parent_logdir=parent_logdir,
+                parent_branch=parent_branch,
             )
             # Register subagent BEFORE starting thread to avoid race condition
             # (matches pattern in api.py — thread closure may look up _subagents)

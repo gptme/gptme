@@ -1843,6 +1843,8 @@ def test_watch_wake_reserves_idle_step(monkeypatch, tmp_path):
         started.assert_called_once()
         assert started.call_args.kwargs["reserved"] is True
         assert started.call_args.kwargs["step_seq"] == 1
+        assert started.call_args.kwargs["inherit_context"] is False
+        assert started.call_args.kwargs["branch"] == "main"
 
         # A second completion while generation owns the conversation is refused.
         assert SessionManager.request_watch_wake(conversation_id, completion) is False
@@ -1960,6 +1962,166 @@ def test_watch_wake_persist_then_dispatch_fail_does_not_duplicate(
         manager.append.assert_called_once_with(completion)
         assert session.generating is False
     finally:
+        SessionManager.remove_session(session.id)
+
+
+def test_watch_wake_refuses_when_sibling_session_has_pending_tools(
+    monkeypatch, tmp_path
+):
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = "watch-wake-sibling-pending"
+    idle = SessionManager.create_session(conversation_id)
+    busy = SessionManager.create_session(conversation_id)
+    busy._executing_tools.add("tool-1")
+    busy.last_activity = idle.last_activity - timedelta(seconds=5)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    try:
+        assert (
+            SessionManager.request_watch_wake(
+                conversation_id, Message("system", "done")
+            )
+            is False
+        )
+        assert idle.generating is False
+    finally:
+        busy._executing_tools.clear()
+        SessionManager.remove_session(idle.id)
+        SessionManager.remove_session(busy.id)
+
+
+def test_watch_wake_loads_originating_branch(monkeypatch, tmp_path):
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = "watch-wake-branch"
+    session = SessionManager.create_session(conversation_id)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    started = unittest.mock.MagicMock(return_value=True)
+    manager = unittest.mock.MagicMock()
+    load = unittest.mock.MagicMock(return_value=manager)
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(LogManager, "load", load)
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    try:
+        assert (
+            SessionManager.request_watch_wake(
+                conversation_id,
+                Message("system", "done"),
+                branch="feature-x",
+            )
+            is True
+        )
+        assert load.call_args.kwargs["branch"] == "feature-x"
+        assert started.call_args.kwargs["branch"] == "feature-x"
+    finally:
+        SessionManager.remove_session(session.id)
+
+
+def test_watch_wake_persists_progress_before_completion(monkeypatch, tmp_path):
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.tools.subagent.types import _progress_queue
+
+    conversation_id = "watch-wake-progress-order"
+    session = SessionManager.create_session(conversation_id)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    started = unittest.mock.MagicMock(return_value=True)
+    manager = unittest.mock.MagicMock()
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        LogManager, "load", unittest.mock.MagicMock(return_value=manager)
+    )
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    parent = (tmp_path / conversation_id).resolve()
+    parent.mkdir()
+    _progress_queue.put((parent, "child", "halfway"))
+    try:
+        completion = Message("system", "✅ Subagent done")
+        assert SessionManager.request_watch_wake(conversation_id, completion) is True
+        appended = [call.args[0].content for call in manager.append.call_args_list]
+        assert appended[0].startswith("⏳")
+        assert "halfway" in appended[0]
+        assert appended[1] == completion.content
+        assert _progress_queue.empty()
+    finally:
+        while not _progress_queue.empty():
+            _progress_queue.get_nowait()
+        SessionManager.remove_session(session.id)
+
+
+def test_watch_wake_retries_after_generation_releases(monkeypatch, tmp_path):
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager
+    from gptme.tools.subagent.types import _completion_queue
+
+    conversation_id = "watch-wake-retry"
+    session = SessionManager.create_session(conversation_id)
+    session.generating = True
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    started = unittest.mock.MagicMock(return_value=True)
+    manager = unittest.mock.MagicMock()
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        LogManager, "load", unittest.mock.MagicMock(return_value=manager)
+    )
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    parent = (tmp_path / conversation_id).resolve()
+    parent.mkdir()
+    _completion_queue.put((parent, "child", "success", "finished"))
+    try:
+        SessionManager.retry_deferred_watch_wakes(conversation_id)
+        started.assert_not_called()
+        session.generating = False
+        SessionManager.retry_deferred_watch_wakes(conversation_id)
+        started.assert_called_once()
+        manager.append.assert_called()
+        assert "child" in manager.append.call_args.args[0].content
+        assert _completion_queue.empty()
+    finally:
+        while not _completion_queue.empty():
+            _completion_queue.get_nowait()
         SessionManager.remove_session(session.id)
 
 
