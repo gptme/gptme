@@ -1,24 +1,25 @@
 """Foreground shell commands promote to conversation-owned jobs at a soft timeout."""
 
+import os
 import threading
 import time
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
 
-if TYPE_CHECKING:
-    from gptme.message import Message
+from gptme.message import Message
 from gptme.tools.shell import (
     ShellSession,
     _get_foreground_timeout,
     execute_shell_impl,
     get_shell,
     set_shell,
+    set_workspace_cwd,
 )
 from gptme.tools.shell_background import (
+    _current_conversation_id,
     background_job_completion_hook,
     execute_output_command,
     list_background_jobs,
@@ -75,11 +76,7 @@ def test_slow_foreground_command_promotes_without_killing(
     assert "before" in live_output[-1].content
     assert "Running" in live_output[-1].content
     job.process.wait(timeout=4)
-    deadline = time.monotonic() + 1
-    completions: list[Message] = []
-    while not completions and time.monotonic() < deadline:
-        completions = list(background_job_completion_hook(Mock(chat_id=None)))
-        time.sleep(0.01)
+    completions = _wait_for_completion()
     assert len(completions) == 1
     assert "finished (exit code 0)" in completions[0].content
     assert "before" in completions[0].content
@@ -138,9 +135,15 @@ def test_keyboard_interrupt_before_promotion_terminates_command(
     shell = ShellSession(cwd=str(tmp_path))
     set_shell(shell)
     real_join = threading.Thread.join
+    interrupted = {"done": False}
 
     def join_soft_timeout(self: threading.Thread, timeout: float | None = None) -> None:
-        if timeout == 0.5 and threading.current_thread() is threading.main_thread():
+        if (
+            not interrupted["done"]
+            and timeout == 0.5
+            and threading.current_thread() is threading.main_thread()
+        ):
+            interrupted["done"] = True
             raise KeyboardInterrupt
         return real_join(self, timeout)
 
@@ -184,10 +187,43 @@ def test_hard_timeout_still_finishes_promoted_job(
     job = list_background_jobs()[0]
     job.process.wait(timeout=2)
     assert job.process.returncode == -124
-    deadline = time.monotonic() + 1
-    completions: list[Message] = []
-    while not completions and time.monotonic() < deadline:
-        completions = list(background_job_completion_hook(Mock(chat_id=None)))
-        time.sleep(0.01)
+    completions = _wait_for_completion()
     assert len(completions) == 1
     assert "exit code -124" in completions[0].content
+
+
+def test_worker_path_preserves_process_cwd_when_workspace_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Promotion runs shell.run() on a worker; ContextVars are not copied.
+
+    Server sessions set workspace cwd so ``_set_cwd`` must not ``os.chdir``.
+    Force the worker path (foreground timeout < hard timeout) to match CI,
+    where GPTME_SHELL_TIMEOUT defaults to 1200s.
+    """
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "5")
+    monkeypatch.setenv("GPTME_SHELL_TIMEOUT", "30")
+    dest = tmp_path / "ws"
+    dest.mkdir()
+    original_cwd = os.getcwd()
+    set_workspace_cwd(original_cwd)
+    shell = ShellSession(cwd=original_cwd)
+    set_shell(shell)
+    try:
+        messages = list(execute_shell_impl(f"cd {dest}", logdir=None, timeout=30))
+        assert os.getcwd() == original_cwd
+        assert shell.get_cwd() == dest
+        assert "Ran" in messages[-1].content
+    finally:
+        os.chdir(original_cwd)
+
+
+def _wait_for_completion(timeout: float = 2.0) -> list[Message]:
+    """Poll the hook using the same conversation id jobs were registered with."""
+    manager = Mock(chat_id=_current_conversation_id())
+    deadline = time.monotonic() + timeout
+    completions: list[Message] = []
+    while not completions and time.monotonic() < deadline:
+        completions = list(background_job_completion_hook(manager))
+        time.sleep(0.01)
+    return completions

@@ -53,7 +53,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Generator
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
@@ -595,6 +595,7 @@ class ShellSession:
     _closed: bool
     _active_output: tuple[list[str], list[str]] | None
     _output_lock: threading.Lock
+    _skip_os_chdir: bool
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
@@ -604,6 +605,11 @@ class ShellSession:
         self._closed = False
         self._active_output = None
         self._output_lock = threading.Lock()
+        # Snapshot at construction: promotion runs ``shell.run()`` on a worker
+        # thread, and ``threading.Thread`` does not copy ContextVars, so a
+        # later ``get_workspace_cwd()`` lookup in ``_set_cwd`` would miss the
+        # server-session flag and ``os.chdir`` the whole process.
+        self._skip_os_chdir = get_workspace_cwd() is not None
         self._state_path = self._create_state_file()
         self._init()
 
@@ -638,7 +644,7 @@ class ShellSession:
         self._cwd = cwd
         # Preserve historical CLI behavior without process-wide chdir calls
         # after every command; server conversations use context-local cwd.
-        if changed and get_workspace_cwd() is None:
+        if changed and get_workspace_cwd() is None and not self._skip_os_chdir:
             os.chdir(cwd)
 
     def _invalidate_cwd(self) -> None:
@@ -2792,21 +2798,31 @@ def execute_shell_impl(
             except BaseException as exc:
                 error.append(exc)
 
-        worker = threading.Thread(target=run_foreground, daemon=True)
+        # copy_context() is required: Thread.start() does not propagate
+        # ContextVars, and shell.run() reads workspace cwd from one.
+        ctx = copy_context()
+        worker = threading.Thread(target=ctx.run, args=(run_foreground,), daemon=True)
         worker.start()
         try:
             worker.join(foreground_timeout)
         except KeyboardInterrupt as e:
             # Ctrl-C lands on the main thread while it is blocked in join.
-            # The worker and command keep running unless we use the same
-            # cleanup as the synchronous path; otherwise a later tool call
-            # reuses a busy shell.
+            # Kill the command (not bash): SIGINT-to-pgid waits for bash to
+            # exit, but bash survives a child SIGINT, so that wait burns the
+            # 10s fast-CI budget and leaves a busy shell for the next call.
             stdout, stderr = _partial_output_from_interrupt(e, shell)
-            _terminate_interrupted_shell(shell)
-            worker.join(2.0)
+            _kill_descendants(shell.process.pid)
+            worker.join(1.0)
             if worker.is_alive():
-                _kill_descendants(shell.process.pid)
+                _terminate_interrupted_shell(shell)
                 worker.join(1.0)
+            if worker.is_alive():
+                try:
+                    shell.close()
+                except Exception:
+                    pass
+                if _shell_var.get() is shell:
+                    _shell_var.set(None)
             if "value" in result:
                 returncode, stdout, stderr = result["value"]
             else:
