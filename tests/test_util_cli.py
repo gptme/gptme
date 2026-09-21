@@ -1251,6 +1251,52 @@ def test_parse_gitignore_preserves_leading_whitespace():
     assert trailing.pattern == "foo"
 
 
+def test_parse_gitignore_unescapes_backslash_before_trailing_space():
+    """Three backslashes + escaped space match one literal backslash + space.
+
+    Git: ``foo\\\\\\ `` (three ``\\`` then space) keeps the space and decodes
+    the remaining ``\\\\`` pair. Python fnmatch does not, so the parser must.
+    """
+    from gptme.cli.util import _parse_gitignore_pattern, _path_is_ignored
+
+    rule = _parse_gitignore_pattern("foo\\\\\\ \n")
+    assert rule is not None
+    assert rule.pattern == "foo\\ "
+    assert _path_is_ignored("foo\\ ", False, [rule], ignore_case=False)
+    assert not _path_is_ignored("foo\\\\ ", False, [rule], ignore_case=False)
+
+    hashed = _parse_gitignore_pattern("\\#secret\n")
+    assert hashed is not None
+    assert hashed.pattern == "#secret"
+    assert _path_is_ignored("#secret", False, [hashed], ignore_case=False)
+
+
+def test_gitignore_matching_honors_ignore_case():
+    """core.ignoreCase=false must not fold Build/ onto build/."""
+    from gptme.cli.util import _parse_gitignore_pattern, _path_is_ignored
+
+    rule = _parse_gitignore_pattern("Build/")
+    assert rule is not None
+    rules = [rule]
+    assert _path_is_ignored("Build", True, rules, ignore_case=False)
+    assert not _path_is_ignored("build", True, rules, ignore_case=False)
+    assert _path_is_ignored("build", True, rules, ignore_case=True)
+    assert _path_is_ignored("BUILD", True, rules, ignore_case=True)
+
+
+def test_git_ignore_case_reads_config(monkeypatch):
+    """Use git's core.ignoreCase when set; otherwise the platform default."""
+    from gptme.cli import util as util_mod
+
+    monkeypatch.setattr(util_mod, "_git_run", lambda *a, **k: ("false", True))
+    assert util_mod._git_ignore_case("/tmp/ws") is False
+    monkeypatch.setattr(util_mod, "_git_run", lambda *a, **k: ("true", True))
+    assert util_mod._git_ignore_case("/tmp/ws") is True
+    monkeypatch.setattr(util_mod, "_git_run", lambda *a, **k: ("", False))
+    monkeypatch.setattr(util_mod, "_default_ignore_case", lambda: False)
+    assert util_mod._git_ignore_case("/tmp/ws") is False
+
+
 def test_forced_git_rule_hides_git_file():
     """Always-hide ``.git`` covers the control file used by linked worktrees."""
     from gptme.cli.util import _IgnoreRule, _path_is_ignored

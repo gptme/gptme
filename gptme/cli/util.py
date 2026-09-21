@@ -609,6 +609,29 @@ def _trim_unescaped_trailing_spaces(line: str) -> str:
     return line[:i]
 
 
+def _unescape_gitignore_pattern(pattern: str) -> str:
+    """Decode gitignore backslash escapes into an fnmatch pattern.
+
+    Git: ``\\X`` is a literal ``X``. After trailing-space handling, leftover
+    ``\\\\`` pairs are a literal backslash. Python ``fnmatch`` does not treat
+    ``\\\\`` as an escaped backslash, so they must be decoded here. Escaped
+    glob metacharacters become character classes so they stay literal.
+    """
+    special = {"*": "[*]", "?": "[?]", "[": "[[]", "]": "[]]"}
+    out: list[str] = []
+    i = 0
+    n = len(pattern)
+    while i < n:
+        if pattern[i] == "\\" and i + 1 < n:
+            nxt = pattern[i + 1]
+            out.append(special.get(nxt, nxt))
+            i += 2
+        else:
+            out.append(pattern[i])
+            i += 1
+    return "".join(out)
+
+
 def _parse_gitignore_pattern(raw: str) -> _IgnoreRule | None:
     """Parse a single gitignore line into a match rule.
 
@@ -645,7 +668,10 @@ def _parse_gitignore_pattern(raw: str) -> _IgnoreRule | None:
             return None
 
     return _IgnoreRule(
-        pattern=line, negated=negated, dir_only=dir_only, anchored=anchored
+        pattern=_unescape_gitignore_pattern(line),
+        negated=negated,
+        dir_only=dir_only,
+        anchored=anchored,
     )
 
 
@@ -667,23 +693,53 @@ def _read_gitignore(path: str) -> list[_IgnoreRule]:
     return rules
 
 
-def _fnmatch_part(name: str, pat: str) -> bool:
-    """Match one path component. Windows follows Git's default ignoreCase."""
-    if os.name == "nt":
-        return fnmatch.fnmatch(name, pat)
+def _default_ignore_case() -> bool:
+    """Git's default core.ignoreCase: true on Windows, false elsewhere."""
+    return os.name == "nt"
+
+
+def _git_ignore_case(workspace: str) -> bool:
+    """Honor ``core.ignoreCase`` when set; otherwise Git's platform default."""
+    out, ok = _git_run(
+        ["-C", workspace, "config", "--get", "--bool", "core.ignoreCase"],
+        check=False,
+    )
+    val = out.lower()
+    if ok and val in ("true", "false"):
+        return val == "true"
+    return _default_ignore_case()
+
+
+def _fnmatch_part(name: str, pat: str, *, ignore_case: bool) -> bool:
+    """Match one path component.
+
+    Python's ``fnmatch.fnmatch`` is only case-insensitive on Windows, so
+    ``core.ignoreCase=true`` on POSIX has to fold both sides explicitly.
+    """
+    if ignore_case:
+        name = name.lower()
+        pat = pat.lower()
     return fnmatch.fnmatchcase(name, pat)
 
 
-def _glob_match_parts(text_parts: list[str], pattern_parts: list[str]) -> bool:
+def _glob_match_parts(
+    text_parts: list[str],
+    pattern_parts: list[str],
+    *,
+    ignore_case: bool | None = None,
+) -> bool:
     """Match path components against a gitignore glob, including ``**``.
 
     ``*`` / ``?`` do not cross ``/``. ``**`` as a whole component matches zero
     or more directories; a trailing ``/**`` matches one or more descendants
     (contents of the prefix, not the prefix itself).
 
-    Iterative DP so a rule with many ``**/`` components cannot explode or
-    overflow the recursion limit on a long walked path.
+    Iterative DP so a rule with many ``**/`` components cannot RecursionError
+    or hang on a long walked path (untrusted gitignore complexity bound, not a
+    hot-path optimization).
     """
+    if ignore_case is None:
+        ignore_case = _default_ignore_case()
     n = len(text_parts)
     m = len(pattern_parts)
     reachable = [False] * (n + 1)
@@ -702,7 +758,9 @@ def _glob_match_parts(text_parts: list[str], pattern_parts: list[str]) -> bool:
                     nxt[ti] = True
         else:
             for ti in range(n):
-                if reachable[ti] and _fnmatch_part(text_parts[ti], pat):
+                if reachable[ti] and _fnmatch_part(
+                    text_parts[ti], pat, ignore_case=ignore_case
+                ):
                     nxt[ti + 1] = True
         reachable = nxt
         if not any(reachable):
@@ -711,29 +769,49 @@ def _glob_match_parts(text_parts: list[str], pattern_parts: list[str]) -> bool:
     return reachable[n]
 
 
-def _glob_match(text: str, pattern: str) -> bool:
-    return _glob_match_parts(text.split("/"), pattern.split("/"))
+def _glob_match(text: str, pattern: str, *, ignore_case: bool | None = None) -> bool:
+    return _glob_match_parts(
+        text.split("/"), pattern.split("/"), ignore_case=ignore_case
+    )
 
 
-def _rule_matches(rule: _IgnoreRule, rel: str, is_dir: bool) -> bool:
+def _rule_matches(
+    rule: _IgnoreRule,
+    rel: str,
+    is_dir: bool,
+    *,
+    ignore_case: bool | None = None,
+) -> bool:
     """True if *rule* matches this path itself (not an ancestor)."""
     if rule.dir_only and not is_dir:
         return False
     if rule.anchored:
-        return _glob_match(rel, rule.pattern)
+        return _glob_match(rel, rule.pattern, ignore_case=ignore_case)
     # Unanchored patterns match the basename in any directory (git).
-    return _glob_match(rel.rsplit("/", 1)[-1], rule.pattern)
+    return _glob_match(rel.rsplit("/", 1)[-1], rule.pattern, ignore_case=ignore_case)
 
 
-def _self_is_ignored(rel: str, is_dir: bool, rules: list[_IgnoreRule]) -> bool:
+def _self_is_ignored(
+    rel: str,
+    is_dir: bool,
+    rules: list[_IgnoreRule],
+    *,
+    ignore_case: bool | None = None,
+) -> bool:
     ignored = False
     for rule in rules:
-        if _rule_matches(rule, rel, is_dir):
+        if _rule_matches(rule, rel, is_dir, ignore_case=ignore_case):
             ignored = not rule.negated
     return ignored
 
 
-def _path_is_ignored(rel: str, is_dir: bool, rules: list[_IgnoreRule]) -> bool:
+def _path_is_ignored(
+    rel: str,
+    is_dir: bool,
+    rules: list[_IgnoreRule],
+    *,
+    ignore_case: bool | None = None,
+) -> bool:
     """Return whether *rel* is ignored. Last matching rule wins (gitignore).
 
     An ignored parent directory keeps its descendants ignored: git does not
@@ -744,9 +822,9 @@ def _path_is_ignored(rel: str, is_dir: bool, rules: list[_IgnoreRule]) -> bool:
         return False
     parts = rel.split("/")
     for i in range(1, len(parts)):
-        if _self_is_ignored("/".join(parts[:i]), True, rules):
+        if _self_is_ignored("/".join(parts[:i]), True, rules, ignore_case=ignore_case):
             return True
-    return _self_is_ignored(rel, is_dir, rules)
+    return _self_is_ignored(rel, is_dir, rules, ignore_case=ignore_case)
 
 
 def _walk_directory(
@@ -757,6 +835,7 @@ def _walk_directory(
     depth: int = 1,
     *,
     root: Path,
+    ignore_case: bool | None = None,
 ) -> None:
     from rich.filesize import decimal
     from rich.markup import escape
@@ -773,7 +852,7 @@ def _walk_directory(
                 is_dir = path.is_dir()
             except OSError:
                 is_dir = False
-            if _path_is_ignored(rel, is_dir, rules):
+            if _path_is_ignored(rel, is_dir, rules, ignore_case=ignore_case):
                 continue
             try:
                 if is_dir:
@@ -784,7 +863,13 @@ def _walk_directory(
                         guide_style=style,
                     )
                     _walk_directory(
-                        path, branch, rules, max_depth, depth + 1, root=root
+                        path,
+                        branch,
+                        rules,
+                        max_depth,
+                        depth + 1,
+                        root=root,
+                        ignore_case=ignore_case,
                     )
                 else:
                     text = Text(path.name, "green")
@@ -843,6 +928,7 @@ def context_tree(path: str, max_depth: int):
 
     root = Path(path)
     rules = _read_gitignore(path)
+    ignore_case = _git_ignore_case(path)
     # Always hide git metadata, even when .gitignore doesn't mention it.
     # Linked worktrees and submodules use a ``.git`` *file*, so this is not
     # directory-only — basename ``.git`` is hidden regardless of type.
@@ -851,7 +937,7 @@ def context_tree(path: str, max_depth: int):
     )
     abs_path = os.path.abspath(path)
     tree = Tree(abs_path, guide_style="bold bright_blue")
-    _walk_directory(root, tree, rules, max_depth, root=root)
+    _walk_directory(root, tree, rules, max_depth, root=root, ignore_case=ignore_case)
     buffer = io.StringIO()
     console = Console(file=buffer, force_terminal=False, color_system=None)
     console.print(tree)
