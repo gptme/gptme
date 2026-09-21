@@ -1297,6 +1297,32 @@ def test_git_ignore_case_reads_config(monkeypatch):
     assert util_mod._git_ignore_case("/tmp/ws") is False
 
 
+def test_git_run_missing_binary_does_not_raise(monkeypatch):
+    """context tree must still render when git is not installed."""
+    from gptme.cli import util as util_mod
+
+    def boom(*a, **k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(util_mod.subprocess, "run", boom)
+    out, ok = util_mod._git_run(["config", "--get", "--bool", "core.ignoreCase"])
+    assert out == ""
+    assert ok is False
+    monkeypatch.setattr(util_mod, "_default_ignore_case", lambda: True)
+    assert util_mod._git_ignore_case("/tmp/ws") is True
+
+
+def test_parse_gitignore_trailing_backslash_never_matches():
+    """Unmatched trailing backslash is an invalid gitignore rule (git)."""
+    from gptme.cli.util import _parse_gitignore_pattern, _path_is_ignored
+
+    assert _parse_gitignore_pattern("foo\\\n") is None
+    escaped = _parse_gitignore_pattern("foo\\\\\n")
+    assert escaped is not None
+    assert escaped.pattern == "foo\\"
+    assert _path_is_ignored("foo\\", False, [escaped], ignore_case=False)
+
+
 def test_forced_git_rule_hides_git_file():
     """Always-hide ``.git`` covers the control file used by linked worktrees."""
     from gptme.cli.util import _IgnoreRule, _path_is_ignored

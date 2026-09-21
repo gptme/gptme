@@ -578,6 +578,10 @@ def _git_run(cmd: list[str], check: bool = True, timeout: int = 10) -> tuple[str
         return "", False
     except subprocess.CalledProcessError as e:
         return e.stderr.strip(), False
+    except FileNotFoundError:
+        # Git is optional for ``context tree`` (ignoreCase lookup). Missing
+        # binary must not abort the command.
+        return "", False
 
 
 def _codeblock(langtag: str, content: str) -> str:
@@ -609,20 +613,25 @@ def _trim_unescaped_trailing_spaces(line: str) -> str:
     return line[:i]
 
 
-def _unescape_gitignore_pattern(pattern: str) -> str:
+def _unescape_gitignore_pattern(pattern: str) -> str | None:
     """Decode gitignore backslash escapes into an fnmatch pattern.
 
     Git: ``\\X`` is a literal ``X``. After trailing-space handling, leftover
     ``\\\\`` pairs are a literal backslash. Python ``fnmatch`` does not treat
     ``\\\\`` as an escaped backslash, so they must be decoded here. Escaped
     glob metacharacters become character classes so they stay literal.
+
+    A trailing unmatched ``\\`` is an invalid gitignore pattern and never
+    matches (git check-ignore ignores the rule).
     """
     special = {"*": "[*]", "?": "[?]", "[": "[[]", "]": "[]]"}
     out: list[str] = []
     i = 0
     n = len(pattern)
     while i < n:
-        if pattern[i] == "\\" and i + 1 < n:
+        if pattern[i] == "\\":
+            if i + 1 >= n:
+                return None
             nxt = pattern[i + 1]
             out.append(special.get(nxt, nxt))
             i += 2
@@ -667,8 +676,11 @@ def _parse_gitignore_pattern(raw: str) -> _IgnoreRule | None:
         if not line:
             return None
 
+    pattern = _unescape_gitignore_pattern(line)
+    if pattern is None:
+        return None
     return _IgnoreRule(
-        pattern=_unescape_gitignore_pattern(line),
+        pattern=pattern,
         negated=negated,
         dir_only=dir_only,
         anchored=anchored,
