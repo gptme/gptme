@@ -3459,20 +3459,23 @@ class TestMaybeApplyVerbosity:
         assert "OPENAI_VERBOSITY" in caplog.text
         assert "verbose" in caplog.text
 
-    def test_invalid_level_warns_only_once(self, monkeypatch, caplog):
+    def test_invalid_level_warns_only_once(self, monkeypatch):
         monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "verbose")
         monkeypatch.setattr(llm_openai, "_verbosity_warned", False)
         model = get_model("openai/gpt-5")
-        import logging
 
-        logger_name = "gptme.llm.llm_openai"
-        with caplog.at_level(logging.WARNING, logger=logger_name):
+        # Patch the module logger directly. caplog record counts are not
+        # isolated under `make test` (`pytest -n 16`): sibling workers leak
+        # OPENAI_VERBOSITY warnings into this test (same class of flake as
+        # gptme/gptme#3896).
+        with patch.object(llm_openai.logger, "warning") as warning:
             _maybe_apply_verbosity({}, model)
             # Verify the flag was persisted (guards against parallel-state interference)
             assert llm_openai._verbosity_warned is True
             _maybe_apply_verbosity({}, model)
-        records = [record for record in caplog.records if record.name == logger_name]
-        assert sum("OPENAI_VERBOSITY" in record.getMessage() for record in records) == 1
+        warning.assert_called_once()
+        assert "OPENAI_VERBOSITY" in warning.call_args.args[0]
+        assert warning.call_args.args[1] == "verbose"
 
 
 class TestOpenrouterModelToModelmeta:
