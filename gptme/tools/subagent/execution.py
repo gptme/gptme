@@ -934,6 +934,7 @@ def _monitor_subprocess(
             status,
             summary,
             parent_logdir=subagent.parent_logdir,
+            parent_branch=subagent.parent_branch,
         )
     except Exception as e:
         logger.warning(f"Failed to notify subagent completion: {e}")
@@ -1146,6 +1147,7 @@ def _run_planner(
                                 "failure",
                                 f"Executor subprocess failed: {e}",
                                 parent_logdir=_sa.parent_logdir,
+                                parent_branch=_sa.parent_branch,
                             )
                         _cleanup_isolation(_sa)
                         return

@@ -156,7 +156,7 @@ class TestThreadModeCompletionRoundtrip:
 
         # The completion hook should have queued a notification
         assert not _completion_queue.empty()
-        _parent_logdir, agent_id, status, summary = _completion_queue.get_nowait()
+        _parent_logdir, agent_id, status, summary, *_ = _completion_queue.get_nowait()
         assert agent_id == "hook-test"
         assert status == "success"
 
@@ -204,7 +204,7 @@ class TestThreadModeCompletionRoundtrip:
         assert sa.thread is not None
         sa.thread.join(timeout=10)
 
-        _parent_logdir, _agent_id, _status, summary = _completion_queue.get_nowait()
+        _parent_logdir, _agent_id, _status, summary, *_ = _completion_queue.get_nowait()
         assert report in summary
         assert len(summary) > 200
 

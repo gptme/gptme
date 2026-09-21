@@ -118,10 +118,13 @@ _subagents_lock = threading.Lock()
 _subagent_results: dict[str, "ReturnType"] = {}
 _subagent_results_lock = threading.Lock()
 
-# Thread-safe queues for notifications. Entries carry their owning parent logdir so
-# one server conversation cannot consume another conversation's subagent events.
-# ``None`` preserves direct-library calls that have no parent conversation.
-_completion_queue: queue.Queue[tuple[Path | None, str, Status, str]] = queue.Queue()
+# Thread-safe queues for notifications. Entries carry their owning parent logdir
+# and the originating run's captured parent branch so one conversation cannot
+# consume another conversation's events, and a reused agent_id cannot recover
+# a later run's branch. ``None`` preserves direct-library calls with no parent.
+_completion_queue: queue.Queue[tuple[Path | None, str, Status, str, str | None]] = (
+    queue.Queue()
+)
 _progress_queue: queue.Queue[tuple[Path | None, str, str]] = queue.Queue()
 
 # Guard for one-shot registry rehydration on first access after process restart

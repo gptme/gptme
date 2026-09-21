@@ -268,6 +268,18 @@ class SessionManager:
         # same non-reentrant lock. A live session or a newly started command
         # makes this a no-op.
         cls._evict_idle_cost_window(conversation_id, None)
+        # Completions queued while the command owned the conversation are
+        # retried only on reservation release. Without this, an idle chat
+        # stays asleep until the next manual step. Never let a retry failure
+        # surface through the command finally-block.
+        try:
+            cls.retry_deferred_watch_wakes(conversation_id)
+        except Exception:
+            logger.warning(
+                "Could not retry deferred watch wakes after command release for %s",
+                conversation_id,
+                exc_info=True,
+            )
 
     @classmethod
     def create_session(cls, conversation_id: str) -> ConversationSession:
@@ -437,7 +449,6 @@ class SessionManager:
         from ..dirs import get_logs_dir
         from ..tools.subagent.hooks import (
             _completion_message,
-            _notification_branch,
             take_queued_completions,
         )
         from ..tools.subagent.types import _completion_queue
@@ -447,16 +458,16 @@ class SessionManager:
         if not queued:
             return
         first, *rest = queued
-        for agent_id, status, summary in rest:
-            _completion_queue.put((logdir, agent_id, status, summary))
-        agent_id, status, summary = first
+        for agent_id, status, summary, parent_branch in rest:
+            _completion_queue.put((logdir, agent_id, status, summary, parent_branch))
+        agent_id, status, summary, parent_branch = first
         delivered = cls.request_watch_wake(
             conversation_id,
             _completion_message(agent_id, status, summary),
-            branch=_notification_branch(agent_id, logdir),
+            branch=parent_branch,
         )
         if not delivered:
-            _completion_queue.put((logdir, agent_id, status, summary))
+            _completion_queue.put((logdir, agent_id, status, summary, parent_branch))
 
     _STUCK_GENERATING_TIMEOUT_MINUTES = 10
 

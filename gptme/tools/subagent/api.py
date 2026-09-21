@@ -764,6 +764,7 @@ def subagent(
                         status,
                         _exec._summarize_result(result, max_chars=2000),
                         parent_logdir=parent_logdir,
+                        parent_branch=parent_branch,
                     )
                 except Exception as e:
                     logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
@@ -776,6 +777,7 @@ def subagent(
                         "failure",
                         f"ACP error: {e}",
                         parent_logdir=parent_logdir,
+                        parent_branch=parent_branch,
                     )
                 finally:
                     with _subagents_lock:
@@ -903,6 +905,7 @@ def subagent(
                         "failure",
                         f"Subprocess failed: {e}",
                         parent_logdir=sa.parent_logdir,
+                        parent_branch=sa.parent_branch,
                     )
                 _exec._cleanup_isolation(sa)
             finally:
@@ -1029,6 +1032,7 @@ def subagent(
                             "failure",
                             f"Execution failed: {e}",
                             parent_logdir=parent_logdir,
+                            parent_branch=parent_branch,
                         )
                     except Exception as notify_err:
                         logger.warning(f"Failed to notify subagent error: {notify_err}")
@@ -1088,6 +1092,7 @@ def subagent(
                             result.status,
                             summary,
                             parent_logdir=sa.parent_logdir,
+                            parent_branch=sa.parent_branch,
                         )
                     except Exception as e:
                         logger.warning(f"Failed to notify subagent completion: {e}")
@@ -1194,6 +1199,7 @@ def _timeout_subagent(
         "timeout",
         f"Timed out after {max_time}s",
         parent_logdir=sa.parent_logdir,
+        parent_branch=sa.parent_branch,
     )
 
 
@@ -1591,6 +1597,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                     result.status,
                     _exec._summarize_result(result, max_chars=2000),
                     parent_logdir=sa.parent_logdir,
+                    parent_branch=sa.parent_branch,
                 )
         finally:
             prompt_queue_closed.set()

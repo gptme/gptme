@@ -276,11 +276,12 @@ class TestCompletionNotifications:
     def test_notify_adds_to_queue(self):
         notify_completion("agent-1", "success", "done")
         assert not _completion_queue.empty()
-        parent_logdir, agent_id, status, summary = _completion_queue.get_nowait()
+        parent_logdir, agent_id, status, summary, *rest = _completion_queue.get_nowait()
         assert parent_logdir is None
         assert agent_id == "agent-1"
         assert status == "success"
         assert summary == "done"
+        assert rest in ([], [None], ["main"])
 
     def test_hook_scopes_notifications_to_parent_conversation(self, tmp_path):
         parent_a = tmp_path / "parent-a"
@@ -370,6 +371,58 @@ class TestCompletionNotifications:
                 for agent in agents:
                     _subagents.remove(agent)
 
+    def test_reused_agent_id_carries_originating_branch(self, tmp_path):
+        """Same parent + reused ID must not recover a later run's branch."""
+        parent = tmp_path / "same-parent"
+        agents = [
+            Subagent(
+                "worker",
+                "test",
+                None,
+                tmp_path / "child-old",
+                None,
+                parent_logdir=parent,
+                parent_branch="old-branch",
+            ),
+            Subagent(
+                "worker",
+                "test",
+                None,
+                tmp_path / "child-new",
+                None,
+                parent_logdir=parent,
+                parent_branch="new-branch",
+            ),
+        ]
+        with _subagents_lock:
+            _subagents.extend(agents)
+        try:
+            notify_completion(
+                "worker",
+                "success",
+                "old-done",
+                parent_logdir=parent,
+                parent_branch="old-branch",
+            )
+            queued = _completion_queue.get_nowait()
+            assert queued[1] == "worker"
+            assert queued[3] == "old-done"
+            assert queued[4] == "old-branch"
+
+            notify_completion(
+                "worker",
+                "success",
+                "ambiguous",
+                parent_logdir=parent,
+            )
+            fallback = _completion_queue.get_nowait()
+            assert fallback[3] == "ambiguous"
+            assert fallback[4] == "main"
+        finally:
+            with _subagents_lock:
+                for agent in agents:
+                    _subagents.remove(agent)
+
     def test_notify_emits_server_watch_event_and_requests_wake(
         self, tmp_path, monkeypatch
     ):
@@ -417,7 +470,63 @@ class TestCompletionNotifications:
         request_wake.assert_called_once()
         assert request_wake.call_args.args[0] == "server-parent"
         assert "server-child" in request_wake.call_args.args[1].content
+        assert request_wake.call_args.kwargs["branch"] == "main"
         assert not _completion_queue.empty()
+
+    def test_notify_passes_originating_branch_not_newest_id(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip(
+            "flask", reason="flask not installed, install server extras (-E server)"
+        )
+        from gptme.server.session_models import SessionManager
+
+        parent = tmp_path / "same-parent"
+        agents = [
+            Subagent(
+                "worker",
+                "test",
+                None,
+                tmp_path / "child-old",
+                None,
+                parent_logdir=parent,
+                parent_branch="old-branch",
+            ),
+            Subagent(
+                "worker",
+                "test",
+                None,
+                tmp_path / "child-new",
+                None,
+                parent_logdir=parent,
+                parent_branch="new-branch",
+            ),
+        ]
+        with _subagents_lock:
+            _subagents.extend(agents)
+        request_wake = MagicMock(return_value=True)
+        monkeypatch.setattr(
+            SessionManager,
+            "get_sessions_for_conversation",
+            MagicMock(return_value=[object()]),
+        )
+        monkeypatch.setattr(SessionManager, "add_event", MagicMock())
+        monkeypatch.setattr(SessionManager, "request_watch_wake", request_wake)
+        try:
+            notify_completion(
+                "worker",
+                "success",
+                "old-done",
+                parent_logdir=parent,
+                parent_branch="old-branch",
+            )
+        finally:
+            with _subagents_lock:
+                for agent in agents:
+                    _subagents.remove(agent)
+
+        request_wake.assert_called_once()
+        assert request_wake.call_args.kwargs["branch"] == "old-branch"
 
     def test_hook_yields_success_message(self):
         notify_completion("agent-2", "success", "all good")
@@ -1043,7 +1152,7 @@ class TestSubagentCancel:
             result = _subagent_results["proc-clarify"]
         assert result.status == "clarification_needed"
         assert result.result == "Which format should I use?"
-        _parent_logdir, agent_id, status, summary = _completion_queue.get_nowait()
+        _parent_logdir, agent_id, status, summary, *_ = _completion_queue.get_nowait()
         assert agent_id == "proc-clarify"
         assert status == "clarification_needed"
         assert "Which format" in summary

@@ -2109,7 +2109,7 @@ def test_watch_wake_retries_after_generation_releases(monkeypatch, tmp_path):
     monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
     parent = (tmp_path / conversation_id).resolve()
     parent.mkdir()
-    _completion_queue.put((parent, "child", "success", "finished"))
+    _completion_queue.put((parent, "child", "success", "finished", "feature-x"))
     try:
         SessionManager.retry_deferred_watch_wakes(conversation_id)
         started.assert_not_called()
@@ -2118,7 +2118,53 @@ def test_watch_wake_retries_after_generation_releases(monkeypatch, tmp_path):
         started.assert_called_once()
         manager.append.assert_called()
         assert "child" in manager.append.call_args.args[0].content
+        assert started.call_args.kwargs["branch"] == "feature-x"
         assert _completion_queue.empty()
+    finally:
+        while not _completion_queue.empty():
+            _completion_queue.get_nowait()
+        SessionManager.remove_session(session.id)
+
+
+def test_watch_wake_retries_after_command_releases(monkeypatch, tmp_path):
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager
+    from gptme.tools.subagent.types import _completion_queue
+
+    conversation_id = "watch-wake-command-retry"
+    session = SessionManager.create_session(conversation_id)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    started = unittest.mock.MagicMock(return_value=True)
+    manager = unittest.mock.MagicMock()
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        LogManager, "load", unittest.mock.MagicMock(return_value=manager)
+    )
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    parent = (tmp_path / conversation_id).resolve()
+    parent.mkdir()
+    SessionManager.start_command(conversation_id)
+    _completion_queue.put((parent, "child", "success", "finished", "feature-x"))
+    try:
+        assert SessionManager.command_is_active(conversation_id)
+        SessionManager.retry_deferred_watch_wakes(conversation_id)
+        started.assert_not_called()
+        SessionManager.finish_command(conversation_id)
+        started.assert_called_once()
+        assert started.call_args.kwargs["branch"] == "feature-x"
+        assert "child" in manager.append.call_args.args[0].content
+        assert _completion_queue.empty()
+        assert not SessionManager.command_is_active(conversation_id)
     finally:
         while not _completion_queue.empty():
             _completion_queue.get_nowait()
