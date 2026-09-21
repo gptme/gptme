@@ -26,9 +26,13 @@ N_SAMPLES = 20
 # runners (observed 740-844ms). 5s still fails a hung or truly pathological
 # scan without encoding runner speed.
 COLD_SCAN_CATASTROPHE_MS = 5000.0
-# Linear size ratio is 4x; quadratic would be ~16x. 3x slack leaves room for
-# Flask overhead and CI noise while still catching a superlinear scan.
-COLD_SCAN_SCALE_SLACK = 3.0
+# After subtracting empty-scan overhead, linear size ratio is 4x and
+# quadratic is ~16x. 2x slack leaves room for CI noise / O(N log N) sort
+# without letting Flask dispatch hide a superlinear scan.
+COLD_SCAN_SCALE_SLACK = 2.0
+# Floor for the small-N incremental time so a lucky-fast 25-item sample
+# cannot explode the ratio. 5% of the largest measured time, or 1ms.
+COLD_SCAN_INCREMENT_FLOOR_FRAC = 0.05
 # Warm p95 must be < 75% of cold scan time.  Environment-agnostic: cache hit
 # is O(1) so warm << cold.  Broken cache → warm ≈ cold (ratio approaches 1.0).
 WARM_TO_COLD_RATIO_MAX = 0.75
@@ -78,9 +82,18 @@ def test_conversations_list_cold_scan_is_near_linear(
     still failed at 740-844ms on healthy master. Catch O(N^2)/pathology via
     size scaling plus a hang ceiling. The cache invariant lives in
     test_conversations_list_warm_cache_faster_than_cold.
+
+    Raw 25→100 ratios include Flask dispatch, serialization, and first-request
+    init, so a quadratic scan term can stay under a 12x raw cap. Subtract an
+    empty-scan baseline (after a warmup request) so the ratio measures scan
+    growth, not fixed per-request work.
     """
+    # Warm Flask so one-time init is not charged to the small-N sample.
+    _cold_list_conversations(client, monkeypatch, 0)
+    base_ms, base_n = _cold_list_conversations(client, monkeypatch, 0)
     small_ms, small_n = _cold_list_conversations(client, monkeypatch, N_SMALL)
     large_ms, large_n = _cold_list_conversations(client, monkeypatch, N_CONVERSATIONS)
+    assert base_n == 0
     assert small_n == N_SMALL
     assert large_n == N_CONVERSATIONS, (
         f"expected {N_CONVERSATIONS} conversations, got {large_n}"
@@ -89,12 +102,19 @@ def test_conversations_list_cold_scan_is_near_linear(
         f"cold scan of {N_CONVERSATIONS} took {large_ms:.1f}ms "
         f"> {COLD_SCAN_CATASTROPHE_MS:.0f}ms hang bound"
     )
-    scale = large_ms / max(small_ms, 1.0)
+    increment_floor = max(
+        1.0, COLD_SCAN_INCREMENT_FLOOR_FRAC * max(base_ms, small_ms, large_ms)
+    )
+    scan_small = max(small_ms - base_ms, increment_floor)
+    scan_large = max(large_ms - base_ms, increment_floor)
+    scale = scan_large / scan_small
     max_scale = (N_CONVERSATIONS / N_SMALL) * COLD_SCAN_SCALE_SLACK
     assert scale < max_scale, (
-        f"cold scan scaled {scale:.1f}x from {N_SMALL}→{N_CONVERSATIONS} "
-        f"({small_ms:.1f}ms → {large_ms:.1f}ms); near-linear expected "
-        f"(<{max_scale:.0f}x). Scan may have gone superlinear."
+        f"cold scan incremental cost scaled {scale:.1f}x from "
+        f"{N_SMALL}→{N_CONVERSATIONS} (empty {base_ms:.1f}ms, "
+        f"{small_ms:.1f}ms → {large_ms:.1f}ms; scan {scan_small:.1f}ms → "
+        f"{scan_large:.1f}ms); near-linear expected (<{max_scale:.0f}x). "
+        f"Scan may have gone superlinear."
     )
 
 
