@@ -372,9 +372,13 @@ def complete_background_job(job: BackgroundJob, stdout: str, stderr: str) -> Non
     with job._buffer_lock:
         job._output_callback = None
         if stdout:
-            job._append_to_buffer_locked(job.stdout_buffer, stdout)
+            job._stdout_buffer_start += job._append_to_buffer_locked(
+                job.stdout_buffer, stdout
+            )
         if stderr:
-            job._append_to_buffer_locked(job.stderr_buffer, stderr)
+            job._stderr_buffer_start += job._append_to_buffer_locked(
+                job.stderr_buffer, stderr
+            )
     _notify_completion(job)
 
 

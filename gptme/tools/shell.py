@@ -12,6 +12,8 @@ Configuration:
     GPTME_SHELL_FOREGROUND_TIMEOUT: Soft timeout before a foreground command is
         promoted to a conversation-owned background job. Defaults to 120 seconds.
         Set to 0 to disable promotion. GPTME_SHELL_TIMEOUT remains the hard limit.
+        POSIX only — Windows has no process-group promotion path, so this setting
+        is ignored there and long commands wait for GPTME_SHELL_TIMEOUT.
 
     GPTME_SHELL_MEMORY_LIMIT: Optional per-shell address-space ceiling (POSIX only,
         off by default). Accepts a plain byte count or a binary suffix (e.g.
@@ -562,6 +564,7 @@ class PromotedJobProcess:
 
     returncode: int | None = None
     _done: threading.Event = field(default_factory=threading.Event, repr=False)
+    _finish_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def poll(self) -> int | None:
         return self.returncode
@@ -575,10 +578,12 @@ class PromotedJobProcess:
         return self.returncode
 
     def finish(self, returncode: int) -> None:
-        if self._done.is_set():
-            return
-        self.returncode = returncode
-        self._done.set()
+        # kill_promoted() and publish() can race; first writer wins.
+        with self._finish_lock:
+            if self._done.is_set():
+                return
+            self.returncode = returncode
+            self._done.set()
 
 
 class ShellSession:
@@ -1090,6 +1095,10 @@ class ShellSession:
     def detach(self) -> None:
         """Retire this shell from foreground use without stopping its process."""
         self._closed = True
+        # The in-flight worker still calls _set_cwd when the command finishes.
+        # Freeze process-wide chdir so a later `cd` cannot jump the CLI cwd
+        # after a replacement shell has already taken over.
+        self._skip_os_chdir = True
         atexit.unregister(self.close)
 
     def _run(
@@ -2252,6 +2261,15 @@ class ShellSession:
 
 _shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
 _workspace_cwd: ContextVar[str | None] = ContextVar("workspace_cwd", default=None)
+# One-shot seed for the shell that replaces a promoted command. Separate from
+# `_workspace_cwd`, which is the server skip-chdir flag and must not change
+# when a long `cd dest; sleep` is promoted.
+_promoted_next_cwd: ContextVar[str | None] = ContextVar(
+    "promoted_next_cwd", default=None
+)
+_promoted_next_state: ContextVar[str | None] = ContextVar(
+    "promoted_next_state", default=None
+)
 
 # Conversation-level shell registry for server-side cleanup.
 # Maps conversation_id -> ShellSession so SESSION_END hooks can find and close
@@ -2286,9 +2304,10 @@ def get_shell() -> ShellSession:
     """
     shell = _shell_var.get()
     if shell is None:
-        # Use workspace from ContextVar for thread-safe cwd
-        workspace = _workspace_cwd.get()
+        # Prefer the promotion seed over the server skip-chdir flag.
+        workspace = _promoted_next_cwd.get() or _workspace_cwd.get()
         shell = ShellSession(cwd=workspace)
+        _apply_promoted_state(shell)
         _shell_var.set(shell)
         # Register for conversation-level cleanup if in a server context
         _register_conversation_shell(shell)
@@ -2300,10 +2319,56 @@ def set_shell(shell: ShellSession) -> None:
     _shell_var.set(shell)
 
 
+def _snapshot_promoted_state(shell: ShellSession) -> str | None:
+    """Copy the last completed-command env snapshot before the file is unlinked."""
+    if not shell._has_state_snapshot() or not shell._state_path:
+        return None
+    try:
+        return Path(shell._state_path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _apply_promoted_state(shell: ShellSession) -> None:
+    """Restore exported env from a promoted shell, then return to its live cwd."""
+    snapshot = _promoted_next_state.get()
+    live_cwd = _promoted_next_cwd.get()
+    _promoted_next_state.set(None)
+    _promoted_next_cwd.set(None)
+    if not snapshot:
+        return
+    fd, path = tempfile.mkstemp(prefix="gptme-shell-promote-", suffix=".sh")
+    try:
+        os.write(fd, snapshot.encode())
+        os.close(fd)
+        fd = -1
+        shell.run(
+            f"source {shlex.quote(path)} >/dev/null 2>&1 || true",
+            output=False,
+        )
+        if live_cwd:
+            shell.run(f"cd -- {shlex.quote(live_cwd)}", output=False)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def _replace_promoted_shell(shell: ShellSession) -> None:
-    """Release a busy shell and seed the next shell with its live cwd."""
+    """Release a busy shell and seed the next shell with its cwd and exports.
+
+    Do not write the live cwd into ``_workspace_cwd``. That ContextVar is the
+    server skip-chdir flag; mutating it would make later CLI shells skip
+    process-wide chdir, and the worker already has a copied context so it
+    would not see the write. Creating the replacement here would also block
+    the promotion return on ``_init``.
+    """
     shell.detach()
-    _workspace_cwd.set(str(shell.live_cwd()))
+    _promoted_next_cwd.set(str(shell.live_cwd()))
+    _promoted_next_state.set(_snapshot_promoted_state(shell))
     _shell_var.set(None)
     from ..hooks import current_conversation_id
 
@@ -2782,6 +2847,7 @@ def execute_shell_impl(
 
     start_time = time.monotonic()
     foreground_timeout = _get_foreground_timeout()
+    # Promotion is POSIX-only: Windows has no start_new_session / killpg path.
     promoted = (
         not _is_windows
         and foreground_timeout is not None
@@ -3138,7 +3204,12 @@ def get_path_fn(*args, **kwargs) -> Path | None:
 
 
 def _get_foreground_timeout() -> float | None:
-    """Return the foreground soft timeout; zero disables promotion."""
+    """Return the foreground soft timeout; zero disables promotion.
+
+    Promotion itself is POSIX-only (see ``execute_shell_impl``). This helper
+    still parses the env var on Windows so invalid values are logged, but the
+    setting has no effect there.
+    """
     raw = os.environ.get("GPTME_SHELL_FOREGROUND_TIMEOUT", "120")
     try:
         timeout = float(raw)

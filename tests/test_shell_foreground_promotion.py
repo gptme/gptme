@@ -11,10 +11,15 @@ import pytest
 
 from gptme.message import Message
 from gptme.tools.shell import (
+    PromotedJobProcess,
     ShellSession,
     _get_foreground_timeout,
+    _promoted_next_cwd,
+    _promoted_next_state,
+    _workspace_cwd,
     execute_shell_impl,
     get_shell,
+    get_workspace_cwd,
     set_shell,
     set_workspace_cwd,
 )
@@ -29,10 +34,16 @@ from gptme.tools.shell_background import (
 
 @pytest.fixture(autouse=True)
 def _clean_shell_jobs() -> Generator[None, None, None]:
+    ws_token = _workspace_cwd.set(None)
+    cwd_token = _promoted_next_cwd.set(None)
+    state_token = _promoted_next_state.set(None)
     reset_background_jobs()
     yield
     get_shell().close()
     reset_background_jobs()
+    _promoted_next_state.reset(state_token)
+    _promoted_next_cwd.reset(cwd_token)
+    _workspace_cwd.reset(ws_token)
 
 
 def test_foreground_timeout_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,6 +201,78 @@ def test_hard_timeout_still_finishes_promoted_job(
     completions = _wait_for_completion()
     assert len(completions) == 1
     assert "exit code -124" in completions[0].content
+
+
+def test_promoted_command_preserves_exported_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Replacement shells must restore exports from the last completed command."""
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    assert shell.run("export GPTME_PROMOTION_TEST=restored")[0] == 0
+
+    messages = list(execute_shell_impl("sleep 1", logdir=None, timeout=2))
+
+    assert "Promoted to background shell job" in messages[-1].content
+    replacement = get_shell()
+    assert replacement is not shell
+    returncode, stdout, _ = replacement.run('printf %s "$GPTME_PROMOTION_TEST"')
+    assert returncode == 0
+    assert stdout.strip() == "restored"
+
+
+def test_detached_promoted_shell_does_not_chdir_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A promoted CLI command's later `cd` must not jump the process cwd."""
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    dest = tmp_path / "after"
+    dest.mkdir()
+    original_cwd = os.getcwd()
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    try:
+        messages = list(
+            execute_shell_impl(f"sleep 0.2; cd {dest}", logdir=None, timeout=2)
+        )
+        assert "Promoted to background shell job" in messages[-1].content
+        assert get_workspace_cwd() is None
+        replacement = get_shell()
+        assert replacement is not shell
+        assert replacement._skip_os_chdir is False
+        after_replace = os.getcwd()
+        job = list_background_jobs()[0]
+        job.process.wait(timeout=4)
+        time.sleep(0.1)
+        # Replacement may chdir (CLI contract); the detached command must not.
+        assert os.getcwd() == after_replace
+        assert Path(os.getcwd()).resolve() != dest.resolve()
+        assert shell._skip_os_chdir is True
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_foreground_promotion_disabled_on_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("gptme.tools.shell._is_windows", True)
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+
+    messages = list(execute_shell_impl("sleep 0.2", logdir=None, timeout=2))
+
+    assert "Promoted to background shell job" not in messages[-1].content
+    assert list_background_jobs() == []
+
+
+def test_promoted_job_process_finish_is_first_writer_wins() -> None:
+    process = PromotedJobProcess()
+    process.finish(0)
+    process.finish(-15)
+    assert process.returncode == 0
+    assert process.poll() == 0
 
 
 def test_worker_path_preserves_process_cwd_when_workspace_set(

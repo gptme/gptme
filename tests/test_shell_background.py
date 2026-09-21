@@ -97,6 +97,16 @@ class TestAppendToBuffer:
         assert stdout.endswith("tail")
         assert not stdout.startswith("head")
 
+    def test_complete_background_job_advances_buffer_start(self):
+        """Tail-truncated completion must not look like it starts at offset 0."""
+        job = _make_job()
+        huge = "head" + ("x" * (_MAX_BUFFER_SIZE + 50)) + "tail"
+        job._stdout_read_offset = _MAX_BUFFER_SIZE
+        complete_background_job(job, huge, "")
+        stdout, _ = job.get_output(incremental=True)
+        assert stdout.endswith("tail")
+        assert len(stdout) == len(huge) - _MAX_BUFFER_SIZE
+
 
 # ---------------------------------------------------------------------------
 # BackgroundJob — get_output
