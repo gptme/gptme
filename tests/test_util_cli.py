@@ -1103,6 +1103,76 @@ def test_context_tree(tmp_path):
     assert "\x1b[" not in result.output
 
 
+def test_context_tree_respects_gitignore_anchored_and_negation(tmp_path):
+    """context tree honors root-anchored patterns and ! negation.
+
+    Regression: Path.match() on absolute paths ignored `/dist` and treated
+    `!src/keep.log` as a literal glob that never matched.
+    """
+    from gptme.cli.util import (
+        _parse_gitignore_pattern,
+        _path_is_ignored,
+        _read_gitignore,
+    )
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "out.bin").write_text("artifact")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "dist").mkdir()
+    (tmp_path / "other" / "dist" / "keep.bin").write_text("not-root")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pkg.js").write_text("dep")
+    (tmp_path / "src" / "app.py").write_text("print(1)\n")
+    (tmp_path / "src" / "app.pyc").write_text("ignored")
+    (tmp_path / "src" / "keep.log").write_text("keep")
+    (tmp_path / "src" / "drop.log").write_text("drop")
+    (tmp_path / ".env").write_text("secret")
+    (tmp_path / ".gitignore").write_text(
+        "*.pyc\nnode_modules/\n.env\n*.log\n!src/keep.log\n/dist\n"
+    )
+
+    rules = _read_gitignore(str(tmp_path))
+    assert _path_is_ignored("dist", True, rules)
+    assert _path_is_ignored("dist/out.bin", False, rules)
+    assert not _path_is_ignored("other/dist", True, rules)
+    assert _path_is_ignored("src/app.pyc", False, rules)
+    assert _path_is_ignored("src/drop.log", False, rules)
+    assert not _path_is_ignored("src/keep.log", False, rules)
+    assert not _path_is_ignored("src/app.py", False, rules)
+    assert _path_is_ignored(".env", False, rules)
+    assert _path_is_ignored("node_modules", True, rules)
+    git_rule = _parse_gitignore_pattern(".git/")
+    assert git_rule is not None
+    assert _path_is_ignored(".git", True, [git_rule])
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["context", "tree", "--path", str(tmp_path), "--max-depth", "3"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "app.py" in result.output
+    assert "keep.log" in result.output
+    assert "drop.log" not in result.output
+    assert "app.pyc" not in result.output
+    assert ".env" not in result.output
+    assert "node_modules" not in result.output
+    assert "out.bin" not in result.output
+    # Root-anchored /dist hides the root dist dir, not other/dist.
+    assert "keep.bin" in result.output
+    assert ".gitignore" in result.output
+
+
+def test_context_tree_rejects_file_path(tmp_path):
+    """context tree --path must be a directory, not a file."""
+    runner = CliRunner()
+    target = tmp_path / "notes.txt"
+    target.write_text("hello")
+    result = runner.invoke(main, ["context", "tree", "--path", str(target)])
+    assert result.exit_code == 2
+    assert "Invalid value for '--path'" in result.output
+
+
 def test_context_tree_rejects_negative_max_depth(tmp_path):
     """context tree rejects negative depths instead of printing an empty tree."""
     runner = CliRunner()
