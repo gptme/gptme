@@ -458,7 +458,7 @@ class StepRequest(BaseModel):
     max_tokens: int | None = Field(
         None,
         description="Maximum response tokens for this step",
-        gt=0,
+        ge=1,
     )
     branch: str = Field("main", description="Conversation branch")
     auto_confirm: bool | int = Field(False, description="Auto-confirm tools")
