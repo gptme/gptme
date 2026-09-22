@@ -173,11 +173,12 @@ def auto_compact_log(
         # Sort by token count descending (largest first)
         candidates.sort(key=lambda x: x[1], reverse=True)
 
-        # Truncate largest outputs until under target
+        # Truncate largest outputs until strictly below target. Equality still
+        # counts as over-budget (same inclusive trigger as should_auto_compact).
         for idx, msg_tokens, msg in candidates:
-            if current_tokens <= target_tokens:
+            if current_tokens < target_tokens:
                 logger.info(
-                    f"Reached target tokens ({current_tokens} <= {target_tokens}), "
+                    f"Reached target tokens ({current_tokens} < {target_tokens}), "
                     f"stopping truncation early"
                 )
                 break

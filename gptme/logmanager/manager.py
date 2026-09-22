@@ -315,11 +315,18 @@ class LogManager:
                 )
                 logger.debug(f"Loaded view branch: {view_name}")
 
-        # If a view was requested, load it as the active log
-        if self.current_view and self.current_view in self._views:
-            # When on a view, the "current" log is the view
-            # but we track master separately for dual-write
-            pass  # View is already loaded in _views
+        # Restore the last active view unless the caller selected one.
+        # Compaction switches are otherwise in-memory and lost on the next
+        # LogManager.load() (server tool workers, resumed CLI sessions).
+        if view is None:
+            self._restore_current_view()
+        elif self.current_view and self.current_view not in self._views:
+            logger.warning(
+                "Requested view %r does not exist; staying on branch %s",
+                self.current_view,
+                self.current_branch,
+            )
+            self.current_view = None
 
     def _acquire_lock(self):
         """Acquire an exclusive lock on the conversation directory.
@@ -816,7 +823,10 @@ class LogManager:
         manager = cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
         manager._sync_root = sync_root
         if log.messages:
-            manager.log = manager.log.replace(
+            # Attach append-cursor metadata to the branch we just loaded, not
+            # to manager.log — that may already be a restored compacted view.
+            branch_log = manager._branches[manager.current_branch]
+            manager._branches[manager.current_branch] = branch_log.replace(
                 persisted=log.persisted,
                 persisted_path=log.persisted_path,
                 persisted_size=log.persisted_size,
@@ -888,6 +898,7 @@ class LogManager:
             raise ValueError(f"View '{name}' does not exist")
         self.write()  # Save current state first
         self.current_view = name
+        self._persist_current_view()
         # log getter now returns view when current_view is set
         logger.info(f"Switched to view: {name}")
 
@@ -895,8 +906,45 @@ class LogManager:
         """Switch back to master (full uncompacted history)."""
         self.write()  # Save current state first
         self.current_view = None
+        self._persist_current_view()
         # log getter now returns branch when current_view is None
         logger.info("Switched to master branch")
+
+    def _current_view_marker(self) -> Path:
+        return self.logdir / "views" / ".current"
+
+    def _persist_current_view(self) -> None:
+        """Record the active view so the next LogManager.load() restores it."""
+        marker = self._current_view_marker()
+        if self.current_view is None:
+            try:
+                marker.unlink()
+            except FileNotFoundError:
+                return
+            except OSError as e:
+                logger.warning("Could not clear current view marker: %s", e)
+            return
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(self.current_view + "\n", encoding="utf-8")
+        except OSError as e:
+            logger.warning("Could not persist current view marker: %s", e)
+
+    def _restore_current_view(self) -> None:
+        """Restore the active view from the on-disk marker, if valid."""
+        marker = self._current_view_marker()
+        try:
+            name = marker.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return
+        except OSError as e:
+            logger.warning("Could not read current view marker: %s", e)
+            return
+        if not name or "/" in name or "\\" in name or name not in self._views:
+            logger.warning("Ignoring invalid current view marker: %r", name)
+            return
+        self.current_view = name
+        logger.info("Restored active view: %s", name)
 
     def get_next_view_name(self) -> str:
         """Generate the next sequential view name."""

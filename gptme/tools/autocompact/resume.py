@@ -87,7 +87,13 @@ def _load_context_files(
     max_tokens_per_file: int = 2000,
 ) -> list[tuple[str, str]]:
     """
-    Load contents of specified files that exist.
+    Load contents of specified files that exist inside the workspace.
+
+    Absolute and ``~/`` paths are resolved, then rejected unless they stay
+    inside ``workspace``. This is load-bearing now that autocompact's
+    LLM-powered summarize branch can run without an explicit tool allowlist:
+    untrusted conversation content must not be able to name ``~/.ssh/id_rsa``
+    and have its contents inserted into the compacted log.
 
     Args:
         file_paths: List of file paths to load
@@ -98,16 +104,32 @@ def _load_context_files(
         List of (path, content) tuples for files that exist and are readable
     """
     loaded_files: list[tuple[str, str]] = []
-    workspace_path = workspace or Path.cwd()
+    workspace_path = (workspace or Path.cwd()).resolve()
 
     for file_path in file_paths:
-        # Resolve path
-        if file_path.startswith("/"):
-            full_path = Path(file_path)
-        elif file_path.startswith("~"):
-            full_path = Path(file_path).expanduser()
+        # Resolve path. Absolute and ~/ suggestions are allowed only when the
+        # resolved file stays inside the workspace — the summarizer output is
+        # model-generated and must not become a local-file exfil path.
+        if file_path.startswith("~"):
+            candidate = Path(file_path).expanduser()
+        elif file_path.startswith("/"):
+            candidate = Path(file_path)
         else:
-            full_path = workspace_path / file_path
+            candidate = workspace_path / file_path
+
+        try:
+            full_path = candidate.resolve()
+        except (OSError, RuntimeError) as e:
+            logger.warning(f"Could not resolve context file {file_path}: {e}")
+            continue
+
+        if not full_path.is_relative_to(workspace_path):
+            logger.warning(
+                "Skipping context file outside workspace: %s (resolved to %s)",
+                file_path,
+                full_path,
+            )
+            continue
 
         try:
             if full_path.exists() and full_path.is_file():

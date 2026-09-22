@@ -28,9 +28,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Reentrancy guard to prevent infinite loops
-_last_autocompact_time = 0.0
-_autocompact_min_interval = 60  # Minimum 60 seconds between autocompact attempts
+# Reentrancy guard to prevent infinite loops. Keyed by conversation logdir so
+# concurrent server sessions do not share a process-global cooldown. The value
+# is (timestamp, message_count): a later attempt on the same conversation is
+# allowed inside the interval when the log has grown (e.g. tool results).
+_last_autocompact_attempt: dict[str, tuple[float, int]] = {}
+_autocompact_min_interval = 60  # Minimum 60 seconds between unchanged attempts
 
 
 def _get_compacted_name(conversation_name: str) -> str:
@@ -95,18 +98,24 @@ def autocompact_hook(
         manager: Conversation manager with log and workspace
     """
 
-    global _last_autocompact_time
-
-    # Check if enough time has passed since last autocompact attempt
     current_time = time.time()
-    if current_time - _last_autocompact_time < _autocompact_min_interval:
-        logger.debug(
-            f"Skipping autocompact: {current_time - _last_autocompact_time:.1f}s "
-            f"since last attempt (min interval: {_autocompact_min_interval}s)"
-        )
-        return
-
+    conv_key = str(manager.logdir)
     messages = manager.log.messages
+    n_messages = len(messages)
+    last_attempt = _last_autocompact_attempt.get(conv_key)
+    if last_attempt is not None:
+        last_time, last_len = last_attempt
+        if (
+            current_time - last_time < _autocompact_min_interval
+            and n_messages == last_len
+        ):
+            logger.debug(
+                f"Skipping autocompact: {current_time - last_time:.1f}s "
+                f"since last attempt on {conv_key} "
+                f"(min interval: {_autocompact_min_interval}s, log unchanged)"
+            )
+            return
+
     model = get_default_model()
     budget = (
         get_context_budget(model.context, max_output=model.max_output or 8192)
@@ -118,7 +127,7 @@ def autocompact_hook(
     if action == "none":
         return
 
-    _last_autocompact_time = current_time
+    _last_autocompact_attempt[conv_key] = (current_time, n_messages)
 
     if action == "rule_based":
         logger.info("Auto-compacting triggered: conversation has massive tool results")
@@ -145,6 +154,10 @@ def autocompact_hook(
             view_name = manager.get_next_view_name()
             manager.create_view(view_name, compacted_msgs)
             manager.switch_view(view_name)
+            _last_autocompact_attempt[conv_key] = (
+                current_time,
+                len(manager.log.messages),
+            )
 
             # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
             # (e.g., attention-router can batch-apply decay and re-evaluate tiers)
@@ -194,6 +207,10 @@ def autocompact_hook(
             original_count = len(messages)
 
             yield from _resume_via_llm(manager, messages, use_view_branch=True)
+            _last_autocompact_attempt[conv_key] = (
+                current_time,
+                len(manager.log.messages),
+            )
 
             compacted_tokens = len_tokens(manager.log.messages, m.model) if m else 0
             append_compaction_event(

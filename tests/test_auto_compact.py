@@ -906,6 +906,59 @@ def test_load_context_files_truncates_long_files(tmp_path):
     assert "truncated" in loaded[0][1].lower()
 
 
+def test_load_context_files_rejects_paths_outside_workspace(tmp_path):
+    """Summarizer-suggested paths must not escape the workspace."""
+    from gptme.tools.autocompact import _load_context_files
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "ok.py").write_text("print('ok')")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SECRET")
+
+    loaded = _load_context_files(
+        [
+            "ok.py",
+            str(secret),
+            "../secret.txt",
+            "~/.ssh/id_rsa",
+            "/etc/passwd",
+        ],
+        workspace=workspace,
+    )
+    assert [path for path, _ in loaded] == ["ok.py"]
+    assert "SECRET" not in "".join(content for _, content in loaded)
+
+
+def test_load_context_files_allows_absolute_path_inside_workspace(tmp_path):
+    """Absolute paths are fine when they resolve inside the workspace."""
+    from gptme.tools.autocompact import _load_context_files
+
+    target = tmp_path / "inside.py"
+    target.write_text("inside")
+    loaded = _load_context_files([str(target)], workspace=tmp_path)
+    assert len(loaded) == 1
+    assert "inside" in loaded[0][1]
+
+
+def test_load_context_files_rejects_symlink_escape(tmp_path):
+    """Symlinks that resolve outside the workspace must not be read."""
+    from gptme.tools.autocompact import _load_context_files
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SECRET")
+    link = workspace / "link.txt"
+    try:
+        link.symlink_to(secret)
+    except OSError:
+        pytest.skip("symlink not permitted")
+
+    loaded = _load_context_files(["link.txt"], workspace=workspace)
+    assert loaded == []
+
+
 def test_should_auto_compact_uses_budget_for_massive_tool_result_threshold():
     """A massive tool result below the configured budget must not trigger."""
     messages = [Message("system", "x " * 2500)]
@@ -914,20 +967,27 @@ def test_should_auto_compact_uses_budget_for_massive_tool_result_threshold():
 
 
 def test_auto_compact_trims_at_exact_budget(monkeypatch):
-    """Decision and engine use the same inclusive budget boundary."""
-    messages = [Message("system", "x " * 2500)]
+    """Decision and engine use the same inclusive budget boundary.
+
+    Token counts must be mocked for every equivalent list, not just the
+    original ``messages`` object — the engine copies into ``compacted_log``.
+    """
+    messages = [Message("system", "tool output " * 100)]
     from gptme.tools.autocompact import engine
 
-    real_len_tokens = engine.len_tokens
-    monkeypatch.setattr(
-        engine,
-        "len_tokens",
-        lambda value, model=None: (
-            100 if value is messages else real_len_tokens(value, model=model)
-        ),
-    )
+    def fake_len_tokens(value, model=None):
+        if isinstance(value, list):
+            return sum(fake_len_tokens(item, model) for item in value)
+        content = value.content if isinstance(value, Message) else value
+        if isinstance(content, str) and content.startswith("tool output"):
+            return 5000
+        return 50
 
-    compacted = list(auto_compact_log(messages, limit=100))
+    monkeypatch.setattr(engine, "len_tokens", fake_len_tokens)
+
+    compacted = list(
+        auto_compact_log(messages, limit=5000, max_tool_result_tokens=2000)
+    )
 
     assert compacted[0].content != messages[0].content
 
@@ -1242,7 +1302,7 @@ def test_autocompact_hook_honors_keep_head(monkeypatch):
     mock_manager.logdir = MagicMock()
     mock_manager.log.messages = msgs
     # Reset rate-limiting timer so the hook doesn't short-circuit
-    hook_module._last_autocompact_time = 0
+    hook_module._last_autocompact_attempt.clear()
 
     captured_keep_head: dict = {}
     mock_provider = MagicMock()
@@ -1285,6 +1345,81 @@ def test_autocompact_hook_honors_keep_head(monkeypatch):
         f"Expected keep_head=3 from env override, got {captured_keep_head.get('value')}; "
         "hook.py must call _get_keep_head() and pass it as CompressionConfig.keep_head"
     )
+
+
+def test_autocompact_throttle_is_per_conversation(monkeypatch):
+    """A compact on one conversation must not skip a sibling's budget check."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    hook_module._last_autocompact_attempt.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    def make_manager(logdir: str, n: int = 3) -> MagicMock:
+        manager = MagicMock()
+        manager.logdir = logdir
+        manager.log.messages = [Message("user", f"m{i}") for i in range(n)]
+        return manager
+
+    first = make_manager("/tmp/conv-a")
+    second = make_manager("/tmp/conv-b")
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="none",
+        ) as should_compact,
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+    ):
+        # First conversation records no attempt because action is none, so
+        # seed the guard as if it just compacted.
+        hook_module._last_autocompact_attempt[str(first.logdir)] = (
+            time.time(),
+            len(first.log.messages),
+        )
+        list(autocompact_hook(second))
+
+    assert should_compact.called, (
+        "Sibling conversation must still run should_auto_compact "
+        "while another conversation is inside the reentrancy window"
+    )
+
+
+def test_autocompact_throttle_allows_retry_when_log_grows(monkeypatch):
+    """Tool results appended inside the interval must not be skipped."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    hook_module._last_autocompact_attempt.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-grow"
+    manager.log.messages = [Message("user", "one"), Message("assistant", "two")]
+    hook_module._last_autocompact_attempt[str(manager.logdir)] = (
+        time.time(),
+        2,
+    )
+    manager.log.messages = [
+        Message("user", "one"),
+        Message("assistant", "two"),
+        Message("system", "huge tool result"),
+    ]
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="none",
+        ) as should_compact,
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+    ):
+        list(autocompact_hook(manager))
+
+    assert should_compact.called
 
 
 def test_get_keep_head_negative_falls_back_to_default(monkeypatch):

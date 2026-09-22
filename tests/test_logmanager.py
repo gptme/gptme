@@ -554,6 +554,33 @@ def test_view_undo_works_on_view():
     assert len(mgr._branches["main"]) == 2  # hello + hi
 
 
+def test_active_view_survives_reload(tmp_path: Path, monkeypatch):
+    """switch_view must persist so a new LogManager.load() keeps the compacted log."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "full history one"))
+    manager.append(Message("assistant", "full history two"))
+    manager.create_view("compacted-001", Log([Message("system", "summary")]))
+    manager.switch_view("compacted-001")
+
+    reloaded = LogManager.load(logdir, lock=False)
+    assert reloaded.current_view == "compacted-001"
+    assert [m.content for m in reloaded.log] == ["summary"]
+    assert [m.content for m in reloaded.master_log] == [
+        "full history one",
+        "full history two",
+    ]
+
+    reloaded.switch_to_master()
+    restored = LogManager.load(logdir, lock=False)
+    assert restored.current_view is None
+    assert [m.content for m in restored.log] == [
+        "full history one",
+        "full history two",
+    ]
+
+
 def test_undo_more_than_log_length():
     """Regression: undo(n) where n > len(log) should not crash."""
     log = LogManager()

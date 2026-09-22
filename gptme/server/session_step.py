@@ -217,6 +217,32 @@ def _get_use_acp_default() -> bool:
     return val.lower() in ("1", "true", "yes", "on")
 
 
+def _compact_after_tool_results(
+    manager: LogManager,
+    session: ConversationSession,
+    conversation_id: str,
+) -> None:
+    """Run always-on compaction after tool results are on the log.
+
+    Server TURN_POST fires after the assistant message and before tools run.
+    Removing request-time ``reduce_log`` from ``prepare_messages`` means a
+    large tool result can otherwise ride the continuation request past the
+    context budget until the next assistant TURN_POST.
+    """
+    from ..hooks import StopPropagation
+    from ..tools.autocompact.hook import autocompact_hook
+
+    try:
+        for hook_msg in autocompact_hook(manager):
+            if isinstance(hook_msg, StopPropagation):
+                continue
+            _append_and_notify(manager, session, hook_msg)
+    except Exception:
+        logger.exception(
+            "Post-tool compaction failed for conversation %s", conversation_id
+        )
+
+
 def _append_and_notify(manager: LogManager, session: ConversationSession, msg: Message):
     """Append a message and notify clients."""
     manager.append(msg)
@@ -1326,6 +1352,16 @@ def start_tool_execution(
                     # bookkeeping state as quiescent.
                     with SessionManager.conversation_lock(conversation_id):
                         session._executing_tools.discard(claimed_tool_id)
+
+            # Compact after tool results, before the continuation provider call.
+            try:
+                manager = LogManager.load(conversation_id, branch=branch, lock=False)
+                _compact_after_tool_results(manager, session, conversation_id)
+            except Exception:
+                logger.exception(
+                    "Failed to load conversation %s for post-tool compaction",
+                    conversation_id,
+                )
 
             # Elect exactly one continuation while holding the same lock used to
             # add and remove execution claims. This makes quiescence observation
