@@ -80,6 +80,11 @@ async function stopDriver(driverProcess, timeoutMs = DRIVER_EXIT_TIMEOUT_MS) {
 
   await new Promise((resolveExit, rejectExit) => {
     const timeout = setTimeout(() => {
+      try {
+        driverProcess.kill("SIGKILL");
+      } catch (_error) {
+        // Process may already be gone.
+      }
       rejectExit(new Error(`tauri-driver did not exit within ${timeoutMs}ms`));
     }, timeoutMs);
     driverProcess.once("exit", () => {
@@ -88,6 +93,16 @@ async function stopDriver(driverProcess, timeoutMs = DRIVER_EXIT_TIMEOUT_MS) {
     });
     driverProcess.kill();
   });
+}
+
+function removeE2eHome() {
+  if (!e2eHomeDir) {
+    return;
+  }
+  const home = e2eHomeDir;
+  e2eHomeDir = undefined;
+  rmSync(home, { recursive: true, force: true });
+  console.log(`[wdio] Removed isolated HOME: ${home}`);
 }
 
 exports.config = {
@@ -132,25 +147,31 @@ exports.config = {
     e2eHomeDir = mkdtempSync(join(tmpdir(), "wdio-gptme-"));
     console.log(`[wdio] Isolated HOME: ${e2eHomeDir}`);
 
-    // Launch tauri-driver alongside tests and wait for it to accept sessions.
-    tauriDriver = spawn("tauri-driver", [], {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, HOME: e2eHomeDir, XDG_DATA_HOME: join(e2eHomeDir, ".local", "share"), XDG_CONFIG_HOME: join(e2eHomeDir, ".config") },
-    });
-    tauriDriver.stdout.pipe(process.stdout);
-    tauriDriver.stderr.pipe(process.stderr);
+    try {
+      // Launch tauri-driver alongside tests and wait for it to accept sessions.
+      tauriDriver = spawn("tauri-driver", [], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, HOME: e2eHomeDir, XDG_DATA_HOME: join(e2eHomeDir, ".local", "share"), XDG_CONFIG_HOME: join(e2eHomeDir, ".config") },
+      });
+      tauriDriver.stdout.pipe(process.stdout);
+      tauriDriver.stderr.pipe(process.stderr);
 
-    await waitForDriverReady(tauriDriver, 4444);
+      await waitForDriverReady(tauriDriver, 4444);
+    } catch (error) {
+      await stopDriver(tauriDriver).catch(() => {});
+      removeE2eHome();
+      throw error;
+    }
   },
 
   onComplete: async () => {
     // Shut down tauri-driver and wait for the launcher process itself. Each CI
     // spec uses a new sidecar port, so any PyInstaller child still unwinding
     // cannot be mistaken for the next app's managed server.
-    await stopDriver(tauriDriver);
-    if (e2eHomeDir) {
-      rmSync(e2eHomeDir, { recursive: true, force: true });
-      console.log(`[wdio] Removed isolated HOME: ${e2eHomeDir}`);
+    try {
+      await stopDriver(tauriDriver);
+    } finally {
+      removeE2eHome();
     }
   },
 };
