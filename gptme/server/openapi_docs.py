@@ -33,7 +33,9 @@ API_VERSION = 2
 #     it continue to work (they just lose the UNREACHABLE notification).
 #   - The 502 path was itself new in revision 1 (PR #3555) and had no stable consumers
 #     outside the SetupWizard, which is updated in this PR to handle the new field.
-CONTRACT_REVISION = 2
+# Revision 3 — additive provider-setup OAuth endpoints:
+#   POST /api/v2/provider/setup and GET /api/v2/provider/setup/{setup_id}.
+CONTRACT_REVISION = 3
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,41 @@ class ErrorResponse(BaseModel):
     """Error response."""
 
     error: str = Field(..., description="Error message")
+
+
+class ProviderSetupStartRequest(BaseModel):
+    """Request to start a subscription provider OAuth flow."""
+
+    provider: str = Field(
+        ...,
+        description=(
+            "Subscription provider: openai-subscription, grok-subscription, "
+            "or openrouter-pkce"
+        ),
+    )
+
+
+class ProviderSetupStartResponse(BaseModel):
+    """Response when a provider OAuth setup is started."""
+
+    setup_id: str = Field(..., description="Opaque setup ID to poll for status")
+    status: str = Field("pending", description="Always 'pending' on creation")
+
+
+class ProviderSetupStatusResponse(BaseModel):
+    """Status of a running or completed provider OAuth setup."""
+
+    setup_id: str = Field(..., description="Opaque setup ID")
+    provider: str = Field(..., description="Subscription provider slug")
+    status: str = Field(
+        ...,
+        description="One of: pending, connected, error, cancelled",
+    )
+    model: str | None = Field(
+        None,
+        description="Default model after successful auth (provider/model)",
+    )
+    error: str | None = Field(None, description="Error message when status=error")
 
 
 class StatusResponse(BaseModel):

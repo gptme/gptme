@@ -136,19 +136,27 @@ describe("Real first-run flow", () => {
     //    is no longer racing against React rendering.
     await waitForSidecarReady(sidecarPort);
 
-    // 7. In "Local setup", click "Connect". The sidecar readiness probe
-    // proves only that the socket is ready; React may still be finishing the
-    // asynchronous Tauri-status render that enables this control.
-    const connectBtn = await $("button=Connect");
+    // 7. In "Local setup", click "Connect" unless auto-advance already moved
+    //    us to provider setup (sidecar already connected). Prefer the stable
+    //    testid over `button=Connect` — the provider step also has a
+    //    "Connect subscription" button whose label contains "Connect".
+    const connectBtn = await $("[data-testid='setup-wizard-connect']");
+    const providerStep = await $("[data-testid='setup-wizard-provider']");
     try {
-      await connectBtn.waitForExist({ timeout: 15000 });
+      await browser.waitUntil(
+        async () =>
+          (await connectBtn.isExisting()) || (await providerStep.isExisting()),
+        { timeout: 15000 },
+      );
     } catch (err) {
       throw new Error(
-        "SetupWizard 'Connect' button did not appear within 15s: " +
+        "SetupWizard did not reach Connect or provider setup within 15s: " +
           (await describeWebview()),
       );
     }
-    await connectBtn.click();
+    if (await connectBtn.isExisting()) {
+      await connectBtn.click();
+    }
 
     // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted
     //    server registry as proof: `ApiContext.connect()` calls
