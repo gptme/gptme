@@ -1,0 +1,260 @@
+"""Tests for POST /api/v2/user/subscription-connect and its status endpoint."""
+
+import os
+import threading
+import time
+import unittest.mock
+
+import pytest
+
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
+from flask.testing import FlaskClient  # fmt: skip
+
+pytestmark = [pytest.mark.timeout(15)]
+
+TOKEN = "test-sub-connect-token"
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    """Flask test client with auth enabled and a known token."""
+    monkeypatch.setenv("GPTME_SERVER_TOKEN", TOKEN)
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "")
+
+    import gptme.server.api_v2 as api_mod
+    import gptme.server.auth as auth_mod
+
+    # Reset auth state
+    auth_mod._server_token = None
+    auth_mod._auth_enabled = True
+    auth_mod.init_auth("127.0.0.1", display=False)
+
+    # Clear any stale task state from other tests
+    api_mod._subscription_tasks.clear()
+
+    from gptme.server.app import create_app
+
+    app = create_app(host="127.0.0.1")
+    app.config["TESTING"] = True
+
+    return app.test_client()
+
+
+def auth_headers():
+    return {"Authorization": f"Bearer {TOKEN}"}
+
+
+def test_start_subscription_connect_unknown_provider(client: FlaskClient):
+    resp = client.post(
+        "/api/v2/user/subscription-connect",
+        json={"provider": "not-a-real-provider"},
+        headers=auth_headers(),
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert "error" in data
+
+
+def test_start_subscription_connect_no_body(client: FlaskClient):
+    resp = client.post(
+        "/api/v2/user/subscription-connect",
+        headers=auth_headers(),
+    )
+    assert resp.status_code == 400
+
+
+def test_start_subscription_connect_returns_task_id(client: FlaskClient):
+    """Starting a valid provider returns a pending task immediately."""
+    # Mock the OAuth function so it blocks until we release it, then succeeds.
+    barrier = threading.Event()
+
+    def _fake_openai_oauth():
+        barrier.wait(timeout=5)  # block until test releases
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_fake_openai_oauth,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    data = resp.get_json()
+    assert data["status"] == "pending"
+    assert "task_id" in data
+    task_id = data["task_id"]
+
+    # Status endpoint should return pending before OAuth completes
+    status_resp = client.get(
+        f"/api/v2/user/subscription-connect/{task_id}",
+        headers=auth_headers(),
+    )
+    assert status_resp.status_code == 200
+    status_data = status_resp.get_json()
+    assert status_data["status"] == "pending"
+    assert status_data["provider"] == "openai-subscription"
+
+    # Let the background thread finish
+    barrier.set()
+
+
+def test_subscription_connect_success(client: FlaskClient):
+    """OAuth success → task transitions to connected."""
+
+    def _fast_openai_oauth():
+        pass  # immediate success
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_fast_openai_oauth,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    task_id = resp.get_json()["task_id"]
+
+    # Poll until connected (the background thread is very fast in this mock)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        status_resp = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        )
+        data = status_resp.get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert data["status"] == "connected"
+    assert data["provider"] == "openai-subscription"
+    assert data["model"] is not None
+    assert data["error"] is None
+
+
+def test_subscription_connect_error(client: FlaskClient):
+    """OAuth failure → task transitions to error with message."""
+
+    def _failing_oauth():
+        raise RuntimeError("Port 1455 is in use")
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_failing_oauth,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    task_id = resp.get_json()["task_id"]
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert data["status"] == "error"
+    assert "Port 1455" in data["error"]
+
+
+def test_subscription_connect_grok(client: FlaskClient):
+    """Grok subscription provider flow."""
+
+    def _fake_grok_oauth():
+        pass
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_grok_subscription.oauth_authenticate",
+        side_effect=_fake_grok_oauth,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "grok-subscription"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    task_id = resp.get_json()["task_id"]
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert data["status"] == "connected"
+    assert "grok" in data["model"]
+
+
+def test_subscription_connect_openrouter(client: FlaskClient, monkeypatch):
+    """OpenRouter OAuth → key saved to env."""
+
+    def _fake_openrouter_oauth():
+        return "sk-or-v1-testkey"
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with (
+        unittest.mock.patch(
+            "gptme.llm.llm_openrouter_subscription.oauth_get_api_key",
+            side_effect=_fake_openrouter_oauth,
+        ),
+        unittest.mock.patch("gptme.server.api_v2.set_config_value"),
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openrouter"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    task_id = resp.get_json()["task_id"]
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert data["status"] == "connected"
+    assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-v1-testkey"
+
+
+def test_status_unknown_task(client: FlaskClient):
+    resp = client.get(
+        "/api/v2/user/subscription-connect/nonexistent-task",
+        headers=auth_headers(),
+    )
+    assert resp.status_code == 404
+
+
+def test_start_requires_auth(client: FlaskClient):
+    resp = client.post(
+        "/api/v2/user/subscription-connect",
+        json={"provider": "openai-subscription"},
+    )
+    assert resp.status_code == 401
+
+
+def test_status_requires_auth(client: FlaskClient):
+    resp = client.get("/api/v2/user/subscription-connect/some-task")
+    assert resp.status_code == 401

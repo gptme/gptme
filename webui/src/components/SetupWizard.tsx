@@ -16,7 +16,9 @@ import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 import {
   API_KEY_PROVIDER_METADATA,
   API_KEY_PROVIDER_OPTIONS,
+  SUBSCRIPTION_PROVIDER_OPTIONS,
   type ApiKeyProvider,
+  type SubscriptionProvider,
 } from '@/utils/apiKeyProviders';
 import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
@@ -28,7 +30,16 @@ import {
   type SetupWizardStep,
 } from '@/stores/setupWizard';
 import { use$ } from '@legendapp/state/react';
-import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink, Copy } from 'lucide-react';
+import {
+  Monitor,
+  Cloud,
+  ArrowRight,
+  Check,
+  Terminal,
+  ExternalLink,
+  Copy,
+  Loader2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 type SetupStep = SetupWizardStep;
@@ -136,6 +147,12 @@ export function SetupWizard() {
   const [recommendedModels, setRecommendedModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [subscriptionProvider, setSubscriptionProvider] =
+    useState<SubscriptionProvider>('openai-subscription');
+  const [subscriptionConnecting, setSubscriptionConnecting] = useState(false);
+  const [subscriptionTaskId, setSubscriptionTaskId] = useState<string | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const subscriptionPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
@@ -498,6 +515,71 @@ export function SetupWizard() {
       );
     }
   };
+
+  const handleSubscriptionConnect = async () => {
+    setSubscriptionConnecting(true);
+    setSubscriptionError(null);
+    setSubscriptionTaskId(null);
+    try {
+      const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/user/subscription-connect`, {
+        method: 'POST',
+        headers: withAuthHeaders(api.authHeader, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ provider: subscriptionProvider }),
+      });
+      if (!resp.ok) {
+        const data: unknown = await resp.json().catch(() => null);
+        throw new Error(messageFromApiErrorBody(data, `Failed to start OAuth (${resp.status})`));
+      }
+      const data = (await resp.json()) as { task_id: string; status: string };
+      setSubscriptionTaskId(data.task_id);
+
+      // Poll for completion every 2 seconds
+      if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
+      subscriptionPollRef.current = setInterval(async () => {
+        try {
+          const statusResp = await fetch(
+            `${connectionConfig.baseUrl}/api/v2/user/subscription-connect/${data.task_id}`,
+            { headers: withAuthHeaders(api.authHeader) }
+          );
+          if (!statusResp.ok) return;
+          const statusData = (await statusResp.json()) as {
+            status: string;
+            error?: string;
+            model?: string;
+          };
+          if (statusData.status === 'connected') {
+            if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
+            setSubscriptionConnecting(false);
+            setSubscriptionTaskId(null);
+            completeSetup();
+            setStep('complete');
+          } else if (statusData.status === 'error') {
+            if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
+            setSubscriptionConnecting(false);
+            setSubscriptionTaskId(null);
+            setSubscriptionError(statusData.error ?? 'OAuth flow failed. Please try again.');
+          }
+        } catch {
+          // Ignore transient poll errors
+        }
+      }, 2000);
+    } catch (err) {
+      setSubscriptionConnecting(false);
+      setSubscriptionError(formatUnknownError(err, 'Failed to start subscription sign-in.'));
+    }
+  };
+
+  // Clean up subscription poll on unmount
+  useEffect(() => {
+    return () => {
+      if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
+    };
+  }, []);
+
+  // Helper: true when the connected server is running on localhost
+  const isLocalServer =
+    connectionConfig.baseUrl.includes('127.0.0.1') ||
+    connectionConfig.baseUrl.includes('localhost');
 
   const handleCloudLogin = async () => {
     // Open the cloud auth URL — the deep-link flow (gptme://) or URL fragment
@@ -1032,6 +1114,68 @@ export function SetupWizard() {
                   : 'Then restart the server and check again.'}
               </p>
             </div>
+            {(canManageApiKeyInApp || isLocalServer) && (
+              <div className="rounded-lg border bg-muted/40 p-4 text-sm">
+                <p className="font-medium">Use a subscription</p>
+                <p className="mt-1 text-muted-foreground">
+                  Sign in with ChatGPT, Grok, or OpenRouter — no API key needed.
+                </p>
+                <div className="mt-3 flex flex-col gap-3">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="setup-subscription-provider">Provider</Label>
+                    <select
+                      id="setup-subscription-provider"
+                      className="h-9 rounded-md border bg-background px-3 text-sm"
+                      value={subscriptionProvider}
+                      onChange={(e) =>
+                        setSubscriptionProvider(e.target.value as SubscriptionProvider)
+                      }
+                      disabled={subscriptionConnecting}
+                    >
+                      {SUBSCRIPTION_PROVIDER_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      {
+                        SUBSCRIPTION_PROVIDER_OPTIONS.find((o) => o.value === subscriptionProvider)
+                          ?.description
+                      }
+                    </p>
+                  </div>
+                  {subscriptionConnecting && subscriptionTaskId && (
+                    <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted px-3 py-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      Sign in with your browser to complete authentication…
+                    </div>
+                  )}
+                  {subscriptionError && (
+                    <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      {subscriptionError}
+                    </div>
+                  )}
+                  <Button
+                    onClick={() => void handleSubscriptionConnect()}
+                    disabled={subscriptionConnecting}
+                    className="gap-2"
+                  >
+                    {subscriptionConnecting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Waiting for sign-in…
+                      </>
+                    ) : (
+                      <>
+                        Connect with subscription
+                        <ExternalLink className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={() => setStep('cloud')}>
                 Use gptme.ai instead

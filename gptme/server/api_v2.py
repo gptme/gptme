@@ -110,6 +110,9 @@ from .openapi_docs import (
     MessageCreateRequest,
     SessionResponse,
     StatusResponse,
+    SubscriptionConnectRequest,
+    SubscriptionConnectStartResponse,
+    SubscriptionConnectStatusResponse,
     UserApiKeySaveRequest,
     UserApiKeySaveResponse,
     UserConfigFilePatchRequest,
@@ -3342,6 +3345,144 @@ def api_user_default_model():
             "restart_required": restart_required,
         }
     )
+
+
+# In-memory task store for subscription OAuth flows (task_id -> state dict).
+# Tasks are transient: they live only for the current server process.
+# A single dict is safe because Flask dev-server and gunicorn/threaded workers
+# all share the same process; gevent or multiprocessing would need a proper
+# shared store, but gptme-server doesn't use those.
+_subscription_tasks: dict[str, dict] = {}
+
+# Subscription provider slugs that use OAuth/PKCE instead of an API key.
+SUBSCRIPTION_PROVIDERS = frozenset(
+    {"openai-subscription", "grok-subscription", "openrouter"}
+)
+
+# Recommended default model string for each subscription provider.
+_SUBSCRIPTION_DEFAULT_MODELS: dict[str, str] = {
+    "openai-subscription": "openai-subscription/gpt-5.2",
+    "grok-subscription": "grok-subscription/grok-4.6",
+    "openrouter": "openrouter/openrouter/auto",
+}
+
+
+def _run_subscription_oauth(task_id: str, provider: str) -> None:
+    """Background thread: run OAuth flow, update task state on completion."""
+    try:
+        if provider == "openai-subscription":
+            from ..llm.llm_openai_subscription import oauth_authenticate
+
+            oauth_authenticate()
+        elif provider == "grok-subscription":
+            from ..llm.llm_grok_subscription import (
+                oauth_authenticate as grok_oauth_authenticate,
+            )
+
+            grok_oauth_authenticate()
+        elif provider == "openrouter":
+            from ..llm.llm_openrouter_subscription import oauth_get_api_key
+
+            api_key = oauth_get_api_key()
+            # Persist and apply immediately so the running server picks it up.
+            env_var = "OPENROUTER_API_KEY"
+            set_config_value(f"env.{env_var}", api_key, reload=False, local=True)
+            os.environ[env_var] = api_key
+        else:
+            raise ValueError(f"Unknown subscription provider: {provider}")
+
+        _subscription_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "connected",
+            "provider": provider,
+            "model": _SUBSCRIPTION_DEFAULT_MODELS.get(provider),
+            "error": None,
+        }
+        logger.info("Subscription OAuth completed for provider %s", provider)
+    except Exception as exc:
+        logger.warning("Subscription OAuth failed for %s: %s", provider, exc)
+        _subscription_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "error",
+            "provider": provider,
+            "model": None,
+            "error": str(exc),
+        }
+
+
+@v2_api.route("/api/v2/user/subscription-connect", methods=["POST"])
+@require_auth
+@api_doc(
+    summary="Start subscription provider OAuth flow",
+    description=(
+        "Starts a background OAuth/PKCE flow for a subscription provider "
+        "(openai-subscription, grok-subscription, or openrouter). "
+        "Opens the system browser on the server host and waits for the local "
+        "OAuth callback. Returns a task_id that the client polls via "
+        "GET /api/v2/user/subscription-connect/{task_id}. "
+        "Only one flow per provider can run at a time (port binding constraint)."
+    ),
+    request_body=SubscriptionConnectRequest,
+    responses={
+        202: SubscriptionConnectStartResponse,
+        400: ErrorResponse,
+    },
+    tags=["user"],
+)
+def api_subscription_connect():
+    """Start a subscription OAuth flow in a background thread."""
+    import secrets as _secrets
+
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
+    provider = req_json.get("provider")
+    if not isinstance(provider, str) or provider not in SUBSCRIPTION_PROVIDERS:
+        return flask.jsonify(
+            {
+                "error": f"provider must be one of: {', '.join(sorted(SUBSCRIPTION_PROVIDERS))}"
+            }
+        ), 400
+
+    task_id = _secrets.token_urlsafe(16)
+    _subscription_tasks[task_id] = {
+        "task_id": task_id,
+        "status": "pending",
+        "provider": provider,
+        "model": None,
+        "error": None,
+    }
+    threading.Thread(
+        target=_run_subscription_oauth, args=(task_id, provider), daemon=True
+    ).start()
+    logger.info("Started subscription OAuth task %s for provider %s", task_id, provider)
+    return flask.jsonify({"task_id": task_id, "status": "pending"}), 202
+
+
+@v2_api.route("/api/v2/user/subscription-connect/<task_id>", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Poll subscription OAuth task status",
+    description=(
+        "Returns the current status of a subscription OAuth task started via "
+        "POST /api/v2/user/subscription-connect. "
+        "Poll until status is 'connected' or 'error'."
+    ),
+    responses={
+        200: SubscriptionConnectStatusResponse,
+        404: ErrorResponse,
+    },
+    tags=["user"],
+)
+def api_subscription_connect_status(task_id: str):
+    """Return the status of a subscription OAuth task."""
+    task = _subscription_tasks.get(task_id)
+    if task is None:
+        return flask.jsonify({"error": "Unknown task ID"}), 404
+    return flask.jsonify(task)
 
 
 @v2_api.route("/api/v2/user/favorites", methods=["POST"])
