@@ -1071,7 +1071,7 @@ export function SetupWizard() {
                       Sign in with a ChatGPT, Grok, or OpenRouter account — no API key needed.
                     </p>
                     <div className="flex flex-col gap-2">
-                      <Label htmlFor="setup-sub-provider">Provider</Label>
+                      <Label htmlFor="setup-sub-provider">Service</Label>
                       <select
                         id="setup-sub-provider"
                         className="h-9 rounded-md border bg-background px-3 text-sm"
