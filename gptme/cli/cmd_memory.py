@@ -17,6 +17,8 @@ from typing import Literal
 
 import click
 
+from ..memory.schema import STATUSES
+
 # C0/C1 controls. ``keep_newlines`` still drops ESC/CSI/CR (CR overwrites the
 # current terminal line) but preserves \t and \n so markdown stays readable.
 _ALL_CONTROLS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -49,6 +51,21 @@ def _store():
     return MemoryStore.from_workspace()
 
 
+def _validate_scope(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    if value is None:
+        return None
+    scopes = [root.scope for root in _store().roots]
+    if value not in scopes:
+        raise click.BadParameter(
+            f"{value!r} is not one of {', '.join(repr(scope) for scope in scopes)}",
+            ctx=ctx,
+            param=param,
+        )
+    return value
+
+
 @click.group("memory")
 def memory():
     """Cross-harness memory store: CC-compatible entries, layered roots."""
@@ -78,10 +95,14 @@ def memory_roots(as_json: bool):
 @memory.command("list")
 @click.option("--type", "type_", help="Only entries of this type.")
 @click.option(
-    "--scope", help="Only entries from this root (project, cc, agent, user, explicit)."
+    "--scope",
+    callback=_validate_scope,
+    help="Only entries from this root (project, cc, agent, user, explicit).",
 )
 @click.option(
-    "--status", help="Only entries with this status (living, superseded, historical)."
+    "--status",
+    type=click.Choice(STATUSES),
+    help="Only entries with this status (living, superseded, historical).",
 )
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 def memory_list(
@@ -107,7 +128,9 @@ def memory_list(
 @click.argument("pattern")
 @click.option("--type", "type_", help="Only entries of this type.")
 @click.option(
-    "--scope", help="Only entries from this root (project, cc, agent, user, explicit)."
+    "--scope",
+    callback=_validate_scope,
+    help="Only entries from this root (project, cc, agent, user, explicit).",
 )
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 def memory_search(pattern: str, type_: str | None, scope: str | None, as_json: bool):

@@ -822,6 +822,42 @@ class TestCli:
         r = runner.invoke(util_main, ["memory", "index", "--check"])
         assert r.exit_code == 0, r.output
 
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [
+            ("--scope", "missing"),
+            ("--status", "obsolete"),
+        ],
+    )
+    def test_list_rejects_unknown_filter(self, env, option, value):
+        result = CliRunner().invoke(util_main, ["memory", "list", option, value])
+
+        assert result.exit_code == 2
+        assert f"Invalid value for '{option}'" in result.output
+
+    @pytest.mark.parametrize("command", ["list", "search"])
+    def test_read_commands_reject_unknown_scope(self, env, command):
+        args = ["memory", command]
+        if command == "search":
+            args.append("anything")
+        args.extend(["--scope", "missing"])
+
+        result = CliRunner().invoke(util_main, args)
+
+        assert result.exit_code == 2
+        assert "Invalid value for '--scope'" in result.output
+
+    @pytest.mark.parametrize("command", ["list", "search"])
+    def test_read_commands_accept_explicit_scope(self, env, command):
+        args = ["memory", command]
+        if command == "search":
+            args.append("anything")
+        args.extend(["--scope", "explicit"])
+
+        result = CliRunner().invoke(util_main, args)
+
+        assert result.exit_code == 0, result.output
+
     @pytest.mark.parametrize("name", ["memory", "MEMORY", "memory archive"])
     def test_save_rejects_reserved_index_names(self, env, name):
         r = CliRunner().invoke(util_main, ["memory", "save", name, "description"])
