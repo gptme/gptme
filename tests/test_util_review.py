@@ -2222,6 +2222,41 @@ class TestReviewToolPresets:
         assert "usage_limit_reached" in summary["error"]
         assert "Fatal error occurred" in summary["error"]
 
+    def test_spawn_error_summary_prefers_terminal_error_over_earlier_recoverable(
+        self, monkeypatch
+    ):
+        """An earlier recoverable ERROR must not hide the later fatal block.
+
+        First-block selection stops at the next non-ERROR top-level line, so
+        a recoverable error followed by an informational line would report
+        the recoverable error and drop the actual session failure.
+        """
+        from gptme.cli import cmd_review_pr
+
+        stderr = (
+            "· Using OTLP to send metrics and traces to http://localhost:4318\n"
+            "· ERROR    Recoverable provider retry\n"
+            '           {"error":{"type":"overloaded"}}\n'
+            "· retrying with fallback model\n"
+            "· ERROR    Fatal error occurred\n"
+            "· ERROR    Codex API error 429:\n"
+            '           {"error":{"type":"usage_limit_reached"}}\n'
+            "· Telemetry shutdown successfully"
+        )
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=stderr)
+
+        monkeypatch.setattr(cmd_review_pr.subprocess, "run", fake_run)
+        _, summary = cmd_review_pr._spawn_review_session(
+            prompt="review", model=None, max_turns=1, timeout=1
+        )
+        assert "overloaded" not in summary["error"]
+        assert "retrying" not in summary["error"]
+        assert "Telemetry shutdown" not in summary["error"]
+        assert "usage_limit_reached" in summary["error"]
+        assert "Fatal error occurred" in summary["error"]
+
     def test_spawn_error_summary_falls_back_to_last_line_without_error_tag(
         self, monkeypatch
     ):

@@ -770,23 +770,30 @@ def _spawn_review_session(
         # The literal last line is almost always a benign shutdown/cleanup log
         # (e.g. "Telemetry shutdown successfully" from an atexit handler) that
         # runs after any fatal error, so picking it unconditionally masks the
-        # real failure entirely. Prefer the block starting at the first
-        # error-level ("· ERROR ...") line instead — it carries the actual
-        # exception/API error. Top-level log messages are prefixed with "·";
-        # wrapped continuation lines are indented without it, so the block
-        # ends at the next top-level line that isn't itself tagged ERROR
-        # (e.g. that same trailing shutdown message).
-        error_start = next(
-            (
-                i
-                for i, line in enumerate(stderr_lines)
-                if line.lstrip().startswith("·") and "ERROR" in line
-            ),
-            None,
-        )
-        if error_start is not None:
+        # real failure entirely. Prefer the last contiguous error-level
+        # ("· ERROR ...") block instead — an earlier recoverable error can
+        # sit above an informational line and then the actual fatal error.
+        # Top-level log messages are prefixed with "·"; wrapped continuation
+        # lines are indented without it, so the block ends at the next
+        # top-level line that isn't itself tagged ERROR (e.g. that same
+        # trailing shutdown message).
+        error_indices = [
+            i
+            for i, line in enumerate(stderr_lines)
+            if line.lstrip().startswith("·") and "ERROR" in line
+        ]
+        if error_indices:
+            last = error_indices[-1]
+            error_start = last
+            for i in range(last - 1, -1, -1):
+                line = stderr_lines[i]
+                if line.lstrip().startswith("·"):
+                    if "ERROR" in line:
+                        error_start = i
+                    else:
+                        break
             error_end = len(stderr_lines)
-            for i in range(error_start + 1, len(stderr_lines)):
+            for i in range(last + 1, len(stderr_lines)):
                 line = stderr_lines[i]
                 if line.lstrip().startswith("·") and "ERROR" not in line:
                     error_end = i
