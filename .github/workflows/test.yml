@@ -257,8 +257,9 @@ jobs:
           tests/test_cli.py::test_version
 
   # uv-native smoke: Poetry CI cannot catch a broken [dependency-groups] table.
-  # `uv run pytest` is the command this PR exists to fix; run it in a fresh
-  # environment so a missing pytest/requests still fails the check.
+  # Invoke pytest through the venv interpreter (`python -m pytest`) so a
+  # runner-PATH pytest cannot make this job pass when the project env is
+  # missing pytest. A missing pytest/requests still fails the check.
   test-uv:
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
@@ -281,12 +282,12 @@ jobs:
     - name: Install project + PEP 735 dev group
       run: uv sync
 
-    - name: Smoke uv run pytest
+    - name: Smoke uv-native pytest
       env:
         TERM: xterm
         MODEL: local/test
       run: |
-        uv run pytest -q \
+        uv run python -m pytest -q \
           tests/test_cli.py::test_help \
           tests/test_cli.py::test_version
 
