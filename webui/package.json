@@ -21,6 +21,8 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@google/model-viewer": "^3.5.0",
     "@hookform/resolvers": "^3.9.0",
     "@icons-pack/react-simple-icons": "13.7.0",
     "@legendapp/state": "^3.0.0-beta.30",
@@ -79,8 +81,7 @@
     "tailwind-merge": "^2.5.2",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.3",
-    "zod": "^3.23.8",
-    "@google/model-viewer": "^3.5.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",

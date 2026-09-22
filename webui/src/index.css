@@ -1,4 +1,4 @@
-@import url('https://rsms.me/inter/inter.css');
+@import '@fontsource-variable/inter';
 
 @tailwind base;
 @tailwind components;
