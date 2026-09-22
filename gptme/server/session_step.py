@@ -1015,6 +1015,7 @@ def step(
                 auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
                 branch=branch,
                 assistant_msg_timestamp=msg.timestamp,
+                max_tokens=max_tokens,
             )
             session.pending_tools[tool_id] = tool_exec
 

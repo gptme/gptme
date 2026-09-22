@@ -212,7 +212,10 @@ class TestGptmeAcpClientInterface:
         assert await_args is not None
         kwargs = await_args.kwargs
         assert kwargs["session_id"] == "session-123"
-        assert kwargs["_meta"] == {"gptme": {"max_tokens": 64}}
+        # Extra kwargs become protocol _meta; the agent unpacks that into
+        # kwargs["gptme"]. Passing _meta= here would nest as _meta._meta.
+        assert kwargs["gptme"] == {"max_tokens": 64}
+        assert "_meta" not in kwargs
 
     def test_new_session_without_connect_raises(self, tmp_path):
         client = self.GptmeAcpClient(workspace=tmp_path)

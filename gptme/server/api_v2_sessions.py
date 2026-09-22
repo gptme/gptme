@@ -689,6 +689,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             model,
             chat_config,
             branch=tool_exec.branch,
+            max_tokens=tool_exec.max_tokens,
         )
         return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
 
@@ -709,6 +710,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             model,
             chat_config,
             branch=tool_exec.branch,
+            max_tokens=tool_exec.max_tokens,
         )
 
     elif action == "skip":
@@ -771,6 +773,7 @@ def api_conversation_tool_confirm(conversation_id: str):
                     branch=current_tool.branch,
                     reserved=True,
                     step_seq=skip_step_seq,
+                    max_tokens=current_tool.max_tokens,
                 )
             finally:
                 if not continuation_dispatched:
@@ -799,6 +802,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             model,
             chat_config,
             branch=tool_exec.branch,
+            max_tokens=tool_exec.max_tokens,
         )
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})

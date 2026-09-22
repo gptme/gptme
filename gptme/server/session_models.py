@@ -81,6 +81,10 @@ class ToolExecution:
     # time execution completes a later assistant message may already exist
     # (see _attach_tool_timings in session_step.py).
     assistant_msg_timestamp: datetime | None = None
+    # Request-scoped response limit from the originating /step call. Forwarded
+    # through confirm/edit/skip continuations so a later provider call still
+    # honors the original override instead of falling back to ChatConfig.
+    max_tokens: int | None = None
 
 
 @dataclass

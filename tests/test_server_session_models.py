@@ -132,6 +132,16 @@ class TestToolExecution:
         )
         assert execution.auto_confirm is True
 
+    def test_default_max_tokens_is_none(self):
+        """max_tokens defaults to None when the originating step had no override."""
+        execution = ToolExecution(tool_id="t1", tooluse=make_tooluse())
+        assert execution.max_tokens is None
+
+    def test_max_tokens_stored(self):
+        """Request-scoped max_tokens is stored on the pending tool."""
+        execution = ToolExecution(tool_id="t1", tooluse=make_tooluse(), max_tokens=64)
+        assert execution.max_tokens == 64
+
     def test_tool_id_stored(self):
         """tool_id is stored correctly."""
         execution = ToolExecution(tool_id="unique-id-42", tooluse=make_tooluse())

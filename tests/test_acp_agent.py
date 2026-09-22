@@ -1598,6 +1598,47 @@ class TestPromptTurnLoop:
         assert result.stop_reason == "max_turn_requests"
         assert calls == 2
 
+    def test_prompt_forwards_gptme_max_tokens_to_chat_step(self, monkeypatch):
+        """ACP extension kwargs['gptme'] must reach chat.step as max_tokens."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import importlib
+
+        from gptme.message import Message
+
+        agent = GptmeAgent()
+        agent._conn = MagicMock()
+        agent._conn.session_update = AsyncMock()
+        agent._session_commands_advertised.add("s1")
+        agent._session_models["s1"] = "openai/gpt-4o-mini"
+
+        log = _make_mock_log()
+        log.log = []
+        log.workspace = None
+        log.logdir = None
+        agent._registry.create("s1", log=log)
+
+        seen: dict[str, int | None] = {}
+
+        def fake_step(log, **kwargs):
+            seen["max_tokens"] = kwargs.get("max_tokens")
+            return iter([Message("assistant", "ok")])
+
+        chat_module = importlib.import_module("gptme.chat")
+        monkeypatch.setattr(chat_module, "step", fake_step)
+
+        result = _run(
+            agent.prompt(
+                prompt=[{"type": "text", "text": "hello"}],
+                session_id="s1",
+                gptme={"max_tokens": 64},
+            )
+        )
+
+        assert result.stop_reason == "end_turn"
+        assert seen["max_tokens"] == 64
+
 
 class TestPromptErrorHandling:
     """Regression tests for prompt() error-path robustness."""

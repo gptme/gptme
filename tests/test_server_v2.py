@@ -2881,6 +2881,134 @@ def test_start_tool_execution_forwards_max_tokens_to_continuation(
     assert step_thread_calls[0].get("max_tokens") == 64
 
 
+def test_v2_step_stores_max_tokens_on_pending_tool(
+    v2_conv, client: FlaskClient, monkeypatch
+):
+    """A pending tool from /step must retain the request-scoped token limit."""
+    from gptme.server.session_models import SessionManager
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    fake_tool = ToolUse("shell", [], "echo hi", call_id="call-store-max-tokens")
+
+    def fake_iter_from_content(cls, content, **kwargs):
+        yield fake_tool
+
+    monkeypatch.setattr(
+        "gptme.server.session_step.ToolUse.iter_from_content",
+        classmethod(fake_iter_from_content),
+    )
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "run a command"},
+    )
+    assert response.status_code == 200
+
+    def recording_stream(
+        messages, model, tools=None, max_tokens=None, temperature=None, top_p=None
+    ):
+        yield "```shell\necho hi\n```\n"
+
+    with unittest.mock.patch("gptme.server.session_step._stream", recording_stream):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+                "max_tokens": 64,
+            },
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            session = SessionManager.get_session(session_id)
+            if session is not None and not session.generating:
+                break
+            time.sleep(0.01)
+
+    assert response.status_code == 200
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+    assert session.pending_tools
+    pending = next(iter(session.pending_tools.values()))
+    assert pending.max_tokens == 64
+
+
+def test_v2_tool_confirm_forwards_stored_max_tokens(
+    v2_conv, client: FlaskClient, monkeypatch
+):
+    """Manual confirm must keep the originating step's token limit."""
+    import gptme.server.api_v2_sessions as sessions_mod
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    tool_id = "tool-confirm-max-tokens"
+    session.pending_tools[tool_id] = ToolExecution(
+        tool_id=tool_id,
+        tooluse=ToolUse("shell", [], "echo hi", call_id="call-confirm-max-tokens"),
+        max_tokens=64,
+    )
+
+    seen: dict[str, int | None] = {}
+
+    def fake_start_tool_execution(*args, **kwargs):
+        seen["max_tokens"] = kwargs.get("max_tokens")
+        return unittest.mock.MagicMock()
+
+    monkeypatch.setattr(sessions_mod, "start_tool_execution", fake_start_tool_execution)
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/tool/confirm",
+        json={"session_id": session_id, "tool_id": tool_id, "action": "confirm"},
+    )
+
+    assert response.status_code == 200
+    assert seen["max_tokens"] == 64
+
+
+def test_v2_tool_skip_forwards_stored_max_tokens(
+    v2_conv, client: FlaskClient, monkeypatch
+):
+    """Skip continuations must keep the originating step's token limit."""
+    import gptme.server.api_v2_sessions as sessions_mod
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    tool_id = "tool-skip-max-tokens"
+    session.pending_tools[tool_id] = ToolExecution(
+        tool_id=tool_id,
+        tooluse=ToolUse("shell", [], "echo hi", call_id="call-skip-max-tokens"),
+        max_tokens=64,
+    )
+
+    seen: dict[str, int | None] = {}
+
+    def fake_start_step_thread(*args, **kwargs):
+        seen["max_tokens"] = kwargs.get("max_tokens")
+        return True
+
+    monkeypatch.setattr(sessions_mod, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/tool/confirm",
+        json={"session_id": session_id, "tool_id": tool_id, "action": "skip"},
+    )
+
+    assert response.status_code == 200
+    assert seen["max_tokens"] == 64
+
+
 def test_v2_step_forwards_max_tokens_to_acp_worker(
     v2_conv, client: FlaskClient, monkeypatch
 ):

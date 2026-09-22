@@ -382,8 +382,9 @@ class GptmeAcpClient:
         message:
             User message text to send.
         max_tokens:
-            Optional request-scoped response limit. Forwarded through ACP
-            ``_meta`` so the gptme agent can honor it without a protocol change.
+            Optional request-scoped response limit. Passed as the ``gptme``
+            ACP extension so the agent receives ``kwargs["gptme"]`` after
+            ``_meta`` is unpacked, without a protocol change.
 
         Returns
         -------
@@ -398,7 +399,8 @@ class GptmeAcpClient:
         prompt_content = [TextContentBlock(type="text", text=message)]
         prompt_kwargs: dict[str, Any] = {}
         if max_tokens is not None:
-            prompt_kwargs["_meta"] = {"gptme": {"max_tokens": max_tokens}}
+            # Extra kwargs become protocol _meta; passing _meta= nests it.
+            prompt_kwargs["gptme"] = {"max_tokens": max_tokens}
         resp = await self._conn.prompt(
             prompt=prompt_content,
             session_id=session_id,
