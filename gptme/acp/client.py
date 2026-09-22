@@ -371,6 +371,7 @@ class GptmeAcpClient:
         self,
         session_id: str,
         message: str,
+        max_tokens: int | None = None,
     ) -> Any:
         """Send a prompt to the agent and wait for the response.
 
@@ -380,6 +381,9 @@ class GptmeAcpClient:
             Session identifier returned by :meth:`new_session`.
         message:
             User message text to send.
+        max_tokens:
+            Optional request-scoped response limit. Forwarded through ACP
+            ``_meta`` so the gptme agent can honor it without a protocol change.
 
         Returns
         -------
@@ -392,9 +396,13 @@ class GptmeAcpClient:
         from acp.schema import TextContentBlock
 
         prompt_content = [TextContentBlock(type="text", text=message)]
+        prompt_kwargs: dict[str, Any] = {}
+        if max_tokens is not None:
+            prompt_kwargs["_meta"] = {"gptme": {"max_tokens": max_tokens}}
         resp = await self._conn.prompt(
             prompt=prompt_content,
             session_id=session_id,
+            **prompt_kwargs,
         )
         logger.debug("ACP prompt → stop_reason=%s", getattr(resp, "stop_reason", "?"))
         return resp

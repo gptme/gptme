@@ -2826,6 +2826,106 @@ def test_v2_step_rejects_invalid_max_tokens(
     assert response.get_json() == {"error": "max_tokens must be a positive integer"}
 
 
+def test_start_tool_execution_forwards_max_tokens_to_continuation(
+    v2_conv, client: FlaskClient, monkeypatch
+):
+    """Auto-confirmed tool continuations must keep the request-scoped token limit."""
+    import gptme.server.session_step as _step_mod
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    tool_id = "tool-max-tokens"
+    session.pending_tools[tool_id] = ToolExecution(
+        tool_id=tool_id,
+        tooluse=ToolUse("shell", [], "echo hi", call_id="call-max-tokens-1"),
+    )
+
+    step_thread_calls: list[dict] = []
+
+    def _recording_start_step_thread(*args, **kwargs):
+        step_thread_calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(_step_mod, "_start_step_thread", _recording_start_step_thread)
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment",
+        lambda workspace, tools, chat_config: None,
+    )
+
+    def fake_execute(self, log=None, workspace=None, on_result_message=None):
+        yield Message("system", "ok")
+
+    monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
+
+    thread = start_tool_execution(
+        conversation_id=conversation_id,
+        session=session,
+        tool_id=tool_id,
+        edited_tooluse=None,
+        model="openai/mock-model",
+        chat_config=ChatConfig(),
+        max_tokens=64,
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert step_thread_calls, "_start_step_thread was never called"
+    assert step_thread_calls[0].get("max_tokens") == 64
+
+
+def test_v2_step_forwards_max_tokens_to_acp_worker(
+    v2_conv, client: FlaskClient, monkeypatch
+):
+    """use_acp steps must forward max_tokens into the ACP worker, not drop it."""
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    seen: dict[str, int | None] = {}
+
+    def fake_start_acp_step_thread(**kwargs):
+        from gptme.server.session_models import SessionManager
+
+        seen["max_tokens"] = kwargs.get("max_tokens")
+        session = kwargs["session"]
+        SessionManager.add_event(
+            kwargs["conversation_id"],
+            {"type": "generation_progress", "token": "ok"},
+        )
+        session.generating = False
+        session.generating_since = None
+        return True
+
+    monkeypatch.setattr(
+        sessions_mod, "_start_acp_step_thread", fake_start_acp_step_thread
+    )
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Reply briefly"},
+    )
+    assert response.status_code == 200
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={
+            "session_id": session_id,
+            "use_acp": True,
+            "max_tokens": 64,
+        },
+    )
+    assert response.status_code == 200
+    assert seen["max_tokens"] == 64
+
+
 @pytest.mark.slow
 @pytest.mark.requires_api
 def test_v2_interrupt(v2_conv, client: FlaskClient):

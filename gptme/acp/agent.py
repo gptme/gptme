@@ -1203,6 +1203,20 @@ class GptmeAgent:
         msg = acp_content_to_gptme_message(prompt, "user")
         log.append(msg)
 
+        gptme_meta = kwargs.get("gptme")
+        raw_max_tokens = (
+            gptme_meta.get("max_tokens") if isinstance(gptme_meta, dict) else None
+        )
+        if raw_max_tokens is None:
+            raw_max_tokens = kwargs.get("max_tokens")
+        prompt_max_tokens: int | None = (
+            raw_max_tokens
+            if isinstance(raw_max_tokens, int)
+            and not isinstance(raw_max_tokens, bool)
+            and raw_max_tokens > 0
+            else None
+        )
+
         content_preview = msg.content[:100] if msg.content else ""
         logger.info(
             f"ACP Prompt: session={session_id[:16]}, content={content_preview}..."
@@ -1354,6 +1368,7 @@ class GptmeAgent:
                             model=effective_model,
                             on_token=on_token,
                             logdir=log.logdir,
+                            max_tokens=prompt_max_tokens,
                         )
                     )
                     response_msgs.extend(step_msgs)

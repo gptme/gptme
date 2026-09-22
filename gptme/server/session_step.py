@@ -416,6 +416,7 @@ async def _acp_step(
     session: "ConversationSession",
     workspace: Path,
     step_seq: int | None = None,
+    max_tokens: int | None = None,
 ) -> None:
     """Run one conversation step via the per-session ACP subprocess.
 
@@ -467,6 +468,9 @@ async def _acp_step(
 
         logdir = get_logs_dir() / conversation_id
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        effective_max_tokens = (
+            max_tokens if max_tokens is not None else chat_config.max_tokens
+        )
         prepare_execution_environment(
             workspace=workspace,
             tools=chat_config.tools,
@@ -557,7 +561,9 @@ async def _acp_step(
                 pending_user_messages,
                 start=next_user_index,
             ):
-                text, _raw = await acp_runtime.prompt(user_msg.content)
+                text, _raw = await acp_runtime.prompt(
+                    user_msg.content, max_tokens=effective_max_tokens
+                )
                 final_text = "".join(stream_tokens) if stream_tokens else text
                 stream_tokens.clear()
                 msg = Message("assistant", final_text)
@@ -640,6 +646,7 @@ def _start_acp_step_thread(
     *,
     reserved: bool = False,
     step_seq: int | None = None,
+    max_tokens: int | None = None,
 ) -> bool:
     """Start an ACP-backed step unless another operation has reserved it."""
     if not reserved:
@@ -659,7 +666,15 @@ def _start_acp_step_thread(
 
         current_conversation_id.set(conversation_id)
         current_session_id.set(session.id)
-        asyncio.run(_acp_step(conversation_id, session, workspace, step_seq=step_seq))
+        asyncio.run(
+            _acp_step(
+                conversation_id,
+                session,
+                workspace,
+                step_seq=step_seq,
+                max_tokens=max_tokens,
+            )
+        )
 
     # Propagate request-scoped ContextVars (model, config, tools) into the ACP
     # worker thread; hook/session vars are then set explicitly in that thread.
@@ -1041,6 +1056,7 @@ def step(
                 model,
                 chat_config,
                 branch=branch,
+                max_tokens=max_tokens,
             )
 
     except Exception as e:
@@ -1103,6 +1119,7 @@ def start_tool_execution(
     *,
     reserved: bool = False,
     branch: str = "main",
+    max_tokens: int | None = None,
 ) -> threading.Thread:
     """Execute a tool and handle its output.
 
@@ -1385,6 +1402,7 @@ def start_tool_execution(
                         branch=branch,
                         reserved=True,
                         step_seq=continuation_seq,
+                        max_tokens=max_tokens,
                     )
                 except Exception:
                     # Dispatch failed after ownership transfer. Release that new

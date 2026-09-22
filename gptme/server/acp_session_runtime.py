@@ -139,7 +139,9 @@ class AcpSessionRuntime:
         if self._client is not None:
             self._client.set_on_update(on_update)
 
-    async def prompt(self, message: str) -> tuple[str, Any]:
+    async def prompt(
+        self, message: str, max_tokens: int | None = None
+    ) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
         if self._client is None or self._session_id is None:
             await self.start()
@@ -151,7 +153,9 @@ class AcpSessionRuntime:
                 f"session_id={self._session_id!r}"
             )
 
-        resp = await self._client.prompt(self._session_id, message)
+        resp = await self._client.prompt(
+            self._session_id, message, max_tokens=max_tokens
+        )
         text = extract_text_from_prompt_response(resp)
         return text, resp
 

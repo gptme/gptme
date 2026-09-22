@@ -751,6 +751,7 @@ def _reply_with_overflow_recovery(
     on_token: Callable[[str], None] | None,
     on_thinking: Callable[[bool], None] | None,
     logdir: Path | None,
+    max_tokens: int | None = None,
 ) -> Message:
     """Generate once, compacting to a lossless view and retrying on overflow."""
 
@@ -764,6 +765,7 @@ def _reply_with_overflow_recovery(
             output_schema,
             on_token=on_token,
             on_thinking=on_thinking,
+            max_tokens=max_tokens,
         )
 
     try:
@@ -849,6 +851,7 @@ def step(
     on_token: Callable[[str], None] | None = None,
     on_thinking: Callable[[bool], None] | None = None,
     logdir: Path | None = None,
+    max_tokens: int | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
     default_model = get_default_model()
@@ -886,6 +889,7 @@ def step(
                 on_token=on_token,
                 on_thinking=on_thinking,
                 logdir=logdir,
+                max_tokens=max_tokens,
             )
         # Overflow recovery may have switched the active LogManager to a
         # compacted view. Use that active log for tool execution below.

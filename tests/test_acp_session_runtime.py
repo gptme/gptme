@@ -38,6 +38,7 @@ class _DummyClient:
         self.started = False
         self.closed = False
         self.prompt_calls: list[tuple[str, str]] = []
+        self.prompt_max_tokens: list[int | None] = []
         self.set_model_calls: list[tuple[str, str]] = []
         self._on_update = kwargs.get("on_update")
 
@@ -51,8 +52,11 @@ class _DummyClient:
     async def new_session(self, cwd: str | Path | None = None, **kwargs: Any) -> str:
         return "sess-test"
 
-    async def prompt(self, session_id: str, message: str):
+    async def prompt(
+        self, session_id: str, message: str, max_tokens: int | None = None
+    ):
         self.prompt_calls.append((session_id, message))
+        self.prompt_max_tokens.append(max_tokens)
         if self._on_update is not None:
             await self._on_update(session_id, {"text": "hello world"})
         return SimpleNamespace(output=[_DummyBlock("hello"), _DummyBlock(" world")])
@@ -369,6 +373,52 @@ def test_use_acp_step_forwards_model_to_runtime(
     assert sess.acp_runtime.model == "openai/gpt-4o-mini"
 
 
+def test_use_acp_step_forwards_max_tokens_to_runtime(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """ACP steps must forward the request-scoped max_tokens override to prompt()."""
+    import gptme.server.acp_session_runtime as rt_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "limit me"},
+    )
+    assert resp.status_code == 200
+
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={
+            "session_id": session_id,
+            "use_acp": True,
+            "max_tokens": 64,
+        },
+    )
+    assert resp.status_code == 200
+
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if created and created[0].prompt_calls:
+            break
+        time.sleep(0.01)
+
+    assert created, "ACP client was never created"
+    assert created[0].prompt_calls, "ACP prompt was never called"
+    assert created[0].prompt_max_tokens == [64]
+
+
 def test_acp_step_rejects_duplicate_without_new_user_message(
     monkeypatch, client: FlaskClient, tmp_path
 ):
@@ -591,7 +641,11 @@ def test_start_acp_step_thread_propagates_contextvars(monkeypatch, tmp_path):
     done = threading.Event()
 
     async def _fake_acp_step(
-        conversation_id: str, session, workspace, step_seq: int | None = None
+        conversation_id: str,
+        session,
+        workspace,
+        step_seq: int | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         seen["caller_var"] = caller_var.get()
         seen["conversation_id"] = current_conversation_id.get()
@@ -716,7 +770,9 @@ def test_acp_step_last_error_set_on_failure(monkeypatch, client: FlaskClient, tm
     from gptme.server.api_v2_sessions import SessionManager
 
     class _FailingClient(_DummyClient):
-        async def prompt(self, session_id: str, message: str):
+        async def prompt(
+            self, session_id: str, message: str, max_tokens: int | None = None
+        ):
             raise RuntimeError("ACP runtime exploded")
 
     monkeypatch.setattr(rt_mod, "GptmeAcpClient", _FailingClient)
