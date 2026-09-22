@@ -33,7 +33,8 @@ def client(tmp_path, monkeypatch):
     auth_mod.init_auth("127.0.0.1", display=False)
 
     # Clear any stale task state from other tests
-    api_mod._subscription_tasks.clear()
+    with api_mod._subscription_tasks_lock:
+        api_mod._subscription_tasks.clear()
 
     from gptme.server.app import create_app
 
@@ -304,6 +305,48 @@ def test_start_subscription_connect_reuses_pending_task(client: FlaskClient):
         assert first.get_json()["task_id"] == second.get_json()["task_id"]
     finally:
         barrier.set()
+
+
+def test_reuse_or_create_is_atomic_under_concurrency():
+    """Concurrent create/reuse must leave exactly one pending task per provider."""
+    import gptme.server.api_v2 as api_mod
+
+    with api_mod._subscription_tasks_lock:
+        api_mod._subscription_tasks.clear()
+
+    n_threads = 8
+    barrier = threading.Barrier(n_threads)
+    results: list[tuple[str, bool]] = []
+    errors: list[BaseException] = []
+
+    def _race() -> None:
+        try:
+            barrier.wait(timeout=5)
+            results.append(
+                api_mod._reuse_or_create_subscription_task("openai-subscription")
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_race) for _ in range(n_threads)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert len(results) == n_threads
+    task_ids = {task_id for task_id, _created in results}
+    assert len(task_ids) == 1
+    assert sum(1 for _task_id, created in results if created) == 1
+    with api_mod._subscription_tasks_lock:
+        pending = [
+            task
+            for task in api_mod._subscription_tasks.values()
+            if task.get("provider") == "openai-subscription"
+            and task.get("status") == "pending"
+        ]
+    assert len(pending) == 1
 
 
 def test_status_unknown_task(client: FlaskClient):
