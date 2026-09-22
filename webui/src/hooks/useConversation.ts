@@ -522,9 +522,9 @@ export function useConversation(conversationId: string, serverId?: string) {
                   undefined,
                   initialStepStream ?? true,
                   'main',
-                  maxTokens,
-                  temperature,
-                  topP
+                  conversation$?.maxTokens?.get(),
+                  conversation$?.temperature?.get(),
+                  conversation$?.topP?.get()
                 )
                 .catch((error) => {
                   console.error('[useConversation] Error triggering initial step:', error);
