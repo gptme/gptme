@@ -16,7 +16,9 @@ import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 import {
   API_KEY_PROVIDER_METADATA,
   API_KEY_PROVIDER_OPTIONS,
+  SUBSCRIPTION_PROVIDER_OPTIONS,
   type ApiKeyProvider,
+  type SubscriptionProvider,
 } from '@/utils/apiKeyProviders';
 import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
@@ -132,6 +134,10 @@ export function SetupWizard() {
   const [apiKeyModel, setApiKeyModel] = useState('');
   const [apiKeySaving, setApiKeySaving] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [subProvider, setSubProvider] = useState<SubscriptionProvider>('openai-subscription');
+  const [subStatus, setSubStatus] = useState<'idle' | 'pending' | 'connected' | 'error'>('idle');
+  const [subError, setSubError] = useState<string | null>(null);
+  const subPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [availableModels, setAvailableModels] = useState<SetupModelInfo[]>([]);
   const [recommendedModels, setRecommendedModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -217,6 +223,56 @@ export function SetupWizard() {
     () => availableModels.filter((model) => model.provider === apiKeyProvider),
     [apiKeyProvider, availableModels]
   );
+
+  const handleSubscriptionConnect = useCallback(async () => {
+    setSubStatus('pending');
+    setSubError(null);
+    try {
+      const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/provider/setup`, {
+        method: 'POST',
+        headers: withAuthHeaders(api.authHeader, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ provider: subProvider }),
+      });
+      if (!resp.ok) {
+        const data: unknown = await resp.json().catch(() => ({}));
+        throw new Error(messageFromApiErrorBody(data, `Server error ${resp.status}`));
+      }
+      const { setup_id } = (await resp.json()) as { setup_id: string };
+
+      // Poll for completion every 2s (OAuth has a 120s timeout server-side)
+      if (subPollRef.current) clearInterval(subPollRef.current);
+      subPollRef.current = setInterval(async () => {
+        try {
+          const pollResp = await fetch(
+            `${connectionConfig.baseUrl}/api/v2/provider/setup/${setup_id}`,
+            { headers: withAuthHeaders(api.authHeader) }
+          );
+          if (!pollResp.ok) return;
+          const result = (await pollResp.json()) as {
+            status: string;
+            model?: string;
+            error?: string;
+          };
+          if (result.status === 'connected') {
+            clearInterval(subPollRef.current!);
+            subPollRef.current = null;
+            setSubStatus('connected');
+            completeSetup();
+          } else if (result.status === 'error' || result.status === 'cancelled') {
+            clearInterval(subPollRef.current!);
+            subPollRef.current = null;
+            setSubStatus('error');
+            setSubError(result.error ?? 'OAuth flow failed.');
+          }
+        } catch {
+          // transient network error during polling — keep polling
+        }
+      }, 2000);
+    } catch (err) {
+      setSubStatus('error');
+      setSubError(formatUnknownError(err, 'Failed to start OAuth flow.'));
+    }
+  }, [api.authHeader, completeSetup, connectionConfig.baseUrl, subProvider]);
 
   useEffect(() => {
     if (step !== 'provider' || !canManageApiKeyInApp) {
@@ -1007,6 +1063,60 @@ export function SetupWizard() {
                   </>
                 )}
               </div>
+              {canManageApiKeyInApp && (
+                <div className="rounded-lg border bg-muted/40 p-4 text-sm">
+                  <p className="font-medium">Use a subscription (no API key)</p>
+                  <div className="mt-3 flex flex-col gap-3">
+                    <p className="text-muted-foreground">
+                      Sign in with a ChatGPT, Grok, or OpenRouter account — no API key needed.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="setup-sub-provider">Provider</Label>
+                      <select
+                        id="setup-sub-provider"
+                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        value={subProvider}
+                        onChange={(e) => {
+                          setSubProvider(e.target.value as SubscriptionProvider);
+                          setSubStatus('idle');
+                          setSubError(null);
+                        }}
+                        disabled={subStatus === 'pending'}
+                      >
+                        {SUBSCRIPTION_PROVIDER_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        {
+                          SUBSCRIPTION_PROVIDER_OPTIONS.find((o) => o.value === subProvider)
+                            ?.description
+                        }
+                      </p>
+                    </div>
+                    {subStatus === 'error' && subError && (
+                      <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        {subError}
+                      </div>
+                    )}
+                    {subStatus === 'connected' && (
+                      <p className="text-sm text-green-600">✅ Connected! Completing setup…</p>
+                    )}
+                    <Button
+                      onClick={() => void handleSubscriptionConnect()}
+                      disabled={subStatus === 'pending' || subStatus === 'connected'}
+                    >
+                      {subStatus === 'pending'
+                        ? 'Sign in with your browser…'
+                        : subStatus === 'connected'
+                          ? 'Connected!'
+                          : 'Connect subscription'}
+                    </Button>
+                  </div>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 Get a key from{' '}
                 <a
