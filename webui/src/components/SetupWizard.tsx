@@ -478,6 +478,10 @@ export function SetupWizard() {
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
+    if (subPollRef.current) {
+      clearInterval(subPollRef.current);
+      subPollRef.current = null;
+    }
     completeSetup();
     setIsOpen(false);
   };
