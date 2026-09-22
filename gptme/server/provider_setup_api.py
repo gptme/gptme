@@ -33,6 +33,18 @@ logger = logging.getLogger(__name__)
 
 provider_setup_api = flask.Blueprint("provider_setup_api", __name__)
 
+# Real Flask app reference, captured once when the blueprint is registered.
+# Background threads cannot use flask.current_app (a proxy that requires a request
+# context), so _apply_runtime_model receives this reference instead.
+_flask_app: flask.Flask | None = None
+
+
+@provider_setup_api.record_once
+def _capture_app(state: flask.blueprints.BlueprintSetupState) -> None:
+    global _flask_app
+    _flask_app = state.app
+
+
 # In-memory registry of setup flows. Keyed by setup_id (UUID string).
 # Completed/failed/cancelled entries expire; pending ones are kept until they
 # finish so a poll can still observe the terminal state.
@@ -209,7 +221,8 @@ def start_provider_setup():
 
     cancel_event = threading.Event()
     setup_id = str(uuid.uuid4())
-    app = flask.current_app._get_current_object()
+    assert _flask_app is not None, "Blueprint not registered with a Flask app"
+    app = _flask_app
 
     # Cancel any previous pending setup for the same provider so the callback
     # port is not double-occupied if the user retries.
