@@ -1089,6 +1089,7 @@ class TestToolConfirmEndpoint:
             "branch": "main",
             "reserved": True,
             "step_seq": session.step_seq,
+            "max_tokens": None,
         }
 
     def test_skip_increments_step_seq_to_invalidate_stale_workers(
