@@ -259,11 +259,46 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
 
-def oauth_authenticate() -> SubscriptionAuth:
+def _wait_for_oauth_callback(
+    server: http.server.HTTPServer,
+    timeout: float,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Wait until the callback handler records a code/error, or abort.
+
+    ``HTTPServer.handle_request`` returns on a request *or* its socket timeout.
+    The previous loop had no overall deadline, so a missing browser callback
+    left setup pending forever. A 1s poll interval lets cancel/timeout fire
+    without waiting out the full socket timeout.
+    """
+    deadline = time.monotonic() + timeout
+    server.timeout = min(1.0, max(0.05, timeout))
+    while (
+        _OAuthCallbackHandler.authorization_code is None
+        and _OAuthCallbackHandler.error is None
+    ):
+        if cancel_event is not None and cancel_event.is_set():
+            raise TimeoutError("OAuth cancelled")
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"OpenAI authentication timed out after {timeout:.0f} seconds."
+            )
+        server.handle_request()
+
+
+def oauth_authenticate(
+    cancel_event: threading.Event | None = None,
+    timeout: float = 120,
+) -> SubscriptionAuth:
     """Perform OAuth authentication flow.
 
     Opens browser for user to log in, handles callback, and exchanges
     authorization code for tokens.
+
+    Args:
+        cancel_event: If set, abort the wait loop so a replacement flow can
+            bind the callback port.
+        timeout: Overall seconds to wait for the browser callback.
     """
     if not _is_port_available(OAUTH_CALLBACK_PORT):
         raise ValueError(
@@ -297,7 +332,6 @@ def oauth_authenticate() -> SubscriptionAuth:
         ("127.0.0.1", OAUTH_CALLBACK_PORT),
         _OAuthCallbackHandler,
     )
-    server.timeout = 120  # 2 minutes should be sufficient for browser auth
 
     print("\n🔐 Opening browser for OpenAI authentication...", flush=True)
     print(f"   If browser doesn't open, visit:\n   {auth_url}", flush=True)
@@ -313,11 +347,7 @@ def oauth_authenticate() -> SubscriptionAuth:
         flush=True,
     )
     try:
-        while (
-            _OAuthCallbackHandler.authorization_code is None
-            and _OAuthCallbackHandler.error is None
-        ):
-            server.handle_request()
+        _wait_for_oauth_callback(server, timeout, cancel_event)
     finally:
         server.server_close()
 

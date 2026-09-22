@@ -34,6 +34,7 @@ import logging
 import secrets
 import socket
 import threading
+import time
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
@@ -55,7 +56,9 @@ def _generate_pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def oauth_get_api_key() -> str:
+def oauth_get_api_key(
+    cancel_event: threading.Event | None = None,
+) -> str:
     """Run the OpenRouter PKCE OAuth flow and return the API key.
 
     Opens the user's browser, waits for the local OAuth callback, then
@@ -65,7 +68,8 @@ def oauth_get_api_key() -> str:
     ------
     RuntimeError
         If the browser callback does not arrive within the timeout, the code
-        exchange fails, or the server cannot bind the callback port.
+        exchange fails, the flow is cancelled, or the server cannot bind the
+        callback port.
     """
     import webbrowser
 
@@ -128,13 +132,21 @@ def oauth_get_api_key() -> str:
 
     webbrowser.open(auth_url)
 
-    # Wait up to 5 minutes for the user to complete the browser flow
-    if not _done.wait(timeout=300):
-        server.shutdown()
-        server.server_close()
-        raise RuntimeError(
-            "OpenRouter OAuth timed out (no browser callback after 5 minutes)."
-        )
+    # Wait up to 5 minutes for the user to complete the browser flow.
+    # Poll so a cancel_event can release the callback port for a retry.
+    deadline = time.monotonic() + 300
+    while not _done.is_set():
+        if cancel_event is not None and cancel_event.is_set():
+            server.shutdown()
+            server.server_close()
+            raise RuntimeError("OAuth cancelled")
+        if time.monotonic() >= deadline:
+            server.shutdown()
+            server.server_close()
+            raise RuntimeError(
+                "OpenRouter OAuth timed out (no browser callback after 5 minutes)."
+            )
+        _done.wait(timeout=0.5)
     server.shutdown()
     server.server_close()
 

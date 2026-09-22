@@ -80,6 +80,8 @@ const SERVER_START_RETRY_COUNT = 6;
 const SERVER_START_RETRY_DELAY_MS = 250;
 const SERVER_READY_RETRY_COUNT = 10;
 const SERVER_READY_RETRY_DELAY_MS = 250;
+const SUB_POLL_INTERVAL_MS = 2000;
+const SUB_POLL_TIMEOUT_MS = 180000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -239,14 +241,34 @@ export function SetupWizard() {
       }
       const { setup_id } = (await resp.json()) as { setup_id: string };
 
-      // Poll for completion every 2s (OAuth has a 120s timeout server-side)
+      const stopPolling = () => {
+        if (subPollRef.current) {
+          clearInterval(subPollRef.current);
+          subPollRef.current = null;
+        }
+      };
+
+      // Poll until connected/error, the setup id disappears (404), or timeout.
+      const startedAt = Date.now();
       if (subPollRef.current) clearInterval(subPollRef.current);
       subPollRef.current = setInterval(async () => {
+        if (Date.now() - startedAt > SUB_POLL_TIMEOUT_MS) {
+          stopPolling();
+          setSubStatus('error');
+          setSubError('Sign-in timed out. Please try again.');
+          return;
+        }
         try {
           const pollResp = await fetch(
             `${connectionConfig.baseUrl}/api/v2/provider/setup/${setup_id}`,
             { headers: withAuthHeaders(api.authHeader) }
           );
+          if (pollResp.status === 404) {
+            stopPolling();
+            setSubStatus('error');
+            setSubError('Setup expired. Please try again.');
+            return;
+          }
           if (!pollResp.ok) return;
           const result = (await pollResp.json()) as {
             status: string;
@@ -254,25 +276,32 @@ export function SetupWizard() {
             error?: string;
           };
           if (result.status === 'connected') {
-            clearInterval(subPollRef.current!);
-            subPollRef.current = null;
+            stopPolling();
             setSubStatus('connected');
             completeSetup();
           } else if (result.status === 'error' || result.status === 'cancelled') {
-            clearInterval(subPollRef.current!);
-            subPollRef.current = null;
+            stopPolling();
             setSubStatus('error');
             setSubError(result.error ?? 'OAuth flow failed.');
           }
         } catch {
           // transient network error during polling — keep polling
         }
-      }, 2000);
+      }, SUB_POLL_INTERVAL_MS);
     } catch (err) {
       setSubStatus('error');
       setSubError(formatUnknownError(err, 'Failed to start OAuth flow.'));
     }
   }, [api.authHeader, completeSetup, connectionConfig.baseUrl, subProvider]);
+
+  useEffect(() => {
+    return () => {
+      if (subPollRef.current) {
+        clearInterval(subPollRef.current);
+        subPollRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (step !== 'provider' || !canManageApiKeyInApp) {
@@ -872,6 +901,7 @@ export function SetupWizard() {
                 Back
               </Button>
               <Button
+                data-testid="setup-wizard-connect"
                 onClick={isRemoteOnlyTauri ? handleRemoteSetup : handleLocalSetup}
                 disabled={isConnecting || isDeterminingTauriMode}
               >

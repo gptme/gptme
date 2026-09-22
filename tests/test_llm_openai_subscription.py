@@ -1,6 +1,8 @@
+import http.server
 import json
+import threading
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 from uuid import UUID
 
@@ -760,3 +762,42 @@ def test_stream_records_reasoning_tokens_and_effort():
     assert metadata["usage"]["reasoning_tokens"] == 60
     # _drain_stream uses bare "gpt-5.4" → default Codex effort
     assert metadata["reasoning_effort"] == "medium"
+
+
+def test_wait_for_oauth_callback_times_out():
+    """A missing browser callback must raise instead of looping forever."""
+
+    class _FakeServer:
+        timeout = 120
+
+        def handle_request(self) -> None:
+            return None
+
+    llm_openai_subscription._OAuthCallbackHandler.authorization_code = None
+    llm_openai_subscription._OAuthCallbackHandler.error = None
+
+    with pytest.raises(TimeoutError, match="timed out"):
+        llm_openai_subscription._wait_for_oauth_callback(
+            cast(http.server.HTTPServer, _FakeServer()), timeout=0.15
+        )
+
+
+def test_wait_for_oauth_callback_honors_cancel():
+    cancel = threading.Event()
+    cancel.set()
+
+    class _FakeServer:
+        timeout = 120
+
+        def handle_request(self) -> None:
+            raise AssertionError("should not wait on the socket after cancel")
+
+    llm_openai_subscription._OAuthCallbackHandler.authorization_code = None
+    llm_openai_subscription._OAuthCallbackHandler.error = None
+
+    with pytest.raises(TimeoutError, match="cancelled"):
+        llm_openai_subscription._wait_for_oauth_callback(
+            cast(http.server.HTTPServer, _FakeServer()),
+            timeout=5,
+            cancel_event=cancel,
+        )

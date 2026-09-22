@@ -27,6 +27,7 @@ Endpoint: https://cli-chat-proxy.grok.com/v1 (subscription proxy, OpenAI-compati
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -267,13 +268,19 @@ def _refresh_access_token(
     return auth
 
 
-def oauth_authenticate() -> SubscriptionAuth:
+def oauth_authenticate(
+    cancel_event: threading.Event | None = None,
+) -> SubscriptionAuth:
     """Authenticate via xAI OAuth PKCE flow and return tokens.
 
     If valid grok CLI tokens already exist (~/.grok/auth.json), they are
     returned immediately without opening a browser.  Otherwise, the xAI
     PKCE flow opens the user's browser and waits for the OAuth callback on
     localhost:{OAUTH_CALLBACK_PORT}.
+
+    Args:
+        cancel_event: If set, abort the wait loop so a replacement flow can
+            bind the callback port.
     """
     import base64
     import hashlib
@@ -337,7 +344,7 @@ def oauth_authenticate() -> SubscriptionAuth:
 
     try:
         server = http.server.HTTPServer(("127.0.0.1", OAUTH_CALLBACK_PORT), _Handler)
-        server.timeout = 120
+        server.timeout = 1.0
     except OSError as e:
         raise RuntimeError(
             f"Could not start callback server on port {OAUTH_CALLBACK_PORT}: {e}"
@@ -354,6 +361,8 @@ def oauth_authenticate() -> SubscriptionAuth:
     deadline = time.time() + 300
     try:
         while "code" not in result and "error" not in result:
+            if cancel_event is not None and cancel_event.is_set():
+                raise TimeoutError("OAuth cancelled")
             if time.time() > deadline:
                 raise TimeoutError("xAI authentication timed out after 5 minutes.")
             server.handle_request()
