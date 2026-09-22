@@ -1088,6 +1088,91 @@ def test_resume_via_llm_with_view_branch():
         assert msg.hide is True
 
 
+def test_resume_via_llm_unlocks_during_provider_call():
+    """Summarization must drop a held conversation lock around llm.reply."""
+    import threading
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _resume_via_llm
+
+    mock_manager = MagicMock()
+    mock_manager.workspace = None
+    mock_manager.logdir = None
+    mock_manager.get_next_view_name.return_value = "view-1"
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    lock = threading.RLock()
+    lock.acquire()
+    unlocked_during_reply: list[bool] = []
+
+    def fake_reply(*args, **kwargs):
+        contended = threading.Event()
+
+        def probe() -> None:
+            got = lock.acquire(blocking=False)
+            if got:
+                lock.release()
+            else:
+                contended.set()
+
+        probe_thread = threading.Thread(target=probe)
+        probe_thread.start()
+        probe_thread.join(timeout=5)
+        unlocked_during_reply.append(not contended.is_set())
+        mock_response = MagicMock()
+        mock_response.content = "# Resume\n## Summary\nDone.\n"
+        return mock_response
+
+    @contextmanager
+    def released():
+        lock.release()
+        try:
+            yield
+        finally:
+            lock.acquire()
+
+    with (
+        patch("gptme.tools.autocompact.resume.llm") as mock_llm,
+        patch("gptme.tools.autocompact.resume.get_default_model") as mock_model,
+    ):
+        mock_llm.reply.side_effect = fake_reply
+        mock_m = MagicMock()
+        mock_m.full = "test-model"
+        mock_model.return_value = mock_m
+        list(
+            _resume_via_llm(
+                mock_manager,
+                messages,
+                use_view_branch=True,
+                llm_unlocked=released(),
+            )
+        )
+
+    assert unlocked_during_reply == [True]
+    reacquired = threading.Event()
+
+    def probe_after() -> None:
+        got = lock.acquire(blocking=False)
+        if got:
+            lock.release()
+        else:
+            reacquired.set()
+
+    after_thread = threading.Thread(target=probe_after)
+    after_thread.start()
+    after_thread.join(timeout=5)
+    assert reacquired.is_set()
+    lock.release()
+
+
 def test_keep_head_protects_head_messages_from_reasoning_strip():
     """Test that keep_head messages are not modified by reasoning stripping."""
     messages = [

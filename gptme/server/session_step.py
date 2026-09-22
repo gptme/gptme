@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterable
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -217,10 +218,21 @@ def _get_use_acp_default() -> bool:
     return val.lower() in ("1", "true", "yes", "on")
 
 
+@contextmanager
+def _released(lock: threading.RLock):
+    """Drop a reentrant lock around blocking I/O, then re-acquire it."""
+    lock.release()
+    try:
+        yield
+    finally:
+        lock.acquire()
+
+
 def _compact_after_tool_results(
     manager: LogManager,
     session: ConversationSession,
     conversation_id: str,
+    llm_unlocked: AbstractContextManager[object] | None = None,
 ) -> None:
     """Run always-on compaction after tool results are on the log.
 
@@ -233,7 +245,7 @@ def _compact_after_tool_results(
     from ..tools.autocompact.hook import autocompact_hook
 
     try:
-        for hook_msg in autocompact_hook(manager):
+        for hook_msg in autocompact_hook(manager, llm_unlocked=llm_unlocked):
             if isinstance(hook_msg, StopPropagation):
                 continue
             _append_and_notify(manager, session, hook_msg)
@@ -1358,11 +1370,17 @@ def start_tool_execution(
             # and continuation election so concurrent workers cannot race view
             # creation or the active-view marker.
             try:
-                with SessionManager.conversation_lock(conversation_id):
+                conv_lock = SessionManager.conversation_lock(conversation_id)
+                with conv_lock:
                     manager = LogManager.load(
                         conversation_id, branch=branch, lock=False
                     )
-                    _compact_after_tool_results(manager, session, conversation_id)
+                    _compact_after_tool_results(
+                        manager,
+                        session,
+                        conversation_id,
+                        llm_unlocked=_released(conv_lock),
+                    )
             except Exception:
                 logger.exception(
                     "Failed to load conversation %s for post-tool compaction",

@@ -7,6 +7,7 @@ context files, and manages conversation resumption.
 import logging
 import re
 from collections.abc import Generator
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -167,6 +168,7 @@ def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
     use_view_branch: bool = False,
+    llm_unlocked: AbstractContextManager[object] | None = None,
 ) -> Generator[Message, None, None]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
 
@@ -233,7 +235,8 @@ Format the response as a structured document that could serve as a RESUME.md fil
             hide=use_view_branch,
         )
         return
-    resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+    with llm_unlocked or nullcontext():
+        resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
     resume_content = resume_response.content
 
     # Save RESUME.md to logdir (not workspace) for reference/debugging

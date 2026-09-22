@@ -1668,7 +1668,7 @@ class TestConcurrentToolConfirmation:
 
         held_during_compact: list[bool] = []
 
-        def capturing_compact(manager, session_obj, conversation_id):
+        def capturing_compact(manager, session_obj, conversation_id, **kwargs):
             lock = SessionManager.conversation_lock(conversation_id)
             contended = threading.Event()
 

@@ -8,6 +8,7 @@ import logging
 import re
 import time
 from collections.abc import Generator
+from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -81,6 +82,8 @@ def _get_compacted_name(conversation_name: str) -> str:
 
 def autocompact_hook(
     manager: "LogManager",
+    *,
+    llm_unlocked: AbstractContextManager[object] | None = None,
 ) -> Generator[Message | StopPropagation, None, None]:
     """
     Hook that checks if auto-compacting is needed and applies it.
@@ -206,7 +209,12 @@ def autocompact_hook(
             original_tokens = len_tokens(messages, m.model) if m else 0
             original_count = len(messages)
 
-            yield from _resume_via_llm(manager, messages, use_view_branch=True)
+            yield from _resume_via_llm(
+                manager,
+                messages,
+                use_view_branch=True,
+                llm_unlocked=llm_unlocked,
+            )
             _last_autocompact_attempt[conv_key] = (
                 current_time,
                 len(manager.log.messages),
