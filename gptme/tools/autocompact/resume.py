@@ -235,8 +235,32 @@ Format the response as a structured document that could serve as a RESUME.md fil
             hide=use_view_branch,
         )
         return
+    snapshot = None
+    if llm_unlocked is not None:
+        snapshot = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
     with llm_unlocked or nullcontext():
         resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+    if snapshot is not None:
+        current = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
+        if current != snapshot:
+            logger.info(
+                "Discarding stale summarizer result; conversation changed during llm.reply"
+            )
+            yield Message(
+                "system",
+                "Skipped stale auto-summarize: the conversation changed while "
+                "the summary was generating.",
+                hide=use_view_branch,
+            )
+            return
     resume_content = resume_response.content
 
     # Save RESUME.md to logdir (not workspace) for reference/debugging

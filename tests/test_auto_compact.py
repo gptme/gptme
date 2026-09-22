@@ -1099,8 +1099,7 @@ def test_resume_via_llm_unlocks_during_provider_call():
     mock_manager = MagicMock()
     mock_manager.workspace = None
     mock_manager.logdir = None
-    mock_manager.get_next_view_name.return_value = "view-1"
-
+    mock_manager.current_view = None
     messages = [
         Message("system", "System prompt"),
         Message("user", "User message 1"),
@@ -1108,6 +1107,8 @@ def test_resume_via_llm_unlocks_during_provider_call():
         Message("user", "User message 2"),
         Message("assistant", "Assistant response 2"),
     ]
+    mock_manager.log.messages = messages
+    mock_manager.get_next_view_name.return_value = "view-1"
 
     lock = threading.RLock()
     lock.acquire()
@@ -1170,6 +1171,73 @@ def test_resume_via_llm_unlocks_during_provider_call():
     after_thread.start()
     after_thread.join(timeout=5)
     assert reacquired.is_set()
+    lock.release()
+
+
+def test_resume_via_llm_discards_stale_result_after_unlock():
+    """Do not apply a summary if the conversation moved during llm.reply."""
+    import threading
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _resume_via_llm
+
+    mock_manager = MagicMock()
+    mock_manager.workspace = None
+    mock_manager.logdir = None
+    mock_manager.current_view = None
+    mock_manager.log.messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+    ]
+    mock_manager.get_next_view_name.return_value = "view-1"
+
+    messages = list(mock_manager.log.messages) + [
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    lock = threading.RLock()
+    lock.acquire()
+
+    def fake_reply(*args, **kwargs):
+        mock_manager.current_view = "compacted-001"
+        mock_manager.log.messages = mock_manager.log.messages + [
+            Message("system", "tool result arrived during summary")
+        ]
+        mock_response = MagicMock()
+        mock_response.content = "# Resume\n## Summary\nStale.\n"
+        return mock_response
+
+    @contextmanager
+    def released():
+        lock.release()
+        try:
+            yield
+        finally:
+            lock.acquire()
+
+    with (
+        patch("gptme.tools.autocompact.resume.llm") as mock_llm,
+        patch("gptme.tools.autocompact.resume.get_default_model") as mock_model,
+    ):
+        mock_llm.reply.side_effect = fake_reply
+        mock_m = MagicMock()
+        mock_m.full = "test-model"
+        mock_model.return_value = mock_m
+        results = list(
+            _resume_via_llm(
+                mock_manager,
+                messages,
+                use_view_branch=True,
+                llm_unlocked=released(),
+            )
+        )
+
+    mock_manager.create_view.assert_not_called()
+    mock_manager.switch_view.assert_not_called()
+    assert any("stale" in msg.content.lower() for msg in results)
     lock.release()
 
 
