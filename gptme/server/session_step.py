@@ -1354,9 +1354,15 @@ def start_tool_execution(
                         session._executing_tools.discard(claimed_tool_id)
 
             # Compact after tool results, before the continuation provider call.
+            # Serialize with the same conversation lock as tool-result appends
+            # and continuation election so concurrent workers cannot race view
+            # creation or the active-view marker.
             try:
-                manager = LogManager.load(conversation_id, branch=branch, lock=False)
-                _compact_after_tool_results(manager, session, conversation_id)
+                with SessionManager.conversation_lock(conversation_id):
+                    manager = LogManager.load(
+                        conversation_id, branch=branch, lock=False
+                    )
+                    _compact_after_tool_results(manager, session, conversation_id)
             except Exception:
                 logger.exception(
                     "Failed to load conversation %s for post-tool compaction",

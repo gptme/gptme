@@ -318,7 +318,9 @@ class LogManager:
         # Restore the last active view unless the caller selected one.
         # Compaction switches are otherwise in-memory and lost on the next
         # LogManager.load() (server tool workers, resumed CLI sessions).
-        if view is None:
+        # Views dual-write to main; restoring one while on another branch
+        # would redirect appends away from the requested branch.
+        if view is None and self.current_branch == "main":
             self._restore_current_view()
         elif self.current_view and self.current_view not in self._views:
             logger.warning(
