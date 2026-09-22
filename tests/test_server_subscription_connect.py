@@ -239,6 +239,73 @@ def test_subscription_connect_openrouter(client: FlaskClient, monkeypatch):
     assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-v1-testkey"
 
 
+def test_subscription_connect_persists_default_model(client: FlaskClient):
+    """Successful OAuth persists models.default so a fresh install can start."""
+
+    with (
+        unittest.mock.patch(
+            "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        ),
+        unittest.mock.patch(
+            "gptme.server.api_v2._persist_default_model",
+            return_value=False,
+        ) as mock_persist,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    task_id = resp.get_json()["task_id"]
+
+    deadline = time.monotonic() + 5
+    data = None
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert data is not None
+    assert data["status"] == "connected"
+    assert data["model"] == "openai-subscription/gpt-5.2"
+    mock_persist.assert_called()
+    assert mock_persist.call_args.args[0] == "openai-subscription/gpt-5.2"
+
+
+def test_start_subscription_connect_reuses_pending_task(client: FlaskClient):
+    """A second POST for the same in-flight provider reuses the task instead of spawning another thread."""
+    barrier = threading.Event()
+
+    def _block_oauth():
+        barrier.wait(timeout=5)
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_block_oauth,
+    ):
+        first = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+        second = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    try:
+        assert first.status_code == 202
+        assert second.status_code == 202
+        assert first.get_json()["task_id"] == second.get_json()["task_id"]
+    finally:
+        barrier.set()
+
+
 def test_status_unknown_task(client: FlaskClient):
     resp = client.get(
         "/api/v2/user/subscription-connect/nonexistent-task",

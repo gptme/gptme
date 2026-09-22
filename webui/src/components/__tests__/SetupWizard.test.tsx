@@ -176,6 +176,7 @@ jest.mock('lucide-react', () => ({
   Terminal: () => <span>Terminal</span>,
   ExternalLink: () => <span>ExternalLink</span>,
   Copy: () => <span>Copy</span>,
+  Loader2: () => <span>Loader2</span>,
 }));
 
 jest.mock('sonner', () => ({
@@ -622,7 +623,7 @@ describe('SetupWizard', () => {
 
     expect(screen.getByRole('button', { name: /use gptme.ai instead/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /i configured a provider/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('option', { name: /openrouter/i })[0]).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'OpenRouter' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /gemini/i })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /deepseek/i })).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).not.toMatchObject({
@@ -1503,7 +1504,7 @@ describe('SetupWizard', () => {
       expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'openrouter' } });
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'openrouter' } });
     fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-or-test-key' } });
     fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
 
@@ -1574,7 +1575,7 @@ describe('SetupWizard', () => {
       expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'openrouter' } });
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'openrouter' } });
     fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-or-test-key' } });
     fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
 
@@ -1582,5 +1583,128 @@ describe('SetupWizard', () => {
       expect(screen.getByText('Sidecar error: Failed to execute script')).toBeInTheDocument();
     });
     expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
+
+  async function reachProviderStep() {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId('setup-wizard-provider')).toBeInTheDocument();
+    });
+  }
+
+  it('stops subscription polling on a lost OAuth task (404)', async () => {
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const href = String(url);
+      const method = init?.method ?? 'GET';
+      if (href.includes('/api/v2/user/subscription-connect/') && method === 'GET') {
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'Unknown task ID' }),
+        };
+      }
+      if (href.endsWith('/api/v2/user/subscription-connect') && method === 'POST') {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ task_id: 'lost-task', status: 'pending' }),
+        };
+      }
+      if (href.endsWith('/api/v2/models')) {
+        return { ok: true, status: 200, json: async () => ({ models: [], recommended: [] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      };
+    });
+
+    await reachProviderStep();
+
+    fireEvent.click(screen.getByTestId('setup-wizard-subscription-connect'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/sign-in session was lost/i)).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('setup-wizard-subscription-connect')).not.toBeDisabled();
+  });
+
+  it('persists the returned default model after subscription OAuth succeeds', async () => {
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const href = String(url);
+      const method = init?.method ?? 'GET';
+      if (href.endsWith('/api/v2/user/default-model') && method === 'POST') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ok', model: 'openai-subscription/gpt-5.2' }),
+        };
+      }
+      if (href.includes('/api/v2/user/subscription-connect/') && method === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            task_id: 'ok-task',
+            status: 'connected',
+            provider: 'openai-subscription',
+            model: 'openai-subscription/gpt-5.2',
+            error: null,
+          }),
+        };
+      }
+      if (href.endsWith('/api/v2/user/subscription-connect') && method === 'POST') {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ task_id: 'ok-task', status: 'pending' }),
+        };
+      }
+      if (href.endsWith('/api/v2/models')) {
+        return { ok: true, status: 200, json: async () => ({ models: [], recommended: [] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      };
+    });
+
+    await reachProviderStep();
+
+    fireEvent.click(screen.getByTestId('setup-wizard-subscription-connect'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:5700/api/v2/user/default-model',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ model: 'openai-subscription/gpt-5.2' }),
+      })
+    );
   });
 });

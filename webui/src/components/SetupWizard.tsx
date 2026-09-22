@@ -21,6 +21,7 @@ import {
   type SubscriptionProvider,
 } from '@/utils/apiKeyProviders';
 import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
+import { isLocalApiBaseUrl } from '@/utils/openConversationPath';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
 import { isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
@@ -89,6 +90,8 @@ const SERVER_START_RETRY_COUNT = 6;
 const SERVER_START_RETRY_DELAY_MS = 250;
 const SERVER_READY_RETRY_COUNT = 10;
 const SERVER_READY_RETRY_DELAY_MS = 250;
+const SUBSCRIPTION_POLL_INTERVAL_MS = 2000;
+const SUBSCRIPTION_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -516,6 +519,39 @@ export function SetupWizard() {
     }
   };
 
+  const stopSubscriptionPoll = () => {
+    if (subscriptionPollRef.current) {
+      clearInterval(subscriptionPollRef.current);
+      subscriptionPollRef.current = null;
+    }
+  };
+
+  const finishSubscriptionConnect = async (model?: string) => {
+    stopSubscriptionPoll();
+    if (model) {
+      try {
+        await fetch(`${connectionConfig.baseUrl}/api/v2/user/default-model`, {
+          method: 'POST',
+          headers: withAuthHeaders(api.authHeader, { 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ model }),
+        });
+      } catch {
+        // Backend already persisted models.default; in-process apply is best-effort.
+      }
+    }
+    setSubscriptionConnecting(false);
+    setSubscriptionTaskId(null);
+    completeSetup();
+    setStep('complete');
+  };
+
+  const failSubscriptionConnect = (message: string) => {
+    stopSubscriptionPoll();
+    setSubscriptionConnecting(false);
+    setSubscriptionTaskId(null);
+    setSubscriptionError(message);
+  };
+
   const handleSubscriptionConnect = async () => {
     setSubscriptionConnecting(true);
     setSubscriptionError(null);
@@ -533,14 +569,26 @@ export function SetupWizard() {
       const data = (await resp.json()) as { task_id: string; status: string };
       setSubscriptionTaskId(data.task_id);
 
-      // Poll for completion every 2 seconds
-      if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
-      subscriptionPollRef.current = setInterval(async () => {
+      let stopped = false;
+      const startedAt = Date.now();
+      const pollOnce = async () => {
+        if (stopped) return;
+        if (Date.now() - startedAt > SUBSCRIPTION_POLL_TIMEOUT_MS) {
+          stopped = true;
+          failSubscriptionConnect('Sign-in timed out. Please try again.');
+          return;
+        }
         try {
           const statusResp = await fetch(
             `${connectionConfig.baseUrl}/api/v2/user/subscription-connect/${data.task_id}`,
             { headers: withAuthHeaders(api.authHeader) }
           );
+          if (stopped) return;
+          if (statusResp.status === 404 || (statusResp.status >= 400 && statusResp.status < 500)) {
+            stopped = true;
+            failSubscriptionConnect('Sign-in session was lost. Please try again.');
+            return;
+          }
           if (!statusResp.ok) return;
           const statusData = (await statusResp.json()) as {
             status: string;
@@ -548,21 +596,24 @@ export function SetupWizard() {
             model?: string;
           };
           if (statusData.status === 'connected') {
-            if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
-            setSubscriptionConnecting(false);
-            setSubscriptionTaskId(null);
-            completeSetup();
-            setStep('complete');
+            stopped = true;
+            await finishSubscriptionConnect(statusData.model);
           } else if (statusData.status === 'error') {
-            if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
-            setSubscriptionConnecting(false);
-            setSubscriptionTaskId(null);
-            setSubscriptionError(statusData.error ?? 'OAuth flow failed. Please try again.');
+            stopped = true;
+            failSubscriptionConnect(statusData.error ?? 'OAuth flow failed. Please try again.');
           }
         } catch {
-          // Ignore transient poll errors
+          // Ignore transient network errors; the next interval retry will pick up.
         }
-      }, 2000);
+      };
+
+      stopSubscriptionPoll();
+      await pollOnce();
+      if (!stopped) {
+        subscriptionPollRef.current = setInterval(() => {
+          void pollOnce();
+        }, SUBSCRIPTION_POLL_INTERVAL_MS);
+      }
     } catch (err) {
       setSubscriptionConnecting(false);
       setSubscriptionError(formatUnknownError(err, 'Failed to start subscription sign-in.'));
@@ -576,10 +627,9 @@ export function SetupWizard() {
     };
   }, []);
 
-  // Helper: true when the connected server is running on localhost
-  const isLocalServer =
-    connectionConfig.baseUrl.includes('127.0.0.1') ||
-    connectionConfig.baseUrl.includes('localhost');
+  // OAuth opens a browser on the server host, so this UI is only safe when the
+  // API is loopback — not a remote URL that happens to contain "localhost".
+  const isLocalServer = isLocalApiBaseUrl(connectionConfig.baseUrl);
 
   const handleCloudLogin = async () => {
     // Open the cloud auth URL — the deep-link flow (gptme://) or URL fragment
@@ -1122,7 +1172,7 @@ export function SetupWizard() {
                 </p>
                 <div className="mt-3 flex flex-col gap-3">
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="setup-subscription-provider">Service</Label>
+                    <Label htmlFor="setup-subscription-provider">Subscription</Label>
                     <select
                       id="setup-subscription-provider"
                       className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -1160,6 +1210,7 @@ export function SetupWizard() {
                     onClick={() => void handleSubscriptionConnect()}
                     disabled={subscriptionConnecting}
                     className="gap-2"
+                    data-testid="setup-wizard-subscription-connect"
                   >
                     {subscriptionConnecting ? (
                       <>

@@ -3353,6 +3353,7 @@ def api_user_default_model():
 # all share the same process; gevent or multiprocessing would need a proper
 # shared store, but gptme-server doesn't use those.
 _subscription_tasks: dict[str, dict] = {}
+_SUBSCRIPTION_TASK_TTL_S = 15 * 60
 
 # Subscription provider slugs that use OAuth/PKCE instead of an API key.
 SUBSCRIPTION_PROVIDERS = frozenset(
@@ -3366,9 +3367,62 @@ _SUBSCRIPTION_DEFAULT_MODELS: dict[str, str] = {
     "openrouter": "openrouter/openrouter/auto",
 }
 
+_SUBSCRIPTION_PUBLIC_KEYS = ("task_id", "status", "provider", "model", "error")
 
-def _run_subscription_oauth(task_id: str, provider: str) -> None:
+
+def _public_subscription_task(task: dict) -> dict:
+    return {key: task.get(key) for key in _SUBSCRIPTION_PUBLIC_KEYS}
+
+
+def _prune_subscription_tasks(now: float | None = None) -> None:
+    """Drop tasks older than the TTL so the in-memory store cannot grow without bound."""
+    cutoff = (now if now is not None else time.monotonic()) - _SUBSCRIPTION_TASK_TTL_S
+    stale = [
+        task_id
+        for task_id, task in _subscription_tasks.items()
+        if float(task.get("created_at", 0)) < cutoff
+    ]
+    for task_id in stale:
+        _subscription_tasks.pop(task_id, None)
+
+
+def _pending_subscription_task(provider: str) -> dict | None:
+    for task in _subscription_tasks.values():
+        if task.get("provider") == provider and task.get("status") == "pending":
+            return task
+    return None
+
+
+def _persist_subscription_default_model(provider: str, app: flask.Flask) -> str | None:
+    """Persist the provider's default model so a fresh install can start a session."""
+    model = _SUBSCRIPTION_DEFAULT_MODELS.get(provider)
+    if not model:
+        return None
+    try:
+        with app.app_context():
+            _persist_default_model(model)
+    except Exception:
+        logger.warning(
+            "Could not apply subscription default model %s in-process; writing config only",
+            model,
+            exc_info=True,
+        )
+        try:
+            set_config_value("models.default", model, reload=False)
+            os.environ["MODEL"] = model
+        except Exception:
+            logger.warning(
+                "Failed to persist subscription default model %s", model, exc_info=True
+            )
+            return None
+    return model
+
+
+def _run_subscription_oauth(task_id: str, provider: str, app: flask.Flask) -> None:
     """Background thread: run OAuth flow, update task state on completion."""
+    created_at = (_subscription_tasks.get(task_id) or {}).get(
+        "created_at", time.monotonic()
+    )
     try:
         if provider == "openai-subscription":
             from ..llm.llm_openai_subscription import oauth_authenticate
@@ -3391,12 +3445,15 @@ def _run_subscription_oauth(task_id: str, provider: str) -> None:
         else:
             raise ValueError(f"Unknown subscription provider: {provider}")
 
+        model = _SUBSCRIPTION_DEFAULT_MODELS.get(provider)
+        _persist_subscription_default_model(provider, app)
         _subscription_tasks[task_id] = {
             "task_id": task_id,
             "status": "connected",
             "provider": provider,
-            "model": _SUBSCRIPTION_DEFAULT_MODELS.get(provider),
+            "model": model,
             "error": None,
+            "created_at": created_at,
         }
         logger.info("Subscription OAuth completed for provider %s", provider)
     except Exception as exc:
@@ -3407,6 +3464,7 @@ def _run_subscription_oauth(task_id: str, provider: str) -> None:
             "provider": provider,
             "model": None,
             "error": str(exc),
+            "created_at": created_at,
         }
 
 
@@ -3447,6 +3505,16 @@ def api_subscription_connect():
             }
         ), 400
 
+    _prune_subscription_tasks()
+    existing = _pending_subscription_task(provider)
+    if existing is not None:
+        logger.info(
+            "Reusing pending subscription OAuth task %s for provider %s",
+            existing["task_id"],
+            provider,
+        )
+        return flask.jsonify({"task_id": existing["task_id"], "status": "pending"}), 202
+
     task_id = _secrets.token_urlsafe(16)
     _subscription_tasks[task_id] = {
         "task_id": task_id,
@@ -3454,9 +3522,11 @@ def api_subscription_connect():
         "provider": provider,
         "model": None,
         "error": None,
+        "created_at": time.monotonic(),
     }
+    app = flask.current_app._get_current_object()
     threading.Thread(
-        target=_run_subscription_oauth, args=(task_id, provider), daemon=True
+        target=_run_subscription_oauth, args=(task_id, provider, app), daemon=True
     ).start()
     logger.info("Started subscription OAuth task %s for provider %s", task_id, provider)
     return flask.jsonify({"task_id": task_id, "status": "pending"}), 202
@@ -3479,10 +3549,11 @@ def api_subscription_connect():
 )
 def api_subscription_connect_status(task_id: str):
     """Return the status of a subscription OAuth task."""
+    _prune_subscription_tasks()
     task = _subscription_tasks.get(task_id)
     if task is None:
         return flask.jsonify({"error": "Unknown task ID"}), 404
-    return flask.jsonify(task)
+    return flask.jsonify(_public_subscription_task(task))
 
 
 @v2_api.route("/api/v2/user/favorites", methods=["POST"])

@@ -136,19 +136,40 @@ describe("Real first-run flow", () => {
     //    is no longer racing against React rendering.
     await waitForSidecarReady(sidecarPort);
 
-    // 7. In "Local setup", click "Connect". The sidecar readiness probe
-    // proves only that the socket is ready; React may still be finishing the
-    // asynchronous Tauri-status render that enables this control.
+    // 7. In "Local setup", click "Connect" if we are still on that step.
+    // Auto-advance can already have moved to the provider/complete step while
+    // we waited for the sidecar: isConnected becomes true, the local-step
+    // button relabels to "Continue", and checkProviderAndAdvance() skips
+    // Connect entirely. Treat that as the same success as clicking Connect.
     const connectBtn = await $("button=Connect");
+    const continueBtn = await $("button=Continue");
+    const providerStep = await $("[data-testid='setup-wizard-provider']");
     try {
-      await connectBtn.waitForExist({ timeout: 15000 });
+      await browser.waitUntil(
+        async () => {
+          try {
+            if (await connectBtn.isExisting()) return true;
+            if (await continueBtn.isExisting()) return true;
+            if (await providerStep.isExisting()) return true;
+            if (await (await $("*=You're all set!")).isExisting()) return true;
+            return false;
+          } catch (_e) {
+            return false;
+          }
+        },
+        { timeout: 15000 },
+      );
     } catch (err) {
       throw new Error(
-        "SetupWizard 'Connect' button did not appear within 15s: " +
+        "SetupWizard did not reach Connect/Continue/provider within 15s: " +
           (await describeWebview()),
       );
     }
-    await connectBtn.click();
+    if (await connectBtn.isExisting()) {
+      await connectBtn.click();
+    } else if (await continueBtn.isExisting()) {
+      await continueBtn.click();
+    }
 
     // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted
     //    server registry as proof: `ApiContext.connect()` calls
