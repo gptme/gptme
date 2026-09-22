@@ -119,8 +119,10 @@ exports.config = {
     const candidates = [
       join(homedir(), ".local", "share", "org.gptme.tauri"),
       join(homedir(), ".local", "share", "gptme-tauri"),
+      join(homedir(), ".local", "share", "gptme-app"),
       join(homedir(), ".config", "org.gptme.tauri"),
       join(homedir(), ".config", "gptme-tauri"),
+      join(homedir(), ".config", "gptme-app"),
     ];
     for (const dir of candidates) {
       if (existsSync(dir)) {

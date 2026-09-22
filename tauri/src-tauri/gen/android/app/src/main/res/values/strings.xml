@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">gptme-tauri</string>
-    <string name="main_activity_title">gptme-tauri</string>
+    <string name="app_name">gptme-app</string>
+    <string name="main_activity_title">gptme-app</string>
 </resources>
