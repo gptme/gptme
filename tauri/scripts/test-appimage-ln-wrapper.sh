@@ -14,7 +14,7 @@ fi
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-appimage_lib="$tmpdir/target/release/bundle/appimage/gptme-app.AppDir/usr/lib"
+appimage_lib="$tmpdir/target/release/bundle/appimage/gptme.AppDir/usr/lib"
 outside_lib="$tmpdir/outside/usr/lib"
 mkdir -p "$appimage_lib" "$outside_lib" "$tmpdir/first" "$tmpdir/second"
 touch "$tmpdir/first/im-test.so" "$tmpdir/second/im-test.so"

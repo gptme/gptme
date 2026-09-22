@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gptme-app",
+  "productName": "gptme",
   "version": "0.31.0",
   "identifier": "org.gptme.tauri",
   "build": {

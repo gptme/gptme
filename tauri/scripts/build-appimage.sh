@@ -32,7 +32,7 @@ if [[ "$PATCH_ONLY" != "true" ]]; then
     REAL_LN="$(command -v ln)" PATH="$SCRIPT_DIR/appimage-bin:$PATH" NO_STRIP="${NO_STRIP:-true}" npm run tauri -- build "$@"
 fi
 
-APPDIR="$TAURI_DIR/src-tauri/target/release/bundle/appimage/gptme-app.AppDir"
+APPDIR="$TAURI_DIR/src-tauri/target/release/bundle/appimage/gptme.AppDir"
 APPIMAGE="$(find "$TAURI_DIR/src-tauri/target/release/bundle/appimage" -maxdepth 1 -name '*.AppImage' -print -quit)"
 
 if [[ ! -d "$APPDIR" || -z "$APPIMAGE" ]]; then

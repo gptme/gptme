@@ -950,12 +950,12 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           # Rename Gradle's generic output names to match desktop bundle naming:
-          #   app-universal-release.apk  →  gptme-app_X.Y.Z_universal.apk
+          #   app-universal-release.apk  →  gptme_X.Y.Z_universal.apk
           # The "-release" build-type marker is always dropped. This job fails
           # before reaching upload unless signing and verification succeeded.
           VERSION="${TAG#v}"
           find android-dist -name "*.apk" -o -name "*.aab" | while read -r f; do
-            new="$(basename "$f" | sed -E "s/^app-/gptme-app_${VERSION}_/; s/-release//")"
+            new="$(basename "$f" | sed -E "s/^app-/gptme_${VERSION}_/; s/-release//")"
             mv "$f" "$(dirname "$f")/$new"
             echo "Uploading $new"
             gh release upload "$TAG" "$(dirname "$f")/$new" --clobber

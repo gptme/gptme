@@ -143,7 +143,7 @@ exports.config = {
     console.log(`[wdio] Reserved sidecar port ${sidecarPort}`);
 
     // Create an isolated HOME so the Tauri app cannot read or write the
-    // developer's real profile data (gptme-app, org.gptme.tauri, etc.).
+    // developer's real profile data (gptme, org.gptme.tauri, etc.).
     e2eHomeDir = mkdtempSync(join(tmpdir(), "wdio-gptme-"));
     console.log(`[wdio] Isolated HOME: ${e2eHomeDir}`);
 

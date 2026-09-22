@@ -1,7 +1,7 @@
-# gptme-app (Tauri)
+# gptme (Tauri)
 
 A desktop application for [gptme](https://github.com/gptme/gptme) built with [Tauri](https://tauri.app/).
-The user-facing product name is `gptme-app`; the Cargo/npm package remains `gptme-tauri`.
+The user-facing product name is `gptme`; the Cargo/npm package remains `gptme-tauri`.
 
 This app packages the gptme web UI (bundled in the [gptme](https://github.com/gptme/gptme) repo) with a bundled `gptme-server` binary, providing a standalone desktop experience for gptme.
 

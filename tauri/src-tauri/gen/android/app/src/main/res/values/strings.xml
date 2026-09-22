@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">gptme-app</string>
-    <string name="main_activity_title">gptme-app</string>
+    <string name="app_name">gptme</string>
+    <string name="main_activity_title">gptme</string>
 </resources>

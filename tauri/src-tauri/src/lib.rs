@@ -584,7 +584,7 @@ pub fn run() {
                 .targets([
                     Target::new(TargetKind::Stdout),
                     Target::new(TargetKind::LogDir {
-                        file_name: Some("gptme-app".to_string()),
+                        file_name: Some("gptme".to_string()),
                     }),
                 ])
                 .level(log::LevelFilter::Info)
@@ -607,7 +607,7 @@ pub fn run() {
             stop_server,
         ])
         .setup(|app| {
-            log::info!("Starting gptme-app application");
+            log::info!("Starting gptme application");
 
             #[cfg(desktop)]
             if cfg!(debug_assertions) {
