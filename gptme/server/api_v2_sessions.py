@@ -334,6 +334,14 @@ def api_conversation_step(conversation_id: str):
     if model is not None and not isinstance(model, str):
         return flask.jsonify({"error": "model must be a string"}), 400
 
+    max_tokens = req_json.get("max_tokens")
+    if max_tokens is not None and (
+        not isinstance(max_tokens, int)
+        or isinstance(max_tokens, bool)
+        or max_tokens <= 0
+    ):
+        return flask.jsonify({"error": "max_tokens must be a positive integer"}), 400
+
     if "stream" in req_json:
         stream = req_json["stream"]
         if not isinstance(stream, bool):
@@ -508,6 +516,7 @@ def api_conversation_step(conversation_id: str):
                 stream=stream,
                 reserved=True,
                 step_seq=step_seq,
+                max_tokens=max_tokens,
             )
         _step_dispatched = True
     finally:

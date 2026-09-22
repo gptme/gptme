@@ -455,6 +455,11 @@ class StepRequest(BaseModel):
     session_id: str = Field(..., description="Session ID")
     model: str | None = Field(None, description="Model to use")
     stream: bool = Field(True, description="Enable streaming")
+    max_tokens: int | None = Field(
+        None,
+        description="Maximum response tokens for this step",
+        gt=0,
+    )
     branch: str = Field("main", description="Conversation branch")
     auto_confirm: bool | int = Field(False, description="Auto-confirm tools")
     use_acp: bool = Field(

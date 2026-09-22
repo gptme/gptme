@@ -2773,6 +2773,59 @@ def test_v2_generate(v2_conv, client: FlaskClient):
     assert data["session_id"] == session_id
 
 
+def test_v2_step_forwards_explicit_max_tokens(v2_conv, client: FlaskClient):
+    """The step request's max_tokens override must reach the provider call."""
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    seen: dict[str, int | None] = {}
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Reply briefly"},
+    )
+    assert response.status_code == 200
+
+    def recording_stream(
+        messages, model, tools=None, max_tokens=None, temperature=None, top_p=None
+    ):
+        seen["max_tokens"] = max_tokens
+        yield "ok\n"
+
+    with unittest.mock.patch("gptme.server.session_step._stream", recording_stream):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+                "max_tokens": 64,
+            },
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            session = SessionManager.get_session(session_id)
+            if session is not None and not session.generating:
+                break
+            time.sleep(0.01)
+
+    assert response.status_code == 200
+    assert seen["max_tokens"] == 64
+
+
+@pytest.mark.parametrize("max_tokens", [0, -1, True, "64", 64.5])
+def test_v2_step_rejects_invalid_max_tokens(
+    v2_conv, client: FlaskClient, max_tokens: object
+):
+    response = client.post(
+        f"/api/v2/conversations/{v2_conv['conversation_id']}/step",
+        json={"session_id": v2_conv["session_id"], "max_tokens": max_tokens},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "max_tokens must be a positive integer"}
+
+
 @pytest.mark.slow
 @pytest.mark.requires_api
 def test_v2_interrupt(v2_conv, client: FlaskClient):

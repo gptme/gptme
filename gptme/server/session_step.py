@@ -684,6 +684,7 @@ def step(
     auto_confirm: bool = False,
     stream: bool = True,
     step_seq: int | None = None,
+    max_tokens: int | None = None,
 ) -> None:
     """
     Generate a response and detect tools.
@@ -706,11 +707,16 @@ def step(
         step_seq: The epoch this step owns, captured under step_lock by the caller.
             Used in finally to detect whether the continuation has taken ownership.
             If None, falls back to sampling session.step_seq at entry (racy on delay).
+        max_tokens: Optional request-scoped response limit. Falls back to the
+            conversation config when omitted.
     """
 
     # Load chat config and prepare execution environment
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+    effective_max_tokens = (
+        max_tokens if max_tokens is not None else chat_config.max_tokens
+    )
     prepare_execution_environment(
         workspace=workspace,
         tools=chat_config.tools,
@@ -892,7 +898,7 @@ def step(
                 msgs,
                 model,
                 tools,
-                max_tokens=chat_config.max_tokens,
+                max_tokens=effective_max_tokens,
                 temperature=chat_config.temperature,
                 top_p=chat_config.top_p,
             )
@@ -902,7 +908,7 @@ def step(
                 msgs,
                 model,
                 tools,
-                max_tokens=chat_config.max_tokens,
+                max_tokens=effective_max_tokens,
                 temperature=chat_config.temperature,
                 top_p=chat_config.top_p,
             )
@@ -1440,6 +1446,7 @@ def _start_step_thread(
     reserved: bool = False,
     step_seq: int | None = None,
     inherit_context: bool = True,
+    max_tokens: int | None = None,
 ) -> bool:
     """Start a step unless another operation has already reserved it.
 
@@ -1486,6 +1493,7 @@ def _start_step_thread(
                 auto_confirm=auto_confirm,
                 stream=stream,
                 step_seq=step_seq,
+                max_tokens=max_tokens,
             )
         except Exception as e:
             with session.step_lock:
