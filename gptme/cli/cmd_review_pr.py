@@ -766,7 +766,36 @@ def _spawn_review_session(
         "output_marker": output_marker,
     }
     if completed.returncode != 0 and completed.stderr.strip():
-        summary["error"] = completed.stderr.strip().splitlines()[-1]
+        stderr_lines = completed.stderr.strip().splitlines()
+        # The literal last line is almost always a benign shutdown/cleanup log
+        # (e.g. "Telemetry shutdown successfully" from an atexit handler) that
+        # runs after any fatal error, so picking it unconditionally masks the
+        # real failure entirely. Prefer the block starting at the first
+        # error-level ("· ERROR ...") line instead — it carries the actual
+        # exception/API error. Top-level log messages are prefixed with "·";
+        # wrapped continuation lines are indented without it, so the block
+        # ends at the next top-level line that isn't itself tagged ERROR
+        # (e.g. that same trailing shutdown message).
+        error_start = next(
+            (
+                i
+                for i, line in enumerate(stderr_lines)
+                if line.lstrip().startswith("·") and "ERROR" in line
+            ),
+            None,
+        )
+        if error_start is not None:
+            error_end = len(stderr_lines)
+            for i in range(error_start + 1, len(stderr_lines)):
+                line = stderr_lines[i]
+                if line.lstrip().startswith("·") and "ERROR" not in line:
+                    error_end = i
+                    break
+            summary["error"] = " ".join(
+                line.strip() for line in stderr_lines[error_start:error_end]
+            )
+        else:
+            summary["error"] = stderr_lines[-1]
 
     return completed.stdout, summary
 
