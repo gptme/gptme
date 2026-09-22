@@ -622,7 +622,7 @@ describe('SetupWizard', () => {
 
     expect(screen.getByRole('button', { name: /use gptme.ai instead/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /i configured a provider/i })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /openrouter/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: /openrouter/i })[0]).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /gemini/i })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /deepseek/i })).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).not.toMatchObject({

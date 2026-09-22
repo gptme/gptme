@@ -1122,7 +1122,7 @@ export function SetupWizard() {
                 </p>
                 <div className="mt-3 flex flex-col gap-3">
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="setup-subscription-provider">Provider</Label>
+                    <Label htmlFor="setup-subscription-provider">Service</Label>
                     <select
                       id="setup-subscription-provider"
                       className="h-9 rounded-md border bg-background px-3 text-sm"
