@@ -12,7 +12,10 @@ sys.path.insert(0, str(project_root))
 # Define data files to include. Standalone executables serve the modern web UI,
 # while the Tauri host already bundles it via frontendDist.
 datas = [
-    (str(project_root / 'gptme/server/static'), 'gptme/server/static'),
+    # Standalone VNC view served at /computer when no modern build provides one
+    (str(project_root / 'gptme/server/computer_view'), 'gptme/server/computer_view'),
+    # Templates for the self-contained HTML conversation export
+    (str(project_root / 'gptme/util/export_templates'), 'gptme/util/export_templates'),
     # Include the logo if needed
     (str(project_root / 'media/logo.png'), 'media'),
 ]
