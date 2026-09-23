@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -267,13 +268,19 @@ def _refresh_access_token(
     return auth
 
 
-def oauth_authenticate() -> SubscriptionAuth:
+def oauth_authenticate(
+    on_url_ready: Callable[[str], None] | None = None,
+) -> SubscriptionAuth:
     """Authenticate via xAI OAuth PKCE flow and return tokens.
 
     If valid grok CLI tokens already exist (~/.grok/auth.json), they are
     returned immediately without opening a browser.  Otherwise, the xAI
     PKCE flow opens the user's browser and waits for the OAuth callback on
     localhost:{OAUTH_CALLBACK_PORT}.
+
+    Args:
+        on_url_ready: Optional callback invoked with the auth URL before the
+            browser is opened.  Raise from the callback to abort the flow.
     """
     import base64
     import hashlib
@@ -304,6 +311,9 @@ def oauth_authenticate() -> SubscriptionAuth:
         "code_challenge_method": "S256",
     }
     auth_url = f"{OAUTH_AUTH_URL}?{urlencode(auth_params)}"
+
+    if on_url_ready is not None:
+        on_url_ready(auth_url)
 
     result: dict = {}
 

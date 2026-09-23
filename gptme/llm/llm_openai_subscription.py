@@ -40,7 +40,7 @@ import threading
 import time
 import webbrowser
 from base64 import urlsafe_b64decode
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -259,11 +259,19 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
 
-def oauth_authenticate() -> SubscriptionAuth:
+def oauth_authenticate(
+    on_url_ready: Callable[[str], None] | None = None,
+) -> SubscriptionAuth:
     """Perform OAuth authentication flow.
 
     Opens browser for user to log in, handles callback, and exchanges
     authorization code for tokens.
+
+    Args:
+        on_url_ready: Optional callback invoked with the auth URL before the
+            browser is opened.  Raise from the callback to abort the flow
+            (e.g. to surface the URL to a remote client instead of opening a
+            local browser).
     """
     if not _is_port_available(OAUTH_CALLBACK_PORT):
         raise ValueError(
@@ -287,6 +295,9 @@ def oauth_authenticate() -> SubscriptionAuth:
         "originator": "codex_cli_rs",
     }
     auth_url = f"{OAUTH_AUTH_URL}?{urlencode(auth_params)}"
+
+    if on_url_ready is not None:
+        on_url_ready(auth_url)
 
     # Reset handler state (protected by port check - only one flow at a time)
     _OAuthCallbackHandler.authorization_code = None

@@ -370,6 +370,15 @@ class SubscriptionConnectStatusResponse(BaseModel):
         description="Recommended default model after successful auth (provider/model)",
     )
     error: str | None = Field(None, description="Error message when status=error")
+    oauth_url: str | None = Field(
+        None,
+        description=(
+            "OAuth authorization URL. Set once the background thread starts the "
+            "PKCE flow. Useful when the server cannot open a browser (headless "
+            "environments): the client can display this URL for the user to open "
+            "manually."
+        ),
+    )
 
 
 class UserConfigFilePatchResponse(UserConfigFileResponse):

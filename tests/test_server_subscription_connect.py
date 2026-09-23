@@ -72,7 +72,7 @@ def test_start_subscription_connect_returns_task_id(client: FlaskClient):
     # Mock the OAuth function so it blocks until we release it, then succeeds.
     barrier = threading.Event()
 
-    def _fake_openai_oauth():
+    def _fake_openai_oauth(on_url_ready=None):
         barrier.wait(timeout=5)  # block until test releases
 
     with unittest.mock.patch(
@@ -107,7 +107,7 @@ def test_start_subscription_connect_returns_task_id(client: FlaskClient):
 def test_subscription_connect_success(client: FlaskClient):
     """OAuth success → task transitions to connected."""
 
-    def _fast_openai_oauth():
+    def _fast_openai_oauth(on_url_ready=None):
         pass  # immediate success
 
     with unittest.mock.patch(
@@ -143,7 +143,7 @@ def test_subscription_connect_success(client: FlaskClient):
 def test_subscription_connect_error(client: FlaskClient):
     """OAuth failure → task transitions to error with message."""
 
-    def _failing_oauth():
+    def _failing_oauth(on_url_ready=None):
         raise RuntimeError("Port 1455 is in use")
 
     with unittest.mock.patch(
@@ -174,7 +174,7 @@ def test_subscription_connect_error(client: FlaskClient):
 def test_subscription_connect_grok(client: FlaskClient):
     """Grok subscription provider flow."""
 
-    def _fake_grok_oauth():
+    def _fake_grok_oauth(on_url_ready=None):
         pass
 
     with unittest.mock.patch(
@@ -206,7 +206,7 @@ def test_subscription_connect_grok(client: FlaskClient):
 def test_subscription_connect_openrouter(client: FlaskClient, monkeypatch):
     """OpenRouter OAuth → key saved to env."""
 
-    def _fake_openrouter_oauth():
+    def _fake_openrouter_oauth(on_url_ready=None):
         return "sk-or-v1-testkey"
 
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -282,7 +282,7 @@ def test_start_subscription_connect_reuses_pending_task(client: FlaskClient):
     """A second POST for the same in-flight provider reuses the task instead of spawning another thread."""
     barrier = threading.Event()
 
-    def _block_oauth():
+    def _block_oauth(on_url_ready=None):
         barrier.wait(timeout=5)
 
     with unittest.mock.patch(
@@ -368,3 +368,86 @@ def test_start_requires_auth(client: FlaskClient):
 def test_status_requires_auth(client: FlaskClient):
     resp = client.get("/api/v2/user/subscription-connect/some-task")
     assert resp.status_code == 401
+
+
+def test_headless_server_fails_fast(client: FlaskClient, monkeypatch):
+    """In a headless environment the task transitions to error immediately with the OAuth URL."""
+    import gptme.server.api_v2 as api_mod
+
+    # Simulate a headless Linux server (no display env vars)
+    monkeypatch.setattr(api_mod, "_is_headless_server", lambda: True)
+
+    fake_url = "https://auth.example.com/oauth?code_challenge=test"
+
+    def _fake_oauth(on_url_ready=None):
+        if on_url_ready:
+            on_url_ready(fake_url)  # triggers headless check → raises
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_fake_oauth,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    task_id = resp.get_json()["task_id"]
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert data["status"] == "error"
+    assert "headless" in data["error"].lower() or "browser" in data["error"].lower()
+    # The OAuth URL must be present in the response so the client can display it
+    assert data.get("oauth_url") == fake_url
+
+
+def test_oauth_url_exposed_in_status(client: FlaskClient, monkeypatch):
+    """oauth_url is populated in the task status once the PKCE URL is built."""
+    import gptme.server.api_v2 as api_mod
+
+    # Ensure headless check never fires (this test runs on CI without a display)
+    monkeypatch.setattr(api_mod, "_is_headless_server", lambda: False)
+
+    barrier = threading.Event()
+    url_set = threading.Event()
+    fake_url = "https://auth.openai.com/authorize?code_challenge=abc"
+
+    def _slow_oauth(on_url_ready=None):
+        if on_url_ready:
+            on_url_ready(fake_url)
+        url_set.set()
+        barrier.wait(timeout=5)  # hold until test is done checking
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_slow_oauth,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    task_id = resp.get_json()["task_id"]
+
+    # Wait until the background thread has called on_url_ready
+    url_set.wait(timeout=5)
+    time.sleep(0.05)  # small grace period for the task dict update
+
+    status_resp = client.get(
+        f"/api/v2/user/subscription-connect/{task_id}",
+        headers=auth_headers(),
+    )
+    data = status_resp.get_json()
+    assert data["oauth_url"] == fake_url
+
+    barrier.set()

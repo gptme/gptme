@@ -34,6 +34,7 @@ import logging
 import secrets
 import socket
 import threading
+from collections.abc import Callable
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
@@ -55,11 +56,17 @@ def _generate_pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def oauth_get_api_key() -> str:
+def oauth_get_api_key(
+    on_url_ready: Callable[[str], None] | None = None,
+) -> str:
     """Run the OpenRouter PKCE OAuth flow and return the API key.
 
     Opens the user's browser, waits for the local OAuth callback, then
     exchanges the authorization code for a permanent ``sk-or-v1-…`` key.
+
+    Args:
+        on_url_ready: Optional callback invoked with the auth URL before the
+            browser is opened.  Raise from the callback to abort the flow.
 
     Raises
     ------
@@ -125,6 +132,9 @@ def oauth_get_api_key() -> str:
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
+
+    if on_url_ready is not None:
+        on_url_ready(auth_url)
 
     webbrowser.open(auth_url)
 
