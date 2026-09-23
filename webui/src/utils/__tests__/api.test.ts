@@ -25,6 +25,7 @@ import {
   CLIENT_MIN_CONTRACT_REVISION,
   getApiErrorPresentation,
   isLikelyChromeCorsPna,
+  isRetryableConnectionFailure,
 } from '../api';
 
 class MockEventSource {
@@ -65,6 +66,46 @@ const createSseCallbacks = () => ({
   onInterrupted: jest.fn(),
   onError: jest.fn(),
   onConnectionState: jest.fn(),
+});
+
+describe('isRetryableConnectionFailure', () => {
+  it('retries network and timeout probes, not CORS or HTTP failures', () => {
+    expect(isRetryableConnectionFailure(null)).toBe(false);
+    expect(isRetryableConnectionFailure({ ok: true, url: 'http://127.0.0.1:5700' })).toBe(false);
+    expect(
+      isRetryableConnectionFailure({
+        ok: false,
+        url: 'http://127.0.0.1:5700',
+        reason: 'timeout',
+        message: 'Request timed out after 3s — server may be slow or unreachable',
+      })
+    ).toBe(true);
+    expect(
+      isRetryableConnectionFailure({
+        ok: false,
+        url: 'http://127.0.0.1:5700',
+        reason: 'network',
+        message: 'Could not reach server (connection refused or no DNS)',
+      })
+    ).toBe(true);
+    expect(
+      isRetryableConnectionFailure({
+        ok: false,
+        url: 'http://127.0.0.1:5700',
+        reason: 'cors',
+        message: 'Network or CORS error — server may not allow requests from this origin',
+      })
+    ).toBe(false);
+    expect(
+      isRetryableConnectionFailure({
+        ok: false,
+        url: 'http://127.0.0.1:5700',
+        reason: 'http_error',
+        status: 401,
+        message: 'Server is running but requires a bearer token.',
+      })
+    ).toBe(false);
+  });
 });
 
 describe('isLikelyChromeCorsPna', () => {

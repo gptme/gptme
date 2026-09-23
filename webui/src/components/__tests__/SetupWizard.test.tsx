@@ -13,6 +13,13 @@ const mockInvokeTauri = jest.fn();
 const mockProcessConnectionFromHash = jest.fn();
 const mockIsDemoMode = jest.fn(() => false);
 const isConnected$ = observable(false);
+const lastConnectionResult$ = observable<null | {
+  ok: boolean;
+  url: string;
+  reason?: 'network' | 'http_error' | 'parse_error' | 'timeout' | 'cors';
+  status?: number;
+  message?: string;
+}>(null);
 const mockIsTauriEnvironment = jest.fn(() => false);
 const CLOUD_AUTH_BASE_URL = process.env['VITE_GPTME_CLOUD_BASE_URL'] || 'https://gptme.ai';
 const CLOUD_AUTH_URL = `${CLOUD_AUTH_BASE_URL}/authorize`;
@@ -76,6 +83,7 @@ jest.mock('@/contexts/ApiContext', () => ({
     api: {
       baseUrl: 'http://127.0.0.1:5700',
       authHeader: null,
+      lastConnectionResult$,
     },
     isConnected$,
     connect: mockConnect,
@@ -188,6 +196,7 @@ describe('SetupWizard', () => {
     localStorage.clear();
     setLocation('http://localhost/');
     isConnected$.set(false);
+    lastConnectionResult$.set(null);
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
     setupWizard$.providerStatusVersion.set(0);
@@ -802,11 +811,15 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
 
     await waitFor(() => {
-      expect(mockConnect).toHaveBeenCalledWith({
-        baseUrl: 'http://127.0.0.1:5712',
-        authToken: 'managed-sidecar-token',
-        useAuthToken: true,
-      });
+      expect(mockConnect).toHaveBeenCalledWith(
+        {
+          baseUrl: 'http://127.0.0.1:5712',
+          authToken: 'managed-sidecar-token',
+          useAuthToken: true,
+        },
+        undefined,
+        { suppressErrorToast: true }
+      );
     });
   });
 
@@ -906,6 +919,115 @@ describe('SetupWizard', () => {
         useAuthToken: false,
       });
     });
+  });
+
+  it('retries managed sidecar connect on timeout, then succeeds', async () => {
+    jest.useFakeTimers();
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ provider_configured: true }),
+    });
+    mockConnect
+      .mockImplementationOnce(async () => {
+        lastConnectionResult$.set({
+          ok: false,
+          url: 'http://127.0.0.1:5700/api/v2',
+          reason: 'timeout',
+          message: 'Request timed out after 3s — server may be slow or unreachable',
+        });
+        throw new Error('Request timed out after 3s — server may be slow or unreachable');
+      })
+      .mockImplementationOnce(async (_config, _serverId, options) => {
+        expect(options).toEqual({ suppressErrorToast: true });
+        lastConnectionResult$.set({ ok: true, url: 'http://127.0.0.1:5700/api/v2' });
+        isConnected$.set(true);
+      });
+
+    try {
+      render(
+        <SettingsProvider>
+          <SetupWizard />
+        </SettingsProvider>
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+      fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+      fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+      await act(async () => {
+        await Promise.resolve();
+        jest.runAllTicks();
+      });
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+        await Promise.resolve();
+        jest.runAllTicks();
+      });
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+      expect(mockConnect).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          baseUrl: 'http://127.0.0.1:5700',
+        }),
+        undefined,
+        { suppressErrorToast: true }
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not retry managed sidecar connect on CORS failure', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockConnect.mockImplementation(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        url: 'http://127.0.0.1:5700/api/v2',
+        reason: 'cors',
+        message: 'Network or CORS error — server may not allow requests from this origin',
+      });
+      throw new Error('Network or CORS error — server may not allow requests from this origin');
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Network or CORS error — server may not allow requests from this origin/)
+      ).toBeInTheDocument();
+    });
+    expect(mockConnect).toHaveBeenCalledTimes(1);
   });
 
   it('waits for tauri status before enabling the server mode choice', () => {

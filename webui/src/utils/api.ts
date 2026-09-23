@@ -278,6 +278,15 @@ export type ConnectionProbeResult =
       message: string;
     };
 
+/** Transient probe failures that can recover by retrying the same origin. */
+export function isRetryableConnectionFailure(
+  result: ConnectionProbeResult | null | undefined
+): boolean {
+  return (
+    result != null && !result.ok && (result.reason === 'network' || result.reason === 'timeout')
+  );
+}
+
 export interface ToolPendingEvent {
   type: 'tool_pending';
   tool_id: string;

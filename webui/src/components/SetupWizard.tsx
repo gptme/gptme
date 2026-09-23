@@ -20,6 +20,7 @@ import {
   type ApiKeyProvider,
   type SubscriptionProvider,
 } from '@/utils/apiKeyProviders';
+import { isRetryableConnectionFailure } from '@/utils/api';
 import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
 import { isLocalApiBaseUrl } from '@/utils/openConversationPath';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
@@ -474,21 +475,18 @@ export function SetupWizard() {
 
       if (managedServerConfig) {
         // The managed sidecar may still be starting up (slow on first launch,
-        // especially on Windows). Retry for up to ~15 s before giving up so the
-        // user doesn't have to click the button a second time.
+        // especially on Windows). Retry transient probe failures (network /
+        // timeout) for up to ~15 s. CORS and HTTP errors cannot recover by
+        // retrying the same origin, so they surface immediately.
         for (let attempt = 0; attempt < MANAGED_CONNECT_RETRY_COUNT; attempt++) {
+          const isLastAttempt = attempt === MANAGED_CONNECT_RETRY_COUNT - 1;
           try {
-            await connect(config);
+            // Intermediate failures must not toast — a sidecar that comes up
+            // on attempt 3 would otherwise flash several connection errors.
+            await connect(config, undefined, { suppressErrorToast: !isLastAttempt });
             return; // success — the isConnected effect calls checkProviderAndAdvance
           } catch (err) {
-            const isNetworkError =
-              err instanceof Error &&
-              (err.message.includes('fetch') ||
-                err.message.includes('network') ||
-                err.message.includes('connect') ||
-                err.message.includes('ECONNREFUSED') ||
-                err.message.includes('Failed to fetch'));
-            if (!isNetworkError || attempt === MANAGED_CONNECT_RETRY_COUNT - 1) {
+            if (!isRetryableConnectionFailure(api.lastConnectionResult$.get()) || isLastAttempt) {
               throw err;
             }
             await sleep(MANAGED_CONNECT_RETRY_DELAY_MS);

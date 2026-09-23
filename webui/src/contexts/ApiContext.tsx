@@ -44,7 +44,11 @@ interface ApiContextType {
   isExchangingAuthCode: boolean;
   connectionConfig: ConnectionConfig;
   updateConfig: (config: Partial<ConnectionConfig>) => void;
-  connect: (config?: Partial<ConnectionConfig>, serverId?: string) => Promise<void>;
+  connect: (
+    config?: Partial<ConnectionConfig>,
+    serverId?: string,
+    options?: { suppressErrorToast?: boolean }
+  ) => Promise<void>;
   switchServer: (serverId: string) => Promise<void>;
   stopAutoConnect: () => void;
 }
@@ -147,7 +151,11 @@ export function ApiProvider({
 
   // Connect to API — tests connectivity of the active server
   const connect = useCallback(
-    async (config?: Partial<ConnectionConfig>, serverId?: string) => {
+    async (
+      config?: Partial<ConnectionConfig>,
+      serverId?: string,
+      options?: { suppressErrorToast?: boolean }
+    ) => {
       stopAutoConnect();
 
       // Use the render snapshot that backs this provider by default. Callers that
@@ -264,7 +272,9 @@ export function ApiProvider({
             errorMessage += ' Error: ' + error.message;
           }
         }
-        toast.error(errorMessage);
+        if (!options?.suppressErrorToast) {
+          toast.error(errorMessage);
+        }
         throw error;
       } finally {
         isConnecting$.set(false);
