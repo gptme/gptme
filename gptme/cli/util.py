@@ -1449,6 +1449,7 @@ def prompts_expand(prompt: tuple[str, ...]):
 
     # Use the existing include_paths function to expand the prompt
     from ..message import Message  # fmt: skip
+    from ..util.content import is_message_command  # fmt: skip
     from ..util.context import _find_potential_paths, include_paths  # fmt: skip
 
     original_msg = Message("user", full_prompt)
@@ -1461,23 +1462,36 @@ def prompts_expand(prompt: tuple[str, ...]):
         if disabled_path_include is not None:
             os.environ["GPTME_DISABLE_PATH_INCLUDE"] = disabled_path_include
 
-    # Warn about file-path tokens that look like files but don't exist
+    # Warn about file-path tokens that look like files but don't exist.
+    # Skip slash commands — include_paths does not expand /shell etc.
     import urllib.parse  # fmt: skip
 
-    for word in _find_potential_paths(full_prompt):
-        try:
-            p = urllib.parse.urlparse(word)
-            if p.scheme in ("http", "https") and p.netloc:
-                continue  # URL — not a local file path
-        except ValueError:
-            pass
-        bare = word.removeprefix("@")
-        candidate = Path(bare).expanduser()
-        if not candidate.exists() and bare.startswith(("/", "~/", "./")):
-            click.echo(f"warning: path not found, not expanded: {word}", err=True)
+    if not is_message_command(full_prompt):
+        for word in _find_potential_paths(full_prompt):
+            try:
+                p = urllib.parse.urlparse(word)
+                if p.scheme in ("http", "https") and p.netloc:
+                    continue  # URL — not a local file path
+            except ValueError:
+                pass
+            candidate = Path(word).expanduser()
+            if not candidate.exists() and _looks_like_explicit_file_path(word):
+                click.echo(f"warning: path not found, not expanded: {word}", err=True)
 
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
+
+
+def _looks_like_explicit_file_path(path: str) -> bool:
+    """True for tokens intended as filesystem paths, not prose with a slash.
+
+    Covers the prefixes `_find_potential_paths` treats as path-like, plus
+    parent-relative (`../`) and Windows drive-absolute (`C:/`, `C:\\`) forms
+    that already reach the finder because they contain `/`.
+    """
+    if path.startswith(("/", "~/", "./", "../")):
+        return True
+    return len(path) >= 3 and path[0].isalpha() and path[1] == ":" and path[2] in "/\\"
 
 
 @main.group()

@@ -354,6 +354,15 @@ def test_context_index_and_retrieve(tmp_path):
         )
 
 
+def _runner_separate_stderr() -> CliRunner:
+    # Click < 8.2 defaults to mix_stderr=True; Click 8.2 removed that kwarg
+    # and separates streams by default. Use try/except to handle both.
+    try:
+        return CliRunner(mix_stderr=False)  # type: ignore[call-arg]
+    except TypeError:
+        return CliRunner()
+
+
 def test_prompts_expand_ignores_disable_path_include(tmp_path, monkeypatch):
     """`prompts expand` should still show path expansion under disabled include env.
 
@@ -372,6 +381,86 @@ def test_prompts_expand_ignores_disable_path_include(tmp_path, monkeypatch):
     assert "hello" in result.output
     assert str(test_file) in result.output
     assert os.environ["GPTME_DISABLE_PATH_INCLUDE"] == "1"
+
+
+def test_prompts_expand_warns_on_missing_path(tmp_path, monkeypatch):
+    """Missing explicit paths warn on stderr; stdout stays the unexpanded path."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = "/nonexistent/gptme-prompts-expand-missing.txt"
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert missing in result.stdout
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_no_warning_for_existing_path(tmp_path, monkeypatch):
+    """Existing files expand on stdout and do not emit a missing-path warning."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("hello\n")
+
+    result = runner.invoke(main, ["prompts", "expand", str(test_file)])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello" in result.stdout
+    assert str(test_file) in result.stdout
+
+
+def test_prompts_expand_warns_on_parent_relative_and_windows_paths(
+    tmp_path, monkeypatch
+):
+    """Parent-relative and Windows drive paths are explicit files, not prose."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(
+        main,
+        [
+            "prompts",
+            "expand",
+            "../gptme-definitely-missing.txt",
+            "C:/gptme-definitely-missing.txt",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "warning: path not found, not expanded: ../gptme-definitely-missing.txt" in (
+        result.stderr
+    )
+    assert "warning: path not found, not expanded: C:/gptme-definitely-missing.txt" in (
+        result.stderr
+    )
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_skips_slash_commands(tmp_path, monkeypatch):
+    """Slash commands are not missing files — include_paths skips them too."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(main, ["prompts", "expand", "/shell"])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "/shell" in result.stdout
+
+
+def test_prompts_expand_plain_text_no_warning(tmp_path, monkeypatch):
+    """Bare words are not paths and must not warn."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(main, ["prompts", "expand", "hello"])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello" in result.stdout
 
 
 def test_chats_send(tmp_path, monkeypatch):
