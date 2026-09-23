@@ -161,3 +161,100 @@ def test_openapi_spec_includes_provider_setup(client: FlaskClient):
     paths = spec["paths"]
     assert "/api/v2/provider/setup" in paths
     assert "/api/v2/provider/setup/{setup_id}" in paths
+
+
+def test_poll_response_includes_oauth_url_field(client: FlaskClient, monkeypatch):
+    """Poll response always includes oauth_url key (null before URL is known)."""
+    url_ready = threading.Event()
+
+    def _slow_oauth(cancel_event=None, on_url_ready=None, **_kw):
+        url_ready.wait(timeout=5)
+
+    monkeypatch.setattr(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate", _slow_oauth
+    )
+
+    setup_id = client.post(
+        "/api/v2/provider/setup", json={"provider": "openai-subscription"}
+    ).get_json()["setup_id"]
+
+    data = client.get(f"/api/v2/provider/setup/{setup_id}").get_json()
+    assert data["status"] == "pending"
+    assert "oauth_url" in data  # key present even when null
+    assert data["oauth_url"] is None
+
+    url_ready.set()
+
+
+def test_poll_response_exposes_oauth_url_when_ready(client: FlaskClient, monkeypatch):
+    """oauth_url is populated after on_url_ready fires."""
+    monkeypatch.setattr("gptme.server.api_v2._persist_default_model", lambda _: False)
+    monkeypatch.setattr("gptme.llm.models.get_recommended_model", lambda _: "gpt-5.2")
+
+    url_fired = threading.Event()
+    EXPECTED_URL = "https://auth.openai.com/oauth?code_challenge=abc123"
+
+    def _oauth_with_url(cancel_event=None, on_url_ready=None, **_kw):
+        if on_url_ready is not None:
+            on_url_ready(EXPECTED_URL)
+        url_fired.set()
+
+    monkeypatch.setattr(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate", _oauth_with_url
+    )
+
+    setup_id = client.post(
+        "/api/v2/provider/setup", json={"provider": "openai-subscription"}
+    ).get_json()["setup_id"]
+
+    assert url_fired.wait(timeout=5), "on_url_ready never called"
+
+    deadline = time.monotonic() + 5
+    data = None
+    while time.monotonic() < deadline:
+        data = client.get(f"/api/v2/provider/setup/{setup_id}").get_json()
+        if data.get("oauth_url") is not None:
+            break
+        time.sleep(0.05)
+
+    assert data is not None
+    assert data["oauth_url"] == EXPECTED_URL
+
+
+def test_openrouter_oauth_url_exposed(client: FlaskClient, monkeypatch):
+    """openrouter-pkce provider also exposes oauth_url."""
+    monkeypatch.setattr("gptme.server.api_v2._persist_default_model", lambda _: False)
+    monkeypatch.setattr(
+        "gptme.llm.models.get_recommended_model", lambda _: "meta-llama/llama-3"
+    )
+    monkeypatch.setattr("gptme.config.set_config_value", lambda *a, **kw: None)
+
+    EXPECTED_URL = "https://openrouter.ai/auth?callback_url=http://localhost:1458/..."
+    url_fired = threading.Event()
+
+    def _or_oauth(cancel_event=None, on_url_ready=None, **_kw):
+        if on_url_ready is not None:
+            on_url_ready(EXPECTED_URL)
+        url_fired.set()
+        return "sk-or-v1-fake-key"
+
+    monkeypatch.setattr(
+        "gptme.llm.llm_openrouter_subscription.oauth_get_api_key", _or_oauth
+    )
+
+    setup_id = client.post(
+        "/api/v2/provider/setup", json={"provider": "openrouter-pkce"}
+    ).get_json()["setup_id"]
+
+    assert url_fired.wait(timeout=5)
+
+    deadline = time.monotonic() + 5
+    data = None
+    while time.monotonic() < deadline:
+        data = client.get(f"/api/v2/provider/setup/{setup_id}").get_json()
+        if data.get("oauth_url") is not None:
+            break
+        time.sleep(0.05)
+
+    assert data is not None
+    assert data["oauth_url"] == EXPECTED_URL

@@ -110,6 +110,14 @@ def _apply_runtime_model(app: flask.Flask, model: str) -> None:
         )
 
 
+def _store_oauth_url(setup_id: str, url: str) -> None:
+    """Store the OAuth URL in the setup entry so poll can expose it."""
+    with _setups_lock:
+        entry = _setups.get(setup_id)
+        if entry is not None and entry.get("status") == "pending":
+            entry["oauth_url"] = url
+
+
 def _run_oauth(
     setup_id: str,
     provider: str,
@@ -117,13 +125,19 @@ def _run_oauth(
     cancel_event: threading.Event,
 ) -> None:
     """Background thread: run blocking OAuth, update _setups on completion."""
+
+    def _on_url(url: str) -> None:
+        _store_oauth_url(setup_id, url)
+
     try:
         if provider == "openai-subscription":
             import gptme.llm.llm_openai_subscription as _openai_sub
 
             from ..llm.models import get_recommended_model
 
-            _openai_sub.oauth_authenticate(cancel_event=cancel_event)
+            _openai_sub.oauth_authenticate(
+                cancel_event=cancel_event, on_url_ready=_on_url
+            )
             model = (
                 f"openai-subscription/{get_recommended_model('openai-subscription')}"
             )
@@ -133,7 +147,9 @@ def _run_oauth(
 
             from ..llm.models import get_recommended_model
 
-            _grok_sub.oauth_authenticate(cancel_event=cancel_event)
+            _grok_sub.oauth_authenticate(
+                cancel_event=cancel_event, on_url_ready=_on_url
+            )
             model = f"grok-subscription/{get_recommended_model('grok-subscription')}"
 
         elif provider == "openrouter-pkce":
@@ -141,7 +157,7 @@ def _run_oauth(
             from ..llm.llm_openrouter_subscription import oauth_get_api_key
             from ..llm.models import get_recommended_model
 
-            api_key = oauth_get_api_key(cancel_event=cancel_event)
+            api_key = oauth_get_api_key(cancel_event=cancel_event, on_url_ready=_on_url)
             if not _still_pending(setup_id):
                 logger.info("Ignoring OpenRouter key for cancelled setup %s", setup_id)
                 return
@@ -239,6 +255,7 @@ def start_provider_setup():
             "status": "pending",
             "model": None,
             "error": None,
+            "oauth_url": None,
             "created_at": time.monotonic(),
         }
         _cancels[setup_id] = cancel_event
@@ -287,5 +304,6 @@ def poll_provider_setup(setup_id: str):
             "status": entry["status"],
             "model": entry.get("model"),
             "error": entry.get("error"),
+            "oauth_url": entry.get("oauth_url"),
         }
     )

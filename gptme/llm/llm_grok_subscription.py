@@ -29,6 +29,7 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -270,6 +271,7 @@ def _refresh_access_token(
 
 def oauth_authenticate(
     cancel_event: threading.Event | None = None,
+    on_url_ready: Callable[[str], None] | None = None,
 ) -> SubscriptionAuth:
     """Authenticate via xAI OAuth PKCE flow and return tokens.
 
@@ -281,6 +283,9 @@ def oauth_authenticate(
     Args:
         cancel_event: If set, abort the wait loop so a replacement flow can
             bind the callback port.
+        on_url_ready: Optional callback invoked with the OAuth URL just before
+            the browser is opened.  Useful for exposing the URL to remote
+            clients that cannot see the server's browser.
     """
     import base64
     import hashlib
@@ -351,6 +356,9 @@ def oauth_authenticate(
         ) from e
 
     logger.info("Opening browser for xAI authentication (url: %s)", auth_url)
+
+    if on_url_ready is not None:
+        on_url_ready(auth_url)
 
     def _open() -> None:
         time.sleep(0.5)

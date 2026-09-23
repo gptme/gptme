@@ -171,6 +171,14 @@ class ProviderSetupStatusResponse(BaseModel):
         description="Default model after successful auth (provider/model)",
     )
     error: str | None = Field(None, description="Error message when status=error")
+    oauth_url: str | None = Field(
+        None,
+        description=(
+            "OAuth URL to open in the browser. Present when status=pending and the "
+            "background thread has constructed the URL. Useful for remote setups "
+            "where the server cannot open the user's browser."
+        ),
+    )
 
 
 class StatusResponse(BaseModel):

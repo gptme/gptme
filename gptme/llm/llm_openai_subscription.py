@@ -40,7 +40,7 @@ import threading
 import time
 import webbrowser
 from base64 import urlsafe_b64decode
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -289,6 +289,7 @@ def _wait_for_oauth_callback(
 def oauth_authenticate(
     cancel_event: threading.Event | None = None,
     timeout: float = 120,
+    on_url_ready: Callable[[str], None] | None = None,
 ) -> SubscriptionAuth:
     """Perform OAuth authentication flow.
 
@@ -299,6 +300,9 @@ def oauth_authenticate(
         cancel_event: If set, abort the wait loop so a replacement flow can
             bind the callback port.
         timeout: Overall seconds to wait for the browser callback.
+        on_url_ready: Optional callback invoked with the OAuth URL just before
+            the browser is opened.  Useful for exposing the URL to remote
+            clients that cannot see the server's browser.
     """
     if not _is_port_available(OAUTH_CALLBACK_PORT):
         raise ValueError(
@@ -335,6 +339,9 @@ def oauth_authenticate(
 
     print("\n🔐 Opening browser for OpenAI authentication...", flush=True)
     print(f"   If browser doesn't open, visit:\n   {auth_url}", flush=True)
+
+    if on_url_ready is not None:
+        on_url_ready(auth_url)
 
     def open_browser() -> None:
         time.sleep(0.5)
