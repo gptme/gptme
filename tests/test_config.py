@@ -902,7 +902,6 @@ key = "value"
         "env",
         "mcp",
         "plugin",
-        "architect",
     ],
 )
 def test_project_config_rejects_non_object_nested_sections(section_name: str):

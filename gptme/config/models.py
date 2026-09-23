@@ -298,28 +298,6 @@ class LessonsConfig:
 
 
 @dataclass
-class ArchitectConfig:
-    """Configuration for architect/editor coder split.
-
-    When enabled, planning (architect model) and editing (editor model) are
-    split into separate turns. The architect model produces a natural-language
-    plan without tools, then the editor model executes against the plan.
-    """
-
-    enabled: bool = False
-    """Enable architect/editor split mode."""
-
-    architect_model: str | None = None
-    """Model to use for the planning turn. Falls back to the primary model."""
-
-    editor_model: str | None = None
-    """Model to use for the editing turn. Falls back to a cheaper fast model."""
-
-    auto_accept: bool = False
-    """Skip user confirmation between architect and editor turns."""
-
-
-@dataclass
 class SubagentConfig:
     """Configuration for subagent execution."""
 
@@ -363,8 +341,6 @@ class ProjectConfig:
     context: ContextConfig = field(default_factory=ContextConfig)
 
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
-
-    architect: ArchitectConfig = field(default_factory=ArchitectConfig)
 
     subagent: SubagentConfig = field(default_factory=SubagentConfig)
 
@@ -476,19 +452,6 @@ class ProjectConfig:
                 raise ValueError("plugin must be an object")
             plugin_config = plugin_data
 
-        # Parse architect config from TOML dict
-        architect = ArchitectConfig()
-        if architect_data := config_data.pop("architect", None):
-            if not isinstance(architect_data, dict):
-                raise ValueError("architect must be an object")
-            known_keys = set(ArchitectConfig.__dataclass_fields__)
-            unknown = {k for k in architect_data if k not in known_keys}
-            if unknown:
-                logger.warning(f"Unknown keys in architect config: {unknown} (ignored)")
-            architect = ArchitectConfig(
-                **{k: v for k, v in architect_data.items() if k in known_keys}
-            )
-
         subagent = _build_section(
             "subagent", SubagentConfig, _pop_object_section(config_data, "subagent")
         )
@@ -524,7 +487,6 @@ class ProjectConfig:
             agent=agent,
             lessons=lessons,
             context=context,
-            architect=architect,
             plugins=plugins,
             plugin=plugin_config,
             env=env,

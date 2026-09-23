@@ -1114,37 +1114,6 @@ def test_missing_explicit_path_prompt_with_other_prompt_is_usage_error(
     assert "Traceback" not in result.output
 
 
-@pytest.mark.parametrize("flag", ["--architect-model", "--editor-model"])
-def test_architect_model_unqualified_is_usage_error(
-    flag: str, runner: CliRunner, runid: int
-):
-    # A malformed architect/editor model name (no provider prefix) should be
-    # reported as a clean usage error, not a raw ValueError traceback from
-    # llm_reply mid-planning. The other model is given a valid value so the
-    # failure is unambiguously the unqualified one being validated.
-    other = "--editor-model" if flag == "--architect-model" else "--architect-model"
-
-    result = runner.invoke(
-        cli.main,
-        [
-            "--non-interactive",
-            "--name",
-            f"test-architect-model-{runid}-{flag.strip('-')}",
-            "--architect",
-            flag,
-            "bad-no-provider",
-            other,
-            "anthropic/claude-sonnet-4-5",
-            "hello",
-        ],
-    )
-
-    assert result.exit_code == 2
-    assert "Traceback" not in result.output
-    assert flag in result.output
-    assert "provider prefix" in result.output
-
-
 def test_empty_model_is_usage_error(runner: CliRunner, runid: int):
     # --model "" should be caught at parse time by the click callback,
     # producing a clean BadParameter error (not a late ValueError).
