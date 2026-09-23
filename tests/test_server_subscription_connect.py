@@ -72,7 +72,7 @@ def test_start_subscription_connect_returns_task_id(client: FlaskClient):
     # Mock the OAuth function so it blocks until we release it, then succeeds.
     barrier = threading.Event()
 
-    def _fake_openai_oauth(on_url_ready=None):
+    def _fake_openai_oauth(**kwargs):
         barrier.wait(timeout=5)  # block until test releases
 
     with unittest.mock.patch(
@@ -107,7 +107,7 @@ def test_start_subscription_connect_returns_task_id(client: FlaskClient):
 def test_subscription_connect_success(client: FlaskClient):
     """OAuth success → task transitions to connected."""
 
-    def _fast_openai_oauth(on_url_ready=None):
+    def _fast_openai_oauth(**kwargs):
         pass  # immediate success
 
     with unittest.mock.patch(
@@ -143,7 +143,7 @@ def test_subscription_connect_success(client: FlaskClient):
 def test_subscription_connect_error(client: FlaskClient):
     """OAuth failure → task transitions to error with message."""
 
-    def _failing_oauth(on_url_ready=None):
+    def _failing_oauth(**kwargs):
         raise RuntimeError("Port 1455 is in use")
 
     with unittest.mock.patch(
@@ -174,7 +174,7 @@ def test_subscription_connect_error(client: FlaskClient):
 def test_subscription_connect_grok(client: FlaskClient):
     """Grok subscription provider flow."""
 
-    def _fake_grok_oauth(on_url_ready=None):
+    def _fake_grok_oauth(**kwargs):
         pass
 
     with unittest.mock.patch(
@@ -206,7 +206,7 @@ def test_subscription_connect_grok(client: FlaskClient):
 def test_subscription_connect_openrouter(client: FlaskClient, monkeypatch):
     """OpenRouter OAuth → key saved to env."""
 
-    def _fake_openrouter_oauth(on_url_ready=None):
+    def _fake_openrouter_oauth(**kwargs):
         return "sk-or-v1-testkey"
 
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -282,7 +282,7 @@ def test_start_subscription_connect_reuses_pending_task(client: FlaskClient):
     """A second POST for the same in-flight provider reuses the task instead of spawning another thread."""
     barrier = threading.Event()
 
-    def _block_oauth(on_url_ready=None):
+    def _block_oauth(**kwargs):
         barrier.wait(timeout=5)
 
     with unittest.mock.patch(
@@ -380,7 +380,8 @@ def test_headless_server_keeps_oauth_flow_alive(client: FlaskClient, monkeypatch
     barrier = threading.Event()
     skip_browser = threading.Event()
 
-    def _fake_oauth(on_url_ready=None):
+    def _fake_oauth(**kwargs):
+        on_url_ready = kwargs.get("on_url_ready")
         if on_url_ready:
             result = on_url_ready(fake_url)
             if result is False:
@@ -430,7 +431,8 @@ def test_oauth_url_exposed_in_status(client: FlaskClient, monkeypatch):
     url_set = threading.Event()
     fake_url = "https://auth.openai.com/authorize?code_challenge=abc"
 
-    def _slow_oauth(on_url_ready=None):
+    def _slow_oauth(**kwargs):
+        on_url_ready = kwargs.get("on_url_ready")
         if on_url_ready:
             on_url_ready(fake_url)
         url_set.set()
@@ -588,3 +590,72 @@ def test_openrouter_callback_server_closed_when_url_ready_raises(monkeypatch):
     assert len(servers) == 1
     assert servers[0].shutdown_calls == 1
     assert servers[0].close_calls == 1
+
+
+def test_oauth_timeout_passed_to_provider(client: FlaskClient):
+    """_run_subscription_oauth passes a TTL-derived timeout to the OAuth function."""
+    received_timeout: list[float] = []
+
+    def _capture_timeout(**kwargs):
+        received_timeout.append(kwargs.get("timeout", -1.0))
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_capture_timeout,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "openai-subscription"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    task_id = resp.get_json()["task_id"]
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert len(received_timeout) == 1, "oauth_authenticate was not called"
+    # The timeout must be positive and no larger than the task TTL (15 min).
+    import gptme.server.api_v2 as api_mod
+
+    assert 0 < received_timeout[0] <= api_mod._SUBSCRIPTION_TASK_TTL_S
+
+
+def test_oauth_timeout_marks_task_error(client: FlaskClient):
+    """When the OAuth function raises TimeoutError the task transitions to error."""
+
+    def _timeout_oauth(**kwargs):
+        timeout = kwargs.get("timeout", 300.0)
+        raise TimeoutError(f"OAuth timed out after {timeout:.0f}s")
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_grok_subscription.oauth_authenticate",
+        side_effect=_timeout_oauth,
+    ):
+        resp = client.post(
+            "/api/v2/user/subscription-connect",
+            json={"provider": "grok-subscription"},
+            headers=auth_headers(),
+        )
+    assert resp.status_code == 202
+    task_id = resp.get_json()["task_id"]
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            break
+        time.sleep(0.05)
+
+    assert data["status"] == "error"
+    assert "timed out" in data["error"].lower()

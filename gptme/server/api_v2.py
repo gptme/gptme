@@ -3516,21 +3516,25 @@ def _run_subscription_oauth(task_id: str, provider: str, app: flask.Flask) -> No
             return False
         return True
 
+    # Cap the OAuth wait so the thread stops no later than the task TTL expires.
+    oauth_timeout = max(30.0, created_at + _SUBSCRIPTION_TASK_TTL_S - time.monotonic())
     try:
         if provider == "openai-subscription":
             from ..llm.llm_openai_subscription import oauth_authenticate
 
-            oauth_authenticate(on_url_ready=_on_url_ready)
+            oauth_authenticate(timeout=oauth_timeout, on_url_ready=_on_url_ready)
         elif provider == "grok-subscription":
             from ..llm.llm_grok_subscription import (
                 oauth_authenticate as grok_oauth_authenticate,
             )
 
-            grok_oauth_authenticate(on_url_ready=_on_url_ready)
+            grok_oauth_authenticate(timeout=oauth_timeout, on_url_ready=_on_url_ready)
         elif provider == "openrouter":
             from ..llm.llm_openrouter_subscription import oauth_get_api_key
 
-            api_key = oauth_get_api_key(on_url_ready=_on_url_ready)
+            api_key = oauth_get_api_key(
+                timeout=oauth_timeout, on_url_ready=_on_url_ready
+            )
             # Persist and apply immediately so the running server picks it up.
             env_var = "OPENROUTER_API_KEY"
             set_config_value(f"env.{env_var}", api_key, reload=False, local=True)

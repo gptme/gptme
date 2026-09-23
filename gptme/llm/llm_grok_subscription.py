@@ -269,6 +269,7 @@ def _refresh_access_token(
 
 
 def oauth_authenticate(
+    timeout: float = 300.0,
     on_url_ready: Callable[[str], object] | None = None,
 ) -> SubscriptionAuth:
     """Authenticate via xAI OAuth PKCE flow and return tokens.
@@ -279,6 +280,7 @@ def oauth_authenticate(
     localhost:{OAUTH_CALLBACK_PORT}.
 
     Args:
+        timeout: Maximum seconds to wait for the browser callback.
         on_url_ready: Optional callback invoked with the auth URL before the
             browser is opened.  Return ``False`` to skip opening a browser
             while leaving the PKCE flow running.  Raise to abort the flow.
@@ -373,11 +375,13 @@ def oauth_authenticate(
             auth_url,
         )
 
-    deadline = time.time() + 300
+    deadline = time.time() + timeout
     try:
         while "code" not in result and "error" not in result:
             if time.time() > deadline:
-                raise TimeoutError("xAI authentication timed out after 5 minutes.")
+                raise TimeoutError(
+                    f"xAI authentication timed out after {timeout:.0f} seconds."
+                )
             server.handle_request()
     finally:
         server.server_close()

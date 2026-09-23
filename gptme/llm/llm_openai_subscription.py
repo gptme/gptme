@@ -260,6 +260,7 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
 
 def oauth_authenticate(
+    timeout: float = 300.0,
     on_url_ready: Callable[[str], object] | None = None,
 ) -> SubscriptionAuth:
     """Perform OAuth authentication flow.
@@ -268,6 +269,8 @@ def oauth_authenticate(
     authorization code for tokens.
 
     Args:
+        timeout: Maximum seconds to wait for the browser callback.  Raises
+            ``TimeoutError`` if the user does not complete the flow in time.
         on_url_ready: Optional callback invoked with the auth URL before the
             browser is opened.  Return ``False`` to skip opening a browser
             while leaving the PKCE flow running.  Raise to abort the flow.
@@ -308,7 +311,7 @@ def oauth_authenticate(
         ("127.0.0.1", OAUTH_CALLBACK_PORT),
         _OAuthCallbackHandler,
     )
-    server.timeout = 120  # 2 minutes should be sufficient for browser auth
+    server.timeout = min(30.0, timeout)  # per-request poll interval
 
     if should_open_browser:
         print("\n🔐 Opening browser for OpenAI authentication...", flush=True)
@@ -333,11 +336,16 @@ def oauth_authenticate(
         f"   Waiting for authentication callback on port {OAUTH_CALLBACK_PORT}...",
         flush=True,
     )
+    deadline = time.time() + timeout
     try:
         while (
             _OAuthCallbackHandler.authorization_code is None
             and _OAuthCallbackHandler.error is None
         ):
+            if time.time() >= deadline:
+                raise TimeoutError(
+                    f"OpenAI authentication timed out after {timeout:.0f} seconds."
+                )
             server.handle_request()
     finally:
         server.server_close()

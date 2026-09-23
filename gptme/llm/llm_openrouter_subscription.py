@@ -57,6 +57,7 @@ def _generate_pkce() -> tuple[str, str]:
 
 
 def oauth_get_api_key(
+    timeout: float = 300.0,
     on_url_ready: Callable[[str], object] | None = None,
 ) -> str:
     """Run the OpenRouter PKCE OAuth flow and return the API key.
@@ -65,6 +66,7 @@ def oauth_get_api_key(
     exchanges the authorization code for a permanent ``sk-or-v1-…`` key.
 
     Args:
+        timeout: Maximum seconds to wait for the browser callback.
         on_url_ready: Optional callback invoked with the auth URL before the
             browser is opened.  Return ``False`` to skip opening a browser
             while leaving the PKCE flow running.  Raise to abort the flow.
@@ -145,10 +147,9 @@ def oauth_get_api_key(
                     auth_url,
                 )
 
-        # Wait up to 5 minutes for the user to complete the browser flow
-        if not _done.wait(timeout=300):
+        if not _done.wait(timeout=timeout):
             raise RuntimeError(
-                "OpenRouter OAuth timed out (no browser callback after 5 minutes)."
+                f"OpenRouter OAuth timed out (no browser callback after {timeout:.0f} seconds)."
             )
     finally:
         server.shutdown()
