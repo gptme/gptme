@@ -18,7 +18,7 @@ from click.testing import CliRunner
 if TYPE_CHECKING:
     from pathlib import Path
 
-from gptme.cli.cmd_service import cli
+from gptme.cli.cmd_service import _read_model_from_unit_file, cli
 
 
 def _run_init(tmp_path: Path, *args: str) -> None:
@@ -1370,3 +1370,25 @@ def test_force_with_explicit_model_overrides(tmp_path: Path) -> None:
     unit = (out_dir / "testagent.service").read_text()
     assert "openai/gpt-4o" in unit
     assert "anthropic/claude-haiku-4-5" not in unit
+
+
+def test_read_model_from_unit_file_last_assignment_wins(tmp_path: Path) -> None:
+    """systemd last-assignment-wins: a later Environment= override must be kept."""
+    unit = tmp_path / "testagent.service"
+    unit.write_text(
+        "[Service]\n"
+        'Environment="GPTME_AGENT_MODEL=anthropic/claude-haiku-4-5"\n'
+        'Environment="GPTME_AGENT_MODEL=openai/gpt-4o"\n'
+    )
+    assert _read_model_from_unit_file(unit) == "openai/gpt-4o"
+
+
+def test_read_model_from_unit_file_parses_multi_assignment_line(
+    tmp_path: Path,
+) -> None:
+    """A valid multi-assignment Environment= line must not swallow later vars."""
+    unit = tmp_path / "testagent.service"
+    unit.write_text(
+        'Environment="GPTME_AGENT_MODEL=anthropic/claude-haiku-4-5" "OTHER=value"\n'
+    )
+    assert _read_model_from_unit_file(unit) == "anthropic/claude-haiku-4-5"

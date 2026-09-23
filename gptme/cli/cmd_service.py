@@ -446,16 +446,31 @@ def _write_file(path: Path, content: str, force: bool = False) -> bool:
 
 
 def _read_model_from_unit_file(unit_path: Path) -> str | None:
-    """Read GPTME_AGENT_MODEL from an existing systemd service unit file."""
+    """Read GPTME_AGENT_MODEL from an existing systemd service unit file.
+
+    systemd uses the last assignment when a variable is set more than once.
+    A single Environment= line may also contain multiple quoted assignments
+    (``Environment="GPTME_AGENT_MODEL=..." "OTHER=value"``).
+    """
+    last: str | None = None
     try:
-        for line in unit_path.read_text().splitlines():
-            line = line.strip()
-            if "GPTME_AGENT_MODEL=" in line and line.startswith("Environment"):
-                _, _, rest = line.partition("GPTME_AGENT_MODEL=")
-                return rest.strip().strip('"')
+        for raw in unit_path.read_text().splitlines():
+            line = raw.strip()
+            if not line.startswith("Environment"):
+                continue
+            payload = line.partition("=")[2].strip()
+            if not payload:
+                continue
+            try:
+                assignments = shlex.split(payload)
+            except ValueError:
+                continue
+            for assignment in assignments:
+                if assignment.startswith("GPTME_AGENT_MODEL="):
+                    last = assignment[len("GPTME_AGENT_MODEL=") :]
     except OSError:
         pass
-    return None
+    return last or None
 
 
 def _detect_platform() -> str:
@@ -533,7 +548,11 @@ def cli() -> None:
     "-m",
     type=str,
     default=None,
-    help="Default model for the agent (default: gpt-4o-mini, or preserved from existing unit when --force).",
+    help=(
+        "Default model for the agent (default: gpt-4o-mini, or preserved from "
+        "an existing systemd unit with --force on Linux). On macOS, pass "
+        "--model when regenerating to retain your configured model."
+    ),
 )
 @click.option(
     "--work-dir",
