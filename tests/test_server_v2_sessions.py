@@ -6,6 +6,8 @@ These are unit-level tests using the Flask test client — they don't
 require API keys or LLM calls.
 """
 
+import json
+import math
 import threading
 import uuid
 from unittest.mock import MagicMock, patch
@@ -493,6 +495,29 @@ class TestStepEndpoint:
         assert data is not None
         assert "temperature" in data["error"]
 
+    @pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+    def test_temperature_non_finite_returns_400(
+        self, conv, client: FlaskClient, non_finite: float
+    ):
+        """NaN/Inf bypass range comparisons; Flask's JSON decoder accepts them."""
+        payload = json.dumps(
+            {
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "temperature": non_finite,
+            },
+            allow_nan=True,
+        )
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            data=payload,
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "temperature" in data["error"]
+
     @pytest.mark.parametrize(
         "bad_value",
         [
@@ -532,6 +557,29 @@ class TestStepEndpoint:
                 "model": "test/model",
                 "top_p": out_of_range,
             },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "top_p" in data["error"]
+
+    @pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+    def test_top_p_non_finite_returns_400(
+        self, conv, client: FlaskClient, non_finite: float
+    ):
+        """NaN/Inf bypass range comparisons; Flask's JSON decoder accepts them."""
+        payload = json.dumps(
+            {
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "top_p": non_finite,
+            },
+            allow_nan=True,
+        )
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            data=payload,
+            content_type="application/json",
         )
         assert response.status_code == 400
         data = response.get_json()

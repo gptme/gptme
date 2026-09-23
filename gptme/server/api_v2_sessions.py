@@ -8,6 +8,7 @@ Data models live in session_models.py; execution logic in session_step.py.
 
 import dataclasses
 import logging
+import math
 import time
 import uuid
 from collections.abc import Generator
@@ -346,11 +347,12 @@ def api_conversation_step(conversation_id: str):
     if temperature is not None and (
         not isinstance(temperature, (int, float))
         or isinstance(temperature, bool)
+        or not math.isfinite(temperature)
         or temperature < 0.0
         or temperature > 2.0
     ):
         return flask.jsonify(
-            {"error": "temperature must be a float in [0.0, 2.0]"}
+            {"error": "temperature must be a finite float in [0.0, 2.0]"}
         ), 400
     if temperature is not None:
         temperature = float(temperature)
@@ -359,10 +361,13 @@ def api_conversation_step(conversation_id: str):
     if top_p is not None and (
         not isinstance(top_p, (int, float))
         or isinstance(top_p, bool)
+        or not math.isfinite(top_p)
         or top_p < 0.0
         or top_p > 1.0
     ):
-        return flask.jsonify({"error": "top_p must be a float in [0.0, 1.0]"}), 400
+        return flask.jsonify(
+            {"error": "top_p must be a finite float in [0.0, 1.0]"}
+        ), 400
     if top_p is not None:
         top_p = float(top_p)
 
