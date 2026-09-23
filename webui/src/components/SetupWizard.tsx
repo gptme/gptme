@@ -351,7 +351,14 @@ export function SetupWizard() {
       lastAutoAdvanceBaseUrlRef.current = null;
       return;
     }
-    if (!isOpen || step === 'welcome' || step === 'complete' || step === 'provider') return;
+    if (
+      !isOpen ||
+      step === 'welcome' ||
+      step === 'mode' ||
+      step === 'complete' ||
+      step === 'provider'
+    )
+      return;
 
     if (lastAutoAdvanceBaseUrlRef.current === connectionConfig.baseUrl) return;
     lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
