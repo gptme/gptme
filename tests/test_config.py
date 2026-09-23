@@ -540,6 +540,59 @@ command = "server-command"
     assert [s.name for s in config.mcp.servers] == ["valid"]
 
 
+def test_malformed_main_mcp_does_not_crash_local_merge(tmp_path: Path) -> None:
+    """A non-table mcp in main config must not crash when local defines servers."""
+    main = tmp_path / "config.toml"
+    main.write_text('mcp = "invalid"\n', encoding="utf-8")
+    (tmp_path / "config.local.toml").write_text(
+        "[mcp]\nenabled = true\n\n"
+        "[[mcp.servers]]\n"
+        'name = "from-local"\n'
+        'command = "server-command"\n',
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+    assert config.mcp is not None
+    assert config.mcp.enabled is True
+    assert [s.name for s in config.mcp.servers] == ["from-local"]
+
+
+def test_non_list_mcp_servers_does_not_crash_local_merge(tmp_path: Path) -> None:
+    """A non-list mcp.servers in main must not crash when local defines servers."""
+    main = tmp_path / "config.toml"
+    main.write_text('[mcp]\nenabled = true\nservers = "invalid"\n', encoding="utf-8")
+    (tmp_path / "config.local.toml").write_text(
+        '[[mcp.servers]]\nname = "from-local"\ncommand = "server-command"\n',
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+    assert config.mcp is not None
+    assert [s.name for s in config.mcp.servers] == ["from-local"]
+
+
+def test_malformed_local_mcp_override_keeps_valid_server(tmp_path: Path) -> None:
+    """A same-name local override with an unknown key must not drop the valid server."""
+    main = tmp_path / "config.toml"
+    main.write_text(
+        "[mcp]\nenabled = true\n\n"
+        "[[mcp.servers]]\n"
+        'name = "keep-me"\n'
+        'command = "server-command"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.local.toml").write_text(
+        '[[mcp.servers]]\nname = "keep-me"\nbogus_key = true\n',
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+    assert config.mcp is not None
+    assert [s.name for s in config.mcp.servers] == ["keep-me"]
+    assert config.mcp.servers[0].command == "server-command"
+
+
 def test_mcp_config_loaded_from_toml():
     config_toml = """[mcp]
         enabled = true

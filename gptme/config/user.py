@@ -445,6 +445,15 @@ def _with_builtin_defaults(config: dict[str, Any]) -> dict[str, Any]:
     return _merge_config_data(defaults, config)
 
 
+def _mcp_server_entry_constructs(server: dict[str, Any]) -> bool:
+    """Return True if ``server`` can construct an ``MCPServerConfig``."""
+    try:
+        MCPServerConfig(**server)
+    except TypeError:
+        return False
+    return True
+
+
 def _parse_mcp_config(mcp_data: Any, *, strict: bool) -> MCPConfig:
     """Parse the ``[mcp]`` section.
 
@@ -897,13 +906,17 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
 
     for key, value in local_config.items():
         if key == "mcp" and isinstance(value, dict) and "servers" in value:
-            # Special handling for MCP servers - merge by name
-            if "mcp" not in merged:
+            # Special handling for MCP servers - merge by name. Existing mcp /
+            # servers values may be malformed (user typo); don't crash the
+            # merge before the later non-strict parse can skip them.
+            if not isinstance(merged.get("mcp"), dict):
                 merged["mcp"] = {}
-            if "servers" not in merged["mcp"]:
+            if not isinstance(merged["mcp"].get("servers"), list):
                 merged["mcp"]["servers"] = []
 
             local_servers = value.get("servers", [])
+            if not isinstance(local_servers, list):
+                local_servers = []
             main_servers = merged["mcp"]["servers"]
 
             # Create a dict for quick lookup of main servers by name. Entries
@@ -921,17 +934,36 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
                     continue
                 server_name = local_server.get("name")
                 if server_name and server_name in main_servers_by_name:
-                    # Merge env vars from local into main server
+                    # Merge env vars from local into main server. A malformed
+                    # same-name override must not poison (and then drop) an
+                    # otherwise valid existing server — e.g. an unexpected
+                    # key in local config deleting a main entry.
                     main_server = main_servers_by_name[server_name]
-                    if "env" not in main_server:
-                        main_server["env"] = {}
-                    if "env" in local_server:
-                        main_server["env"].update(local_server["env"])
-
-                    # Merge other server properties (command, args, enabled)
-                    for server_key, server_value in local_server.items():
-                        if server_key not in ["name", "env"]:
-                            main_server[server_key] = server_value
+                    candidate = dict(main_server)
+                    local_env = local_server.get("env")
+                    if isinstance(local_env, dict):
+                        base_env = (
+                            dict(main_server["env"])
+                            if isinstance(main_server.get("env"), dict)
+                            else {}
+                        )
+                        base_env.update(local_env)
+                        candidate["env"] = base_env
+                    candidate.update(
+                        {
+                            k: v
+                            for k, v in local_server.items()
+                            if k not in ["name", "env"]
+                        }
+                    )
+                    if not _mcp_server_entry_constructs(candidate):
+                        logger.warning(
+                            f"Skipping malformed override for MCP server "
+                            f"{server_name!r}; keeping the existing entry"
+                        )
+                        continue
+                    main_server.clear()
+                    main_server.update(candidate)
                 else:
                     # Add new server from local config
                     main_servers.append(local_server)
