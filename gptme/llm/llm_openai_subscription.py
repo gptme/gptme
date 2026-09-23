@@ -67,6 +67,10 @@ OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 OAUTH_CALLBACK_PORT = 1455
 OAUTH_CALLBACK_PATH = "/auth/callback"
 OAUTH_SCOPES = "openid profile email offline_access"
+# Overall PKCE wait. Grok and OpenRouter use the same bound; without it,
+# handle_request() just loops on the 120s socket timeout forever, and an
+# abandoned worker keeps port 1455 after the subscription task is pruned.
+OAUTH_CALLBACK_TIMEOUT_S = 300.0
 
 # ChatGPT backend API base URL
 CHATGPT_BASE_URL = "https://chatgpt.com"
@@ -261,6 +265,8 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
 def oauth_authenticate(
     on_url_ready: Callable[[str], object] | None = None,
+    *,
+    timeout: float = OAUTH_CALLBACK_TIMEOUT_S,
 ) -> SubscriptionAuth:
     """Perform OAuth authentication flow.
 
@@ -271,6 +277,8 @@ def oauth_authenticate(
         on_url_ready: Optional callback invoked with the auth URL before the
             browser is opened.  Return ``False`` to skip opening a browser
             while leaving the PKCE flow running.  Raise to abort the flow.
+        timeout: Seconds to wait for the browser callback before giving up
+            and releasing the callback port. Matches the WebUI poll window.
     """
     if not _is_port_available(OAUTH_CALLBACK_PORT):
         raise ValueError(
@@ -308,7 +316,10 @@ def oauth_authenticate(
         ("127.0.0.1", OAUTH_CALLBACK_PORT),
         _OAuthCallbackHandler,
     )
-    server.timeout = 120  # 2 minutes should be sufficient for browser auth
+    # Per-accept socket timeout so the overall deadline is checked even when
+    # no callback arrives. handle_request() otherwise blocks, then the while
+    # loop starts another wait — forever, if there is no outer deadline.
+    server.timeout = min(120.0, max(0.05, timeout))
 
     if should_open_browser:
         print("\n🔐 Opening browser for OpenAI authentication...", flush=True)
@@ -333,11 +344,17 @@ def oauth_authenticate(
         f"   Waiting for authentication callback on port {OAUTH_CALLBACK_PORT}...",
         flush=True,
     )
+    deadline = time.monotonic() + timeout
     try:
         while (
             _OAuthCallbackHandler.authorization_code is None
             and _OAuthCallbackHandler.error is None
         ):
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    "OpenAI authentication timed out after "
+                    f"{timeout:g} seconds (no browser callback)."
+                )
             server.handle_request()
     finally:
         server.server_close()

@@ -760,3 +760,75 @@ def test_stream_records_reasoning_tokens_and_effort():
     assert metadata["usage"]["reasoning_tokens"] == 60
     # _drain_stream uses bare "gpt-5.4" → default Codex effort
     assert metadata["reasoning_effort"] == "medium"
+
+
+class _FakeOAuthHTTPServer:
+    def __init__(self, *_args, **_kwargs):
+        self.timeout: float | None = None
+        self.handle_calls = 0
+        self.close_calls = 0
+
+    def handle_request(self) -> None:
+        self.handle_calls += 1
+
+    def server_close(self) -> None:
+        self.close_calls += 1
+
+
+def test_oauth_authenticate_timeout_closes_callback_server():
+    """Abandoned OpenAI PKCE must stop waiting and shut down the callback server.
+
+    Without an overall deadline, handle_request() loops forever on the socket
+    timeout and keeps port 1455 after the subscription task is pruned.
+    """
+    servers: list[_FakeOAuthHTTPServer] = []
+
+    def _factory(*args, **kwargs):
+        server = _FakeOAuthHTTPServer(*args, **kwargs)
+        servers.append(server)
+        return server
+
+    with (
+        patch(
+            "gptme.llm.llm_openai_subscription._is_port_available",
+            return_value=True,
+        ),
+        patch(
+            "gptme.llm.llm_openai_subscription.http.server.HTTPServer",
+            side_effect=_factory,
+        ),
+        patch(
+            "gptme.llm.llm_openai_subscription.webbrowser.open",
+            return_value=False,
+        ),
+        pytest.raises(TimeoutError, match="timed out"),
+    ):
+        llm_openai_subscription.oauth_authenticate(
+            on_url_ready=lambda _url: False,
+            timeout=0.05,
+        )
+
+    assert len(servers) == 1
+    assert servers[0].close_calls == 1
+    assert servers[0].handle_calls >= 1
+
+
+def test_oauth_authenticate_timeout_releases_callback_port():
+    """After a timeout, a later OpenAI sign-in must be able to bind port 1455."""
+    port = llm_openai_subscription.OAUTH_CALLBACK_PORT
+    if not llm_openai_subscription._is_port_available(port):
+        pytest.skip(f"OpenAI OAuth callback port {port} is already in use")
+
+    with (
+        patch(
+            "gptme.llm.llm_openai_subscription.webbrowser.open",
+            return_value=False,
+        ),
+        pytest.raises(TimeoutError, match="timed out"),
+    ):
+        llm_openai_subscription.oauth_authenticate(
+            on_url_ready=lambda _url: False,
+            timeout=0.25,
+        )
+
+    assert llm_openai_subscription._is_port_available(port)
