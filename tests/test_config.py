@@ -3170,3 +3170,26 @@ def test_load_user_config_plugin_sections_preserved(tmp_path):
 
     content_after = config_file.read_text()
     assert "headroom_compressor" in content_after
+
+
+def test_chat_config_ignores_legacy_gear_key(tmp_path):
+    """A conversation saved before --gear was removed must still load."""
+    config = ChatConfig.from_dict(
+        {
+            "chat": {
+                "gear": 0,
+                "workspace": str(tmp_path),
+                "model": "anthropic/claude-sonnet-4-6",
+            }
+        }
+    )
+
+    assert config.model == "anthropic/claude-sonnet-4-6"
+    assert not hasattr(config, "gear")
+
+
+def test_project_config_ignores_legacy_gear_setting():
+    """A project config written before --gear was removed must still load."""
+    config = ProjectConfig.from_dict({"settings": {"gear": 2}})
+
+    assert not hasattr(config.settings, "gear")

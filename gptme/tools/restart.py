@@ -96,8 +96,6 @@ def _do_restart(conversation_name: str | None = None):
                 "--agent-path",  # agent path
                 "-w",
                 "--workspace",  # workspace path
-                "--multi-tool",
-                "--no-multi-tool",  # multi-tool mode
                 "--context-mode",  # context mode
                 "--context-include",  # context includes
             }

@@ -436,7 +436,7 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_SESSION_BUDGET_TOKENS`` - Optional per-session token budget. Counts input, output, cache-read, and cache-creation tokens.
 - ``GPTME_BUDGET_WARN_PCT`` - Percentage of the configured session budget that triggers the warning (default: 80).
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
-- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream. Default is model-dependent: ``false`` for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), ``true`` for others. Set to ``0`` to force parallel tool calls, ``1`` to force single tool call per response (equivalent to ``--multi-tool`` flag).
+- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream. Default is model-dependent: ``false`` for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), ``true`` for others. Set to ``0`` to force parallel tool calls, ``1`` to force single tool call per response.
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
 

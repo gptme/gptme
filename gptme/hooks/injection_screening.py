@@ -5,7 +5,7 @@ sources for prompt injection patterns. When detected, appends an [UNTRUSTED]
 or [INJECTION BLOCKED] warning to the model context so the model treats the
 preceding tool output as untrusted.
 
-**Modes** (set via ``--injection-hygiene`` flag or ``GPTME_INJECTION_HYGIENE`` env var):
+**Modes** (set via the ``GPTME_INJECTION_HYGIENE`` env var):
   off   — no screening (disable entirely)
   warn  — prepend [UNTRUSTED: ...] warning, log HIGH hits to injection-attempts.jsonl
   block — same as warn, but HIGH-severity patterns get a stronger [INJECTION BLOCKED]
