@@ -5,7 +5,10 @@ Features
 
 gptme is a personal AI agent in your terminal with tools to run shell commands, write code, edit files, browse the web, use vision, and much more. A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.
 
-An unconstrained local free and open-source alternative to Claude Code, Codex, Cursor Agents, etc. One of the first agent CLIs created (Spring 2023) — and still in very active development.
+An unconstrained, local, free and open-source alternative to Claude Code, Codex,
+and Grok Bot, and a development-focused peer to self-hosted agents like OpenClaw
+and Hermes Agent. One of the first agent CLIs created (Spring 2023) — and still
+in very active development. See :doc:`alternatives` for the full comparison.
 
 What sets gptme apart
 ---------------------
