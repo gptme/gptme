@@ -448,6 +448,219 @@ class TestStepEndpoint:
         assert lock.config_loaded_while_held is True
         assert lock.step_entered_while_held is True
 
+    @pytest.mark.parametrize(
+        "bad_value",
+        [
+            "hot",
+            ["0.5"],
+            {"v": 0.5},
+            True,
+            False,
+        ],
+    )
+    def test_invalid_temperature_type_returns_400(
+        self, conv, client: FlaskClient, bad_value: object
+    ):
+        """Non-numeric or boolean temperature returns 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "temperature": bad_value,
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "temperature" in data["error"]
+
+    @pytest.mark.parametrize("out_of_range", [-0.1, 2.1, -1.0, 10.0])
+    def test_temperature_out_of_range_returns_400(
+        self, conv, client: FlaskClient, out_of_range: float
+    ):
+        """temperature outside [0.0, 2.0] returns 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "temperature": out_of_range,
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "temperature" in data["error"]
+
+    @pytest.mark.parametrize(
+        "bad_value",
+        [
+            "nucleus",
+            ["0.9"],
+            {"v": 0.9},
+            True,
+            False,
+        ],
+    )
+    def test_invalid_top_p_type_returns_400(
+        self, conv, client: FlaskClient, bad_value: object
+    ):
+        """Non-numeric or boolean top_p returns 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "top_p": bad_value,
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "top_p" in data["error"]
+
+    @pytest.mark.parametrize("out_of_range", [-0.1, 1.1, -1.0, 5.0])
+    def test_top_p_out_of_range_returns_400(
+        self, conv, client: FlaskClient, out_of_range: float
+    ):
+        """top_p outside [0.0, 1.0] returns 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "top_p": out_of_range,
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "top_p" in data["error"]
+
+    def test_temperature_and_top_p_reach_stream(self, conv, tmp_path, monkeypatch):
+        """temperature and top_p supplied in /step reach the provider _stream call.
+
+        Provider-facing regression: these fields were parsed and validated at the
+        API boundary but silently dropped before the LLM call in session_step.step().
+        """
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+
+        captured: dict = {}
+
+        def capture_stream(*args, **kwargs):
+            captured.update(kwargs)
+            return iter([])
+
+        with (
+            patch("gptme.server.session_step._stream", side_effect=capture_stream),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=0.9,  # ChatConfig fallback — must be overridden
+                    top_p=0.95,  # ChatConfig fallback — must be overridden
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+                temperature=0.3,
+                top_p=0.7,
+            )
+
+        assert captured.get("temperature") == 0.3, (
+            f"Expected temperature=0.3 at provider, got {captured.get('temperature')!r}"
+        )
+        assert captured.get("top_p") == 0.7, (
+            f"Expected top_p=0.7 at provider, got {captured.get('top_p')!r}"
+        )
+
+    def test_temperature_top_p_fallback_to_chat_config(
+        self, conv, tmp_path, monkeypatch
+    ):
+        """When temperature/top_p omitted in request, ChatConfig values are used."""
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+
+        captured: dict = {}
+
+        def capture_stream(*args, **kwargs):
+            captured.update(kwargs)
+            return iter([])
+
+        with (
+            patch("gptme.server.session_step._stream", side_effect=capture_stream),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=0.8,
+                    top_p=0.9,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            # No temperature/top_p passed — must fall back to ChatConfig
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+            )
+
+        assert captured.get("temperature") == 0.8, (
+            f"Expected ChatConfig temperature=0.8, got {captured.get('temperature')!r}"
+        )
+        assert captured.get("top_p") == 0.9, (
+            f"Expected ChatConfig top_p=0.9, got {captured.get('top_p')!r}"
+        )
+
 
 # --- Interrupt endpoint tests ---
 
@@ -1090,6 +1303,8 @@ class TestToolConfirmEndpoint:
             "reserved": True,
             "step_seq": session.step_seq,
             "max_tokens": None,
+            "temperature": None,
+            "top_p": None,
         }
 
     def test_skip_increments_step_seq_to_invalidate_stale_workers(

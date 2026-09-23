@@ -342,6 +342,30 @@ def api_conversation_step(conversation_id: str):
     ):
         return flask.jsonify({"error": "max_tokens must be a positive integer"}), 400
 
+    temperature = req_json.get("temperature")
+    if temperature is not None and (
+        not isinstance(temperature, (int, float))
+        or isinstance(temperature, bool)
+        or temperature < 0.0
+        or temperature > 2.0
+    ):
+        return flask.jsonify(
+            {"error": "temperature must be a float in [0.0, 2.0]"}
+        ), 400
+    if temperature is not None:
+        temperature = float(temperature)
+
+    top_p = req_json.get("top_p")
+    if top_p is not None and (
+        not isinstance(top_p, (int, float))
+        or isinstance(top_p, bool)
+        or top_p < 0.0
+        or top_p > 1.0
+    ):
+        return flask.jsonify({"error": "top_p must be a float in [0.0, 1.0]"}), 400
+    if top_p is not None:
+        top_p = float(top_p)
+
     if "stream" in req_json:
         stream = req_json["stream"]
         if not isinstance(stream, bool):
@@ -496,6 +520,8 @@ def api_conversation_step(conversation_id: str):
                 reserved=True,
                 step_seq=step_seq,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
         else:
             # model should be non-None here: the `if not model and not session.use_acp`
@@ -518,6 +544,8 @@ def api_conversation_step(conversation_id: str):
                 reserved=True,
                 step_seq=step_seq,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
         _step_dispatched = True
     finally:
@@ -690,6 +718,8 @@ def api_conversation_tool_confirm(conversation_id: str):
             chat_config,
             branch=tool_exec.branch,
             max_tokens=tool_exec.max_tokens,
+            temperature=tool_exec.temperature,
+            top_p=tool_exec.top_p,
         )
         return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
 
@@ -711,6 +741,8 @@ def api_conversation_tool_confirm(conversation_id: str):
             chat_config,
             branch=tool_exec.branch,
             max_tokens=tool_exec.max_tokens,
+            temperature=tool_exec.temperature,
+            top_p=tool_exec.top_p,
         )
 
     elif action == "skip":
@@ -774,6 +806,8 @@ def api_conversation_tool_confirm(conversation_id: str):
                     reserved=True,
                     step_seq=skip_step_seq,
                     max_tokens=current_tool.max_tokens,
+                    temperature=current_tool.temperature,
+                    top_p=current_tool.top_p,
                 )
             finally:
                 if not continuation_dispatched:
@@ -803,6 +837,8 @@ def api_conversation_tool_confirm(conversation_id: str):
             chat_config,
             branch=tool_exec.branch,
             max_tokens=tool_exec.max_tokens,
+            temperature=tool_exec.temperature,
+            top_p=tool_exec.top_p,
         )
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})

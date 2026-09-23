@@ -501,6 +501,18 @@ class StepRequest(BaseModel):
         description="Maximum response tokens for this step",
         ge=1,
     )
+    temperature: float | None = Field(
+        None,
+        description="Sampling temperature override for this step (None = ChatConfig fallback). 0 = deterministic; max 1.0 for Anthropic, up to 2.0 for OpenAI.",
+        ge=0.0,
+        le=2.0,
+    )
+    top_p: float | None = Field(
+        None,
+        description="Top-p nucleus sampling override for this step (None = ChatConfig fallback).",
+        ge=0.0,
+        le=1.0,
+    )
     branch: str = Field("main", description="Conversation branch")
     auto_confirm: bool | int = Field(False, description="Auto-confirm tools")
     use_acp: bool = Field(

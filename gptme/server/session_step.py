@@ -417,6 +417,8 @@ async def _acp_step(
     workspace: Path,
     step_seq: int | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> None:
     """Run one conversation step via the per-session ACP subprocess.
 
@@ -647,6 +649,8 @@ def _start_acp_step_thread(
     reserved: bool = False,
     step_seq: int | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> bool:
     """Start an ACP-backed step unless another operation has reserved it."""
     if not reserved:
@@ -673,6 +677,8 @@ def _start_acp_step_thread(
                 workspace,
                 step_seq=step_seq,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
         )
 
@@ -700,6 +706,8 @@ def step(
     stream: bool = True,
     step_seq: int | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> None:
     """
     Generate a response and detect tools.
@@ -724,6 +732,10 @@ def step(
             If None, falls back to sampling session.step_seq at entry (racy on delay).
         max_tokens: Optional request-scoped response limit. Falls back to the
             conversation config when omitted.
+        temperature: Optional request-scoped sampling temperature. Falls back to
+            the conversation config when omitted.
+        top_p: Optional request-scoped nucleus sampling parameter. Falls back to
+            the conversation config when omitted.
     """
 
     # Load chat config and prepare execution environment
@@ -732,6 +744,10 @@ def step(
     effective_max_tokens = (
         max_tokens if max_tokens is not None else chat_config.max_tokens
     )
+    effective_temperature = (
+        temperature if temperature is not None else chat_config.temperature
+    )
+    effective_top_p = top_p if top_p is not None else chat_config.top_p
     prepare_execution_environment(
         workspace=workspace,
         tools=chat_config.tools,
@@ -914,8 +930,8 @@ def step(
                 model,
                 tools,
                 max_tokens=effective_max_tokens,
-                temperature=chat_config.temperature,
-                top_p=chat_config.top_p,
+                temperature=effective_temperature,
+                top_p=effective_top_p,
             )
             chunks: Iterable[str] = stream_wrapper
         else:
@@ -924,8 +940,8 @@ def step(
                 model,
                 tools,
                 max_tokens=effective_max_tokens,
-                temperature=chat_config.temperature,
-                top_p=chat_config.top_p,
+                temperature=effective_temperature,
+                top_p=effective_top_p,
             )
             chunks = [response]  # Wrap in list to iterate
             stream_wrapper = None
@@ -1016,6 +1032,8 @@ def step(
                 branch=branch,
                 assistant_msg_timestamp=msg.timestamp,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
             session.pending_tools[tool_id] = tool_exec
 
@@ -1058,6 +1076,8 @@ def step(
                 chat_config,
                 branch=branch,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
 
     except Exception as e:
@@ -1121,6 +1141,8 @@ def start_tool_execution(
     reserved: bool = False,
     branch: str = "main",
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> threading.Thread:
     """Execute a tool and handle its output.
 
@@ -1404,6 +1426,8 @@ def start_tool_execution(
                         reserved=True,
                         step_seq=continuation_seq,
                         max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
                     )
                 except Exception:
                     # Dispatch failed after ownership transfer. Release that new
@@ -1466,6 +1490,8 @@ def _start_step_thread(
     step_seq: int | None = None,
     inherit_context: bool = True,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> bool:
     """Start a step unless another operation has already reserved it.
 
@@ -1513,6 +1539,8 @@ def _start_step_thread(
                 stream=stream,
                 step_seq=step_seq,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
         except Exception as e:
             with session.step_lock:

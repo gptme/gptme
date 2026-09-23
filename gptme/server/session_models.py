@@ -85,6 +85,8 @@ class ToolExecution:
     # through confirm/edit/skip continuations so a later provider call still
     # honors the original override instead of falling back to ChatConfig.
     max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
 
 
 @dataclass
