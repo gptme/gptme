@@ -25,6 +25,36 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "supports_strict_tools": True,
         "preferred_edit_format": "diff",
     },
+    # GPT-6 Sol — cost-efficient high-end tier, below flagship Astra, above Luna.
+    # 1.05M context. $2/$10 per 1M (cache read $0.20).
+    # https://openrouter.ai/openai/gpt-6-sol (pricing verified 2026-09-23)
+    "gpt-6-sol": {
+        "context": 1_050_000,
+        "max_output": 128_000,
+        "price_input": 2,
+        "price_output": 10,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_responses_api": True,
+        "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
+        "preferred_edit_format": "diff",
+    },
+    # GPT-6 Luna — fast, cost-efficient tier for high-volume/latency-sensitive work.
+    # 1.05M context. $0.10/$0.50 per 1M (cache read $0.01).
+    # https://openrouter.ai/openai/gpt-6-luna (pricing verified 2026-09-23)
+    "gpt-6-luna": {
+        "context": 1_050_000,
+        "max_output": 128_000,
+        "price_input": 0.1,
+        "price_output": 0.5,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_responses_api": True,
+        "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
+        "preferred_edit_format": "diff",
+    },
     # GPT-5.6 — three-tier family released July 2026, 1M context, 128K max output
     # https://developers.openai.com/api/docs/changelog
     # Sol=flagship, Terra=balanced, Luna=fastest/cheapest. Alias gpt-5.6 -> sol.
