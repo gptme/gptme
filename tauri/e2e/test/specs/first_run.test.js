@@ -128,7 +128,14 @@ describe("Real first-run flow", () => {
     // 5. In "Choose your setup", click the Local option through its stable
     //    test contract rather than matching user-facing copy.
     const localBtn = await $("[data-testid='setup-wizard-local']");
-    await expect(localBtn).toExist();
+    try {
+      await localBtn.waitForExist({ timeout: 30000 });
+    } catch (err) {
+      throw new Error(
+        "SetupWizard 'Local' button did not appear within 30s after clicking 'Get started': " +
+          (await describeWebview()),
+      );
+    }
     await localBtn.click();
 
     // 6. Wait for the sidecar to be ready before clicking Connect. Now that we
