@@ -1463,23 +1463,35 @@ def prompts_expand(prompt: tuple[str, ...]):
 
     # Mixed-text tokens are heuristic (prose, or relative to another expanded
     # path) and must stay silent. Warn only when the entire prompt is a single
-    # explicit path that wasn't found.
-    _warn_if_whole_prompt_path_missing(full_prompt)
+    # Click argument that is an explicit path and wasn't found.
+    _warn_if_whole_prompt_path_missing(prompt)
 
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
 
 
-def _warn_if_whole_prompt_path_missing(full_prompt: str) -> None:
-    """Warn on stderr when the whole prompt is one missing explicit path."""
-    stripped = full_prompt.strip()
-    if not stripped or any(c.isspace() for c in stripped):
+def _warn_if_whole_prompt_path_missing(prompt: tuple[str, ...]) -> None:
+    """Warn on stderr when the whole prompt is one missing explicit path.
+
+    Use Click's argument boundary, not whitespace: a quoted path with spaces
+    (``"/tmp/missing file.txt"``) is still one path. Multiple arguments stay
+    silent — that is mixed text.
+
+    Existence follows ``_find_potential_paths`` punctuation stripping so
+    ``/tmp/existing.txt.`` does not false-warn after a successful expand.
+    """
+    if len(prompt) != 1:
+        return
+    stripped = prompt[0].strip()
+    if not stripped:
         return
     if not _looks_like_explicit_file_path(stripped):
         return
     if _is_slash_command_token(stripped):
         return
-    if Path(stripped).expanduser().exists():
+    # Same trailing-punct strip as gptme.util.context._find_potential_paths.
+    normalized = stripped.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+    if Path(stripped).expanduser().exists() or Path(normalized).expanduser().exists():
         return
     click.echo(f"warning: path not found, not expanded: {stripped}", err=True)
 

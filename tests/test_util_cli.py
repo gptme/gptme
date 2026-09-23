@@ -524,6 +524,51 @@ def test_prompts_expand_plain_text_no_warning(tmp_path, monkeypatch):
     assert "hello" in result.stdout
 
 
+def test_prompts_expand_warns_on_quoted_path_with_spaces(tmp_path, monkeypatch):
+    """A single Click argument with spaces is still one explicit path."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = str(tmp_path / "missing file.txt")
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert missing in result.stdout
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_no_warning_for_existing_path_with_trailing_punct(
+    tmp_path, monkeypatch
+):
+    """Trailing punctuation is stripped by path discovery; do not false-warn."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("hello\n")
+
+    result = runner.invoke(main, ["prompts", "expand", str(test_file) + "."])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello" in result.stdout
+
+
+def test_prompts_expand_warns_on_missing_path_with_trailing_punct(
+    tmp_path, monkeypatch
+):
+    """A missing explicit path still warns after trailing-punctuation strip."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = "/nonexistent/gptme-prompts-expand-missing.txt."
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert "warning:" not in result.stdout
+
+
 def test_chats_send(tmp_path, monkeypatch):
     """Test queueing a prompt for an existing conversation."""
     runner = CliRunner()
