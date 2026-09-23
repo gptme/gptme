@@ -235,7 +235,7 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
 - 💻 **[Computer use][docs-tools-computer]**
   - Give the assistant access to a full desktop, allowing it to interact with GUI applications.
 - 🧠 **Code intelligence**
-  - Structural code understanding with [gptme-codegraph]: call graphs, symbol extraction, and impact analysis powered by Tree-sitter. Ten MCP tools for codebase navigation.
+  - Structural code understanding with [gptme-codegraph]: call graphs, symbol extraction, and impact analysis powered by Tree-sitter. 10 MCP tools for codebase navigation.
 - 🔊 **Tool sounds** — pleasant notification sounds for different tool operations.
   - Enable with `GPTME_TOOL_SOUNDS=true`.
 
@@ -336,6 +336,7 @@ gptme is designed to run not just interactively but as a **persistent autonomous
 ```sh
 # Create and run your own agent
 gptme-agent create ~/ada --name Ada
+cd ~/ada
 gptme-agent install   # runs on a schedule
 gptme-agent status    # check on it
 ```

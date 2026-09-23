@@ -254,6 +254,7 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 
    # Create a new agent
    gptme-agent create ~/ada --name Ada
+   cd ~/ada
 
    # Install as a recurring service (runs every 30 min by default)
    gptme-agent install
