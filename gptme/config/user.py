@@ -26,6 +26,7 @@ from .models import (
     HooksConfig,
     LessonsConfig,
     MCPConfig,
+    MCPServerConfig,
     ModelsConfig,
     PluginsConfig,
     ProviderConfig,
@@ -444,6 +445,53 @@ def _with_builtin_defaults(config: dict[str, Any]) -> dict[str, Any]:
     return _merge_config_data(defaults, config)
 
 
+def _parse_mcp_config(mcp_data: Any, *, strict: bool) -> MCPConfig:
+    """Parse the ``[mcp]`` section.
+
+    ``strict=True`` is for admin-managed ``config.runtime.toml``: schema
+    errors must fail loudly so ``load_user_config`` can attribute them to the
+    runtime path. ``strict=False`` is for user/local config: a malformed
+    entry must not crash every gptme invocation (including ``--help``) —
+    skip it with a warning instead. The stricter ``MCPConfig.from_dict``
+    (used for per-chat/project config validated over the HTTP API) always
+    raises, so that path can turn client input into a clean 4xx.
+    """
+    if not isinstance(mcp_data, dict):
+        msg = f"[mcp] should be a table, got {type(mcp_data).__name__}"
+        if strict:
+            raise ValueError(msg)
+        logger.warning(msg)
+        return MCPConfig()
+    mcp_data = dict(mcp_data)
+    enabled = mcp_data.pop("enabled", False)
+    auto_start = mcp_data.pop("auto_start", False)
+    raw_servers = mcp_data.pop("servers", [])
+    if not isinstance(raw_servers, list):
+        msg = f"mcp.servers should be a list, got {type(raw_servers).__name__}"
+        if strict:
+            raise ValueError(msg)
+        logger.warning(msg)
+        raw_servers = []
+    servers: list[MCPServerConfig] = []
+    for server in raw_servers:
+        if not isinstance(server, dict):
+            msg = f"mcp.servers entries must be objects, got {type(server).__name__}"
+            if strict:
+                raise ValueError(msg)
+            logger.warning(f"{msg} (skipped)")
+            continue
+        try:
+            servers.append(MCPServerConfig(**server))
+        except TypeError as e:
+            name = server.get("name", "<unnamed>")
+            if strict:
+                raise ValueError(f"mcp.servers entry invalid: {e}") from e
+            logger.warning(f"Skipping invalid mcp.servers entry {name!r}: {e}")
+    if mcp_data:
+        logger.warning(f"Unknown keys in MCP config: {sorted(mcp_data.keys())}")
+    return MCPConfig(enabled=enabled, auto_start=auto_start, servers=servers)
+
+
 def _provider_entry_constructs(provider: dict[str, Any]) -> bool:
     """Return True if ``provider`` can construct a ``ProviderConfig``."""
     try:
@@ -551,17 +599,19 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         )
 
     env = config.pop("env", {})
-    mcp = MCPConfig.from_dict(config.pop("mcp", {}))
 
-    # Parse custom providers. Runtime overlays are admin-managed: if
-    # config.runtime.toml itself defines providers, those entries fail loud
-    # (load_user_config wraps with the runtime path). User/local malformed
-    # entries are always skipped — the mere presence of a runtime overlay
-    # must not make user-originated provider errors fatal.
+    # Parse [mcp] and [[providers]]. Runtime overlays are admin-managed: if
+    # config.runtime.toml itself defines mcp/providers, those entries fail
+    # loud (load_user_config wraps with the runtime path). User/local
+    # malformed entries are always skipped — the mere presence of a runtime
+    # overlay must not make user-originated mcp/provider errors fatal.
     if runtime_doc is not None:
         runtime_raw = runtime_doc.unwrap()
+        if "mcp" in runtime_raw:
+            _parse_mcp_config(runtime_raw["mcp"], strict=True)
         if "providers" in runtime_raw:
             _parse_providers(runtime_raw["providers"], strict=True)
+    mcp = _parse_mcp_config(config.pop("mcp", {}), strict=False)
     providers = _parse_providers(config.pop("providers", []), strict=False)
 
     settings_data = config.pop("settings", {})
@@ -856,12 +906,21 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
             local_servers = value.get("servers", [])
             main_servers = merged["mcp"]["servers"]
 
-            # Create a dict for quick lookup of main servers by name
-            main_servers_by_name = {server["name"]: server for server in main_servers}
+            # Create a dict for quick lookup of main servers by name. Entries
+            # missing a name (malformed config) can't be merged by name; leave
+            # them as-is so the later parse step can warn/skip them cleanly
+            # instead of this merge crashing on a raw KeyError.
+            main_servers_by_name: dict = {}
+            for server in main_servers:
+                if isinstance(server, dict) and "name" in server:
+                    main_servers_by_name[server["name"]] = server
 
             for local_server in local_servers:
-                server_name = local_server["name"]
-                if server_name in main_servers_by_name:
+                if not isinstance(local_server, dict):
+                    main_servers.append(local_server)
+                    continue
+                server_name = local_server.get("name")
+                if server_name and server_name in main_servers_by_name:
                     # Merge env vars from local into main server
                     main_server = main_servers_by_name[server_name]
                     if "env" not in main_server:

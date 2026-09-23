@@ -460,6 +460,86 @@ def test_mcp_config_loaded_in_correct_priority(tmp_path):
     assert my_server_4.env == {"API_KEY": "your-key-4"}
 
 
+def test_malformed_mcp_server_entries_skipped_not_fatal():
+    """A malformed [[mcp.servers]] entry must not crash config loading.
+
+    Regression test: an mcp server entry missing the required `name` field
+    (or a non-table entry) previously raised an unhandled ValueError from
+    `_load_user_config`, which crashed every gptme/gptme-util invocation
+    (including `--help`) since config loading happens eagerly at startup.
+    """
+    config_toml = """
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+command = "missing-name"
+
+[[mcp.servers]]
+name = "valid"
+command = "server-command"
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+    try:
+        config = load_user_config(f.name)
+        # Only the valid entry should survive; the malformed one is skipped.
+        assert config.mcp is not None
+        assert config.mcp.enabled is True
+        assert len(config.mcp.servers) == 1
+        assert config.mcp.servers[0].name == "valid"
+    finally:
+        os.remove(f.name)
+
+
+def test_non_dict_mcp_config_skipped_not_fatal():
+    """A non-table [mcp] value (e.g. a bare string) must not crash."""
+    config_toml = """
+mcp = "not-a-table"
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+    try:
+        config = load_user_config(f.name)
+        assert config.mcp is not None
+        assert config.mcp.enabled is False
+        assert config.mcp.servers == []
+    finally:
+        os.remove(f.name)
+
+
+def test_malformed_user_mcp_server_skipped_with_empty_runtime_overlay(
+    tmp_path: Path,
+) -> None:
+    """A runtime overlay with no mcp section must not make user errors fatal."""
+    main = tmp_path / "config.toml"
+    main.write_text(
+        """
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+command = "missing-name"
+
+[[mcp.servers]]
+name = "valid"
+command = "server-command"
+""",
+        encoding="utf-8",
+    )
+    get_user_config_runtime_path(str(main)).write_text(
+        "# runtime overlay, no mcp\n", encoding="utf-8"
+    )
+
+    config = load_user_config(str(main))
+    assert config.mcp is not None
+    assert [s.name for s in config.mcp.servers] == ["valid"]
+
+
 def test_mcp_config_loaded_from_toml():
     config_toml = """[mcp]
         enabled = true
