@@ -646,6 +646,7 @@ def test_start_acp_step_thread_propagates_contextvars(monkeypatch, tmp_path):
         workspace,
         step_seq: int | None = None,
         max_tokens: int | None = None,
+        **_kwargs: object,
     ) -> None:
         seen["caller_var"] = caller_var.get()
         seen["conversation_id"] = current_conversation_id.get()
