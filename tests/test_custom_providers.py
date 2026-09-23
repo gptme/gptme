@@ -1,8 +1,11 @@
 """Tests for custom OpenAI-compatible providers configuration."""
 
+import os
+import tempfile
 from unittest.mock import patch
 
 from gptme.config import Config, ProviderConfig, UserConfig
+from gptme.config.user import load_user_config
 
 
 def test_provider_config_creation():
@@ -76,6 +79,54 @@ def test_backward_compatibility_local_provider():
     """Test that 'local' provider still works with existing env vars."""
     # The "local" provider should still work using OPENAI_BASE_URL
     # This is tested in the init function with the existing elif branch
+
+
+def test_malformed_provider_entries_skipped_not_fatal():
+    """A malformed [[providers]] entry must not crash config loading.
+
+    Regression test: a provider missing a required field (name or base_url)
+    previously raised an unhandled TypeError from `_load_user_config`, which
+    crashed every gptme/gptme-util invocation (including `--help`) since
+    config loading happens eagerly at startup.
+    """
+    config_toml = """
+[[providers]]
+name = "missing-base-url"
+
+[[providers]]
+base_url = "http://localhost:9999/v1"
+
+[[providers]]
+name = "valid"
+base_url = "http://localhost:8000/v1"
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+    try:
+        config = load_user_config(f.name)
+        # Only the valid entry should survive; malformed ones are skipped.
+        assert len(config.providers) == 1
+        assert config.providers[0].name == "valid"
+    finally:
+        os.remove(f.name)
+
+
+def test_non_dict_provider_entry_skipped_not_fatal():
+    """A non-table [[providers]] entry (e.g. a bare string) must not crash."""
+    config_toml = """
+providers = ["not-a-table"]
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+    try:
+        config = load_user_config(f.name)
+        assert config.providers == []
+    finally:
+        os.remove(f.name)
 
 
 def test_custom_provider_supports_tools_api():

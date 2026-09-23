@@ -512,9 +512,36 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     env = config.pop("env", {})
     mcp = MCPConfig.from_dict(config.pop("mcp", {}))
 
-    # Parse custom providers
+    # Parse custom providers.
+    # A runtime config (config.runtime.toml) is an admin-managed overlay: any
+    # schema error under it must fail loudly (load_user_config wraps and
+    # re-raises with the runtime config path). Without one, a malformed
+    # [[providers]] entry in the user's own config.toml must not crash every
+    # gptme invocation (including `--help`, since config loads at startup) —
+    # skip it with a warning instead, matching [user]/[settings] handling above.
+    strict = runtime_doc is not None
     providers_config = config.pop("providers", [])
-    providers = [ProviderConfig(**provider) for provider in providers_config]
+    if not isinstance(providers_config, list):
+        msg = f"[[providers]] should be a list, got {type(providers_config).__name__}"
+        if strict:
+            raise ValueError(msg)
+        logger.warning(msg)
+        providers_config = []
+    providers = []
+    for provider in providers_config:
+        if not isinstance(provider, dict):
+            msg = f"providers entry should be a table, got {type(provider).__name__}"
+            if strict:
+                raise ValueError(msg)
+            logger.warning(f"{msg} (skipped)")
+            continue
+        try:
+            providers.append(ProviderConfig(**provider))
+        except TypeError as e:
+            name = provider.get("name", "<unnamed>")
+            if strict:
+                raise ValueError(f"Invalid provider config {name!r}: {e}") from e
+            logger.warning(f"Skipping invalid provider config {name!r}: {e}")
 
     settings_data = config.pop("settings", {})
     if not isinstance(settings_data, dict):
