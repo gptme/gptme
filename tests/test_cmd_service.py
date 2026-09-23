@@ -1298,3 +1298,75 @@ def test_service_unit_has_runtime_max_sec(tmp_path: Path) -> None:
     assert "RuntimeMaxSec=" in unit, (
         "Without RuntimeMaxSec a hung gptme process keeps the unit active forever"
     )
+
+
+def test_force_preserves_existing_model(tmp_path: Path) -> None:
+    """--force without --model must not silently downgrade a configured model.
+
+    Re-running `service init --force` to update the schedule or work-dir is
+    documented usage. The model the agent was configured with must survive unless
+    the caller explicitly passes a new --model.
+    """
+    out_dir = tmp_path / "systemd"
+    runner = CliRunner()
+
+    # First run: set a non-default model
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "testagent",
+            "--work-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(out_dir),
+            "--model",
+            "anthropic/claude-haiku-4-5",
+            "--platform",
+            "linux",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    unit = (out_dir / "testagent.service").read_text()
+    assert "anthropic/claude-haiku-4-5" in unit
+
+    # Second run: --force with no --model → model must be preserved
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--name",
+            "testagent",
+            "--work-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(out_dir),
+            "--force",
+            "--platform",
+            "linux",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    unit_after = (out_dir / "testagent.service").read_text()
+    assert "anthropic/claude-haiku-4-5" in unit_after, (
+        "--force without --model silently downgraded the configured model"
+    )
+
+
+def test_force_with_explicit_model_overrides(tmp_path: Path) -> None:
+    """--force --model <new> must override the existing model."""
+    out_dir = tmp_path / "systemd"
+
+    _run_init(tmp_path, "--model", "anthropic/claude-haiku-4-5", "--platform", "linux")
+    _run_init(
+        tmp_path,
+        "--model",
+        "openai/gpt-4o",
+        "--force",
+        "--platform",
+        "linux",
+    )
+    unit = (out_dir / "testagent.service").read_text()
+    assert "openai/gpt-4o" in unit
+    assert "anthropic/claude-haiku-4-5" not in unit

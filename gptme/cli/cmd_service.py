@@ -445,6 +445,19 @@ def _write_file(path: Path, content: str, force: bool = False) -> bool:
     return True
 
 
+def _read_model_from_unit_file(unit_path: Path) -> str | None:
+    """Read GPTME_AGENT_MODEL from an existing systemd service unit file."""
+    try:
+        for line in unit_path.read_text().splitlines():
+            line = line.strip()
+            if "GPTME_AGENT_MODEL=" in line and line.startswith("Environment"):
+                _, _, rest = line.partition("GPTME_AGENT_MODEL=")
+                return rest.strip().strip('"')
+    except OSError:
+        pass
+    return None
+
+
 def _detect_platform() -> str:
     """Detect the current platform: 'macos' or 'linux'.
 
@@ -519,9 +532,8 @@ def cli() -> None:
     "--model",
     "-m",
     type=str,
-    default="gpt-4o-mini",
-    show_default=True,
-    help="Default model for the agent.",
+    default=None,
+    help="Default model for the agent (default: gpt-4o-mini, or preserved from existing unit when --force).",
 )
 @click.option(
     "--work-dir",
@@ -565,7 +577,7 @@ def cli() -> None:
 )
 def init(
     name: str,
-    model: str,
+    model: str | None,
     work_dir: str,
     output_dir: str | None,
     timer_schedule: str,
@@ -612,6 +624,32 @@ def init(
             "Only letters, digits, hyphens, and underscores are allowed.",
             param_hint="'--name'",
         )
+
+    # Resolve model: when not explicitly passed, preserve an existing unit's
+    # model so that `service init --force` doesn't silently downgrade it.
+    _DEFAULT_MODEL = "gpt-4o-mini"
+    if model is None:
+        preserved: str | None = None
+        if force:
+            _candidates = [
+                Path(output_dir).expanduser() / f"{name}.service"
+                if output_dir
+                else None,
+                Path("~/.config/systemd/user").expanduser() / f"{name}.service",
+            ]
+            for _c in _candidates:
+                if _c and _c.exists():
+                    preserved = _read_model_from_unit_file(_c)
+                    if preserved:
+                        break
+        if preserved:
+            model = preserved
+            click.echo(
+                f"  Preserved existing model {model!r} (pass --model to override)",
+                err=True,
+            )
+        else:
+            model = _DEFAULT_MODEL
 
     # Resolve platform (auto-detect if needed)
     platform_was_auto = platform_choice == "auto"
