@@ -2,10 +2,11 @@
 
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from gptme.config import Config, ProviderConfig, UserConfig
-from gptme.config.user import load_user_config
+from gptme.config.user import get_user_config_runtime_path, load_user_config
 
 
 def test_provider_config_creation():
@@ -127,6 +128,62 @@ providers = ["not-a-table"]
         assert config.providers == []
     finally:
         os.remove(f.name)
+
+
+def test_malformed_user_providers_skipped_with_empty_runtime_overlay(
+    tmp_path: Path,
+) -> None:
+    """A runtime overlay with no providers must not make user errors fatal."""
+    main = tmp_path / "config.toml"
+    main.write_text(
+        """
+[[providers]]
+name = "missing-base-url"
+
+[[providers]]
+name = "valid"
+base_url = "http://localhost:8000/v1"
+""",
+        encoding="utf-8",
+    )
+    get_user_config_runtime_path(str(main)).write_text(
+        "# runtime overlay, no providers\n", encoding="utf-8"
+    )
+
+    config = load_user_config(str(main))
+    assert [p.name for p in config.providers] == ["valid"]
+
+
+def test_malformed_user_provider_skipped_alongside_runtime_providers(
+    tmp_path: Path,
+) -> None:
+    """Valid runtime providers survive a malformed extra in user config."""
+    main = tmp_path / "config.toml"
+    main.write_text(
+        """
+[[providers]]
+name = "missing-base-url"
+
+[[providers]]
+name = "valid-user"
+base_url = "http://localhost:8000/v1"
+""",
+        encoding="utf-8",
+    )
+    get_user_config_runtime_path(str(main)).write_text(
+        """
+[[providers]]
+name = "runtime-ok"
+base_url = "http://localhost:9000/v1"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+    names = [p.name for p in config.providers]
+    assert "missing-base-url" not in names
+    assert "runtime-ok" in names
+    assert "valid-user" in names
 
 
 def test_custom_provider_supports_tools_api():

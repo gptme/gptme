@@ -444,6 +444,38 @@ def _with_builtin_defaults(config: dict[str, Any]) -> dict[str, Any]:
     return _merge_config_data(defaults, config)
 
 
+def _parse_providers(providers_config: Any, *, strict: bool) -> list[ProviderConfig]:
+    """Parse ``[[providers]]`` entries.
+
+    ``strict=True`` is for admin-managed ``config.runtime.toml``: schema errors
+    must fail loudly so ``load_user_config`` can attribute them to the runtime
+    path. ``strict=False`` is for user/local config: a typo must not crash
+    every gptme invocation (including ``--help``).
+    """
+    if not isinstance(providers_config, list):
+        msg = f"[[providers]] should be a list, got {type(providers_config).__name__}"
+        if strict:
+            raise ValueError(msg)
+        logger.warning(msg)
+        return []
+    providers: list[ProviderConfig] = []
+    for provider in providers_config:
+        if not isinstance(provider, dict):
+            msg = f"providers entry should be a table, got {type(provider).__name__}"
+            if strict:
+                raise ValueError(msg)
+            logger.warning(f"{msg} (skipped)")
+            continue
+        try:
+            providers.append(ProviderConfig(**provider))
+        except TypeError as e:
+            name = provider.get("name", "<unnamed>")
+            if strict:
+                raise ValueError(f"Invalid provider config {name!r}: {e}") from e
+            logger.warning(f"Skipping invalid provider config {name!r}: {e}")
+    return providers
+
+
 def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> UserConfig:
     config_file_path = path or config_path
     config_file, local_path = get_user_config_paths(config_file_path)
@@ -512,36 +544,16 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     env = config.pop("env", {})
     mcp = MCPConfig.from_dict(config.pop("mcp", {}))
 
-    # Parse custom providers.
-    # A runtime config (config.runtime.toml) is an admin-managed overlay: any
-    # schema error under it must fail loudly (load_user_config wraps and
-    # re-raises with the runtime config path). Without one, a malformed
-    # [[providers]] entry in the user's own config.toml must not crash every
-    # gptme invocation (including `--help`, since config loads at startup) —
-    # skip it with a warning instead, matching [user]/[settings] handling above.
-    strict = runtime_doc is not None
-    providers_config = config.pop("providers", [])
-    if not isinstance(providers_config, list):
-        msg = f"[[providers]] should be a list, got {type(providers_config).__name__}"
-        if strict:
-            raise ValueError(msg)
-        logger.warning(msg)
-        providers_config = []
-    providers = []
-    for provider in providers_config:
-        if not isinstance(provider, dict):
-            msg = f"providers entry should be a table, got {type(provider).__name__}"
-            if strict:
-                raise ValueError(msg)
-            logger.warning(f"{msg} (skipped)")
-            continue
-        try:
-            providers.append(ProviderConfig(**provider))
-        except TypeError as e:
-            name = provider.get("name", "<unnamed>")
-            if strict:
-                raise ValueError(f"Invalid provider config {name!r}: {e}") from e
-            logger.warning(f"Skipping invalid provider config {name!r}: {e}")
+    # Parse custom providers. Runtime overlays are admin-managed: if
+    # config.runtime.toml itself defines providers, those entries fail loud
+    # (load_user_config wraps with the runtime path). User/local malformed
+    # entries are always skipped — the mere presence of a runtime overlay
+    # must not make user-originated provider errors fatal.
+    if runtime_doc is not None:
+        runtime_raw = runtime_doc.unwrap()
+        if "providers" in runtime_raw:
+            _parse_providers(runtime_raw["providers"], strict=True)
+    providers = _parse_providers(config.pop("providers", []), strict=False)
 
     settings_data = config.pop("settings", {})
     if not isinstance(settings_data, dict):
