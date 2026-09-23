@@ -320,8 +320,9 @@ the level of autonomy per conversation:
 - **Sandboxing** — run shell and Python in an OS-level sandbox (``GPTME_SANDBOX``).
 - **Prompt-injection hygiene** — flag or redact suspicious content in tool
   output with ``--injection-hygiene``.
-- **Undo and checkpoints** — ``/undo``, ``/backtrack``, and ``/checkpoint``
-  rewind the conversation and the workspace when a run goes sideways.
+- **Undo and checkpoints** — ``/undo`` and ``/backtrack`` rewind the
+  conversation; ``/checkpoint`` restores the workspace files. They are separate:
+  backtracking does not roll back the filesystem.
 - **Guardrails for agents** — input, pre-action, and output guardrails around
   the unattended loop, see `Autonomous Agents`_.
 
