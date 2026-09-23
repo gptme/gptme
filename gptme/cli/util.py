@@ -1475,7 +1475,9 @@ def _warn_if_whole_prompt_path_missing(prompt: tuple[str, ...]) -> None:
 
     Use Click's argument boundary, not whitespace: a quoted path with spaces
     (``"/tmp/missing file.txt"``) is still one path. Multiple arguments stay
-    silent — that is mixed text.
+    silent — that is mixed text. A single argument that starts with a complete
+    path then continues as prose (``"./missing.txt is discussed here"``) is
+    also silent.
 
     Existence follows ``_find_potential_paths`` punctuation stripping so
     ``/tmp/existing.txt.`` does not false-warn after a successful expand.
@@ -1487,6 +1489,8 @@ def _warn_if_whole_prompt_path_missing(prompt: tuple[str, ...]) -> None:
         return
     if not _looks_like_explicit_file_path(stripped):
         return
+    if _is_quoted_mixed_prose(stripped):
+        return
     if _is_slash_command_token(stripped):
         return
     # Same trailing-punct strip as gptme.util.context._find_potential_paths.
@@ -1494,6 +1498,23 @@ def _warn_if_whole_prompt_path_missing(prompt: tuple[str, ...]) -> None:
     if Path(stripped).expanduser().exists() or Path(normalized).expanduser().exists():
         return
     click.echo(f"warning: path not found, not expanded: {stripped}", err=True)
+
+
+def _is_quoted_mixed_prose(prompt: str) -> bool:
+    """True when one Click argument starts with a complete path then continues as text.
+
+    Distinguishes ``./missing.txt is discussed here`` (mixed prose, silent)
+    from ``/tmp/missing file.txt`` (one spaced filename, warn). If the first
+    token already has a basename with a ``.``, remaining words are prose.
+    """
+    parts = prompt.split(None, 1)
+    if len(parts) != 2:
+        return False
+    first, _rest = parts
+    if not _looks_like_explicit_file_path(first):
+        return False
+    base = first.replace("\\", "/").rsplit("/", 1)[-1]
+    return "." in base
 
 
 def _looks_like_explicit_file_path(path: str) -> bool:

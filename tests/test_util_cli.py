@@ -554,6 +554,22 @@ def test_prompts_expand_no_warning_for_existing_path_with_trailing_punct(
     assert "hello" in result.stdout
 
 
+def test_prompts_expand_quoted_mixed_prose_starting_with_path_no_warning(
+    tmp_path, monkeypatch
+):
+    """Quoted mixed prose that starts with a path prefix stays silent."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(
+        main, ["prompts", "expand", "./missing.txt is discussed here"]
+    )
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "warning:" not in result.stdout
+
+
 def test_prompts_expand_warns_on_missing_path_with_trailing_punct(
     tmp_path, monkeypatch
 ):
