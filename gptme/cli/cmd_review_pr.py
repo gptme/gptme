@@ -428,7 +428,6 @@ _FORBIDDEN_REVIEW_TOOLS = frozenset(
         "append",
         "patch",
         "patch_many",
-        "patch_anchored",
         "morph",
         "hashline_edit",
         "browser",
