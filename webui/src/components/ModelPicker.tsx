@@ -19,6 +19,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { ProviderIcon, hasProviderIcon } from '@/components/ProviderIcon';
+import { ProviderHealthDot } from '@/components/ProviderHealthDot';
 import { useModels, type ModelInfo } from '@/hooks/useModels';
 import type { Control, FieldPath, FieldValues } from 'react-hook-form';
 
@@ -306,7 +307,10 @@ export function ModelPickerField<T extends FieldValues = FieldValues>({
         const modelInfo = models.find((m) => m.id === field.value);
         return (
           <FormItem className="flex flex-col">
-            <FormLabel>{label}</FormLabel>
+            <FormLabel className="flex items-center gap-1.5">
+              {label}
+              {modelInfo?.provider && <ProviderHealthDot provider={modelInfo.provider} />}
+            </FormLabel>
             <Popover open={open} onOpenChange={setOpen}>
               <PopoverTrigger asChild>
                 <FormControl>
