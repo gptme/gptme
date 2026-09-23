@@ -632,9 +632,10 @@ open <a class="reference external" href="http://localhost:5700">http://localhost
 <p class="admonition-title">Note</p>
 <p>Release packages ship the modern UI, which <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code> serves from
 <code class="docutils literal notranslate"><span class="pre">gptme/server/webui-dist</span></code>. A source checkout without <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">bundle-webui</span></code>
-falls back to a minimal legacy page bundled in <code class="docutils literal notranslate"><span class="pre">gptme/server/static</span></code>. That
-page is not a supported interface; its templates are currently also reused by
-the HTML export (<code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">chats</span> <span class="pre">export</span> <span class="pre">&lt;id&gt;</span> <span class="pre">-f</span> <span class="pre">html</span></code>).</p>
+has no UI to serve: the API keeps working and the browser routes explain how
+to build or point at one. From the repository root, build it with
+<code class="docutils literal notranslate"><span class="pre">(cd</span> <span class="pre">webui</span> <span class="pre">&amp;&amp;</span> <span class="pre">npm</span> <span class="pre">run</span> <span class="pre">build)</span> <span class="pre">&amp;&amp;</span> <span class="pre">make</span> <span class="pre">bundle-webui</span></code>, or set
+<code class="docutils literal notranslate"><span class="pre">GPTME_WEBUI_DIR</span></code> to an existing build.</p>
 </div>
 </section>
 <section id="frontend-development">
