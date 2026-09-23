@@ -429,30 +429,29 @@ async fn spawn_server_sidecar(
 }
 
 fn extract_auth_code(url: &url::Url) -> Option<String> {
-    let code = url
-        .query_pairs()
+    url.query_pairs()
         .find(|(key, _)| key == "code")
-        .map(|(_, value)| value.to_string())?;
-
-    let safe_code: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-    if safe_code.is_empty() {
-        log::warn!("Auth code was empty after sanitization");
-        return None;
-    }
-    Some(safe_code)
+        .map(|(_, value)| value.to_string())
+        .filter(|code| !code.is_empty())
 }
 
 fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
     for url in &urls {
         log::info!("Deep link received: {}", url);
 
-        if let Some(safe_code) = extract_auth_code(url) {
+        if let Some(code) = extract_auth_code(url) {
             log::info!("Auth code extracted from deep link, injecting into webview");
 
             if let Some(window) = app.get_webview_window("main") {
+                // JSON-encode the raw code for safe JS string injection.
+                // encodeURIComponent in JS then puts it in the URL hash so that
+                // URLSearchParams on the frontend decodes it back correctly.
+                // This preserves all valid OAuth chars (e.g. base64url -_=+/)
+                // that the previous alphanumeric-only filter silently stripped.
+                let json_code = serde_json::to_string(&code).unwrap_or_else(|_| "\"\"".to_string());
                 let js = format!(
-                    "window.location.hash = '#code={}'; window.location.reload();",
-                    safe_code
+                    "window.location.hash = '#code=' + encodeURIComponent({}); window.location.reload();",
+                    json_code
                 );
                 if let Err(e) = window.eval(&js) {
                     log::error!("Failed to inject auth code into webview: {}", e);
@@ -1096,16 +1095,17 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_auth_code_strips_special_chars() {
-        let url =
-            url::Url::parse("gptme://callback?code=abc%3Cscript%3Ealert(1)%3C/script%3E").unwrap();
+    fn test_extract_auth_code_preserves_base64url_chars() {
+        // OAuth codes use base64url encoding: A-Za-z0-9 plus hyphen and underscore.
+        // The old alphanumeric-only filter silently stripped these, causing exchange failures.
+        let url = url::Url::parse("gptme://callback?code=abc-def_ghi%3Djkl").unwrap();
         let code = extract_auth_code(&url).unwrap();
-        assert_eq!(code, "abcscriptalert1script");
+        assert_eq!(code, "abc-def_ghi=jkl");
     }
 
     #[test]
-    fn test_extract_auth_code_empty_after_sanitization() {
-        let url = url::Url::parse("gptme://callback?code=%3C%3E%22%27").unwrap();
+    fn test_extract_auth_code_empty_code_returns_none() {
+        let url = url::Url::parse("gptme://callback?code=").unwrap();
         assert_eq!(extract_auth_code(&url), None);
     }
 
