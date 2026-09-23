@@ -186,6 +186,64 @@ base_url = "http://localhost:9000/v1"
     assert "valid-user" in names
 
 
+def test_malformed_same_name_override_does_not_drop_runtime_provider(
+    tmp_path: Path,
+) -> None:
+    """A malformed user override of a runtime provider must not remove it.
+
+    Merge-by-name used to apply unexpected keys onto the runtime entry, after
+    which non-strict parse skipped the whole provider.
+    """
+    main = tmp_path / "config.toml"
+    main.write_text(
+        """
+[[providers]]
+name = "runtime-ok"
+unexpected_key = true
+""",
+        encoding="utf-8",
+    )
+    get_user_config_runtime_path(str(main)).write_text(
+        """
+[[providers]]
+name = "runtime-ok"
+base_url = "http://localhost:9000/v1"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+    assert [p.name for p in config.providers] == ["runtime-ok"]
+    assert config.providers[0].base_url == "http://localhost:9000/v1"
+
+
+def test_valid_same_name_user_override_still_applies(tmp_path: Path) -> None:
+    """A well-formed same-name override still merges onto the runtime entry."""
+    main = tmp_path / "config.toml"
+    main.write_text(
+        """
+[[providers]]
+name = "runtime-ok"
+api_key = "user-secret"
+""",
+        encoding="utf-8",
+    )
+    get_user_config_runtime_path(str(main)).write_text(
+        """
+[[providers]]
+name = "runtime-ok"
+base_url = "http://localhost:9000/v1"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+    assert len(config.providers) == 1
+    assert config.providers[0].name == "runtime-ok"
+    assert config.providers[0].base_url == "http://localhost:9000/v1"
+    assert config.providers[0].api_key == "user-secret"
+
+
 def test_custom_provider_supports_tools_api():
     """Test that custom providers support the tools API.
 

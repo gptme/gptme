@@ -444,6 +444,15 @@ def _with_builtin_defaults(config: dict[str, Any]) -> dict[str, Any]:
     return _merge_config_data(defaults, config)
 
 
+def _provider_entry_constructs(provider: dict[str, Any]) -> bool:
+    """Return True if ``provider`` can construct a ``ProviderConfig``."""
+    try:
+        ProviderConfig(**provider)
+    except TypeError:
+        return False
+    return True
+
+
 def _parse_providers(providers_config: Any, *, strict: bool) -> list[ProviderConfig]:
     """Parse ``[[providers]]`` entries.
 
@@ -890,6 +899,16 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
                     continue
                 name = local_provider.get("name")
                 if name and name in main_by_name:
+                    # A malformed same-name override must not poison (and then
+                    # drop) an otherwise valid existing provider — e.g. an
+                    # unexpected key in user config deleting a runtime entry.
+                    candidate = {**main_by_name[name], **local_provider}
+                    if not _provider_entry_constructs(candidate):
+                        logger.warning(
+                            f"Skipping malformed override for provider {name!r}; "
+                            "keeping the existing entry"
+                        )
+                        continue
                     main_by_name[name].update(local_provider)
                 else:
                     main_providers.append(local_provider)
