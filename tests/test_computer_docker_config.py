@@ -21,7 +21,11 @@ ENTRYPOINT = (
     Path(__file__).parent.parent / "scripts" / "computer_home" / "entrypoint.sh"
 )
 COMPUTER_HTML = (
-    Path(__file__).parent.parent / "gptme" / "server" / "static" / "computer.html"
+    Path(__file__).parent.parent
+    / "gptme"
+    / "server"
+    / "computer_view"
+    / "computer.html"
 )
 
 

@@ -53,7 +53,8 @@ packages = [
     { include = "gptme" },
 ]
 include = [
-    "gptme/server/static/**/*",
+    "gptme/server/computer_view/**/*",
+    "gptme/util/export_templates/**/*",
     # webui-dist is generated and gitignored; an explicit path include is
     # required so Poetry does not silently omit it from release artifacts.
     { path = "gptme/server/webui-dist", format = ["sdist", "wheel"] },

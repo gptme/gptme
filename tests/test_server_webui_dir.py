@@ -19,15 +19,26 @@ pytest.importorskip(
 )
 
 
-def test_default_static_folder_is_legacy_bundle(tmp_path, monkeypatch):
+def test_no_webui_serves_instructions_not_a_stand_in_ui(tmp_path, monkeypatch):
+    """Without a bundled UI the server explains how to get one, and the API still works."""
     import gptme.server.app as app_mod
-    from gptme.server.app import create_app, static_path
+    from gptme.server.app import create_app
 
     monkeypatch.delenv("GPTME_WEBUI_DIR", raising=False)
     # Ensure no bundled webui-dist interferes (e.g. after `make bundle-webui`)
     monkeypatch.setattr(app_mod, "_bundled_webui_path", tmp_path / "webui-dist")
     app = create_app()
-    assert app.static_folder == str(static_path)
+    assert app.static_folder is None
+
+    with app.test_client() as client:
+        resp = client.get("/")
+        assert resp.status_code == 503
+        assert b"not bundled" in resp.data
+        assert b"make bundle-webui" in resp.data
+        assert b"gptme.org/docs/webui.html" in resp.data
+
+        # the API is unaffected by a missing web UI
+        assert client.get("/api/v2/server/health").status_code == 200
 
 
 def test_webui_dir_arg_overrides_static_folder(tmp_path):
@@ -147,10 +158,10 @@ def test_bundled_webui_dist_used_when_populated(tmp_path, monkeypatch):
         assert b"bundled-modern" in resp.data
 
 
-def test_bundled_webui_dist_empty_falls_back_to_legacy(tmp_path, monkeypatch):
-    """An empty (or missing) webui-dist dir falls back to the legacy bundle."""
+def test_bundled_webui_dist_empty_is_treated_as_missing(tmp_path, monkeypatch):
+    """An empty (or missing) webui-dist dir counts as having no web UI."""
     import gptme.server.app as app_mod
-    from gptme.server.app import create_app, static_path
+    from gptme.server.app import create_app
 
     monkeypatch.delenv("GPTME_WEBUI_DIR", raising=False)
     empty = tmp_path / "webui-dist"
@@ -159,7 +170,7 @@ def test_bundled_webui_dist_empty_falls_back_to_legacy(tmp_path, monkeypatch):
     monkeypatch.setattr(app_mod, "_bundled_webui_path", empty)
     app = create_app()
 
-    assert app.static_folder == str(static_path)
+    assert app.static_folder is None
 
 
 def test_explicit_webui_dir_beats_bundled(tmp_path, monkeypatch):

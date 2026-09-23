@@ -26,7 +26,13 @@ def conv(client: FlaskClient):
 
 def test_root(client: FlaskClient):
     response = client.get("/")
-    assert response.status_code == 200
+    if client.application.static_folder is None:
+        # No web UI bundled (a plain source checkout): say so, don't serve a
+        # stand-in interface.
+        assert response.status_code == 503
+        assert b"make bundle-webui" in response.data
+    else:
+        assert response.status_code == 200
 
 
 def test_api_root(client: FlaskClient):

@@ -18,8 +18,7 @@ def export_chat_to_html(name: str, chat_data: Log, output_path: Path) -> None:
     """Export a chat log to a self-contained HTML file"""
 
     # Read the template files
-    current_dir = Path(__file__).parent
-    template_dir = current_dir.parent / "server" / "static"
+    template_dir = Path(__file__).parent / "export_templates"
 
     with open(template_dir / "index.html", encoding="utf-8") as f:
         html_template = f.read()

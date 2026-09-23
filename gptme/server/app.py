@@ -17,20 +17,77 @@ logger = logging.getLogger(__name__)
 # Resolve static/media paths from the gptme package
 _gptme_path_ctx = resources.as_file(resources.files("gptme"))
 _root_path = _gptme_path_ctx.__enter__()
-static_path = _root_path / "server" / "static"
+# The computer-use VNC view, served when no modern web UI provides its own.
+_computer_view_path = _root_path / "server" / "computer_view"
 # Bundled modern webui (populated by `make bundle-webui` or the release workflow)
 _bundled_webui_path = _root_path / "server" / "webui-dist"
 media_path = _root_path.parent / "media"
 atexit.register(_gptme_path_ctx.__exit__, None, None, None)
 
 
-def _resolve_static_folder(webui_dir: str | Path | None = None) -> Path:
+_WEBUI_MISSING_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gptme — web UI not bundled</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1a1a1a; --muted: #5c5c5c; --bg: #fdfdfc;
+          --card: #fff; --border: #e4e4e0; --accent: #5151f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #ececec; --muted: #a0a0a0; --bg: #16161a; --card: #1e1e24;
+            --border: #2e2e36; --accent: #8f8fff; }
+  }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         background: var(--bg); color: var(--fg);
+         font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  main { max-width: 32rem; margin: 2rem; padding: 2rem; background: var(--card);
+         border: 1px solid var(--border); border-radius: 12px; }
+  h1 { margin: 0 0 .5rem; font-size: 1.25rem; }
+  p { margin: 0 0 1rem; color: var(--muted); }
+  code { background: color-mix(in srgb, var(--fg) 8%, transparent);
+         padding: .15em .4em; border-radius: 4px; font-size: .9em; }
+  ul { margin: 0 0 1rem; padding-left: 1.2rem; }
+  li { margin-bottom: .5rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>The web UI is not bundled in this install</h1>
+  <p>The API is running normally at <code>/api</code> — only the browser
+     interface is missing. This usually means you are running from a source
+     checkout.</p>
+  <ul>
+    <li>Build and bundle it: <code>cd webui &amp;&amp; npm run build</code>,
+        then <code>make bundle-webui</code></li>
+    <li>Or point the server at an existing build:
+        <code>GPTME_WEBUI_DIR=/path/to/dist</code></li>
+    <li>Or install a release package, which ships the UI already built</li>
+  </ul>
+  <p><a href="https://gptme.org/docs/webui.html">Web UI documentation</a> ·
+     <a href="https://gptme.org/docs/server.html">Server documentation</a></p>
+</main>
+</body>
+</html>
+"""
+
+
+def webui_missing_response() -> flask.Response:
+    """Explain how to get a web UI, instead of serving a stand-in interface."""
+    return flask.Response(
+        _WEBUI_MISSING_PAGE, status=503, content_type="text/html; charset=utf-8"
+    )
+
+
+def _resolve_static_folder(webui_dir: str | Path | None = None) -> Path | None:
     """Resolve which directory the web UI is served from.
 
     Precedence: explicit ``webui_dir`` argument > ``GPTME_WEBUI_DIR`` env var >
-    bundled modern webui (``gptme/server/webui-dist/``) >
-    the embedded legacy static fallback. A configured directory must exist so
-    that a typo fails loudly at startup instead of silently serving 404s.
+    bundled modern webui (``gptme/server/webui-dist/``). Returns ``None`` when
+    no web UI is available, in which case the UI routes explain how to get one
+    and the API keeps working. A configured directory must exist so that a typo
+    fails loudly at startup instead of silently serving 404s.
     """
     candidate = webui_dir or os.environ.get("GPTME_WEBUI_DIR")
     if candidate:
@@ -44,7 +101,11 @@ def _resolve_static_folder(webui_dir: str | Path | None = None) -> Path:
     if _bundled_webui_path.is_dir() and any(_bundled_webui_path.iterdir()):
         logger.debug("Serving bundled modern webui from %s", _bundled_webui_path)
         return _bundled_webui_path
-    return static_path
+    logger.warning(
+        "No web UI bundled; serving API only. "
+        "Run `make bundle-webui` or set GPTME_WEBUI_DIR to serve the web UI."
+    )
+    return None
 
 
 def create_app(
@@ -77,6 +138,7 @@ def create_app(
     """
     static_folder = _resolve_static_folder(webui_dir)
     app = flask.Flask(__name__, static_folder=static_folder)
+    webui_available = static_folder is not None
 
     # Enable gzip compression on API responses (reduces bandwidth ~5-10x for JSON).
     # Compresses responses >= MIN_SIZE (default 500 bytes) for clients that send
@@ -199,32 +261,28 @@ def create_app(
 
     init_metrics(app)
 
-    # Track whether we're serving a custom webui build (not the legacy bundle).
-    # Used below to gate SPA-specific route behaviour.
-    is_custom_webui = static_folder != static_path
-
     # Register static file routes directly on the app
     @app.route("/")
+    @app.route("/chat")
     def root():
+        if not webui_available:
+            return webui_missing_response()
         return app.send_static_file("index.html")
 
     @app.route("/computer")
     def computer():
-        # Legacy bundle ships computer.html; a custom React build does not —
-        # fall back to index.html and let client-side routing take over.
-        if is_custom_webui or not (static_folder / "computer.html").exists():
+        # A modern build ships its own computer-use view behind client-side
+        # routing; without one, serve the standalone VNC page directly so the
+        # computer-use container keeps working.
+        if webui_available:
             return app.send_static_file("index.html")
-        return app.send_static_file("computer.html")
-
-    @app.route("/chat")
-    def chat():
-        return app.send_static_file("index.html")
+        return flask.send_from_directory(_computer_view_path, "computer.html")
 
     @app.route("/favicon.png")
     def favicon():
         return flask.send_from_directory(media_path, "logo.png")
 
-    if is_custom_webui:
+    if webui_available:
         # SPA catch-all: serve any unknown path as index.html so that React
         # Router deep-links (/settings, /conversations/xyz, …) work correctly.
         # Actual static assets (JS/CSS/images) are served first because their
@@ -239,6 +297,7 @@ def create_app(
                     status=404,
                     content_type="application/json",
                 )
+            assert static_folder is not None  # guarded by webui_available
             asset = static_folder / path
             if asset.is_file():
                 return app.send_static_file(path)
