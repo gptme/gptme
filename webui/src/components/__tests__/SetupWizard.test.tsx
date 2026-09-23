@@ -1751,4 +1751,144 @@ describe('SetupWizard', () => {
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
+
+  it('aborts the in-flight subscription poll and clears the interval on unmount', async () => {
+    jest.useFakeTimers();
+    const abortSeen = { current: false };
+    let pollGets = 0;
+
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    const abortError = () => {
+      abortSeen.current = true;
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      return err;
+    };
+
+    // First GET resolves pending so the interval is installed. Later GETs stay
+    // pending until their AbortSignal fires — that is the cancellation this
+    // change exists to prove.
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const href = String(url);
+      const method = init?.method ?? 'GET';
+      if (href.endsWith('/api/v2/user/subscription-connect') && method === 'POST') {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ task_id: 'pending-task', status: 'pending' }),
+        };
+      }
+      if (href.includes('/api/v2/user/subscription-connect/') && method === 'GET') {
+        const signal = init?.signal;
+        if (signal == null) {
+          throw new Error('subscription poll GET must pass an AbortSignal');
+        }
+        if (signal.aborted) {
+          throw abortError();
+        }
+        pollGets += 1;
+        if (pollGets === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ status: 'pending' }),
+          };
+        }
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              reject(abortError());
+            },
+            { once: true }
+          );
+        });
+      }
+      if (href.endsWith('/api/v2/models')) {
+        return { ok: true, status: 200, json: async () => ({ models: [], recommended: [] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      };
+    });
+
+    const { unmount } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+      fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+      fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+      await act(async () => {
+        await Promise.resolve();
+        jest.runAllTicks();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('setup-wizard-provider')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('setup-wizard-subscription-connect'));
+
+      await act(async () => {
+        await Promise.resolve();
+        jest.runAllTicks();
+      });
+
+      // Controller must still be live after the first poll. If stopSubscriptionPoll()
+      // ran after assigning the new controller, this GET would already be aborted.
+      expect(abortSeen.current).toBe(false);
+      expect(pollGets).toBe(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+        await Promise.resolve();
+        jest.runAllTicks();
+      });
+
+      expect(pollGets).toBe(2);
+      expect(abortSeen.current).toBe(false);
+
+      const fetchCountAfterStart = mockFetch.mock.calls.length;
+
+      unmount();
+
+      await act(async () => {
+        await Promise.resolve();
+        jest.runAllTicks();
+      });
+
+      expect(abortSeen.current).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(10000);
+        await Promise.resolve();
+        jest.runAllTicks();
+      });
+
+      expect(mockFetch.mock.calls.length).toBe(fetchCountAfterStart);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

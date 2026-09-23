@@ -170,6 +170,7 @@ export function SetupWizard() {
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const [subscriptionOauthUrl, setSubscriptionOauthUrl] = useState<string | null>(null);
   const subscriptionPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const subscriptionAbortRef = useRef<AbortController | null>(null);
 
   const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
@@ -538,6 +539,8 @@ export function SetupWizard() {
       clearInterval(subscriptionPollRef.current);
       subscriptionPollRef.current = null;
     }
+    subscriptionAbortRef.current?.abort();
+    subscriptionAbortRef.current = null;
   };
 
   const finishSubscriptionConnect = async (model?: string) => {
@@ -586,8 +589,14 @@ export function SetupWizard() {
 
       let stopped = false;
       const startedAt = Date.now();
+      // Stop any previous flow before installing this controller. Assigning
+      // first would make stopSubscriptionPoll() abort the new signal, so every
+      // status fetch would reject immediately.
+      stopSubscriptionPoll();
+      const controller = new AbortController();
+      subscriptionAbortRef.current = controller;
       const pollOnce = async () => {
-        if (stopped) return;
+        if (stopped || controller.signal.aborted) return;
         if (Date.now() - startedAt > SUBSCRIPTION_POLL_TIMEOUT_MS) {
           stopped = true;
           failSubscriptionConnect('Sign-in timed out. Please try again.');
@@ -596,9 +605,9 @@ export function SetupWizard() {
         try {
           const statusResp = await fetch(
             `${connectionConfig.baseUrl}/api/v2/user/subscription-connect/${data.task_id}`,
-            { headers: withAuthHeaders(api.authHeader) }
+            { headers: withAuthHeaders(api.authHeader), signal: controller.signal }
           );
-          if (stopped) return;
+          if (stopped || controller.signal.aborted) return;
           if (statusResp.status === 404 || (statusResp.status >= 400 && statusResp.status < 500)) {
             stopped = true;
             failSubscriptionConnect('Sign-in session was lost. Please try again.');
@@ -623,13 +632,13 @@ export function SetupWizard() {
             failSubscriptionConnect(statusData.error ?? 'OAuth flow failed. Please try again.');
           }
         } catch {
-          // Ignore transient network errors; the next interval retry will pick up.
+          // Ignore abort and transient network errors; the next interval retry
+          // will pick up unless this flow was cancelled.
         }
       };
 
-      stopSubscriptionPoll();
       await pollOnce();
-      if (!stopped) {
+      if (!stopped && !controller.signal.aborted) {
         subscriptionPollRef.current = setInterval(() => {
           void pollOnce();
         }, SUBSCRIPTION_POLL_INTERVAL_MS);
@@ -640,10 +649,10 @@ export function SetupWizard() {
     }
   };
 
-  // Clean up subscription poll on unmount
+  // Clean up subscription poll and any in-flight request on unmount
   useEffect(() => {
     return () => {
-      if (subscriptionPollRef.current) clearInterval(subscriptionPollRef.current);
+      stopSubscriptionPoll();
     };
   }, []);
 
