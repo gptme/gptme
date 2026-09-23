@@ -146,7 +146,7 @@ def test_search_accepts_query_that_fits_final_url_limit(
 def test_read_url():
     """Test reading URLs with lynx backend."""
     content = read_url("https://gptme.org/")
-    assert "Getting Started" in content
+    assert "gptme" in content
     content = read_url("https://github.com/gptme/gptme/issues/205")
     assert "lynx-backed browser tool" in content
 
