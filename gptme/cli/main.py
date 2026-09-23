@@ -27,7 +27,6 @@ import gptme
 
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
-from ..gears import parse_gear, resolve_gear
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -623,12 +622,6 @@ Run 'gptme-util --help' for all utility commands."""
     help="Skip all confirmation prompts.",
 )
 @click.option(
-    "--gear",
-    type=click.IntRange(0, 4),
-    default=None,
-    help="Autonomy preset: 0=observe, 1=review, 2=plan, 3=execute, 4=integrate. Explicit --tools/--agent-profile/--no-confirm override preset parts.",
-)
-@click.option(
     "-n",
     "--non-interactive",
     "non_interactive",
@@ -716,13 +709,6 @@ Run 'gptme-util --help' for all utility commands."""
     help="Show verbose output.",
 )
 @click.option(
-    "--multi-tool/--no-multi-tool",
-    "multi_tool",
-    default=None,
-    hidden=True,
-    help="Allow multiple tool calls per LLM response (disables break-on-tooluse). Enables efficient API usage with sequential execution.",
-)
-@click.option(
     "--version",
     is_flag=True,
     help="Show version. With -v/--verbose, show full configuration info.",
@@ -766,23 +752,6 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
     help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
-@click.option(
-    "--injection-hygiene",
-    "injection_hygiene",
-    type=click.Choice(["off", "warn", "block"]),
-    default=None,
-    envvar="GPTME_INJECTION_HYGIENE",
-    help="Prompt injection hygiene for tool outputs: off (disabled), warn (flag suspicious content), block (redact HIGH-severity patterns). Overrides GPTME_INJECTION_HYGIENE env var.",
-)
-@click.option(
-    "--manifest-dir",
-    "manifest_dir",
-    default=None,
-    type=click.Path(file_okay=False, path_type=Path),
-    envvar="GPTME_MANIFEST_DIR",
-    help="Write a JSON record before and after each tool call to this directory. "
-    "Records can be committed alongside session artifacts for tool-call-level attribution.",
-)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -790,7 +759,6 @@ def main(
     name: str,
     model: str | None,
     tool_allowlist: tuple[str, ...],
-    gear: int | None,
     agent_profile: str | None,
     tool_format: ToolFormat | None,
     prune_tool_output: bool | None,
@@ -807,12 +775,9 @@ def main(
     workspace: str | None,
     agent_path: str | None,
     profile: bool,
-    multi_tool: bool | None,
     context_include: tuple[str, ...],
     no_workspace: bool,
     output_schema: str | None,
-    injection_hygiene: str | None,
-    manifest_dir: Path | None,
 ):
     """Main entrypoint for the CLI."""
     show_version = version or version_json
@@ -865,12 +830,6 @@ def main(
         if plugin_path := shutil.which(plugin):
             sys.exit(subprocess.call([plugin_path, *prompts[1:]]))
 
-    # Register manifest hooks early so they are in the registry before any tool call.
-    if manifest_dir is not None:
-        from ..hooks.manifest import register_manifest_hooks  # fmt: skip
-
-        register_manifest_hooks(manifest_dir)
-
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
     # (observed to occur in some Click versions when --name "" is passed)
     if not name or not name.strip():
@@ -908,29 +867,6 @@ def main(
             "--no-workspace strips all workspace context, so --context values would be silently ignored."
         )
 
-    # Apply gear defaults before explicit profile/tools/no-confirm flags.
-    selected_gear = parse_gear(gear)
-    if selected_gear is not None:
-        gear_resolution = resolve_gear(selected_gear)
-        if agent_profile is None and gear_resolution.profile_name:
-            agent_profile = gear_resolution.profile_name
-        if (
-            ctx.get_parameter_source("tool_allowlist") == ParameterSource.DEFAULT
-            and gear_resolution.tool_allowlist is not None
-        ):
-            tool_allowlist = gear_resolution.tool_allowlist
-        if (
-            ctx.get_parameter_source("no_confirm") == ParameterSource.DEFAULT
-            and gear_resolution.no_confirm
-        ):
-            no_confirm = True
-        logger.info(
-            "Using gear %s (%s): %s",
-            gear_resolution.gear,
-            gear_resolution.name,
-            gear_resolution.description,
-        )
-
     # Apply agent profile if specified
     selected_profile = None
     if agent_profile:
@@ -953,18 +889,6 @@ def main(
             and selected_profile.tools is not None
         ):
             tool_allowlist = tuple(selected_profile.tools)
-
-    # Handle multi-tool flag - controls break_on_tooluse
-    if multi_tool is not None:
-        # Only set GPTME_BREAK_ON_TOOLUSE - multi-tool mode allows multiple tool calls
-        # per LLM response but executes them sequentially (no thread-safety issues)
-        os.environ["GPTME_BREAK_ON_TOOLUSE"] = "0" if multi_tool else "1"
-
-    # Propagate --injection-hygiene to the env var read by the hook at call time.
-    # envvar= on the option means Click already reads GPTME_INJECTION_HYGIENE if set,
-    # so this only fires when the flag was explicitly passed on the command line.
-    if injection_hygiene is not None:
-        os.environ["GPTME_INJECTION_HYGIENE"] = injection_hygiene
 
     # Convert tool_allowlist from tuple to string or None
     # Use get_parameter_source to distinguish between default (None) and explicit empty list
@@ -1234,7 +1158,6 @@ def main(
                     tool_allowlist=tool_allowlist_str,
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
-                    gear=selected_gear,
                     no_confirm=no_confirm or None,
                     stream=stream,
                     interactive=interactive,
@@ -1243,12 +1166,6 @@ def main(
             except ValueError as e:
                 raise click.UsageError(str(e)) from e
             assert config.chat and config.chat.tool_format
-            if selected_profile is None and config.chat.gear is not None:
-                gear_profile_name = resolve_gear(config.chat.gear).profile_name
-                selected_profile = (
-                    get_profile(gear_profile_name) if gear_profile_name else None
-                )
-
             # Resolve prompt type using project config if --system was not set
             effective_prompt_system = prompt_system
             if effective_prompt_system is None:
@@ -1376,7 +1293,6 @@ def main(
             tool_allowlist=tool_allowlist_str,
             tool_format=tool_format,
             prune_tool_output=prune_tool_output,
-            gear=selected_gear,
             no_confirm=no_confirm or None,
             stream=stream,
             interactive=interactive,
@@ -1385,10 +1301,6 @@ def main(
     except ValueError as e:
         raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
-    if selected_profile is None and config.chat.gear is not None:
-        gear_profile_name = resolve_gear(config.chat.gear).profile_name
-        selected_profile = get_profile(gear_profile_name) if gear_profile_name else None
-
     # Resolve effective system prompt type: CLI flag > gptme.toml [prompt] system > "full"
     if prompt_system is None:
         prompt_system = (config.project.system if config.project else None) or "full"

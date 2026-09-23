@@ -101,18 +101,6 @@ The ``env`` section contains environment variables that gptme will fall back to 
    ``config.toml``. That lets you keep ``config.toml`` in dotfiles or version control without
    exposing your keys. The webui setup wizard already writes keys to ``config.local.toml``.
 
-The ``settings`` section contains user-level CLI defaults. Currently supported:
-
-- ``gear``: Default autonomy preset for new conversations (experimental). Gear ``0`` is read-only
-  observe mode, gear ``1`` is the interactive default, gear ``2`` allows file edits
-  while excluding shell/network tools by default, gear ``3`` is fully autonomous,
-  and gear ``4`` adds subagent orchestration.
-
-.. code-block:: toml
-
-    [settings]
-    gear = 2
-
 .. _how-model-selection-works:
 
 How model selection works
@@ -372,7 +360,6 @@ This file currently supports a few options:
   ``GPTME_WORKSPACE``, and the current ``GPTME_MODEL`` in their environment.
   A failure or timeout is logged and does not alter the session result.
 
-- ``settings``, a dictionary of project-local CLI defaults. ``settings.gear`` accepts the same experimental 0-4 autonomy presets as ``gptme --gear`` and overrides the global ``[settings].gear`` default for conversations started in this workspace.
 
   .. warning::
 

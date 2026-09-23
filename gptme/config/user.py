@@ -638,15 +638,6 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     settings = SettingsConfig(
         **{k: v for k, v in settings_data.items() if k in settings_known}
     )
-    if settings.gear is not None:
-        from ..gears import parse_gear
-
-        try:
-            settings.gear = parse_gear(settings.gear)
-        except ValueError:
-            logger.warning("[settings].gear should be an integer from 0 to 4")
-            settings.gear = None
-
     hooks_data = config.pop("hooks", {})
     if not isinstance(hooks_data, dict):
         raise ValueError("hooks must be an object")

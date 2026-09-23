@@ -46,10 +46,10 @@ it isn't.
 
 .. note::
 
-   gptme also has experimental autonomy presets (``--gear 0``–``4``, bundling tools,
-   profile, and confirmations) and an OS-level sandbox for the shell and Python
-   tools (``GPTME_SANDBOX``). Neither is widely used yet: expect rough edges, and
-   check that they behave as you expect before relying on them.
+   gptme has an OS-level sandbox for the shell and Python tools
+   (``GPTME_SANDBOX``). It is not widely used yet: expect rough edges, and check
+   that it behaves as you expect before relying on it. To restrict a session
+   instead, combine ``--tools`` with an :doc:`agent profile <profiles>`.
 
 What actually keeps you safe
 ----------------------------

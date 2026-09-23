@@ -118,7 +118,6 @@ class ChatConfig:
     model: str | None = None
     tools: list[str] | None = None
     tool_format: "ToolFormat | None" = None
-    gear: int | None = None
     stream: bool = True
     interactive: bool = True
     no_confirm: bool | None = None
@@ -203,14 +202,6 @@ class ChatConfig:
         if mcp_data is not None and not isinstance(mcp_data, dict):
             raise ValueError("mcp must be an object")
         mcp = MCPConfig.from_dict(mcp_data) if mcp_data is not None else None
-
-        gear_val = chat_data.get("gear")
-        if gear_val is not None and (
-            not isinstance(gear_val, int) or isinstance(gear_val, bool)
-        ):
-            raise ValueError(
-                f"chat.gear must be an integer, got {type(gear_val).__name__}"
-            )
 
         # Type-validate numeric fields so wrong-type values raise ValueError here
         # (at the API boundary) instead of silently storing bad types that crash later.
@@ -488,7 +479,6 @@ class ChatConfig:
                 in [
                     "model",
                     "tool_format",
-                    "gear",
                     "tools",
                     "agent",
                     "watch_autowake",
@@ -503,7 +493,6 @@ class ChatConfig:
                 not in [
                     "model",
                     "tool_format",
-                    "gear",
                     "tools",
                     "agent",
                     "watch_autowake",

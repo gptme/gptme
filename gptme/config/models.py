@@ -226,8 +226,6 @@ class ModelsConfig:
 class SettingsConfig:
     """Project/user settings that affect CLI defaults."""
 
-    gear: int | None = None
-
 
 @dataclass
 class UserConfig:
@@ -459,14 +457,6 @@ class ProjectConfig:
         settings = _build_section(
             "settings", SettingsConfig, _pop_object_section(config_data, "settings")
         )
-        if settings.gear is not None:
-            from ..gears import parse_gear
-
-            try:
-                settings.gear = parse_gear(settings.gear)
-            except ValueError as exc:
-                raise ValueError(f"settings.gear {exc}") from exc
-
         # Warn about unknown keys and drop them instead of passing them through
         # as kwargs (which would crash with "unexpected keyword argument").
         if config_data:
