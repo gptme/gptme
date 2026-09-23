@@ -75,7 +75,7 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb xdotool scrot xterm fluxbox imagemagick
+      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb xdotool scrot xterm fluxbox imagemagick
 
     - name: Set up Xvfb
       run: |
@@ -152,7 +152,7 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
 
     - name: Set up Xvfb
       run: |
@@ -288,7 +288,7 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get install universal-ctags pandoc tmux x11-xserver-utils xvfb
+      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
 
     - name: Set up Xvfb
       run: |
