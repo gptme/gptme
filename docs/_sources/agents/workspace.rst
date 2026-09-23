@@ -182,7 +182,7 @@ Run the agent from its workspace, as you would any gptme session:
 
 .. code-block:: bash
 
-    cd ~/my-agent
+    cd ~/ada
     gptme "your prompt here"
 
 Everything it learns lands in the workspace: journal entries, tasks, knowledge,

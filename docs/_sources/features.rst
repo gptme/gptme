@@ -3,9 +3,40 @@
 Features
 ========
 
-gptme is a personal AI agent in your terminal with tools to run shell commands, write code, edit files, browse the web, use vision, and much more. A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work — including running as a **persistent autonomous agent** that operates continuously, learns from experience, and manages its own tasks.
+gptme is a personal AI agent in your terminal with tools to run shell commands, write code, edit files, browse the web, use vision, and much more. A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.
 
-An unconstrained local free and open-source alternative to Claude Code, Codex, Cursor Agents, etc. One of the first agent CLIs created (Spring 2023) — and still in very active development.
+An unconstrained, local, free and open-source alternative to Claude Code, Codex,
+and Grok Bot, and a development-focused peer to self-hosted agents like OpenClaw
+and Hermes Agent. One of the first agent CLIs created (Spring 2023) — and still
+in very active development. See :doc:`alternatives` for the full comparison.
+
+What sets gptme apart
+---------------------
+
+Most AI coding tools are a product you rent: one vendor's models, one company's
+servers, one set of capabilities. gptme is a runtime you own.
+
+- **It runs unattended, not just interactively.** The same agent that helps you
+  at the keyboard can run on a schedule with its memory in a git repo you own.
+  `Bob <https://github.com/TimeToBuildBob>`_ has had **5,000+ pull requests
+  merged** across public repositories — fixing CI, reviewing code, and managing
+  his own backlog. See `Autonomous Agents`_.
+- **It is not locked to a model or a vendor.** Frontier APIs, a ChatGPT or
+  SuperGrok subscription you already pay for, one browser sign-in with
+  OpenRouter, or a model running on your own machine — the same agent, swapped
+  with one flag. See `LLM Support`_.
+- **It is unconstrained by design.** Shell, Python, files, browser, vision, and
+  desktop control are built in; anything missing can be added as a tool, plugin,
+  hook, skill, or MCP server. See `Extensibility`_.
+- **It remembers across tools, not just across sessions.** One Markdown memory
+  store is shared by gptme, Claude Code, and Codex, so context you build in one
+  harness is not trapped there. See :doc:`memory`.
+- **You decide how much it can do on its own.** Per-conversation tool
+  selection, autonomy presets, confirmations, and OS-level sandboxing — from
+  read-only review to a fully autonomous run. See `Control and safety`_.
+- **It is yours.** MIT licensed, self-hostable end to end, and simple to fork —
+  no seat pricing, no telemetry requirement, no waiting for a vendor to ship
+  the feature you need.
 
 Core Capabilities
 -----------------
@@ -62,7 +93,7 @@ See the :doc:`Vision <tools/vision>` and :doc:`Screenshot <tools/screenshot>` to
 
 Give the assistant access to a full desktop environment, allowing it to interact with GUI applications through mouse and keyboard control.
 
-See :doc:`tools` for the Computer tool documentation and the `computer use tracking issue <https://github.com/gptme/gptme/issues/216>`_.
+See the :doc:`Computer <tools/computer>` tool.
 
 
 Interfaces
@@ -109,17 +140,36 @@ See :doc:`server` for the API documentation.
 LLM Support
 -----------
 
-gptme works with a wide range of LLM providers and models:
+gptme is model-agnostic: you pick the provider, and you can change your mind
+with a single ``-m`` flag.
+
+**Bring an API key**
 
 - **Anthropic** — Claude (Sonnet, Opus, Haiku)
-- **OpenAI** — GPT-4o, GPT-4, o1, o3
+- **OpenAI** — GPT-5 and o-series, via the Responses API
 - **Google** — Gemini
 - **xAI** — Grok
-- **DeepSeek** — DeepSeek R1 and others
-- **OpenRouter** — Access 100+ models through a single API
-- **Local models** — Run models locally via ``llama.cpp`` (no API key required)
+- **DeepSeek**, **Groq**, **Moonshot**, **NVIDIA**, **Azure OpenAI**, **Requesty**
+- **OpenRouter** — 100+ models through a single API
 
-See :doc:`providers` for setup instructions and model configuration.
+**Bring a subscription instead** — usually the cheapest way to run a frontier
+model, with no metered API bill:
+
+- ``gptme-auth openai-subscription`` — use your ChatGPT Plus/Pro plan
+- ``gptme-auth grok-subscription`` — use your SuperGrok plan
+
+**Bring nothing at all**
+
+- **OpenRouter sign-in** — ``/account setup openrouter`` runs a browser OAuth
+  (PKCE) flow, no credit card, and free models are available immediately.
+- **Local models** — Ollama, LM Studio, vLLM, ``llama.cpp``, or any
+  OpenAI-compatible server. Local Ollama and LM Studio installs are
+  auto-discovered.
+- **gptme managed service** — ``gptme-auth login`` to use `gptme.ai
+  <https://gptme.ai>`_ as a router.
+
+Different tasks deserve different models: see :doc:`models` for picking one, and
+:doc:`providers` for setup.
 
 
 Extensibility
@@ -203,7 +253,7 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 .. code-block:: bash
 
    # Create a new agent
-   gptme-agent create ~/my-agent --name MyAgent
+   gptme-agent create ~/ada --name Ada
 
    # Install as a recurring service (runs every 30 min by default)
    gptme-agent install
@@ -215,7 +265,7 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 🤖 Bob — The Reference Agent
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-`Bob <https://github.com/TimeToBuildBob>`_ (``@TimeToBuildBob``) is the most mature gptme agent and serves as the reference implementation. Bob has been running autonomously since 2024, completing **1700+ sessions** across hundreds of days. He demonstrates what a persistent autonomous agent can actually do:
+`Bob <https://github.com/TimeToBuildBob>`_ (``@TimeToBuildBob``) is the most mature gptme agent and serves as the reference implementation. Bob was created in late 2024 and has been running autonomously since 2025, with **5,000+ merged pull requests** and 8,000+ public commits to his name (`his own stats page <https://timetobuildbob.com/stats/>`_ keeps the running count). He demonstrates what a persistent autonomous agent can actually do:
 
 - **Open source contributions** — opens PRs, reviews code, fixes CI failures, and responds to issues across multiple repositories
 - **Self-managed task queue** — selects work from a prioritized backlog, tracks progress, and closes tasks when done
@@ -252,16 +302,47 @@ Agents coordinate via a shared coordination layer (SQLite-based file leases, mes
    Creating your own agent takes minutes with the template. See :doc:`agents` for the full guide — from creating your first agent to running it autonomously.
 
 
+Control and safety
+------------------
+
+The same runtime covers read-only review and unattended operation, so you choose
+the level of autonomy per conversation:
+
+- **Pick the tools** — ``-t read-only`` for inspection, ``-t patch,save`` for a
+  narrow task, ``-t +subagent`` to add to the defaults, ``--tools none`` for
+  plain chat.
+- **Autonomy presets** — ``--gear 0``–``4`` bundle tools, profile, and
+  confirmations, from observe-only to full autonomy (experimental).
+- **Confirmations** — tool calls are confirmed before they run, except
+  read-only shell commands (``ls``, ``cat``, ``rg``, and similar) which are
+  auto-approved; ``-y`` approves everything while you watch, ``-n`` runs
+  unattended. See :doc:`security` for the exact allowlist.
+- **Sandboxing** — run shell and Python in an OS-level sandbox (``GPTME_SANDBOX``).
+- **Prompt-injection hygiene** — flag or redact suspicious content in tool
+  output with ``--injection-hygiene``.
+- **Undo and checkpoints** — ``/undo`` and ``/backtrack`` rewind the
+  conversation; ``/checkpoint`` restores the workspace files. They are separate:
+  backtracking does not roll back the filesystem.
+- **Guardrails for agents** — input, pre-action, and output guardrails around
+  the unattended loop, see `Autonomous Agents`_.
+
+See :doc:`security` for the threat model and what is and isn't hardened yet.
+
+
 Automation & CI
 ---------------
 
 gptme supports several automation modes:
 
 - ``gptme -y`` — auto-approve tool confirmations (user can still watch and interrupt)
-- ``gptme -n`` — fully non-interactive/autonomous mode (safe for scripts and CI)
+- ``gptme -n`` — fully non-interactive: no prompts, no confirmations, exits when
+  done. This is what scripts and CI need, but note what it means — the agent
+  runs every tool call unreviewed, so give it a workspace, credentials, and
+  :doc:`sandbox <security>` you are willing to let it act in.
 - ``gptme -n --output-format json`` — JSONL stdout for scripts, CI, and supervisor processes
 - **GitHub Bot** — request changes from PR and issue comments, runs in GitHub Actions
-- **Subagent spawning** — delegate subtasks to parallel agent instances via tmux
+- **Subagent spawning** — delegate subtasks to subagents that run in threads or
+  separate processes, in parallel or sequentially, each with its own context
 
 See :doc:`bot` for the GitHub bot and :doc:`usage` for automation patterns.
 

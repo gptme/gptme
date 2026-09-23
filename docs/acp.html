@@ -725,13 +725,13 @@ python<span class="w"> </span>-m<span class="w"> </span>gptme.acp
 <li><p><strong>Working Directory</strong>: Inherited from the <code class="docutils literal notranslate"><span class="pre">new_session</span></code> request</p></li>
 </ul>
 <p>Example configuration in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[general]</span>
-<span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span>
 
-<span class="k">[tools]</span>
-<span class="c1"># Tools are auto-confirmed in ACP mode</span>
-<span class="c1"># Configure allowlist if needed</span>
-<span class="n">allowlist</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;patch&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;save&quot;</span><span class="p">]</span>
+<span class="k">[env]</span>
+<span class="c1"># Tools are auto-confirmed in ACP mode.</span>
+<span class="c1"># Restrict which tools are available, if needed:</span>
+<span class="n">TOOL_ALLOWLIST</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ipython,shell,patch,save&quot;</span>
 </pre></div>
 </div>
 </section>

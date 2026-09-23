@@ -611,8 +611,10 @@ gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<spa
 </pre></div>
 </div>
 <p>Schedules use the systemd <code class="docutils literal notranslate"><span class="pre">OnCalendar</span></code> format on both platforms; the launchd
-plist is generated from it. Use <code class="docutils literal notranslate"><span class="pre">--name</span></code> and <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> to manage an agent
-other than the one in the current directory.</p>
+plist is generated from it. <code class="docutils literal notranslate"><span class="pre">install</span></code> takes <code class="docutils literal notranslate"><span class="pre">--name</span></code> and <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> to
+install an agent other than the one in the current directory; the management
+commands (<code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">logs</span></code>, <code class="docutils literal notranslate"><span class="pre">run</span></code>, <code class="docutils literal notranslate"><span class="pre">stop</span></code>, <code class="docutils literal notranslate"><span class="pre">start</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>) take
+the agent name as a positional argument instead, and <code class="docutils literal notranslate"><span class="pre">doctor</span></code> takes a path.</p>
 <p>Scheduling comes in two shapes, which are less opposed than they sound:</p>
 <ul class="simple">
 <li><p><strong>Timer-based</strong> — <code class="docutils literal notranslate"><span class="pre">gptme-agent</span> <span class="pre">install</span></code> wakes the agent on a cadence, whether
@@ -638,9 +640,9 @@ conflicted after something else merged.</p></li>
 <p>The <a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-runloops">gptme-runloops</a>
 package in gptme-contrib implements both, plus email and multi-agent
 coordination loops:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-runloops<span class="w"> </span>autonomous<span class="w"> </span>--workspace<span class="w"> </span>~/my-agent<span class="w">   </span><span class="c1"># cadence-driven run</span>
-gptme-runloops<span class="w"> </span>monitoring<span class="w"> </span>--workspace<span class="w"> </span>~/my-agent<span class="w">   </span><span class="c1"># react to GitHub activity</span>
-gptme-runloops<span class="w"> </span>email<span class="w"> </span>--workspace<span class="w"> </span>~/my-agent<span class="w">        </span><span class="c1"># react to incoming mail</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-runloops<span class="w"> </span>autonomous<span class="w"> </span>--workspace<span class="w"> </span>~/ada<span class="w">   </span><span class="c1"># cadence-driven run</span>
+gptme-runloops<span class="w"> </span>monitoring<span class="w"> </span>--workspace<span class="w"> </span>~/ada<span class="w">   </span><span class="c1"># react to GitHub activity</span>
+gptme-runloops<span class="w"> </span>email<span class="w"> </span>--workspace<span class="w"> </span>~/ada<span class="w">        </span><span class="c1"># react to incoming mail</span>
 </pre></div>
 </div>
 <p>How a run picks its work — which task, which model, which harness — is the open
@@ -668,7 +670,7 @@ workspaces.</p>
 identity files, <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>, directory structure, git setup, pre-commit hooks,
 and tools such as <code class="docutils literal notranslate"><span class="pre">uv</span></code> and <code class="docutils literal notranslate"><span class="pre">gh</span></code>. <code class="docutils literal notranslate"><span class="pre">--fix</span></code> repairs the simple problems.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-agent<span class="w"> </span>doctor<span class="w">            </span><span class="c1"># check the current workspace</span>
-gptme-agent<span class="w"> </span>doctor<span class="w"> </span>~/my-agent<span class="w"> </span>--fix
+gptme-agent<span class="w"> </span>doctor<span class="w"> </span>~/ada<span class="w"> </span>--fix
 </pre></div>
 </div>
 </section>

@@ -725,11 +725,14 @@ gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent,+computer,
 <section id="mcp-servers">
 <h3>MCP servers<a class="headerlink" href="#mcp-servers" title="Link to this heading">#</a></h3>
 <p>Connect gptme to external tools and data sources via the Model Context Protocol. Configure servers in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[mcp.servers]]</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[mcp]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">auto_start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+
+<span class="k">[[mcp.servers]]</span>
 <span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;filesystem&quot;</span>
 <span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;npx&quot;</span>
 <span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-y&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;@modelcontextprotocol/server-filesystem&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;/projects&quot;</span><span class="p">]</span>
-<span class="n">auto_start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
 </pre></div>
 </div>
 <p>Then use gptme as usual — the server starts automatically:</p>
@@ -742,10 +745,10 @@ gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent,+computer,
 <h3>Persistent agents<a class="headerlink" href="#persistent-agents" title="Link to this heading">#</a></h3>
 <p>Create a persistent agent — with its own workspace, task list, journal, and lessons — that runs autonomously on a schedule:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Create a new agent workspace from the template</span>
-gptme-agent<span class="w"> </span>create<span class="w"> </span>~/my-agent<span class="w"> </span>--name<span class="w"> </span>MyAgent
+gptme-agent<span class="w"> </span>create<span class="w"> </span>~/ada<span class="w"> </span>--name<span class="w"> </span>Ada
 
 <span class="c1"># Bootstrap it</span>
-<span class="nb">cd</span><span class="w"> </span>~/my-agent
+<span class="nb">cd</span><span class="w"> </span>~/ada
 gptme<span class="w"> </span><span class="s1">&#39;explore the workspace, read my identity files, and tell me what I am&#39;</span>
 
 <span class="c1"># Run it autonomously on a schedule</span>

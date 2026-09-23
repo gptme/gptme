@@ -859,8 +859,11 @@ Clear commit history, automated changelog generation.
 <span class="c1"># This is a session-wide limit - once reached, no more lessons are included</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_MAX_SESSION</span><span class="o">=</span><span class="m">20</span>
 
-<span class="c1"># Refresh lessons each message (default: false)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_REFRESH</span><span class="o">=</span><span class="nb">true</span>
+<span class="c1"># Use hybrid keyword + semantic matching (default: false)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_USE_HYBRID</span><span class="o">=</span><span class="nb">true</span>
+
+<span class="c1"># Hold out specific lessons, e.g. when measuring their effect</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_HOLDOUT</span><span class="o">=</span><span class="s2">&quot;lesson-name,another-lesson&quot;</span>
 </pre></div>
 </div>
 </section>

@@ -144,13 +144,13 @@ Example configuration in ``~/.config/gptme/config.toml``:
 
 .. code-block:: toml
 
-    [general]
-    model = "anthropic/claude-sonnet-4-20250514"
+    [models]
+    default = "anthropic/claude-sonnet-4-6"
 
-    [tools]
-    # Tools are auto-confirmed in ACP mode
-    # Configure allowlist if needed
-    allowlist = ["python", "shell", "patch", "save"]
+    [env]
+    # Tools are auto-confirmed in ACP mode.
+    # Restrict which tools are available, if needed:
+    TOOL_ALLOWLIST = "ipython,shell,patch,save"
 
 Capabilities
 ------------

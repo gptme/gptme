@@ -601,10 +601,9 @@ You can execute tool code directly using slash commands with the tool's language
 
 .. code-block:: text
 
-   /sh echo hello             # Execute shell command
-   /shell ls -la              # Same as above
-   /python print("hello")     # Execute Python code
-   /ipython 2 + 2             # Same as above
+   /shell ls -la              # Execute a shell command
+   /ipython 2 + 2             # Execute Python code
+   /py print("hello")         # Same as above
 
 This is equivalent to writing a code block:
 

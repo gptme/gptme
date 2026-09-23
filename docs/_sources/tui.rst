@@ -7,6 +7,10 @@ gptme ships an optional Textual-based terminal UI, ``gptme-tui``, complementary
 to the plain :doc:`CLI <cli>` (which remains better suited for non-interactive
 and scripted use).
 
+.. image:: ../media/screenshots/tui.png
+   :alt: gptme-tui showing a conversation, collapsed tool output, and the status bar
+   :width: 100%
+
 It addresses two long-standing UX limitations of the plain CLI
 (see :issue:`569`):
 

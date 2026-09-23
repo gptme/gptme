@@ -580,6 +580,7 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-lessons-or-skills">Memory, lessons, or skills?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migrating-from-the-knowledge-base">Migrating from the knowledge base</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-harness-memory">Cross-harness memory</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
@@ -647,10 +648,10 @@ harness, including Claude Code and Codex.</p></td>
 <td><p><a class="reference internal" href="#cross-harness-memory">Cross-harness memory</a></p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">knowledge</span></code></p></td>
-<td><p>Problem/resolution pairs stored as JSONL. Matching entries are injected
-once at the start of a conversation when the first prompt has enough
-keywords to search.</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">knowledge</span> <span class="pre">--help</span></code></p></td>
+<td><p><strong>Deprecated.</strong> Problem/resolution pairs stored as JSONL, superseded by
+<code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span></code>. The subgroup warns on use and will be removed in
+a future release.</p></td>
+<td><p><a class="reference internal" href="#id1">Migrating from the knowledge base</a></p></td>
 </tr>
 <tr class="row-odd"><td><p>RAG</p></td>
 <td><p>Indexes and searches documentation, code, and past conversations with
@@ -687,12 +688,24 @@ directly as slash commands.</p></li>
 their rationale, and project facts that are not obvious from the code. Agents
 and harnesses write it at runtime; the index is always loaded, and full
 entries are found with <code class="docutils literal notranslate"><span class="pre">recall</span></code>.</p></li>
-<li><p><strong>The knowledge base</strong> (<code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">knowledge</span></code>) holds problem/resolution
-pairs, so a fix found once can resurface when a similar problem comes up.</p></li>
 </ul>
 <p>Rule of thumb: if it tells the agent <em>how to behave</em>, write a lesson; if it is
 a <em>procedure</em> to run on request, write a skill; if it records <em>what is true</em>
 about a user or project, save a memory.</p>
+</section>
+<section id="migrating-from-the-knowledge-base">
+<span id="id1"></span><h2>Migrating from the knowledge base<a class="headerlink" href="#migrating-from-the-knowledge-base" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">knowledge</span></code> stored problem/resolution pairs in JSONL. It is
+deprecated: the subgroup prints a <code class="docutils literal notranslate"><span class="pre">DeprecationWarning</span></code> and will be removed in
+a future release. Memory entries cover the same job, with typed entries and
+recall that every harness can read.</p>
+<p>To move existing entries over:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>migrate-knowledge-jsonl
+</pre></div>
+</div>
+<p>After migrating, use <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span> <span class="pre">recall</span> <span class="pre">QUERY</span></code> in place of knowledge
+search, and <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span> <span class="pre">save</span> <span class="pre">NAME</span> <span class="pre">DESCRIPTION</span></code> in place of
+<code class="docutils literal notranslate"><span class="pre">knowledge</span> <span class="pre">save</span></code>.</p>
 <p>Lessons and memory are separate stores, and neither reads the other:</p>
 <ul class="simple">
 <li><p>Lessons are read recursively from lesson directories (<code class="docutils literal notranslate"><span class="pre">./lessons/</span></code>,
@@ -1000,6 +1013,7 @@ instead. Invalid JSON, a non-object, or a reserved key fails before writing.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-lessons-or-skills">Memory, lessons, or skills?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migrating-from-the-knowledge-base">Migrating from the knowledge base</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-harness-memory">Cross-harness memory</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>

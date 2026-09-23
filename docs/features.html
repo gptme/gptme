@@ -579,6 +579,7 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-sets-gptme-apart">What sets gptme apart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-capabilities">Core Capabilities</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-execution">💻 Code Execution</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operations">🧩 File Operations</a></li>
@@ -611,6 +612,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-agent-ecosystem">🌐 Multi-Agent Ecosystem</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#control-and-safety">Control and safety</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automation-ci">Automation &amp; CI</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quality-of-life">Quality of Life</a></li>
 </ul>
@@ -626,8 +628,39 @@ document.write(`
                   
   <section id="features">
 <h1>Features<a class="headerlink" href="#features" title="Link to this heading">#</a></h1>
-<p>gptme is a personal AI agent in your terminal with tools to run shell commands, write code, edit files, browse the web, use vision, and much more. A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work — including running as a <strong>persistent autonomous agent</strong> that operates continuously, learns from experience, and manages its own tasks.</p>
-<p>An unconstrained local free and open-source alternative to Claude Code, Codex, Cursor Agents, etc. One of the first agent CLIs created (Spring 2023) — and still in very active development.</p>
+<p>gptme is a personal AI agent in your terminal with tools to run shell commands, write code, edit files, browse the web, use vision, and much more. A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.</p>
+<p>An unconstrained, local, free and open-source alternative to Claude Code, Codex,
+and Grok Bot, and a development-focused peer to self-hosted agents like OpenClaw
+and Hermes Agent. One of the first agent CLIs created (Spring 2023) — and still
+in very active development. See <a class="reference internal" href="alternatives.html"><span class="doc">Alternatives</span></a> for the full comparison.</p>
+<section id="what-sets-gptme-apart">
+<h2>What sets gptme apart<a class="headerlink" href="#what-sets-gptme-apart" title="Link to this heading">#</a></h2>
+<p>Most AI coding tools are a product you rent: one vendor’s models, one company’s
+servers, one set of capabilities. gptme is a runtime you own.</p>
+<ul class="simple">
+<li><p><strong>It runs unattended, not just interactively.</strong> The same agent that helps you
+at the keyboard can run on a schedule with its memory in a git repo you own.
+<a class="reference external" href="https://github.com/TimeToBuildBob">Bob</a> has had <strong>5,000+ pull requests
+merged</strong> across public repositories — fixing CI, reviewing code, and managing
+his own backlog. See <a class="reference internal" href="#autonomous-agents">Autonomous Agents</a>.</p></li>
+<li><p><strong>It is not locked to a model or a vendor.</strong> Frontier APIs, a ChatGPT or
+SuperGrok subscription you already pay for, one browser sign-in with
+OpenRouter, or a model running on your own machine — the same agent, swapped
+with one flag. See <a class="reference internal" href="#llm-support">LLM Support</a>.</p></li>
+<li><p><strong>It is unconstrained by design.</strong> Shell, Python, files, browser, vision, and
+desktop control are built in; anything missing can be added as a tool, plugin,
+hook, skill, or MCP server. See <a class="reference internal" href="#extensibility">Extensibility</a>.</p></li>
+<li><p><strong>It remembers across tools, not just across sessions.</strong> One Markdown memory
+store is shared by gptme, Claude Code, and Codex, so context you build in one
+harness is not trapped there. See <a class="reference internal" href="memory.html"><span class="doc">Memory</span></a>.</p></li>
+<li><p><strong>You decide how much it can do on its own.</strong> Per-conversation tool
+selection, autonomy presets, confirmations, and OS-level sandboxing — from
+read-only review to a fully autonomous run. See <a class="reference internal" href="#control-and-safety">Control and safety</a>.</p></li>
+<li><p><strong>It is yours.</strong> MIT licensed, self-hostable end to end, and simple to fork —
+no seat pricing, no telemetry requirement, no waiting for a vendor to ship
+the feature you need.</p></li>
+</ul>
+</section>
 <section id="core-capabilities">
 <h2>Core Capabilities<a class="headerlink" href="#core-capabilities" title="Link to this heading">#</a></h2>
 <section id="code-execution">
@@ -676,7 +709,7 @@ document.write(`
 <section id="computer-use">
 <h3>🖥️ Computer Use<a class="headerlink" href="#computer-use" title="Link to this heading">#</a></h3>
 <p>Give the assistant access to a full desktop environment, allowing it to interact with GUI applications through mouse and keyboard control.</p>
-<p>See <a class="reference internal" href="tools.html"><span class="doc">Tools</span></a> for the Computer tool documentation and the <a class="reference external" href="https://github.com/gptme/gptme/issues/216">computer use tracking issue</a>.</p>
+<p>See the <a class="reference internal" href="tools/computer.html"><span class="doc">Computer</span></a> tool.</p>
 </section>
 </section>
 <section id="interfaces">
@@ -718,17 +751,34 @@ document.write(`
 </section>
 <section id="llm-support">
 <h2>LLM Support<a class="headerlink" href="#llm-support" title="Link to this heading">#</a></h2>
-<p>gptme works with a wide range of LLM providers and models:</p>
+<p>gptme is model-agnostic: you pick the provider, and you can change your mind
+with a single <code class="docutils literal notranslate"><span class="pre">-m</span></code> flag.</p>
+<p><strong>Bring an API key</strong></p>
 <ul class="simple">
 <li><p><strong>Anthropic</strong> — Claude (Sonnet, Opus, Haiku)</p></li>
-<li><p><strong>OpenAI</strong> — GPT-4o, GPT-4, o1, o3</p></li>
+<li><p><strong>OpenAI</strong> — GPT-5 and o-series, via the Responses API</p></li>
 <li><p><strong>Google</strong> — Gemini</p></li>
 <li><p><strong>xAI</strong> — Grok</p></li>
-<li><p><strong>DeepSeek</strong> — DeepSeek R1 and others</p></li>
-<li><p><strong>OpenRouter</strong> — Access 100+ models through a single API</p></li>
-<li><p><strong>Local models</strong> — Run models locally via <code class="docutils literal notranslate"><span class="pre">llama.cpp</span></code> (no API key required)</p></li>
+<li><p><strong>DeepSeek</strong>, <strong>Groq</strong>, <strong>Moonshot</strong>, <strong>NVIDIA</strong>, <strong>Azure OpenAI</strong>, <strong>Requesty</strong></p></li>
+<li><p><strong>OpenRouter</strong> — 100+ models through a single API</p></li>
 </ul>
-<p>See <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for setup instructions and model configuration.</p>
+<p><strong>Bring a subscription instead</strong> — usually the cheapest way to run a frontier
+model, with no metered API bill:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">openai-subscription</span></code> — use your ChatGPT Plus/Pro plan</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">grok-subscription</span></code> — use your SuperGrok plan</p></li>
+</ul>
+<p><strong>Bring nothing at all</strong></p>
+<ul class="simple">
+<li><p><strong>OpenRouter sign-in</strong> — <code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span> <span class="pre">openrouter</span></code> runs a browser OAuth
+(PKCE) flow, no credit card, and free models are available immediately.</p></li>
+<li><p><strong>Local models</strong> — Ollama, LM Studio, vLLM, <code class="docutils literal notranslate"><span class="pre">llama.cpp</span></code>, or any
+OpenAI-compatible server. Local Ollama and LM Studio installs are
+auto-discovered.</p></li>
+<li><p><strong>gptme managed service</strong> — <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">login</span></code> to use <a class="reference external" href="https://gptme.ai">gptme.ai</a> as a router.</p></li>
+</ul>
+<p>Different tasks deserve different models: see <a class="reference internal" href="models.html"><span class="doc">Models</span></a> for picking one, and
+<a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for setup.</p>
 </section>
 <section id="extensibility">
 <h2>Extensibility<a class="headerlink" href="#extensibility" title="Link to this heading">#</a></h2>
@@ -792,7 +842,7 @@ document.write(`
 <li><p><strong>External integrations</strong> — GitHub, email, Discord, Twitter, RSS, and more (see <a class="reference internal" href="channels.html"><span class="doc">Channels</span></a>)</p></li>
 </ul>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Create a new agent</span>
-gptme-agent<span class="w"> </span>create<span class="w"> </span>~/my-agent<span class="w"> </span>--name<span class="w"> </span>MyAgent
+gptme-agent<span class="w"> </span>create<span class="w"> </span>~/ada<span class="w"> </span>--name<span class="w"> </span>Ada
 
 <span class="c1"># Install as a recurring service (runs every 30 min by default)</span>
 gptme-agent<span class="w"> </span>install
@@ -805,7 +855,7 @@ gptme-agent<span class="w"> </span>logs<span class="w"> </span>--follow
 </section>
 <section id="bob-the-reference-agent">
 <h3>🤖 Bob — The Reference Agent<a class="headerlink" href="#bob-the-reference-agent" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://github.com/TimeToBuildBob">Bob</a> (<code class="docutils literal notranslate"><span class="pre">&#64;TimeToBuildBob</span></code>) is the most mature gptme agent and serves as the reference implementation. Bob has been running autonomously since 2024, completing <strong>1700+ sessions</strong> across hundreds of days. He demonstrates what a persistent autonomous agent can actually do:</p>
+<p><a class="reference external" href="https://github.com/TimeToBuildBob">Bob</a> (<code class="docutils literal notranslate"><span class="pre">&#64;TimeToBuildBob</span></code>) is the most mature gptme agent and serves as the reference implementation. Bob was created in late 2024 and has been running autonomously since 2025, with <strong>5,000+ merged pull requests</strong> and 8,000+ public commits to his name (<a class="reference external" href="https://timetobuildbob.com/stats/">his own stats page</a> keeps the running count). He demonstrates what a persistent autonomous agent can actually do:</p>
 <ul class="simple">
 <li><p><strong>Open source contributions</strong> — opens PRs, reviews code, fixes CI failures, and responds to issues across multiple repositories</p></li>
 <li><p><strong>Self-managed task queue</strong> — selects work from a prioritized backlog, tracks progress, and closes tasks when done</p></li>
@@ -840,15 +890,44 @@ gptme-agent<span class="w"> </span>logs<span class="w"> </span>--follow
 </div>
 </section>
 </section>
+<section id="control-and-safety">
+<h2>Control and safety<a class="headerlink" href="#control-and-safety" title="Link to this heading">#</a></h2>
+<p>The same runtime covers read-only review and unattended operation, so you choose
+the level of autonomy per conversation:</p>
+<ul class="simple">
+<li><p><strong>Pick the tools</strong> — <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">read-only</span></code> for inspection, <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">patch,save</span></code> for a
+narrow task, <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">+subagent</span></code> to add to the defaults, <code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">none</span></code> for
+plain chat.</p></li>
+<li><p><strong>Autonomy presets</strong> — <code class="docutils literal notranslate"><span class="pre">--gear</span> <span class="pre">0</span></code>–<code class="docutils literal notranslate"><span class="pre">4</span></code> bundle tools, profile, and
+confirmations, from observe-only to full autonomy (experimental).</p></li>
+<li><p><strong>Confirmations</strong> — tool calls are confirmed before they run, except
+read-only shell commands (<code class="docutils literal notranslate"><span class="pre">ls</span></code>, <code class="docutils literal notranslate"><span class="pre">cat</span></code>, <code class="docutils literal notranslate"><span class="pre">rg</span></code>, and similar) which are
+auto-approved; <code class="docutils literal notranslate"><span class="pre">-y</span></code> approves everything while you watch, <code class="docutils literal notranslate"><span class="pre">-n</span></code> runs
+unattended. See <a class="reference internal" href="security.html"><span class="doc">Security</span></a> for the exact allowlist.</p></li>
+<li><p><strong>Sandboxing</strong> — run shell and Python in an OS-level sandbox (<code class="docutils literal notranslate"><span class="pre">GPTME_SANDBOX</span></code>).</p></li>
+<li><p><strong>Prompt-injection hygiene</strong> — flag or redact suspicious content in tool
+output with <code class="docutils literal notranslate"><span class="pre">--injection-hygiene</span></code>.</p></li>
+<li><p><strong>Undo and checkpoints</strong> — <code class="docutils literal notranslate"><span class="pre">/undo</span></code> and <code class="docutils literal notranslate"><span class="pre">/backtrack</span></code> rewind the
+conversation; <code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code> restores the workspace files. They are separate:
+backtracking does not roll back the filesystem.</p></li>
+<li><p><strong>Guardrails for agents</strong> — input, pre-action, and output guardrails around
+the unattended loop, see <a class="reference internal" href="#autonomous-agents">Autonomous Agents</a>.</p></li>
+</ul>
+<p>See <a class="reference internal" href="security.html"><span class="doc">Security</span></a> for the threat model and what is and isn’t hardened yet.</p>
+</section>
 <section id="automation-ci">
 <h2>Automation &amp; CI<a class="headerlink" href="#automation-ci" title="Link to this heading">#</a></h2>
 <p>gptme supports several automation modes:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-y</span></code> — auto-approve tool confirmations (user can still watch and interrupt)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-n</span></code> — fully non-interactive/autonomous mode (safe for scripts and CI)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-n</span></code> — fully non-interactive: no prompts, no confirmations, exits when
+done. This is what scripts and CI need, but note what it means — the agent
+runs every tool call unreviewed, so give it a workspace, credentials, and
+<a class="reference internal" href="security.html"><span class="doc">sandbox</span></a> you are willing to let it act in.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">-n</span> <span class="pre">--output-format</span> <span class="pre">json</span></code> — JSONL stdout for scripts, CI, and supervisor processes</p></li>
 <li><p><strong>GitHub Bot</strong> — request changes from PR and issue comments, runs in GitHub Actions</p></li>
-<li><p><strong>Subagent spawning</strong> — delegate subtasks to parallel agent instances via tmux</p></li>
+<li><p><strong>Subagent spawning</strong> — delegate subtasks to subagents that run in threads or
+separate processes, in parallel or sequentially, each with its own context</p></li>
 </ul>
 <p>See <a class="reference internal" href="bot.html"><span class="doc">GitHub Bot</span></a> for the GitHub bot and <a class="reference internal" href="usage.html"><span class="doc">Usage</span></a> for automation patterns.</p>
 </section>
@@ -911,6 +990,7 @@ gptme-agent<span class="w"> </span>logs<span class="w"> </span>--follow
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-sets-gptme-apart">What sets gptme apart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#core-capabilities">Core Capabilities</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-execution">💻 Code Execution</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operations">🧩 File Operations</a></li>
@@ -943,6 +1023,7 @@ gptme-agent<span class="w"> </span>logs<span class="w"> </span>--follow
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-agent-ecosystem">🌐 Multi-Agent Ecosystem</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#control-and-safety">Control and safety</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automation-ci">Automation &amp; CI</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quality-of-life">Quality of Life</a></li>
 </ul>

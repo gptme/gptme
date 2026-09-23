@@ -583,10 +583,15 @@ document.write(`
                   
   <section id="request-tool-change">
 <h1>Request tool change<a class="headerlink" href="#request-tool-change" title="Link to this heading">#</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">request_tool_change</span></code> is an opt-in, audit-only relief valve for assistants
-that need a different session tool configuration. It records a structured
-request in ordinary tool-call history; it does not enable, disable, or configure
-any tool. Enable it explicitly with <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">+request_tool_change</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">request_tool_change</span></code> is an opt-in relief valve for assistants that need a
+different session tool configuration. Every request is recorded in ordinary
+tool-call history, and <code class="docutils literal notranslate"><span class="pre">enable_tool</span></code> and <code class="docutils literal notranslate"><span class="pre">disable_tool</span></code> requests are applied
+to the current session: the tool is loaded or unloaded immediately. Enable the
+tool explicitly with <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">+request_tool_change</span></code>.</p>
+<p>Enabling is still bounded by the session’s tool allowlist — a request for a tool
+outside <code class="docutils literal notranslate"><span class="pre">--tools</span></code> is refused and recorded, so this is not a way around the
+tools you granted. <code class="docutils literal notranslate"><span class="pre">configure_tool</span></code> requests remain audit-only: they are
+recorded but never applied.</p>
 <p>This is separate from <code class="docutils literal notranslate"><span class="pre">vent</span></code>: <code class="docutils literal notranslate"><span class="pre">vent</span></code> records operational friction, while
 <code class="docutils literal notranslate"><span class="pre">request_tool_change</span></code> names a concrete tool-configuration request.</p>
 <p>Opt-in tool for assistants to request session tool configuration changes.</p>

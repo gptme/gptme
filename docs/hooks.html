@@ -1026,14 +1026,25 @@ guardrail rather than a prompt.</p>
 </section>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
-<p>Hooks can be configured via environment variables:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Example: disable specific hooks</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_HOOKS_DISABLED</span><span class="o">=</span><span class="s2">&quot;linter.lint,precommit.precommit_check&quot;</span>
-
-<span class="c1"># Example: set hook priorities</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_HOOK_PRIORITY_LINTER</span><span class="o">=</span><span class="m">20</span>
+<p>Script hooks are declared in configuration, with their priority set per entry.
+Global hooks go in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code> and project hooks in
+<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>; the lists are additive and run in descending <code class="docutils literal notranslate"><span class="pre">priority</span></code> order:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[hooks.scripts]]</span>
+<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;session.end&quot;</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/bin/save-agent-context&quot;</span>
+<span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
+<span class="n">priority</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span>
 </pre></div>
 </div>
+<p>Hooks registered in Python are enabled and disabled at runtime through the
+registry, not through environment variables:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">disable_hook</span><span class="p">,</span> <span class="n">enable_hook</span>
+
+<span class="n">disable_hook</span><span class="p">(</span><span class="s2">&quot;precommit.precommit_check&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> and <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a> for the full configuration
+reference.</p>
 </section>
 <section id="migration-guide">
 <h2>Migration Guide<a class="headerlink" href="#migration-guide" title="Link to this heading">#</a></h2>

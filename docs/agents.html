@@ -603,7 +603,7 @@ workspace — a git repository that serves as its “brain” and holds everythi
 knows and has done. It runs on a schedule, picks up work, and leaves a trail you
 can read in the morning.</p>
 <p><a class="reference external" href="https://github.com/TimeToBuildBob">Bob</a> is the reference agent and the proof
-that this works: he has been running autonomously since 2024 and helps develop
+that this works: he has been running autonomously since 2025 and helps develop
 gptme itself — opening PRs, reviewing code, fixing CI, and managing his own task
 queue.</p>
 <section id="what-it-does-for-you">
@@ -638,10 +638,10 @@ radius small, and <a class="reference internal" href="agents/autonomous.html"><s
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span>gptme<span class="w"> </span>uv
 
 <span class="c1"># Create a workspace from the agent template, customized for your agent</span>
-gptme-agent<span class="w"> </span>create<span class="w"> </span>~/my-agent<span class="w"> </span>--name<span class="w"> </span>MyAgent
+gptme-agent<span class="w"> </span>create<span class="w"> </span>~/ada<span class="w"> </span>--name<span class="w"> </span>Ada
 
 <span class="c1"># Bootstrap it: let the agent read its own identity files</span>
-<span class="nb">cd</span><span class="w"> </span>~/my-agent
+<span class="nb">cd</span><span class="w"> </span>~/ada
 gptme<span class="w"> </span><span class="s1">&#39;explore the workspace, read my identity files, and tell me what I am&#39;</span>
 </pre></div>
 </div>

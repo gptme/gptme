@@ -22,11 +22,13 @@ Provider-agnostic, local-first, and unconstrained: ships with shell, Python, web
 vision, and everything else an agent needs.<br />
 A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.
 </p><p align="center">
-Free and open-source. Works with Anthropic, OpenAI, Google, xAI, DeepSeek, OpenRouter,
-or fully local via <code>llama.cpp</code> — your data, your models, your terminal.<br />
+Free and open-source. Works with Anthropic, OpenAI, Google, SpaceXAI, DeepSeek, OpenRouter,
+your existing ChatGPT/SuperGrok subscription, or fully local via Ollama and any
+OpenAI-compatible server — your data, your models, your terminal.<br />
 A capable <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code,
-Codex, Cursor, and Warp — one of the first agent CLIs (Spring 2023), still in very
-active development.
+Codex, and Grok Bot, and a development-focused peer to self-hosted agents like OpenClaw
+and Hermes Agent — one of the first agent CLIs (Spring 2023), still in very active
+development.
 </p><h2 id="-table-of-contents" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-table-of-contents" aria-hidden="true" tabindex="-1">#</a>📚 Table of Contents</h2>
 <ul>
 <li>📢 <a href="#-news">News</a></li>
@@ -50,9 +52,11 @@ active development.
 <li>📊 <a href="#-stats">Stats</a></li>
 <li>📝 <a href="#-citation">Citation</a></li>
 <li>🔗 <a href="#-links">Links</a></li>
+<li>❓ <a href="#-faq">FAQ</a></li>
 </ul>
 <h2 id="-news" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-news" aria-hidden="true" tabindex="-1">#</a>📢 News</h2>
 <ul>
+<li><strong>2026-09</strong> - <a href="https://github.com/gptme/gptme/releases/tag/v0.34.0">v0.34.0</a>: Cross-harness memory (<code>gptme-util memory</code>, Claude Code &amp; Codex integration), skills as slash commands, <code>gptme service init</code> for headless agents, context-scout pre-pass</li>
 <li><strong>2026-08</strong> - <a href="https://github.com/gptme/gptme/releases/tag/v0.33.0">v0.33.0</a>: Hashline edit format, sandboxed Python/shell execution (Docker, Wasmtime), non-interactive exit taxonomy, <code>gptme explain</code>, server auth hardening</li>
 <li><strong>2026-07</strong> - <a href="https://github.com/gptme/gptme/releases/tag/v0.32.0">v0.32.0</a> &amp; <a href="https://github.com/gptme/gptme/releases/tag/v0.32.1">v0.32.1</a>: Desktop app for Linux (AppImage), macOS, and Windows, with auto-updates since v0.32.1 — <a href="https://github.com/gptme/gptme/releases/latest">download here</a>; ACP support, MCP server, Textual TUI; <a href="https://gptme.ai">gptme.ai</a> cloud service</li>
 <li><strong>2026-05</strong> - <a href="https://github.com/gptme/gptme-plugin-registry">gptme-plugin-registry</a> created: central registry for plugin discovery</li>
@@ -166,8 +170,8 @@ The terminal recordings above are from 2023 and show the classic CLI. More recor
 </ul>
 </li>
 <li>🤖 <strong>Support for many LLM <a href="https://gptme.org/docs/providers.html">providers</a></strong><ul>
-<li>Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, and more.</li>
-<li>Use OpenRouter for access to 100+ models, or serve locally with <code>llama.cpp</code>.</li>
+<li>Anthropic (Claude), OpenAI (GPT), Google (Gemini), SpaceXAI (Grok), DeepSeek, and more.</li>
+<li>Use OpenRouter for access to 100+ models, or serve locally with Ollama, LM Studio, vLLM, or <code>llama.cpp</code>.</li>
 <li>Bring your own subscription: use your existing ChatGPT Plus/Pro or SuperGrok plan instead of API keys (see <a href="https://gptme.org/docs/providers.html">providers</a>).</li>
 <li><a href="https://gptme.org/docs/models.html">Pick the right model per task</a> — fast/cheap for triage, powerful for coding.</li>
 </ul>
@@ -178,12 +182,12 @@ The terminal recordings above are from 2023 and show the classic CLI. More recor
 <li>Standalone executable builds available with PyInstaller.</li>
 </ul>
 </li>
-<li>💻 <strong><a href="https://gptme.org/docs/tools/computer.html">Computer use</a></strong> (see <a href="https://github.com/gptme/gptme/issues/216">#216</a>)<ul>
+<li>💻 <strong><a href="https://gptme.org/docs/tools/computer.html">Computer use</a></strong><ul>
 <li>Give the assistant access to a full desktop, allowing it to interact with GUI applications.</li>
 </ul>
 </li>
 <li>🧠 <strong>Code intelligence</strong><ul>
-<li>Structural code understanding with <a href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph">gptme-codegraph</a>: call graphs, symbol extraction, and impact analysis powered by Tree-sitter. Nine MCP tools for codebase navigation.</li>
+<li>Structural code understanding with <a href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph">gptme-codegraph</a>: call graphs, symbol extraction, and impact analysis powered by Tree-sitter. Ten MCP tools for codebase navigation.</li>
 </ul>
 </li>
 <li>🔊 <strong>Tool sounds</strong> — pleasant notification sounds for different tool operations.<ul>
@@ -234,7 +238,7 @@ The terminal recordings above are from 2023 and show the classic CLI. More recor
 </tr>
 <tr>
 <td><code>rag</code></td>
-<td>Retrieve context from local files (Retrieval Augmented Generation)</td>
+<td>Retrieve context from local files (needs the <code>gptme-rag</code> package)</td>
 </tr>
 <tr>
 <td><code>gh</code></td>
@@ -255,6 +259,22 @@ The terminal recordings above are from 2023 and show the classic CLI. More recor
 <tr>
 <td><code>chats</code></td>
 <td>Reference and search past conversations</td>
+</tr>
+<tr>
+<td><code>memory</code></td>
+<td>Save and recall memory entries shared across harnesses</td>
+</tr>
+<tr>
+<td><code>lessons</code></td>
+<td>Look up contextual guidance and skills</td>
+</tr>
+<tr>
+<td><code>todo</code></td>
+<td>Keep a task list for the current conversation</td>
+</tr>
+<tr>
+<td><code>mcp</code></td>
+<td>Discover and load MCP servers at runtime</td>
 </tr>
 </tbody></table></div>
 <p>Use <code>/tools</code> during a conversation to see all available tools and their status.</p>
@@ -279,7 +299,7 @@ enabled = ["my_plugin"]
 </thead>
 <tbody><tr>
 <td><a href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph">gptme-codegraph</a></td>
-<td>Structural code retrieval with tree-sitter: 9 MCP tools for parse, call graph, blast/impact analysis</td>
+<td>Structural code retrieval with tree-sitter: 10 MCP tools for parse, call graph, blast/impact analysis</td>
 </tr>
 <tr>
 <td><a href="https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-consortium">gptme-consortium</a></td>
@@ -331,21 +351,21 @@ for a ready-to-paste Claude Desktop configuration and MCP client setup.</p>
 <li><strong>External integrations</strong> — GitHub, email, Discord, Twitter, RSS, and more</li>
 </ul>
 <pre><code class="language-sh"># Create and run your own agent
-gptme-agent create ~/my-agent --name MyAgent
+gptme-agent create ~/ada --name Ada
 gptme-agent install   # runs on a schedule
 gptme-agent status    # check on it
 </code></pre>
 <h4 id="headless-agents-with-systemd" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#headless-agents-with-systemd" aria-hidden="true" tabindex="-1">#</a>Headless Agents with systemd</h4>
 <p>For quick setup of a gptme agent as a persistent systemd service on any Linux machine, use <code>gptme service init</code>:</p>
 <pre><code class="language-sh"># Generate a complete headless agent setup
-gptme service init --name my-agent --model gpt-4o-mini --work-dir ~/my-agent
+gptme service init --name Ada --model anthropic/claude-haiku-4-5 --work-dir ~/ada
 
 # Install and start on a daily timer
 systemctl --user daemon-reload
-systemctl --user enable --now my-agent.timer
+systemctl --user enable --now Ada.timer
 
 # Update the schedule (--force overwrites all generated files, including gptme.toml and startup script)
-gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule hourly --force
+gptme service init --name Ada --work-dir ~/ada --timer-schedule hourly --force
 </code></pre>
 <p>This command scaffolds:</p>
 <ul>
@@ -357,7 +377,7 @@ gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule hourly
 </ul>
 <p>The scaffolded workspace is self-contained and runs as generated — edit <code>prompt.md</code> to say what the agent should do each run; all you need is gptme installed. Perfect for automation, monitoring, CI/CD orchestration, or running background agents on headless servers.</p>
 <p>See <a href="https://gptme.org/docs/agents/autonomous.html">Running agents autonomously</a> for scheduling, monitoring, and guardrails.</p>
-<p><a href="https://github.com/TimeToBuildBob"><strong>Bob</strong></a> is the reference implementation — a production autonomous agent that's been running continuously since late 2024. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on <a href="https://twitter.com/TimeToBuildBob">Twitter</a>, responds on Discord, and writes <a href="https://timetobuildbob.github.io/">blog posts</a>.</p>
+<p><a href="https://github.com/TimeToBuildBob"><strong>Bob</strong></a> is the reference implementation — created in late 2024 and running autonomously since 2025, with <a href="https://timetobuildbob.com/stats/">5,000+ merged pull requests</a> to his name. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on <a href="https://twitter.com/TimeToBuildBob">Twitter</a>, responds on Discord, and writes <a href="https://timetobuildbob.github.io/">blog posts</a>.</p>
 <p>Multiple specialized agents can run in parallel — e.g. Bob (engineering) and <a href="https://github.com/TimeToLearnAlice">Alice</a> (personal assistant &amp; orchestration) — coordinating through shared infrastructure.</p>
 <p>See the <a href="https://gptme.org/docs/agents.html">Autonomous Agents docs</a> for the full guide.</p>
 <h3 id="-guardrails" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-guardrails" aria-hidden="true" tabindex="-1">#</a>🛡 Guardrails</h3>
@@ -386,8 +406,8 @@ gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule hourly
 <li>Trying to stay <a href="https://gptme.org/docs/arewetiny.html">tiny</a> — minimal core, extend as needed.</li>
 </ul>
 </li>
-<li>🧪 Extensive testing, high coverage.</li>
-<li>🧹 Clean codebase, checked and formatted with <code>mypy</code>, <code>ruff</code>, and <code>pyupgrade</code>.</li>
+<li>🧪 Extensive test suite, run on every PR.</li>
+<li>🧹 Clean codebase, checked and formatted with <code>ruff</code> and <code>mypy</code>.</li>
 <li>🤖 <a href="https://gptme.org/docs/bot.html">GitHub Bot</a> to request changes from comments! (see <a href="https://github.com/gptme/gptme/issues/16">#16</a>)<ul>
 <li>Operates in this repo! (see <a href="https://github.com/gptme/gptme/issues/18">#18</a> for example)</li>
 <li>Runs entirely in GitHub Actions.</li>
@@ -398,10 +418,7 @@ gptme service init --name my-agent --work-dir ~/my-agent --timer-schedule hourly
 </ul>
 <h3 id="-in-progress" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-in-progress" aria-hidden="true" tabindex="-1">#</a>🚧 In Progress</h3>
 <ul>
-<li>🖥 <strong><a href="https://github.com/gptme/gptme-tauri">gptme-tauri</a></strong> — desktop app for Linux, macOS, and Windows with auto-updates (<a href="https://github.com/gptme/gptme/releases/latest">download</a>)</li>
 <li>☁️ <strong><a href="https://gptme.ai/?utm_source=github&amp;utm_medium=docs&amp;utm_campaign=gptme_ai_readme_probe_202609">gptme.ai</a></strong> — managed cloud service for running gptme agents (early access; still self-hostable by running <code>gptme-server</code> + <code>gptme-webui</code> yourself)</li>
-<li>🌳 Tree-based conversation structure (see <a href="https://github.com/gptme/gptme/issues/17">#17</a>)</li>
-<li>📜 RAG to automatically include context from local files (see <a href="https://github.com/gptme/gptme/issues/59">#59</a>)</li>
 <li>🏆 Advanced evals for testing frontier capabilities</li>
 </ul>
 <h2 id="-getting-started" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-getting-started" aria-hidden="true" tabindex="-1">#</a>🚀 Getting Started</h2>
@@ -421,7 +438,8 @@ no API key needed (see <a href="https://gptme.org/docs/providers.html">providers
 (<code>ANTHROPIC_API_KEY</code>), <a href="https://platform.openai.com/">OpenAI</a>
 (<code>OPENAI_API_KEY</code>), <a href="https://openrouter.ai/">OpenRouter</a>
 (<code>OPENROUTER_API_KEY</code>), and other providers.</li>
-<li>Local models via <code>llama.cpp</code> need no key — see <a href="https://gptme.org/docs/providers.html">providers docs</a>.</li>
+<li>Local models need no key at all — run Ollama (or any OpenAI-compatible server)
+and use <code>-m local/&lt;model&gt;</code>, see <a href="https://gptme.org/docs/providers.html">providers docs</a>.</li>
 </ul>
 </li>
 </ul>
@@ -466,7 +484,8 @@ make test | gptme 'fix the failing tests'
 # Auto-approve tool confirmations (user can still watch and interrupt)
 gptme -y 'run the test suite and fix any failing tests'
 
-# Fully non-interactive/autonomous mode (no user interaction possible, safe for scripts/CI)
+# Fully non-interactive: no prompts and no confirmations, for scripts/CI
+# (every tool call runs unreviewed — scope its workspace and credentials accordingly)
 gptme -n 'run the test suite and fix any failing tests'
 
 # Machine-readable automation output (JSONL on stdout)
@@ -486,83 +505,27 @@ response_preference = "Don't explain basic concepts"
 
 [env]
 # Set your default model
-# MODEL = "anthropic/claude-sonnet-4-20250514"
-# MODEL = "openai/gpt-4o"
+# MODEL = "anthropic/claude-sonnet-4-6"
+# MODEL = "openai/gpt-5.6-sol"
 </code></pre>
 <p>For all options, see the <a href="https://gptme.org/docs/config.html">configuration docs</a>.</p>
 <h2 id="-usage" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-usage" aria-hidden="true" tabindex="-1">#</a>🛠 Usage</h2>
-<pre><code class="language-sh">$ gptme --help
-Usage: gptme [OPTIONS] [PROMPTS]...
-
-  gptme is a chat-CLI for LLMs, empowering them with tools to run shell
-  commands, execute code, read and manipulate files, and more.
-
-  If PROMPTS are provided, a new conversation will be started with it. PROMPTS
-  can be chained with the '-' separator.
-
-  The interface provides user commands that can be used to interact with the
-  system.
-
-  Available commands:
-    /undo         Undo the last action
-    /log          Show the conversation log
-    /edit         Edit the conversation in your editor
-    /rename       Rename the conversation
-    /fork         Create a copy of the conversation
-    /summarize    Summarize the conversation
-    /replay       Replay tool operations
-    /export       Export conversation as HTML
-    /model        Show or switch the current model
-    /models       List available models
-    /tokens       Show token usage and costs
-    /context      Show context token breakdown
-    /tools        Show available tools
-    /commit       Ask assistant to git commit
-    /compact      Compact the conversation
-    /impersonate  Impersonate the assistant
-    /restart      Restart gptme process
-    /setup        Setup gptme
-    /help         Show this help message
-    /exit         Exit the program
-
-  See docs for all commands: https://gptme.org/docs/commands.html
-
-  Keyboard shortcuts:
-    Ctrl+X Ctrl+E  Edit prompt in your editor
-    Ctrl+J         Insert a new line without executing the prompt
-
-Options:
-  --name TEXT            Name of conversation. Defaults to generating a random
-                         name.
-  -m, --model TEXT       Model to use, e.g. openai/gpt-5, anthropic/claude-
-                         sonnet-4-20250514. If only provider given then a
-                         default is used.
-  -w, --workspace TEXT   Path to workspace directory. Pass '@log' to create a
-                         workspace in the log directory.
-  --agent-path TEXT      Path to agent workspace directory.
-  -r, --resume           Load most recent conversation.
-  -y, --no-confirm       Skip all confirmation prompts.
-  -n, --non-interactive  Non-interactive mode. Implies --no-confirm.
-  --output-format [text|json]
-                         Output format for non-interactive mode. 'json'
-                         emits one JSON object per line on stdout.
-  --system TEXT          System prompt. Options: 'full', 'short', or something
-                         custom.
-  -t, --tools TEXT       Tools to allow as comma-separated list. Available:
-                         append, browser, chats, choice, computer, gh,
-                         ipython, morph, patch, rag, read, save, screenshot,
-                         shell, subagent, tmux, vision.
-  --tool-format TEXT     Tool format to use. Options: markdown, xml, tool
-  --no-stream            Don't stream responses
-  --show-hidden          Show hidden system messages.
-  -v, --verbose          Show verbose output.
-  --version              Show version and configuration information
-  --help                 Show this message and exit.
+<pre><code class="language-sh">gptme                                   # start an interactive chat
+gptme 'fix the failing tests'           # start with a prompt
+gptme 'review this' main.py README.md   # include files (or URLs, or a GitHub PR) as context
+gptme -m anthropic/claude-sonnet-4-6    # pick a model for this session
+gptme -t read-only 'summarize the repo' # restrict which tools are available
+gptme -y 'run the tests and fix them'   # auto-approve tool calls, stay in the loop
+gptme -n 'summarize the git diff'       # fully non-interactive, for scripts and CI
+gptme -r                                # resume the most recent conversation
 </code></pre>
-<p>Pair <code>--non-interactive</code> with <code>--output-format json</code> when stdout needs to
-be machine-readable, for example in CI or a supervising process. Use
-<code>--resume</code> to continue an existing automated conversation or pick up queued
-follow-up prompts without passing a new prompt.</p>
+<p>During a conversation, <code>/help</code> lists the slash-commands — <code>/undo</code>, <code>/backtrack</code>,
+<code>/tools</code>, <code>/tokens</code>, <code>/compact</code>, <code>/model</code>, and more. <code>gptme --help</code> shows every
+flag, and <code>gptme &lt;subcommand&gt;</code> reaches the other CLIs (<code>gptme tools list</code>,
+<code>gptme chats search</code>, <code>gptme skills list</code>).</p>
+<p>Full reference: <a href="https://gptme.org/docs/cli.html">CLI docs</a> ·
+<a href="https://gptme.org/docs/commands.html">commands</a> · <a href="https://gptme.org/docs/usage.html">usage guide</a> ·
+<a href="https://gptme.org/docs/automation.html">automation</a></p>
 <h2 id="-ecosystem" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-ecosystem" aria-hidden="true" tabindex="-1">#</a>🌍 Ecosystem</h2>
 <p>gptme is more than a CLI — it's a platform with a growing ecosystem:</p>
 <div class="overflow-x-auto"><table>
@@ -573,7 +536,7 @@ follow-up prompts without passing a new prompt.</p>
 </tr>
 </thead>
 <tbody><tr>
-<td><a href="https://github.com/gptme/gptme/tree/master/webui">gptme-webui</a></td>
+<td><a href="https://github.com/gptme/gptme/tree/master/webui">Web UI</a></td>
 <td>Modern React web interface, available at <a href="https://chat.gptme.org">chat.gptme.org</a></td>
 </tr>
 <tr>
@@ -582,7 +545,7 @@ follow-up prompts without passing a new prompt.</p>
 </tr>
 <tr>
 <td><a href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph">gptme-codegraph</a></td>
-<td>Structural code retrieval with tree-sitter (9 MCP tools for code graph analysis)</td>
+<td>Structural code retrieval with tree-sitter (10 MCP tools for code graph analysis)</td>
 </tr>
 <tr>
 <td><a href="https://github.com/gptme/gptme-agent-template">gptme-agent-template</a></td>
@@ -593,7 +556,7 @@ follow-up prompts without passing a new prompt.</p>
 <td>Template for building custom LLM provider plugins</td>
 </tr>
 <tr>
-<td><a href="https://github.com/gptme/gptme-rag">gptme-rag</a></td>
+<td><a href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-rag">gptme-rag</a></td>
 <td>RAG integration for semantic search over local files</td>
 </tr>
 <tr>
@@ -601,8 +564,8 @@ follow-up prompts without passing a new prompt.</p>
 <td>Vim plugin for in-editor gptme integration</td>
 </tr>
 <tr>
-<td><a href="https://github.com/gptme/gptme-tauri">gptme-tauri</a></td>
-<td>Desktop app for Linux, macOS, and Windows (<a href="https://github.com/gptme/gptme/releases/latest">download</a>)</td>
+<td><a href="https://github.com/gptme/gptme/releases/latest">Desktop app</a></td>
+<td>Native app for Linux, macOS, Windows, and Android, built from this repo</td>
 </tr>
 <tr>
 <td><a href="https://gptme.ai">gptme.ai</a></td>
@@ -611,7 +574,7 @@ follow-up prompts without passing a new prompt.</p>
 </tbody></table></div>
 <p><strong>Community agents powered by gptme:</strong></p>
 <ul>
-<li><a href="https://github.com/TimeToBuildBob">Bob</a> — autonomous AI agent, running continuously since late 2024, contributes to open source and manages his own tasks</li>
+<li><a href="https://github.com/TimeToBuildBob">Bob</a> — autonomous AI agent, created late 2024 and running autonomously since 2025, contributes to open source and manages his own tasks</li>
 <li><a href="https://github.com/TimeToLearnAlice">Alice</a> — personal assistant &amp; agent orchestrator, forked from the same architecture</li>
 </ul>
 <h2 id="️-repository-badge" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#️-repository-badge" aria-hidden="true" tabindex="-1">#</a>🏷️ Repository Badge</h2>
@@ -654,276 +617,78 @@ To show your repo is AI-assisted with gptme, add the badge below.</p>
 <li><a href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
 </ul>
 <h2 id="-faq" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-faq" aria-hidden="true" tabindex="-1">#</a>❓ FAQ</h2>
+<p>Short answers with pointers into the <a href="https://gptme.org/docs/">documentation</a> — the docs are the source of truth, this section just gets you to the right page.</p>
 <h3 id="what-is-gptme" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#what-is-gptme" aria-hidden="true" tabindex="-1">#</a>What is gptme?</h3>
 <p>gptme is a <strong>personal AI agent that runs anywhere a terminal runs</strong> — your laptop, SSH sessions, tmux, headless servers, CI pipelines. It's provider-agnostic, local-first, and unconstrained: ships with shell, Python, web, vision, and everything else an agent needs. Pronounced /ʤiː piː tiː miː/ like "GPT-ME".</p>
+<p>See <a href="https://gptme.org/docs/features.html">Features</a> for the full picture.</p>
 <h3 id="how-does-gptme-compare-to-other-ai-coding-assistants" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-does-gptme-compare-to-other-ai-coding-assistants" aria-hidden="true" tabindex="-1">#</a>How does gptme compare to other AI coding assistants?</h3>
-<div class="overflow-x-auto"><table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>gptme</th>
-<th>Claude Code</th>
-<th>Cursor</th>
-<th>Warp</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>Environment</strong></td>
-<td>Any terminal</td>
-<td>Terminal</td>
-<td>IDE</td>
-<td>Terminal</td>
-</tr>
-<tr>
-<td><strong>Autonomy</strong></td>
-<td>Autonomous agents</td>
-<td>One-shot</td>
-<td>IDE-assisted</td>
-<td>Terminal AI</td>
-</tr>
-<tr>
-<td><strong>Multi-agent</strong></td>
-<td>✅ Concurrent agents</td>
-<td>❌</td>
-<td>❌</td>
-<td>❌</td>
-</tr>
-<tr>
-<td><strong>Local-first</strong></td>
-<td>✅ Full support</td>
-<td>❌ API required</td>
-<td>❌ API required</td>
-<td>❌ API required</td>
-</tr>
-<tr>
-<td><strong>Provider support</strong></td>
-<td>✅ 100+ models (OpenRouter/local)</td>
-<td>Anthropic/Bedrock/Vertex</td>
-<td>Anthropic/OpenAI/Google</td>
-<td>OpenAI (built-in)</td>
-</tr>
-<tr>
-<td><strong>MCP Support</strong></td>
-<td>✅ Built-in</td>
-<td>✅ Built-in</td>
-<td>❌</td>
-<td>❌</td>
-</tr>
-<tr>
-<td><strong>Plugin System</strong></td>
-<td>✅ Full plugins</td>
-<td>❌</td>
-<td>✅ Extensions</td>
-<td>❌</td>
-</tr>
-<tr>
-<td><strong>Web Browsing</strong></td>
-<td>✅ Playwright</td>
-<td>❌</td>
-<td>❌</td>
-<td>❌</td>
-</tr>
-<tr>
-<td><strong>Vision</strong></td>
-<td>✅ Screenshots/Images</td>
-<td>✅</td>
-<td>✅</td>
-<td>❌</td>
-</tr>
-<tr>
-<td><strong>Self-hosting</strong></td>
-<td>✅ Full control</td>
-<td>❌</td>
-<td>❌</td>
-<td>❌</td>
-</tr>
-<tr>
-<td><strong>Cross-harness memory</strong></td>
-<td>✅ <a href="https://gptme.org/docs/memory.html"><code>gptme-util memory</code></a></td>
-<td>❌ CC-only</td>
-<td>❌</td>
-<td>❌</td>
-</tr>
-</tbody></table></div>
-<h3 id="how-do-i-install-gptme" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-install-gptme" aria-hidden="true" tabindex="-1">#</a>How do I install gptme?</h3>
-<p><strong>Prerequisites</strong>: Python 3.10+</p>
-<p><strong>Installation</strong>:</p>
-<pre><code class="language-bash">pip install gptme
-# or
-pipx install gptme
+<p>gptme is open source and model-agnostic, runs in any terminal, and is built for
+<strong>persistent autonomous agents</strong> whose memory lives in a git repo you own — not
+just interactive pair programming.</p>
+<p>It's compared two ways: against coding agents (Claude Code, Codex, Cursor, Cline,
+Aider, OpenHands) and against persistent personal agents (OpenClaw, Hermes Agent,
+Grok Bot, Devin). See <a href="https://gptme.org/docs/alternatives.html">Alternatives</a> for the maintained tables.</p>
+<h3 id="how-do-i-install-it" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-install-it" aria-hidden="true" tabindex="-1">#</a>How do I install it?</h3>
+<pre><code class="language-sh">curl -sSf https://gptme.ai/install.sh | sh   # auto-detects uv or pipx
 </code></pre>
-<p><strong>First Run</strong>:</p>
-<pre><code class="language-bash">gptme
-</code></pre>
-<h3 id="what-ai-providers-does-gptme-support" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#what-ai-providers-does-gptme-support" aria-hidden="true" tabindex="-1">#</a>What AI providers does gptme support?</h3>
-<p>gptme supports multiple AI providers:</p>
-<div class="overflow-x-auto"><table>
-<thead>
-<tr>
-<th>Provider</th>
-<th>Setup</th>
-<th>Features</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>Anthropic</strong></td>
-<td><code>ANTHROPIC_API_KEY</code></td>
-<td>Claude models</td>
-</tr>
-<tr>
-<td><strong>OpenAI</strong></td>
-<td><code>OPENAI_API_KEY</code></td>
-<td>GPT models</td>
-</tr>
-<tr>
-<td><strong>Google</strong></td>
-<td><code>GEMINI_API_KEY</code></td>
-<td>Gemini models</td>
-</tr>
-<tr>
-<td><strong>xAI</strong></td>
-<td><code>XAI_API_KEY</code></td>
-<td>Grok models</td>
-</tr>
-<tr>
-<td><strong>DeepSeek</strong></td>
-<td><code>DEEPSEEK_API_KEY</code></td>
-<td>DeepSeek models</td>
-</tr>
-<tr>
-<td><strong>OpenRouter</strong></td>
-<td><code>OPENROUTER_API_KEY</code></td>
-<td>Multi-provider gateway</td>
-</tr>
-<tr>
-<td><strong>llama.cpp</strong></td>
-<td>Local server</td>
-<td>OpenAI-compatible local models</td>
-</tr>
-</tbody></table></div>
-<h3 id="how-do-i-use-local-models" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-use-local-models" aria-hidden="true" tabindex="-1">#</a>How do I use local models?</h3>
-<p>Use <strong>llama.cpp</strong> for fully local operation:</p>
-<ol>
-<li>Start llama.cpp server:</li>
-</ol>
-<pre><code class="language-bash">llama-server --model ./models/llama-3.gguf --port 8080
-</code></pre>
-<ol start="2">
-<li>Configure gptme:</li>
-</ol>
-<pre><code class="language-bash">export OPENAI_BASE_URL=http://localhost:8080/v1
-gptme -m local/&lt;model-name&gt;
-</code></pre>
-<h3 id="what-tools-does-gptme-have" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#what-tools-does-gptme-have" aria-hidden="true" tabindex="-1">#</a>What tools does gptme have?</h3>
-<p>gptme ships with comprehensive tools:</p>
+<p>Or install directly with <code>pipx install gptme</code> / <code>uv tool install gptme</code> (Python 3.10+).
+See <a href="#installation">Installation</a> above, the <a href="https://gptme.org/docs/getting-started.html">Getting Started guide</a>,
+and <a href="https://gptme.org/docs/system-dependencies.html">System dependencies</a> for the extras individual tools need.</p>
+<h3 id="do-i-need-an-api-key" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#do-i-need-an-api-key" aria-hidden="true" tabindex="-1">#</a>Do I need an API key?</h3>
+<p>No — you can also use a subscription you already pay for, or run a local model:</p>
 <ul>
-<li><strong>shell</strong>: Execute commands in terminal</li>
-<li><strong>python</strong>: Run Python code</li>
-<li><strong>patch</strong>: Make incremental file edits</li>
-<li><strong>browser</strong>: Browse web via Playwright</li>
-<li><strong>vision</strong>: Process images/screenshots</li>
-<li><strong>tmux</strong>: Manage tmux sessions</li>
-<li><strong>morph</strong>: Fast file transformations</li>
-<li><strong>form</strong>: Interactive forms</li>
-<li><strong>mcp</strong>: MCP tool discovery and use</li>
+<li><strong>Subscription</strong>: <code>gptme-auth openai-subscription</code> (ChatGPT Plus/Pro) or
+<code>gptme-auth grok-subscription</code> (SuperGrok), then e.g. <code>gptme -m openai-subscription/&lt;model&gt;</code>.</li>
+<li><strong>Browser sign-in</strong>: pick OpenRouter in the startup setup (or <code>/account setup openrouter</code>).</li>
+<li><strong>API keys</strong>: <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>OPENROUTER_API_KEY</code>, <code>GEMINI_API_KEY</code>,
+<code>XAI_API_KEY</code>, <code>DEEPSEEK_API_KEY</code>, <code>GROQ_API_KEY</code>, <code>MOONSHOT_API_KEY</code>, and more.</li>
+<li><strong>Local models</strong>: no credentials at all, see below.</li>
 </ul>
-<h3 id="how-does-the-mcp-integration-work" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-does-the-mcp-integration-work" aria-hidden="true" tabindex="-1">#</a>How does the MCP integration work?</h3>
-<p>gptme has <strong>built-in, bidirectional MCP support</strong>:</p>
-<ul>
-<li><strong>MCP client</strong>: Automatically discover MCP servers and load their tools on demand</li>
-<li><strong>MCP server</strong>: Run <code>gptme-mcp-server</code> to expose gptme's session-backed tools to
-Claude Desktop, Cursor, and other MCP clients</li>
-<li><strong>Tool integration</strong>: External MCP tools work like native tools; clients calling
-gptme retain shell and Python state across requests</li>
-</ul>
-<p>See the <a href="https://gptme.org/docs/mcp.html">MCP guide</a> for configuration in either direction.</p>
-<p>Example MCP servers supported:</p>
-<ul>
-<li><a href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph">gptme-codegraph</a> — structural code graph analysis with tree-sitter (9 tools)</li>
-<li>GitHub MCP</li>
-<li>Puppeteer MCP</li>
-<li>SQLite MCP</li>
-<li>Custom MCP servers</li>
-</ul>
-<h3 id="what-is-the-lessons-system" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#what-is-the-lessons-system" aria-hidden="true" tabindex="-1">#</a>What is the Lessons system?</h3>
-<p>The <strong>Lessons system</strong> provides contextual guidance and best practices that are automatically included when relevant:</p>
-<ul>
-<li><strong>Project-specific lessons</strong>: Custom guidance for your project</li>
-<li><strong>Best practices</strong>: Coding patterns and conventions</li>
-<li><strong>Context injection</strong>: Automatic context based on situation</li>
-</ul>
-<h3 id="how-do-i-create-autonomous-agents" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-create-autonomous-agents" aria-hidden="true" tabindex="-1">#</a>How do I create autonomous agents?</h3>
-<p>Use <strong>gptme-agent-template</strong> for persistent autonomous agents:</p>
-<ol>
-<li>Clone template:</li>
-</ol>
-<pre><code class="language-bash">git clone https://github.com/gptme/gptme-agent-template
+<p>If setup is missing or broken, run <code>gptme-doctor --fix</code>. Full provider list, model
+prefixes, and setup details: <a href="https://gptme.org/docs/providers.html">Providers</a>.</p>
+<h3 id="can-i-run-it-fully-locally" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#can-i-run-it-fully-locally" aria-hidden="true" tabindex="-1">#</a>Can I run it fully locally?</h3>
+<p>Yes, against any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp):</p>
+<pre><code class="language-sh">ollama pull llama3.2:3b &amp;&amp; ollama serve
+OPENAI_BASE_URL="http://127.0.0.1:11434/v1" gptme 'hello' -m local/llama3.2:3b
 </code></pre>
-<ol start="2">
-<li>Configure agent:</li>
-</ol>
-<pre><code class="language-yaml"># config.yaml
-name: "MyAgent"
-role: "Code reviewer"
-schedule: "hourly"
-</code></pre>
-<ol start="3">
-<li>Run:</li>
-</ol>
-<pre><code class="language-bash">python agent.py
-</code></pre>
-<p>See <a href="https://github.com/TimeToBuildBob">Bob</a> for an example autonomous agent that has been running continuously since late 2024.</p>
-<h3 id="what-is-the-plugin-system" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#what-is-the-plugin-system" aria-hidden="true" tabindex="-1">#</a>What is the plugin system?</h3>
-<p>gptme has a <strong>full plugin system</strong>:</p>
+<p>Put <code>OPENAI_BASE_URL</code> under <code>[env]</code> in <code>~/.config/gptme/config.toml</code> to make it stick,
+or define a named provider entry. Note that small local models are significantly less
+capable at tool use. See <a href="https://gptme.org/docs/providers-custom.html">Local &amp; custom providers</a>.</p>
+<h3 id="what-tools-does-it-have" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#what-tools-does-it-have" aria-hidden="true" tabindex="-1">#</a>What tools does it have?</h3>
+<p>Shell, Python, file read/save/patch, browser, vision, computer use, tmux, subagents,
+MCP, and more — run <code>/tools</code> in a conversation to see what's active in your setup.
+See <a href="https://gptme.org/docs/tools.html">Tools</a> for the full list and per-tool docs.</p>
+<h3 id="does-it-support-mcp" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#does-it-support-mcp" aria-hidden="true" tabindex="-1">#</a>Does it support MCP?</h3>
+<p>Both directions: gptme consumes external MCP servers as tools, and <code>gptme-mcp-server</code>
+exposes gptme's session-backed shell, Python, and file tools to Claude Desktop, Cursor,
+and other MCP clients. See <a href="https://gptme.org/docs/mcp.html">MCP</a>. For editor integration (Zed, JetBrains),
+gptme also speaks <a href="https://gptme.org/docs/acp.html">ACP</a>.</p>
+<h3 id="how-do-i-teach-it-my-conventions-and-make-it-remember" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-teach-it-my-conventions-and-make-it-remember" aria-hidden="true" tabindex="-1">#</a>How do I teach it my conventions and make it remember?</h3>
 <ul>
-<li><strong>Skills</strong>: Custom tools and capabilities</li>
-<li><strong>Hooks</strong>: Pre/post execution hooks</li>
-<li><strong>Integrations</strong>: External service connectors</li>
-<li><strong>Community plugins</strong>: <a href="https://github.com/gptme/gptme-contrib">gptme-contrib</a> repository</li>
+<li><a href="https://gptme.org/docs/lessons.html">Lessons</a> — guidance auto-included when keywords, patterns, or tools match.</li>
+<li><a href="https://gptme.org/docs/skills.html">Skills</a> — portable knowledge bundles in the Agent Skills format, loaded by name.</li>
+<li><a href="https://gptme.org/docs/memory.html">Memory</a> — cross-harness memory entries shared with Claude Code and Codex.</li>
+<li><a href="https://gptme.org/docs/plugins.html">Plugins</a> and <a href="https://gptme.org/docs/hooks.html">hooks</a> — custom tools, commands, and lifecycle code.</li>
 </ul>
-<p>Example plugins:</p>
-<ul>
-<li>Twitter/X bot</li>
-<li>Discord bot</li>
-<li>Email tools</li>
-<li>Consortium (multi-agent)</li>
-</ul>
-<h3 id="how-do-i-use-gptme-in-cicd" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-use-gptme-in-cicd" aria-hidden="true" tabindex="-1">#</a>How do I use gptme in CI/CD?</h3>
-<p>gptme runs in <strong>CI pipelines</strong>:</p>
-<pre><code class="language-yaml"># GitHub Actions
-- name: Run gptme
-  run: |
-    pip install gptme
-    gptme --non-interactive "Review PR and suggest improvements"
+<h3 id="how-do-i-create-an-autonomous-agent" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-create-an-autonomous-agent" aria-hidden="true" tabindex="-1">#</a>How do I create an autonomous agent?</h3>
+<pre><code class="language-sh">gptme-agent create ~/ada --name Ada   # workspace from the agent template
+gptme-agent install                            # run on a schedule (systemd/launchd)
 </code></pre>
-<h3 id="what-are-the-use-cases" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#what-are-the-use-cases" aria-hidden="true" tabindex="-1">#</a>What are the use cases?</h3>
-<p>gptme is general-purpose but excels at:</p>
-<ul>
-<li><strong>Coding</strong>: Write, refactor, debug code</li>
-<li><strong>Research</strong>: Web browsing, data collection</li>
-<li><strong>Automation</strong>: File management, CI tasks</li>
-<li><strong>Documentation</strong>: Generate docs, summaries</li>
-<li><strong>Testing</strong>: Write tests, run tests, fix failures</li>
-<li><strong>DevOps</strong>: Server management, deployment</li>
-</ul>
-<h3 id="how-do-i-configure-gptme" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-configure-gptme" aria-hidden="true" tabindex="-1">#</a>How do I configure gptme?</h3>
-<p>Configuration via environment variables:</p>
-<pre><code class="language-bash"># Provider selection
-export GPTME_MODEL=anthropic/claude-sonnet-4-6
-
-# API keys
-export ANTHROPIC_API_KEY=your-key
-
-# Logging level
-export GPTME_LOG_LEVEL=INFO
+<p>The workspace <em>is</em> the agent: identity, journal, tasks, and lessons live in a git repo
+you own. See <a href="https://gptme.org/docs/agents.html">Agents</a> for the full workflow and guardrails, and
+<a href="https://github.com/TimeToBuildBob">Bob</a> for an agent that has been running autonomously since 2025.</p>
+<h3 id="how-do-i-use-gptme-in-scripts-and-ci" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-use-gptme-in-scripts-and-ci" aria-hidden="true" tabindex="-1">#</a>How do I use gptme in scripts and CI?</h3>
+<p>Use <code>-n</code>/<code>--non-interactive</code>, which skips confirmations and exits when done:</p>
+<pre><code class="language-sh">git diff | gptme -n 'review this diff for bugs'
+gptme -n --output-format json 'summarize the failing tests'   # JSONL on stdout
 </code></pre>
-<h3 id="how-do-i-handle-errors" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-handle-errors" aria-hidden="true" tabindex="-1">#</a>How do I handle errors?</h3>
-<p>gptme is <strong>self-correcting</strong>:</p>
-<ul>
-<li>Output feeds back to assistant</li>
-<li>Automatic retry on errors</li>
-<li>User intervention when needed</li>
-</ul>
+<p>See <a href="https://gptme.org/docs/automation.html">Automation</a> for GitHub Actions, cron, and systemd recipes,
+or the <a href="https://gptme.org/docs/bot.html">GitHub bot</a> for a ready-made <code>@gptme</code> PR/issue bot.</p>
+<h3 id="how-do-i-configure-it" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#how-do-i-configure-it" aria-hidden="true" tabindex="-1">#</a>How do I configure it?</h3>
+<p>Configuration lives in <code>~/.config/gptme/config.toml</code> (global), <code>gptme.toml</code> (per project),
+and per-conversation settings; environment variables and CLI flags override them.
+Set your default model with <code>MODEL</code> under <code>[env]</code>, keep API keys in <code>config.local.toml</code>,
+and use <code>-v</code> for verbose logging. See <a href="https://gptme.org/docs/config.html">Configuration</a>.</p>
 <h3 id="where-can-i-find-more-resources" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#where-can-i-find-more-resources" aria-hidden="true" tabindex="-1">#</a>Where can I find more resources?</h3>
 <ul>
 <li><strong>Website</strong>: <a href="https://gptme.org">gptme.org</a></li>
@@ -934,7 +699,7 @@ export GPTME_LOG_LEVEL=INFO
 <li><strong>Twitter</strong>: <a href="https://x.com/gptmeorg">@gptmeorg</a></li>
 </ul>
 <hr />
-<p><strong>Happy Terminal Agent Building!</strong> 🤖</p>
+<p><strong>Happy Agent Building!</strong> 🤖</p>
 </article></div></main><section class="border-t border-border" aria-labelledby="docs-index-title"><div class="mx-auto w-full max-w-page px-18 max-lg:px-10 max-md:px-8 max-sm:px-5 py-14 max-md:py-11 max-sm:py-9"><div class="mb-8 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 max-sm:mb-6 max-sm:flex-col max-sm:items-start max-sm:gap-3"><h2 id="docs-index-title" class="m-0 text-[26px] font-semibold leading-[1.25] tracking-heading text-heading max-sm:text-[21px]">Documentation</h2><a href="https://gptme.org/docs/" class="text-base font-medium text-accent hover:text-accent-2-text max-sm:text-[15px]">All docs →</a></div><div class="grid grid-cols-4 gap-x-8 gap-y-9 max-md:grid-cols-2 max-sm:grid-cols-1 max-sm:gap-y-7"><div class="flex min-w-0 flex-col gap-3 max-sm:gap-2.5"><h3 class="m-0 font-mono text-[13px] font-medium uppercase tracking-eyebrow text-muted-text">Start</h3><ul class="m-0 flex list-none flex-col gap-2.5 p-0 max-sm:gap-2"><li><a href="https://gptme.org/docs/getting-started.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Getting started</a></li><li><a href="https://gptme.org/docs/usage.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Usage</a></li><li><a href="https://gptme.org/docs/examples.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Examples</a></li><li><a href="https://gptme.org/docs/config.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Configuration</a></li><li><a href="https://gptme.org/docs/tools.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Tools</a></li></ul></div><div class="flex min-w-0 flex-col gap-3 max-sm:gap-2.5"><h3 class="m-0 font-mono text-[13px] font-medium uppercase tracking-eyebrow text-muted-text">Interfaces</h3><ul class="m-0 flex list-none flex-col gap-2.5 p-0 max-sm:gap-2"><li><a href="https://gptme.org/docs/usage.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">CLI</a></li><li><a href="https://gptme.org/docs/tui.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Terminal UI</a></li><li><a href="https://gptme.org/docs/app.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Desktop &amp; Android app</a></li><li><a href="https://gptme.org/docs/webui.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Web UI</a></li><li><a href="https://gptme.org/docs/server.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Server &amp; REST API</a></li><li><a href="https://gptme.org/docs/acp.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Editor over ACP</a></li><li><a href="https://gptme.org/docs/channels.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Channels: GitHub, email, chat, voice</a></li></ul></div><div class="flex min-w-0 flex-col gap-3 max-sm:gap-2.5"><h3 class="m-0 font-mono text-[13px] font-medium uppercase tracking-eyebrow text-muted-text">Build on it</h3><ul class="m-0 flex list-none flex-col gap-2.5 p-0 max-sm:gap-2"><li><a href="https://gptme.org/docs/agents.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Agents</a></li><li><a href="https://gptme.org/docs/agents/autonomous.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Running agents autonomously</a></li><li><a href="https://gptme.org/docs/lessons.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Lessons</a></li><li><a href="https://gptme.org/docs/skills.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Skills</a></li><li><a href="https://gptme.org/docs/memory.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Memory</a></li><li><a href="https://gptme.org/docs/plugins.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Plugins</a></li><li><a href="https://gptme.org/docs/custom_tool.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Custom tools</a></li><li><a href="https://gptme.org/docs/hooks.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Hooks</a></li><li><a href="https://gptme.org/docs/mcp.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">MCP</a></li></ul></div><div class="flex min-w-0 flex-col gap-3 max-sm:gap-2.5"><h3 class="m-0 font-mono text-[13px] font-medium uppercase tracking-eyebrow text-muted-text">Reference</h3><ul class="m-0 flex list-none flex-col gap-2.5 p-0 max-sm:gap-2"><li><a href="https://gptme.org/docs/models.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Models</a></li><li><a href="https://gptme.org/docs/providers.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Providers</a></li><li><a href="https://gptme.org/docs/security.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Security</a></li><li><a href="https://gptme.org/docs/cloud.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">gptme.ai cloud</a></li><li><a href="https://gptme.org/docs/alternatives.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Alternatives</a></li><li><a href="https://gptme.org/docs/timeline.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Timeline</a></li><li><a href="https://gptme.org/docs/changelog.html" class="text-[15px] leading-[1.45] text-ink-2 hover:text-accent-2-text">Changelog</a></li></ul></div></div></div></section><section class="bg-su-bg" aria-label="About Superuser Labs"><div class="mx-auto w-full max-w-page px-18 max-lg:px-10 max-md:px-8 max-sm:px-5 flex items-center justify-between gap-8 py-9 max-md:flex-col max-md:items-start max-md:gap-5 max-sm:gap-[14px] max-sm:py-7"><div class="flex items-center gap-5 max-sm:grid max-sm:grid-cols-[auto_minmax(0,1fr)] max-sm:gap-[14px]"><img src="/su-logo.png" alt="Superuser Labs logo" width="56" height="56" class="h-14 w-14 shrink-0 rounded-[10px] max-sm:h-12 max-sm:w-12 max-sm:rounded-md"/><div class="flex flex-col gap-1 max-sm:contents"><p class="m-0 text-lg font-semibold text-su-text max-sm:text-[17px]">Built by Superuser Labs</p><p class="m-0 text-[15px] leading-[1.5] text-su-text-2 max-sm:col-span-full max-sm:text-sm max-sm:leading-[1.55]">A small open-source team from Sweden, building open-source tools since 2017. Also behind ActivityWatch.</p></div></div><a href="https://superuserlabs.org" class="whitespace-nowrap font-mono text-[15px] text-su-link hover:text-su-text focus-visible:outline-su-link max-sm:text-sm">superuserlabs.org →</a></div></section><footer><div class="mx-auto w-full max-w-page px-18 max-lg:px-10 max-md:px-8 max-sm:px-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-4 py-[26px] text-sm text-muted-text max-md:flex-col max-md:items-start max-sm:gap-[14px] max-sm:pb-8 max-sm:pt-6 max-sm:text-[13px]"><span>gptme · MIT · © Superuser Labs Lund AB</span><ul class="m-0 flex list-none flex-wrap gap-x-[26px] gap-y-3 p-0 max-sm:order-first max-sm:gap-x-5 max-sm:gap-y-[10px]"><li><a href="https://gptme.org/docs/" class="text-ink-2 hover:text-accent-2-text">Docs</a></li><li><a href="/readme/" class="text-ink-2 hover:text-accent-2-text">README</a></li><li><a href="https://github.com/gptme/gptme" class="text-ink-2 hover:text-accent-2-text">GitHub</a></li><li><a href="https://discord.gg/NMaCmmkxWv" class="text-ink-2 hover:text-accent-2-text">Discord</a></li><li><a href="https://gptme.ai" class="text-ink-2 hover:text-accent-2-text">gptme.ai</a></li><li><a href="https://superuserlabs.org" class="text-ink-2 hover:text-accent-2-text">superuserlabs.org</a></li></ul></div></footer>
   </body>
 </html>

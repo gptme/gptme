@@ -7,8 +7,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta content="Compare gptme with Claude Code, Claude Managed Agents, Aider, Cursor, Devin, OpenHands, and other AI coding agents. Open source, model-agnostic, terminal-native." name="description" />
-<meta content="Claude Code alternative, Claude Managed Agents alternative, open source coding agent, Aider alternative, Devin alternative, AI coding assistant comparison, gptme vs Claude Code, gptme vs Aider" name="keywords" />
+<meta content="Compare gptme with Claude Code, Codex, Cursor, OpenClaw, Hermes Agent, Grok Bot, and other AI coding and personal agents. Open source, self-hosted, model-agnostic, terminal-native." name="description" />
+<meta content="Claude Code alternative, OpenClaw alternative, Hermes Agent alternative, Grok Bot alternative, open source coding agent, self-hosted AI agent, persistent AI agent, autonomous agent comparison, gptme vs Claude Code, gptme vs OpenClaw" name="keywords" />
 
     <title>Alternatives &#8212; gptme</title>
   
@@ -581,9 +581,12 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-vs-claude-code-vs-aider-vs-cursor-open-source-ai-coding-agent-comparison">gptme vs Claude Code vs Aider vs Cursor — Open Source AI Coding Agent Comparison</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-makes-gptme-different">What Makes gptme Different</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#feature-comparison">Feature Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#feature-comparison">Feature Comparison</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#coding-agents">Coding agents</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-personal-agents">Persistent personal agents</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#projects">Projects</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
@@ -595,6 +598,8 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cline">Cline</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#devin">Devin</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openclaw">OpenClaw</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hermes-agent">Hermes Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#grok-bot">Grok Bot</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moatless-tools">Moatless Tools</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lovable-dev">Lovable.dev</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-managed-agents">Claude Managed Agents</a></li>
@@ -616,196 +621,283 @@ document.write(`
                   
   <section id="alternatives">
 <h1>Alternatives<a class="headerlink" href="#alternatives" title="Link to this heading">#</a></h1>
-<section id="gptme-vs-claude-code-vs-aider-vs-cursor-open-source-ai-coding-agent-comparison">
-<h2>gptme vs Claude Code vs Aider vs Cursor — Open Source AI Coding Agent Comparison<a class="headerlink" href="#gptme-vs-claude-code-vs-aider-vs-cursor-open-source-ai-coding-agent-comparison" title="Link to this heading">#</a></h2>
-<p>Looking for an <strong>open source Claude Code alternative</strong> or an <strong>AI coding agent</strong> that runs in your terminal? gptme is a model-agnostic, extensible AI assistant for the terminal — and unlike most alternatives, it supports <strong>persistent autonomous operation</strong>, where agents run 24/7 with git-based memory.</p>
-<p>This page compares gptme against the leading AI coding tools to help you pick the right one for your workflow.</p>
-</section>
+<p>Looking for an open source Claude Code alternative, or a self-hosted personal
+agent you can leave running? gptme is a model-agnostic, extensible AI assistant
+for the terminal that does both: an interactive coding agent, and a
+<strong>persistent autonomous agent</strong> that runs unattended and keeps its memory —
+in a git repository you own — between runs.</p>
+<p>This page compares gptme against the leading AI coding tools and personal
+agents, to help you pick the right one for your workflow.</p>
 <section id="what-makes-gptme-different">
 <h2>What Makes gptme Different<a class="headerlink" href="#what-makes-gptme-different" title="Link to this heading">#</a></h2>
-<p>Most AI coding tools focus on interactive pair programming. gptme does that too, but its real strength is what happens when you’re not at the keyboard:</p>
+<p>A persistent agent that grows over time, learns you over time, and becomes
+better at helping you over time — building workflows autonomously, taking over
+real work, and monitoring the situation while you do something else. That is
+what gptme has been built toward since 2024, when most AI coding tools were
+still autocomplete with a chat box.</p>
+<p>The rest of the field has since arrived at the same idea: OpenClaw and Nous
+Research’s Hermes Agent ship persistent agents that write their own skills, and
+SpaceXAI’s Grok Bot gives each bot its own machine, memory, and routines. gptme’s answer to that cohort is the
+substrate — the agent’s brain is a git repository you own:</p>
 <ul class="simple">
-<li><p><strong>Persistent autonomous agents</strong>: gptme powers agents that run thousands of sessions autonomously — writing code, submitting PRs, monitoring CI, and learning from their own mistakes.</p></li>
-<li><p><strong>Git as the brain</strong>: Agent identity, memory, lessons, and workspace live in a git repo. Everything is versioned, auditable, and forkable.</p></li>
+<li><p><strong>Persistent autonomous agents</strong>: gptme powers agents that run thousands of sessions autonomously — writing code, submitting PRs, monitoring CI, and learning from their own mistakes. <a class="reference internal" href="agents.html"><span class="doc">Bob</span></a> has been doing it since 2025, with 5,000+ merged pull requests to show for it.</p></li>
+<li><p><strong>Cross-harness memory</strong>: <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span></code> is one local Markdown memory store, in Claude Code’s format, shared between gptme, Claude Code, and Codex sessions. Your context is not trapped in one vendor’s tool. See <a class="reference internal" href="memory.html"><span class="doc">Memory</span></a>.</p></li>
+<li><p><strong>Git as the brain</strong>: the <a class="reference internal" href="agents.html"><span class="doc">agent template</span></a> puts agent identity, memory, lessons, and workspace in a git repo by default, so everything an agent knows is versioned, auditable, and forkable.</p></li>
 <li><p><strong>Model-agnostic</strong>: Works with OpenAI, Anthropic, local models, or any OpenAI-compatible API. You’re never locked in.</p></li>
-<li><p><strong>Self-modifying workspace</strong>: Agents write their own lessons and configuration, creating a self-improving feedback loop.</p></li>
+<li><p><strong>Self-written lessons</strong>: Autonomous agents record <a class="reference internal" href="lessons.html"><span class="doc">lessons</span></a> from their own runs and edit their own configuration, creating a self-improving feedback loop.</p></li>
 <li><p><strong>Extensible tool system</strong>: Shell, Python, file editing, web browsing, vision, MCP — and you can add your own tools.</p></li>
 <li><p><strong>Open source</strong>: MIT licensed, fully inspectable, forkable. Your agent, your rules.</p></li>
 </ul>
-<p>The git-as-agent-brain approach has also been explored in Oxford’s <a class="reference external" href="https://arxiv.org/html/2508.00031v1">Git Context Controller paper</a>, which achieved SOTA on SWE-Bench using a similar architecture — storing agent context and memory in git repositories.</p>
+<p>The git-as-agent-brain approach has also been explored in Oxford’s <a class="reference external" href="https://arxiv.org/html/2508.00031v1">Git Context Controller paper</a>, which stores agent context and memory in git repositories and reports 48.0% on SWE-Bench-Lite — the best result among the 26 systems it compares against.</p>
 </section>
 <section id="feature-comparison">
 <h2>Feature Comparison<a class="headerlink" href="#feature-comparison" title="Link to this heading">#</a></h2>
-<div class="pst-scrollable-table-container"><table class="table" id="id13">
-<caption><span class="caption-text">Feature Comparison</span><a class="headerlink" href="#id13" title="Link to this table">#</a></caption>
+<p>gptme is compared against two different groups of tools, because it belongs to
+both. The first is the coding agents people usually arrive from. The second is
+the persistent personal agents that gptme has been built toward since 2024 —
+and which the rest of the field has been moving toward since early 2026.</p>
+<section id="coding-agents">
+<h3>Coding agents<a class="headerlink" href="#coding-agents" title="Link to this heading">#</a></h3>
+<p>Interactive tools you drive from a terminal or an editor.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id15">
+<caption><span class="caption-text">Coding agents</span><a class="headerlink" href="#id15" title="Link to this table">#</a></caption>
 <colgroup>
-<col style="width: 20.5%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
-<col style="width: 8.0%" />
+<col style="width: 25.9%" />
+<col style="width: 10.6%" />
+<col style="width: 10.6%" />
+<col style="width: 10.6%" />
+<col style="width: 10.6%" />
+<col style="width: 10.6%" />
+<col style="width: 10.6%" />
+<col style="width: 10.6%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Feature</p></th>
 <th class="head"><p>gptme</p></th>
 <th class="head"><p>Claude Code</p></th>
-<th class="head"><p>CMA</p></th>
-<th class="head"><p>Aider</p></th>
-<th class="head"><p>Cursor</p></th>
-<th class="head"><p>OpenHands</p></th>
 <th class="head"><p>Codex</p></th>
+<th class="head"><p>Cursor</p></th>
 <th class="head"><p>Cline</p></th>
-<th class="head"><p>OpenClaw</p></th>
-<th class="head"><p>Devin</p></th>
+<th class="head"><p>Aider</p></th>
+<th class="head"><p>OpenHands</p></th>
 </tr>
 </thead>
 <tbody>
 <tr class="row-even"><td><p>Open source</p></td>
 <td><p>✅</p></td>
 <td><p>❌</p></td>
-<td><p>❌</p></td>
 <td><p>✅</p></td>
 <td><p>❌</p></td>
 <td><p>✅</p></td>
 <td><p>✅</p></td>
 <td><p>✅</p></td>
-<td><p>✅</p></td>
-<td><p>❌</p></td>
 </tr>
 <tr class="row-odd"><td><p>Model-agnostic</p></td>
 <td><p>✅</p></td>
 <td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>✅</p></td>
+<td><p>🟡</p></td>
 <td><p>🟡</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
 <td><p>✅</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
 </tr>
 <tr class="row-even"><td><p>Terminal-native</p></td>
 <td><p>✅</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
 <td><p>🟡</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
+<td><p>✅</p></td>
+<td><p>🟡</p></td>
 </tr>
-<tr class="row-odd"><td><p>Autonomous mode</p></td>
-<td><p>✅</p></td>
-<td><p>🟡</p></td>
+<tr class="row-odd"><td><p>Self-hosted</p></td>
 <td><p>✅</p></td>
 <td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>🟡</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>✅</p></td>
-</tr>
-<tr class="row-even"><td><p>Git-based memory</p></td>
 <td><p>✅</p></td>
 <td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-</tr>
-<tr class="row-odd"><td><p>Self-modifying config</p></td>
 <td><p>✅</p></td>
-<td><p>🟡</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
 </tr>
 <tr class="row-even"><td><p>Plugin/tool system</p></td>
 <td><p>✅</p></td>
 <td><p>MCP</p></td>
-<td><p>✅</p></td>
-<td><p>✅</p></td>
+<td><p>MCP</p></td>
+<td><p>MCP</p></td>
 <td><p>MCP</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
-<td><p>MCP</p></td>
 <td><p>✅</p></td>
-<td><p>🟡</p></td>
 </tr>
 <tr class="row-odd"><td><p>Web UI</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>🟡</p></td>
-<td><p>N/A</p></td>
 <td><p>✅</p></td>
-<td><p>❌</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
 <td><p>N/A</p></td>
-<td><p>❌</p></td>
+<td><p>🟡</p></td>
 <td><p>✅</p></td>
 </tr>
-<tr class="row-even"><td><p>Self-hosted</p></td>
+<tr class="row-even"><td><p>Autonomous mode</p></td>
 <td><p>✅</p></td>
+<td><p>🟡</p></td>
+<td><p>🟡</p></td>
+<td><p>🟡</p></td>
+<td><p>🟡</p></td>
 <td><p>❌</p></td>
-<td><p>❌</p></td>
-<td><p>✅</p></td>
-<td><p>❌</p></td>
-<td><p>✅</p></td>
-<td><p>✅</p></td>
-<td><p>✅</p></td>
-<td><p>✅</p></td>
-<td><p>❌</p></td>
+<td><p>🟡</p></td>
 </tr>
 <tr class="row-odd"><td><p>Price</p></td>
 <td><p>Free</p></td>
 <td><p>$20/mo+</p></td>
-<td><p>pay-per-token</p></td>
 <td><p>Free</p></td>
 <td><p>$20/mo</p></td>
 <td><p>Free</p></td>
 <td><p>Free</p></td>
 <td><p>Free</p></td>
-<td><p>Free</p></td>
-<td><p>$500/mo</p></td>
-</tr>
-<tr class="row-even"><td><p>Runtime fee</p></td>
-<td><p>$0</p></td>
-<td><p>$0</p></td>
-<td><p>$0.08/hr (~$58/mo)</p></td>
-<td><p>$0</p></td>
-<td><p>$0</p></td>
-<td><p>$0</p></td>
-<td><p>$0</p></td>
-<td><p>$0</p></td>
-<td><p>$0</p></td>
-<td><p>bundled</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 </section>
+<section id="persistent-personal-agents">
+<h3>Persistent personal agents<a class="headerlink" href="#persistent-personal-agents" title="Link to this heading">#</a></h3>
+<p>Agents that keep running when you are not watching, keep memory between runs,
+and take on work rather than answer questions.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id16">
+<caption><span class="caption-text">Persistent personal agents</span><a class="headerlink" href="#id16" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 28.9%" />
+<col style="width: 11.8%" />
+<col style="width: 11.8%" />
+<col style="width: 11.8%" />
+<col style="width: 11.8%" />
+<col style="width: 11.8%" />
+<col style="width: 11.8%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Feature</p></th>
+<th class="head"><p>gptme</p></th>
+<th class="head"><p>OpenClaw</p></th>
+<th class="head"><p>Hermes Agent</p></th>
+<th class="head"><p>Grok Bot</p></th>
+<th class="head"><p>CMA</p></th>
+<th class="head"><p>Devin</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Open source</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-odd"><td><p>Self-hosted</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>🟡</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>Model-agnostic</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>🟡</p></td>
+</tr>
+<tr class="row-odd"><td><p>Terminal-native</p></td>
+<td><p>✅</p></td>
+<td><p>🟡</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>Autonomous mode</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+</tr>
+<tr class="row-odd"><td><p>Git-based agent workspace</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>Writes its own skills</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>✅</p></td>
+<td><p>🟡</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-odd"><td><p>Cross-harness memory</p></td>
+<td><p>✅</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+<td><p>❌</p></td>
+</tr>
+<tr class="row-even"><td><p>Price</p></td>
+<td><p>Free</p></td>
+<td><p>Free</p></td>
+<td><p>Free</p></td>
+<td><p>$20/mo</p></td>
+<td><p>pay-per-token</p></td>
+<td><p>$200/mo</p></td>
+</tr>
+<tr class="row-odd"><td><p>Runtime fee</p></td>
+<td><p>$0</p></td>
+<td><p>$0</p></td>
+<td><p>$0</p></td>
+<td><p>bundled</p></td>
+<td><p>$0.08/hr (~$58/mo)</p></td>
+<td><p>bundled</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Rows that need a definition:</p>
+<ul class="simple">
+<li><p><strong>Autonomous mode</strong> — runs unattended on a schedule or trigger, not just as an
+interactive session you drive turn by turn.</p></li>
+<li><p><strong>Git-based agent workspace</strong> — the agent’s identity, tasks, journal, and
+knowledge live in a git repository you own, versioned, diffable, and forkable.
+This is how gptme’s <a class="reference internal" href="agents.html"><span class="doc">agent template</span></a> is set up by default, not a
+hard requirement of the runtime.</p></li>
+<li><p><strong>Writes its own skills</strong> — the agent turns completed work into reusable
+instructions for its future self. In gptme these are <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> and
+<a class="reference internal" href="skills.html"><span class="doc">Skills</span></a>, written during autonomous runs and committed to the workspace.</p></li>
+<li><p><strong>Cross-harness memory</strong> — a memory store other agent harnesses can read and
+write. Several tools ship a memory feature of their own (Claude Code’s memory
+files, Cursor’s Memories), but each is locked to that tool; gptme’s
+<a class="reference internal" href="memory.html"><span class="doc">Memory</span></a> uses Claude Code’s format and layered roots, so gptme, Claude
+Code, and Codex sessions share the same entries.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Star counts and pricing move fast in this space; the numbers on this page were
+last checked 2026-09-23. Ownership moves fast too: Cursor has been a SpaceXAI
+(formerly xAI) product since August 2026, and Grok Bot is a joint product of
+the two.</p>
+</div>
+</section>
+</section>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<div class="pst-scrollable-table-container"><table class="table" id="id14">
-<caption><span class="caption-text">Overview</span><a class="headerlink" href="#id14" title="Link to this table">#</a></caption>
+<div class="pst-scrollable-table-container"><table class="table" id="id17">
+<caption><span class="caption-text">Overview</span><a class="headerlink" href="#id17" title="Link to this table">#</a></caption>
 <colgroup>
 <col style="width: 20.5%" />
 <col style="width: 10.2%" />
@@ -863,7 +955,7 @@ document.write(`
 <td><p>Coding</p></td>
 <td><p>Desktop</p></td>
 <td><p>$20/mo</p></td>
-<td><p>VC</p></td>
+<td><p>SpaceXAI</p></td>
 <td><p>❌</p></td>
 </tr>
 <tr class="row-odd"><td><p>OpenHands</p></td>
@@ -883,11 +975,11 @@ document.write(`
 <td><p>✅</p></td>
 </tr>
 <tr class="row-odd"><td><p>Cline</p></td>
-<td><p>VS Code ext</p></td>
+<td><p>IDE / CLI</p></td>
 <td><p>Coding</p></td>
 <td><p>Local</p></td>
 <td><p>Free</p></td>
-<td><p>Bootstrap</p></td>
+<td><p>VC</p></td>
 <td><p>✅</p></td>
 </tr>
 <tr class="row-even"><td><p>OpenClaw</p></td>
@@ -895,8 +987,24 @@ document.write(`
 <td><p>Personal assistant</p></td>
 <td><p>Local</p></td>
 <td><p>Free</p></td>
-<td><p>Sponsored</p></td>
+<td><p>Foundation</p></td>
 <td><p>✅</p></td>
+</tr>
+<tr class="row-odd"><td><p>Hermes Agent</p></td>
+<td><p>Daemon</p></td>
+<td><p>Personal assistant</p></td>
+<td><p>Local</p></td>
+<td><p>Free</p></td>
+<td><p>Nous Research</p></td>
+<td><p>✅</p></td>
+</tr>
+<tr class="row-even"><td><p>Grok Bot</p></td>
+<td><p>Cloud agents</p></td>
+<td><p>Autonomous agents</p></td>
+<td><p>Cloud</p></td>
+<td><p>$20/mo</p></td>
+<td><p>SpaceXAI</p></td>
+<td><p>❌</p></td>
 </tr>
 <tr class="row-odd"><td><p>Lovable.dev</p></td>
 <td><p>Web app</p></td>
@@ -910,7 +1018,7 @@ document.write(`
 <td><p>Web app</p></td>
 <td><p>Coding</p></td>
 <td><p>SaaS</p></td>
-<td><p>$500/mo</p></td>
+<td><p>$200/mo</p></td>
 <td><p>VC</p></td>
 <td><p>❌</p></td>
 </tr>
@@ -960,7 +1068,11 @@ document.write(`
 <ul class="simple">
 <li><p><strong>Not open source</strong> — cannot be inspected, forked, or self-hosted</p></li>
 <li><p><strong>Claude-only</strong> — locked to Anthropic’s models and pricing</p></li>
-<li><p><strong>No persistent autonomous mode</strong> — background agents exist but lack git-based memory and self-improving lessons</p></li>
+<li><p><strong>Scheduled runs, not a persistent agent</strong> — Routines (research preview) run
+Claude Code unattended on a schedule, an API call, or a GitHub event, but each
+run clones the repository fresh and starts a new session. There is no
+workspace that carries tasks, journal, and lessons from one run to the next,
+which is what a gptme agent accumulates</p></li>
 <li><p>gptme’s autonomous agents have been validated over thousands of production sessions</p></li>
 </ul>
 <p>Released February 24, 2025.</p>
@@ -981,6 +1093,7 @@ document.write(`
 <li><p>Aider is more git-commit-focused; gptme is more general-purpose</p></li>
 <li><p>gptme has a wider array of tools (shell, Python, browser, vision)</p></li>
 <li><p>gptme supports persistent autonomous operation; Aider is interactive-focused</p></li>
+<li><p>Aider’s repository last saw a push in May 2026 (checked 2026-09-23)</p></li>
 </ul>
 <p>First commit: April 4, 2023.</p>
 </section>
@@ -1042,17 +1155,17 @@ document.write(`
 </section>
 <section id="cline">
 <h3>Cline<a class="headerlink" href="#cline" title="Link to this heading">#</a></h3>
-<p><a class="reference external" href="https://cline.bot/">Cline</a> is an open-source coding agent running as a VS Code extension. Similar to Cursor’s agent mode, but not a full VS Code fork.</p>
-<p>It also has a fork called <a class="reference external" href="https://github.com/RooVetGit/Roo-Code">Roo Code</a> (prev Roo Cline).</p>
+<p><a class="reference external" href="https://cline.bot/">Cline</a> is an open-source coding agent that runs as an IDE extension, a CLI, or an SDK. Similar to Cursor’s agent mode, but not a full VS Code fork.</p>
+<p>It also had a fork called <a class="reference external" href="https://github.com/RooCodeInc/Roo-Code">Roo Code</a> (prev Roo Cline), archived in 2026.</p>
 <p>Key features:</p>
 <ul class="simple">
-<li><p>VS Code extension (works in standard VS Code)</p></li>
+<li><p>Runs as a VS Code extension, a CLI, or an SDK</p></li>
 <li><p>MCP support for tool extensibility</p></li>
 <li><p>Open source</p></li>
 </ul>
 <p>Differences to gptme:</p>
 <ul class="simple">
-<li><p>Cline is IDE-based; gptme is terminal-native</p></li>
+<li><p>Cline runs in the IDE, terminal, and desktop, with a strong VS Code focus; gptme is terminal-first and built around an agent workspace</p></li>
 <li><p>gptme is model-agnostic and more general-purpose</p></li>
 <li><p>gptme supports persistent autonomous operation</p></li>
 </ul>
@@ -1069,7 +1182,7 @@ document.write(`
 </ul>
 <p>Differences to gptme:</p>
 <ul class="simple">
-<li><p>Devin is a cloud SaaS ($500/mo); gptme is free and self-hosted</p></li>
+<li><p>Devin is a cloud SaaS (from $20/mo, $200/mo for its top individual tier); gptme is free and self-hosted</p></li>
 <li><p>Devin is closed source; gptme is open source</p></li>
 <li><p>gptme runs locally on your machine with direct access to your environment</p></li>
 <li><p>gptme is model-agnostic; Devin uses proprietary models</p></li>
@@ -1088,11 +1201,63 @@ document.write(`
 </ul>
 <p>Differences to gptme:</p>
 <ul class="simple">
-<li><p><strong>Different focus</strong>: OpenClaw is a personal assistant messaging gateway; gptme is a coding agent</p></li>
-<li><p>OpenClaw excels at messaging orchestration across platforms</p></li>
-<li><p>gptme excels at code generation, shell execution, and autonomous development</p></li>
-<li><p>Both are open source and self-hosted</p></li>
-<li><p>Minimal competitive overlap — they solve different problems</p></li>
+<li><p><strong>Different front door, same premise</strong>: OpenClaw is reached through chat channels, gptme through the terminal — but both are self-hosted persistent agents that write their own skills</p></li>
+<li><p>OpenClaw excels at messaging orchestration across platforms, and has a far larger skill ecosystem</p></li>
+<li><p>gptme excels at code generation, shell execution, and development workflows, and is the more natural fit where the work is a repository</p></li>
+<li><p>gptme’s agent memory is a git repository you can diff, review, and fork; OpenClaw keeps its own memory store</p></li>
+<li><p>Both are open source, self-hosted, and model-agnostic</p></li>
+</ul>
+</section>
+<section id="hermes-agent">
+<h3>Hermes Agent<a class="headerlink" href="#hermes-agent" title="Link to this heading">#</a></h3>
+<p><a class="reference external" href="https://github.com/nousresearch/hermes-agent">Hermes Agent</a> is Nous Research’s
+open-source personal agent, released February 2026. It lives on your own server,
+keeps long-term memory, and writes reusable skills from completed work — the
+closest analogue to the gptme agent pattern that exists.</p>
+<p>Key features:</p>
+<ul class="simple">
+<li><p>Self-hosted, with persistent memory and a full terminal UI as a primary
+entry point</p></li>
+<li><p>Writes reusable skills after completing tasks, so capability compounds</p></li>
+<li><p>Works with any LLM provider, including local models via Ollama</p></li>
+<li><p>Seven terminal backends (local, Docker, SSH, Modal, and more), plus 20+
+messaging platforms through its gateway</p></li>
+<li><p>MIT licensed, single-command install</p></li>
+</ul>
+<p>Differences to gptme:</p>
+<ul class="simple">
+<li><p><strong>The same thesis, a different substrate</strong>: Hermes keeps memory in its own
+store; gptme keeps it in a git repository you own, so every change an agent
+makes to its own brain is a reviewable diff</p></li>
+<li><p>both are terminal-native; gptme is development-focused, while Hermes reaches
+further into messaging platforms and hosted sandboxes</p></li>
+<li><p>gptme’s <a class="reference internal" href="memory.html"><span class="doc">Memory</span></a> is shared with other harnesses (Claude Code, Codex)
+rather than being specific to gptme</p></li>
+<li><p>gptme works in both MCP directions and speaks <a class="reference internal" href="acp.html"><span class="doc">ACP</span></a> for editors</p></li>
+<li><p>Hermes has vastly more adoption; gptme has a longer autonomous track record
+through <a class="reference internal" href="agents.html"><span class="doc">Bob</span></a></p></li>
+</ul>
+</section>
+<section id="grok-bot">
+<h3>Grok Bot<a class="headerlink" href="#grok-bot" title="Link to this heading">#</a></h3>
+<p><a class="reference external" href="https://x.ai/">Grok Bot</a> is SpaceXAI and Cursor’s “AI teammates” product,
+launched in beta August 2026. Each bot gets its own persistent cloud computer,
+memory, and routines, signs into your accounts, and works while you are away.</p>
+<p>Key features:</p>
+<ul class="simple">
+<li><p>Named, persistent agents with their own cloud machine</p></li>
+<li><p>Memory, routines, and preference learning per bot</p></li>
+<li><p>Bots can coordinate with each other</p></li>
+<li><p>Included with SuperGrok and Cursor plans</p></li>
+</ul>
+<p>Differences to gptme:</p>
+<ul class="simple">
+<li><p><strong>Someone else’s computer</strong>: Grok Bot runs on SpaceXAI infrastructure with your
+credentials on it; gptme runs on hardware you control</p></li>
+<li><p>Closed source and model-locked; gptme is MIT licensed and model-agnostic</p></li>
+<li><p>gptme’s agent memory and configuration are files you can read, edit, and revert</p></li>
+<li><p>Grok Bot is the clearest sign that the persistent-agent pattern gptme has been
+building since 2024 is now mainstream</p></li>
 </ul>
 </section>
 <section id="moatless-tools">
@@ -1138,7 +1303,7 @@ document.write(`
 <li><p><strong>Model lock-in</strong>: Claude Managed Agents only runs Claude; gptme works with any provider</p></li>
 <li><p><strong>Runtime cost</strong>: $0.08/hr for 24/7 agents (~$58/mo per agent) on top of token costs; gptme has no runtime fee</p></li>
 <li><p><strong>No self-hosting</strong>: Cloud-only platform; gptme runs on your own machine</p></li>
-<li><p><strong>Memory still in preview</strong>: Cross-session memory is a “research preview” feature; gptme agents have full git-based persistent memory out of the box</p></li>
+<li><p><strong>Memory is theirs, not yours</strong>: CMA has cross-session memory, but it lives in Anthropic’s control plane; a gptme agent’s memory is files in a git repository you own, that you can read, diff, and fork</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -1226,9 +1391,12 @@ agents are worth building, the open-source, model-agnostic alternative matters m
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-vs-claude-code-vs-aider-vs-cursor-open-source-ai-coding-agent-comparison">gptme vs Claude Code vs Aider vs Cursor — Open Source AI Coding Agent Comparison</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-makes-gptme-different">What Makes gptme Different</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#feature-comparison">Feature Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#feature-comparison">Feature Comparison</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#coding-agents">Coding agents</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-personal-agents">Persistent personal agents</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#projects">Projects</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">gptme</a></li>
@@ -1240,6 +1408,8 @@ agents are worth building, the open-source, model-agnostic alternative matters m
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cline">Cline</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#devin">Devin</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openclaw">OpenClaw</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hermes-agent">Hermes Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#grok-bot">Grok Bot</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#moatless-tools">Moatless Tools</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#lovable-dev">Lovable.dev</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-managed-agents">Claude Managed Agents</a></li>

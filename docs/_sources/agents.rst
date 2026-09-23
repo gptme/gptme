@@ -9,7 +9,7 @@ knows and has done. It runs on a schedule, picks up work, and leaves a trail you
 can read in the morning.
 
 `Bob <https://github.com/TimeToBuildBob>`__ is the reference agent and the proof
-that this works: he has been running autonomously since 2024 and helps develop
+that this works: he has been running autonomously since 2025 and helps develop
 gptme itself — opening PRs, reviewing code, fixing CI, and managing his own task
 queue.
 
@@ -51,10 +51,10 @@ An agent workspace needs ``git``, ``python3``, `pipx <https://pipx.pypa.io/>`_,
     pipx install gptme uv
 
     # Create a workspace from the agent template, customized for your agent
-    gptme-agent create ~/my-agent --name MyAgent
+    gptme-agent create ~/ada --name Ada
 
     # Bootstrap it: let the agent read its own identity files
-    cd ~/my-agent
+    cd ~/ada
     gptme 'explore the workspace, read my identity files, and tell me what I am'
 
 To let it run on a schedule through systemd or launchd:

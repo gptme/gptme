@@ -10,6 +10,10 @@ is the richest way to work with gptme and your :doc:`agents <agents>`: a chat
 interface that shows what the agent is doing and what it produced, rather than a
 transcript alone.
 
+.. image:: ../media/screenshots/webui.png
+   :alt: The gptme web UI showing a conversation with a Python code block and its output
+   :width: 100%
+
 Alongside the conversation it renders **artifacts** the agent created, **panels**
 that tools declare at runtime (sandboxed iframes and live apps with their own
 lifecycle), **browser and computer previews** of what the agent sees, tool

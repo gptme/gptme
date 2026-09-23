@@ -638,12 +638,14 @@ document.write(`
 <h3>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">mcp</span></code> tool provides the following slash-commands:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">/search</span> <span class="pre">[query]</span></code>: Search for MCP servers across registries</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/info</span> <span class="pre">&lt;server-name&gt;</span></code>: Get detailed information about a specific server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/load</span> <span class="pre">&lt;server-name&gt;</span></code>: Dynamically load an MCP server into the current session</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/unload</span> <span class="pre">&lt;server-name&gt;</span></code>: Unload a previously loaded MCP server</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/list</span></code>: List all currently configured and loaded MCP servers</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">search</span> <span class="pre">[query]</span></code>: Search for MCP servers across registries</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">info</span> <span class="pre">&lt;server-name&gt;</span></code>: Get detailed information about a specific server</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">load</span> <span class="pre">&lt;server-name&gt;</span></code>: Dynamically load an MCP server into the current session</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">unload</span> <span class="pre">&lt;server-name&gt;</span></code>: Unload a previously loaded MCP server</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">list</span></code>: List all currently configured and loaded MCP servers</p></li>
 </ul>
+<p>It also exposes <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">resources</span> <span class="pre">list|read</span></code>, <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">templates</span> <span class="pre">list</span></code>,
+<code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">prompts</span> <span class="pre">list|get</span></code>, and <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">roots</span> <span class="pre">list|add|remove</span></code>.</p>
 <p>Once loaded, the server’s tools will be available as <code class="docutils literal notranslate"><span class="pre">&lt;server-name&gt;.&lt;tool-name&gt;</span></code> in the conversation.</p>
 </section>
 <section id="configuration-options">
