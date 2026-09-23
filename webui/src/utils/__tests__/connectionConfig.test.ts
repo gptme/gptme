@@ -83,6 +83,28 @@ describe('processConnectionFromHash', () => {
     delete runtimeEnvWindow.__GPTME_WEBUI_ENV__;
   });
 
+  it('exchanges a Tauri-injected OAuth code including base64url and +/= chars', async () => {
+    // Mirrors tauri/src-tauri/src/lib.rs::auth_code_injection_js:
+    //   window.location.hash = '#code=' + encodeURIComponent(code)
+    // ApiContext then passes hash.substring(1) into processConnectionFromHash.
+    // encodeURIComponent is required: a raw '+' in the hash is a space to
+    // URLSearchParams, which is how the old alphanumeric filter + raw
+    // interpolation silently corrupted gptme:// callbacks (#3906 / #3926).
+    const code = 'abc-def_ghi=jkl+/';
+    const hash = `code=${encodeURIComponent(code)}`;
+
+    await processConnectionFromHash(hash);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://fleet.gptme.ai/api/v1/operator/auth/exchange',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+    );
+  });
+
   it('posts auth-code exchange to fleet.gptme.ai by default', async () => {
     const result = await processConnectionFromHash('code=deadBEEF42');
 

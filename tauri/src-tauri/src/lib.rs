@@ -435,6 +435,21 @@ fn extract_auth_code(url: &url::Url) -> Option<String> {
         .filter(|code| !code.is_empty())
 }
 
+/// JS that `window.eval` runs to hand an OAuth code to the webui.
+///
+/// `code` is JSON-encoded so it is a safe JS string literal (quotes, backslashes,
+/// control chars cannot break out). `encodeURIComponent` then puts it in the URL
+/// hash so `URLSearchParams` on the frontend recovers the original characters,
+/// including base64url `-_=+/` that the previous alphanumeric-only filter
+/// silently stripped.
+fn auth_code_injection_js(code: &str) -> String {
+    let json_code = serde_json::to_string(&code).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        "window.location.hash = '#code=' + encodeURIComponent({}); window.location.reload();",
+        json_code
+    )
+}
+
 fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
     for url in &urls {
         log::info!("Deep link received: {}", url);
@@ -443,17 +458,7 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
             log::info!("Auth code extracted from deep link, injecting into webview");
 
             if let Some(window) = app.get_webview_window("main") {
-                // JSON-encode the raw code for safe JS string injection.
-                // encodeURIComponent in JS then puts it in the URL hash so that
-                // URLSearchParams on the frontend decodes it back correctly.
-                // This preserves all valid OAuth chars (e.g. base64url -_=+/)
-                // that the previous alphanumeric-only filter silently stripped.
-                let json_code = serde_json::to_string(&code).unwrap_or_else(|_| "\"\"".to_string());
-                let js = format!(
-                    "window.location.hash = '#code=' + encodeURIComponent({}); window.location.reload();",
-                    json_code
-                );
-                if let Err(e) = window.eval(&js) {
+                if let Err(e) = window.eval(auth_code_injection_js(&code)) {
                     log::error!("Failed to inject auth code into webview: {}", e);
                 }
             }
@@ -1104,9 +1109,57 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_auth_code_preserves_plus_and_slash() {
+        let url = url::Url::parse("gptme://callback?code=abc%2Bdef%2Fghi").unwrap();
+        assert_eq!(extract_auth_code(&url).unwrap(), "abc+def/ghi");
+    }
+
+    #[test]
     fn test_extract_auth_code_empty_code_returns_none() {
         let url = url::Url::parse("gptme://callback?code=").unwrap();
         assert_eq!(extract_auth_code(&url), None);
+    }
+
+    fn json_literal_from_injection_js(js: &str) -> &str {
+        const PREFIX: &str = "window.location.hash = '#code=' + encodeURIComponent(";
+        const SUFFIX: &str = "); window.location.reload();";
+        assert!(
+            js.starts_with(PREFIX),
+            "unexpected injection JS prefix: {js}"
+        );
+        assert!(js.ends_with(SUFFIX), "unexpected injection JS suffix: {js}");
+        &js[PREFIX.len()..js.len() - SUFFIX.len()]
+    }
+
+    #[test]
+    fn test_auth_code_injection_js_roundtrips_json_for_oauth_and_hostile_chars() {
+        let cases = [
+            "abc-def_ghi=jkl",
+            "a+b/c==",
+            "foo\"bar\\baz",
+            "<script>alert(1)</script>",
+            "percent%2Fencoded",
+            "code with space",
+            "line\nfeed",
+        ];
+        for code in cases {
+            let js = auth_code_injection_js(code);
+            let json_literal = json_literal_from_injection_js(&js);
+            let recovered: String =
+                serde_json::from_str(json_literal).expect("injection JS is not a JSON string");
+            assert_eq!(recovered, code, "round-trip failed for {code:?}");
+        }
+    }
+
+    #[test]
+    fn test_auth_code_injection_js_escapes_quotes_and_backslashes() {
+        let js = auth_code_injection_js("foo\"bar\\baz");
+        let json_literal = json_literal_from_injection_js(&js);
+        assert_eq!(json_literal, r#""foo\"bar\\baz""#);
+        assert!(
+            !js.contains(r#"encodeURIComponent("foo"bar"#),
+            "unescaped quote would terminate the JS string: {js}"
+        );
     }
 
     #[test]
