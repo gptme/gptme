@@ -702,7 +702,9 @@ Troubleshooting
 
 - Check ``tools/`` directory exists and has proper structure (for folder plugins)
 - Verify tool modules define ``ToolSpec`` instances
-- Look for import errors in gptme logs (``GPTME_LOG_LEVEL=debug gptme``)
+- Look for import errors in gptme logs (``gptme -v`` / ``gptme --verbose``).
+  ``GPTME_LOG_LEVEL`` is only read by the ACP server (``python -m gptme.acp``),
+  not the main CLI.
 
 **Plugin not enabled:**
 
