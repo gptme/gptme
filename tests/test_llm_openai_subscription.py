@@ -1,4 +1,7 @@
 import json
+import socket
+import threading
+import time
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
@@ -760,3 +763,41 @@ def test_stream_records_reasoning_tokens_and_effort():
     assert metadata["usage"]["reasoning_tokens"] == 60
     # _drain_stream uses bare "gpt-5.4" → default Codex effort
     assert metadata["reasoning_effort"] == "medium"
+
+
+@pytest.mark.timeout(10)
+def test_stalled_callback_connection_cannot_bypass_deadline():
+    """An accepted socket that never sends HTTP must not hang past the OAuth timeout."""
+    port = llm_openai_subscription.OAUTH_CALLBACK_PORT
+    if not llm_openai_subscription._is_port_available(port):
+        pytest.skip(f"OAuth callback port {port} is in use")
+
+    errors: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            llm_openai_subscription.oauth_authenticate(timeout=1.0)
+        except BaseException as exc:
+            errors.append(exc)
+
+    with patch("gptme.llm.llm_openai_subscription.webbrowser.open"):
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        sock: socket.socket | None = None
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                sock = socket.create_connection(("127.0.0.1", port), timeout=0.2)
+                break
+            except OSError:
+                time.sleep(0.05)
+        assert sock is not None, "callback server did not start"
+        try:
+            worker.join(timeout=4.0)
+            assert not worker.is_alive(), (
+                "oauth_authenticate hung on an incomplete callback connection"
+            )
+            assert errors and isinstance(errors[0], TimeoutError)
+        finally:
+            sock.close()
+            llm_openai_subscription._OAuthCallbackHandler.timeout = None

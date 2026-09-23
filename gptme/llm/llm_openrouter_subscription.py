@@ -133,6 +133,9 @@ def oauth_get_api_key(
             f"Could not start OAuth callback server on port {OAUTH_CALLBACK_PORT}: {exc}"
         ) from exc
 
+    # Bound accepted-socket reads so shutdown() cannot wait forever on a
+    # stalled preconnect after Event.wait times out.
+    _Handler.timeout = max(0.05, min(30.0, timeout))
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     try:

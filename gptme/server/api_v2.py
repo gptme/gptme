@@ -3356,6 +3356,11 @@ def api_user_default_model():
 _subscription_tasks: dict[str, dict] = {}
 _subscription_tasks_lock = threading.Lock()
 _SUBSCRIPTION_TASK_TTL_S = 15 * 60
+# Keep the OAuth wait shorter than task retention so a timeout/error result
+# remains pollable. Terminal states also refresh created_at, covering the
+# case where the 30s floor still consumes the remaining TTL.
+_OAUTH_RESULT_GRACE_S = 60.0
+_OAUTH_TIMEOUT_FLOOR_S = 30.0
 
 # Subscription provider slugs that use OAuth/PKCE instead of an API key.
 SUBSCRIPTION_PROVIDERS = frozenset(
@@ -3516,8 +3521,9 @@ def _run_subscription_oauth(task_id: str, provider: str, app: flask.Flask) -> No
             return False
         return True
 
-    # Cap the OAuth wait so the thread stops no later than the task TTL expires.
-    oauth_timeout = max(30.0, created_at + _SUBSCRIPTION_TASK_TTL_S - time.monotonic())
+    # Cap the OAuth wait so the thread stops before the task would be pruned.
+    remaining = created_at + _SUBSCRIPTION_TASK_TTL_S - time.monotonic()
+    oauth_timeout = max(_OAUTH_TIMEOUT_FLOOR_S, remaining - _OAUTH_RESULT_GRACE_S)
     try:
         if provider == "openai-subscription":
             from ..llm.llm_openai_subscription import oauth_authenticate
@@ -3551,7 +3557,8 @@ def _run_subscription_oauth(task_id: str, provider: str, app: flask.Flask) -> No
                 "provider": provider,
                 "model": model,
                 "error": None,
-                "created_at": created_at,
+                # Fresh TTL so the client can retrieve the result after a long wait.
+                "created_at": time.monotonic(),
             }
         logger.info("Subscription OAuth completed for provider %s", provider)
     except Exception as exc:
@@ -3567,7 +3574,7 @@ def _run_subscription_oauth(task_id: str, provider: str, app: flask.Flask) -> No
                 "model": None,
                 "error": str(exc),
                 "oauth_url": existing_oauth_url,
-                "created_at": created_at,
+                "created_at": time.monotonic(),
             }
 
 

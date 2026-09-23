@@ -351,7 +351,6 @@ def oauth_authenticate(
 
     try:
         server = http.server.HTTPServer(("127.0.0.1", OAUTH_CALLBACK_PORT), _Handler)
-        server.timeout = 120
     except OSError as e:
         raise RuntimeError(
             f"Could not start callback server on port {OAUTH_CALLBACK_PORT}: {e}"
@@ -375,13 +374,19 @@ def oauth_authenticate(
             auth_url,
         )
 
-    deadline = time.time() + timeout
+    # Monotonic deadline + accepted-socket timeout: HTTPServer.timeout only
+    # bounds accept(), not a stalled client on an already-accepted connection.
+    deadline = time.monotonic() + timeout
     try:
         while "code" not in result and "error" not in result:
-            if time.time() > deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 raise TimeoutError(
                     f"xAI authentication timed out after {timeout:.0f} seconds."
                 )
+            poll = max(0.05, min(30.0, remaining))
+            server.timeout = poll
+            _Handler.timeout = poll
             server.handle_request()
     finally:
         server.server_close()

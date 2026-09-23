@@ -599,6 +599,9 @@ def test_oauth_timeout_passed_to_provider(client: FlaskClient):
     def _capture_timeout(**kwargs):
         received_timeout.append(kwargs.get("timeout", -1.0))
 
+    # Keep the patch alive until the worker has imported and called the
+    # provider function. POST only starts the thread; tearing down here
+    # would let the worker hit the real OAuth entry point.
     with unittest.mock.patch(
         "gptme.llm.llm_openai_subscription.oauth_authenticate",
         side_effect=_capture_timeout,
@@ -608,24 +611,28 @@ def test_oauth_timeout_passed_to_provider(client: FlaskClient):
             json={"provider": "openai-subscription"},
             headers=auth_headers(),
         )
-    assert resp.status_code == 202
-    task_id = resp.get_json()["task_id"]
+        assert resp.status_code == 202
+        task_id = resp.get_json()["task_id"]
 
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        data = client.get(
-            f"/api/v2/user/subscription-connect/{task_id}",
-            headers=auth_headers(),
-        ).get_json()
-        if data["status"] != "pending":
-            break
-        time.sleep(0.05)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            data = client.get(
+                f"/api/v2/user/subscription-connect/{task_id}",
+                headers=auth_headers(),
+            ).get_json()
+            if data["status"] != "pending":
+                break
+            time.sleep(0.05)
 
     assert len(received_timeout) == 1, "oauth_authenticate was not called"
-    # The timeout must be positive and no larger than the task TTL (15 min).
     import gptme.server.api_v2 as api_mod
 
-    assert 0 < received_timeout[0] <= api_mod._SUBSCRIPTION_TASK_TTL_S
+    # Timeout is the remaining TTL minus the result-retrieval grace window.
+    assert (
+        api_mod._OAUTH_TIMEOUT_FLOOR_S
+        <= received_timeout[0]
+        <= api_mod._SUBSCRIPTION_TASK_TTL_S - api_mod._OAUTH_RESULT_GRACE_S + 1
+    )
 
 
 def test_oauth_timeout_marks_task_error(client: FlaskClient):
@@ -644,18 +651,58 @@ def test_oauth_timeout_marks_task_error(client: FlaskClient):
             json={"provider": "grok-subscription"},
             headers=auth_headers(),
         )
-    assert resp.status_code == 202
-    task_id = resp.get_json()["task_id"]
+        assert resp.status_code == 202
+        task_id = resp.get_json()["task_id"]
 
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        data = client.get(
-            f"/api/v2/user/subscription-connect/{task_id}",
-            headers=auth_headers(),
-        ).get_json()
-        if data["status"] != "pending":
-            break
-        time.sleep(0.05)
+        deadline = time.monotonic() + 5
+        data = None
+        while time.monotonic() < deadline:
+            data = client.get(
+                f"/api/v2/user/subscription-connect/{task_id}",
+                headers=auth_headers(),
+            ).get_json()
+            if data["status"] != "pending":
+                break
+            time.sleep(0.05)
 
+    assert data is not None
     assert data["status"] == "error"
     assert "timed out" in data["error"].lower()
+
+
+def test_oauth_timeout_result_survives_original_ttl(client: FlaskClient):
+    """Timeout results stay pollable after the pending task would have expired."""
+    import gptme.server.api_v2 as api_mod
+
+    def _timeout_oauth(**kwargs):
+        raise TimeoutError("OAuth timed out after 30s")
+
+    with api_mod._subscription_tasks_lock:
+        api_mod._subscription_tasks.clear()
+        task_id = "ttl-grace-test"
+        api_mod._subscription_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "pending",
+            "provider": "openai-subscription",
+            "model": None,
+            "error": None,
+            "oauth_url": None,
+            # Already past the pending TTL so a preserved created_at would 404.
+            "created_at": time.monotonic() - api_mod._SUBSCRIPTION_TASK_TTL_S - 1.0,
+        }
+
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
+        side_effect=_timeout_oauth,
+    ):
+        api_mod._run_subscription_oauth(
+            task_id, "openai-subscription", client.application
+        )
+
+    status_resp = client.get(
+        f"/api/v2/user/subscription-connect/{task_id}",
+        headers=auth_headers(),
+    )
+    assert status_resp.status_code == 200
+    assert status_resp.get_json()["status"] == "error"
+    assert "timed out" in status_resp.get_json()["error"].lower()
