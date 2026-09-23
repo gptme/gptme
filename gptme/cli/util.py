@@ -1449,7 +1449,7 @@ def prompts_expand(prompt: tuple[str, ...]):
 
     # Use the existing include_paths function to expand the prompt
     from ..message import Message  # fmt: skip
-    from ..util.context import _find_potential_paths, include_paths  # fmt: skip
+    from ..util.context import include_paths  # fmt: skip
 
     original_msg = Message("user", full_prompt)
     # This utility is for inspecting path expansion itself, so it must ignore
@@ -1461,35 +1461,35 @@ def prompts_expand(prompt: tuple[str, ...]):
         if disabled_path_include is not None:
             os.environ["GPTME_DISABLE_PATH_INCLUDE"] = disabled_path_include
 
-    # Warn about file-path tokens that look like files but don't exist.
-    # Skip individual slash-command tokens (/shell, /help), not the whole
-    # prompt — is_message_command would also swallow /nonexistent and hide
-    # later paths in mixed prompts that start with /tmp.
-    import urllib.parse  # fmt: skip
-
-    for word in _find_potential_paths(full_prompt):
-        if _is_slash_command_token(word):
-            continue
-        try:
-            p = urllib.parse.urlparse(word)
-            if p.scheme in ("http", "https") and p.netloc:
-                continue  # URL — not a local file path
-        except ValueError:
-            pass
-        candidate = Path(word).expanduser()
-        if not candidate.exists() and _looks_like_explicit_file_path(word):
-            click.echo(f"warning: path not found, not expanded: {word}", err=True)
+    # Mixed-text tokens are heuristic (prose, or relative to another expanded
+    # path) and must stay silent. Warn only when the entire prompt is a single
+    # explicit path that wasn't found.
+    _warn_if_whole_prompt_path_missing(full_prompt)
 
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
 
 
-def _looks_like_explicit_file_path(path: str) -> bool:
-    """True for tokens intended as filesystem paths, not prose with a slash.
+def _warn_if_whole_prompt_path_missing(full_prompt: str) -> None:
+    """Warn on stderr when the whole prompt is one missing explicit path."""
+    stripped = full_prompt.strip()
+    if not stripped or any(c.isspace() for c in stripped):
+        return
+    if not _looks_like_explicit_file_path(stripped):
+        return
+    if _is_slash_command_token(stripped):
+        return
+    if Path(stripped).expanduser().exists():
+        return
+    click.echo(f"warning: path not found, not expanded: {stripped}", err=True)
 
-    Covers the prefixes `_find_potential_paths` treats as path-like, plus
-    parent-relative (`../`) and Windows drive-absolute (`C:/`, `C:\\`) forms
-    that already reach the finder because they contain `/`.
+
+def _looks_like_explicit_file_path(path: str) -> bool:
+    """True for a whole-prompt token intended as a filesystem path, not prose.
+
+    Absolute (`/`), home (`~/`), cwd-relative (`./`), parent-relative (`../`),
+    and Windows drive-absolute (`C:/`, `C:\\`) forms. Bare names like
+    `README.md` stay silent — those are heuristic, not explicit paths.
     """
     if path.startswith(("/", "~/", "./", "../")):
         return True
@@ -1500,7 +1500,7 @@ def _is_slash_command_token(word: str) -> bool:
     """True for actual /commands, not single-component filesystem paths.
 
     ``is_message_command`` treats any first token with exactly one slash as a
-    command, so ``/nonexistent`` and ``/tmp`` would suppress diagnostics.
+    command, so ``/nonexistent`` would skip the missing-path warning.
     Restrict the exemption to registered commands and discovered tool names.
     """
     if not word.startswith("/") or "/" in word[1:] or not word[1:]:

@@ -415,28 +415,27 @@ def test_prompts_expand_no_warning_for_existing_path(tmp_path, monkeypatch):
 def test_prompts_expand_warns_on_parent_relative_and_windows_paths(
     tmp_path, monkeypatch
 ):
-    """Parent-relative and Windows drive paths are explicit files, not prose."""
+    """Whole-prompt parent-relative and Windows drive paths still warn."""
     monkeypatch.chdir(tmp_path)
     runner = _runner_separate_stderr()
 
-    result = runner.invoke(
-        main,
-        [
-            "prompts",
-            "expand",
-            "../gptme-definitely-missing.txt",
-            "C:/gptme-definitely-missing.txt",
-        ],
+    parent = runner.invoke(
+        main, ["prompts", "expand", "../gptme-definitely-missing.txt"]
+    )
+    windows = runner.invoke(
+        main, ["prompts", "expand", "C:/gptme-definitely-missing.txt"]
     )
 
-    assert result.exit_code == 0
+    assert parent.exit_code == 0
+    assert windows.exit_code == 0
     assert "warning: path not found, not expanded: ../gptme-definitely-missing.txt" in (
-        result.stderr
+        parent.stderr
     )
     assert "warning: path not found, not expanded: C:/gptme-definitely-missing.txt" in (
-        result.stderr
+        windows.stderr
     )
-    assert "warning:" not in result.stdout
+    assert "warning:" not in parent.stdout
+    assert "warning:" not in windows.stdout
 
 
 def test_prompts_expand_skips_slash_commands(tmp_path, monkeypatch):
@@ -465,8 +464,8 @@ def test_prompts_expand_warns_on_single_component_missing_path(tmp_path, monkeyp
     assert "warning:" not in result.stdout
 
 
-def test_prompts_expand_mixed_prompt_warns_later_missing_path(tmp_path, monkeypatch):
-    """A /tmp-style first token must not hide a later missing path."""
+def test_prompts_expand_mixed_prompt_does_not_warn(tmp_path, monkeypatch):
+    """Heuristic mixed text stays silent even if a later token looks like a path."""
     monkeypatch.chdir(tmp_path)
     runner = _runner_separate_stderr()
     first = "/tmp" if Path("/tmp").exists() else "/nonexistent-cmd-lookalike"
@@ -475,10 +474,42 @@ def test_prompts_expand_mixed_prompt_warns_later_missing_path(tmp_path, monkeypa
     result = runner.invoke(main, ["prompts", "expand", first, missing])
 
     assert result.exit_code == 0
-    assert f"warning: path not found, not expanded: {missing}" in result.stderr
-    if Path("/tmp").exists() and first == "/tmp":
-        assert "warning: path not found, not expanded: /tmp" not in result.stderr
+    assert "warning:" not in result.stderr
     assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_mixed_relative_path_no_warning(tmp_path, monkeypatch):
+    """Expand README; missing ./file.txt in the same sentence is not a warning."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text("hello from readme\n")
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(
+        main,
+        ["prompts", "expand", "see README.md about something about a ./file.txt"],
+    )
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello from readme" in result.stdout
+
+
+def test_prompts_expand_relative_to_other_path_no_warning(tmp_path, monkeypatch):
+    """./file.txt next to proj/README.md may be relative to proj, not cwd."""
+    monkeypatch.chdir(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "README.md").write_text("proj readme\n")
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(
+        main,
+        ["prompts", "expand", "see proj/README.md about something about a ./file.txt"],
+    )
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "proj readme" in result.stdout
 
 
 def test_prompts_expand_plain_text_no_warning(tmp_path, monkeypatch):
