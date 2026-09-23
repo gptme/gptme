@@ -1449,7 +1449,6 @@ def prompts_expand(prompt: tuple[str, ...]):
 
     # Use the existing include_paths function to expand the prompt
     from ..message import Message  # fmt: skip
-    from ..util.content import is_message_command  # fmt: skip
     from ..util.context import _find_potential_paths, include_paths  # fmt: skip
 
     original_msg = Message("user", full_prompt)
@@ -1463,20 +1462,23 @@ def prompts_expand(prompt: tuple[str, ...]):
             os.environ["GPTME_DISABLE_PATH_INCLUDE"] = disabled_path_include
 
     # Warn about file-path tokens that look like files but don't exist.
-    # Skip slash commands — include_paths does not expand /shell etc.
+    # Skip individual slash-command tokens (/shell, /help), not the whole
+    # prompt — is_message_command would also swallow /nonexistent and hide
+    # later paths in mixed prompts that start with /tmp.
     import urllib.parse  # fmt: skip
 
-    if not is_message_command(full_prompt):
-        for word in _find_potential_paths(full_prompt):
-            try:
-                p = urllib.parse.urlparse(word)
-                if p.scheme in ("http", "https") and p.netloc:
-                    continue  # URL — not a local file path
-            except ValueError:
-                pass
-            candidate = Path(word).expanduser()
-            if not candidate.exists() and _looks_like_explicit_file_path(word):
-                click.echo(f"warning: path not found, not expanded: {word}", err=True)
+    for word in _find_potential_paths(full_prompt):
+        if _is_slash_command_token(word):
+            continue
+        try:
+            p = urllib.parse.urlparse(word)
+            if p.scheme in ("http", "https") and p.netloc:
+                continue  # URL — not a local file path
+        except ValueError:
+            pass
+        candidate = Path(word).expanduser()
+        if not candidate.exists() and _looks_like_explicit_file_path(word):
+            click.echo(f"warning: path not found, not expanded: {word}", err=True)
 
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
@@ -1492,6 +1494,29 @@ def _looks_like_explicit_file_path(path: str) -> bool:
     if path.startswith(("/", "~/", "./", "../")):
         return True
     return len(path) >= 3 and path[0].isalpha() and path[1] == ":" and path[2] in "/\\"
+
+
+def _is_slash_command_token(word: str) -> bool:
+    """True for actual /commands, not single-component filesystem paths.
+
+    ``is_message_command`` treats any first token with exactly one slash as a
+    command, so ``/nonexistent`` and ``/tmp`` would suppress diagnostics.
+    Restrict the exemption to registered commands and discovered tool names.
+    """
+    if not word.startswith("/") or "/" in word[1:] or not word[1:]:
+        return False
+    name = word[1:]
+    from ..commands.base import get_registered_commands  # fmt: skip
+    from ..commands.meta import COMMANDS  # fmt: skip
+
+    if name in COMMANDS or name in get_registered_commands():
+        return True
+    try:
+        from ..tools import get_available_tools  # fmt: skip
+
+        return any(t.name == name for t in get_available_tools(include_mcp=False))
+    except Exception:
+        return False
 
 
 @main.group()

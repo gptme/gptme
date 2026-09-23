@@ -451,6 +451,36 @@ def test_prompts_expand_skips_slash_commands(tmp_path, monkeypatch):
     assert "/shell" in result.stdout
 
 
+def test_prompts_expand_warns_on_single_component_missing_path(tmp_path, monkeypatch):
+    """Single-component absolute paths are files, not slash commands."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = "/nonexistent"
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert missing in result.stdout
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_mixed_prompt_warns_later_missing_path(tmp_path, monkeypatch):
+    """A /tmp-style first token must not hide a later missing path."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    first = "/tmp" if Path("/tmp").exists() else "/nonexistent-cmd-lookalike"
+    missing = "/nonexistent/gptme-prompts-expand-later.txt"
+
+    result = runner.invoke(main, ["prompts", "expand", first, missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    if Path("/tmp").exists() and first == "/tmp":
+        assert "warning: path not found, not expanded: /tmp" not in result.stderr
+    assert "warning:" not in result.stdout
+
+
 def test_prompts_expand_plain_text_no_warning(tmp_path, monkeypatch):
     """Bare words are not paths and must not warn."""
     monkeypatch.chdir(tmp_path)
