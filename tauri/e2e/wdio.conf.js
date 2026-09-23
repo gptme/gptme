@@ -101,8 +101,14 @@ function removeE2eHome() {
   }
   const home = e2eHomeDir;
   e2eHomeDir = undefined;
-  rmSync(home, { recursive: true, force: true });
-  console.log(`[wdio] Removed isolated HOME: ${home}`);
+  try {
+    rmSync(home, { recursive: true, force: true });
+    console.log(`[wdio] Removed isolated HOME: ${home}`);
+  } catch (error) {
+    // Race: the gptme sidecar may still hold open file handles immediately
+    // after tauri-driver exits. Log and continue — /tmp is OS-cleaned anyway.
+    console.warn(`[wdio] Could not remove isolated HOME ${home}: ${error.message}`);
+  }
 }
 
 exports.config = {
