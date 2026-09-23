@@ -117,6 +117,24 @@ def _get_optional_string_field(
     return stripped
 
 
+def _parse_finite_float_in_range(value: object, lo: float, hi: float) -> float | None:
+    """Parse a finite float in [lo, hi], or None if invalid.
+
+    JSON integers larger than ``sys.float_info.max`` raise OverflowError
+    from ``float()`` / ``math.isfinite``; treat those as invalid so the
+    API returns 400 instead of an unhandled 500.
+    """
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except OverflowError:
+        return None
+    if not math.isfinite(parsed) or parsed < lo or parsed > hi:
+        return None
+    return parsed
+
+
 # Re-export step-level symbols that other modules may import from here.
 # This preserves backward compatibility after the split.
 __all__ = [
@@ -344,32 +362,22 @@ def api_conversation_step(conversation_id: str):
         return flask.jsonify({"error": "max_tokens must be a positive integer"}), 400
 
     temperature = req_json.get("temperature")
-    if temperature is not None and (
-        not isinstance(temperature, (int, float))
-        or isinstance(temperature, bool)
-        or not math.isfinite(temperature)
-        or temperature < 0.0
-        or temperature > 2.0
-    ):
-        return flask.jsonify(
-            {"error": "temperature must be a finite float in [0.0, 2.0]"}
-        ), 400
     if temperature is not None:
-        temperature = float(temperature)
+        parsed_temperature = _parse_finite_float_in_range(temperature, 0.0, 2.0)
+        if parsed_temperature is None:
+            return flask.jsonify(
+                {"error": "temperature must be a finite float in [0.0, 2.0]"}
+            ), 400
+        temperature = parsed_temperature
 
     top_p = req_json.get("top_p")
-    if top_p is not None and (
-        not isinstance(top_p, (int, float))
-        or isinstance(top_p, bool)
-        or not math.isfinite(top_p)
-        or top_p < 0.0
-        or top_p > 1.0
-    ):
-        return flask.jsonify(
-            {"error": "top_p must be a finite float in [0.0, 1.0]"}
-        ), 400
     if top_p is not None:
-        top_p = float(top_p)
+        parsed_top_p = _parse_finite_float_in_range(top_p, 0.0, 1.0)
+        if parsed_top_p is None:
+            return flask.jsonify(
+                {"error": "top_p must be a finite float in [0.0, 1.0]"}
+            ), 400
+        top_p = parsed_top_p
 
     if "stream" in req_json:
         stream = req_json["stream"]

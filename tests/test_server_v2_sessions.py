@@ -518,6 +518,24 @@ class TestStepEndpoint:
         assert data is not None
         assert "temperature" in data["error"]
 
+    @pytest.mark.parametrize("huge", [10**400, -(10**400)])
+    def test_temperature_overflow_int_returns_400(
+        self, conv, client: FlaskClient, huge: int
+    ):
+        """JSON integers larger than float range must 400, not 500."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "temperature": huge,
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "temperature" in data["error"]
+
     @pytest.mark.parametrize(
         "bad_value",
         [
@@ -580,6 +598,22 @@ class TestStepEndpoint:
             f"/api/v2/conversations/{conv['conversation_id']}/step",
             data=payload,
             content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "top_p" in data["error"]
+
+    @pytest.mark.parametrize("huge", [10**400, -(10**400)])
+    def test_top_p_overflow_int_returns_400(self, conv, client: FlaskClient, huge: int):
+        """JSON integers larger than float range must 400, not 500."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": "test/model",
+                "top_p": huge,
+            },
         )
         assert response.status_code == 400
         data = response.get_json()
