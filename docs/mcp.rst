@@ -44,11 +44,14 @@ Commands
 
 The ``mcp`` tool provides the following slash-commands:
 
-- ``/search [query]``: Search for MCP servers across registries
-- ``/info <server-name>``: Get detailed information about a specific server
-- ``/load <server-name>``: Dynamically load an MCP server into the current session
-- ``/unload <server-name>``: Unload a previously loaded MCP server
-- ``/list``: List all currently configured and loaded MCP servers
+- ``/mcp search [query]``: Search for MCP servers across registries
+- ``/mcp info <server-name>``: Get detailed information about a specific server
+- ``/mcp load <server-name>``: Dynamically load an MCP server into the current session
+- ``/mcp unload <server-name>``: Unload a previously loaded MCP server
+- ``/mcp list``: List all currently configured and loaded MCP servers
+
+It also exposes ``/mcp resources list|read``, ``/mcp templates list``,
+``/mcp prompts list|get``, and ``/mcp roots list|add|remove``.
 
 Once loaded, the server's tools will be available as ``<server-name>.<tool-name>`` in the conversation.
 

@@ -21,8 +21,10 @@ plist (macOS) that runs the agent in its workspace on a schedule:
     gptme-agent install --schedule "Mon *:00"    # hourly on Mondays
 
 Schedules use the systemd ``OnCalendar`` format on both platforms; the launchd
-plist is generated from it. Use ``--name`` and ``--workspace`` to manage an agent
-other than the one in the current directory.
+plist is generated from it. ``install`` takes ``--name`` and ``--workspace`` to
+install an agent other than the one in the current directory; the management
+commands (``status``, ``logs``, ``run``, ``stop``, ``start``, ``restart``) take
+the agent name as a positional argument instead, and ``doctor`` takes a path.
 
 Scheduling comes in two shapes, which are less opposed than they sound:
 
@@ -52,9 +54,9 @@ coordination loops:
 
 .. code-block:: bash
 
-    gptme-runloops autonomous --workspace ~/my-agent   # cadence-driven run
-    gptme-runloops monitoring --workspace ~/my-agent   # react to GitHub activity
-    gptme-runloops email --workspace ~/my-agent        # react to incoming mail
+    gptme-runloops autonomous --workspace ~/ada   # cadence-driven run
+    gptme-runloops monitoring --workspace ~/ada   # react to GitHub activity
+    gptme-runloops email --workspace ~/ada        # react to incoming mail
 
 How a run picks its work — which task, which model, which harness — is the open
 part. `Bob <https://github.com/TimeToBuildBob>`__ samples that choice at the
@@ -87,7 +89,7 @@ and tools such as ``uv`` and ``gh``. ``--fix`` repairs the simple problems.
 .. code-block:: bash
 
     gptme-agent doctor            # check the current workspace
-    gptme-agent doctor ~/my-agent --fix
+    gptme-agent doctor ~/ada --fix
 
 Prompts that survive unattended runs
 ------------------------------------

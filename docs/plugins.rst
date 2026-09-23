@@ -702,7 +702,7 @@ Troubleshooting
 
 - Check ``tools/`` directory exists and has proper structure (for folder plugins)
 - Verify tool modules define ``ToolSpec`` instances
-- Look for import errors in gptme logs (``GPTME_LOG_LEVEL=debug gptme``)
+- Look for import errors in gptme logs (``gptme -v``)
 
 **Plugin not enabled:**
 

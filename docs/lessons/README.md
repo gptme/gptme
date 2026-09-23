@@ -63,11 +63,11 @@ Control lesson behavior with environment variables:
 # Disable auto-include (default: true)
 export GPTME_LESSONS_AUTO_INCLUDE=false
 
-# Limit number of lessons (default: 5)
-export GPTME_LESSONS_MAX_INCLUDED=3
+# Maximum lessons per session (default: 20)
+export GPTME_LESSONS_MAX_SESSION=10
 
-# Refresh lessons each message (default: false)
-export GPTME_LESSONS_REFRESH=true
+# Use hybrid keyword + semantic matching (default: false)
+export GPTME_LESSONS_USE_HYBRID=true
 
 
 ```

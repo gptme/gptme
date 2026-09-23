@@ -416,15 +416,29 @@ When running in server mode with multiple workers, hooks must be registered in e
 Configuration
 -------------
 
-Hooks can be configured via environment variables:
+Script hooks are declared in configuration, with their priority set per entry.
+Global hooks go in ``~/.config/gptme/config.toml`` and project hooks in
+``gptme.toml``; the lists are additive and run in descending ``priority`` order:
 
-.. code-block:: bash
+.. code-block:: toml
 
-   # Example: disable specific hooks
-   export GPTME_HOOKS_DISABLED="linter.lint,precommit.precommit_check"
+   [[hooks.scripts]]
+   event = "session.end"
+   command = "~/bin/save-agent-context"
+   timeout = 30
+   priority = 10
 
-   # Example: set hook priorities
-   export GPTME_HOOK_PRIORITY_LINTER=20
+Hooks registered in Python are enabled and disabled at runtime through the
+registry, not through environment variables:
+
+.. code-block:: python
+
+   from gptme.hooks import disable_hook, enable_hook
+
+   disable_hook("precommit.precommit_check")
+
+See :ref:`global-config` and :ref:`project-config` for the full configuration
+reference.
 
 Migration Guide
 ---------------

@@ -57,7 +57,7 @@ Each tool has its own reference page, listed here by category.
 - :doc:`tools/complete` - Signal that the autonomous session is finished
 - :doc:`tools/restart` - Restart the gptme process after configuration changes
 - :doc:`tools/vent` - Emit in-the-moment friction signals to a durable ledger
-- :doc:`tools/request-tool-change` - Record a structured request for a different tool configuration (opt-in, audit-only)
+- :doc:`tools/request-tool-change` - Let the assistant enable or disable a tool for the current session, within the session allowlist (opt-in)
 
 🧠 Knowledge & Planning
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -161,16 +161,17 @@ Pass a comma-separated list of tool names to ``--tools`` (CLI) or set the
 .. code-block:: bash
 
     # Exact names — only these tools are loaded
-    gptme --tools save,patch,shell,python "refactor this file"
+    gptme --tools save,patch,shell,ipython "refactor this file"
 
     # Additive: start from defaults and add more
     gptme --tools +rag,browser "research this topic"
 
     # Subtractive: start from defaults and remove specific tools
-    gptme --tools -shell,computer "safer mode"
+    # (every name must carry the "-" prefix; bare names cannot be mixed in)
+    gptme --tools=-shell,-computer "safer mode"
 
     # Disable all tools (pure conversation)
-    gptme --tools "" "just talk to me"
+    gptme --tools none "just talk to me"
 
     # Strict audit mode: only the built-in read tool, no writes or execution
     gptme --tools read-only "summarise this repo"
@@ -291,7 +292,7 @@ These are ad-hoc allowlists; for gptme's built-in agent profiles (``explorer``,
 
 .. code-block:: bash
 
-    gptme --tools "read,save,patch,morph,python" "refactor this module"
+    gptme --tools "read,save,patch,morph,ipython" "refactor this module"
 
 **Safe MCP integration** — built-in defaults plus only read-only MCP tools:
 

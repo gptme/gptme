@@ -4,30 +4,42 @@ Alternatives
 ============
 
 .. meta::
-   :description: Compare gptme with Claude Code, Claude Managed Agents, Aider, Cursor, Devin, OpenHands, and other AI coding agents. Open source, model-agnostic, terminal-native.
-   :keywords: Claude Code alternative, Claude Managed Agents alternative, open source coding agent, Aider alternative, Devin alternative, AI coding assistant comparison, gptme vs Claude Code, gptme vs Aider
+   :description: Compare gptme with Claude Code, Codex, Cursor, OpenClaw, Hermes Agent, Grok Bot, and other AI coding and personal agents. Open source, self-hosted, model-agnostic, terminal-native.
+   :keywords: Claude Code alternative, OpenClaw alternative, Hermes Agent alternative, Grok Bot alternative, open source coding agent, self-hosted AI agent, persistent AI agent, autonomous agent comparison, gptme vs Claude Code, gptme vs OpenClaw
 
-gptme vs Claude Code vs Aider vs Cursor — Open Source AI Coding Agent Comparison
----------------------------------------------------------------------------------
+Looking for an open source Claude Code alternative, or a self-hosted personal
+agent you can leave running? gptme is a model-agnostic, extensible AI assistant
+for the terminal that does both: an interactive coding agent, and a
+**persistent autonomous agent** that runs unattended and keeps its memory —
+in a git repository you own — between runs.
 
-Looking for an **open source Claude Code alternative** or an **AI coding agent** that runs in your terminal? gptme is a model-agnostic, extensible AI assistant for the terminal — and unlike most alternatives, it supports **persistent autonomous operation**, where agents run 24/7 with git-based memory.
-
-This page compares gptme against the leading AI coding tools to help you pick the right one for your workflow.
+This page compares gptme against the leading AI coding tools and personal
+agents, to help you pick the right one for your workflow.
 
 
 What Makes gptme Different
 ---------------------------
 
-Most AI coding tools focus on interactive pair programming. gptme does that too, but its real strength is what happens when you're not at the keyboard:
+A persistent agent that grows over time, learns you over time, and becomes
+better at helping you over time — building workflows autonomously, taking over
+real work, and monitoring the situation while you do something else. That is
+what gptme has been built toward since 2024, when most AI coding tools were
+still autocomplete with a chat box.
 
-- **Persistent autonomous agents**: gptme powers agents that run thousands of sessions autonomously — writing code, submitting PRs, monitoring CI, and learning from their own mistakes.
-- **Git as the brain**: Agent identity, memory, lessons, and workspace live in a git repo. Everything is versioned, auditable, and forkable.
+The rest of the field has since arrived at the same idea: OpenClaw and Nous
+Research's Hermes Agent ship persistent agents that write their own skills, and
+SpaceXAI's Grok Bot gives each bot its own machine, memory, and routines. gptme's answer to that cohort is the
+substrate — the agent's brain is a git repository you own:
+
+- **Persistent autonomous agents**: gptme powers agents that run thousands of sessions autonomously — writing code, submitting PRs, monitoring CI, and learning from their own mistakes. :doc:`Bob <agents>` has been doing it since 2025, with 5,000+ merged pull requests to show for it.
+- **Cross-harness memory**: ``gptme-util memory`` is one local Markdown memory store, in Claude Code's format, shared between gptme, Claude Code, and Codex sessions. Your context is not trapped in one vendor's tool. See :doc:`memory`.
+- **Git as the brain**: the :doc:`agent template <agents>` puts agent identity, memory, lessons, and workspace in a git repo by default, so everything an agent knows is versioned, auditable, and forkable.
 - **Model-agnostic**: Works with OpenAI, Anthropic, local models, or any OpenAI-compatible API. You're never locked in.
-- **Self-modifying workspace**: Agents write their own lessons and configuration, creating a self-improving feedback loop.
+- **Self-written lessons**: Autonomous agents record :doc:`lessons <lessons>` from their own runs and edit their own configuration, creating a self-improving feedback loop.
 - **Extensible tool system**: Shell, Python, file editing, web browsing, vision, MCP — and you can add your own tools.
 - **Open source**: MIT licensed, fully inspectable, forkable. Your agent, your rules.
 
-The git-as-agent-brain approach has also been explored in Oxford's `Git Context Controller paper <https://arxiv.org/html/2508.00031v1>`_, which achieved SOTA on SWE-Bench using a similar architecture — storing agent context and memory in git repositories.
+The git-as-agent-brain approach has also been explored in Oxford's `Git Context Controller paper <https://arxiv.org/html/2508.00031v1>`_, which stores agent context and memory in git repositories and reports 48.0% on SWE-Bench-Lite — the best result among the 26 systems it compares against.
 
 
 Feature Comparison
@@ -37,49 +49,133 @@ Feature Comparison
 .. |cross| unicode:: U+274C
 .. |partial| unicode:: U+1F7E1
 
-.. list-table:: Feature Comparison
-   :widths: 18 7 7 7 7 7 7 7 7 7 7
+gptme is compared against two different groups of tools, because it belongs to
+both. The first is the coding agents people usually arrive from. The second is
+the persistent personal agents that gptme has been built toward since 2024 —
+and which the rest of the field has been moving toward since early 2026.
+
+Coding agents
+^^^^^^^^^^^^^
+
+Interactive tools you drive from a terminal or an editor.
+
+.. list-table:: Coding agents
+   :widths: 22 9 9 9 9 9 9 9
    :header-rows: 1
 
    * - Feature
      - gptme
      - Claude Code
-     - CMA
-     - Aider
-     - Cursor
-     - OpenHands
      - Codex
+     - Cursor
      - Cline
-     - OpenClaw
-     - Devin
+     - Aider
+     - OpenHands
    * - Open source
      - |check|
      - |cross|
-     - |cross|
      - |check|
      - |cross|
      - |check|
      - |check|
      - |check|
-     - |check|
-     - |cross|
    * - Model-agnostic
      - |check|
      - |cross|
-     - |cross|
-     - |check|
+     - |partial|
      - |partial|
      - |check|
-     - |cross|
      - |check|
      - |check|
-     - |cross|
    * - Terminal-native
      - |check|
      - |check|
+     - |check|
+     - |partial|
+     - |check|
+     - |check|
+     - |partial|
+   * - Self-hosted
+     - |check|
      - |cross|
      - |check|
      - |cross|
+     - |check|
+     - |check|
+     - |check|
+   * - Plugin/tool system
+     - |check|
+     - MCP
+     - MCP
+     - MCP
+     - MCP
+     - |check|
+     - |check|
+   * - Web UI
+     - |check|
+     - |check|
+     - |check|
+     - |check|
+     - N/A
+     - |partial|
+     - |check|
+   * - Autonomous mode
+     - |check|
+     - |partial|
+     - |partial|
+     - |partial|
+     - |partial|
+     - |cross|
+     - |partial|
+   * - Price
+     - Free
+     - $20/mo+
+     - Free
+     - $20/mo
+     - Free
+     - Free
+     - Free
+
+Persistent personal agents
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Agents that keep running when you are not watching, keep memory between runs,
+and take on work rather than answer questions.
+
+.. list-table:: Persistent personal agents
+   :widths: 22 9 9 9 9 9 9
+   :header-rows: 1
+
+   * - Feature
+     - gptme
+     - OpenClaw
+     - Hermes Agent
+     - Grok Bot
+     - CMA
+     - Devin
+   * - Open source
+     - |check|
+     - |check|
+     - |check|
+     - |cross|
+     - |cross|
+     - |cross|
+   * - Self-hosted
+     - |check|
+     - |check|
+     - |check|
+     - |cross|
+     - |partial|
+     - |cross|
+   * - Model-agnostic
+     - |check|
+     - |check|
+     - |check|
+     - |cross|
+     - |cross|
+     - |partial|
+   * - Terminal-native
+     - |check|
      - |partial|
      - |check|
      - |cross|
@@ -87,93 +183,70 @@ Feature Comparison
      - |cross|
    * - Autonomous mode
      - |check|
-     - |partial|
      - |check|
-     - |cross|
-     - |cross|
-     - |partial|
-     - |cross|
-     - |cross|
-     - |cross|
      - |check|
-   * - Git-based memory
+     - |check|
+     - |check|
+     - |check|
+   * - Git-based agent workspace
      - |check|
      - |cross|
      - |cross|
      - |cross|
      - |cross|
      - |cross|
-     - |cross|
-     - |cross|
-     - |cross|
-     - |cross|
-   * - Self-modifying config
+   * - Writes its own skills
+     - |check|
+     - |check|
      - |check|
      - |partial|
      - |cross|
      - |cross|
-     - |cross|
-     - |cross|
-     - |cross|
-     - |cross|
-     - |cross|
-     - |cross|
-   * - Plugin/tool system
-     - |check|
-     - MCP
-     - |check|
-     - |check|
-     - MCP
-     - |check|
-     - |cross|
-     - MCP
-     - |check|
-     - |partial|
-   * - Web UI
+   * - Cross-harness memory
      - |check|
      - |cross|
      - |cross|
-     - |partial|
-     - N/A
-     - |check|
-     - |cross|
-     - N/A
-     - |cross|
-     - |check|
-   * - Self-hosted
-     - |check|
      - |cross|
      - |cross|
-     - |check|
-     - |cross|
-     - |check|
-     - |check|
-     - |check|
-     - |check|
      - |cross|
    * - Price
      - Free
-     - $20/mo+
-     - pay-per-token
+     - Free
      - Free
      - $20/mo
-     - Free
-     - Free
-     - Free
-     - Free
-     - $500/mo
+     - pay-per-token
+     - $200/mo
    * - Runtime fee
-     - $0
-     - $0
-     - $0.08/hr (~$58/mo)
-     - $0
-     - $0
-     - $0
      - $0
      - $0
      - $0
      - bundled
+     - $0.08/hr (~$58/mo)
+     - bundled
 
+Rows that need a definition:
+
+- **Autonomous mode** — runs unattended on a schedule or trigger, not just as an
+  interactive session you drive turn by turn.
+- **Git-based agent workspace** — the agent's identity, tasks, journal, and
+  knowledge live in a git repository you own, versioned, diffable, and forkable.
+  This is how gptme's :doc:`agent template <agents>` is set up by default, not a
+  hard requirement of the runtime.
+- **Writes its own skills** — the agent turns completed work into reusable
+  instructions for its future self. In gptme these are :doc:`lessons` and
+  :doc:`skills`, written during autonomous runs and committed to the workspace.
+- **Cross-harness memory** — a memory store other agent harnesses can read and
+  write. Several tools ship a memory feature of their own (Claude Code's memory
+  files, Cursor's Memories), but each is locked to that tool; gptme's
+  :doc:`memory` uses Claude Code's format and layered roots, so gptme, Claude
+  Code, and Codex sessions share the same entries.
+
+.. note::
+
+   Star counts and pricing move fast in this space; the numbers on this page were
+   last checked 2026-09-23. Ownership moves fast too: Cursor has been a SpaceXAI
+   (formerly xAI) product since August 2026, and Grok Bot is a joint product of
+   the two.
 
 Overview
 --------
@@ -222,7 +295,7 @@ Overview
      - Coding
      - Desktop
      - $20/mo
-     - VC
+     - SpaceXAI
      - |cross|
    * - OpenHands
      - CLI/Web
@@ -239,19 +312,33 @@ Overview
      - VC
      - |check|
    * - Cline
-     - VS Code ext
+     - IDE / CLI
      - Coding
      - Local
      - Free
-     - Bootstrap
+     - VC
      - |check|
    * - OpenClaw
      - Gateway
      - Personal assistant
      - Local
      - Free
-     - Sponsored
+     - Foundation
      - |check|
+   * - Hermes Agent
+     - Daemon
+     - Personal assistant
+     - Local
+     - Free
+     - Nous Research
+     - |check|
+   * - Grok Bot
+     - Cloud agents
+     - Autonomous agents
+     - Cloud
+     - $20/mo
+     - SpaceXAI
+     - |cross|
    * - Lovable.dev
      - Web app
      - Frontend
@@ -263,7 +350,7 @@ Overview
      - Web app
      - Coding
      - SaaS
-     - $500/mo
+     - $200/mo
      - VC
      - |cross|
    * - Moatless Tools
@@ -314,7 +401,11 @@ Differences to gptme:
 
 - **Not open source** — cannot be inspected, forked, or self-hosted
 - **Claude-only** — locked to Anthropic's models and pricing
-- **No persistent autonomous mode** — background agents exist but lack git-based memory and self-improving lessons
+- **Scheduled runs, not a persistent agent** — Routines (research preview) run
+  Claude Code unattended on a schedule, an API call, or a GitHub event, but each
+  run clones the repository fresh and starts a new session. There is no
+  workspace that carries tasks, journal, and lessons from one run to the next,
+  which is what a gptme agent accumulates
 - gptme's autonomous agents have been validated over thousands of production sessions
 
 Released February 24, 2025.
@@ -337,6 +428,7 @@ Differences to gptme:
 - Aider is more git-commit-focused; gptme is more general-purpose
 - gptme has a wider array of tools (shell, Python, browser, vision)
 - gptme supports persistent autonomous operation; Aider is interactive-focused
+- Aider's repository last saw a push in May 2026 (checked 2026-09-23)
 
 First commit: April 4, 2023.
 
@@ -404,19 +496,19 @@ Released April 16th, 2025. (Not to be confused with OpenAI's earlier Codex model
 Cline
 ^^^^^
 
-`Cline <https://cline.bot/>`_ is an open-source coding agent running as a VS Code extension. Similar to Cursor's agent mode, but not a full VS Code fork.
+`Cline <https://cline.bot/>`_ is an open-source coding agent that runs as an IDE extension, a CLI, or an SDK. Similar to Cursor's agent mode, but not a full VS Code fork.
 
-It also has a fork called `Roo Code <https://github.com/RooVetGit/Roo-Code>`_ (prev Roo Cline).
+It also had a fork called `Roo Code <https://github.com/RooCodeInc/Roo-Code>`_ (prev Roo Cline), archived in 2026.
 
 Key features:
 
-- VS Code extension (works in standard VS Code)
+- Runs as a VS Code extension, a CLI, or an SDK
 - MCP support for tool extensibility
 - Open source
 
 Differences to gptme:
 
-- Cline is IDE-based; gptme is terminal-native
+- Cline runs in the IDE, terminal, and desktop, with a strong VS Code focus; gptme is terminal-first and built around an agent workspace
 - gptme is model-agnostic and more general-purpose
 - gptme supports persistent autonomous operation
 
@@ -434,7 +526,7 @@ Key features:
 
 Differences to gptme:
 
-- Devin is a cloud SaaS ($500/mo); gptme is free and self-hosted
+- Devin is a cloud SaaS (from $20/mo, $200/mo for its top individual tier); gptme is free and self-hosted
 - Devin is closed source; gptme is open source
 - gptme runs locally on your machine with direct access to your environment
 - gptme is model-agnostic; Devin uses proprietary models
@@ -454,11 +546,65 @@ Key features:
 
 Differences to gptme:
 
-- **Different focus**: OpenClaw is a personal assistant messaging gateway; gptme is a coding agent
-- OpenClaw excels at messaging orchestration across platforms
-- gptme excels at code generation, shell execution, and autonomous development
-- Both are open source and self-hosted
-- Minimal competitive overlap — they solve different problems
+- **Different front door, same premise**: OpenClaw is reached through chat channels, gptme through the terminal — but both are self-hosted persistent agents that write their own skills
+- OpenClaw excels at messaging orchestration across platforms, and has a far larger skill ecosystem
+- gptme excels at code generation, shell execution, and development workflows, and is the more natural fit where the work is a repository
+- gptme's agent memory is a git repository you can diff, review, and fork; OpenClaw keeps its own memory store
+- Both are open source, self-hosted, and model-agnostic
+
+Hermes Agent
+^^^^^^^^^^^^
+
+`Hermes Agent <https://github.com/nousresearch/hermes-agent>`_ is Nous Research's
+open-source personal agent, released February 2026. It lives on your own server,
+keeps long-term memory, and writes reusable skills from completed work — the
+closest analogue to the gptme agent pattern that exists.
+
+Key features:
+
+- Self-hosted, with persistent memory and a full terminal UI as a primary
+  entry point
+- Writes reusable skills after completing tasks, so capability compounds
+- Works with any LLM provider, including local models via Ollama
+- Seven terminal backends (local, Docker, SSH, Modal, and more), plus 20+
+  messaging platforms through its gateway
+- MIT licensed, single-command install
+
+Differences to gptme:
+
+- **The same thesis, a different substrate**: Hermes keeps memory in its own
+  store; gptme keeps it in a git repository you own, so every change an agent
+  makes to its own brain is a reviewable diff
+- both are terminal-native; gptme is development-focused, while Hermes reaches
+  further into messaging platforms and hosted sandboxes
+- gptme's :doc:`memory` is shared with other harnesses (Claude Code, Codex)
+  rather than being specific to gptme
+- gptme works in both MCP directions and speaks :doc:`ACP <acp>` for editors
+- Hermes has vastly more adoption; gptme has a longer autonomous track record
+  through :doc:`Bob <agents>`
+
+Grok Bot
+^^^^^^^^
+
+`Grok Bot <https://x.ai/>`_ is SpaceXAI and Cursor's "AI teammates" product,
+launched in beta August 2026. Each bot gets its own persistent cloud computer,
+memory, and routines, signs into your accounts, and works while you are away.
+
+Key features:
+
+- Named, persistent agents with their own cloud machine
+- Memory, routines, and preference learning per bot
+- Bots can coordinate with each other
+- Included with SuperGrok and Cursor plans
+
+Differences to gptme:
+
+- **Someone else's computer**: Grok Bot runs on SpaceXAI infrastructure with your
+  credentials on it; gptme runs on hardware you control
+- Closed source and model-locked; gptme is MIT licensed and model-agnostic
+- gptme's agent memory and configuration are files you can read, edit, and revert
+- Grok Bot is the clearest sign that the persistent-agent pattern gptme has been
+  building since 2024 is now mainstream
 
 Moatless Tools
 ^^^^^^^^^^^^^^
@@ -509,7 +655,7 @@ Differences to gptme:
 - **Model lock-in**: Claude Managed Agents only runs Claude; gptme works with any provider
 - **Runtime cost**: $0.08/hr for 24/7 agents (~$58/mo per agent) on top of token costs; gptme has no runtime fee
 - **No self-hosting**: Cloud-only platform; gptme runs on your own machine
-- **Memory still in preview**: Cross-session memory is a "research preview" feature; gptme agents have full git-based persistent memory out of the box
+- **Memory is theirs, not yours**: CMA has cross-session memory, but it lives in Anthropic's control plane; a gptme agent's memory is files in a git repository you own, that you can read, diff, and fork
 
 .. note::
 

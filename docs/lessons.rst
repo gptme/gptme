@@ -229,8 +229,11 @@ Control lesson behavior with these variables:
     # This is a session-wide limit - once reached, no more lessons are included
     export GPTME_LESSONS_MAX_SESSION=20
 
-    # Refresh lessons each message (default: false)
-    export GPTME_LESSONS_REFRESH=true
+    # Use hybrid keyword + semantic matching (default: false)
+    export GPTME_LESSONS_USE_HYBRID=true
+
+    # Hold out specific lessons, e.g. when measuring their effect
+    export GPTME_LESSONS_HOLDOUT="lesson-name,another-lesson"
 
 Keyword Extraction
 ~~~~~~~~~~~~~~~~~~

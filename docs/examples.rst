@@ -161,11 +161,14 @@ Connect gptme to external tools and data sources via the Model Context Protocol.
 
 .. code-block:: toml
 
+    [mcp]
+    enabled = true
+    auto_start = true
+
     [[mcp.servers]]
     name = "filesystem"
     command = "npx"
     args = ["-y", "@modelcontextprotocol/server-filesystem", "/projects"]
-    auto_start = true
 
 Then use gptme as usual — the server starts automatically:
 
@@ -183,10 +186,10 @@ Create a persistent agent — with its own workspace, task list, journal, and le
 .. code-block:: bash
 
     # Create a new agent workspace from the template
-    gptme-agent create ~/my-agent --name MyAgent
+    gptme-agent create ~/ada --name Ada
 
     # Bootstrap it
-    cd ~/my-agent
+    cd ~/ada
     gptme 'explore the workspace, read my identity files, and tell me what I am'
 
     # Run it autonomously on a schedule

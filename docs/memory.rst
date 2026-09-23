@@ -33,10 +33,10 @@ automatically based on what you are working on.
        harness, including Claude Code and Codex.
      - `Cross-harness memory`_
    * - ``gptme-util knowledge``
-     - Problem/resolution pairs stored as JSONL. Matching entries are injected
-       once at the start of a conversation when the first prompt has enough
-       keywords to search.
-     - ``gptme-util knowledge --help``
+     - **Deprecated.** Problem/resolution pairs stored as JSONL, superseded by
+       ``gptme-util memory``. The subgroup warns on use and will be removed in
+       a future release.
+     - `Migrating from the knowledge base`_
    * - RAG
      - Indexes and searches documentation, code, and past conversations with
        the ``rag`` tool. Available when ``gptme-rag`` is installed and
@@ -73,12 +73,29 @@ These systems overlap, but each has a distinct job:
   and harnesses write it at runtime; the index is always loaded, and full
   entries are found with ``recall``.
 
-- **The knowledge base** (``gptme-util knowledge``) holds problem/resolution
-  pairs, so a fix found once can resurface when a similar problem comes up.
-
 Rule of thumb: if it tells the agent *how to behave*, write a lesson; if it is
 a *procedure* to run on request, write a skill; if it records *what is true*
 about a user or project, save a memory.
+
+.. _migrating-from-the-knowledge-base:
+
+Migrating from the knowledge base
+---------------------------------
+
+``gptme-util knowledge`` stored problem/resolution pairs in JSONL. It is
+deprecated: the subgroup prints a ``DeprecationWarning`` and will be removed in
+a future release. Memory entries cover the same job, with typed entries and
+recall that every harness can read.
+
+To move existing entries over:
+
+.. code-block:: console
+
+   $ gptme-util memory migrate-knowledge-jsonl
+
+After migrating, use ``gptme-util memory recall QUERY`` in place of knowledge
+search, and ``gptme-util memory save NAME DESCRIPTION`` in place of
+``knowledge save``.
 
 Lessons and memory are separate stores, and neither reads the other:
 
