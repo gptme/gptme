@@ -103,6 +103,10 @@ const SERVER_START_RETRY_COUNT = 6;
 const SERVER_START_RETRY_DELAY_MS = 250;
 const SERVER_READY_RETRY_COUNT = 10;
 const SERVER_READY_RETRY_DELAY_MS = 250;
+// On first launch the managed sidecar may need several seconds to start.
+// Retry the initial connect button for up to 15 seconds before giving up.
+const MANAGED_CONNECT_RETRY_COUNT = 15;
+const MANAGED_CONNECT_RETRY_DELAY_MS = 1000;
 const SUBSCRIPTION_POLL_INTERVAL_MS = 2000;
 const SUBSCRIPTION_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -463,12 +467,36 @@ export function SetupWizard() {
             }
           : null;
       const trimmedAuthToken = remoteAuthToken.trim();
-      await connect(
-        managedServerConfig ?? {
-          authToken: trimmedAuthToken || null,
-          useAuthToken: Boolean(trimmedAuthToken),
+      const config = managedServerConfig ?? {
+        authToken: trimmedAuthToken || null,
+        useAuthToken: Boolean(trimmedAuthToken),
+      };
+
+      if (managedServerConfig) {
+        // The managed sidecar may still be starting up (slow on first launch,
+        // especially on Windows). Retry for up to ~15 s before giving up so the
+        // user doesn't have to click the button a second time.
+        for (let attempt = 0; attempt < MANAGED_CONNECT_RETRY_COUNT; attempt++) {
+          try {
+            await connect(config);
+            return; // success — the isConnected effect calls checkProviderAndAdvance
+          } catch (err) {
+            const isNetworkError =
+              err instanceof Error &&
+              (err.message.includes('fetch') ||
+                err.message.includes('network') ||
+                err.message.includes('connect') ||
+                err.message.includes('ECONNREFUSED') ||
+                err.message.includes('Failed to fetch'));
+            if (!isNetworkError || attempt === MANAGED_CONNECT_RETRY_COUNT - 1) {
+              throw err;
+            }
+            await sleep(MANAGED_CONNECT_RETRY_DELAY_MS);
+          }
         }
-      );
+      } else {
+        await connect(config);
+      }
       // The isConnected useEffect will fire and call checkProviderAndAdvance.
     } catch (err) {
       setConnectError(
