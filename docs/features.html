@@ -899,15 +899,13 @@ the level of autonomy per conversation:</p>
 <li><p><strong>Pick the tools</strong> — <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">read-only</span></code> for inspection, <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">patch,save</span></code> for a
 narrow task, <code class="docutils literal notranslate"><span class="pre">-t</span> <span class="pre">+subagent</span></code> to add to the defaults, <code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">none</span></code> for
 plain chat.</p></li>
-<li><p><strong>Autonomy presets</strong> — <code class="docutils literal notranslate"><span class="pre">--gear</span> <span class="pre">0</span></code>–<code class="docutils literal notranslate"><span class="pre">4</span></code> bundle tools, profile, and
-confirmations, from observe-only to full autonomy (experimental).</p></li>
 <li><p><strong>Confirmations</strong> — tool calls are confirmed before they run, except
 read-only shell commands (<code class="docutils literal notranslate"><span class="pre">ls</span></code>, <code class="docutils literal notranslate"><span class="pre">cat</span></code>, <code class="docutils literal notranslate"><span class="pre">rg</span></code>, and similar) which are
 auto-approved; <code class="docutils literal notranslate"><span class="pre">-y</span></code> approves everything while you watch, <code class="docutils literal notranslate"><span class="pre">-n</span></code> runs
 unattended. See <a class="reference internal" href="security.html"><span class="doc">Security</span></a> for the exact allowlist.</p></li>
 <li><p><strong>Sandboxing</strong> — run shell and Python in an OS-level sandbox (<code class="docutils literal notranslate"><span class="pre">GPTME_SANDBOX</span></code>).</p></li>
 <li><p><strong>Prompt-injection hygiene</strong> — flag or redact suspicious content in tool
-output with <code class="docutils literal notranslate"><span class="pre">--injection-hygiene</span></code>.</p></li>
+output with <code class="docutils literal notranslate"><span class="pre">GPTME_INJECTION_HYGIENE</span></code>.</p></li>
 <li><p><strong>Undo and checkpoints</strong> — <code class="docutils literal notranslate"><span class="pre">/undo</span></code> and <code class="docutils literal notranslate"><span class="pre">/backtrack</span></code> rewind the
 conversation; <code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code> restores the workspace files. They are separate:
 backtracking does not roll back the filesystem.</p></li>

@@ -696,17 +696,6 @@ workspace files, profiles, or a conversation’s custom system prompt.</p></li>
 <code class="docutils literal notranslate"><span class="pre">config.toml</span></code>. That lets you keep <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in dotfiles or version control without
 exposing your keys. The webui setup wizard already writes keys to <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>.</p>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">settings</span></code> section contains user-level CLI defaults. Currently supported:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">gear</span></code>: Default autonomy preset for new conversations (experimental). Gear <code class="docutils literal notranslate"><span class="pre">0</span></code> is read-only
-observe mode, gear <code class="docutils literal notranslate"><span class="pre">1</span></code> is the interactive default, gear <code class="docutils literal notranslate"><span class="pre">2</span></code> allows file edits
-while excluding shell/network tools by default, gear <code class="docutils literal notranslate"><span class="pre">3</span></code> is fully autonomous,
-and gear <code class="docutils literal notranslate"><span class="pre">4</span></code> adds subagent orchestration.</p></li>
-</ul>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[settings]</span>
-<span class="n">gear</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
-</pre></div>
-</div>
 <section id="how-model-selection-works">
 <span id="id2"></span><h3>How model selection works<a class="headerlink" href="#how-model-selection-works" title="Link to this heading">#</a></h3>
 <p>When you start gptme, the model is resolved in this priority order. The layers
@@ -932,8 +921,6 @@ exposed through this shell adapter. Example:</p>
 <p>Commands run in the workspace with <code class="docutils literal notranslate"><span class="pre">GPTME_HOOK_EVENT</span></code>, <code class="docutils literal notranslate"><span class="pre">GPTME_LOGDIR</span></code>,
 <code class="docutils literal notranslate"><span class="pre">GPTME_WORKSPACE</span></code>, and the current <code class="docutils literal notranslate"><span class="pre">GPTME_MODEL</span></code> in their environment.
 A failure or timeout is logged and does not alter the session result.</p>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">settings</span></code>, a dictionary of project-local CLI defaults. <code class="docutils literal notranslate"><span class="pre">settings.gear</span></code> accepts the same experimental 0-4 autonomy presets as <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--gear</span></code> and overrides the global <code class="docutils literal notranslate"><span class="pre">[settings].gear</span></code> default for conversations started in this workspace.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> and project <code class="docutils literal notranslate"><span class="pre">hooks.scripts</span></code> commands are executed with shell
@@ -994,7 +981,7 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_SESSION_BUDGET_TOKENS</span></code> - Optional per-session token budget. Counts input, output, cache-read, and cache-creation tokens.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BUDGET_WARN_PCT</span></code> - Percentage of the configured session budget that triggers the warning (default: 80).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_FRESH</span></code> - Enable fresh context mode (default: false)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BREAK_ON_TOOLUSE</span></code> - Interrupt generation when tool use occurs in stream. Default is model-dependent: <code class="docutils literal notranslate"><span class="pre">false</span></code> for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), <code class="docutils literal notranslate"><span class="pre">true</span></code> for others. Set to <code class="docutils literal notranslate"><span class="pre">0</span></code> to force parallel tool calls, <code class="docutils literal notranslate"><span class="pre">1</span></code> to force single tool call per response (equivalent to <code class="docutils literal notranslate"><span class="pre">--multi-tool</span></code> flag).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BREAK_ON_TOOLUSE</span></code> - Interrupt generation when tool use occurs in stream. Default is model-dependent: <code class="docutils literal notranslate"><span class="pre">false</span></code> for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), <code class="docutils literal notranslate"><span class="pre">true</span></code> for others. Set to <code class="docutils literal notranslate"><span class="pre">0</span></code> to force parallel tool calls, <code class="docutils literal notranslate"><span class="pre">1</span></code> to force single tool call per response.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_PATCH_RECOVERY</span></code> - Return file content in error for non-matching patches (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_SUGGEST_LLM</span></code> - Enable LLM-powered prompt completion (default: false)</p></li>
 </ul>

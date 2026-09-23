@@ -312,15 +312,13 @@ the level of autonomy per conversation:
 - **Pick the tools** — ``-t read-only`` for inspection, ``-t patch,save`` for a
   narrow task, ``-t +subagent`` to add to the defaults, ``--tools none`` for
   plain chat.
-- **Autonomy presets** — ``--gear 0``–``4`` bundle tools, profile, and
-  confirmations, from observe-only to full autonomy (experimental).
 - **Confirmations** — tool calls are confirmed before they run, except
   read-only shell commands (``ls``, ``cat``, ``rg``, and similar) which are
   auto-approved; ``-y`` approves everything while you watch, ``-n`` runs
   unattended. See :doc:`security` for the exact allowlist.
 - **Sandboxing** — run shell and Python in an OS-level sandbox (``GPTME_SANDBOX``).
 - **Prompt-injection hygiene** — flag or redact suspicious content in tool
-  output with ``--injection-hygiene``.
+  output with ``GPTME_INJECTION_HYGIENE``.
 - **Undo and checkpoints** — ``/undo`` and ``/backtrack`` rewind the
   conversation; ``/checkpoint`` restores the workspace files. They are separate:
   backtracking does not roll back the filesystem.

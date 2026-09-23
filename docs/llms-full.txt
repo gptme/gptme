@@ -860,15 +860,13 @@ the level of autonomy per conversation:
 - **Pick the tools** — ``-t read-only`` for inspection, ``-t patch,save`` for a
   narrow task, ``-t +subagent`` to add to the defaults, ``--tools none`` for
   plain chat.
-- **Autonomy presets** — ``--gear 0``–``4`` bundle tools, profile, and
-  confirmations, from observe-only to full autonomy (experimental).
 - **Confirmations** — tool calls are confirmed before they run, except
   read-only shell commands (``ls``, ``cat``, ``rg``, and similar) which are
   auto-approved; ``-y`` approves everything while you watch, ``-n`` runs
   unattended. See :doc:`security` for the exact allowlist.
 - **Sandboxing** — run shell and Python in an OS-level sandbox (``GPTME_SANDBOX``).
 - **Prompt-injection hygiene** — flag or redact suspicious content in tool
-  output with ``--injection-hygiene``.
+  output with ``GPTME_INJECTION_HYGIENE``.
 - **Undo and checkpoints** — ``/undo`` and ``/backtrack`` rewind the
   conversation; ``/checkpoint`` restores the workspace files. They are separate:
   backtracking does not roll back the filesystem.
@@ -3224,18 +3222,6 @@ The ``env`` section contains environment variables that gptme will fall back to 
    ``config.toml``. That lets you keep ``config.toml`` in dotfiles or version control without
    exposing your keys. The webui setup wizard already writes keys to ``config.local.toml``.
 
-The ``settings`` section contains user-level CLI defaults. Currently supported:
-
-- ``gear``: Default autonomy preset for new conversations (experimental). Gear ``0`` is read-only
-  observe mode, gear ``1`` is the interactive default, gear ``2`` allows file edits
-  while excluding shell/network tools by default, gear ``3`` is fully autonomous,
-  and gear ``4`` adds subagent orchestration.
-
-.. code-block:: toml
-
-    [settings]
-    gear = 2
-
 .. _how-model-selection-works:
 
 How model selection works
@@ -3495,8 +3481,6 @@ This file currently supports a few options:
   ``GPTME_WORKSPACE``, and the current ``GPTME_MODEL`` in their environment.
   A failure or timeout is logged and does not alter the session result.
 
-- ``settings``, a dictionary of project-local CLI defaults. ``settings.gear`` accepts the same experimental 0-4 autonomy presets as ``gptme --gear`` and overrides the global ``[settings].gear`` default for conversations started in this workspace.
-
   .. warning::
 
      ``context_cmd`` and project ``hooks.scripts`` commands are executed with shell
@@ -3571,7 +3555,7 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_SESSION_BUDGET_TOKENS`` - Optional per-session token budget. Counts input, output, cache-read, and cache-creation tokens.
 - ``GPTME_BUDGET_WARN_PCT`` - Percentage of the configured session budget that triggers the warning (default: 80).
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
-- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream. Default is model-dependent: ``false`` for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), ``true`` for others. Set to ``0`` to force parallel tool calls, ``1`` to force single tool call per response (equivalent to ``--multi-tool`` flag).
+- ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream. Default is model-dependent: ``false`` for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), ``true`` for others. Set to ``0`` to force parallel tool calls, ``1`` to force single tool call per response.
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
 
@@ -7747,10 +7731,10 @@ it isn't.
 
 .. note::
 
-   gptme also has experimental autonomy presets (``--gear 0``–``4``, bundling tools,
-   profile, and confirmations) and an OS-level sandbox for the shell and Python
-   tools (``GPTME_SANDBOX``). Neither is widely used yet: expect rough edges, and
-   check that they behave as you expect before relying on them.
+   gptme has an OS-level sandbox for the shell and Python tools
+   (``GPTME_SANDBOX``). It is not widely used yet: expect rough edges, and check
+   that it behaves as you expect before relying on it. To restrict a session
+   instead, combine ``--tools`` with an :doc:`agent profile <profiles>`.
 
 What actually keeps you safe
 ----------------------------
