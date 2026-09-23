@@ -65,6 +65,14 @@ class TestValidateApiKey:
             "moonshot-test", 10, "https://api.moonshot.ai/v1"
         )
 
+    @patch("gptme.llm.validate._validate_openai_compatible")
+    def test_yolo_auto_provider_calls_compatible_validator(self, mock_validate):
+        mock_validate.return_value = (True, "")
+        validate_api_key("yolo-test", "yolo-auto")
+        mock_validate.assert_called_once_with(
+            "yolo-test", 10, "https://yolo-auto.com/v1"
+        )
+
     @patch("gptme.llm.validate._validate_openai", side_effect=requests.ConnectionError)
     def test_unreachable_provider_returns_true(self, mock_validate):
         """UNREACHABLE must map to True in the boolean wrapper.

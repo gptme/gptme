@@ -38,6 +38,7 @@ PROVIDER_DOCS: dict[str, str] = {
     "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
     "nvidia": "https://build.nvidia.com/",
     "requesty": "https://app.requesty.ai/api-keys",
+    "yolo-auto": "https://yolo-auto.com/docs",
     "moonshot": "https://platform.moonshot.ai/console/api-keys",
     "local": "https://gptme.org/docs/getting-started.html#local-models",
     "openai-subscription": "https://gptme.org/docs/providers-supported.html#openai-subscription",
@@ -115,6 +116,10 @@ def validate_api_key_status(
         elif provider == "requesty":
             is_valid, message = _validate_openai_compatible(
                 api_key, timeout, "https://router.requesty.ai/v1"
+            )
+        elif provider == "yolo-auto":
+            is_valid, message = _validate_openai_compatible(
+                api_key, timeout, "https://yolo-auto.com/v1"
             )
         elif provider == "moonshot":
             is_valid, message = _validate_openai_compatible(

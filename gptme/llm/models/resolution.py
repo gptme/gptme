@@ -337,7 +337,7 @@ def _resolve_model(model: str) -> ModelMeta:
             # Try closest-match heuristic: find the most similar known model
             closest_props = _find_closest_model_properties(provider, model_name)
             if closest_props:
-                if provider not in ("openrouter", "local", "gptme"):
+                if provider not in ("openrouter", "local", "gptme", "yolo-auto"):
                     log_warn_once(
                         f"Unknown model {provider}/{model_name}: "
                         f"using closest match metadata"
@@ -345,7 +345,7 @@ def _resolve_model(model: str) -> ModelMeta:
                 return ModelMeta(provider, model_name, **closest_props)
 
             # No models at all for this provider (e.g. azure, local with no entries)
-            if provider not in ("openrouter", "local", "gptme"):
+            if provider not in ("openrouter", "local", "gptme", "yolo-auto"):
                 log_warn_once(
                     f"Unknown model: using generic fallback for {provider}/{model_name}"
                 )

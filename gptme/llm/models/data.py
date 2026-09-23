@@ -81,6 +81,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "grok-subscription",
         "moonshot",
         "requesty",
+        "yolo-auto",
         "openrouter",
         "nvidia",
         "azure",
@@ -800,6 +801,22 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.6,
             "supports_vision": True,
             "preferred_edit_format": "whole",
+        },
+    },
+    # Yolo-Auto: OpenAI-compatible API reached at https://yolo-auto.com/v1,
+    # billed as a flat-rate plan rather than per token. ``yolo`` and
+    # ``yolo-small`` are the provider's stable public aliases; the live
+    # catalog is discoverable at GET /v1/models (see listing.py), so these
+    # entries are a minimal fallback for when the API is unreachable, using
+    # gptme's generic 128k context default.
+    "yolo-auto": {
+        "yolo": {
+            "context": 128_000,
+            "pricing_type": "subscription",
+        },
+        "yolo-small": {
+            "context": 128_000,
+            "pricing_type": "subscription",
         },
     },
     # gptme managed service — proxies to multiple providers

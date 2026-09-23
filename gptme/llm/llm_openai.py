@@ -577,6 +577,16 @@ def init(provider: Provider, config: Config):
             base_url=proxy_url or "https://router.requesty.ai/v1",
             timeout=timeout,
         )
+    elif provider == "yolo-auto":
+        api_key = proxy_key or _get_provider_api_key(
+            config, provider, "YOLO_AUTO_API_KEY"
+        )
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url=proxy_url or "https://yolo-auto.com/v1",
+            timeout=timeout,
+        )
     elif provider == "gptme":
         from .llm_gptme import get_api_key, get_base_url
 
@@ -2282,6 +2292,14 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
 
     if provider == "local":
         return _get_openai_compatible_models(config, provider)
+
+    if provider == "yolo-auto":
+        return _get_openai_compatible_models(
+            config,
+            provider,
+            base_url="https://yolo-auto.com/v1",
+            api_key=config.get_env("YOLO_AUTO_API_KEY"),
+        )
 
     if provider == "gptme":
         from .llm_gptme import get_api_key, get_models_url

@@ -95,6 +95,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "openai": "openai/gpt-4o-mini",
     "openrouter": "openrouter/anthropic/claude-haiku-4.5",
     "requesty": "requesty/openai/gpt-4o-mini",
+    "yolo-auto": "yolo-auto/yolo-small",
     "gemini": "gemini/gemini-2.0-flash",
     "groq": "groq/llama-3.3-70b-versatile",
     "xai": "xai/grok-3-mini",
@@ -110,6 +111,7 @@ PROVIDER_API_KEYS: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "requesty": "REQUESTY_API_KEY",
+    "yolo-auto": "YOLO_AUTO_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "groq": "GROQ_API_KEY",
     "xai": "XAI_API_KEY",
@@ -1337,7 +1339,9 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         ValueError: If provider doesn't support listing models
         Exception: If API request fails
     """
-    if provider in ("openrouter", "local", "gptme") or is_custom_provider(provider):
+    if provider in ("openrouter", "local", "gptme", "yolo-auto") or is_custom_provider(
+        provider
+    ):
         from .llm_openai import get_available_models as get_openai_models
 
         return get_openai_models(provider)

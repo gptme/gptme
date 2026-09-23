@@ -243,6 +243,33 @@ Requesty
 
 Get an API key at https://app.requesty.ai/api-keys. See https://docs.requesty.ai for details.
 
+.. _yolo-auto:
+
+Yolo-Auto
+~~~~~~~~~
+
+`Yolo-Auto <https://yolo-auto.com/>`__ is an OpenAI-compatible API with flat-rate
+plans, reached at ``https://yolo-auto.com/v1`` through the standard
+OpenAI-compatible client path. Its two public model aliases are ``yolo`` and
+``yolo-small``; the live catalog for your key is discoverable with
+``GET /v1/models``, so ``gptme '/models'`` lists whatever the endpoint currently
+serves.
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [env]
+    YOLO_AUTO_API_KEY = "yolo_..."
+
+.. code-block:: sh
+
+    gptme "hello" -m yolo-auto/yolo
+    gptme "hello" -m yolo-auto/yolo-small
+
+Get an API key at https://yolo-auto.com. See https://yolo-auto.com/docs for details.
+
 .. _groq:
 
 Groq
