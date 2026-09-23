@@ -1449,7 +1449,7 @@ def prompts_expand(prompt: tuple[str, ...]):
 
     # Use the existing include_paths function to expand the prompt
     from ..message import Message  # fmt: skip
-    from ..util.context import include_paths  # fmt: skip
+    from ..util.context import _find_potential_paths, include_paths  # fmt: skip
 
     original_msg = Message("user", full_prompt)
     # This utility is for inspecting path expansion itself, so it must ignore
@@ -1460,6 +1460,21 @@ def prompts_expand(prompt: tuple[str, ...]):
     finally:
         if disabled_path_include is not None:
             os.environ["GPTME_DISABLE_PATH_INCLUDE"] = disabled_path_include
+
+    # Warn about file-path tokens that look like files but don't exist
+    import urllib.parse  # fmt: skip
+
+    for word in _find_potential_paths(full_prompt):
+        try:
+            p = urllib.parse.urlparse(word)
+            if p.scheme in ("http", "https") and p.netloc:
+                continue  # URL — not a local file path
+        except ValueError:
+            pass
+        bare = word.removeprefix("@")
+        candidate = Path(bare).expanduser()
+        if not candidate.exists() and bare.startswith(("/", "~/", "./")):
+            click.echo(f"warning: path not found, not expanded: {word}", err=True)
 
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
