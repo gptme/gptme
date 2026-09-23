@@ -76,6 +76,19 @@ function getCloudAuthUrl(): string {
   return `${cloudBaseUrl || 'https://gptme.ai'}/authorize`;
 }
 
+function safeHttpUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return parsed.href;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function isHostedPageOrigin(): boolean {
   if (typeof window === 'undefined' || !window.location) {
     return false;
@@ -155,6 +168,7 @@ export function SetupWizard() {
   const [subscriptionConnecting, setSubscriptionConnecting] = useState(false);
   const [subscriptionTaskId, setSubscriptionTaskId] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [subscriptionOauthUrl, setSubscriptionOauthUrl] = useState<string | null>(null);
   const subscriptionPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const completeSetup = useCallback(() => {
@@ -556,6 +570,7 @@ export function SetupWizard() {
     setSubscriptionConnecting(true);
     setSubscriptionError(null);
     setSubscriptionTaskId(null);
+    setSubscriptionOauthUrl(null);
     try {
       const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/user/subscription-connect`, {
         method: 'POST',
@@ -594,7 +609,12 @@ export function SetupWizard() {
             status: string;
             error?: string;
             model?: string;
+            oauth_url?: string | null;
           };
+          const oauthUrl = safeHttpUrl(statusData.oauth_url);
+          if (oauthUrl) {
+            setSubscriptionOauthUrl(oauthUrl);
+          }
           if (statusData.status === 'connected') {
             stopped = true;
             await finishSubscriptionConnect(statusData.model);
@@ -1196,9 +1216,23 @@ export function SetupWizard() {
                     </p>
                   </div>
                   {subscriptionConnecting && subscriptionTaskId && (
-                    <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted px-3 py-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                      Sign in with your browser to complete authentication…
+                    <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted px-3 py-2 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                        Sign in with your browser to complete authentication…
+                      </div>
+                      {subscriptionOauthUrl && (
+                        <a
+                          href={subscriptionOauthUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid="setup-wizard-oauth-url"
+                          className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2"
+                        >
+                          Open sign-in page
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
                     </div>
                   )}
                   {subscriptionError && (

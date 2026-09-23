@@ -374,9 +374,9 @@ class SubscriptionConnectStatusResponse(BaseModel):
         None,
         description=(
             "OAuth authorization URL. Set once the background thread starts the "
-            "PKCE flow. Useful when the server cannot open a browser (headless "
-            "environments): the client can display this URL for the user to open "
-            "manually."
+            "PKCE flow. On headless hosts the server skips opening a browser but "
+            "keeps the PKCE callback alive so the client can display this URL "
+            "for the user to finish authentication."
         ),
     )
 

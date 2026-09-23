@@ -370,45 +370,53 @@ def test_status_requires_auth(client: FlaskClient):
     assert resp.status_code == 401
 
 
-def test_headless_server_fails_fast(client: FlaskClient, monkeypatch):
-    """In a headless environment the task transitions to error immediately with the OAuth URL."""
+def test_headless_server_keeps_oauth_flow_alive(client: FlaskClient, monkeypatch):
+    """Headless servers expose the OAuth URL without aborting the PKCE flow."""
     import gptme.server.api_v2 as api_mod
 
-    # Simulate a headless Linux server (no display env vars)
     monkeypatch.setattr(api_mod, "_is_headless_server", lambda: True)
 
     fake_url = "https://auth.example.com/oauth?code_challenge=test"
+    barrier = threading.Event()
+    skip_browser = threading.Event()
 
     def _fake_oauth(on_url_ready=None):
         if on_url_ready:
-            on_url_ready(fake_url)  # triggers headless check → raises
+            result = on_url_ready(fake_url)
+            if result is False:
+                skip_browser.set()
+        barrier.wait(timeout=5)
 
-    with unittest.mock.patch(
-        "gptme.llm.llm_openai_subscription.oauth_authenticate",
-        side_effect=_fake_oauth,
-    ):
-        resp = client.post(
-            "/api/v2/user/subscription-connect",
-            json={"provider": "openai-subscription"},
-            headers=auth_headers(),
-        )
-    assert resp.status_code == 202
-    task_id = resp.get_json()["task_id"]
+    try:
+        with unittest.mock.patch(
+            "gptme.llm.llm_openai_subscription.oauth_authenticate",
+            side_effect=_fake_oauth,
+        ):
+            resp = client.post(
+                "/api/v2/user/subscription-connect",
+                json={"provider": "openai-subscription"},
+                headers=auth_headers(),
+            )
+        assert resp.status_code == 202
+        task_id = resp.get_json()["task_id"]
 
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        data = client.get(
-            f"/api/v2/user/subscription-connect/{task_id}",
-            headers=auth_headers(),
-        ).get_json()
-        if data["status"] != "pending":
-            break
-        time.sleep(0.05)
+        deadline = time.monotonic() + 5
+        data = None
+        while time.monotonic() < deadline:
+            data = client.get(
+                f"/api/v2/user/subscription-connect/{task_id}",
+                headers=auth_headers(),
+            ).get_json()
+            if data.get("oauth_url") == fake_url:
+                break
+            time.sleep(0.05)
 
-    assert data["status"] == "error"
-    assert "headless" in data["error"].lower() or "browser" in data["error"].lower()
-    # The OAuth URL must be present in the response so the client can display it
-    assert data.get("oauth_url") == fake_url
+        assert data is not None
+        assert data["status"] == "pending"
+        assert data.get("oauth_url") == fake_url
+        assert skip_browser.is_set()
+    finally:
+        barrier.set()
 
 
 def test_oauth_url_exposed_in_status(client: FlaskClient, monkeypatch):
@@ -451,3 +459,132 @@ def test_oauth_url_exposed_in_status(client: FlaskClient, monkeypatch):
     assert data["oauth_url"] == fake_url
 
     barrier.set()
+
+
+def _clear_headless_env(monkeypatch) -> None:
+    for key in (
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "BROWSER",
+        "CI",
+        "GPTME_HEADLESS",
+        "SSH_CONNECTION",
+        "SSH_CLIENT",
+        "SESSIONNAME",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_is_headless_linux_without_display(monkeypatch):
+    import sys
+
+    import gptme.server.api_v2 as api_mod
+
+    _clear_headless_env(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert api_mod._is_headless_server() is True
+
+
+def test_is_headless_linux_with_display(monkeypatch):
+    import sys
+
+    import gptme.server.api_v2 as api_mod
+
+    _clear_headless_env(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert api_mod._is_headless_server() is False
+
+
+def test_is_headless_ci_on_macos(monkeypatch):
+    import sys
+
+    import gptme.server.api_v2 as api_mod
+
+    _clear_headless_env(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("CI", "true")
+    assert api_mod._is_headless_server() is True
+
+
+def test_is_headless_ssh_on_macos_without_display(monkeypatch):
+    import sys
+
+    import gptme.server.api_v2 as api_mod
+
+    _clear_headless_env(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 22 5.6.7.8 22")
+    assert api_mod._is_headless_server() is True
+
+
+def test_is_headless_windows_service(monkeypatch):
+    import sys
+
+    import gptme.server.api_v2 as api_mod
+
+    _clear_headless_env(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("SESSIONNAME", "Services")
+    assert api_mod._is_headless_server() is True
+
+
+def test_is_not_headless_windows_console(monkeypatch):
+    import sys
+
+    import gptme.server.api_v2 as api_mod
+
+    _clear_headless_env(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("SESSIONNAME", "Console")
+    assert api_mod._is_headless_server() is False
+
+
+def test_browser_env_overrides_ci_headless(monkeypatch):
+    import sys
+
+    import gptme.server.api_v2 as api_mod
+
+    _clear_headless_env(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("BROWSER", "firefox")
+    assert api_mod._is_headless_server() is False
+
+
+def test_openrouter_callback_server_closed_when_url_ready_raises(monkeypatch):
+    """Raising from on_url_ready must still shut down the OpenRouter callback server."""
+    import gptme.llm.llm_openrouter_subscription as or_mod
+
+    class FakeHTTPServer:
+        def __init__(self, *_args, **_kwargs):
+            self.shutdown_calls = 0
+            self.close_calls = 0
+
+        def serve_forever(self):
+            return None
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+
+        def server_close(self):
+            self.close_calls += 1
+
+    servers: list[FakeHTTPServer] = []
+
+    def _factory(*args, **kwargs):
+        server = FakeHTTPServer(*args, **kwargs)
+        servers.append(server)
+        return server
+
+    monkeypatch.setattr(or_mod.http.server, "HTTPServer", _factory)
+
+    def _boom(_url: str) -> None:
+        raise RuntimeError("abort oauth")
+
+    with pytest.raises(RuntimeError, match="abort oauth"):
+        or_mod.oauth_get_api_key(on_url_ready=_boom)
+
+    assert len(servers) == 1
+    assert servers[0].shutdown_calls == 1
+    assert servers[0].close_calls == 1

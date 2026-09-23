@@ -57,7 +57,7 @@ def _generate_pkce() -> tuple[str, str]:
 
 
 def oauth_get_api_key(
-    on_url_ready: Callable[[str], None] | None = None,
+    on_url_ready: Callable[[str], object] | None = None,
 ) -> str:
     """Run the OpenRouter PKCE OAuth flow and return the API key.
 
@@ -66,7 +66,8 @@ def oauth_get_api_key(
 
     Args:
         on_url_ready: Optional callback invoked with the auth URL before the
-            browser is opened.  Raise from the callback to abort the flow.
+            browser is opened.  Return ``False`` to skip opening a browser
+            while leaving the PKCE flow running.  Raise to abort the flow.
 
     Raises
     ------
@@ -132,21 +133,26 @@ def oauth_get_api_key(
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
+    try:
+        should_open_browser = True
+        if on_url_ready is not None:
+            should_open_browser = on_url_ready(auth_url) is not False
+        if should_open_browser:
+            opened = webbrowser.open(auth_url)
+            if not opened:
+                logger.warning(
+                    "webbrowser.open() returned False for OpenRouter OAuth; URL: %s",
+                    auth_url,
+                )
 
-    if on_url_ready is not None:
-        on_url_ready(auth_url)
-
-    webbrowser.open(auth_url)
-
-    # Wait up to 5 minutes for the user to complete the browser flow
-    if not _done.wait(timeout=300):
+        # Wait up to 5 minutes for the user to complete the browser flow
+        if not _done.wait(timeout=300):
+            raise RuntimeError(
+                "OpenRouter OAuth timed out (no browser callback after 5 minutes)."
+            )
+    finally:
         server.shutdown()
         server.server_close()
-        raise RuntimeError(
-            "OpenRouter OAuth timed out (no browser callback after 5 minutes)."
-        )
-    server.shutdown()
-    server.server_close()
 
     if "error" in _result:
         raise RuntimeError(f"OpenRouter OAuth error: {_result['error']}")

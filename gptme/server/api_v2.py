@@ -3467,14 +3467,28 @@ def _persist_subscription_default_model(provider: str, app: flask.Flask) -> str 
 def _is_headless_server() -> bool:
     """Return True if no interactive browser is available on the server host.
 
-    On Linux/Unix a GUI browser requires a display server.  On macOS and
-    Windows a browser is always available.
+    ``BROWSER`` is an explicit override (the user named a browser command).
+    CI, ``GPTME_HEADLESS``, SSH without a display, Windows services, and
+    Unix hosts without ``DISPLAY``/``WAYLAND_DISPLAY`` are treated as
+    headless. macOS/Windows desktops are not assumed to always have a
+    browser — remote/service sessions still count as headless.
     """
     import sys
 
-    if sys.platform in ("win32", "darwin"):
+    if os.environ.get("BROWSER"):
         return False
-    return not any(os.environ.get(v) for v in ("DISPLAY", "WAYLAND_DISPLAY", "BROWSER"))
+    if os.environ.get("CI") or os.environ.get("GPTME_HEADLESS"):
+        return True
+    has_display = any(os.environ.get(v) for v in ("DISPLAY", "WAYLAND_DISPLAY"))
+    if (
+        os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT")
+    ) and not has_display:
+        return True
+    if sys.platform == "win32":
+        return os.environ.get("SESSIONNAME", "").lower() == "services"
+    if sys.platform == "darwin":
+        return False
+    return not has_display
 
 
 def _run_subscription_oauth(task_id: str, provider: str, app: flask.Flask) -> None:
@@ -3484,17 +3498,23 @@ def _run_subscription_oauth(task_id: str, provider: str, app: flask.Flask) -> No
             "created_at", time.monotonic()
         )
 
-    def _on_url_ready(url: str) -> None:
-        """Store OAuth URL in task state; abort immediately if server is headless."""
+    def _on_url_ready(url: str) -> bool:
+        """Store the OAuth URL; return False to skip opening a local browser.
+
+        Headless hosts must keep the PKCE flow alive: the client shows
+        ``oauth_url`` so the user can finish auth against the callback
+        listener. Raising here would drop the verifier and the listener.
+        """
         with _subscription_tasks_lock:
             task = _subscription_tasks.get(task_id)
             if task is not None:
                 task["oauth_url"] = url
         if _is_headless_server():
-            raise RuntimeError(
-                f"No browser available on this server (headless environment). "
-                f"Open this URL in a browser to authenticate: {url}"
+            logger.info(
+                "Headless server: skipping browser open; OAuth URL stored for client"
             )
+            return False
+        return True
 
     try:
         if provider == "openai-subscription":

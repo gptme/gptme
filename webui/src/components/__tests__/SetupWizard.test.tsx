@@ -1707,4 +1707,48 @@ describe('SetupWizard', () => {
       })
     );
   });
+
+  it('renders a clickable OAuth URL while subscription sign-in is pending', async () => {
+    const oauthUrl = 'https://auth.openai.com/oauth/authorize?code_challenge=abc';
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const href = String(url);
+      const method = init?.method ?? 'GET';
+      if (href.includes('/api/v2/user/subscription-connect/') && method === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            task_id: 'headless-task',
+            status: 'pending',
+            provider: 'openai-subscription',
+            oauth_url: oauthUrl,
+          }),
+        };
+      }
+      if (href.endsWith('/api/v2/user/subscription-connect') && method === 'POST') {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ task_id: 'headless-task', status: 'pending' }),
+        };
+      }
+      if (href.endsWith('/api/v2/models')) {
+        return { ok: true, status: 200, json: async () => ({ models: [], recommended: [] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      };
+    });
+
+    await reachProviderStep();
+
+    fireEvent.click(screen.getByTestId('setup-wizard-subscription-connect'));
+
+    const link = await screen.findByTestId('setup-wizard-oauth-url');
+    expect(link).toHaveAttribute('href', oauthUrl);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
 });
