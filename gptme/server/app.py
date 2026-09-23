@@ -59,8 +59,8 @@ _WEBUI_MISSING_PAGE = """<!doctype html>
      interface is missing. This usually means you are running from a source
      checkout.</p>
   <ul>
-    <li>Build and bundle it: <code>cd webui &amp;&amp; npm run build</code>,
-        then <code>make bundle-webui</code></li>
+    <li>Build and bundle it, from the repository root:
+        <code>(cd webui &amp;&amp; npm run build) &amp;&amp; make bundle-webui</code></li>
     <li>Or point the server at an existing build:
         <code>GPTME_WEBUI_DIR=/path/to/dist</code></li>
     <li>Or install a release package, which ships the UI already built</li>

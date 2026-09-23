@@ -49,8 +49,9 @@ open http://localhost:5700.
    Release packages ship the modern UI, which ``gptme-server`` serves from
    ``gptme/server/webui-dist``. A source checkout without ``make bundle-webui``
    has no UI to serve: the API keeps working and the browser routes explain how
-   to build or point at one. Build it with ``cd webui && npm run build`` followed
-   by ``make bundle-webui``, or set ``GPTME_WEBUI_DIR`` to an existing build.
+   to build or point at one. From the repository root, build it with
+   ``(cd webui && npm run build) && make bundle-webui``, or set
+   ``GPTME_WEBUI_DIR`` to an existing build.
 
 Frontend development
 --------------------
