@@ -8,6 +8,7 @@
     "core:default",
     "opener:default",
     "log:default",
-    "deep-link:default"
+    "deep-link:default",
+    "notification:default"
   ]
 }
