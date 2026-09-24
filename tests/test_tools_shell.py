@@ -456,13 +456,18 @@ def test_split_commands_syntax_error_uses_bash_message():
 
 
 def test_split_commands_without_bash_rejects_invalid_syntax(monkeypatch):
-    """A parser error still fails closed when Bash is unavailable."""
+    """A parser error still fails closed when Bash is unavailable.
+
+    Without bash, tree-sitter's error flag cannot be confirmed with ``bash -n``,
+    so split_commands raises the generic validation fallback rather than a
+    parser-specific diagnostic (the old bashlex "unexpected EOF").
+    """
     import pytest
 
     from gptme.tools import shell as shell_module
 
     monkeypatch.setattr(shell_module.shutil, "which", lambda _name: None)
-    with pytest.raises(ValueError, match="Shell syntax error: unexpected EOF"):
+    with pytest.raises(ValueError, match="Shell syntax error: Cannot validate"):
         split_commands("ls |")
 
 
