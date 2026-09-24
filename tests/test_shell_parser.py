@@ -1,11 +1,11 @@
-"""Bash parser migration: source fidelity, boundaries, and compatibility."""
+"""Bash parser: source fidelity, boundaries, and error handling."""
 
 import shutil
 import subprocess
 
 import pytest
 
-from gptme.tools.shell import _split_commands_bashlex, split_commands
+from gptme.tools.shell import split_commands
 
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="Requires Bash")
 
@@ -51,8 +51,18 @@ def test_extended_grammar_splits_surrounding_commands(command: str) -> None:
         "# before\necho a # inline\n# between\necho b",
     ],
 )
-def test_bashlex_differential_corpus(script: str) -> None:
-    assert split_commands(script) == _split_commands_bashlex(script)
+def test_split_commands_corpus(script: str) -> None:
+    """Each command in the split result is individually valid bash."""
+    commands = split_commands(script)
+    assert commands  # non-empty
+    for command in commands:
+        subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
 
 
 def test_quoted_heredocs_preserve_source_and_expansion() -> None:
@@ -78,8 +88,8 @@ def test_quoted_heredocs_preserve_source_and_expansion() -> None:
     ],
 )
 def test_grammar_gaps_keep_complete_commands(script: str) -> None:
+    """Grammar-gap scripts produce no fragments that fail bash -n."""
     commands = split_commands(script)
-    assert commands == _split_commands_bashlex(script)
     for command in commands:
         subprocess.run(
             ["bash", "-n"], input=command, text=True, capture_output=True, check=True

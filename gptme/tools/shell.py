@@ -141,7 +141,7 @@ def _redirect_background_stdin(command: str) -> str:
     source = command.encode("utf-8")
     root = _parse_bash(source)
     if root.has_error:
-        return _redirect_background_stdin_bashlex(command)
+        return command
 
     positions: list[int] = []
     pending = [root]
@@ -161,45 +161,6 @@ def _redirect_background_stdin(command: str) -> str:
     if positions and not source.rstrip().endswith(b"&"):
         source += b" < /dev/null"
     return source.decode("utf-8")
-
-
-def _redirect_background_stdin_bashlex(command: str) -> str:
-    """Legacy fallback for background operators in tree-sitter grammar gaps."""
-    import bashlex
-
-    try:
-        nodes = bashlex.parse(_mask_time_keyword(command))
-    except Exception:
-        # split_commands handles unsupported and invalid syntax separately.
-        # Avoid rewriting syntax we cannot classify confidently here.
-        return command
-
-    positions: list[int] = []
-
-    def _collect_operators(value: object) -> None:
-        if isinstance(value, list):
-            for item in value:
-                _collect_operators(item)
-            return
-        if not hasattr(value, "kind"):
-            return
-        position = getattr(value, "pos", None)
-        if (
-            getattr(value, "kind", None) == "operator"
-            and getattr(value, "op", None) == "&"
-            and isinstance(position, tuple)
-        ):
-            positions.append(position[0])
-        for child in vars(value).values():
-            _collect_operators(child)
-
-    _collect_operators(nodes)
-
-    for position in reversed(positions):
-        command = command[:position].rstrip() + " < /dev/null " + command[position:]
-    if positions and not command.rstrip().endswith("&"):
-        command += " < /dev/null"
-    return command
 
 
 def strip_ansi_codes(text: str) -> str:
@@ -3584,53 +3545,13 @@ def _shorten_stdout(
     return result
 
 
-def _find_max_heredoc_pos(node, current_max: int = 0) -> int:
-    """Recursively find the maximum position from any heredoc nodes.
-
-    This is needed because bashlex stores heredoc content in nested RedirectNode
-    objects, and the top-level part.pos doesn't include the heredoc content positions.
-    """
-    max_pos = current_max
-
-    # Check if this node has a heredoc
-    if hasattr(node, "heredoc") and node.heredoc:
-        heredoc_end = node.heredoc.pos[1]
-        max_pos = max(max_pos, heredoc_end)
-
-    # Recursively check child nodes
-    if hasattr(node, "parts"):
-        for part in node.parts:
-            max_pos = max(max_pos, _find_max_heredoc_pos(part, max_pos))
-
-    if hasattr(node, "list"):
-        for item in node.list:
-            max_pos = max(max_pos, _find_max_heredoc_pos(item, max_pos))
-
-    return max_pos
-
-
-# bashlex tokenizes ``time`` as a reserved word but its grammar action for it is
-# a ``NotImplementedError`` stub, so any script containing ``time <cmd>`` fails
-# to parse. ``TIME`` is an ordinary word to both bash and bashlex, and has the
-# same length, so node positions from the masked parse index the real script.
-# Occurrences that are not the keyword (``$time``, ``time=1``, ``echo time``,
-# heredoc delimiters and their terminators) become the same construct spelled
-# differently, which leaves the parse tree shape unchanged.
-_TIME_KEYWORD_RE = re.compile(r"\btime\b")
-
-
-def _mask_time_keyword(script: str) -> str:
-    """Length-preserving rewrite of ``time`` so bashlex can parse the script."""
-    return _TIME_KEYWORD_RE.sub("TIME", script)
-
-
 def _bash_syntax_error(script: str, fallback: str) -> str | None:
     """Ask bash itself whether ``script`` is syntactically valid.
 
-    bashlex rejects valid bash it does not model (``[[ ]]``, ``$(( ))``,
-    ``<( )``, ``time`` mid-pipeline, ...), so its parse error alone cannot
-    distinguish "unsupported" from "broken". ``bash -n`` parses without
-    executing anything and is the authority.
+    Tree-sitter error recovery may produce an incomplete tree for valid bash it
+    does not fully model, so its error flag alone cannot distinguish "unsupported"
+    from "broken". ``bash -n`` parses without executing anything and is the
+    authority.
 
     Returns None when bash accepts the script, bash's own error message when it
     rejects it, and ``fallback`` when the check could not run. Bash is resolved
@@ -3665,13 +3586,20 @@ def split_commands(script: str) -> list[str]:
 
     Tree-sitter spans include heredoc bodies and use byte offsets, so slicing
     UTF-8 source preserves quoted delimiters and non-ASCII text without rewrites.
-    Keep bashlex as a compatibility fallback for one release: tree-sitter's
-    error recovery must never turn an incomplete tree into executable fragments.
+    When tree-sitter cannot produce a clean tree, ``bash -n`` is the authority:
+    actual syntax errors raise ValueError; valid-but-unparseable scripts are
+    returned as a single command.
     """
     source = script.encode("utf-8")
     root = _parse_bash(source)
     if root.has_error:
-        return _split_commands_bashlex(script)
+        bash_error = _bash_syntax_error(script, fallback="Cannot validate")
+        if bash_error is not None:
+            raise ValueError(
+                f"Shell syntax error: {bash_error}\n"
+                f"Please fix the syntax or use a different approach."
+            )
+        return [script]
 
     commands: list[str] = []
     start: int | None = None
@@ -3705,104 +3633,8 @@ def split_commands(script: str) -> list[str]:
         is not None
         for command in commands
     ):
-        return _split_commands_bashlex(script)
-    return commands
-
-
-def _split_commands_bashlex(script: str) -> list[str]:
-    """Legacy parser retained temporarily for tree-sitter grammar gaps."""
-    import bashlex
-
-    # Preprocess script to handle quoted heredoc delimiters that bashlex can't parse
-    processed_script = _preprocess_quoted_heredocs(script)
-
-    try:
-        parts = bashlex.parse(_mask_time_keyword(processed_script))
-    except NotImplementedError as e:
-        # bashlex stubs out grammar it never implemented (select, coproc,
-        # [[ ]], arithmetic expansion, ...). That is valid bash, not a syntax
-        # error: run the script whole and let bash parse it. Splitting only
-        # affects per-command stdin redirection and stop-on-failure between
-        # top-level commands; permission checks never depend on it.
-        logger.debug(
-            "bashlex does not support a construct in this script, "
-            "running it as a single command: %s",
-            e,
-        )
         return [script]
-    except Exception as e:
-        # bashlex also raises ParsingError on valid bash it does not model
-        # (``ls | time wc``, process substitution). bash decides; a real
-        # syntax error fails fast with bash's message instead of hanging.
-        bash_error = _bash_syntax_error(script, fallback=str(e))
-        if bash_error is None:
-            logger.debug(
-                "bashlex cannot parse script that bash accepts, "
-                "running it as a single command: %s",
-                e,
-            )
-            return [script]
-        raise ValueError(
-            f"Shell syntax error: {bash_error}\n"
-            f"Please fix the syntax or use a different approach."
-        ) from e
-
-    commands = []
-    for part in parts:
-        if part.kind == "command":
-            # A heredoc body is stored on the redirect node, outside the
-            # command's own span. When another redirect follows the heredoc
-            # operator (``cat <<EOF > out``) the body would be dropped and
-            # the shell left waiting for a terminator; slice through it.
-            max_pos = _find_max_heredoc_pos(part, part.pos[1])
-            if max_pos > part.pos[1]:
-                commands.append(processed_script[part.pos[0] : max_pos])
-                continue
-            command_parts = []
-            for word in part.parts:
-                start, end = word.pos
-                command_parts.append(processed_script[start:end])
-            command = " ".join(command_parts)
-            commands.append(command)
-        elif part.kind in ["function", "pipeline", "list", "compound"]:
-            # Find the maximum position including heredoc content
-            max_pos = _find_max_heredoc_pos(part, part.pos[1])
-            commands.append(processed_script[part.pos[0] : max_pos])
-        else:
-            logger.warning(
-                f"Unknown shell script part of kind '{part.kind}', hoping this works"
-            )
-            commands.append(processed_script[part.pos[0] : part.pos[1]])
-
-    # Convert back to original heredoc syntax if we modified it
-    return [_restore_quoted_heredocs(cmd, script) for cmd in commands]
-
-
-def _preprocess_quoted_heredocs(script: str) -> str:
-    """Convert quoted heredoc delimiters to unquoted ones for bashlex parsing."""
-    # Match heredoc operators with quoted delimiters: <<'DELIMITER' or <<"DELIMITER"
-    # Allow optional whitespace between << and the quoted delimiter
-    heredoc_pattern = re.compile(r'<<\s*(["\'])([^"\'\s]+)\1')
-    return heredoc_pattern.sub(r"<<\2", script)
-
-
-def _restore_quoted_heredocs(command: str, original_script: str) -> str:
-    """Restore quoted heredoc delimiters in the processed command."""
-    # If the original script had quoted heredocs, restore them
-    # Allow optional whitespace between << and the quoted delimiter
-    heredoc_pattern = re.compile(r'<<\s*(["\'])([^"\'\s]+)\1')
-    original_matches = heredoc_pattern.findall(original_script)
-
-    if not original_matches:
-        return command
-
-    # Replace unquoted delimiters back to quoted ones
-    for quote, delimiter in original_matches:
-        unquoted_pattern = f"<<{delimiter}"
-        quoted_replacement = f"<<{quote}{delimiter}{quote}"
-        command = command.replace(unquoted_pattern, quoted_replacement)
-
-    return command
+    return commands
 
 
 tool = ToolSpec(
