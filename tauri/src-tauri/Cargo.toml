@@ -29,6 +29,8 @@ log = "0.4"
 tauri-plugin-log = "2"
 getrandom = "0.3"
 tokio = { version = "1", features = ["net", "time", "io-util", "sync"] }
+toml_edit = "0.22"
+dirs = "5"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-shell = "2"
