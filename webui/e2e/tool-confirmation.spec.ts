@@ -80,9 +80,28 @@ async function setupMocks(
     route.fulfill({ json: { api_version: 2, contract_revision: 5 } })
   );
 
-  // /api/v2/models — connection quality check
+  // /api/v2/models — connection quality check. Must return ModelInfo objects
+  // (id, provider, …), not strings — useModels / ModelPicker read those fields.
   await page.route('**/api/v2/models**', (route) =>
-    route.fulfill({ json: { default: 'mock/echo', models: ['mock/echo'] } })
+    route.fulfill({
+      json: {
+        default: 'mock/echo',
+        models: [
+          {
+            id: 'mock/echo',
+            provider: 'mock',
+            model: 'echo',
+            context: 8192,
+            supports_streaming: true,
+            supports_vision: false,
+            supports_reasoning: false,
+            price_input: 0,
+            price_output: 0,
+          },
+        ],
+        recommended: [],
+      },
+    })
   );
 
   // /api/v2/user — general user endpoint (must come before /user/settings so
@@ -235,14 +254,15 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
   test('1.2: Execute sends POST with action=confirm', async ({ page }) => {
     await setupMocks(page, CONV_ID);
 
-    const confirmRequests: Record<string, unknown>[] = [];
+    const confirmRequests: { method: string; body: Record<string, unknown> }[] = [];
     await page.route(`**/api/v2/conversations/${CONV_ID}/tool/confirm`, async (route) => {
+      let body: Record<string, unknown> = {};
       try {
-        const body = JSON.parse(route.request().postData() ?? '{}');
-        confirmRequests.push(body);
+        body = JSON.parse(route.request().postData() ?? '{}');
       } catch {
         // ignore parse errors
       }
+      confirmRequests.push({ method: route.request().method(), body });
       await route.fulfill({ json: { status: 'ok', message: 'Tool confirmed' } });
     });
 
@@ -255,7 +275,8 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
     // Wait for the POST to arrive.
     await expect.poll(() => confirmRequests.length, { timeout: 5_000 }).toBeGreaterThan(0);
 
-    expect(confirmRequests[0]).toMatchObject({
+    expect(confirmRequests[0].method).toBe('POST');
+    expect(confirmRequests[0].body).toMatchObject({
       action: 'confirm',
       tool_id: TOOL_ID,
       session_id: SESSION_ID,
@@ -271,14 +292,15 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
   test('1.3: Skip sends POST with action=skip', async ({ page }) => {
     await setupMocks(page, CONV_ID);
 
-    const confirmRequests: Record<string, unknown>[] = [];
+    const confirmRequests: { method: string; body: Record<string, unknown> }[] = [];
     await page.route(`**/api/v2/conversations/${CONV_ID}/tool/confirm`, async (route) => {
+      let body: Record<string, unknown> = {};
       try {
-        const body = JSON.parse(route.request().postData() ?? '{}');
-        confirmRequests.push(body);
+        body = JSON.parse(route.request().postData() ?? '{}');
       } catch {
         // ignore parse errors
       }
+      confirmRequests.push({ method: route.request().method(), body });
       await route.fulfill({ json: { status: 'ok', message: 'Tool skipped' } });
     });
 
@@ -291,7 +313,8 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
     // Wait for the POST to arrive.
     await expect.poll(() => confirmRequests.length, { timeout: 5_000 }).toBeGreaterThan(0);
 
-    expect(confirmRequests[0]).toMatchObject({
+    expect(confirmRequests[0].method).toBe('POST');
+    expect(confirmRequests[0].body).toMatchObject({
       action: 'skip',
       tool_id: TOOL_ID,
       session_id: SESSION_ID,
