@@ -640,6 +640,10 @@ pub fn run() {
                 handle_deep_link_urls(&handle, urls);
             });
 
+            // LAN state must be managed on all platforms so commands can extract it
+            // (even though enable_lan_access returns an error on non-desktop).
+            app.manage(LanAccess::new(server_port()));
+
             #[cfg(desktop)]
             {
                 let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
@@ -651,7 +655,6 @@ pub fn run() {
                     token: token.clone(),
                     app_handle: Arc::new(Mutex::new(Some(app.handle().clone()))),
                 });
-                app.manage(LanAccess::new(server_port()));
 
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

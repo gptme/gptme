@@ -16,6 +16,8 @@ pub struct LanAccessInner {
     pub enabled: bool,
     pub lan_ip: Option<String>,
     pub port: u16,
+    /// Cached QR SVG so status polling can return it without regenerating.
+    pub qr_svg: Option<String>,
 }
 
 /// Thread-safe wrapper registered with `app.manage()`.
@@ -27,6 +29,7 @@ impl LanAccess {
             enabled: false,
             lan_ip: None,
             port,
+            qr_svg: None,
         }))
     }
 }
@@ -44,7 +47,7 @@ pub struct LanStatus {
 }
 
 impl LanAccessInner {
-    fn build_status(&self, qr_svg: Option<String>) -> LanStatus {
+    fn build_status(&self) -> LanStatus {
         let url = if self.enabled {
             self.lan_ip
                 .as_ref()
@@ -57,7 +60,7 @@ impl LanAccessInner {
             lan_ip: self.lan_ip.clone(),
             port: self.port,
             url,
-            qr_svg,
+            qr_svg: self.qr_svg.clone(),
         }
     }
 }
@@ -104,10 +107,10 @@ pub fn enable_lan_access(state: tauri::State<'_, LanAccess>) -> Result<LanStatus
     inner.lan_ip = Some(lan_ip.clone());
 
     let url = format!("http://{}:{}", lan_ip, inner.port);
-    let qr_svg = generate_qr_svg(&url)?;
+    inner.qr_svg = Some(generate_qr_svg(&url)?);
 
     log::info!("LAN access enabled: {url}");
-    Ok(inner.build_status(Some(qr_svg)))
+    Ok(inner.build_status())
 }
 
 #[cfg(not(desktop))]
@@ -122,6 +125,7 @@ pub fn disable_lan_access(state: tauri::State<'_, LanAccess>) -> Result<(), Stri
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
     inner.enabled = false;
     inner.lan_ip = None;
+    inner.qr_svg = None;
     log::info!("LAN access disabled");
     Ok(())
 }
@@ -130,7 +134,7 @@ pub fn disable_lan_access(state: tauri::State<'_, LanAccess>) -> Result<(), Stri
 #[tauri::command]
 pub fn get_lan_access_status(state: tauri::State<'_, LanAccess>) -> LanStatus {
     let inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
-    inner.build_status(None)
+    inner.build_status()
 }
 
 // ── tests ──────────────────────────────────────────────────────────────────
@@ -145,8 +149,9 @@ mod tests {
             enabled: false,
             lan_ip: None,
             port: 5700,
+            qr_svg: None,
         };
-        let status = s.build_status(None);
+        let status = s.build_status();
         assert!(!status.enabled);
         assert!(status.url.is_none());
         assert!(status.qr_svg.is_none());
@@ -158,8 +163,9 @@ mod tests {
             enabled: true,
             lan_ip: Some("192.168.1.42".to_string()),
             port: 5700,
+            qr_svg: None,
         };
-        let status = s.build_status(None);
+        let status = s.build_status();
         assert!(status.enabled);
         assert_eq!(status.url, Some("http://192.168.1.42:5700".to_string()));
     }
@@ -170,9 +176,22 @@ mod tests {
             enabled: false,
             lan_ip: Some("192.168.1.42".to_string()),
             port: 5700,
+            qr_svg: None,
         };
-        let status = s.build_status(None);
+        let status = s.build_status();
         assert!(status.url.is_none());
+    }
+
+    #[test]
+    fn status_returns_stored_qr_svg() {
+        let s = LanAccessInner {
+            enabled: true,
+            lan_ip: Some("192.168.1.42".to_string()),
+            port: 5700,
+            qr_svg: Some("<svg>test</svg>".to_string()),
+        };
+        let status = s.build_status();
+        assert_eq!(status.qr_svg, Some("<svg>test</svg>".to_string()));
     }
 
     #[test]
