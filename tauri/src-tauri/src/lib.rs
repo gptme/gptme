@@ -787,14 +787,60 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
 }
 
 fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-    // std::fs::rename cannot replace an existing destination on Windows.
     #[cfg(windows)]
-    match std::fs::remove_file(to) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
+    {
+        windows_replace_file(from, to)
     }
-    std::fs::rename(from, to)
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(from, to)
+    }
+}
+
+/// Replace `to` with `from` without deleting `to` first.
+///
+/// `std::fs::rename` cannot overwrite on Windows. Deleting `to` and then
+/// renaming is not acceptable for a credential-bearing config: a failed
+/// rename (or a crash between the two operations) plus the error path's
+/// temp-file cleanup would drop the original file. `MoveFileExW` with
+/// `MOVEFILE_REPLACE_EXISTING` is the Windows replacement primitive.
+#[cfg(windows)]
+fn windows_replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        #[link_name = "MoveFileExW"]
+        fn move_file_ex_w(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+
+    fn to_wide(path: &std::path::Path) -> Vec<u16> {
+        path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    let from_w = to_wide(from);
+    let to_w = to_wide(to);
+    // SAFETY: both buffers are null-terminated UTF-16 paths. MoveFileExW only
+    // reads them for the duration of the call and does not retain the pointers.
+    let ok = unsafe {
+        move_file_ex_w(
+            from_w.as_ptr(),
+            to_w.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 /// Write `contents` over `path` via a sibling temp file.
@@ -830,7 +876,12 @@ fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(),
     }
 
     if let Err(e) = replace_file(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
+        // Only drop the temp file when the destination is still there. If a
+        // replacement implementation ever deletes dest before succeeding, keep
+        // the temp copy so the user's config is not both dest-gone and tmp-gone.
+        if path.exists() {
+            let _ = std::fs::remove_file(&tmp);
+        }
         return Err(format!("Failed to replace config: {e}"));
     }
     Ok(())
@@ -1799,6 +1850,28 @@ servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x
         write_config_atomically(&path, "new = true\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new = true\n");
         assert!(!path.with_extension("toml.tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_replace_file_failure_leaves_destination_intact() {
+        let dir = unique_temp_dir();
+        let dest = dir.join("config.toml");
+        std::fs::create_dir(&dest).unwrap();
+        let marker = dest.join("keep-me");
+        std::fs::write(&marker, "still here\n").unwrap();
+        let tmp = dir.join("config.toml.tmp");
+        std::fs::write(&tmp, "new = true\n").unwrap();
+
+        assert!(replace_file(&tmp, &dest).is_err());
+        assert!(
+            marker.exists(),
+            "replace must not delete dest before succeeding"
+        );
+        assert!(
+            tmp.exists(),
+            "source must remain so the caller can decide cleanup"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
