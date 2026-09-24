@@ -33,28 +33,40 @@ def test_extended_grammar_splits_surrounding_commands(command: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "script",
+    ("script", "expected"),
     [
-        "echo a\necho b",
-        "echo a; echo b\necho c",
-        "sleep 1 &\necho done",
-        "sleep 1 & echo done",
-        "ls &&\n pwd\necho end",
-        "ls |\n wc -l\necho end",
-        "f() {\n echo hi\n}\nf",
-        "(echo a\necho b)\necho c",
-        "{ echo a\necho b; }\necho c",
-        "for x in a b; do\n echo $x\ndone\necho c",
-        "if true; then\n echo a\nfi\necho c",
-        "echo héj\necho 世界",
-        "cat <<'EOF' > out\nbody\nEOF\necho end",
-        "# before\necho a # inline\n# between\necho b",
+        ("echo a\necho b", ["echo a", "echo b"]),
+        ("echo a; echo b\necho c", ["echo a; echo b", "echo c"]),
+        ("sleep 1 &\necho done", ["sleep 1 &", "echo done"]),
+        ("sleep 1 & echo done", ["sleep 1 & echo done"]),
+        ("ls &&\n pwd\necho end", ["ls &&\n pwd", "echo end"]),
+        ("ls |\n wc -l\necho end", ["ls |\n wc -l", "echo end"]),
+        ("f() {\n echo hi\n}\nf", ["f() {\n echo hi\n}", "f"]),
+        ("(echo a\necho b)\necho c", ["(echo a\necho b)", "echo c"]),
+        ("{ echo a\necho b; }\necho c", ["{ echo a\necho b; }", "echo c"]),
+        (
+            "for x in a b; do\n echo $x\ndone\necho c",
+            ["for x in a b; do\n echo $x\ndone", "echo c"],
+        ),
+        (
+            "if true; then\n echo a\nfi\necho c",
+            ["if true; then\n echo a\nfi", "echo c"],
+        ),
+        ("echo héj\necho 世界", ["echo héj", "echo 世界"]),
+        (
+            "cat <<'EOF' > out\nbody\nEOF\necho end",
+            ["cat <<'EOF' > out\nbody\nEOF", "echo end"],
+        ),
+        (
+            "# before\necho a # inline\n# between\necho b",
+            ["echo a", "echo b"],
+        ),
     ],
 )
-def test_split_commands_corpus(script: str) -> None:
-    """Each command in the split result is individually valid bash."""
+def test_split_commands_corpus(script: str, expected: list[str]) -> None:
+    """Top-level command boundaries, not just bash-valid fragments."""
     commands = split_commands(script)
-    assert commands  # non-empty
+    assert commands == expected
     for command in commands:
         subprocess.run(
             ["bash", "-n"],
@@ -88,12 +100,12 @@ def test_quoted_heredocs_preserve_source_and_expansion() -> None:
     ],
 )
 def test_grammar_gaps_keep_complete_commands(script: str) -> None:
-    """Grammar-gap scripts produce no fragments that fail bash -n."""
+    """Unparseable-but-valid scripts stay intact instead of splitting into fragments."""
     commands = split_commands(script)
-    for command in commands:
-        subprocess.run(
-            ["bash", "-n"], input=command, text=True, capture_output=True, check=True
-        )
+    assert commands == [script]
+    subprocess.run(
+        ["bash", "-n"], input=script, text=True, capture_output=True, check=True
+    )
 
 
 @pytest.mark.parametrize("script", ["echo 'unclosed", "ls |", "if true; then\necho x"])
