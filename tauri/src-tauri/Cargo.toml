@@ -34,6 +34,8 @@ tokio = { version = "1", features = ["net", "time", "io-util", "sync"] }
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-updater = "2"
+local-ip-address = "0.6"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
