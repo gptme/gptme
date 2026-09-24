@@ -572,6 +572,10 @@ pub struct MCPServerView {
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
     pub url: Option<String>,
+    /// HTTP headers (Authorization, etc.). Phase 1 has no GUI editor for these,
+    /// but the backend must round-trip them or a save would strip credentials.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 /// JSON view of the [mcp] section of config.toml.
@@ -582,28 +586,38 @@ pub struct MCPConfigView {
     pub servers: Vec<MCPServerView>,
 }
 
+fn mcp_config_defaults() -> MCPConfigView {
+    MCPConfigView {
+        enabled: true,
+        auto_start: false,
+        servers: vec![],
+    }
+}
+
+/// User-level config.toml path, matching Python `gptme.dirs.get_config_dir()`.
+///
+/// That helper is `platformdirs.user_config_dir("gptme")`:
+/// - Unix: `$XDG_CONFIG_HOME/gptme` or `~/.config/gptme`
+/// - macOS: `~/Library/Application Support/gptme`
+/// - Windows: `%LOCALAPPDATA%\gptme` (not Roaming `%APPDATA%`)
 fn gptme_config_path() -> Result<std::path::PathBuf, String> {
-    dirs::config_dir()
-        .ok_or_else(|| "Cannot determine system config directory".to_string())
+    let base = if cfg!(windows) {
+        dirs::config_local_dir()
+    } else {
+        dirs::config_dir()
+    };
+    base.ok_or_else(|| "Cannot determine system config directory".to_string())
         .map(|d| d.join("gptme").join("config.toml"))
 }
 
-fn parse_env_item(item: Option<&toml_edit::Item>) -> HashMap<String, String> {
+fn parse_str_map_from_value(value: Option<&toml_edit::Value>) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    let Some(item) = item else {
+    let Some(value) = value else {
         return map;
     };
-    // env = { KEY = "val" }  (inline table)
-    if let Some(it) = item.as_value().and_then(|v| v.as_inline_table()) {
+    if let Some(it) = value.as_inline_table() {
         for (k, v) in it.iter() {
             if let Some(s) = v.as_str() {
-                map.insert(k.to_string(), s.to_string());
-            }
-        }
-    // [mcp.servers.env]  (regular table — unusual but legal)
-    } else if let Some(t) = item.as_table() {
-        for (k, v) in t.iter() {
-            if let Some(s) = v.as_value().and_then(|v| v.as_str()) {
                 map.insert(k.to_string(), s.to_string());
             }
         }
@@ -611,95 +625,231 @@ fn parse_env_item(item: Option<&toml_edit::Item>) -> HashMap<String, String> {
     map
 }
 
-/// Read the [mcp] section of ~/.config/gptme/config.toml.
+fn parse_str_map_from_item(item: Option<&toml_edit::Item>) -> HashMap<String, String> {
+    let Some(item) = item else {
+        return HashMap::new();
+    };
+    if let Some(val) = item.as_value() {
+        return parse_str_map_from_value(Some(val));
+    }
+    if let Some(t) = item.as_table() {
+        let mut map = HashMap::new();
+        for (k, v) in t.iter() {
+            if let Some(s) = v.as_value().and_then(|v| v.as_str()) {
+                map.insert(k.to_string(), s.to_string());
+            }
+        }
+        return map;
+    }
+    HashMap::new()
+}
+
+fn parse_args_from_value(value: Option<&toml_edit::Value>) -> Vec<String> {
+    value
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
+    MCPServerView {
+        name: st
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        enabled: st.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+        command: st
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        args: parse_args_from_value(st.get("args").and_then(|v| v.as_value())),
+        env: parse_str_map_from_item(st.get("env")),
+        url: st.get("url").and_then(|v| v.as_str()).map(str::to_string),
+        headers: parse_str_map_from_item(st.get("headers")),
+    }
+}
+
+fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
+    MCPServerView {
+        name: it
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        enabled: it.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+        command: it
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        args: parse_args_from_value(it.get("args")),
+        env: parse_str_map_from_value(it.get("env")),
+        url: it.get("url").and_then(|v| v.as_str()).map(str::to_string),
+        headers: parse_str_map_from_value(it.get("headers")),
+    }
+}
+
+/// Accept both `[[mcp.servers]]` (array of tables) and
+/// `servers = [{ name = "…" }]` (inline array of tables).
+fn parse_servers(item: Option<&toml_edit::Item>) -> Vec<MCPServerView> {
+    let Some(item) = item else {
+        return Vec::new();
+    };
+    if let Some(aot) = item.as_array_of_tables() {
+        return aot.iter().map(parse_server_table).collect();
+    }
+    if let Some(arr) = item.as_array() {
+        return arr
+            .iter()
+            .filter_map(|value| value.as_inline_table().map(parse_server_inline))
+            .collect();
+    }
+    Vec::new()
+}
+
+fn insert_str_map(st: &mut toml_edit::Table, key: &str, map: &HashMap<String, String>) {
+    if map.is_empty() {
+        return;
+    }
+    let mut it = toml_edit::InlineTable::new();
+    for (k, v) in map {
+        it.insert(k.as_str(), toml_edit::Value::from(v.as_str()));
+    }
+    st.insert(
+        key,
+        toml_edit::Item::Value(toml_edit::Value::InlineTable(it)),
+    );
+}
+
+/// Parse an `[mcp]` section from TOML text. Empty input yields defaults.
+fn parse_mcp_config(content: &str) -> Result<MCPConfigView, String> {
+    if content.is_empty() {
+        return Ok(mcp_config_defaults());
+    }
+    let doc: toml_edit::DocumentMut = content
+        .parse()
+        .map_err(|e: toml_edit::TomlError| format!("Failed to parse TOML: {e}"))?;
+    let mcp = doc.get("mcp");
+    Ok(MCPConfigView {
+        enabled: mcp
+            .and_then(|t| t.get("enabled"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        auto_start: mcp
+            .and_then(|t| t.get("auto_start"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        servers: parse_servers(mcp.and_then(|t| t.get("servers"))),
+    })
+}
+
+/// Rebuild `[mcp]` from `mcp`, preserving every other top-level table.
+fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = existing
+        .parse()
+        .map_err(|e: toml_edit::TomlError| format!("Failed to parse TOML: {e}"))?;
+    doc.remove("mcp");
+
+    let mut mcp_table = toml_edit::Table::new();
+    mcp_table.insert("enabled", toml_edit::value(mcp.enabled));
+    mcp_table.insert("auto_start", toml_edit::value(mcp.auto_start));
+
+    let mut servers_aot = toml_edit::ArrayOfTables::new();
+    for server in &mcp.servers {
+        let mut st = toml_edit::Table::new();
+        st.insert("name", toml_edit::value(server.name.as_str()));
+        st.insert("enabled", toml_edit::value(server.enabled));
+        if let Some(cmd) = &server.command {
+            st.insert("command", toml_edit::value(cmd.as_str()));
+        }
+        if !server.args.is_empty() {
+            let mut arr = toml_edit::Array::new();
+            for a in &server.args {
+                arr.push(a.as_str());
+            }
+            st.insert("args", toml_edit::value(arr));
+        }
+        insert_str_map(&mut st, "env", &server.env);
+        if let Some(url) = &server.url {
+            st.insert("url", toml_edit::value(url.as_str()));
+        }
+        insert_str_map(&mut st, "headers", &server.headers);
+        servers_aot.push(st);
+    }
+    mcp_table.insert("servers", toml_edit::Item::ArrayOfTables(servers_aot));
+    doc.insert("mcp", toml_edit::Item::Table(mcp_table));
+    Ok(doc.to_string())
+}
+
+fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    // std::fs::rename cannot replace an existing destination on Windows.
+    #[cfg(windows)]
+    match std::fs::remove_file(to) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    std::fs::rename(from, to)
+}
+
+/// Write `contents` over `path` via a sibling temp file.
+///
+/// On Unix the temp file inherits the destination mode when it exists, otherwise
+/// `0o600`, so a save cannot weaken a private credential file to `0644`.
+fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    let tmp = path.with_extension("toml.tmp");
+    let _ = std::fs::remove_file(&tmp);
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mode = std::fs::metadata(path)
+            .map(|m| m.permissions().mode())
+            .unwrap_or(0o600);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(mode)
+            .open(&tmp)
+            .map_err(|e| format!("Failed to create temp file: {e}"))?;
+        file.write_all(contents.as_bytes())
+            .map_err(|e| format!("Failed to write temp file: {e}"))?;
+        file.sync_all()
+            .map_err(|e| format!("Failed to sync temp file: {e}"))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&tmp, contents).map_err(|e| format!("Failed to write temp file: {e}"))?;
+    }
+
+    if let Err(e) = replace_file(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Failed to replace config: {e}"));
+    }
+    Ok(())
+}
+
+/// Read the [mcp] section of the user-level gptme config.toml.
 /// Returns safe defaults when the file or section is absent.
 #[tauri::command]
 fn get_mcp_config() -> Result<MCPConfigView, String> {
     let path = gptme_config_path()?;
     if !path.exists() {
-        return Ok(MCPConfigView {
-            enabled: true,
-            auto_start: false,
-            servers: vec![],
-        });
+        return Ok(mcp_config_defaults());
     }
     let content =
         std::fs::read_to_string(&path).map_err(|e| format!("Failed to read config: {e}"))?;
-    let doc: toml_edit::DocumentMut = content
-        .parse()
-        .map_err(|e: toml_edit::TomlError| format!("Failed to parse TOML: {e}"))?;
-
-    let mcp = doc.get("mcp");
-    let enabled = mcp
-        .and_then(|t| t.get("enabled"))
-        .and_then(|v| v.as_value())
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let auto_start = mcp
-        .and_then(|t| t.get("auto_start"))
-        .and_then(|v| v.as_value())
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let servers = mcp
-        .and_then(|t| t.get("servers"))
-        .and_then(|v| v.as_array_of_tables())
-        .map(|aot| {
-            aot.iter()
-                .map(|st| {
-                    let name = st
-                        .get("name")
-                        .and_then(|v| v.as_value())
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let enabled = st
-                        .get("enabled")
-                        .and_then(|v| v.as_value())
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true);
-                    let command = st
-                        .get("command")
-                        .and_then(|v| v.as_value())
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-                    let args = st
-                        .get("args")
-                        .and_then(|v| v.as_value())
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str())
-                                .map(str::to_string)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let env = parse_env_item(st.get("env"));
-                    let url = st
-                        .get("url")
-                        .and_then(|v| v.as_value())
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-                    MCPServerView {
-                        name,
-                        enabled,
-                        command,
-                        args,
-                        env,
-                        url,
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(MCPConfigView {
-        enabled,
-        auto_start,
-        servers,
-    })
+    parse_mcp_config(&content)
 }
 
-/// Replace the [mcp] section of ~/.config/gptme/config.toml atomically.
+/// Replace the [mcp] section of the user-level gptme config.toml atomically.
 /// All other config sections are preserved unchanged.
 #[tauri::command]
 fn save_mcp_config(mcp: MCPConfigView) -> Result<(), String> {
@@ -713,56 +863,8 @@ fn save_mcp_config(mcp: MCPConfigView) -> Result<(), String> {
     } else {
         String::new()
     };
-    let mut doc: toml_edit::DocumentMut = content
-        .parse()
-        .map_err(|e: toml_edit::TomlError| format!("Failed to parse TOML: {e}"))?;
-
-    // Replace [mcp] wholesale; all other sections are untouched.
-    doc.remove("mcp");
-
-    let mut mcp_table = toml_edit::Table::new();
-    mcp_table.insert("enabled", toml_edit::value(mcp.enabled));
-    mcp_table.insert("auto_start", toml_edit::value(mcp.auto_start));
-
-    let mut servers_aot = toml_edit::ArrayOfTables::new();
-    for server in &mcp.servers {
-        let mut st = toml_edit::Table::new();
-        st.insert("name", toml_edit::value(server.name.clone()));
-        st.insert("enabled", toml_edit::value(server.enabled));
-        if let Some(cmd) = &server.command {
-            st.insert("command", toml_edit::value(cmd.clone()));
-        }
-        if !server.args.is_empty() {
-            let mut arr = toml_edit::Array::new();
-            for a in &server.args {
-                arr.push(a.as_str());
-            }
-            st.insert("args", toml_edit::value(arr));
-        }
-        if !server.env.is_empty() {
-            let mut it = toml_edit::InlineTable::new();
-            for (k, v) in &server.env {
-                it.insert(k.as_str(), toml_edit::Value::from(v.as_str()));
-            }
-            st.insert(
-                "env",
-                toml_edit::Item::Value(toml_edit::Value::InlineTable(it)),
-            );
-        }
-        if let Some(url) = &server.url {
-            st.insert("url", toml_edit::value(url.clone()));
-        }
-        servers_aot.push(st);
-    }
-    mcp_table.insert("servers", toml_edit::Item::ArrayOfTables(servers_aot));
-    doc.insert("mcp", toml_edit::Item::Table(mcp_table));
-
-    // Atomic write: write to .tmp, then rename (POSIX-atomic on same filesystem).
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, doc.to_string()).map_err(|e| format!("Failed to write temp file: {e}"))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("Failed to rename config: {e}"))?;
-
-    Ok(())
+    let serialized = serialize_mcp_config(&content, &mcp)?;
+    write_config_atomically(&path, &serialized)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1495,12 +1597,24 @@ mod tests {
     }
 
     // --- MCP config tests ---
+    // These call the same parse/serialize/write helpers as the Tauri commands.
+
+    fn unique_temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "gptme-mcp-config-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn test_get_mcp_config_missing_file_returns_defaults() {
-        // When the config file doesn't exist, safe defaults should be returned.
-        let result = get_mcp_config_from_str("");
-        let cfg = result.unwrap();
+        let cfg = parse_mcp_config("").unwrap();
         assert!(cfg.enabled);
         assert!(!cfg.auto_start);
         assert!(cfg.servers.is_empty());
@@ -1523,8 +1637,8 @@ enabled = true
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem"]
 "#;
-        let cfg = get_mcp_config_from_str(original).unwrap();
-        let updated = save_mcp_config_to_str(original, cfg).unwrap();
+        let cfg = parse_mcp_config(original).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
 
         // [provider] section must survive unchanged
         assert!(updated.contains("[provider]"));
@@ -1551,15 +1665,14 @@ command = "my-cmd"
 args = []
 env = { PATH = "/usr/bin", DEBUG = "1" }
 "#;
-        let cfg = get_mcp_config_from_str(original).unwrap();
+        let cfg = parse_mcp_config(original).unwrap();
         assert_eq!(cfg.servers.len(), 1);
         let srv = &cfg.servers[0];
         assert_eq!(srv.env.get("PATH").map(String::as_str), Some("/usr/bin"));
         assert_eq!(srv.env.get("DEBUG").map(String::as_str), Some("1"));
 
-        // Round-trip: save then read back
-        let updated = save_mcp_config_to_str(original, cfg).unwrap();
-        let cfg2 = get_mcp_config_from_str(&updated).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
         assert_eq!(
             cfg2.servers[0].env.get("PATH").map(String::as_str),
             Some("/usr/bin")
@@ -1582,142 +1695,136 @@ name = "remote"
 enabled = true
 url = "https://mcp.example.com"
 "#;
-        let cfg = get_mcp_config_from_str(original).unwrap();
+        let cfg = parse_mcp_config(original).unwrap();
         assert!(!cfg.enabled);
         assert!(cfg.auto_start);
         let srv = &cfg.servers[0];
         assert_eq!(srv.url.as_deref(), Some("https://mcp.example.com"));
         assert!(srv.command.is_none());
 
-        let updated = save_mcp_config_to_str(original, cfg).unwrap();
-        let cfg2 = get_mcp_config_from_str(&updated).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
         assert_eq!(
             cfg2.servers[0].url.as_deref(),
             Some("https://mcp.example.com")
         );
     }
 
-    // Testable pure functions extracted from the Tauri commands.
-    fn get_mcp_config_from_str(content: &str) -> Result<MCPConfigView, String> {
-        if content.is_empty() {
-            return Ok(MCPConfigView {
-                enabled: true,
-                auto_start: false,
-                servers: vec![],
-            });
-        }
-        let doc: toml_edit::DocumentMut = content
-            .parse()
-            .map_err(|e: toml_edit::TomlError| format!("parse error: {e}"))?;
-        let mcp = doc.get("mcp");
-        let enabled = mcp
-            .and_then(|t| t.get("enabled"))
-            .and_then(|v| v.as_value())
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        let auto_start = mcp
-            .and_then(|t| t.get("auto_start"))
-            .and_then(|v| v.as_value())
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let servers = mcp
-            .and_then(|t| t.get("servers"))
-            .and_then(|v| v.as_array_of_tables())
-            .map(|aot| {
-                aot.iter()
-                    .map(|st| {
-                        let name = st
-                            .get("name")
-                            .and_then(|v| v.as_value())
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let enabled = st
-                            .get("enabled")
-                            .and_then(|v| v.as_value())
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(true);
-                        let command = st
-                            .get("command")
-                            .and_then(|v| v.as_value())
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string);
-                        let args = st
-                            .get("args")
-                            .and_then(|v| v.as_value())
-                            .and_then(|v| v.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str())
-                                    .map(str::to_string)
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let env = parse_env_item(st.get("env"));
-                        let url = st
-                            .get("url")
-                            .and_then(|v| v.as_value())
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string);
-                        MCPServerView {
-                            name,
-                            enabled,
-                            command,
-                            args,
-                            env,
-                            url,
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(MCPConfigView {
-            enabled,
-            auto_start,
-            servers,
-        })
+    #[test]
+    fn test_mcp_config_headers_round_trip() {
+        let original = r#"
+[mcp]
+enabled = true
+auto_start = false
+
+[[mcp.servers]]
+name = "remote"
+enabled = true
+url = "https://mcp.example.com"
+headers = { Authorization = "Bearer secret", X-Custom = "1" }
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(
+            cfg.servers[0]
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer secret")
+        );
+        assert_eq!(
+            cfg.servers[0].headers.get("X-Custom").map(String::as_str),
+            Some("1")
+        );
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(
+            cfg2.servers[0]
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer secret")
+        );
+        assert!(updated.contains("Authorization"));
     }
 
-    fn save_mcp_config_to_str(existing: &str, mcp: MCPConfigView) -> Result<String, String> {
-        let mut doc: toml_edit::DocumentMut = existing
-            .parse()
-            .map_err(|e: toml_edit::TomlError| format!("parse error: {e}"))?;
-        doc.remove("mcp");
-        let mut mcp_table = toml_edit::Table::new();
-        mcp_table.insert("enabled", toml_edit::value(mcp.enabled));
-        mcp_table.insert("auto_start", toml_edit::value(mcp.auto_start));
-        let mut servers_aot = toml_edit::ArrayOfTables::new();
-        for server in &mcp.servers {
-            let mut st = toml_edit::Table::new();
-            st.insert("name", toml_edit::value(server.name.clone()));
-            st.insert("enabled", toml_edit::value(server.enabled));
-            if let Some(cmd) = &server.command {
-                st.insert("command", toml_edit::value(cmd.clone()));
-            }
-            if !server.args.is_empty() {
-                let mut arr = toml_edit::Array::new();
-                for a in &server.args {
-                    arr.push(a.as_str());
-                }
-                st.insert("args", toml_edit::value(arr));
-            }
-            if !server.env.is_empty() {
-                let mut it = toml_edit::InlineTable::new();
-                for (k, v) in &server.env {
-                    it.insert(k.as_str(), toml_edit::Value::from(v.as_str()));
-                }
-                st.insert(
-                    "env",
-                    toml_edit::Item::Value(toml_edit::Value::InlineTable(it)),
-                );
-            }
-            if let Some(url) = &server.url {
-                st.insert("url", toml_edit::value(url.clone()));
-            }
-            servers_aot.push(st);
+    #[test]
+    fn test_mcp_config_inline_servers_are_read_not_erased() {
+        let original = r#"
+[mcp]
+enabled = true
+auto_start = false
+servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x.example" }]
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(cfg.servers.len(), 1);
+        assert_eq!(cfg.servers[0].name, "inline");
+        assert_eq!(cfg.servers[0].command.as_deref(), Some("echo"));
+        assert_eq!(cfg.servers[0].url.as_deref(), Some("https://x.example"));
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(cfg2.servers.len(), 1);
+        assert_eq!(cfg2.servers[0].name, "inline");
+        assert!(updated.contains("[[mcp.servers]]") || updated.contains("name = \"inline\""));
+    }
+
+    #[test]
+    fn test_gptme_config_path_matches_platformdirs_layout() {
+        let path = gptme_config_path().unwrap();
+        assert!(path.ends_with(std::path::Path::new("gptme").join("config.toml")));
+        #[cfg(windows)]
+        {
+            let local = dirs::config_local_dir()
+                .unwrap()
+                .join("gptme")
+                .join("config.toml");
+            assert_eq!(path, local);
         }
-        mcp_table.insert("servers", toml_edit::Item::ArrayOfTables(servers_aot));
-        doc.insert("mcp", toml_edit::Item::Table(mcp_table));
-        Ok(doc.to_string())
+        #[cfg(not(windows))]
+        {
+            let unix = dirs::config_dir()
+                .unwrap()
+                .join("gptme")
+                .join("config.toml");
+            assert_eq!(path, unix);
+        }
+    }
+
+    #[test]
+    fn test_atomic_write_replaces_existing_file() {
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old = true\n").unwrap();
+        write_config_atomically(&path, "new = true\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new = true\n");
+        assert!(!path.with_extension("toml.tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_preserves_existing_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old = true\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        write_config_atomically(&path, "new = true\n").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_new_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        write_config_atomically(&path, "new = true\n").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
