@@ -501,6 +501,30 @@ Plugins can be distributed as:
 
       cp -r my_plugin ~/.config/gptme/plugins/
 
+.. _plugin-registry:
+
+Plugin Registry
+---------------
+
+The `plugin registry <https://registry.gptme.org>`_ at ``registry.gptme.org``
+is a discoverable index of community plugins, skills, and MCP servers. To get
+your work listed:
+
+1. **Add the appropriate GitHub topic** to your repository:
+
+   - ``gptme-plugin`` — Python plugin packages (tools, hooks, commands)
+   - ``gptme-skill`` — SKILL.md skill bundles
+   - ``gptme-mcp-server`` — MCP servers designed for or compatible with gptme
+
+   On GitHub: open your repository → click the ⚙ gear icon next to "About" → add topics.
+
+2. **Weekly regeneration** — the registry scans GitHub for these topics and
+   rebuilds the index automatically. Your repo appears in the next weekly run.
+
+3. **Immediate listing** — submit a PR to the
+   `registry.gptme.org repository <https://github.com/gptme/registry.gptme.org>`_
+   to add your entry to the curated list right away.
+
 .. _unified-plugins:
 
 Unified Plugin System (Entry Points)
