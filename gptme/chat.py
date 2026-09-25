@@ -567,6 +567,12 @@ def _process_message_conversation(
                     logdir=manager.logdir,
                 )
             )
+        except SessionCompleteException:
+            # A completion signal raised inside step() or by a STEP_PRE hook
+            # must still run post-turn hooks (pre-commit checks, autocommit)
+            # before the session ends.
+            _trigger_turn_post(manager)
+            raise
         except KeyboardInterrupt:
             if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted during response generation.")
@@ -638,8 +644,14 @@ def _process_message_conversation(
         if not has_runnable:
             break
 
-    # Trigger post-process hooks after message processing completes (turn.post)
-    # Note: pre-commit checks and autocommit are now handled by hooks
+    _trigger_turn_post(manager)
+
+
+def _trigger_turn_post(manager: "LogManager") -> None:
+    """Trigger post-process hooks after message processing completes (turn.post).
+
+    Note: pre-commit checks and autocommit are now handled by hooks.
+    """
     if post_msgs := trigger_hook(
         HookType.TURN_POST,
         manager=manager,

@@ -860,15 +860,35 @@ def step(
 
     # Trigger STEP_PRE hook BEFORE preparing messages
     # This ensures hook messages are included in the LLM input
-    if pre_msgs := trigger_hook(
-        HookType.STEP_PRE,
-        manager=manager,
-    ):
-        for msg in pre_msgs:
-            _append_and_notify(manager, session, msg)
-        # Write messages to disk to ensure they're persisted
-        manager.write()
-        logger.debug("Wrote step.pre hook messages to disk")
+    try:
+        if pre_msgs := trigger_hook(
+            HookType.STEP_PRE,
+            manager=manager,
+        ):
+            for msg in pre_msgs:
+                _append_and_notify(manager, session, msg)
+            # Write messages to disk to ensure they're persisted
+            manager.write()
+            logger.debug("Wrote step.pre hook messages to disk")
+    except Exception as e:
+        # This trigger sits OUTSIDE the try/finally below, so a session-
+        # completion signal from a hook (e.g. the policy-block budget) would
+        # otherwise escape step() with the generating reservation still held
+        # and no step_complete emitted — leaving the session stuck as
+        # "generating". Release it with the same compare-and-clear contract
+        # as the finally block before propagating.
+        from ..tools.complete import SessionCompleteException  # fmt: skip
+
+        if isinstance(e, SessionCompleteException):
+            with session.step_lock:
+                if session.step_seq == my_step_seq:
+                    session.finish_skill_turn("abandoned")
+                    session.generating = False
+                    session.generating_since = None
+                    # Emit while still holding step_lock — see the step()
+                    # finally for why the release and the event are atomic.
+                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
+        raise
 
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
