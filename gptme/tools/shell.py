@@ -129,48 +129,6 @@ def _parse_bash(source: bytes) -> "Node":
     return Parser(Language(tree_sitter_bash.language())).parse(source).root_node
 
 
-# Characters that terminate a shell word, so a ``#`` right after one starts a
-# comment (``echo a;#note``). Deliberately excludes ``{`` so ``${#x}`` (the
-# length operator) is not mistaken for a comment.
-_COMMENT_BOUNDARY = (
-    0x20,  # space
-    0x09,  # tab
-    0x3B,  # ;
-    0x26,  # &
-    0x7C,  # |
-    0x28,  # (
-    0x29,  # )
-    0x3C,  # <
-    0x3E,  # >
-)
-
-
-def _trailing_comment_start(line: bytes) -> int | None:
-    """Index of the ``#`` starting a trailing comment in ``line``, or None.
-
-    Conservative: a ``#`` only starts a comment at a word boundary and outside
-    quotes, so ``echo a#b``, ``${#x}`` and ``echo '#x'`` are left alone. Used
-    only to see past a comment when looking for a trailing ``&`` operator; a
-    miss here can only make us skip a rewrite, never corrupt the command.
-    """
-    quote: int | None = None
-    i = 0
-    while i < len(line):
-        char = line[i]
-        if quote is not None:
-            if char == 0x5C and quote != 0x27:  # backslash escapes outside ''
-                i += 2
-                continue
-            if char == quote:
-                quote = None
-        elif char in (0x22, 0x27):  # " or '
-            quote = char
-        elif char == 0x23 and (i == 0 or line[i - 1] in _COMMENT_BOUNDARY):  # #
-            return i
-        i += 1
-    return None
-
-
 def _redirect_background_stdin(command: str) -> str:
     """Redirect stdin before unquoted ``&`` operators in a shell command.
 
@@ -183,30 +141,8 @@ def _redirect_background_stdin(command: str) -> str:
     source = command.encode("utf-8")
     root = _parse_bash(source)
     if root.has_error:
-        # Grammar gap: we cannot classify every ``&`` operator confidently, so
-        # no mid-command rewrite. But a trailing ``&`` is unambiguous — its
-        # background job would otherwise keep the persistent shell's stdin and
-        # hang the session. Redirect it conservatively rather than skipping.
-        stripped = source.rstrip()
-        # A comment after the operator does not make it any less of an
-        # operator: ``sleep 1 & # note`` still backgrounds ``sleep 1``. Split a
-        # trailing comment off first so the trailing-``&`` test sees it, then
-        # reattach the comment to the rewrite.
-        last_line_start = stripped.rfind(b"\n") + 1
-        comment_at = _trailing_comment_start(stripped[last_line_start:])
-        trailing = b""
-        if comment_at is not None:
-            comment_at += last_line_start
-            trailing = b" " + stripped[comment_at:]
-            stripped = stripped[:comment_at].rstrip()
-        if stripped.endswith(b"&") and not stripped.endswith(b"&&"):
-            operand = stripped[:-1]
-            # Only an unescaped ``&`` is a background operator: ``echo foo \&``
-            # is a literal, so rewriting it would change what the shell runs.
-            backslashes = len(operand) - len(operand.rstrip(b"\\"))
-            last_line = operand.rsplit(b"\n", 1)[-1].strip()
-            if backslashes % 2 == 0 and not last_line.startswith(b"#"):
-                return (operand.rstrip() + b" < /dev/null &" + trailing).decode("utf-8")
+        # Grammar gap: cannot reliably classify ``&`` operators without the
+        # AST, so leave the command unchanged.
         return command
 
     positions: list[int] = []

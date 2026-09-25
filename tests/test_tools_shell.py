@@ -151,10 +151,8 @@ def test_redirect_background_stdin_before_ampersand():
     )
 
 
-def test_redirect_background_stdin_grammar_gap_trailing_ampersand(monkeypatch):
-    """On a tree-sitter grammar gap the trailing ``&`` still gets its stdin
-    redirect: an unredirected background job would keep the persistent shell's
-    stdin and hang the session."""
+def test_redirect_background_stdin_grammar_gap_returns_unchanged(monkeypatch):
+    """On a tree-sitter grammar gap the command is returned unchanged."""
     from gptme.tools import shell
 
     class FakeNode:
@@ -164,77 +162,10 @@ def test_redirect_background_stdin_grammar_gap_trailing_ampersand(monkeypatch):
     monkeypatch.setattr(shell, "_parse_bash", lambda source: FakeNode())
     assert (
         shell._redirect_background_stdin("some-weird-grammar-gap-command &")
-        == "some-weird-grammar-gap-command < /dev/null &"
+        == "some-weird-grammar-gap-command &"
     )
-    # mid-command operators stay untouched (cannot be classified confidently)
     assert shell._redirect_background_stdin("weird & gap") == "weird & gap"
-    # a trailing ``&&`` is not a background operator — leave it alone
     assert shell._redirect_background_stdin("weird &&") == "weird &&"
-
-
-def test_redirect_background_stdin_grammar_gap_leaves_literals_alone():
-    """Only a real trailing ``&`` operator is rewritten on a grammar gap.
-
-    Multiple heredocs make tree-sitter report a grammar gap while ``bash -n``
-    still accepts the script, so this reaches the raw-suffix branch with a
-    Bash-valid input. An escaped ``&`` is a literal and a ``&`` in a trailing
-    comment is not an operator — rewriting either changes what the shell runs.
-    """
-    from gptme.tools.shell import _redirect_background_stdin
-
-    gap = "cat <<A <<B\nx\nA\ny\nB\n"
-    assert _redirect_background_stdin(gap + "echo foo \\&\n") == gap + "echo foo \\&\n"
-    assert _redirect_background_stdin(gap + "# note &\n") == gap + "# note &\n"
-    # sanity check: a real trailing operator still gets the stdin redirect
-    # (the rewrite strips the trailing newline, matching the clean-tree path)
-    assert (
-        _redirect_background_stdin(gap + "sleep 1 &\n") == gap + "sleep 1 < /dev/null &"
-    )
-
-
-def test_redirect_background_stdin_grammar_gap_operator_before_comment():
-    """A trailing ``&`` followed by a comment is still a background operator.
-
-    The comment must not hide the operator from the grammar-gap heuristic:
-    leaving ``sleep 1`` unredirected lets it keep the persistent shell's stdin.
-    """
-    from gptme.tools import shell
-
-    gap = "cat <<A <<B\nx\nA\ny\nB\n"
-    assert (
-        shell._redirect_background_stdin(gap + "sleep 1 & # note\n")
-        == gap + "sleep 1 < /dev/null & # note"
-    )
-    # a ``#`` inside quotes is not a comment, so the operator still redirects
-    assert (
-        shell._redirect_background_stdin(gap + "echo '# not a comment' &\n")
-        == gap + "echo '# not a comment' < /dev/null &"
-    )
-    # ``&&`` before a comment is not a background operator
-    assert (
-        shell._redirect_background_stdin(gap + "echo ok && echo done # note\n")
-        == gap + "echo ok && echo done # note\n"
-    )
-    # a ``&`` only inside the comment is left alone
-    assert (
-        shell._redirect_background_stdin(gap + "echo hi # note &\n")
-        == gap + "echo hi # note &\n"
-    )
-    # a ``#`` right after a word-terminating metacharacter still starts a
-    # comment (``echo a;#note &``); the ``&`` is inside the comment, so the
-    # command must be left alone rather than rewritten.
-    for line in ("echo a;#note &", "echo a;#note | cat &"):
-        assert shell._redirect_background_stdin(gap + line + "\n") == gap + line + "\n"
-    # ``;#`` with no space: the ``#`` still starts a word, so it is a comment
-    assert shell._trailing_comment_start(b"echo a;#note") == 7
-    assert shell._trailing_comment_start(b"echo a#b") is None
-    # ``${#x}`` is a parameter expansion, not a comment
-    assert shell._trailing_comment_start(b"echo ${#x}") is None
-    # ``${#x}`` is a parameter expansion, not a comment — the operator rewrites
-    assert (
-        shell._redirect_background_stdin(gap + "echo ${#x} &\n")
-        == gap + "echo ${#x} < /dev/null &"
-    )
 
 
 def test_heredoc_complex(shell):
