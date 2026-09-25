@@ -665,12 +665,7 @@ fn parse_str_map_from_item(item: Option<&toml_edit::Item>) -> HashMap<String, St
 fn parse_args_from_value(value: Option<&toml_edit::Value>) -> Vec<String> {
     value
         .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .map(str::to_string)
-                .collect()
-        })
+        .map(|arr| arr.iter().filter_map(scalar_value_to_string).collect())
         .unwrap_or_default()
 }
 
