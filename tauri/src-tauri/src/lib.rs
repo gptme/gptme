@@ -50,6 +50,81 @@ pub(crate) fn is_port_available(port: u16) -> bool {
     TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
+/// Returns the PID listening on `port` (LISTEN state), excluding our own.
+/// Used to identity-check a port holder before killing it.
+#[cfg(unix)]
+pub(crate) fn server_pid_on_port(port: u16) -> Option<u32> {
+    let my_pid = std::process::id();
+    let output = std::process::Command::new("lsof")
+        .args(["-ti", &format!(":{}", port), "-sTCP:LISTEN"])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .filter_map(|s| s.parse::<u32>().ok())
+        .find(|pid| *pid != my_pid)
+}
+
+#[cfg(windows)]
+pub(crate) fn server_pid_on_port(port: u16) -> Option<u32> {
+    let output = std::process::Command::new("netstat")
+        .args(["-ano"])
+        .output()
+        .ok()?;
+    let port_suffix = format!(":{}", port);
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if !line.contains("LISTENING") {
+            continue;
+        }
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if !cols.get(1).copied().unwrap_or("").ends_with(&port_suffix) {
+            continue;
+        }
+        if let Some(pid_str) = cols.last() {
+            if let Ok(pid) = pid_str.parse::<u32>() {
+                if pid != std::process::id() {
+                    return Some(pid);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Best-effort identity check: does `pid` look like a gptme-server process?
+/// Checks the command line and executable path for the gptme-server binary
+/// name (both `gptme-server` and the Python module form `gptme_server`).
+#[cfg(unix)]
+pub(crate) fn pid_is_gptme_server(pid: u32) -> bool {
+    let matches = |s: &str| s.contains("gptme-server") || s.contains("gptme_server");
+    if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
+        if matches(&cmdline.replace('\0', " ")) {
+            return true;
+        }
+    }
+    std::fs::read_link(format!("/proc/{pid}/exe"))
+        .map(|exe| matches(&exe.to_string_lossy()))
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+pub(crate) fn pid_is_gptme_server(pid: u32) -> bool {
+    // PowerShell CIM query (wmic is deprecated on Windows 11+).
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"),
+        ])
+        .output();
+    output
+        .map(|o| {
+            let cmdline = String::from_utf8_lossy(&o.stdout).to_lowercase();
+            cmdline.contains("gptme-server") || cmdline.contains("gptme_server")
+        })
+        .unwrap_or(false)
+}
+
 #[cfg(desktop)]
 async fn is_server_responsive(port: u16) -> bool {
     use std::time::Duration;

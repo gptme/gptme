@@ -140,9 +140,29 @@ async fn restart_sidecar_with_lan(
                 );
             }
             // Adoption path (crash recovery): we own the port but hold no
-            // child handle. Stop whatever serves the port, then rebind.
-            log::info!("No child handle for adopted server; killing by port for LAN rebind");
-            crate::kill_server_on_port(crate::server_port());
+            // child handle. Stop whatever serves the port, then rebind — but
+            // only if the process still listening is actually a gptme-server.
+            // The adopted process may have died since adoption and an
+            // unrelated process taken the port; never kill one of those.
+            match crate::server_pid_on_port(crate::server_port()) {
+                Some(pid) if crate::pid_is_gptme_server(pid) => {
+                    log::info!(
+                        "No child handle for adopted server; killing gptme-server PID {pid} for LAN rebind"
+                    );
+                    crate::kill_server_on_port(crate::server_port());
+                }
+                Some(pid) => {
+                    return Err(format!(
+                        "Port {} is held by PID {pid}, which is not a gptme-server; \
+                         refusing to kill it for LAN rebind",
+                        crate::server_port()
+                    ));
+                }
+                None => {
+                    // Port is already free — nothing to kill, proceed to respawn.
+                    log::info!("Adopted server no longer listening on port; respawning");
+                }
+            }
             None
         }
     };
