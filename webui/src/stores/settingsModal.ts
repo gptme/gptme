@@ -5,6 +5,7 @@ export const SETTINGS_CATEGORIES = [
   'appearance',
   'audio',
   'content',
+  'networking',
   'developer',
   'about',
 ] as const;

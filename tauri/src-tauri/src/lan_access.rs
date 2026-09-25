@@ -103,11 +103,12 @@ pub fn enable_lan_access(state: tauri::State<'_, LanAccess>) -> Result<LanStatus
         .ok_or_else(|| "Could not detect a LAN IP address on this machine".to_string())?;
 
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
-    inner.enabled = true;
-    inner.lan_ip = Some(lan_ip.clone());
-
     let url = format!("http://{}:{}", lan_ip, inner.port);
-    inner.qr_svg = Some(generate_qr_svg(&url)?);
+    // Generate QR before mutating state so a failure leaves state consistent.
+    let qr_svg = generate_qr_svg(&url)?;
+    inner.enabled = true;
+    inner.lan_ip = Some(lan_ip);
+    inner.qr_svg = Some(qr_svg);
 
     log::info!("LAN access enabled: {url}");
     Ok(inner.build_status())
