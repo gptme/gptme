@@ -220,6 +220,21 @@ def test_redirect_background_stdin_grammar_gap_operator_before_comment():
         shell._redirect_background_stdin(gap + "echo hi # note &\n")
         == gap + "echo hi # note &\n"
     )
+    # a ``#`` right after a word-terminating metacharacter still starts a
+    # comment (``echo a;#note &``); the ``&`` is inside the comment, so the
+    # command must be left alone rather than rewritten.
+    for line in ("echo a;#note &", "echo a;#note | cat &"):
+        assert shell._redirect_background_stdin(gap + line + "\n") == gap + line + "\n"
+    # ``;#`` with no space: the ``#`` still starts a word, so it is a comment
+    assert shell._trailing_comment_start(b"echo a;#note") == 7
+    assert shell._trailing_comment_start(b"echo a#b") is None
+    # ``${#x}`` is a parameter expansion, not a comment
+    assert shell._trailing_comment_start(b"echo ${#x}") is None
+    # ``${#x}`` is a parameter expansion, not a comment — the operator rewrites
+    assert (
+        shell._redirect_background_stdin(gap + "echo ${#x} &\n")
+        == gap + "echo ${#x} < /dev/null &"
+    )
 
 
 def test_heredoc_complex(shell):

@@ -129,13 +129,29 @@ def _parse_bash(source: bytes) -> "Node":
     return Parser(Language(tree_sitter_bash.language())).parse(source).root_node
 
 
+# Characters that terminate a shell word, so a ``#`` right after one starts a
+# comment (``echo a;#note``). Deliberately excludes ``{`` so ``${#x}`` (the
+# length operator) is not mistaken for a comment.
+_COMMENT_BOUNDARY = (
+    0x20,  # space
+    0x09,  # tab
+    0x3B,  # ;
+    0x26,  # &
+    0x7C,  # |
+    0x28,  # (
+    0x29,  # )
+    0x3C,  # <
+    0x3E,  # >
+)
+
+
 def _trailing_comment_start(line: bytes) -> int | None:
     """Index of the ``#`` starting a trailing comment in ``line``, or None.
 
     Conservative: a ``#`` only starts a comment at a word boundary and outside
-    quotes, so ``echo a#b`` and ``echo '#x'`` are left alone. Used only to see
-    past a comment when looking for a trailing ``&`` operator; a miss here can
-    only make us skip a rewrite, never corrupt the command.
+    quotes, so ``echo a#b``, ``${#x}`` and ``echo '#x'`` are left alone. Used
+    only to see past a comment when looking for a trailing ``&`` operator; a
+    miss here can only make us skip a rewrite, never corrupt the command.
     """
     quote: int | None = None
     i = 0
@@ -149,7 +165,7 @@ def _trailing_comment_start(line: bytes) -> int | None:
                 quote = None
         elif char in (0x22, 0x27):  # " or '
             quote = char
-        elif char == 0x23 and (i == 0 or line[i - 1] in (0x20, 0x09)):  # #
+        elif char == 0x23 and (i == 0 or line[i - 1] in _COMMENT_BOUNDARY):  # #
             return i
         i += 1
     return None
