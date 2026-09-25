@@ -138,3 +138,30 @@ def test_logical_line_continuation_and_comment_boundaries() -> None:
     assert split_commands(continued + "\necho c") == [continued, "echo c"]
     commented = "echo a # comment " + "\\\n" + "echo b"
     assert split_commands(commented) == ["echo a", "echo b"]
+
+
+def test_split_commands_bash_check_failure_fails_closed(monkeypatch) -> None:
+    """bash present but `bash -n` itself fails must not read as "bash accepted".
+
+    With fallback=None, a check failure (OSError/timeout) used to be
+    indistinguishable from acceptance, sending a tree-sitter-error script
+    whole to the persistent shell. strict mode raises instead.
+    """
+    from gptme.tools import shell as shell_module
+
+    monkeypatch.setattr(shell_module.shutil, "which", lambda _name: "/usr/bin/bash")
+
+    def _fail(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="bash", timeout=10)
+
+    monkeypatch.setattr(shell_module.subprocess, "run", _fail)
+    with pytest.raises(ValueError, match="Cannot validate shell syntax"):
+        split_commands("echo before\nls |")
+
+
+def test_split_commands_without_bash_still_returns_script(monkeypatch) -> None:
+    """bash unavailable stays benign: unparseable scripts run whole."""
+    from gptme.tools import shell as shell_module
+
+    monkeypatch.setattr(shell_module.shutil, "which", lambda _name: None)
+    assert split_commands("echo a\ntime { echo b; }") == ["echo a\ntime { echo b; }"]

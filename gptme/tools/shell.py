@@ -3545,7 +3545,9 @@ def _shorten_stdout(
     return result
 
 
-def _bash_syntax_error(script: str, fallback: str | None) -> str | None:
+def _bash_syntax_error(
+    script: str, fallback: str | None, strict: bool = False
+) -> str | None:
     """Ask bash itself whether ``script`` is syntactically valid.
 
     Tree-sitter error recovery may produce an incomplete tree for valid bash it
@@ -3554,11 +3556,16 @@ def _bash_syntax_error(script: str, fallback: str | None) -> str | None:
     authority.
 
     Returns None when bash accepts the script, bash's own error message when it
-    rejects it, and ``fallback`` when the check could not run. Bash is resolved
+    rejects it, and ``fallback`` when bash is unavailable. Bash is resolved
     the same way :class:`ShellSession` launches it (via PATH), so the split
     boundary validation also applies on Windows/Msys2-Git-Bash — otherwise the
     new splitter would be silently disabled on that supported path and lose
     stop-on-failure for extended-syntax scripts.
+
+    Distinguishes "bash unavailable" (a platform property; the caller's
+    ``fallback`` applies) from "bash present but the check failed"
+    (OSError/timeout; with ``strict=True`` this raises instead of silently
+    treating the script as validated).
     """
     bash = shutil.which("bash")
     if bash is None:
@@ -3572,13 +3579,18 @@ def _bash_syntax_error(script: str, fallback: str | None) -> str | None:
             timeout=10,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        if strict:
+            raise ValueError(
+                f"Cannot validate shell syntax (bash -n check failed: {e}). "
+                f"Please fix the syntax or use a different approach."
+            ) from e
         return fallback
     if result.returncode == 0:
         return None
     # "/usr/bin/bash: line 2: syntax error ..." -> "line 2: syntax error ..."
     message = re.sub(r"^\S*bash: ", "", result.stderr.strip(), flags=re.MULTILINE)
-    return message or fallback
+    return message or fallback or "bash -n rejected the script without a diagnostic"
 
 
 def split_commands(script: str) -> list[str]:
@@ -3593,7 +3605,10 @@ def split_commands(script: str) -> list[str]:
     source = script.encode("utf-8")
     root = _parse_bash(source)
     if root.has_error:
-        bash_error = _bash_syntax_error(script, fallback=None)
+        # strict=True: bash present but the check itself failed must not be
+        # mistaken for "bash accepted the script" — fail closed instead of
+        # sending a suspect script whole to the persistent shell.
+        bash_error = _bash_syntax_error(script, fallback=None, strict=True)
         if bash_error is not None:
             raise ValueError(
                 f"Shell syntax error: {bash_error}\n"
