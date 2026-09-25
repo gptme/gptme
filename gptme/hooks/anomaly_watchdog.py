@@ -19,6 +19,7 @@ Optional tuning:
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
@@ -60,6 +61,17 @@ logger = logging.getLogger(__name__)
 _write_times_by_session: dict[str, list[float]] = {}
 _WINDOW_LOCK = threading.Lock()
 
+# Fallback window key for sessions that resolve to neither a logdir nor a
+# conversation/session id (see ``_session_identity``). A counter kept in
+# thread-local storage is unique per thread *object*, whereas
+# ``threading.get_ident()`` is an OS thread id that the runtime recycles once a
+# thread exits — a fresh worker would then inherit a dead worker's window and
+# its already-settled timestamps. The key is still stable for the whole life of
+# the thread, which is what the fallback needs across the per-prompt context
+# copies a harness makes.
+_thread_window_local = threading.local()
+_thread_window_counter = itertools.count(1)
+
 # Tool calls rejected by this watchdog, keyed by object identity with a short
 # TTL. TOOL_CONFIRM fires before execution and TOOL_EXECUTE_POST after, and the
 # same ``ToolUse`` object flows through both (it is the object published by
@@ -75,6 +87,15 @@ _rejected_calls: dict[int, float] = {}
 _REJECTED_TTL = 300.0
 
 
+def _thread_window_key() -> str:
+    """Unique fallback window key, stable for the life of the thread."""
+    key = getattr(_thread_window_local, "key", None)
+    if key is None:
+        key = f"thread-{next(_thread_window_counter)}"
+        _thread_window_local.key = key
+    return key
+
+
 def _session_identity() -> tuple[str, bool]:
     """Return the write-storm window key and whether that identity is exact.
 
@@ -86,10 +107,11 @@ def _session_identity() -> tuple[str, bool]:
 
     Only an exact identity can satisfy both. In preference order: the
     conversation's log directory, the server's conversation/session id, then the
-    thread — which is continuous across context copies within a worker but cannot
-    separate two sessions that share one. ``exact=False`` therefore means "this
-    window may not be the caller's own", and a finding from it is reported but
-    never enforced (see ``_check_write_storm``).
+    thread — continuous across context copies within a worker, and unique per
+    thread *object* (``_thread_window_key``), but still unable to separate two
+    sessions that share one thread. ``exact=False`` therefore means "this window
+    may not be the caller's own", and a finding from it is reported but never
+    enforced (see ``_check_write_storm``).
     """
     try:
         from ..logmanager import LogManager
@@ -104,7 +126,7 @@ def _session_identity() -> tuple[str, bool]:
         return f"conv-{conversation_id}", True
     if session_id := current_session_id.get():
         return f"session-{session_id}", True
-    return f"thread-{threading.get_ident()}", False
+    return _thread_window_key(), False
 
 
 def _session_key() -> str:

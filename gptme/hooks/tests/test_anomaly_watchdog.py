@@ -484,17 +484,22 @@ class TestWriteStorm:
         assert parent.startswith("thread-")
 
     def test_distinct_threads_get_distinct_fallback_keys(self, monkeypatch):
-        """The thread fallback must not merge unrelated workers."""
+        """The thread fallback must not merge unrelated workers.
+
+        The two workers are joined one after the other on purpose: the runtime
+        recycles a dead thread's OS id, so an identity taken from
+        ``threading.get_ident()`` can collide here even though the workers never
+        overlap. Keys must be unique per thread *object*, not per live thread.
+        """
         _no_log(monkeypatch)
         seen: list[str] = []
 
         def worker() -> None:
             seen.append(_session_key())
 
-        threads = [threading.Thread(target=worker) for _ in range(2)]
-        for thread in threads:
+        for _ in range(2):
+            thread = threading.Thread(target=worker)
             thread.start()
-        for thread in threads:
             thread.join(timeout=5)
 
         assert len(seen) == 2
