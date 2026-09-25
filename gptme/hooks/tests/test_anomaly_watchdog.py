@@ -183,6 +183,23 @@ class TestScopeEscape:
         result = _check_scope_escape(tool_use, tmp_path)
         assert result is None
 
+    def test_deletion_only_patch_outside_is_flagged(self, tmp_path, monkeypatch):
+        """A deletion-only hunk has ``+++ /dev/null`` as its target; the
+        ``---`` header names the file that is actually removed."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        diff_content = (
+            "--- /etc/passwd\n"
+            "+++ /dev/null\n"
+            "@@ -1 +0,0 @@\n"
+            "-root:x:0:0:root:/root:/bin/sh"
+        )
+        tool_use = _fake_tool_use("patch", content=diff_content)
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        _, msg = result
+        assert "scope_escape" in msg
+
 
 # ---------------------------------------------------------------------------
 # write_storm
@@ -211,6 +228,25 @@ class TestWriteStorm:
         assert result is not None
         _, msg = result
         assert "write_storm" in msg
+
+    def test_denied_attempts_do_not_refresh_the_window(self, monkeypatch):
+        """Attempts past the limit must not extend their own window."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        now = {"t": 1000.0}
+        monkeypatch.setattr(anomaly_watchdog.time, "monotonic", lambda: now["t"])
+
+        for _ in range(3):
+            assert _check_write_storm() is None
+        assert _check_write_storm() is not None
+        # Still over the limit, but the denied attempt did not move the window.
+        now["t"] += 30
+        assert _check_write_storm() is not None
+        # Once the original window elapses the check recovers (no livelock).
+        now["t"] += 31
+        assert _check_write_storm() is None
 
     def test_windows_are_isolated_per_session(self, monkeypatch):
         """Writes in one conversation must not count against another."""

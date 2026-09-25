@@ -135,11 +135,13 @@ def _extract_paths(tool_use: Any) -> list[Path]:
     if tool_use.args:
         return [Path(tool_use.args[0])]
 
-    # patch tool: parse ALL targets from diff headers (--- a/path or +++ b/path)
+    # patch tool: parse ALL targets from diff headers (--- a/path or +++ b/path).
+    # Both header sides are read: a deletion-only hunk has ``+++ /dev/null`` as
+    # its target, so matching only ``+++`` would miss e.g. ``--- /etc/passwd``.
     if tool_use.tool == "patch" and tool_use.content:
         paths: list[Path] = []
         for line in tool_use.content.splitlines():
-            m = re.match(r"^\+\+\+\s+(?:b/)?(.+)", line)
+            m = re.match(r"^(?:---|\+\+\+)\s+(?:[ab]/)?(.+)", line)
             if m:
                 candidate = m.group(1).strip()
                 if (
@@ -212,6 +214,8 @@ def _check_write_storm() -> tuple[bool, str] | None:
 
     Counts write *attempts* at pre-execution time: a burst of rejected or
     malformed write calls is itself the anomaly signal this check exists for.
+    Attempts that trip the limit are not recorded, so a blocked burst cannot
+    keep refreshing its own window and lock out later legitimate writes.
     """
     limit = _write_limit()
     window = _write_window()
@@ -220,13 +224,14 @@ def _check_write_storm() -> tuple[bool, str] | None:
     key = _session_key()
     times = _write_times_by_session.setdefault(key, [])
     times[:] = [t for t in times if now - t < window]
-    times.append(now)
 
-    if len(times) > limit:
+    if len(times) >= limit:
         return _emit(
             "write_storm",
-            f"{len(times)} writes in the last {window:.0f}s (limit: {limit})",
+            f"{limit} writes in the last {window:.0f}s (limit: {limit})",
         )
+
+    times.append(now)
     return None
 
 
@@ -408,6 +413,9 @@ def _init_from_config(config: object) -> None:
         if merged.get("mode") in (None, ""):
             os.environ.setdefault("GPTME_ANOMALY_WATCHDOG", "warn")
 
+    # Precedence: an explicit environment variable always wins over config
+    # (``setdefault``), so an operator can force the watchdog off or on for a
+    # single run without editing config files.
     config_to_env: dict[str, str] = {
         "mode": "GPTME_ANOMALY_WATCHDOG",
         "allowed_dirs": "GPTME_ANOMALY_ALLOWED_DIRS",
