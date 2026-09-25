@@ -19,10 +19,12 @@ Optional tuning:
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -53,7 +55,15 @@ logger = logging.getLogger(__name__)
 # open) and could drop timestamps another thread was recording.
 _write_times_by_session: dict[str, list[float]] = {}
 _WINDOW_LOCK = threading.Lock()
-_SESSION_KEY_DEFAULT = "__default__"
+
+# Fallback window key for contexts that have no LogManager yet (a fresh session,
+# or a server request that arrives before the first message is persisted).
+# Minting one shared constant would merge independent conversations into a
+# single window, so each context mints its own key. Copies inherit the value,
+# so async tasks and copied hook contexts keep their parent's key.
+_fallback_session_key: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "anomaly_watchdog_session_key", default=None
+)
 
 # Tool calls rejected by this watchdog, keyed by object identity with a short
 # TTL. TOOL_CONFIRM fires before execution and TOOL_EXECUTE_POST after, and the
@@ -74,10 +84,18 @@ def _session_key() -> str:
     """Return a stable per-conversation key for the write-storm window."""
     try:
         from ..logmanager import LogManager
+
+        log = LogManager.get_current_log()
     except ImportError:
-        return _SESSION_KEY_DEFAULT
-    log = LogManager.get_current_log()
-    return str(log.logdir) if log else _SESSION_KEY_DEFAULT
+        log = None
+    if log is not None:
+        return str(log.logdir)
+
+    key = _fallback_session_key.get()
+    if key is None:
+        key = f"ctx-{uuid.uuid4().hex}"
+        _fallback_session_key.set(key)
+    return key
 
 
 # Tools that perform file writes (for write_storm + scope_escape detection)
@@ -412,6 +430,12 @@ def check_tool_post(
     The post hook fires on the success path of every tool call, including one
     whose confirmation was skipped — so the window is only advanced once we
     know this watchdog did not reject the call.
+
+    Known boundary: a write declined by a *later* confirmation hook (the
+    interactive CLI/Server confirm) still reaches this hook and is counted.
+    That is not observable from here — the confirmation result is not part of
+    ``ToolExecutePostData`` — and the watchdog targets unattended runs, where
+    nothing declines.
     """
     tool_use = data.tool_use
     if _enabled() and tool_use is not None:

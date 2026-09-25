@@ -16,6 +16,8 @@ Covers:
 
 from __future__ import annotations
 
+import contextvars
+
 import pytest
 
 from .. import anomaly_watchdog
@@ -387,6 +389,45 @@ class TestWriteStorm:
 
 
 class TestNovelHost:
+    def test_userinfo_url_uses_the_real_destination_host(self, monkeypatch):
+        """``urlparse`` hostname is the host actually connected to.
+
+        In ``https://user:pass@evil.example/`` the userinfo precedes the host,
+        and in ``https://trusted.example@evil.example/`` the allowlisted-looking
+        text is *userinfo*, not the host — ``urlparse`` returns
+        ``evil.example`` for both, which is what the request reaches.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_HOSTS", "trusted.example")
+
+        for url in (
+            "https://user:pass@evil.example/x",
+            "https://trusted.example@evil.example/x",
+        ):
+            result = _check_novel_host(_fake_tool_use("browser", args=[url]))
+            assert result is not None, url
+            assert "evil.example" in result[1]
+
+        # The reverse — credentials mailed to the allowlisted host — is fine.
+        result = _check_novel_host(
+            _fake_tool_use("browser", args=["https://user:pass@trusted.example/x"])
+        )
+        assert result is None
+
+    def test_fallback_session_keys_are_distinct_per_context(self, monkeypatch):
+        """Without a LogManager, independent contexts must not share a window."""
+        monkeypatch.setattr(
+            anomaly_watchdog,
+            "_fallback_session_key",
+            contextvars.ContextVar("t", default=None),
+        )
+        parent = anomaly_watchdog._session_key()
+        assert anomaly_watchdog._session_key() == parent  # stable within a context
+
+        # A copied context inherits the key; a fresh one mints its own.
+        assert contextvars.copy_context().run(anomaly_watchdog._session_key) == parent
+        assert contextvars.Context().run(anomaly_watchdog._session_key) != parent
+
     def test_new_host_warns(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
