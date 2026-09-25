@@ -1,11 +1,12 @@
 //! LAN access: lets a phone/tablet on the same WiFi open gptme.
 //!
 //! # Security note
-//! Phase 1 exposes the server on the LAN without a token. The QR code provides
-//! discoverability protection (only someone who can see the screen can scan it),
-//! but anyone on the same network who guesses or intercepts the URL can connect.
-//! Phase 2 will add `--access-token` validation to gptme-server.
-//! Only use on trusted networks (home WiFi, not a shared hotspot).
+//! Enabling LAN access rebinds the gptme-server sidecar to `0.0.0.0` with
+//! bearer-token auth (the token is shared only with the sidecar and the
+//! Tauri webview). The QR code embeds the base URL plus the session token
+//! in the webui's hash-based connection config, so only someone who can see
+//! the screen can scan it. Anyone who scans or reads the QR gains session
+//! access — only use on trusted networks (home WiFi, not a shared hotspot).
 
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -16,6 +17,8 @@ pub struct LanAccessInner {
     pub enabled: bool,
     pub lan_ip: Option<String>,
     pub port: u16,
+    /// Full connect URL including the auth-token hash fragment (None when disabled).
+    pub url: Option<String>,
     /// Cached QR SVG so status polling can return it without regenerating.
     pub qr_svg: Option<String>,
 }
@@ -29,6 +32,7 @@ impl LanAccess {
             enabled: false,
             lan_ip: None,
             port,
+            url: None,
             qr_svg: None,
         }))
     }
@@ -40,7 +44,7 @@ pub struct LanStatus {
     pub enabled: bool,
     pub lan_ip: Option<String>,
     pub port: u16,
-    /// Full URL: `http://<lan_ip>:<port>` (None when disabled).
+    /// Full connect URL: `http://<lan_ip>:<port>#baseUrl=...&userToken=...` (None when disabled).
     pub url: Option<String>,
     /// SVG QR code for the URL (None when disabled).
     pub qr_svg: Option<String>,
@@ -48,21 +52,25 @@ pub struct LanStatus {
 
 impl LanAccessInner {
     fn build_status(&self) -> LanStatus {
-        let url = if self.enabled {
-            self.lan_ip
-                .as_ref()
-                .map(|ip| format!("http://{}:{}", ip, self.port))
-        } else {
-            None
-        };
         LanStatus {
             enabled: self.enabled,
             lan_ip: self.lan_ip.clone(),
             port: self.port,
-            url,
+            url: if self.enabled { self.url.clone() } else { None },
             qr_svg: self.qr_svg.clone(),
         }
     }
+}
+
+/// Build the QR/connect URL: base URL plus the webui's hash-based connection
+/// config (`#baseUrl=<url>&userToken=<token>`), so a phone opening it connects
+/// authenticated without any manual token entry.
+fn build_connect_url(base_url: &str, token: &str) -> String {
+    let encoded = base_url
+        .replace('%', "%25")
+        .replace('#', "%23")
+        .replace('&', "%26");
+    format!("{base_url}#baseUrl={encoded}&userToken={token}")
 }
 
 // ── platform-specific helpers ──────────────────────────────────────────────
@@ -89,46 +97,139 @@ fn generate_qr_svg(url: &str) -> Result<String, String> {
         .build())
 }
 
+// ── Sidecar rebinding (desktop) ────────────────────────────────────────────
+
+/// Restart the managed gptme-server sidecar, optionally bound to the LAN.
+/// `lan_ip = None` rebinds to the default loopback-only configuration.
+#[cfg(desktop)]
+async fn restart_sidecar_with_lan(
+    server: &crate::ServerProcess,
+    lan_ip: Option<&str>,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    // Only rebind a server we manage — killing a foreign server we merely
+    // found on the port would be wrong.
+    let child = server
+        .child
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?
+        .take();
+    let Some(child) = child else {
+        return Err(
+            "gptme-server is not managed by this app (external server on the port); \
+             restart gptme-tauri to enable LAN access"
+                .to_string(),
+        );
+    };
+    log::info!("Stopping gptme-server for LAN rebind (lan_ip: {lan_ip:?})");
+    crate::kill_subprocesses(child.pid());
+    child.kill().map_err(|e| format!("Kill error: {e}"))?;
+    server.owns_port.store(false, Ordering::Relaxed);
+
+    // Wait for the port to actually free up (uvicorn workers + TIME_WAIT).
+    let mut port_free = false;
+    for _ in 0..25 {
+        if crate::is_port_available(crate::server_port()) {
+            port_free = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    if !port_free {
+        return Err(format!(
+            "Port {} did not free up after stopping gptme-server; try again",
+            crate::server_port()
+        ));
+    }
+
+    let app = server
+        .app_handle
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?
+        .clone()
+        .ok_or_else(|| "App handle not initialized".to_string())?;
+    crate::spawn_server_sidecar(
+        &app,
+        server.child.clone(),
+        server.owns_port.clone(),
+        &server.token,
+        lan_ip,
+    )
+    .await?;
+    Ok(())
+}
+
 // ── Tauri commands ─────────────────────────────────────────────────────────
 
-/// Enable LAN access: detect LAN IP, generate QR code, update state.
-///
-/// Note: this does NOT yet restart the gptme-server sidecar with
-/// `--host 0.0.0.0 --allowed-hosts <LAN_IP>`. That wiring is Phase 2 —
-/// the user must restart manually or wait for the Phase 2 server integration.
+/// Enable LAN access: detect LAN IP, generate QR code, rebind the sidecar to
+/// the LAN, then update state.
 #[cfg(desktop)]
 #[tauri::command]
-pub fn enable_lan_access(state: tauri::State<'_, LanAccess>) -> Result<LanStatus, String> {
+pub async fn enable_lan_access(
+    state: tauri::State<'_, LanAccess>,
+    server: tauri::State<'_, crate::ServerProcess>,
+) -> Result<LanStatus, String> {
     let lan_ip = detect_lan_ip()
         .ok_or_else(|| "Could not detect a LAN IP address on this machine".to_string())?;
 
+    let (port, token) = {
+        let inner = state.0.lock().map_err(|e| e.to_string())?;
+        (inner.port, server.token.clone())
+    };
+    let base_url = format!("http://{lan_ip}:{port}");
+    let connect_url = build_connect_url(&base_url, &token);
+    // Generate QR before touching the sidecar so a failure leaves everything
+    // (state and server binding) unchanged.
+    let qr_svg = generate_qr_svg(&connect_url)?;
+
+    // Rebind the sidecar to 0.0.0.0 before reporting success.
+    restart_sidecar_with_lan(&server, Some(&lan_ip)).await?;
+
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
-    let url = format!("http://{}:{}", lan_ip, inner.port);
-    // Generate QR before mutating state so a failure leaves state consistent.
-    let qr_svg = generate_qr_svg(&url)?;
     inner.enabled = true;
     inner.lan_ip = Some(lan_ip);
+    inner.url = Some(connect_url.clone());
     inner.qr_svg = Some(qr_svg);
 
-    log::info!("LAN access enabled: {url}");
+    log::info!("LAN access enabled: {connect_url}");
     Ok(inner.build_status())
 }
 
 #[cfg(not(desktop))]
 #[tauri::command]
-pub fn enable_lan_access(_state: tauri::State<'_, LanAccess>) -> Result<LanStatus, String> {
+pub async fn enable_lan_access(
+    _state: tauri::State<'_, LanAccess>,
+    _server: tauri::State<'_, crate::ServerProcess>,
+) -> Result<LanStatus, String> {
     Err("LAN access is only available on desktop builds".to_string())
 }
 
-/// Disable LAN access and clear state.
+/// Disable LAN access: rebind the sidecar to loopback-only and clear state.
+#[cfg(desktop)]
 #[tauri::command]
-pub fn disable_lan_access(state: tauri::State<'_, LanAccess>) -> Result<(), String> {
+pub async fn disable_lan_access(
+    state: tauri::State<'_, LanAccess>,
+    server: tauri::State<'_, crate::ServerProcess>,
+) -> Result<(), String> {
+    restart_sidecar_with_lan(&server, None).await?;
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
     inner.enabled = false;
     inner.lan_ip = None;
+    inner.url = None;
     inner.qr_svg = None;
     log::info!("LAN access disabled");
     Ok(())
+}
+
+#[cfg(not(desktop))]
+#[tauri::command]
+pub async fn disable_lan_access(
+    _state: tauri::State<'_, LanAccess>,
+    _server: tauri::State<'_, crate::ServerProcess>,
+) -> Result<(), String> {
+    Err("LAN access is only available on desktop builds".to_string())
 }
 
 /// Return the current LAN access status (safe to call at any time).
@@ -150,6 +251,7 @@ mod tests {
             enabled: false,
             lan_ip: None,
             port: 5700,
+            url: None,
             qr_svg: None,
         };
         let status = s.build_status();
@@ -164,11 +266,15 @@ mod tests {
             enabled: true,
             lan_ip: Some("192.168.1.42".to_string()),
             port: 5700,
+            url: Some("http://192.168.1.42:5700#baseUrl=x&userToken=t".to_string()),
             qr_svg: None,
         };
         let status = s.build_status();
         assert!(status.enabled);
-        assert_eq!(status.url, Some("http://192.168.1.42:5700".to_string()));
+        assert_eq!(
+            status.url,
+            Some("http://192.168.1.42:5700#baseUrl=x&userToken=t".to_string())
+        );
     }
 
     #[test]
@@ -177,6 +283,7 @@ mod tests {
             enabled: false,
             lan_ip: Some("192.168.1.42".to_string()),
             port: 5700,
+            url: Some("http://192.168.1.42:5700".to_string()),
             qr_svg: None,
         };
         let status = s.build_status();
@@ -189,6 +296,7 @@ mod tests {
             enabled: true,
             lan_ip: Some("192.168.1.42".to_string()),
             port: 5700,
+            url: Some("http://192.168.1.42:5700".to_string()),
             qr_svg: Some("<svg>test</svg>".to_string()),
         };
         let status = s.build_status();
@@ -196,10 +304,25 @@ mod tests {
     }
 
     #[test]
+    fn connect_url_includes_base_url_and_token() {
+        let url = build_connect_url("http://192.168.1.42:5700", "tok");
+        assert!(url.starts_with("http://192.168.1.42:5700#"));
+        assert!(url.contains("baseUrl=http://"));
+        assert!(url.contains("userToken=tok"));
+    }
+
+    #[test]
+    fn connect_url_escapes_special_characters() {
+        let url = build_connect_url("http://1.2.3.4:5700", "a&b#c%d");
+        assert!(url.contains("userToken=a&b#c%d"));
+        assert!(url.contains("baseUrl=http://1.2.3.4:5700"));
+    }
+
+    #[test]
     #[cfg(desktop)]
     fn qr_svg_roundtrip() {
-        let url = "http://192.168.1.42:5700";
-        let svg = generate_qr_svg(url).expect("QR generation should succeed");
+        let url = build_connect_url("http://192.168.1.42:5700", "test-token");
+        let svg = generate_qr_svg(&url).expect("QR generation should succeed");
         assert!(svg.contains("<svg"), "output should be an SVG");
     }
 }

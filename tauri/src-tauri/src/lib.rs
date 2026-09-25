@@ -28,7 +28,7 @@ const SERVER_TOKEN_ENV: &str = "GPTME_SERVER_TOKEN";
 /// Returns the port gptme-server should bind to.
 /// Override at run time with `GPTME_SERVER_PORT=<port>` for development or
 /// testing in environments where the default port is already occupied.
-fn server_port() -> u16 {
+pub(crate) fn server_port() -> u16 {
     std::env::var("GPTME_SERVER_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -46,7 +46,7 @@ const LOCAL_SERVER_UNSUPPORTED: &str =
     "Local gptme-server management is desktop-only. Connect to a remote gptme instance instead.";
 
 #[cfg(desktop)]
-fn is_port_available(port: u16) -> bool {
+pub(crate) fn is_port_available(port: u16) -> bool {
     TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
@@ -135,19 +135,23 @@ async fn probe_server(port: u16) -> ServerProbe {
 
 #[cfg(desktop)]
 struct ServerProcess {
-    child: Arc<Mutex<Option<CommandChild>>>,
+    pub(crate) child: Arc<Mutex<Option<CommandChild>>>,
     // True if we started or reused a gptme-server; false if startup failed
     // (port occupied by an unresponsive foreign process).  Used in cleanup to
     // avoid killing a process that we never owned.
-    owns_port: Arc<AtomicBool>,
+    pub(crate) owns_port: Arc<AtomicBool>,
     // Bearer token shared only with the sidecar and the Tauri webview.
-    token: String,
+    pub(crate) token: String,
     // Held at app setup so #[tauri::command] functions that need the handle
     // can fetch it from state instead of taking AppHandle as a command
     // parameter — the latter would break tests because AppHandle does not
     // implement Deserialize for MockRuntime command dispatch.
-    app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
+    pub(crate) app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
 }
+
+// Non-desktop stub so LAN command signatures stay identical across platforms.
+#[cfg(not(desktop))]
+struct ServerProcess;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 struct ServerStatus {
@@ -248,6 +252,7 @@ async fn start_server(state: tauri::State<'_, ServerProcess>) -> Result<u16, Str
         state.child.clone(),
         state.owns_port.clone(),
         &state.token,
+        None,
     )
     .await?;
     Ok(server_port())
@@ -282,6 +287,7 @@ async fn spawn_server_sidecar(
     state_arc: Arc<Mutex<Option<CommandChild>>>,
     owns_port: Arc<AtomicBool>,
     token: &str,
+    lan_ip: Option<&str>,
 ) -> Result<(), String> {
     if !is_port_available(server_port()) {
         // Port is occupied — probe whether we can actually use the server there.
@@ -343,18 +349,29 @@ async fn spawn_server_sidecar(
     // self-terminates when Tauri itself disappears.
     let tauri_pid = std::process::id().to_string();
     let port_str = server_port().to_string();
+    let mut args: Vec<String> = vec![
+        "--cors-origin".to_string(),
+        cors_origin.to_string(),
+        "--port".to_string(),
+        port_str,
+        "--watch-pid".to_string(),
+        tauri_pid,
+    ];
+    if let Some(ip) = lan_ip {
+        // Expose the server on the LAN. gptme-server runs with bearer auth
+        // (SERVER_TOKEN_ENV), so Host-header validation is disabled and the
+        // token gates access; --allowed-hosts is defense in depth.
+        args.push("--host".to_string());
+        args.push("0.0.0.0".to_string());
+        args.push("--allowed-hosts".to_string());
+        args.push(ip.to_string());
+        log::warn!("gptme-server exposed on LAN via {ip} (bearer-token protected)");
+    }
     let sidecar_command = app
         .shell()
         .sidecar("gptme-server")
         .map_err(|e| format!("Sidecar error: {}", e))?
-        .args([
-            "--cors-origin",
-            cors_origin,
-            "--port",
-            port_str.as_str(),
-            "--watch-pid",
-            tauri_pid.as_str(),
-        ])
+        .args(&args)
         .env(SERVER_TOKEN_ENV, token);
 
     let (mut rx, child) = sidecar_command
@@ -643,6 +660,8 @@ pub fn run() {
             // LAN state must be managed on all platforms so commands can extract it
             // (even though enable_lan_access returns an error on non-desktop).
             app.manage(LanAccess::new(server_port()));
+            #[cfg(not(desktop))]
+            app.manage(ServerProcess);
 
             #[cfg(desktop)]
             {
@@ -659,7 +678,8 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(err) =
-                        spawn_server_sidecar(&app_handle, child_handle, owns_port, &token).await
+                        spawn_server_sidecar(&app_handle, child_handle, owns_port, &token, None)
+                            .await
                     {
                         log::error!("Failed to start gptme-server: {}", err);
                         if err.contains("already in use") {
@@ -803,14 +823,14 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
 // Kill all direct children of `pid` (e.g. uvicorn workers).  The parent is
 // killed separately via CommandChild::kill() so we don't need /T here.
 #[cfg(unix)]
-fn kill_subprocesses(pid: u32) {
+pub(crate) fn kill_subprocesses(pid: u32) {
     let _ = std::process::Command::new("pkill")
         .args(["-9", "-P", &pid.to_string()])
         .status();
 }
 
 #[cfg(windows)]
-fn kill_subprocesses(pid: u32) {
+pub(crate) fn kill_subprocesses(pid: u32) {
     // taskkill /T kills the whole process tree including the root; that's fine
     // here because we call this before child.kill(), so the parent gets a
     // second kill attempt which is harmless.
@@ -897,7 +917,7 @@ fn kill_server_on_port(port: u16) {
 
 // Stub for platforms that are neither unix nor windows (shouldn't happen for desktop targets).
 #[cfg(not(any(unix, windows)))]
-fn kill_subprocesses(_pid: u32) {}
+pub(crate) fn kill_subprocesses(_pid: u32) {}
 
 #[cfg(not(any(unix, windows)))]
 fn kill_server_on_port(_port: u16) {}

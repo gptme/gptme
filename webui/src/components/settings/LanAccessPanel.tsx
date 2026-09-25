@@ -47,10 +47,13 @@ export function LanAccessPanel() {
     }
   }, []);
 
-  const handleCopyUrl = useCallback(() => {
-    if (status?.url) {
-      navigator.clipboard.writeText(status.url);
+  const handleCopyUrl = useCallback(async () => {
+    if (!status?.url) return;
+    try {
+      await navigator.clipboard.writeText(status.url);
       toast.success('URL copied to clipboard');
+    } catch (e) {
+      toast.error(`Failed to copy URL: ${e}`);
     }
   }, [status?.url]);
 
@@ -95,7 +98,8 @@ export function LanAccessPanel() {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Accessible on your local network. Only use on trusted Wi-Fi.
+            The QR code includes a session token — anyone who scans it gains access. Only use on
+            trusted Wi-Fi.
           </p>
 
           {status.qr_svg ? (

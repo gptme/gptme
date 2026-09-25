@@ -436,6 +436,18 @@ export function SettingsContent({
         );
 
       case 'networking':
+        // Tauri-only panel; a direct /settings/networking visit in a plain
+        // browser must not render a dead panel that errors on Tauri IPC.
+        if (!isTauriEnvironment()) {
+          return (
+            <div className="space-y-2">
+              <h3 className="text-lg font-medium">Networking</h3>
+              <p className="text-sm text-muted-foreground">
+                LAN access settings are only available in the gptme desktop app.
+              </p>
+            </div>
+          );
+        }
         return <LanAccessPanel />;
 
       case 'developer':
