@@ -7,7 +7,7 @@ Monitors tool calls for three suspicious patterns:
 
 Activation:
   GPTME_ANOMALY_WATCHDOG=warn    # log warnings, continue execution
-  GPTME_ANOMALY_WATCHDOG=block   # inject a warning Message and halt tool (StopPropagation)
+  GPTME_ANOMALY_WATCHDOG=block   # block the tool call via TOOL_CONFIRM (skip)
   GPTME_ANOMALY_WATCHDOG=off     # disabled (default)
 
 Optional tuning:
@@ -23,9 +23,8 @@ import logging
 import os
 import re
 import time
-from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from ..hooks import HookType, register_hook
@@ -34,25 +33,35 @@ from ..plugins.plugin import GptmePlugin
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from ..hooks import StopPropagation
+    from ..hooks.confirm import ConfirmationResult
     from ..hooks.types import ToolExecutePreData
     from ..message import Message
+    from ..tools.base import ToolUse
 
 logger = logging.getLogger(__name__)
 
-# Sliding window of write timestamps (monotonic), per async context
-_write_times_var: ContextVar[list[float] | None] = ContextVar(
-    "anomaly_watchdog_write_times", default=None
-)
+# Sliding window of write timestamps (monotonic), per process.
+# gptme runs one session per process, so a module-level window is both
+# correct and immune to async-context resets that would defeat detection.
+_write_times: list[float] = []
 
 # Tools that perform file writes (for write_storm + scope_escape detection)
 _WRITE_TOOLS = frozenset({"save", "append", "patch"})
 
-# Browser-like tools that make network calls (for novel_host detection)
+# Browser-like tools that make network calls (for novel_host detection).
+# Subtools (e.g. "browser.read_url", "browser.open_page") are matched by
+# their namespace prefix.
 _NETWORK_TOOLS = frozenset({"browser", "read_web"})
 
 # Hostnames always considered trusted (loopback, localhost)
 _BUILTIN_TRUSTED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+_MAX_DETAIL_LEN = 200
+
+
+def _tool_namespace(tool: str) -> str:
+    """Strip subtool suffix: 'browser.read_url' -> 'browser'."""
+    return tool.split(".", 1)[0]
 
 
 def _mode() -> str:
@@ -88,108 +97,124 @@ def _allowed_hosts() -> frozenset[str]:
     return _BUILTIN_TRUSTED_HOSTS | extra
 
 
-def _emit(anomaly_type: str, detail: str) -> tuple[bool, str]:
-    """Log + return (should_block, message)."""
-    msg = f"[anomaly_watchdog] {anomaly_type}: {detail}"
-    logger.warning(msg)
-    return _mode() == "block", msg
+def _quote(value: object) -> str:
+    """Render an untrusted string safely for a system message.
+
+    Tool-controlled text (paths, hostnames) must not be embedded raw into
+    system messages — it could carry prompt-injection payloads. repr()
+    escapes newlines and control characters; truncation bounds size.
+    """
+    text = repr(str(value))
+    if len(text) > _MAX_DETAIL_LEN:
+        text = text[: _MAX_DETAIL_LEN - 3] + "..."
+    return text
 
 
-def _extract_path(data: ToolExecutePreData) -> Path | None:
-    """Extract the target file path from a save/append/patch tool call."""
-    tool_use = data.tool_use
-    if tool_use is None:
-        return None
-
-    # XML/tool-format: kwargs carry named params
+def _extract_paths(tool_use: Any) -> list[Path]:
+    """Extract candidate target paths from a save/append/patch tool call."""
     if tool_use.kwargs:
         raw = tool_use.kwargs.get("path") or tool_use.kwargs.get("filename")
         if raw:
-            return Path(raw)
+            return [Path(raw)]
 
-    # Markdown-format: first arg is the path
     if tool_use.args:
-        return Path(tool_use.args[0])
+        return [Path(tool_use.args[0])]
 
-    # patch tool: parse target from diff header (--- a/path or +++ b/path)
+    # patch tool: parse ALL targets from diff headers (--- a/path or +++ b/path)
     if tool_use.tool == "patch" and tool_use.content:
+        paths: list[Path] = []
         for line in tool_use.content.splitlines():
             m = re.match(r"^\+\+\+\s+(?:b/)?(.+)", line)
             if m:
                 candidate = m.group(1).strip()
-                if candidate and candidate != "/dev/null":
-                    return Path(candidate)
+                if (
+                    candidate
+                    and candidate != "/dev/null"
+                    and Path(candidate) not in paths
+                ):
+                    paths.append(Path(candidate))
+        if paths:
+            return paths
+
+    return []
+
+
+def _check_scope_escape(
+    tool_use: Any,
+    workspace: Path | None,
+) -> tuple[bool, str] | None:
+    """Detect a write to a path outside the session workspace.
+
+    Checks every target of the tool call — a multi-file patch with even one
+    out-of-workspace section is flagged.
+    """
+    if workspace is None:
+        return None
+
+    raw_paths = _extract_paths(tool_use)
+    if not raw_paths:
+        return None
+
+    workspace_resolved = workspace.resolve()
+    allowed_dirs = _allowed_dirs()
+
+    for raw_path in raw_paths:
+        if not raw_path.is_absolute():
+            resolved = (workspace / raw_path).resolve()
+        else:
+            resolved = raw_path.resolve()
+
+        # Allow writes inside workspace
+        try:
+            resolved.relative_to(workspace_resolved)
+            continue
+        except ValueError:
+            pass
+
+        # Allow writes inside explicitly whitelisted dirs
+        if any(_is_relative_to(resolved, allowed) for allowed in allowed_dirs):
+            continue
+
+        return _emit(
+            "scope_escape",
+            f"write to {_quote(resolved)} is outside workspace "
+            f"{_quote(workspace_resolved)}",
+        )
 
     return None
 
 
-def _check_scope_escape(
-    data: ToolExecutePreData,
-) -> tuple[bool, str] | None:
-    """Detect a write to a path outside the session workspace."""
-    workspace = data.workspace
-    if workspace is None:
-        return None
-
-    raw_path = _extract_path(data)
-    if raw_path is None:
-        return None
-
-    # Resolve against workspace so relative paths are anchored correctly
-    if not raw_path.is_absolute():
-        resolved = (workspace / raw_path).resolve()
-    else:
-        resolved = raw_path.resolve()
-
-    workspace_resolved = workspace.resolve()
-
-    # Allow writes inside workspace
+def _is_relative_to(path: Path, parent: Path) -> bool:
     try:
-        resolved.relative_to(workspace_resolved)
-        return None
+        path.relative_to(parent)
+        return True
     except ValueError:
-        pass
-
-    # Allow writes inside explicitly whitelisted dirs
-    for allowed in _allowed_dirs():
-        try:
-            resolved.relative_to(allowed)
-            return None
-        except ValueError:
-            continue
-
-    return _emit(
-        "scope_escape",
-        f"write to {resolved} is outside workspace {workspace_resolved}",
-    )
+        return False
 
 
 def _check_write_storm() -> tuple[bool, str] | None:
-    """Detect an excessive write rate in the sliding window."""
+    """Detect an excessive write rate in the sliding window.
+
+    Counts write *attempts* at pre-execution time: a burst of rejected or
+    malformed write calls is itself the anomaly signal this check exists for.
+    """
     limit = _write_limit()
     window = _write_window()
     now = time.monotonic()
 
-    existing = _write_times_var.get()
-    times = existing[:] if existing is not None else []
-    # Prune old entries
-    times = [t for t in times if now - t < window]
-    times.append(now)
-    _write_times_var.set(times)
+    _write_times[:] = [t for t in _write_times if now - t < window]
+    _write_times.append(now)
 
-    if len(times) > limit:
+    if len(_write_times) > limit:
         return _emit(
             "write_storm",
-            f"{len(times)} writes in the last {window:.0f}s (limit: {limit})",
+            f"{len(_write_times)} writes in the last {window:.0f}s (limit: {limit})",
         )
     return None
 
 
-def _extract_url(data: ToolExecutePreData) -> str | None:
+def _extract_url(tool_use: Any) -> str | None:
     """Extract the URL from a browser/read_web tool call."""
-    tool_use = data.tool_use
-    if tool_use is None:
-        return None
     if tool_use.kwargs:
         url = tool_use.kwargs.get("url")
         if url:
@@ -204,11 +229,9 @@ def _extract_url(data: ToolExecutePreData) -> str | None:
     return None
 
 
-def _check_novel_host(
-    data: ToolExecutePreData,
-) -> tuple[bool, str] | None:
+def _check_novel_host(tool_use: Any) -> tuple[bool, str] | None:
     """Detect a network call to a hostname not in the allowlist."""
-    url = _extract_url(data)
+    url = _extract_url(tool_use)
     if not url:
         return None
 
@@ -229,66 +252,117 @@ def _check_novel_host(
     # This is a *novel* host signal, not a block-by-default firewall.
     return _emit(
         "novel_host",
-        f"network call to {hostname!r} (not in GPTME_ANOMALY_ALLOWED_HOSTS). "
+        f"network call to {_quote(hostname)} (not in GPTME_ANOMALY_ALLOWED_HOSTS). "
         "Add to allowlist to silence.",
     )
 
 
+def _detect_findings(tool_use: Any, workspace: Path | None) -> list[str]:
+    """Run all enabled anomaly checks; return finding messages."""
+    findings: list[str] = []
+    namespace = _tool_namespace(tool_use.tool)
+
+    if namespace in _WRITE_TOOLS:
+        for check in (_check_scope_escape,):
+            result = check(tool_use, workspace)
+            if result is not None:
+                findings.append(result[1])
+        result = _check_write_storm()
+        if result is not None:
+            findings.append(result[1])
+
+    if namespace in _NETWORK_TOOLS:
+        result = _check_novel_host(tool_use)
+        if result is not None:
+            findings.append(result[1])
+
+    return findings
+
+
+def _emit(anomaly_type: str, detail: str) -> tuple[bool, str]:
+    """Log + return (should_block, message)."""
+    msg = f"[anomaly_watchdog] {anomaly_type}: {detail}"
+    logger.warning(msg)
+    return _mode() == "block", msg
+
+
 def check_tool_pre(
     data: ToolExecutePreData,
-) -> Generator[Message | StopPropagation, None, None]:
-    """Main TOOL_EXECUTE_PRE hook: run all enabled anomaly checks."""
-    if not _enabled():
+) -> Generator[Message, None, None]:
+    """TOOL_EXECUTE_PRE hook: surface warn-mode findings as system messages.
+
+    In block mode, blocking happens in the TOOL_CONFIRM hook (see
+    ``anomaly_watchdog_confirm``) — TOOL_EXECUTE_PRE cannot prevent tool
+    execution, it only stops lower-priority hooks.
+    """
+    if _mode() != "warn":
         return
 
     tool_use = data.tool_use
     if tool_use is None:
         return
 
-    findings: list[tuple[bool, str]] = []
-
-    if tool_use.tool in _WRITE_TOOLS:
-        result = _check_scope_escape(data)
-        if result is not None:
-            findings.append(result)
-        result = _check_write_storm()
-        if result is not None:
-            findings.append(result)
-
-    if tool_use.tool in _NETWORK_TOOLS:
-        result = _check_novel_host(data)
-        if result is not None:
-            findings.append(result)
-
+    findings = _detect_findings(tool_use, data.workspace)
     if not findings:
         return
 
-    from ..hooks.types import (
-        StopPropagation,  # local import avoids circular at module load
-    )
     from ..message import Message
 
-    any_block = any(should_block for should_block, _ in findings)
-    messages = "\n".join(msg for _, msg in findings)
+    yield Message(
+        "system",
+        "⚠️ [anomaly_watchdog] Anomaly detected:\n" + "\n".join(findings),
+    )
 
-    if any_block:
-        prefix = "⛔ [anomaly_watchdog] Tool call blocked"
-    else:
-        prefix = "⚠️ [anomaly_watchdog] Anomaly detected"
 
-    yield Message("system", f"{prefix}:\n{messages}")
+def anomaly_watchdog_confirm(
+    tool_use: ToolUse,
+    preview: str | None = None,
+    workspace: Path | None = None,
+) -> ConfirmationResult | None:
+    """TOOL_CONFIRM hook: block flagged tool calls in block mode.
 
-    if any_block:
-        yield StopPropagation()
+    Returns ``ConfirmationResult.skip(...)`` so the executor actually skips
+    the tool (mirrors guardrails' enforce mode). Returns None otherwise to
+    fall through to the next confirm hook.
+    """
+    if _mode() != "block":
+        return None
+
+    findings = _detect_findings(tool_use, workspace)
+    if not findings:
+        return None
+
+    from ..hooks.confirm import ConfirmationResult
+
+    reason = "Blocked by anomaly_watchdog:\n" + "\n".join(findings)
+    logger.info("anomaly_watchdog (block): %s", reason)
+    return ConfirmationResult.skip(reason)
 
 
 def register() -> None:
     """Register anomaly watchdog hooks."""
+    # Apply config-based activation before deciding hook behavior, so that
+    # [plugin.anomaly_watchdog] in gptme config enables the watchdog even
+    # when this hook is registered through init_hooks (not the plugin
+    # loader, which never runs for built-in hooks).
+    try:
+        from ..config import get_config
+
+        _init_from_config(get_config())
+    except Exception:  # fail-open: config problems must not break startup
+        logger.debug("anomaly_watchdog config init failed", exc_info=True)
+
     register_hook(
         "anomaly_watchdog.tool_pre",
         HookType.TOOL_EXECUTE_PRE,
         check_tool_pre,
         priority=150,  # after guardrails (200), before confirm hooks
+    )
+    register_hook(
+        "anomaly_watchdog.confirm",
+        HookType.TOOL_CONFIRM,
+        anomaly_watchdog_confirm,
+        priority=150,  # after guardrails (200), before cli/server confirm
     )
     logger.debug("Registered anomaly_watchdog hooks (mode=%s)", _mode())
 

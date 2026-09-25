@@ -1,12 +1,14 @@
-"""Tests for the anomaly_watchdog TOOL_EXECUTE_PRE hook.
+"""Tests for the anomaly_watchdog hooks.
 
 Covers:
 - scope_escape: write outside workspace triggers warning/block
 - scope_escape: write inside workspace is allowed
 - scope_escape: write inside allowed_dirs is allowed
+- scope_escape: multi-file patches with any out-of-workspace section flagged
 - write_storm: exceeding write limit triggers warning/block
-- novel_host: browser call to new hostname triggers warning
+- novel_host: browser call to new hostname triggers warning (incl. subtools)
 - novel_host: browser call to trusted hostname is silent
+- block mode: TOOL_CONFIRM hook actually skips the tool
 - disabled mode: no anomalies fired
 """
 
@@ -15,13 +17,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    pass
 
+from .. import anomaly_watchdog
 from ..anomaly_watchdog import (
     _check_novel_host,
     _check_scope_escape,
     _check_write_storm,
     _enabled,
+    anomaly_watchdog_confirm,
     check_tool_pre,
 )
 
@@ -30,14 +34,13 @@ from ..anomaly_watchdog import (
 # ---------------------------------------------------------------------------
 
 
-def _fake_data(
+def _fake_tool_use(
     tool: str,
     args: list[str] | None = None,
     kwargs: dict[str, str] | None = None,
     content: str | None = None,
-    workspace: Path | None = None,
 ):
-    """Build a minimal ToolExecutePreData-like object."""
+    """Build a minimal ToolUse-like object."""
 
     class _FakeToolUse:
         def __init__(self):
@@ -46,13 +49,11 @@ def _fake_data(
             self.kwargs = kwargs
             self.content = content
 
-    class _FakeData:
-        def __init__(self):
-            self.tool_use = _FakeToolUse()
-            self.workspace = workspace
-            self.log = None
+    return _FakeToolUse()
 
-    return _FakeData()
+
+def _reset_storm_state() -> None:
+    anomaly_watchdog._write_times.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -87,16 +88,16 @@ class TestScopeEscape:
     def test_write_inside_workspace_ok(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        data = _fake_data("save", args=["subdir/file.txt"], workspace=tmp_path)
-        result = _check_scope_escape(data)
+        tool_use = _fake_tool_use("save", args=["subdir/file.txt"])
+        result = _check_scope_escape(tool_use, tmp_path)
         assert result is None
 
     def test_write_outside_workspace_warned(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
         outside = tmp_path.parent / "other" / "file.txt"
-        data = _fake_data("save", args=[str(outside)], workspace=tmp_path)
-        result = _check_scope_escape(data)
+        tool_use = _fake_tool_use("save", args=[str(outside)])
+        result = _check_scope_escape(tool_use, tmp_path)
         assert result is not None
         should_block, msg = result
         assert not should_block  # warn mode
@@ -106,8 +107,8 @@ class TestScopeEscape:
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
         outside = tmp_path.parent / "bad" / "secret.txt"
-        data = _fake_data("save", args=[str(outside)], workspace=tmp_path)
-        result = _check_scope_escape(data)
+        tool_use = _fake_tool_use("save", args=[str(outside)])
+        result = _check_scope_escape(tool_use, tmp_path)
         assert result is not None
         should_block, _ = result
         assert should_block
@@ -117,25 +118,65 @@ class TestScopeEscape:
         allowed = tmp_path.parent / "allowed"
         allowed.mkdir(exist_ok=True)
         monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_DIRS", str(allowed))
-        data = _fake_data("save", args=[str(allowed / "ok.txt")], workspace=tmp_path)
-        result = _check_scope_escape(data)
+        tool_use = _fake_tool_use("save", args=[str(allowed / "ok.txt")])
+        result = _check_scope_escape(tool_use, tmp_path)
         assert result is None
 
     def test_no_workspace_skipped(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        data = _fake_data("save", args=["/etc/passwd"], workspace=None)
-        result = _check_scope_escape(data)
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        result = _check_scope_escape(tool_use, None)
         assert result is None
 
     def test_patch_diff_header_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        diff_content = "--- a/old.txt\n+++ b//etc/secret\n@@ -1 +1 @@\n+evil"
-        data = _fake_data("patch", content=diff_content, workspace=tmp_path)
-        result = _check_scope_escape(data)
+        diff_content = "--- a/old.txt\n+++ /etc/secret\n@@ -1 +1 @@\n+evil"
+        tool_use = _fake_tool_use("patch", content=diff_content)
+        result = _check_scope_escape(tool_use, tmp_path)
         assert result is not None
         _, msg = result
         assert "scope_escape" in msg
+        assert "secret" in msg
+
+    def test_multi_file_patch_second_section_outside(self, tmp_path, monkeypatch):
+        """A patch whose first file is inside the workspace but whose second
+        file is outside must still be flagged (multi-file bypass fix)."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        outside = tmp_path.parent / "evil" / "escape.txt"
+        diff_content = (
+            "--- a/ok.txt\n"
+            "+++ b/ok.txt\n"
+            "@@ -1 +1 @@\n"
+            "+fine\n"
+            f"--- a/{outside.name}\n"
+            f"+++ b/{outside}\n"
+            "@@ -1 +1 @@\n"
+            "+evil"
+        )
+        tool_use = _fake_tool_use("patch", content=diff_content)
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        _, msg = result
+        assert "scope_escape" in msg
+
+    def test_multi_file_patch_all_inside_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        diff_content = (
+            "--- a/one.txt\n"
+            "+++ b/one.txt\n"
+            "@@ -1 +1 @@\n"
+            "+x\n"
+            "--- a/two.txt\n"
+            "+++ b/two.txt\n"
+            "@@ -1 +1 @@\n"
+            "+y"
+        )
+        tool_use = _fake_tool_use("patch", content=diff_content)
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +189,8 @@ class TestWriteStorm:
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
-        from ..anomaly_watchdog import _write_times_var
-
-        _write_times_var.set([])  # reset
+        _reset_storm_state()
+        result = None
         for _ in range(4):
             result = _check_write_storm()
         assert result is None
@@ -159,9 +199,7 @@ class TestWriteStorm:
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
-        from ..anomaly_watchdog import _write_times_var
-
-        _write_times_var.set([])  # reset
+        _reset_storm_state()
         result = None
         for _ in range(4):
             result = _check_write_storm()
@@ -179,31 +217,43 @@ class TestNovelHost:
     def test_new_host_warns(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
-        data = _fake_data("browser", args=["https://evil.example.com/x"])
-        result = _check_novel_host(data)
+        tool_use = _fake_tool_use("browser", args=["https://evil.example.com/x"])
+        result = _check_novel_host(tool_use)
         assert result is not None
         _, msg = result
         assert "novel_host" in msg
         assert "evil.example.com" in msg
 
+    def test_browser_subtool_warns(self, monkeypatch):
+        """Subtools invoked as 'browser.read_url' must not bypass host checks."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
+        tool_use = _fake_tool_use(
+            "browser.read_url", kwargs={"url": "https://sneaky.example.org"}
+        )
+        result = _check_novel_host(tool_use)
+        assert result is not None
+        _, msg = result
+        assert "novel_host" in msg
+
     def test_trusted_host_silent(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_HOSTS", "docs.example.com")
-        data = _fake_data("browser", args=["https://docs.example.com/page"])
-        result = _check_novel_host(data)
+        tool_use = _fake_tool_use("browser", args=["https://docs.example.com/page"])
+        result = _check_novel_host(tool_use)
         assert result is None
 
     def test_localhost_silent(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
-        data = _fake_data("browser", args=["http://localhost:8080/api"])
-        result = _check_novel_host(data)
+        tool_use = _fake_tool_use("browser", args=["http://localhost:8080/api"])
+        result = _check_novel_host(tool_use)
         assert result is None
 
     def test_no_url_skipped(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        data = _fake_data("browser", args=None, content=None)
-        result = _check_novel_host(data)
+        tool_use = _fake_tool_use("browser", args=None, content=None)
+        result = _check_novel_host(tool_use)
         assert result is None
 
 
@@ -215,22 +265,86 @@ class TestNovelHost:
 class TestCheckToolPre:
     def test_disabled_no_output(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "off")
-        data = _fake_data("save", args=["/etc/passwd"], workspace=tmp_path)
-        msgs = list(check_tool_pre(data))
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        msgs = list(check_tool_pre(_pre_data(tool_use, tmp_path)))
         assert msgs == []
 
     def test_scope_escape_warn_yields_message(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        data = _fake_data("save", args=["/etc/passwd"], workspace=tmp_path)
-        msgs = list(check_tool_pre(data))
-        assert len(msgs) == 1  # Message only, no StopPropagation
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        msgs = list(check_tool_pre(_pre_data(tool_use, tmp_path)))
+        assert len(msgs) == 1
+        assert "scope_escape" in msgs[0].content
 
-    def test_scope_escape_block_yields_stop(self, monkeypatch, tmp_path):
+    def test_block_mode_pre_yields_no_stoppropagation(self, monkeypatch, tmp_path):
+        """In block mode the TOOL_EXECUTE_PRE hook must not pretend to block —
+        actual blocking happens in the TOOL_CONFIRM hook."""
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        from ..types import StopPropagation
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        msgs = list(check_tool_pre(_pre_data(tool_use, tmp_path)))
+        assert msgs == []
 
-        data = _fake_data("save", args=["/etc/passwd"], workspace=tmp_path)
-        msgs = list(check_tool_pre(data))
-        assert any(isinstance(m, StopPropagation) for m in msgs)
+
+# ---------------------------------------------------------------------------
+# anomaly_watchdog_confirm (block mode enforcement)
+# ---------------------------------------------------------------------------
+
+
+def _pre_data(tool_use, workspace):
+    class _FakeData:
+        def __init__(self):
+            self.tool_use = tool_use
+            self.workspace = workspace
+            self.log = None
+
+    return _FakeData()
+
+
+class TestConfirmHook:
+    def test_block_mode_skips_flagged_tool(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        result = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
+        assert result is not None
+        assert result.action.value == "skip"
+        assert "anomaly_watchdog" in (result.message or "")
+
+    def test_block_mode_allows_clean_tool(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["inside.txt"])
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+    def test_warn_mode_confirm_falls_through(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+    def test_off_mode_confirm_falls_through(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "off")
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# config activation
+# ---------------------------------------------------------------------------
+
+
+class TestConfigActivation:
+    def test_config_section_enables_warn(self, monkeypatch):
+        monkeypatch.delenv("GPTME_ANOMALY_WATCHDOG", raising=False)
+
+        class _Cfg:
+            class user:
+                plugin = {"anomaly_watchdog": {"mode": "warn"}}
+
+            project = None
+
+        anomaly_watchdog._init_from_config(_Cfg())
+        import os
+
+        assert os.environ["GPTME_ANOMALY_WATCHDOG"] == "warn"
