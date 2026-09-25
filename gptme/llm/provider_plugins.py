@@ -118,5 +118,12 @@ def is_plugin_provider(provider: str) -> bool:
 
 
 def get_plugin_api_keys() -> dict[str, str]:
-    """Return a mapping of ``{provider_name: api_key_env}`` for all plugin providers."""
-    return {p.name: p.api_key_env for p in discover_provider_plugins()}
+    """Return a mapping of ``{provider_name: api_key_env}`` for plugin providers that use a key.
+
+    Providers with ``api_key_env=None`` are omitted.
+    """
+    return {
+        p.name: p.api_key_env
+        for p in discover_provider_plugins()
+        if p.api_key_env is not None
+    }

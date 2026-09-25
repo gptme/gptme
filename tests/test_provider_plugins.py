@@ -100,6 +100,22 @@ class TestProviderPlugin:
         plugin = _make_plugin(name="myprovider")
         assert plugin.models[0].model == "myprovider/test-model-v1"
 
+    def test_keyless_plugin_no_api_key_env(self):
+        """A plugin with no API key env is valid — e.g. payment-based providers."""
+        plugin = ProviderPlugin(
+            name="blockrun",
+            base_url="https://api.blockrun.ai/v1",
+        )
+        assert plugin.api_key_env is None
+        assert plugin.base_url == "https://api.blockrun.ai/v1"
+        assert plugin.models == []
+
+    def test_keyless_plugin_defaults(self):
+        """Both api_key_env and base_url have defaults — only name is required."""
+        plugin = ProviderPlugin(name="minimal")
+        assert plugin.api_key_env is None
+        assert plugin.base_url == ""
+
 
 # ---------------------------------------------------------------------------
 # discover_provider_plugins
@@ -231,6 +247,16 @@ class TestGetPluginApiKeys:
             keys = get_plugin_api_keys()
         assert keys == {}
 
+    def test_keyless_plugin_omitted(self):
+        """Providers with no api_key_env are excluded from the key mapping."""
+        keyed = _make_plugin(name="keyed", api_key_env="KEYED_API_KEY")
+        keyless = ProviderPlugin(name="keyless", base_url="https://api.keyless.io/v1")
+        eps = [_make_entry_point(keyed), _make_entry_point(keyless)]
+        with patch("importlib.metadata.entry_points", return_value=eps):
+            keys = get_plugin_api_keys()
+        assert keys == {"keyed": "KEYED_API_KEY"}
+        assert "keyless" not in keys
+
 
 # ---------------------------------------------------------------------------
 # get_model() integration
@@ -359,6 +385,36 @@ class TestPluginRouting:
 
         assert client_registered is True
         mock_init_openai.assert_not_called()
+
+    def test_init_llm_keyless_plugin_does_not_require_env_var(self):
+        """A plugin with api_key_env=None must not raise a KeyError on init."""
+        from gptme.llm import init_llm
+        from gptme.llm.models import CustomProvider
+
+        keyless_plugin = ProviderPlugin(
+            name="keyless",
+            base_url="https://api.keyless.io/v1",
+        )
+
+        with (
+            patch(
+                "importlib.metadata.entry_points",
+                return_value=[_make_entry_point(keyless_plugin)],
+            ),
+            patch("gptme.llm.llm_openai.has_client", return_value=False),
+            patch("gptme.config.get_config") as mock_config,
+            patch("gptme.llm.llm_openai._init_openai_client") as mock_client_init,
+            patch("gptme.llm.llm_openai.clients", {"keyless": object()}),
+        ):
+            mock_config.return_value.user.providers = []
+            init_llm(CustomProvider("keyless"))
+
+        # The keyless branch must actually run: plugin init with the "no-key"
+        # placeholder and the plugin's base_url (not skipped, not KeyError).
+        mock_client_init.assert_called_once()
+        kwargs = mock_client_init.call_args.kwargs
+        assert kwargs["api_key"] == "no-key"
+        assert kwargs["base_url"] == "https://api.keyless.io/v1"
 
     def test_init_llm_rejects_custom_plugin_init_without_client_registration(self):
         from gptme.llm import init_llm
