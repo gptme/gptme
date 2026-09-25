@@ -455,20 +455,20 @@ def test_split_commands_syntax_error_uses_bash_message():
         split_commands("ls |")
 
 
-def test_split_commands_without_bash_rejects_invalid_syntax(monkeypatch):
-    """A parser error still fails closed when Bash is unavailable.
+def test_split_commands_without_bash_returns_script_on_parse_error(monkeypatch):
+    """Without bash, tree-sitter errors are treated as unparseable, not invalid.
 
-    Without bash, tree-sitter's error flag cannot be confirmed with ``bash -n``,
-    so split_commands raises the generic validation fallback rather than a
-    parser-specific diagnostic (the old bashlex "unexpected EOF").
+    When bash is unavailable, ``bash -n`` cannot confirm whether a tree-sitter
+    error is a real syntax error or a valid-but-unparseable construct.  The safe
+    fallback is to return the script as a single command (matching the old bashlex
+    behaviour) rather than raising ValueError, which would incorrectly reject
+    valid scripts on systems without bash.
     """
-    import pytest
-
     from gptme.tools import shell as shell_module
 
     monkeypatch.setattr(shell_module.shutil, "which", lambda _name: None)
-    with pytest.raises(ValueError, match="Shell syntax error: Cannot validate"):
-        split_commands("ls |")
+    # tree-sitter sees an error in "ls |" but without bash we cannot confirm it
+    assert split_commands("ls |") == ["ls |"]
 
 
 def test_split_commands_windows_with_bash_keeps_stop_on_failure(monkeypatch):

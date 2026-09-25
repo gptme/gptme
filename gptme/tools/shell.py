@@ -3545,7 +3545,7 @@ def _shorten_stdout(
     return result
 
 
-def _bash_syntax_error(script: str, fallback: str) -> str | None:
+def _bash_syntax_error(script: str, fallback: str | None) -> str | None:
     """Ask bash itself whether ``script`` is syntactically valid.
 
     Tree-sitter error recovery may produce an incomplete tree for valid bash it
@@ -3593,7 +3593,7 @@ def split_commands(script: str) -> list[str]:
     source = script.encode("utf-8")
     root = _parse_bash(source)
     if root.has_error:
-        bash_error = _bash_syntax_error(script, fallback="Cannot validate")
+        bash_error = _bash_syntax_error(script, fallback=None)
         if bash_error is not None:
             raise ValueError(
                 f"Shell syntax error: {bash_error}\n"
