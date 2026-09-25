@@ -192,6 +192,36 @@ def test_redirect_background_stdin_grammar_gap_leaves_literals_alone():
     )
 
 
+def test_redirect_background_stdin_grammar_gap_operator_before_comment():
+    """A trailing ``&`` followed by a comment is still a background operator.
+
+    The comment must not hide the operator from the grammar-gap heuristic:
+    leaving ``sleep 1`` unredirected lets it keep the persistent shell's stdin.
+    """
+    from gptme.tools import shell
+
+    gap = "cat <<A <<B\nx\nA\ny\nB\n"
+    assert (
+        shell._redirect_background_stdin(gap + "sleep 1 & # note\n")
+        == gap + "sleep 1 < /dev/null & # note"
+    )
+    # a ``#`` inside quotes is not a comment, so the operator still redirects
+    assert (
+        shell._redirect_background_stdin(gap + "echo '# not a comment' &\n")
+        == gap + "echo '# not a comment' < /dev/null &"
+    )
+    # ``&&`` before a comment is not a background operator
+    assert (
+        shell._redirect_background_stdin(gap + "echo ok && echo done # note\n")
+        == gap + "echo ok && echo done # note\n"
+    )
+    # a ``&`` only inside the comment is left alone
+    assert (
+        shell._redirect_background_stdin(gap + "echo hi # note &\n")
+        == gap + "echo hi # note &\n"
+    )
+
+
 def test_heredoc_complex(shell):
     # Test nested heredocs
     ret, out, err = shell.run(
