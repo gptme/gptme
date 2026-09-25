@@ -650,10 +650,18 @@ A plugin that provides a tool, a hook, a command, and an LLM provider:
    # LLM provider (optional)
    my_provider = ProviderPlugin(
        name="my_llm",
-       api_key_env="MY_LLM_API_KEY",
        base_url="https://api.example.com/v1",
+       api_key_env="MY_LLM_API_KEY",
        models=[ModelMeta(provider="unknown", model="my_llm/fast", context=128_000)],
    )
+
+   # Keyless provider — omit api_key_env for payment-based or custom-auth endpoints
+   # my_provider = ProviderPlugin(
+   #     name="my_llm",
+   #     base_url="https://api.example.com/v1",
+   #     # api_key_env omitted — this provider authenticates per-request
+   #     models=[...],
+   # )
 
    # Plugin initialization (optional)
    def _init(config):

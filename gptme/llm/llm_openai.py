@@ -675,12 +675,16 @@ def init(provider: Provider, config: Config):
 
             plugin = get_provider_plugin(str(provider))
             if plugin:
-                api_key = config.get_env(plugin.api_key_env) or ""
-                if not api_key:
-                    raise KeyError(
-                        f"Missing environment variable {plugin.api_key_env} "
-                        f"required by provider plugin {plugin.name!r}"
-                    )
+                if plugin.api_key_env:
+                    api_key = config.get_env(plugin.api_key_env) or ""
+                    if not api_key:
+                        raise KeyError(
+                            f"Missing environment variable {plugin.api_key_env} "
+                            f"required by provider plugin {plugin.name!r}"
+                        )
+                else:
+                    # Provider uses no API key (e.g. per-request payment)
+                    api_key = "no-key"
                 _init_openai_client(
                     provider,
                     api_key=api_key,
