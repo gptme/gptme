@@ -38,7 +38,11 @@ async function tauriRequestPermission(): Promise<NotificationPermission> {
  * Show a notification via the Tauri native plugin.
  * Returns true if the notification was sent, false on any error/denial.
  */
-async function showTauriNotification(title: string, body?: string): Promise<boolean> {
+async function showTauriNotification(
+  title: string,
+  body?: string,
+  options?: { icon?: string; tag?: string; silent?: boolean }
+): Promise<boolean> {
   try {
     const granted = await tauriIsPermissionGranted();
     if (!granted) {
@@ -48,8 +52,16 @@ async function showTauriNotification(title: string, body?: string): Promise<bool
         return false;
       }
     }
+    // tauri-plugin-notification v2 Options supports icon/silent; it has no
+    // `tag` field, so browser-API tag dedup has no native equivalent — calls
+    // relying on tag dedup may stack instead of replace on desktop.
     await invokeTauri('plugin:notification|notify', {
-      notification: { title, body },
+      notification: {
+        title,
+        body,
+        ...(options?.icon ? { icon: options.icon } : {}),
+        ...(options?.silent !== undefined ? { silent: options.silent } : {}),
+      },
     });
     console.log('Tauri native notification shown:', title);
     return true;
@@ -127,7 +139,7 @@ export async function showNotification(
 
   // Try Tauri native notifications first — avoids WebView permission quirks
   if (isTauriEnvironment()) {
-    const sent = await showTauriNotification(title, options?.body);
+    const sent = await showTauriNotification(title, options?.body, options);
     if (sent) return null; // Native notification sent; no browser Notification object
     // Fall through to browser API on failure
   }

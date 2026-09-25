@@ -196,12 +196,17 @@ async function setupMocks(
           ]
         : [{ type: 'connected', session_id: SESSION_ID }];
 
+    // EventSource is created with withCredentials: true, so CORS requires the
+    // exact origin echo (not '*') plus Allow-Credentials.
+    const origin = route.request().headers()['origin'] ?? '*';
     return route.fulfill({
       status: 200,
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Credentials': 'true',
       },
       body: buildSseBody(events),
     });
@@ -225,13 +230,14 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
 
     // Absorb tool/confirm POSTs so the webui doesn't log 404s.
     await page.route(`**/api/v2/conversations/${CONV_ID}/tool/confirm`, (route) =>
-      route.fulfill({ json: { status: 'ok' } })
+      route.fulfill({ json: { status: 'ok' }, headers: { 'Access-Control-Allow-Origin': '*' } })
     );
 
     await page.goto(`/chat/${CONV_ID}`);
 
-    // The header shows "Run `shell`?" — wait for the tool name to appear.
-    await expect(page.getByText('shell', { exact: false })).toBeVisible({
+    // Target the panel's heading instead of a bare 'shell' substring, which
+    // could match unrelated UI text and pass before the panel renders.
+    await expect(page.getByRole('heading', { name: 'Tool Execution Confirmation' })).toBeVisible({
       timeout: TOOL_CONFIRM_TIMEOUT,
     });
 
@@ -256,14 +262,33 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
 
     const confirmRequests: { method: string; body: Record<string, unknown> }[] = [];
     await page.route(`**/api/v2/conversations/${CONV_ID}/tool/confirm`, async (route) => {
+      const request = route.request();
+      // The webui dev server (5701) calls the API (5700) cross-origin, so a
+      // JSON POST triggers a CORS preflight OPTIONS. Answer it with CORS
+      // headers and keep it out of the recorded requests.
+      if (request.method() === 'OPTIONS') {
+        await route.fulfill({
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Access-Control-Max-Age': '600',
+          },
+        });
+        return;
+      }
       let body: Record<string, unknown> = {};
       try {
-        body = JSON.parse(route.request().postData() ?? '{}');
+        body = JSON.parse(request.postData() ?? '{}');
       } catch {
         // ignore parse errors
       }
-      confirmRequests.push({ method: route.request().method(), body });
-      await route.fulfill({ json: { status: 'ok', message: 'Tool confirmed' } });
+      confirmRequests.push({ method: request.method(), body });
+      await route.fulfill({
+        json: { status: 'ok', message: 'Tool confirmed' },
+        headers: { 'Access-Control-Allow-Origin': '*' },
+      });
     });
 
     await page.goto(`/chat/${CONV_ID}`);
@@ -294,14 +319,31 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
 
     const confirmRequests: { method: string; body: Record<string, unknown> }[] = [];
     await page.route(`**/api/v2/conversations/${CONV_ID}/tool/confirm`, async (route) => {
+      const request = route.request();
+      // CORS preflight handling — same rationale as test 1.2.
+      if (request.method() === 'OPTIONS') {
+        await route.fulfill({
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Access-Control-Max-Age': '600',
+          },
+        });
+        return;
+      }
       let body: Record<string, unknown> = {};
       try {
-        body = JSON.parse(route.request().postData() ?? '{}');
+        body = JSON.parse(request.postData() ?? '{}');
       } catch {
         // ignore parse errors
       }
-      confirmRequests.push({ method: route.request().method(), body });
-      await route.fulfill({ json: { status: 'ok', message: 'Tool skipped' } });
+      confirmRequests.push({ method: request.method(), body });
+      await route.fulfill({
+        json: { status: 'ok', message: 'Tool skipped' },
+        headers: { 'Access-Control-Allow-Origin': '*' },
+      });
     });
 
     await page.goto(`/chat/${CONV_ID}`);
