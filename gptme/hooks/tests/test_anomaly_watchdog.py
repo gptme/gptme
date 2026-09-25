@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import threading
 
 import pytest
 
@@ -55,6 +56,27 @@ def _fake_tool_use(
             self.content = content
 
     return _FakeToolUse()
+
+
+def _no_log(monkeypatch) -> None:
+    """Make the log-directory lookup report no active conversation."""
+    from ...logmanager import LogManager
+
+    monkeypatch.setattr(LogManager, "get_current_log", classmethod(lambda cls: None))
+
+
+def _stub_id(value: str | None):
+    """Stand-in for a ``current_*_id`` ContextVar with a fixed value."""
+
+    class _Stub:
+        def get(self) -> str | None:
+            return value
+
+    return _Stub()
+
+
+def _session_key() -> str:
+    return anomaly_watchdog._session_key()
 
 
 def _reset_storm_state() -> None:
@@ -442,6 +464,47 @@ class TestWriteStorm:
         assert _check_write_storm() is None
         assert "session-a" not in anomaly_watchdog._write_times_by_session
 
+    def test_fallback_key_survives_a_fresh_context(self, monkeypatch):
+        """A per-prompt context copy must not reset the write window.
+
+        ACP copies a fresh execution context for every prompt; a key minted per
+        context would start a new window each turn, so earlier writes would drop
+        out and write-storm would never fire.
+        """
+        _no_log(monkeypatch)
+        parent = _session_key()
+        assert _session_key() == parent  # stable within a context
+        assert contextvars.copy_context().run(_session_key) == parent
+        assert contextvars.Context().run(_session_key) == parent  # fresh context
+        assert parent.startswith("thread-")
+
+    def test_distinct_threads_get_distinct_fallback_keys(self, monkeypatch):
+        """The thread fallback must not merge unrelated workers."""
+        _no_log(monkeypatch)
+        seen: list[str] = []
+
+        def worker() -> None:
+            seen.append(_session_key())
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert len(seen) == 2
+        assert seen[0] != seen[1]
+
+    def test_server_conversation_id_wins_over_the_thread(self, monkeypatch):
+        monkeypatch.setattr(
+            anomaly_watchdog, "current_conversation_id", _stub_id("conv-1")
+        )
+        monkeypatch.setattr(anomaly_watchdog, "current_session_id", _stub_id("sess-1"))
+        assert _session_key() == "conv-conv-1"
+
+        monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id(None))
+        assert _session_key() == "session-sess-1"
+
 
 # ---------------------------------------------------------------------------
 # novel_host
@@ -473,20 +536,6 @@ class TestNovelHost:
             _fake_tool_use("browser", args=["https://user:pass@trusted.example/x"])
         )
         assert result is None
-
-    def test_fallback_session_keys_are_distinct_per_context(self, monkeypatch):
-        """Without a LogManager, independent contexts must not share a window."""
-        monkeypatch.setattr(
-            anomaly_watchdog,
-            "_fallback_session_key",
-            contextvars.ContextVar("t", default=None),
-        )
-        parent = anomaly_watchdog._session_key()
-        assert anomaly_watchdog._session_key() == parent  # stable within a context
-
-        # A copied context inherits the key; a fresh one mints its own.
-        assert contextvars.copy_context().run(anomaly_watchdog._session_key) == parent
-        assert contextvars.Context().run(anomaly_watchdog._session_key) != parent
 
     def test_new_host_warns(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")

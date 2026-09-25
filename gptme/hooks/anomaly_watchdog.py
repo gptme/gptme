@@ -19,18 +19,21 @@ Optional tuning:
 
 from __future__ import annotations
 
-import contextvars
 import json
 import logging
 import os
 import threading
 import time
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from ..hooks import HookType, register_hook
+from ..hooks import (
+    HookType,
+    current_conversation_id,
+    current_session_id,
+    register_hook,
+)
 from ..plugins.plugin import GptmePlugin
 
 if TYPE_CHECKING:
@@ -57,15 +60,6 @@ logger = logging.getLogger(__name__)
 _write_times_by_session: dict[str, list[float]] = {}
 _WINDOW_LOCK = threading.Lock()
 
-# Fallback window key for contexts that have no LogManager yet (a fresh session,
-# or a server request that arrives before the first message is persisted).
-# Minting one shared constant would merge independent conversations into a
-# single window, so each context mints its own key. Copies inherit the value,
-# so async tasks and copied hook contexts keep their parent's key.
-_fallback_session_key: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "anomaly_watchdog_session_key", default=None
-)
-
 # Tool calls rejected by this watchdog, keyed by object identity with a short
 # TTL. TOOL_CONFIRM fires before execution and TOOL_EXECUTE_POST after, and the
 # same ``ToolUse`` object flows through both (it is the object published by
@@ -82,7 +76,19 @@ _REJECTED_TTL = 300.0
 
 
 def _session_key() -> str:
-    """Return a stable per-conversation key for the write-storm window."""
+    """Return a stable per-conversation key for the write-storm window.
+
+    The window has to satisfy two constraints at once: it must not merge two
+    conversations (a burst in one would then block the other), and it must be
+    *continuous* across the execution contexts a harness creates per prompt —
+    ACP copies a fresh context for each turn, so a key minted per context would
+    reset the window every turn and write-storm would never trip.
+
+    Hence the preference order: the conversation's log directory is exact when
+    it exists, the server's conversation/session id is exact during a server
+    session, and the thread is the continuity fallback — stable across context
+    copies within a worker, distinct between workers.
+    """
     try:
         from ..logmanager import LogManager
 
@@ -92,11 +98,11 @@ def _session_key() -> str:
     if log is not None:
         return str(log.logdir)
 
-    key = _fallback_session_key.get()
-    if key is None:
-        key = f"ctx-{uuid.uuid4().hex}"
-        _fallback_session_key.set(key)
-    return key
+    if conversation_id := current_conversation_id.get():
+        return f"conv-{conversation_id}"
+    if session_id := current_session_id.get():
+        return f"session-{session_id}"
+    return f"thread-{threading.get_ident()}"
 
 
 # Tools that perform file writes (for write_storm + scope_escape detection).
