@@ -1539,12 +1539,12 @@ def _is_slash_command_token(word: str) -> bool:
     if not word.startswith("/") or "/" in word[1:] or not word[1:]:
         return False
     name = word[1:]
-    from ..commands.base import get_registered_commands  # fmt: skip
-    from ..commands.meta import COMMANDS  # fmt: skip
-
-    if name in COMMANDS or name in get_registered_commands():
-        return True
     try:
+        from ..commands.base import get_registered_commands  # fmt: skip
+        from ..commands.meta import COMMANDS  # fmt: skip
+
+        if name in COMMANDS or name in get_registered_commands():
+            return True
         from ..tools import get_available_tools  # fmt: skip
 
         return any(t.name == name for t in get_available_tools(include_mcp=False))
