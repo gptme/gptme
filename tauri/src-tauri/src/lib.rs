@@ -878,12 +878,7 @@ fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
                 "args",
                 &mut extra,
             );
-            keep_if_mistyped(
-                st.get("env").cloned(),
-                |i| is_scalar_str_map(i),
-                "env",
-                &mut extra,
-            );
+            keep_if_mistyped(st.get("env").cloned(), is_scalar_str_map, "env", &mut extra);
             keep_if_mistyped(
                 st.get("url").cloned(),
                 |i| i.as_value().and_then(|v| v.as_str()).is_some(),
@@ -892,7 +887,7 @@ fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
             );
             keep_if_mistyped(
                 st.get("headers").cloned(),
-                |i| is_scalar_str_map(i),
+                is_scalar_str_map,
                 "headers",
                 &mut extra,
             );
@@ -943,7 +938,7 @@ fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
             );
             keep_if_mistyped(
                 it.get("env").map(|v| toml_edit::Item::Value(v.clone())),
-                |i| is_scalar_str_map(i),
+                is_scalar_str_map,
                 "env",
                 &mut extra,
             );
@@ -955,7 +950,7 @@ fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
             );
             keep_if_mistyped(
                 it.get("headers").map(|v| toml_edit::Item::Value(v.clone())),
-                |i| is_scalar_str_map(i),
+                is_scalar_str_map,
                 "headers",
                 &mut extra,
             );
