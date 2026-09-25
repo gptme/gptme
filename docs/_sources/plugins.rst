@@ -501,6 +501,37 @@ Plugins can be distributed as:
 
       cp -r my_plugin ~/.config/gptme/plugins/
 
+.. _plugin-registry:
+
+Plugin Registry
+---------------
+
+Community plugins, skills, and MCP servers are discovered through GitHub
+topics. The live catalog is `gptme-contrib
+<https://github.com/gptme/gptme-contrib>`_ — see its `Community Extensions
+<https://gptme.github.io/gptme-contrib/#community-plugins>`_ dashboard.
+
+To get listed:
+
+1. **Add the appropriate GitHub topic** to your repository:
+
+   - ``gptme-plugin`` — Python plugin packages (tools, hooks, commands)
+   - ``gptme-skill`` — SKILL.md skill bundles
+   - ``gptme-mcp-server`` — MCP servers designed for or compatible with gptme
+
+   On GitHub: open your repository → click the ⚙ gear icon next to "About" →
+   add topics. From the CLI:
+
+   .. code-block:: bash
+
+      gh repo edit owner/your-repo --add-topic gptme-plugin
+
+2. **Browse** existing work on the topic pages (`gptme-plugin
+   <https://github.com/topics/gptme-plugin>`_, `gptme-skill
+   <https://github.com/topics/gptme-skill>`_, `gptme-mcp-server
+   <https://github.com/topics/gptme-mcp-server>`_). A curated skill starting
+   set is in the :doc:`skills-gallery`.
+
 .. _unified-plugins:
 
 Unified Plugin System (Entry Points)

@@ -612,6 +612,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-guardrail-plugin">Example: Guardrail Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-registry">Plugin Registry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system-entry-points">Unified Plugin System (Entry Points)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
@@ -1098,6 +1099,28 @@ Weather<span class="w"> </span><span class="k">in</span><span class="w"> </span>
 </li>
 </ol>
 </section>
+<section id="plugin-registry">
+<span id="id3"></span><h2>Plugin Registry<a class="headerlink" href="#plugin-registry" title="Link to this heading">#</a></h2>
+<p>Community plugins, skills, and MCP servers are discovered through GitHub
+topics. The live catalog is <a class="reference external" href="https://github.com/gptme/gptme-contrib">gptme-contrib</a> — see its <a class="reference external" href="https://gptme.github.io/gptme-contrib/#community-plugins">Community Extensions</a> dashboard.</p>
+<p>To get listed:</p>
+<ol class="arabic">
+<li><p><strong>Add the appropriate GitHub topic</strong> to your repository:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme-plugin</span></code> — Python plugin packages (tools, hooks, commands)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme-skill</span></code> — SKILL.md skill bundles</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme-mcp-server</span></code> — MCP servers designed for or compatible with gptme</p></li>
+</ul>
+<p>On GitHub: open your repository → click the ⚙ gear icon next to “About” →
+add topics. From the CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gh<span class="w"> </span>repo<span class="w"> </span>edit<span class="w"> </span>owner/your-repo<span class="w"> </span>--add-topic<span class="w"> </span>gptme-plugin
+</pre></div>
+</div>
+</li>
+<li><p><strong>Browse</strong> existing work on the topic pages (<a class="reference external" href="https://github.com/topics/gptme-plugin">gptme-plugin</a>, <a class="reference external" href="https://github.com/topics/gptme-skill">gptme-skill</a>, <a class="reference external" href="https://github.com/topics/gptme-mcp-server">gptme-mcp-server</a>). A curated skill starting
+set is in the <a class="reference internal" href="skills-gallery.html"><span class="doc">Skills Gallery</span></a>.</p></li>
+</ol>
+</section>
 <section id="unified-plugin-system-entry-points">
 <span id="unified-plugins"></span><h2>Unified Plugin System (Entry Points)<a class="headerlink" href="#unified-plugin-system-entry-points" title="Link to this heading">#</a></h2>
 <p>For <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code>-able packages, gptme supports a unified plugin interface via Python entry points. A single <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> dataclass lets a package expose <strong>any combination</strong> of tools, hooks, commands, and LLM providers — no folder structure required.</p>
@@ -1368,6 +1391,7 @@ gptme
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-guardrail-plugin">Example: Guardrail Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-registry">Plugin Registry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system-entry-points">Unified Plugin System (Entry Points)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
