@@ -776,6 +776,16 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
     // keys are rebuilt below.
     let mut mcp_table = match doc.get("mcp") {
         Some(toml_edit::Item::Table(t)) => t.clone(),
+        // `mcp = { ... }` inline tables promote to a regular table on save.
+        Some(toml_edit::Item::Value(v)) => {
+            let mut t = toml_edit::Table::new();
+            if let Some(it) = v.as_inline_table() {
+                for (k, val) in it.iter() {
+                    t.insert(k, toml_edit::Item::Value(val.clone()));
+                }
+            }
+            t
+        }
         _ => toml_edit::Table::new(),
     };
     mcp_table.remove("enabled");
@@ -1835,6 +1845,18 @@ command = "cmd"
         let updated = serialize_mcp_config(original, &cfg).unwrap();
         assert!(updated.contains("log_level = \"debug\""));
         assert!(updated.contains("enabled = true"));
+        assert!(updated.contains("name = \"srv\""));
+    }
+
+    #[test]
+    fn test_mcp_config_inline_table_keys_survive_save() {
+        // `mcp = { ... }` inline form must not lose unknown keys on save.
+        let original = r#"
+mcp = { enabled = true, log_level = "debug", servers = [{ name = "srv", enabled = true, command = "cmd" }] }
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("log_level = \"debug\""));
         assert!(updated.contains("name = \"srv\""));
     }
 
