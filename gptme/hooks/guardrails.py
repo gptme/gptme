@@ -40,6 +40,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..tools._policy_block import policy_block_message
 from .confirm import ConfirmationResult
 
 if TYPE_CHECKING:
@@ -302,7 +303,11 @@ def guardrail_hook(
 
     # Enforce mode
     logger.info("Guardrail (enforce): blocking — %s", block_reason)
-    return ConfirmationResult.skip(f"Blocked by guardrail: {block_reason}")
+    return ConfirmationResult.skip(
+        policy_block_message(
+            "guardrail", f"Blocked by guardrail: {block_reason}"
+        ).content
+    )
 
 
 # ---------------------------------------------------------------------------
