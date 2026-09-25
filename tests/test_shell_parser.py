@@ -1,11 +1,11 @@
-"""Bash parser migration: source fidelity, boundaries, and compatibility."""
+"""Bash parser: source fidelity, boundaries, and error handling."""
 
 import shutil
 import subprocess
 
 import pytest
 
-from gptme.tools.shell import _split_commands_bashlex, split_commands
+from gptme.tools.shell import split_commands
 
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="Requires Bash")
 
@@ -33,26 +33,48 @@ def test_extended_grammar_splits_surrounding_commands(command: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "script",
+    ("script", "expected"),
     [
-        "echo a\necho b",
-        "echo a; echo b\necho c",
-        "sleep 1 &\necho done",
-        "sleep 1 & echo done",
-        "ls &&\n pwd\necho end",
-        "ls |\n wc -l\necho end",
-        "f() {\n echo hi\n}\nf",
-        "(echo a\necho b)\necho c",
-        "{ echo a\necho b; }\necho c",
-        "for x in a b; do\n echo $x\ndone\necho c",
-        "if true; then\n echo a\nfi\necho c",
-        "echo héj\necho 世界",
-        "cat <<'EOF' > out\nbody\nEOF\necho end",
-        "# before\necho a # inline\n# between\necho b",
+        ("echo a\necho b", ["echo a", "echo b"]),
+        ("echo a; echo b\necho c", ["echo a; echo b", "echo c"]),
+        ("sleep 1 &\necho done", ["sleep 1 &", "echo done"]),
+        ("sleep 1 & echo done", ["sleep 1 & echo done"]),
+        ("ls &&\n pwd\necho end", ["ls &&\n pwd", "echo end"]),
+        ("ls |\n wc -l\necho end", ["ls |\n wc -l", "echo end"]),
+        ("f() {\n echo hi\n}\nf", ["f() {\n echo hi\n}", "f"]),
+        ("(echo a\necho b)\necho c", ["(echo a\necho b)", "echo c"]),
+        ("{ echo a\necho b; }\necho c", ["{ echo a\necho b; }", "echo c"]),
+        (
+            "for x in a b; do\n echo $x\ndone\necho c",
+            ["for x in a b; do\n echo $x\ndone", "echo c"],
+        ),
+        (
+            "if true; then\n echo a\nfi\necho c",
+            ["if true; then\n echo a\nfi", "echo c"],
+        ),
+        ("echo héj\necho 世界", ["echo héj", "echo 世界"]),
+        (
+            "cat <<'EOF' > out\nbody\nEOF\necho end",
+            ["cat <<'EOF' > out\nbody\nEOF", "echo end"],
+        ),
+        (
+            "# before\necho a # inline\n# between\necho b",
+            ["echo a", "echo b"],
+        ),
     ],
 )
-def test_bashlex_differential_corpus(script: str) -> None:
-    assert split_commands(script) == _split_commands_bashlex(script)
+def test_split_commands_corpus(script: str, expected: list[str]) -> None:
+    """Top-level command boundaries, not just bash-valid fragments."""
+    commands = split_commands(script)
+    assert commands == expected
+    for command in commands:
+        subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
 
 
 def test_quoted_heredocs_preserve_source_and_expansion() -> None:
@@ -78,12 +100,12 @@ def test_quoted_heredocs_preserve_source_and_expansion() -> None:
     ],
 )
 def test_grammar_gaps_keep_complete_commands(script: str) -> None:
+    """Unparseable-but-valid scripts stay intact instead of splitting into fragments."""
     commands = split_commands(script)
-    assert commands == _split_commands_bashlex(script)
-    for command in commands:
-        subprocess.run(
-            ["bash", "-n"], input=command, text=True, capture_output=True, check=True
-        )
+    assert commands == [script]
+    subprocess.run(
+        ["bash", "-n"], input=script, text=True, capture_output=True, check=True
+    )
 
 
 @pytest.mark.parametrize("script", ["echo 'unclosed", "ls |", "if true; then\necho x"])
@@ -116,3 +138,42 @@ def test_logical_line_continuation_and_comment_boundaries() -> None:
     assert split_commands(continued + "\necho c") == [continued, "echo c"]
     commented = "echo a # comment " + "\\\n" + "echo b"
     assert split_commands(commented) == ["echo a", "echo b"]
+
+
+def test_split_commands_bash_check_failure_fails_closed(monkeypatch) -> None:
+    """bash present but `bash -n` itself fails must not read as "bash accepted".
+
+    With fallback=None, a check failure (OSError/timeout) used to be
+    indistinguishable from acceptance, sending a tree-sitter-error script
+    whole to the persistent shell. strict mode raises instead.
+    """
+    from gptme.tools import shell as shell_module
+
+    monkeypatch.setattr(shell_module.shutil, "which", lambda _name: "/usr/bin/bash")
+
+    def _fail(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="bash", timeout=10)
+
+    monkeypatch.setattr(shell_module.subprocess, "run", _fail)
+    with pytest.raises(ValueError, match="Cannot validate shell syntax"):
+        split_commands("echo before\nls |")
+
+
+def test_rejected_fragment_with_invalid_script_fails_closed() -> None:
+    """A rejected fragment must not let a genuinely broken script run whole.
+
+    ``time { ... }`` has no tree-sitter ERROR node, so the splitter produces the
+    unterminated fragment ``time {`` and the boundary check rejects it. Returning
+    the script unchanged would execute its leading command before bash ever sees
+    the syntax error, so the whole script is checked with ``bash -n`` first.
+    """
+    with pytest.raises(ValueError, match="Shell syntax error"):
+        split_commands("echo before\ntime { echo x")
+
+
+def test_split_commands_without_bash_still_returns_script(monkeypatch) -> None:
+    """bash unavailable stays benign: unparseable scripts run whole."""
+    from gptme.tools import shell as shell_module
+
+    monkeypatch.setattr(shell_module.shutil, "which", lambda _name: None)
+    assert split_commands("echo a\ntime { echo b; }") == ["echo a\ntime { echo b; }"]

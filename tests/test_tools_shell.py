@@ -151,6 +151,23 @@ def test_redirect_background_stdin_before_ampersand():
     )
 
 
+def test_redirect_background_stdin_grammar_gap_returns_unchanged(monkeypatch):
+    """On a tree-sitter grammar gap the command is returned unchanged."""
+    from gptme.tools import shell
+
+    class FakeNode:
+        type = "program"
+        has_error = True
+
+    monkeypatch.setattr(shell, "_parse_bash", lambda source: FakeNode())
+    assert (
+        shell._redirect_background_stdin("some-weird-grammar-gap-command &")
+        == "some-weird-grammar-gap-command &"
+    )
+    assert shell._redirect_background_stdin("weird & gap") == "weird & gap"
+    assert shell._redirect_background_stdin("weird &&") == "weird &&"
+
+
 def test_heredoc_complex(shell):
     # Test nested heredocs
     ret, out, err = shell.run(
@@ -455,15 +472,20 @@ def test_split_commands_syntax_error_uses_bash_message():
         split_commands("ls |")
 
 
-def test_split_commands_without_bash_rejects_invalid_syntax(monkeypatch):
-    """A parser error still fails closed when Bash is unavailable."""
-    import pytest
+def test_split_commands_without_bash_returns_script_on_parse_error(monkeypatch):
+    """Without bash, tree-sitter errors are treated as unparseable, not invalid.
 
+    When bash is unavailable, ``bash -n`` cannot confirm whether a tree-sitter
+    error is a real syntax error or a valid-but-unparseable construct.  The safe
+    fallback is to return the script as a single command (matching the old bashlex
+    behaviour) rather than raising ValueError, which would incorrectly reject
+    valid scripts on systems without bash.
+    """
     from gptme.tools import shell as shell_module
 
     monkeypatch.setattr(shell_module.shutil, "which", lambda _name: None)
-    with pytest.raises(ValueError, match="Shell syntax error: unexpected EOF"):
-        split_commands("ls |")
+    # tree-sitter sees an error in "ls |" but without bash we cannot confirm it
+    assert split_commands("ls |") == ["ls |"]
 
 
 def test_split_commands_windows_with_bash_keeps_stop_on_failure(monkeypatch):
