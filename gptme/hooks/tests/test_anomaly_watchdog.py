@@ -277,9 +277,9 @@ class TestWriteStorm:
 
         A thread that removes a key between another thread's snapshot
         (``list(dict)``) and its indexed access used to raise ``KeyError``,
-        which the tool-execution path turns into a failed tool call. This
-        reproduces that interleaving deterministically: the mapping deletes a
-        key as the snapshot is taken.
+        which the hook registry swallows — so the check silently failed open
+        and the write window could be lost. This reproduces that interleaving
+        deterministically: the mapping deletes a key as the snapshot is taken.
         """
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
