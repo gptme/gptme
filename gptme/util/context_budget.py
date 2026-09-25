@@ -32,6 +32,11 @@ _DEFAULT_FRACTION = 0.9
 _DEFAULT_MAX_OUTPUT = 8192
 _DEFAULT_HEADROOM = 1000
 
+# Floor for the budget on tiny windows where reserving output tokens and
+# headroom leaves nothing: clamp instead of raising so compaction stays
+# available (and env/config overrides still resolve) for small local models.
+_MIN_BUDGET = 1000
+
 
 def get_context_budget(
     model_context: int,
@@ -51,9 +56,15 @@ def get_context_budget(
     """
     safe_ceiling = model_context - max_output - headroom
     if safe_ceiling <= 0:
-        raise ValueError(
-            "model context must exceed reserved output tokens and headroom"
+        logger.warning(
+            "Model context %d does not exceed reserved output (%d) + headroom "
+            "(%d); clamping context budget to minimum %d",
+            model_context,
+            max_output,
+            headroom,
+            _MIN_BUDGET,
         )
+        safe_ceiling = _MIN_BUDGET
 
     def resolve(value: float | int) -> int | None:
         parsed = float(value)

@@ -134,3 +134,25 @@ def test_minimum_budget_clamp():
 
 def test_minimum_budget_does_not_exceed_safe_ceiling():
     assert get_context_budget(1500, max_output=1000, headroom=100) == 400
+
+
+def test_small_window_clamps_instead_of_raising():
+    """A window that cannot cover max_output + headroom must not raise.
+
+    Regression test: small local models (e.g. 8k Ollama/LM Studio models with
+    no declared max_output) hit safe_ceiling <= 0, which used to raise
+    ValueError before env/config resolution — silently disabling compaction
+    for those models while every hook invocation logged a traceback.
+    """
+    # 8192 window with default max_output=8192 and headroom=1000: ceiling is
+    # negative → clamped to the 1000-token floor instead of raising.
+    assert get_context_budget(8192) == 1000
+
+
+def test_small_window_env_override_still_resolves():
+    """An explicit GPTME_CONTEXT_BUDGET must work even on clamped ceilings."""
+    import os
+    from unittest.mock import patch
+
+    with patch.dict(os.environ, {"GPTME_CONTEXT_BUDGET": "0.5"}):
+        assert get_context_budget(8192) == 1000

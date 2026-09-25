@@ -2000,3 +2000,56 @@ def test_cli_post_tool_compaction_swallows_hook_errors(monkeypatch):
         _run_post_tool_compaction(manager)
 
     manager.append.assert_not_called()
+
+
+def test_cli_post_tool_compaction_reports_view_switch():
+    """_run_post_tool_compaction must report whether the view was switched.
+
+    Regression test (Greptile P1): when compaction replaces the active view
+    mid-turn, the resumed log ends with the summary resume instead of the
+    assistant's tool call, so the chat loop's content-based continuation check
+    would end the turn without making the continuation request. The loop
+    relies on this return value to keep the pre-compaction decision.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.chat import _run_post_tool_compaction
+
+    manager = MagicMock()
+    manager.current_view = "view-a"
+
+    # No compaction (hook yields nothing): same view → False
+    with patch("gptme.tools.autocompact.hook.autocompact_hook", return_value=iter([])):
+        assert _run_post_tool_compaction(manager) is False
+
+    # Compaction switches the view → True
+    def switching_hook(manager):
+        manager.current_view = "view-b"
+        return iter([])
+
+    with patch(
+        "gptme.tools.autocompact.hook.autocompact_hook", side_effect=switching_hook
+    ):
+        assert _run_post_tool_compaction(manager) is True
+
+
+def test_has_pending_tooluse_detects_runnable_tool_call():
+    from gptme.chat import _has_pending_tooluse
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        [
+            Message("user", "run this"),
+            Message("assistant", "```shell\necho hi\n```"),
+        ]
+    )
+    assert _has_pending_tooluse(log) is True
+
+    log_plain = Log(
+        [
+            Message("user", "hi"),
+            Message("assistant", "All done, nothing left to run."),
+        ]
+    )
+    assert _has_pending_tooluse(log_plain) is False
