@@ -164,6 +164,15 @@ def _load_context_files(
     return loaded_files
 
 
+def _logfile_snapshot(path: Path) -> tuple[int, int] | None:
+    """Size + mtime of the conversation log, for detecting concurrent appends."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_size, stat.st_mtime_ns)
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
@@ -236,12 +245,18 @@ Format the response as a structured document that could serve as a RESUME.md fil
         )
         return
     snapshot = None
+    file_snapshot = None
     if llm_unlocked is not None:
+        # The conversation lock is released while the summary generates, so
+        # other workers may append via their own LogManager instances. Those
+        # writes update the file on disk but not this in-memory log, so the
+        # in-memory comparison alone can never detect them.
         snapshot = (
             manager.current_view,
             len(manager.log.messages),
             manager.log.messages[-1].content if manager.log.messages else None,
         )
+        file_snapshot = _logfile_snapshot(manager.logfile)
     with llm_unlocked or nullcontext():
         resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
     if snapshot is not None:
@@ -250,7 +265,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
             len(manager.log.messages),
             manager.log.messages[-1].content if manager.log.messages else None,
         )
-        if current != snapshot:
+        if current != snapshot or _logfile_snapshot(manager.logfile) != file_snapshot:
             logger.info(
                 "Discarding stale summarizer result; conversation changed during llm.reply"
             )

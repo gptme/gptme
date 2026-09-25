@@ -56,15 +56,20 @@ def get_context_budget(
     """
     safe_ceiling = model_context - max_output - headroom
     if safe_ceiling <= 0:
+        # Clamp instead of raising so env/config overrides still resolve on
+        # small local models. Never clamp above the model window itself: a
+        # 1000-token floor on a 500-token model would make the budget larger
+        # than the window, so compaction would never fire before the provider
+        # rejects the request.
+        safe_ceiling = max(1, min(_MIN_BUDGET, model_context))
         logger.warning(
             "Model context %d does not exceed reserved output (%d) + headroom "
-            "(%d); clamping context budget to minimum %d",
+            "(%d); clamping context budget to %d",
             model_context,
             max_output,
             headroom,
-            _MIN_BUDGET,
+            safe_ceiling,
         )
-        safe_ceiling = _MIN_BUDGET
 
     def resolve(value: float | int) -> int | None:
         parsed = float(value)

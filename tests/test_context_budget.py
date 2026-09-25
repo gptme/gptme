@@ -156,3 +156,24 @@ def test_small_window_env_override_still_resolves():
 
     with patch.dict(os.environ, {"GPTME_CONTEXT_BUDGET": "0.5"}):
         assert get_context_budget(8192) == 1000
+
+
+def test_subfloor_window_budget_never_exceeds_window():
+    """The clamp must not raise the budget above a sub-1000-token window.
+
+    Regression test: clamping a 500-token window to the 1000-token floor made
+    the budget larger than the window, so should_auto_compact only fired after
+    the provider had already rejected input — compaction never ran and the
+    last-resort limit_log dropped messages instead.
+    """
+    assert get_context_budget(500) == 500
+    assert get_context_budget(500) <= 500
+
+
+def test_subfloor_window_env_override_is_bounded_by_window():
+    """Even an explicit override cannot exceed a sub-floor window."""
+    import os
+    from unittest.mock import patch
+
+    with patch.dict(os.environ, {"GPTME_CONTEXT_BUDGET": "1.0"}):
+        assert get_context_budget(500) <= 500

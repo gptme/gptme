@@ -29,12 +29,35 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Reentrancy guard to prevent infinite loops. Keyed by conversation logdir so
-# concurrent server sessions do not share a process-global cooldown. The value
-# is (timestamp, message_count): a later attempt on the same conversation is
+# Reentrancy guard to prevent infinite loops. Keyed by (conversation logdir,
+# branch) so concurrent server sessions — and sibling branches of the same
+# conversation — do not share a process-global cooldown. The value is
+# (timestamp, message_count): a later attempt on the same conversation is
 # allowed inside the interval when the log has grown (e.g. tool results).
-_last_autocompact_attempt: dict[str, tuple[float, int]] = {}
+_last_autocompact_attempt: dict[tuple[str, str], tuple[float, int]] = {}
 _autocompact_min_interval = 60  # Minimum 60 seconds between unchanged attempts
+
+# Bound the cooldown map so a long-lived server does not accumulate one entry
+# per conversation it has ever compacted.
+_MAX_TRACKED_CONVERSATIONS = 512
+
+
+def _prune_attempts(now: float) -> None:
+    """Drop cooldown entries for conversations we no longer need to throttle."""
+    if len(_last_autocompact_attempt) <= _MAX_TRACKED_CONVERSATIONS:
+        return
+    # Prefer entries past the cooldown window; if that is not enough (a burst
+    # of fresh conversations), drop oldest-first so the map stays bounded.
+    cutoff = now - _autocompact_min_interval
+    for key, (last_time, _) in list(_last_autocompact_attempt.items()):
+        if last_time < cutoff:
+            del _last_autocompact_attempt[key]
+    overflow = len(_last_autocompact_attempt) - _MAX_TRACKED_CONVERSATIONS
+    if overflow > 0:
+        for key, _ in sorted(
+            _last_autocompact_attempt.items(), key=lambda item: item[1][0]
+        )[:overflow]:
+            del _last_autocompact_attempt[key]
 
 
 def _get_compacted_name(conversation_name: str) -> str:
@@ -102,7 +125,8 @@ def autocompact_hook(
     """
 
     current_time = time.time()
-    conv_key = str(manager.logdir)
+    _prune_attempts(current_time)
+    conv_key = (str(manager.logdir), manager.current_branch)
     messages = manager.log.messages
     n_messages = len(messages)
     last_attempt = _last_autocompact_attempt.get(conv_key)
