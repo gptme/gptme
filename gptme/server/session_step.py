@@ -495,13 +495,33 @@ async def _acp_step(
                     _append_and_notify(manager, session, hook_msg)
                 manager.write()
 
-        if pre_msgs := trigger_hook(
-            HookType.STEP_PRE,
-            manager=manager,
-        ):
-            for hook_msg in pre_msgs:
-                _append_and_notify(manager, session, hook_msg)
-            manager.write()
+        try:
+            if pre_msgs := trigger_hook(
+                HookType.STEP_PRE,
+                manager=manager,
+            ):
+                for hook_msg in pre_msgs:
+                    _append_and_notify(manager, session, hook_msg)
+                manager.write()
+        except Exception as e:
+            # The STEP_PRE trigger sits outside the inner try/finally that
+            # releases the generating reservation, so a session-completion
+            # signal from a hook (e.g. the policy-block budget) would otherwise
+            # escape _acp_step with the reservation still held and no
+            # step_complete emitted — leaving the session stuck as
+            # "generating". Release it with the same compare-and-clear contract
+            # as the finally block before propagating (parity with step()).
+            from ..tools.complete import SessionCompleteException  # fmt: skip
+
+            if isinstance(e, SessionCompleteException):
+                with session.step_lock:
+                    if session.step_seq == my_step_seq:
+                        session.generating = False
+                        session.generating_since = None
+                        SessionManager.add_event(
+                            conversation_id, {"type": "step_complete"}
+                        )
+            raise
 
         user_messages = [m for m in manager.log.messages if m.role == "user"]
         if not user_messages:
@@ -880,6 +900,16 @@ def step(
         from ..tools.complete import SessionCompleteException  # fmt: skip
 
         if isinstance(e, SessionCompleteException):
+            # Mirror the CLI: a completion signal from a STEP_PRE hook ends the
+            # session, but the preceding step's tool results must still run the
+            # post-turn hooks (pre-commit checks, autocommit) before it does.
+            if post_msgs := trigger_hook(
+                HookType.TURN_POST,
+                manager=manager,
+            ):
+                for hook_msg in post_msgs:
+                    _append_and_notify(manager, session, hook_msg)
+                manager.write(sync=True)
             with session.step_lock:
                 if session.step_seq == my_step_seq:
                     session.finish_skill_turn("abandoned")
