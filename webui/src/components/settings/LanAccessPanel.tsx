@@ -42,6 +42,14 @@ export function LanAccessPanel() {
     } catch (e) {
       setError(String(e));
       toast.error(`Failed: ${e}`);
+      // The backend may have cleared LAN state even when the command errored
+      // (disable clears state before returning the error) — refetch so the
+      // toggle reflects reality instead of a stale "enabled".
+      try {
+        setStatus(await invokeTauri<LanStatus>('get_lan_access_status'));
+      } catch {
+        // status fetch failed; leave stale value
+      }
     } finally {
       setIsLoading(false);
     }

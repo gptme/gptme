@@ -195,9 +195,26 @@ async fn restart_sidecar_with_lan(
         std::thread::sleep(Duration::from_millis(200));
     }
     if !port_free {
-        // The old server is dead but the port never freed: restore a usable
-        // (loopback-only) server before surfacing the error, so the app is
-        // not left without a backend.
+        // A PyInstaller onefile orphan may survive the launcher kill and keep
+        // holding the port — possibly LAN-bound with the old token (#2260).
+        // Force-clear it before giving up, so the restore spawn below cannot
+        // adopt (or fail against) an orphan that still serves the LAN.
+        log::warn!(
+            "Port {} did not free up; force-clearing possible orphan",
+            crate::server_port()
+        );
+        crate::kill_server_on_port(crate::server_port());
+        for _ in 0..10 {
+            if crate::is_port_available(crate::server_port()) {
+                port_free = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    if !port_free {
+        // The port still never freed: restore a usable (loopback-only) server
+        // before surfacing the error, so the app is not left without a backend.
         let restore = crate::spawn_server_sidecar(
             &app,
             server.child.clone(),
