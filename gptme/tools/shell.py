@@ -3654,6 +3654,18 @@ def split_commands(script: str) -> list[str]:
         is not None
         for command in commands
     ):
+        # A rejected fragment does not prove the script is broken — the splitter
+        # may be the thing at fault on a grammar gap. But returning the script
+        # unchanged would run its leading commands and only then hit bash's
+        # syntax error, so give the whole script one more bash -n check: raise on
+        # a genuine syntax error, otherwise keep the conservative single-command
+        # return. `fallback=None` keeps the bash-unavailable case benign.
+        bash_error = _bash_syntax_error(script, fallback=None, strict=True)
+        if bash_error is not None:
+            raise ValueError(
+                f"Shell syntax error: {bash_error}\n"
+                f"Please fix the syntax or use a different approach."
+            )
         return [script]
     return commands
 

@@ -159,6 +159,18 @@ def test_split_commands_bash_check_failure_fails_closed(monkeypatch) -> None:
         split_commands("echo before\nls |")
 
 
+def test_rejected_fragment_with_invalid_script_fails_closed() -> None:
+    """A rejected fragment must not let a genuinely broken script run whole.
+
+    ``time { ... }`` has no tree-sitter ERROR node, so the splitter produces the
+    unterminated fragment ``time {`` and the boundary check rejects it. Returning
+    the script unchanged would execute its leading command before bash ever sees
+    the syntax error, so the whole script is checked with ``bash -n`` first.
+    """
+    with pytest.raises(ValueError, match="Shell syntax error"):
+        split_commands("echo before\ntime { echo x")
+
+
 def test_split_commands_without_bash_still_returns_script(monkeypatch) -> None:
     """bash unavailable stays benign: unparseable scripts run whole."""
     from gptme.tools import shell as shell_module
