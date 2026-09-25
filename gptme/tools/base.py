@@ -1039,11 +1039,21 @@ class ToolUse:
         yield from _execute_tool()
 
     @property
-    def is_runnable(self) -> bool:
+    def spec(self) -> ToolSpec | None:
+        """The loaded ``ToolSpec`` for this call, or None if it isn't loaded.
+
+        Looked up per access (tools are context-local and can be enabled or
+        disabled mid-message), so callers that need several attributes should
+        hold the returned spec rather than re-reading this property.
+        """
         # noreorder
         from . import get_tool  # fmt: skip
 
-        tool = get_tool(self.tool)
+        return get_tool(self.tool)
+
+    @property
+    def is_runnable(self) -> bool:
+        tool = self.spec
         return bool(tool.execute) if tool else False
 
     @classmethod

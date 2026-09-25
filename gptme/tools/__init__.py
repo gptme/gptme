@@ -5,7 +5,8 @@ import logging
 import pkgutil
 import threading
 import time
-from contextvars import ContextVar
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -487,6 +488,18 @@ def execute_msg(
     if not classified:
         return
 
+    # Fast path: when every runnable call in this turn is read-only, run them
+    # concurrently. Read-only tools hold no shared mutable state, so this is
+    # safe, and the common multi-read turn (read file A + B + C) is the win.
+    # Mixed or write-bearing turns fall through to the sequential loop below,
+    # so no tool can observe a sibling's side effects mid-turn. A call that can
+    # change tool availability (request_tool_change) is never read-only, so the
+    # eager runnability check here cannot race a mid-message enable/disable.
+    runnable_calls = [tu for tu in classified if tu.is_runnable]
+    if len(runnable_calls) > 1 and all(_is_read_only(tu) for tu in runnable_calls):
+        yield from _execute_readonly_parallel(classified, log, workspace, tool_timings)
+        return
+
     remaining = iter(classified)
     for tooluse in remaining:
         runnable = tooluse.is_runnable
@@ -519,25 +532,120 @@ def execute_msg(
                         tool_timings[tooluse.tool] = (
                             tool_timings.get(tooluse.tool, 0.0) + elapsed_ms
                         )
-        elif tooluse.call_id is not None:
-            # A structured (tool-format) tool_use that isn't runnable still needs
-            # a paired tool_result, or the next API request dangles it and 400s.
-            # Markdown code blocks (call_id is None) are not API tool_uses, so
-            # they're intentionally left unpaired.
-            logger.warning(
-                "Tool '%s' is not runnable; emitting an error tool_result to keep "
-                "the tool_use/tool_result pairing valid.",
-                tooluse.tool,
-            )
-            error_msg = (
-                f"Tool '{tooluse.tool}' is not available for execution."
-                + _enable_hint_for_disabled_tool(tooluse.tool)
-            )
+        elif (unavailable := _unavailable_tool_result(tooluse)) is not None:
+            yield unavailable
+
+
+def _is_read_only(tooluse: ToolUse) -> bool:
+    """Whether the loaded spec for this call is marked ``read_only``."""
+    spec = tooluse.spec
+    return spec is not None and spec.read_only
+
+
+def _unavailable_tool_result(tooluse: ToolUse) -> Message | None:
+    """Paired error result for a non-runnable structured tool_use.
+
+    A structured (tool-format) tool_use that isn't runnable still needs a paired
+    tool_result, or the next API request dangles it and 400s. Markdown code
+    blocks (call_id is None) are not API tool_uses, so they're intentionally
+    left unpaired and this returns None.
+    """
+    if tooluse.call_id is None:
+        return None
+    logger.warning(
+        "Tool '%s' is not runnable; emitting an error tool_result to keep "
+        "the tool_use/tool_result pairing valid.",
+        tooluse.tool,
+    )
+    return Message(
+        "system",
+        f"Tool '{tooluse.tool}' is not available for execution."
+        + _enable_hint_for_disabled_tool(tooluse.tool),
+        call_id=tooluse.call_id,
+    )
+
+
+def _execute_readonly_parallel(
+    classified: list[ToolUse],
+    log: Log | None,
+    workspace: Path | None,
+    tool_timings: dict[str, float] | None,
+) -> Generator[Message, None, None]:
+    """Run an all-read-only turn concurrently, yielding results in call order.
+
+    Only reached when every runnable call is ``read_only`` (see ``execute_msg``
+    for the gate). Results are buffered and yielded in the original order so
+    tool_use/tool_result pairing is unchanged.
+
+    Worker threads start with an empty contextvars context — a plain thread,
+    including ThreadPoolExecutor's, does not inherit the parent's — so the
+    loaded-tool registry, hook registrations and model selection would all read
+    their defaults. Replay the parent's variables into each worker instead of
+    entering one shared Context: a Context cannot be entered by two threads at
+    once, and ``Context.copy()`` is 3.11+ while gptme supports 3.10.
+    """
+    parent_context = copy_context()
+    results: dict[int, list[Message]] = {}
+    errors: dict[int, Exception] = {}
+    timings: dict[int, float] = {}
+
+    def run_one(idx: int, tooluse: ToolUse) -> None:
+        for var, value in parent_context.items():
+            var.set(value)
+        t0 = time.monotonic()
+        try:
+            results[idx] = list(tooluse.execute(log=log, workspace=workspace))
+        except Exception as exc:
+            errors[idx] = exc
+        finally:
+            timings[idx] = (time.monotonic() - t0) * 1000
+
+    with terminal_state_title(f"🛠️ running {len(classified)} tools"):
+        pool = ThreadPoolExecutor(
+            max_workers=len(classified), thread_name_prefix="gptme-tool"
+        )
+        futures = [pool.submit(run_one, idx, tu) for idx, tu in enumerate(classified)]
+        try:
+            for future in futures:
+                future.result()
+        except KeyboardInterrupt:
+            clear_interruptible()
+            pool.shutdown(wait=False, cancel_futures=True)
+            # Abandon the batch, but every structured call still needs a paired
+            # result or the next API request 400s with a dangling tool_use.
+            for tooluse in classified:
+                if tooluse.call_id is not None:
+                    yield Message(
+                        "system",
+                        INTERRUPT_CONTENT,
+                        call_id=tooluse.call_id,
+                    )
+            return
+        except BaseException:
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        else:
+            pool.shutdown(wait=True)
+
+    if tool_timings is not None:
+        for idx, tooluse in enumerate(classified):
+            elapsed_ms = timings.get(idx)
+            if elapsed_ms is not None:
+                tool_timings[tooluse.tool] = (
+                    tool_timings.get(tooluse.tool, 0.0) + elapsed_ms
+                )
+
+    for idx, tooluse in enumerate(classified):
+        if idx in errors:
             yield Message(
                 "system",
-                error_msg,
+                f"Error executing tool '{tooluse.tool}': {errors[idx]}",
                 call_id=tooluse.call_id,
             )
+        elif idx in results:
+            yield from results[idx]
+        elif (unavailable := _unavailable_tool_result(tooluse)) is not None:
+            yield unavailable
 
 
 def get_tool_for_langtag(lang: str) -> ToolSpec | None:
