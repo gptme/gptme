@@ -590,6 +590,44 @@ class TestWriteStorm:
         monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id(None))
         assert _session_key() == "session-sess-1"
 
+    def test_reject_ledger_mutations_hold_their_own_lock(self):
+        """The reject ledger must be mutated under a lock, like the window.
+
+        TOOL_CONFIRM and TOOL_EXECUTE_POST fire on different threads when a
+        server runs concurrent tool calls, and ``_mark_rejected`` is a
+        check-then-act sequence (prune, cap-``clear()``, insert) over a plain
+        dict. ``_write_times_by_session`` is already serialized; this checks the
+        reject ledger is too. Holding the lock must block a marker mutation
+        until it is released, and a blocked marker must still be consumable.
+        """
+        tool_use = _fake_tool_use("save", args=["/tmp/x"])
+        marked = threading.Event()
+        consumed = threading.Event()
+
+        def mark() -> None:
+            anomaly_watchdog._mark_rejected(tool_use)
+            marked.set()
+
+        def consume() -> None:
+            anomaly_watchdog._consume_rejected(tool_use)
+            consumed.set()
+
+        anomaly_watchdog._REJECTED_LOCK.acquire()
+        try:
+            marker_thread = threading.Thread(target=mark)
+            marker_thread.start()
+            assert not marked.wait(timeout=0.5), "marker written without the lock"
+            consumer_thread = threading.Thread(target=consume)
+            consumer_thread.start()
+            assert not consumed.wait(timeout=0.5), "ledger read without the lock"
+        finally:
+            anomaly_watchdog._REJECTED_LOCK.release()
+
+        assert marked.wait(timeout=5), "marker write did not resume"
+        marker_thread.join(timeout=5)
+        assert consumed.wait(timeout=5), "ledger read did not resume"
+        consumer_thread.join(timeout=5)
+
 
 # ---------------------------------------------------------------------------
 # novel_host

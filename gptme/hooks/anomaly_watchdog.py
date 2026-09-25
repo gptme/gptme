@@ -13,7 +13,7 @@ Activation:
 Optional tuning:
   GPTME_ANOMALY_ALLOWED_DIRS=dir1:dir2     # colon-separated extra allowed write dirs
   GPTME_ANOMALY_ALLOWED_HOSTS=host1,host2  # comma-separated trusted hostnames
-  GPTME_ANOMALY_WRITE_LIMIT=20             # window writes that trip the storm check (default: 20)
+  GPTME_ANOMALY_WRITE_LIMIT=20             # inclusive: the 20th write in the window trips the storm check (default: 20)
   GPTME_ANOMALY_WRITE_WINDOW=60            # sliding window in seconds (default: 60)
 """
 
@@ -83,7 +83,13 @@ _thread_window_counter = itertools.count(1)
 # Identity is used rather than the value because ``ToolUse`` holds list/dict
 # fields, so hashing it raises TypeError. Entries are popped on first use and
 # aged out by TTL, so a recycled id cannot outlive the call it belongs to.
+#
+# Like the write window, this ledger is shared by every conversation in the
+# process, so its mutations are serialized by ``_REJECTED_LOCK``: the prune and
+# the cap-``clear()`` are check-then-act sequences, and an unguarded clear could
+# wipe a marker another thread had just written.
 _rejected_calls: dict[int, float] = {}
+_REJECTED_LOCK = threading.Lock()
 _REJECTED_TTL = 300.0
 
 
@@ -451,17 +457,19 @@ def _check_novel_host(tool_use: Any) -> tuple[bool, str] | None:
 def _mark_rejected(tool_use: Any) -> None:
     """Remember that this tool call was blocked before it could execute."""
     now = time.monotonic()
-    for key in list(_rejected_calls):
-        if now - _rejected_calls.get(key, now) > _REJECTED_TTL:
-            _rejected_calls.pop(key, None)
-    if len(_rejected_calls) >= 512:
-        _rejected_calls.clear()
-    _rejected_calls[id(tool_use)] = now
+    with _REJECTED_LOCK:
+        for key in list(_rejected_calls):
+            if now - _rejected_calls.get(key, now) > _REJECTED_TTL:
+                _rejected_calls.pop(key, None)
+        if len(_rejected_calls) >= 512:
+            _rejected_calls.clear()
+        _rejected_calls[id(tool_use)] = now
 
 
 def _consume_rejected(tool_use: Any) -> bool:
     """Return True (once) if this call was blocked before execution."""
-    marked = _rejected_calls.pop(id(tool_use), None)
+    with _REJECTED_LOCK:
+        marked = _rejected_calls.pop(id(tool_use), None)
     return marked is not None and time.monotonic() - marked <= _REJECTED_TTL
 
 
