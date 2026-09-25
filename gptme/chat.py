@@ -20,7 +20,7 @@ from .constants import (
 from .constants import (
     prompt_user as prompt_user_styled,
 )
-from .hooks import HookType, trigger_hook
+from .hooks import HookType, StopPropagation, trigger_hook
 from .init import init
 from .llm import (
     did_llm_reply_emit_visible_output,
@@ -596,6 +596,7 @@ def _process_message_conversation(
                 console.log("Execution declined, returning to prompt.")
             break
 
+        _run_post_tool_compaction(manager)
         # Auto-generate display name in background thread to avoid blocking.
         # Shared logic with server in gptme/util/auto_naming.py::try_auto_name.
         # Pre-check assistant count to avoid spawning threads + doing disk I/O
@@ -648,6 +649,26 @@ def _process_message_conversation(
             manager.append(msg)
     # Returning to the prompt acknowledges this turn, including hook output.
     manager.write(sync=True)
+
+
+def _run_post_tool_compaction(manager: LogManager) -> None:
+    """Run always-on compaction after tool results are on the CLI log.
+
+    Mirrors the server's ``_compact_after_tool_results``: TURN_POST fires only
+    after the *final* assistant message of the turn, so a large tool result
+    appended mid-turn would otherwise ride the continuation request past the
+    context budget with only ``limit_log`` as a last-resort guard (which drops
+    messages abruptly). The hook no-ops cheaply when the log is under budget.
+    """
+    from .tools.autocompact.hook import autocompact_hook  # fmt: skip
+
+    try:
+        for hook_msg in autocompact_hook(manager):
+            if isinstance(hook_msg, StopPropagation):
+                continue
+            manager.append(hook_msg)
+    except Exception:
+        logger.exception("Post-tool compaction failed in CLI chat loop")
 
 
 def _should_prompt_for_input(log: Log) -> bool:

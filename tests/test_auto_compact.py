@@ -1945,3 +1945,58 @@ def test_compact_trim_handler_honors_env_keep_head(monkeypatch):
     assert captured_keep_head.get("value") == 7, (
         f"Expected keep_head=7 from env override, got {captured_keep_head.get('value')}"
     )
+
+
+def test_cli_post_tool_compaction_appends_hook_messages(monkeypatch):
+    """The CLI chat loop must run compaction after tool results, like the server.
+
+    Regression test: TURN_POST fires only after the final assistant message of
+    a turn, so a large tool result appended mid-turn used to ride the
+    continuation request past the context budget with only limit_log as a
+    last-resort guard. The CLI now mirrors the server's
+    _compact_after_tool_results between steps.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.chat import _run_post_tool_compaction
+    from gptme.hooks import StopPropagation
+    from gptme.message import Message
+
+    manager = MagicMock()
+    appended: list = []
+    manager.append.side_effect = appended.append
+
+    hook_msgs = [
+        Message("system", "compaction notice"),
+        StopPropagation(),
+        Message("system", "after stop"),
+    ]
+
+    with patch(
+        "gptme.tools.autocompact.hook.autocompact_hook",
+        return_value=iter(hook_msgs),
+    ):
+        _run_post_tool_compaction(manager)
+
+    assert [m.content for m in appended] == ["compaction notice", "after stop"], (
+        "The StopPropagation sentinel itself must not be appended to the log "
+        "(matching the server's _compact_after_tool_results behavior)"
+    )
+
+
+def test_cli_post_tool_compaction_swallows_hook_errors(monkeypatch):
+    """A compaction failure must not kill the CLI chat loop."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.chat import _run_post_tool_compaction
+
+    manager = MagicMock()
+
+    with patch(
+        "gptme.tools.autocompact.hook.autocompact_hook",
+        side_effect=RuntimeError("boom"),
+    ):
+        # Must not raise
+        _run_post_tool_compaction(manager)
+
+    manager.append.assert_not_called()
