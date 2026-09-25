@@ -113,6 +113,7 @@ def _session_id() -> str:
     """Return the current session ID from environment variables."""
     for key in (
         "GPTME_SESSION_ID",
+        "AGENT_SESSION_ID",
         "BOB_SESSION_ID",
         "SESSION_ID",
         "GIT_COMMITTER_SESSION_ID",

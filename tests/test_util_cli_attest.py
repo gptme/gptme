@@ -145,6 +145,7 @@ def test_attest_sign_text_uses_unknown_session_without_env(tmp_path, monkeypatch
 
     for key in (
         "GPTME_SESSION_ID",
+        "AGENT_SESSION_ID",
         "BOB_SESSION_ID",
         "SESSION_ID",
         "GIT_COMMITTER_SESSION_ID",
