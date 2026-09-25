@@ -685,6 +685,11 @@ def init(provider: Provider, config: Config):
                 else:
                     # Provider uses no API key (e.g. per-request payment)
                     api_key = "no-key"
+                if not plugin.base_url:
+                    raise ValueError(
+                        f"Provider plugin {plugin.name!r} has no base_url; "
+                        "requests would silently go to the default OpenAI endpoint"
+                    )
                 _init_openai_client(
                     provider,
                     api_key=api_key,

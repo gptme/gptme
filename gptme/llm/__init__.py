@@ -37,7 +37,6 @@ from .models import (
     is_custom_provider,
 )
 from .provider_plugins import (
-    discover_provider_plugins,
     get_plugin_api_keys,
     get_provider_plugin,
     is_plugin_provider,
@@ -1284,12 +1283,6 @@ def list_available_providers(
         if config.get_env(env_var) and plugin_name not in seen:
             available.append((CustomProvider(plugin_name), env_var))
             seen.add(plugin_name)
-
-    # Include keyless plugin providers (no API key required)
-    for plugin in discover_provider_plugins():
-        if plugin.api_key_env is None and plugin.name not in seen:
-            available.append((CustomProvider(plugin.name), "no-key"))
-            seen.add(plugin.name)
 
     # Note: "mock" is intentionally absent here. It requires no credentials and
     # is always usable when explicitly requested (e.g. "mock/echo"). Surfacing it

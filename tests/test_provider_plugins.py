@@ -401,12 +401,20 @@ class TestPluginRouting:
                 "importlib.metadata.entry_points",
                 return_value=[_make_entry_point(keyless_plugin)],
             ),
-            patch("gptme.llm.llm_openai.has_client", return_value=True),
-            patch("gptme.llm.llm_openai.init") as mock_init_openai,
+            patch("gptme.llm.llm_openai.has_client", return_value=False),
+            patch("gptme.config.get_config") as mock_config,
+            patch("gptme.llm.llm_openai._init_openai_client") as mock_client_init,
+            patch("gptme.llm.llm_openai.clients", {"keyless": object()}),
         ):
+            mock_config.return_value.user.providers = []
             init_llm(CustomProvider("keyless"))
 
-        mock_init_openai.assert_not_called()
+        # The keyless branch must actually run: plugin init with the "no-key"
+        # placeholder and the plugin's base_url (not skipped, not KeyError).
+        mock_client_init.assert_called_once()
+        kwargs = mock_client_init.call_args.kwargs
+        assert kwargs["api_key"] == "no-key"
+        assert kwargs["base_url"] == "https://api.keyless.io/v1"
 
     def test_init_llm_rejects_custom_plugin_init_without_client_registration(self):
         from gptme.llm import init_llm

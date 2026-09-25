@@ -248,10 +248,18 @@ class ProviderPlugin:
     name: str
     """Provider name, e.g. ``"minimax"``.  Must be unique across all installed providers."""
 
+    api_key_env: str | None = None
+    """Name of the environment variable that holds the API key, e.g. ``"MINIMAX_API_KEY"``.
+
+    Set to ``None`` for providers that do not use an API key (e.g. those using
+    per-request payment or a custom :attr:`init` function that handles auth).
+
+    .. note:: Field order is preserved from when this field was required, so
+       existing positional constructions ``ProviderPlugin(name, api_key_env,
+       base_url)`` keep working."""
+
     base_url: str = ""
     """Base URL for the OpenAI-compatible API endpoint, e.g. ``"https://api.minimax.chat/v1"``."""
-
-    api_key_env: str | None = None
     """Name of the environment variable that holds the API key, e.g. ``"MINIMAX_API_KEY"``.
 
     Set to ``None`` for providers that do not use an API key (e.g. those using
