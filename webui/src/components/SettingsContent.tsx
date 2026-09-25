@@ -11,16 +11,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Volume2, Palette, Info, FileText, ExternalLink, Server, Rocket } from 'lucide-react';
+import { Volume2, Palette, Info, FileText, ExternalLink, Server, Rocket, Wifi } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
 import { DeveloperDeploy } from '@/components/settings/DeveloperDeploy';
+import { LanAccessPanel } from '@/components/settings/LanAccessPanel';
 import { type SettingsCategory } from '@/stores/settingsModal';
 import { setupWizard$ } from '@/stores/setupWizard';
 import { getPrimaryClient } from '@/stores/serverClients';
 import { isSpeechSupported } from '@/utils/tts';
+import { isTauriEnvironment } from '@/utils/tauri';
 
 export interface SettingsContentProps {
   activeCategory: SettingsCategory;
@@ -54,6 +56,16 @@ const categories = [
     icon: FileText,
     description: 'Message and code display options',
   },
+  ...(isTauriEnvironment()
+    ? [
+        {
+          id: 'networking' as const,
+          label: 'Networking',
+          icon: Wifi,
+          description: 'LAN access and QR sharing',
+        },
+      ]
+    : []),
   ...(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true'
     ? [
         {
@@ -422,6 +434,21 @@ export function SettingsContent({
             </div>
           </div>
         );
+
+      case 'networking':
+        // Tauri-only panel; a direct /settings/networking visit in a plain
+        // browser must not render a dead panel that errors on Tauri IPC.
+        if (!isTauriEnvironment()) {
+          return (
+            <div className="space-y-2">
+              <h3 className="text-lg font-medium">Networking</h3>
+              <p className="text-sm text-muted-foreground">
+                LAN access settings are only available in the gptme desktop app.
+              </p>
+            </div>
+          );
+        }
+        return <LanAccessPanel />;
 
       case 'developer':
         return <DeveloperDeploy />;
