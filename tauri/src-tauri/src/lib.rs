@@ -751,18 +751,22 @@ fn scalar_value_to_string(v: &toml_edit::Value) -> Option<String> {
 }
 
 fn parse_str_map_from_value(value: Option<&toml_edit::Value>) -> HashMap<String, String> {
-    let mut map = HashMap::new();
     let Some(value) = value else {
-        return map;
+        return HashMap::new();
     };
-    if let Some(it) = value.as_inline_table() {
-        for (k, v) in it.iter() {
-            if let Some(s) = scalar_value_to_string(v) {
-                map.insert(k.to_string(), s);
-            }
-        }
+    let Some(it) = value.as_inline_table() else {
+        return HashMap::new();
+    };
+    // A nested table cannot round-trip through `HashMap<String, String>`.
+    // Returning only the scalar entries would let the save path write that
+    // partial map and silently drop the rest; returning nothing lets the
+    // caller preserve the whole original value in `extra` instead.
+    if it.iter().any(|(_, v)| scalar_value_to_string(v).is_none()) {
+        return HashMap::new();
     }
-    map
+    it.iter()
+        .filter_map(|(k, v)| scalar_value_to_string(v).map(|s| (k.to_string(), s)))
+        .collect()
 }
 
 fn parse_str_map_from_item(item: Option<&toml_edit::Item>) -> HashMap<String, String> {
@@ -775,15 +779,34 @@ fn parse_str_map_from_item(item: Option<&toml_edit::Item>) -> HashMap<String, St
     if let Some(t) = item.as_table() {
         let mut map = HashMap::new();
         for (k, v) in t.iter() {
-            if let Some(val) = v.as_value() {
-                if let Some(s) = scalar_value_to_string(val) {
-                    map.insert(k.to_string(), s);
-                }
-            }
+            let Some(val) = v.as_value() else {
+                return HashMap::new();
+            };
+            let Some(s) = scalar_value_to_string(val) else {
+                return HashMap::new();
+            };
+            map.insert(k.to_string(), s);
         }
         return map;
     }
     HashMap::new()
+}
+
+/// True when `item` is a string map the typed view can represent exactly: an
+/// inline table or a regular table whose values are all scalars.
+fn is_scalar_str_map(item: &toml_edit::Item) -> bool {
+    if let Some(v) = item.as_value() {
+        return v
+            .as_inline_table()
+            .map(|it| it.iter().all(|(_, v)| scalar_value_to_string(v).is_some()))
+            .unwrap_or(false);
+    }
+    item.as_table()
+        .map(|t| {
+            t.iter()
+                .all(|(_, v)| v.as_value().and_then(scalar_value_to_string).is_some())
+        })
+        .unwrap_or(false)
 }
 
 fn parse_args_from_value(value: Option<&toml_edit::Value>) -> Vec<String> {
@@ -857,11 +880,7 @@ fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
             );
             keep_if_mistyped(
                 st.get("env").cloned(),
-                |i| {
-                    i.as_value()
-                        .map(|v| v.as_inline_table().is_some())
-                        .unwrap_or(i.as_table().is_some())
-                },
+                |i| is_scalar_str_map(i),
                 "env",
                 &mut extra,
             );
@@ -873,11 +892,7 @@ fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
             );
             keep_if_mistyped(
                 st.get("headers").cloned(),
-                |i| {
-                    i.as_value()
-                        .map(|v| v.as_inline_table().is_some())
-                        .unwrap_or(i.as_table().is_some())
-                },
+                |i| is_scalar_str_map(i),
                 "headers",
                 &mut extra,
             );
@@ -928,11 +943,7 @@ fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
             );
             keep_if_mistyped(
                 it.get("env").map(|v| toml_edit::Item::Value(v.clone())),
-                |i| {
-                    i.as_value()
-                        .map(|v| v.as_inline_table().is_some())
-                        .unwrap_or(false)
-                },
+                |i| is_scalar_str_map(i),
                 "env",
                 &mut extra,
             );
@@ -944,11 +955,7 @@ fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
             );
             keep_if_mistyped(
                 it.get("headers").map(|v| toml_edit::Item::Value(v.clone())),
-                |i| {
-                    i.as_value()
-                        .map(|v| v.as_inline_table().is_some())
-                        .unwrap_or(false)
-                },
+                |i| is_scalar_str_map(i),
                 "headers",
                 &mut extra,
             );
@@ -1164,44 +1171,77 @@ fn windows_replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io
     }
 }
 
+/// Sibling temp path for `path` that a local attacker cannot pre-empt.
+///
+/// The name carries the pid, a process-local counter, and a nanosecond stamp.
+/// Predictability is the attack: an attacker with write access to the config
+/// directory could pre-create a symlink at a fixed temp name, and a plain
+/// `create(true)` open would follow it and truncate the target. The writer
+/// additionally opens with `create_new`, so even a guessed name fails closed.
+fn temp_path_for(path: &std::path::Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let uniq = format!(
+        "{}-{}-{nanos}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_else(|| "config.toml".into());
+    name.push(format!(".{uniq}.tmp"));
+    path.with_file_name(name)
+}
+
 /// Write `contents` over `path` via a sibling temp file.
+fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    write_config_via(path, &temp_path_for(path), contents)
+}
+
+/// Write `contents` to `tmp` and move it over `path`.
 ///
 /// On Unix the temp file inherits the destination mode when it exists, otherwise
 /// `0o600`, so a save cannot weaken a private credential file to `0644`.
-fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(), String> {
-    let tmp = path.with_extension("toml.tmp");
-    let _ = std::fs::remove_file(&tmp);
+fn write_config_via(
+    path: &std::path::Path,
+    tmp: &std::path::Path,
+    contents: &str,
+) -> Result<(), String> {
+    use std::io::Write;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
 
     #[cfg(unix)]
     {
-        use std::io::Write;
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let mode = std::fs::metadata(path)
             .map(|m| m.permissions().mode())
             .unwrap_or(0o600);
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(mode)
-            .open(&tmp)
-            .map_err(|e| format!("Failed to create temp file: {e}"))?;
-        file.write_all(contents.as_bytes())
-            .map_err(|e| format!("Failed to write temp file: {e}"))?;
-        file.sync_all()
-            .map_err(|e| format!("Failed to sync temp file: {e}"))?;
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&tmp, contents).map_err(|e| format!("Failed to write temp file: {e}"))?;
+        opts.mode(mode);
     }
 
-    if let Err(e) = replace_file(&tmp, path) {
+    let mut file = opts
+        .open(tmp)
+        .map_err(|e| format!("Failed to create temp file: {e}"))?;
+    file.write_all(contents.as_bytes())
+        .map_err(|e| format!("Failed to write temp file: {e}"))?;
+    file.sync_all()
+        .map_err(|e| format!("Failed to sync temp file: {e}"))?;
+    drop(file);
+
+    if let Err(e) = replace_file(tmp, path) {
         // Only drop the temp file when the destination is still there. If a
         // replacement implementation ever deletes dest before succeeding, keep
         // the temp copy so the user's config is not both dest-gone and tmp-gone.
         if path.exists() {
-            let _ = std::fs::remove_file(&tmp);
+            let _ = std::fs::remove_file(tmp);
         }
         return Err(format!("Failed to replace config: {e}"));
     }
@@ -2366,8 +2406,94 @@ servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x
         std::fs::write(&path, "old = true\n").unwrap();
         write_config_atomically(&path, "new = true\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new = true\n");
-        assert!(!path.with_extension("toml.tmp").exists());
+        // The temp file is consumed by the rename, and its name is unique per
+        // call, so the directory holds only the destination afterwards.
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .filter(|n| n != "config.toml")
+            .collect();
+        assert!(leftovers.is_empty(), "leftover temp files: {leftovers:?}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_temp_path_is_not_predictable() {
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        let first = temp_path_for(&path);
+        let second = temp_path_for(&path);
+        assert_ne!(
+            first, second,
+            "a reusable temp name lets another local user pre-create it"
+        );
+        // Still a sibling of the destination, so the rename stays same-filesystem.
+        assert_eq!(first.parent(), path.parent());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_fails_closed_on_symlinked_temp_path() {
+        use std::os::unix::fs::symlink;
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old = true\n").unwrap();
+        let victim = dir.join("victim");
+        std::fs::write(&victim, "secret\n").unwrap();
+
+        // Simulate the attacker winning the race: an entry already exists at
+        // the temp path. O_EXCL must refuse to open it rather than following a
+        // symlink and truncating the target.
+        let tmp = dir.join("config.toml.planted.tmp");
+        symlink(&victim, &tmp).unwrap();
+        assert!(write_config_via(&path, &tmp, "new = true\n").is_err());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "secret\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old = true\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_nested_env_table_is_preserved_verbatim() {
+        // A nested table inside env/headers cannot be represented by the typed
+        // view; it must survive a save instead of being trimmed to its scalar
+        // siblings.
+        let existing = r#"
+[other]
+keep = 1
+
+[[mcp.servers]]
+name = "srv"
+command = "run"
+
+[mcp.servers.env]
+PLAIN = "1"
+NESTED = { sub = "x" }
+"#;
+        let view = parse_mcp_config(existing).unwrap();
+        assert!(view.servers[0].env.is_empty());
+        let out = serialize_mcp_config(existing, &view).unwrap();
+        let reparsed: toml_edit::DocumentMut = out.parse().unwrap();
+        let env = reparsed
+            .get("mcp")
+            .and_then(|m| m.get("servers"))
+            .and_then(|s| s.as_array_of_tables())
+            .and_then(|aot| aot.get(0))
+            .and_then(|t| t.get("env"))
+            .expect("env must survive the save");
+        assert_eq!(env.get("PLAIN").and_then(|v| v.as_str()), Some("1"));
+        let nested = env
+            .get("NESTED")
+            .expect("nested entry must survive the save");
+        let sub = if let Some(it) = nested.as_value().and_then(|v| v.as_inline_table()) {
+            it.get("sub").and_then(|v| v.as_str())
+        } else {
+            nested
+                .as_table()
+                .and_then(|t| t.get("sub"))
+                .and_then(|v| v.as_str())
+        };
+        assert_eq!(sub, Some("x"));
     }
 
     #[test]
