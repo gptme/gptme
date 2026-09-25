@@ -383,6 +383,7 @@ async fn spawn_server_sidecar(
         child.pid()
     );
 
+    let watched_pid = child.pid();
     {
         let mut guard = state_arc.lock().map_err(|e| format!("Lock error: {}", e))?;
         *guard = Some(child);
@@ -418,8 +419,24 @@ async fn spawn_server_sidecar(
                         "[gptme-server] Process terminated with code: {:?}",
                         payload.code
                     );
+                    // Only clear the slot if it still holds OUR child. A LAN
+                    // rebind may already have stored a replacement sidecar by
+                    // the time the old server's Terminated event arrives —
+                    // blindly clearing would orphan the new child handle.
                     if let Ok(mut guard) = state_for_output.lock() {
-                        *guard = None;
+                        match guard.as_ref() {
+                            Some(current) if current.pid() == watched_pid => {
+                                *guard = None;
+                            }
+                            Some(_) => {
+                                log::info!(
+                                    "[gptme-server] Old sidecar ({watched_pid}) terminated \
+                                     after a replacement was already started; keeping the \
+                                     replacement's child handle"
+                                );
+                            }
+                            None => {}
+                        }
                     }
                     // PyInstaller onefile bundles use a launcher process that
                     // spawns the actual Python interpreter as a child. When the

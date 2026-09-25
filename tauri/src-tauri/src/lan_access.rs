@@ -101,6 +101,10 @@ fn generate_qr_svg(url: &str) -> Result<String, String> {
 
 /// Restart the managed gptme-server sidecar, optionally bound to the LAN.
 /// `lan_ip = None` rebinds to the default loopback-only configuration.
+///
+/// Failure safety: once the old sidecar has been killed we never leave the
+/// app without a backend — if the LAN rebind fails we respawn a loopback-only
+/// server before returning the error.
 #[cfg(desktop)]
 async fn restart_sidecar_with_lan(
     server: &crate::ServerProcess,
@@ -111,22 +115,29 @@ async fn restart_sidecar_with_lan(
 
     // Only rebind a server we manage — killing a foreign server we merely
     // found on the port would be wrong.
+    let unmanaged_err = "gptme-server is not managed by this app (external server on the port); \
+         restart gptme-tauri to enable LAN access"
+        .to_string();
     let child = server
         .child
         .lock()
         .map_err(|e| format!("Lock error: {e}"))?
         .take();
     let Some(child) = child else {
-        return Err(
-            "gptme-server is not managed by this app (external server on the port); \
-             restart gptme-tauri to enable LAN access"
-                .to_string(),
-        );
+        return Err(unmanaged_err);
     };
+    let old_pid = child.pid();
     log::info!("Stopping gptme-server for LAN rebind (lan_ip: {lan_ip:?})");
-    crate::kill_subprocesses(child.pid());
+    crate::kill_subprocesses(old_pid);
     child.kill().map_err(|e| format!("Kill error: {e}"))?;
     server.owns_port.store(false, Ordering::Relaxed);
+
+    let app = server
+        .app_handle
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?
+        .clone()
+        .ok_or_else(|| "App handle not initialized".to_string())?;
 
     // Wait for the port to actually free up (uvicorn workers + TIME_WAIT).
     let mut port_free = false;
@@ -138,26 +149,52 @@ async fn restart_sidecar_with_lan(
         std::thread::sleep(Duration::from_millis(200));
     }
     if !port_free {
-        return Err(format!(
+        // The old server is dead but the port never freed: restore a usable
+        // (loopback-only) server before surfacing the error, so the app is
+        // not left without a backend.
+        let restore = crate::spawn_server_sidecar(
+            &app,
+            server.child.clone(),
+            server.owns_port.clone(),
+            &server.token,
+            None,
+        )
+        .await;
+        let bind_err = format!(
             "Port {} did not free up after stopping gptme-server; try again",
             crate::server_port()
-        ));
+        );
+        return match restore {
+            Ok(()) => Err(bind_err),
+            Err(e) => Err(format!("{bind_err}; automatic recovery also failed: {e}")),
+        };
     }
 
-    let app = server
-        .app_handle
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?
-        .clone()
-        .ok_or_else(|| "App handle not initialized".to_string())?;
-    crate::spawn_server_sidecar(
+    if let Err(e) = crate::spawn_server_sidecar(
         &app,
         server.child.clone(),
         server.owns_port.clone(),
         &server.token,
         lan_ip,
     )
-    .await?;
+    .await
+    {
+        // Rebind failed after we killed the old server — fall back to a
+        // loopback-only server so the app keeps working.
+        log::warn!("LAN rebind failed ({e}); falling back to loopback-only server");
+        let restore = crate::spawn_server_sidecar(
+            &app,
+            server.child.clone(),
+            server.owns_port.clone(),
+            &server.token,
+            None,
+        )
+        .await;
+        return match restore {
+            Ok(()) => Err(e),
+            Err(e2) => Err(format!("{e}; automatic recovery also failed: {e2}")),
+        };
+    }
     Ok(())
 }
 
@@ -193,7 +230,9 @@ pub async fn enable_lan_access(
     inner.url = Some(connect_url.clone());
     inner.qr_svg = Some(qr_svg);
 
-    log::info!("LAN access enabled: {connect_url}");
+    // Never log the connect URL: it embeds the bearer token (userToken=...)
+    // and tauri_plugin_log persists Info logs to disk.
+    log::info!("LAN access enabled at {base_url}");
     Ok(inner.build_status())
 }
 
@@ -213,6 +252,30 @@ pub async fn disable_lan_access(
     state: tauri::State<'_, LanAccess>,
     server: tauri::State<'_, crate::ServerProcess>,
 ) -> Result<(), String> {
+    // If the server is not managed we cannot rebind it: clear the LAN state
+    // (so the toggle stops showing "enabled") and tell the user the external
+    // server may still be exposed and must be reconfigured manually.
+    let managed = server
+        .child
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?
+        .is_some();
+    if !managed {
+        {
+            let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+            inner.enabled = false;
+            inner.lan_ip = None;
+            inner.url = None;
+            inner.qr_svg = None;
+        }
+        log::warn!("LAN disable requested but gptme-server is externally managed");
+        return Err(
+            "gptme-server is not managed by this app; LAN access state cleared, \
+             but an external server may still be exposed on the network — \
+             restart it manually to rebind it to loopback"
+                .to_string(),
+        );
+    }
     restart_sidecar_with_lan(&server, None).await?;
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
     inner.enabled = false;
