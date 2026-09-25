@@ -13,7 +13,7 @@ Activation:
 Optional tuning:
   GPTME_ANOMALY_ALLOWED_DIRS=dir1:dir2     # colon-separated extra allowed write dirs
   GPTME_ANOMALY_ALLOWED_HOSTS=host1,host2  # comma-separated trusted hostnames
-  GPTME_ANOMALY_WRITE_LIMIT=20             # max writes in the window (default: 20)
+  GPTME_ANOMALY_WRITE_LIMIT=20             # window writes that trip the storm check (default: 20)
   GPTME_ANOMALY_WRITE_WINDOW=60            # sliding window in seconds (default: 60)
 """
 
@@ -356,6 +356,11 @@ def record_write() -> None:
 
 def _check_write_storm() -> tuple[bool, str] | None:
     """Detect an excessive write rate in the sliding window.
+
+    The limit is inclusive: the N-th write in the window trips the check, so at
+    most N-1 are allowed. Tripping one write early is the conservative direction
+    for a watchdog whose signal can skip a write in block mode; the header
+    documents the same contract.
 
     Read-only: the window holds writes that actually executed (see
     ``record_write``), so this is a pure check. A call that trips the limit is
