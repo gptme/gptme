@@ -170,7 +170,11 @@ async fn restart_sidecar_with_lan(
         let old_pid = child.pid();
         log::info!("Stopping gptme-server for LAN rebind (lan_ip: {lan_ip:?})");
         crate::kill_subprocesses(old_pid);
-        child.kill().map_err(|e| format!("Kill error: {e}"))?;
+        // A stale child handle (process already exited) is not fatal: the
+        // port-free wait and loopback fallback below still run.
+        if let Err(e) = child.kill() {
+            log::warn!("Failed to kill old sidecar child (may have already exited): {e}");
+        }
     }
     server.owns_port.store(false, Ordering::Relaxed);
 
@@ -317,14 +321,19 @@ pub async fn disable_lan_access(
                 .to_string(),
         );
     }
-    restart_sidecar_with_lan(&server, None).await?;
-    let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
-    inner.enabled = false;
-    inner.lan_ip = None;
-    inner.url = None;
-    inner.qr_svg = None;
+    // Clear the LAN state regardless of the restart outcome: once the rebind
+    // attempt is made the toggle must stop showing "enabled", even if the
+    // rebind itself failed (the server is loopback-bound or dead either way).
+    let restart_result = restart_sidecar_with_lan(&server, None).await;
+    {
+        let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner.enabled = false;
+        inner.lan_ip = None;
+        inner.url = None;
+        inner.qr_svg = None;
+    }
     log::info!("LAN access disabled");
-    Ok(())
+    restart_result
 }
 
 #[cfg(not(desktop))]
