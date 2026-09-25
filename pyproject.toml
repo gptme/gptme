@@ -7,6 +7,19 @@ authors = [
 ]
 readme = "README.md"
 license = "MIT"
+keywords = [
+    "ai", "llm", "gpt", "claude", "agent", "autonomous-agent",
+    "terminal", "cli", "shell", "coding-assistant", "computer-use",
+    "automation", "tool-use", "code-generation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Utilities",
+    "Programming Language :: Python :: 3",
+]
 requires-python = ">=3.10,<3.15"
 dynamic = ["dependencies"]  # "version"
 
