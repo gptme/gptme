@@ -126,36 +126,40 @@ def _quote(value: object) -> str:
 
 
 def _extract_paths(tool_use: Any) -> list[Path]:
-    """Extract candidate target paths from a save/append/patch tool call."""
+    """Extract candidate target paths from a save/append/patch tool call.
+
+    Every source is unioned, not just the first one found. A patch call
+    carries both an explicit ``path`` argument (which the tool writes to) and
+    a diff body; returning only the argument would leave a body whose headers
+    name other targets entirely uninspected.
+    """
+    paths: list[Path] = []
+
     if tool_use.kwargs:
         raw = tool_use.kwargs.get("path") or tool_use.kwargs.get("filename")
         if raw:
-            return [Path(raw)]
+            paths.append(Path(raw))
 
     if tool_use.args:
-        return [Path(tool_use.args[0])]
+        paths.append(Path(tool_use.args[0]))
 
     # patch tool: parse ALL targets from diff headers (--- a/path or +++ b/path).
     # Both header sides are read: a deletion-only hunk has ``+++ /dev/null`` as
     # its target, so matching only ``+++`` would miss e.g. ``--- /etc/passwd``.
     if tool_use.tool == "patch" and tool_use.content:
-        paths: list[Path] = []
         for line in tool_use.content.splitlines():
             # Strip the optional tab-separated timestamp that GNU/git diffs
             # append to headers (``--- a/x\t2024-01-01 00:00:00 +0000``).
             m = re.match(r"^(?:---|\+\+\+)\s+(?:[ab]/)?([^\t]+)", line)
-            if m:
-                candidate = m.group(1).strip()
-                if (
-                    candidate
-                    and candidate != "/dev/null"
-                    and Path(candidate) not in paths
-                ):
-                    paths.append(Path(candidate))
-        if paths:
-            return paths
+            if not m:
+                continue
+            candidate = m.group(1).strip()
+            if candidate and candidate != "/dev/null":
+                path = Path(candidate)
+                if path not in paths:
+                    paths.append(path)
 
-    return []
+    return paths
 
 
 def _check_scope_escape(

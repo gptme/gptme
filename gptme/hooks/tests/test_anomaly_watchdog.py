@@ -202,6 +202,29 @@ class TestScopeEscape:
         _, msg = result
         assert "scope_escape" in msg
 
+    def test_patch_checks_headers_alongside_path_arg(self, tmp_path, monkeypatch):
+        """A patch call carries both a ``path`` argument and a diff body; the
+        body's headers must not be skipped just because the argument exists."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        diff_content = "--- a/ok.txt\n+++ /etc/secret\n@@ -1 +1 @@\n-x\n+y"
+        tool_use = _fake_tool_use(
+            "patch", args=[str(tmp_path / "ok.txt")], content=diff_content
+        )
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        _, msg = result
+        assert "scope_escape" in msg
+
+    def test_patch_path_arg_alone_is_checked(self, tmp_path, monkeypatch):
+        """The path argument itself is still checked without diff content."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("patch", args=["/etc/secret"])
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        assert "scope_escape" in result[1]
+
     def test_timestamped_headers_are_not_false_positives(self, tmp_path, monkeypatch):
         """GNU/git diffs append a tab-separated timestamp to header lines."""
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
