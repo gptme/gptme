@@ -40,6 +40,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..tools._policy_block import policy_block_message
 from .confirm import ConfirmationResult
 
 if TYPE_CHECKING:
@@ -307,7 +308,7 @@ def guardrail_hook(
         from ..tools.shell_validation import format_denial  # fmt: skip
 
         message = format_denial(message)
-    return ConfirmationResult.skip(message)
+    return ConfirmationResult.skip(policy_block_message("guardrail", message).content)
 
 
 # ---------------------------------------------------------------------------
