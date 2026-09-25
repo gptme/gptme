@@ -771,9 +771,16 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
     let mut doc: toml_edit::DocumentMut = existing
         .parse()
         .map_err(|e: toml_edit::TomlError| format!("Failed to parse TOML: {e}"))?;
-    doc.remove("mcp");
-
-    let mut mcp_table = toml_edit::Table::new();
+    // Keep any unknown keys that lived inside the original [mcp] table so a
+    // save does not silently drop settings the view does not model. Known
+    // keys are rebuilt below.
+    let mut mcp_table = match doc.get("mcp") {
+        Some(toml_edit::Item::Table(t)) => t.clone(),
+        _ => toml_edit::Table::new(),
+    };
+    mcp_table.remove("enabled");
+    mcp_table.remove("auto_start");
+    mcp_table.remove("servers");
     mcp_table.insert("enabled", toml_edit::value(mcp.enabled));
     mcp_table.insert("auto_start", toml_edit::value(mcp.auto_start));
 
@@ -1808,6 +1815,27 @@ command = "cmd"
 
         let updated = serialize_mcp_config(original, &cfg).unwrap();
         assert!(!updated.contains("name ="));
+    }
+
+    #[test]
+    fn test_mcp_config_unknown_keys_survive_save() {
+        // Keys inside [mcp] the view does not model must survive a save.
+        let original = r#"
+[mcp]
+enabled = true
+auto_start = false
+log_level = "debug"
+
+[[mcp.servers]]
+name = "srv"
+enabled = true
+command = "cmd"
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("log_level = \"debug\""));
+        assert!(updated.contains("enabled = true"));
+        assert!(updated.contains("name = \"srv\""));
     }
 
     #[test]
