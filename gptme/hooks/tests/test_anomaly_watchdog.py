@@ -4,8 +4,10 @@ Covers:
 - scope_escape: write outside workspace triggers warning/block
 - scope_escape: write inside workspace is allowed
 - scope_escape: write inside allowed_dirs is allowed
-- scope_escape: multi-file patches with any out-of-workspace section flagged
+- scope_escape: patch body is literal content, never a set of destinations
 - write_storm: exceeding write limit triggers warning/block
+- write_storm: blocked calls do not refresh the window after the fact
+- write_storm: concurrent window pruning is thread-safe
 - novel_host: browser call to new hostname triggers warning (incl. subtools)
 - novel_host: browser call to trusted hostname is silent
 - block mode: TOOL_CONFIRM hook actually skips the tool
@@ -26,6 +28,7 @@ from ..anomaly_watchdog import (
     check_tool_post,
     check_tool_pre,
 )
+from ..confirm import ConfirmAction
 from ..types import ToolExecutePostData
 
 # ---------------------------------------------------------------------------
@@ -53,6 +56,7 @@ def _fake_tool_use(
 
 def _reset_storm_state() -> None:
     anomaly_watchdog._write_times_by_session.clear()
+    anomaly_watchdog._rejected_calls.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -135,89 +139,8 @@ class TestScopeEscape:
         result = _check_scope_escape(tool_use, None)
         assert result is None
 
-    def test_patch_diff_header_path(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        diff_content = "--- a/old.txt\n+++ /etc/secret\n@@ -1 +1 @@\n+evil"
-        tool_use = _fake_tool_use("patch", content=diff_content)
-        result = _check_scope_escape(tool_use, tmp_path)
-        assert result is not None
-        _, msg = result
-        assert "scope_escape" in msg
-        assert "secret" in msg
-
-    def test_multi_file_patch_second_section_outside(self, tmp_path, monkeypatch):
-        """A patch whose first file is inside the workspace but whose second
-        file is outside must still be flagged (multi-file bypass fix)."""
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        outside = tmp_path.parent / "evil" / "escape.txt"
-        diff_content = (
-            "--- a/ok.txt\n"
-            "+++ b/ok.txt\n"
-            "@@ -1 +1 @@\n"
-            "+fine\n"
-            f"--- a/{outside.name}\n"
-            f"+++ b/{outside}\n"
-            "@@ -1 +1 @@\n"
-            "+evil"
-        )
-        tool_use = _fake_tool_use("patch", content=diff_content)
-        result = _check_scope_escape(tool_use, tmp_path)
-        assert result is not None
-        _, msg = result
-        assert "scope_escape" in msg
-
-    def test_multi_file_patch_all_inside_ok(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        diff_content = (
-            "--- a/one.txt\n"
-            "+++ b/one.txt\n"
-            "@@ -1 +1 @@\n"
-            "+x\n"
-            "--- a/two.txt\n"
-            "+++ b/two.txt\n"
-            "@@ -1 +1 @@\n"
-            "+y"
-        )
-        tool_use = _fake_tool_use("patch", content=diff_content)
-        result = _check_scope_escape(tool_use, tmp_path)
-        assert result is None
-
-    def test_deletion_only_patch_outside_is_flagged(self, tmp_path, monkeypatch):
-        """A deletion-only hunk has ``+++ /dev/null`` as its target; the
-        ``---`` header names the file that is actually removed."""
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        diff_content = (
-            "--- /etc/passwd\n"
-            "+++ /dev/null\n"
-            "@@ -1 +0,0 @@\n"
-            "-root:x:0:0:root:/root:/bin/sh"
-        )
-        tool_use = _fake_tool_use("patch", content=diff_content)
-        result = _check_scope_escape(tool_use, tmp_path)
-        assert result is not None
-        _, msg = result
-        assert "scope_escape" in msg
-
-    def test_patch_checks_headers_alongside_path_arg(self, tmp_path, monkeypatch):
-        """A patch call carries both a ``path`` argument and a diff body; the
-        body's headers must not be skipped just because the argument exists."""
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        diff_content = "--- a/ok.txt\n+++ /etc/secret\n@@ -1 +1 @@\n-x\n+y"
-        tool_use = _fake_tool_use(
-            "patch", args=[str(tmp_path / "ok.txt")], content=diff_content
-        )
-        result = _check_scope_escape(tool_use, tmp_path)
-        assert result is not None
-        _, msg = result
-        assert "scope_escape" in msg
-
     def test_patch_path_arg_alone_is_checked(self, tmp_path, monkeypatch):
-        """The path argument itself is still checked without diff content."""
+        """The path argument is the patch tool's only destination."""
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
         tool_use = _fake_tool_use("patch", args=["/etc/secret"])
@@ -225,17 +148,50 @@ class TestScopeEscape:
         assert result is not None
         assert "scope_escape" in result[1]
 
-    def test_timestamped_headers_are_not_false_positives(self, tmp_path, monkeypatch):
-        """GNU/git diffs append a tab-separated timestamp to header lines."""
+    def test_patch_kwargs_path_is_checked(self, tmp_path, monkeypatch):
+        """A tool-format call passes the target through kwargs."""
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        diff_content = (
-            "--- a/ok.txt\t2024-01-01 00:00:00 +0000\n"
-            "+++ b/ok.txt\t2024-01-01 00:00:01 +0000\n"
-            "@@ -1 +1 @@\n"
-            "+fine"
+        tool_use = _fake_tool_use(
+            "patch", kwargs={"path": "/etc/secret", "patch": "<<<<<<< ORIGINAL"}
         )
-        tool_use = _fake_tool_use("patch", content=diff_content)
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        assert "scope_escape" in result[1]
+
+    def test_patch_body_diff_lines_are_not_destinations(self, tmp_path, monkeypatch):
+        """The patch body is literal file text in conflict-marker format.
+
+        A pasted diff — a docs example, a test fixture, a diff embedded in a
+        markdown file — contains ``---``/``+++`` lines that name no destination
+        the tool will write to. Treating them as targets raised scope_escape on
+        a valid in-workspace patch and (in block mode) refused it.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        content = (
+            "<<<<<<< ORIGINAL\n"
+            "examples:\n"
+            "=======\n"
+            "examples:\n"
+            "--- /etc/passwd\n"
+            "+++ /etc/passwd\n"
+            "@@ -1 +1 @@\n"
+            "+pasted diff content\n"
+            ">>>>>>> UPDATED"
+        )
+        tool_use = _fake_tool_use(
+            "patch", args=[str(tmp_path / "docs.md")], content=content
+        )
+        assert _check_scope_escape(tool_use, tmp_path) is None
+
+    def test_patch_body_without_path_arg_is_not_flagged(self, tmp_path, monkeypatch):
+        """Body-only content cannot name a destination, so it must not flag."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use(
+            "patch", content="--- /etc/passwd\n+++ /etc/passwd\n@@ -1 +1 @@\n-x\n+y"
+        )
         assert _check_scope_escape(tool_use, tmp_path) is None
 
 
@@ -284,27 +240,69 @@ class TestWriteStorm:
         findings = anomaly_watchdog._detect_findings(outside, tmp_path)
         assert any("write_storm" in f for f in findings)
 
-    def test_blocked_or_declined_writes_are_never_recorded(self, tmp_path, monkeypatch):
-        """The window is advanced only after execution, so a call that is
-        blocked by the watchdog (or declined by a later confirm hook) never
-        counts toward it."""
+    def test_blocked_writes_are_not_recorded_by_the_post_hook(
+        self, tmp_path, monkeypatch
+    ):
+        """A call the watchdog blocks must not advance the window.
+
+        TOOL_EXECUTE_POST fires on the skip path too (the tool generator
+        returns normally after confirmation declines), so the reject marker the
+        confirm hook leaves is what stops a blocked burst from refreshing its
+        own window and locking out later legitimate writes.
+        """
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
 
         outside = _fake_tool_use("save", args=["/etc/shadow"])
-        for _ in range(5):
-            findings = anomaly_watchdog._detect_findings(outside, tmp_path)
-            assert any("scope_escape" in f for f in findings)
-            assert not any("write_storm" in f for f in findings)
+        post = ToolExecutePostData(tool_use=outside, workspace=tmp_path)
+        for _ in range(10):
+            blocked = anomaly_watchdog_confirm(outside, workspace=tmp_path)
+            assert blocked is not None
+            assert blocked.action == ConfirmAction.SKIP
+            list(check_tool_post(post))
+        assert anomaly_watchdog._write_times_by_session == {}
 
-        # A sub-limit call that is declined before execution must not count
-        # either: running the checks alone must never advance the window.
+        # A clean write through the same chain does count.
         inside = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
-        for _ in range(5):
-            assert anomaly_watchdog._detect_findings(inside, tmp_path) == []
-            assert _check_write_storm() is None
+        assert anomaly_watchdog_confirm(inside, workspace=tmp_path) is None
+        list(check_tool_post(ToolExecutePostData(tool_use=inside, workspace=tmp_path)))
+        assert (
+            sum(len(v) for v in anomaly_watchdog._write_times_by_session.values()) == 1
+        )
+
+    def test_prune_survives_a_key_removed_mid_snapshot(self, monkeypatch):
+        """Server sessions prune the shared window from separate threads.
+
+        A thread that removes a key between another thread's snapshot
+        (``list(dict)``) and its indexed access used to raise ``KeyError``,
+        which the tool-execution path turns into a failed tool call. This
+        reproduces that interleaving deterministically: the mapping deletes a
+        key as the snapshot is taken.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        class _InterleavingDict(dict[str, list[float]]):
+            fired = False
+
+            def __iter__(self):
+                keys = list(super().__iter__())
+                if keys and not self.fired:
+                    self.fired = True  # interleave once, then behave normally
+                    super().__delitem__(keys[0])
+                return iter(keys)
+
+        window = _InterleavingDict({"session-a": [1000.0], "session-b": [1000.0]})
+        monkeypatch.setattr(anomaly_watchdog, "_write_times_by_session", window)
+        monkeypatch.setattr(anomaly_watchdog, "_session_key", lambda: "session-b")
+        now = {"t": 1000.5}
+        monkeypatch.setattr(anomaly_watchdog.time, "monotonic", lambda: now["t"])
+
+        anomaly_watchdog.record_write()  # must not raise
+        assert _check_write_storm() is None
+        assert len(window["session-b"]) == 2
 
     def test_check_does_not_advance_the_window(self, monkeypatch):
         """Checking the storm must not record a write, or blocked attempts

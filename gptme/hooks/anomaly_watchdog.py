@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
-import re
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,8 +46,28 @@ logger = logging.getLogger(__name__)
 # cannot be resolved share a fallback key. Module-level state keeps detection
 # immune to async-context resets (a fresh ContextVar copy would hide prior
 # writes and defeat the burst window entirely).
+#
+# A server hosts several conversations in several threads, so every mutation
+# of this dict is serialized by ``_WINDOW_LOCK``: an unguarded prune could
+# raise ``KeyError`` between the snapshot and the delete (failing the hook
+# open) and could drop timestamps another thread was recording.
 _write_times_by_session: dict[str, list[float]] = {}
+_WINDOW_LOCK = threading.Lock()
 _SESSION_KEY_DEFAULT = "__default__"
+
+# Tool calls rejected by this watchdog, keyed by object identity with a short
+# TTL. TOOL_CONFIRM fires before execution and TOOL_EXECUTE_POST after, and the
+# same ``ToolUse`` object flows through both (it is the object published by
+# ``get_current_tool_use``), so marking a rejection lets the post hook avoid
+# counting a write that never happened. Without this, a burst of blocked
+# attempts keeps refreshing the storm window and locks out later legitimate
+# writes.
+#
+# Identity is used rather than the value because ``ToolUse`` holds list/dict
+# fields, so hashing it raises TypeError. Entries are popped on first use and
+# aged out by TTL, so a recycled id cannot outlive the call it belongs to.
+_rejected_calls: dict[int, float] = {}
+_REJECTED_TTL = 300.0
 
 
 def _session_key() -> str:
@@ -126,12 +146,15 @@ def _quote(value: object) -> str:
 
 
 def _extract_paths(tool_use: Any) -> list[Path]:
-    """Extract candidate target paths from a save/append/patch tool call.
+    """Extract the target path(s) of a save/append/patch tool call.
 
-    Every source is unioned, not just the first one found. A patch call
-    carries both an explicit ``path`` argument (which the tool writes to) and
-    a diff body; returning only the argument would leave a body whose headers
-    name other targets entirely uninspected.
+    Only explicit arguments are read. The ``patch`` tool's content is *literal
+    file text* in gptme's conflict-marker format, not a unified diff, and the
+    tool writes to exactly one place: its ``path`` argument (see
+    ``execute_patch_impl``). A ``---``/``+++`` line inside that body is content
+    being written — a pasted diff in a document, a test fixture, a markdown
+    code block — so treating it as a destination produced false scope_escape
+    hits that could block a valid patch in block mode.
     """
     paths: list[Path] = []
 
@@ -142,22 +165,6 @@ def _extract_paths(tool_use: Any) -> list[Path]:
 
     if tool_use.args:
         paths.append(Path(tool_use.args[0]))
-
-    # patch tool: parse ALL targets from diff headers (--- a/path or +++ b/path).
-    # Both header sides are read: a deletion-only hunk has ``+++ /dev/null`` as
-    # its target, so matching only ``+++`` would miss e.g. ``--- /etc/passwd``.
-    if tool_use.tool == "patch" and tool_use.content:
-        for line in tool_use.content.splitlines():
-            # Strip the optional tab-separated timestamp that GNU/git diffs
-            # append to headers (``--- a/x\t2024-01-01 00:00:00 +0000``).
-            m = re.match(r"^(?:---|\+\+\+)\s+(?:[ab]/)?([^\t]+)", line)
-            if not m:
-                continue
-            candidate = m.group(1).strip()
-            if candidate and candidate != "/dev/null":
-                path = Path(candidate)
-                if path not in paths:
-                    paths.append(path)
 
     return paths
 
@@ -221,26 +228,31 @@ def _prune_stale_windows(now: float, window: float) -> None:
     Keys are removed once a session's window is empty: a long-lived server
     hosts many conversations over its lifetime, so retaining a dictionary key
     per conversation would grow without bound.
+
+    Caller must hold ``_WINDOW_LOCK``.
     """
     for session_key in list(_write_times_by_session):
-        times = _write_times_by_session[session_key]
+        times = _write_times_by_session.get(session_key)
+        if times is None:  # unreachable while locked; kept for fail-safe reads
+            continue
         times[:] = [t for t in times if now - t < window]
         if not times:
-            del _write_times_by_session[session_key]
+            _write_times_by_session.pop(session_key, None)
 
 
 def record_write() -> None:
     """Record that a write actually executed (called from the post hook).
 
-    Recording happens *after* execution, so a call that was blocked by this
-    watchdog or declined by a later confirm hook never enters the window —
-    otherwise a burst of non-executing attempts would reach the limit and
-    lock out later legitimate writes.
+    Recording happens *after* execution, so a call this watchdog blocked
+    (``_consume_rejected``) never enters the window — otherwise a burst of
+    blocked attempts would reach the limit and lock out later legitimate
+    writes.
     """
     window = _write_window()
     now = time.monotonic()
-    _prune_stale_windows(now, window)
-    _write_times_by_session.setdefault(_session_key(), []).append(now)
+    with _WINDOW_LOCK:
+        _prune_stale_windows(now, window)
+        _write_times_by_session.setdefault(_session_key(), []).append(now)
 
 
 def _check_write_storm() -> tuple[bool, str] | None:
@@ -256,8 +268,9 @@ def _check_write_storm() -> tuple[bool, str] | None:
     window = _write_window()
     now = time.monotonic()
 
-    _prune_stale_windows(now, window)
-    times = _write_times_by_session.get(_session_key(), [])
+    with _WINDOW_LOCK:
+        _prune_stale_windows(now, window)
+        times = list(_write_times_by_session.get(_session_key(), []))
 
     if len(times) >= limit:
         return _emit(
@@ -310,6 +323,23 @@ def _check_novel_host(tool_use: Any) -> tuple[bool, str] | None:
         f"network call to {_quote(hostname)} (not in GPTME_ANOMALY_ALLOWED_HOSTS). "
         "Add to allowlist to silence.",
     )
+
+
+def _mark_rejected(tool_use: Any) -> None:
+    """Remember that this tool call was blocked before it could execute."""
+    now = time.monotonic()
+    for key in list(_rejected_calls):
+        if now - _rejected_calls.get(key, now) > _REJECTED_TTL:
+            _rejected_calls.pop(key, None)
+    if len(_rejected_calls) >= 512:
+        _rejected_calls.clear()
+    _rejected_calls[id(tool_use)] = now
+
+
+def _consume_rejected(tool_use: Any) -> bool:
+    """Return True (once) if this call was blocked before execution."""
+    marked = _rejected_calls.pop(id(tool_use), None)
+    return marked is not None and time.monotonic() - marked <= _REJECTED_TTL
 
 
 def _detect_findings(tool_use: Any, workspace: Path | None) -> list[str]:
@@ -379,12 +409,14 @@ def check_tool_post(
 ) -> Generator[Message, None, None]:
     """TOOL_EXECUTE_POST hook: record writes that actually executed.
 
-    The storm window is advanced here rather than at pre-execution time, so a
-    call that was blocked by this watchdog or declined by a later confirm hook
-    never counts toward it.
+    The post hook fires on the success path of every tool call, including one
+    whose confirmation was skipped — so the window is only advanced once we
+    know this watchdog did not reject the call.
     """
-    if _enabled() and data.tool_use is not None:
-        if _tool_namespace(data.tool_use.tool) in _WRITE_TOOLS:
+    tool_use = data.tool_use
+    if _enabled() and tool_use is not None:
+        rejected = _consume_rejected(tool_use)
+        if not rejected and _tool_namespace(tool_use.tool) in _WRITE_TOOLS:
             record_write()
     yield from ()
 
@@ -411,6 +443,7 @@ def anomaly_watchdog_confirm(
 
     reason = "Blocked by anomaly_watchdog:\n" + "\n".join(findings)
     logger.info("anomaly_watchdog (block): %s", reason)
+    _mark_rejected(tool_use)
     return ConfirmationResult.skip(reason)
 
 
