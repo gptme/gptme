@@ -40,10 +40,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Sliding window of write timestamps (monotonic), per process.
-# gptme runs one session per process, so a module-level window is both
-# correct and immune to async-context resets that would defeat detection.
-_write_times: list[float] = []
+# Sliding windows of write timestamps (monotonic), keyed by session.
+# A single process can host multiple sessions (e.g. ACP/server multi-workspace),
+# so windows are keyed by the active conversation's logdir; sessions that
+# cannot be resolved share a fallback key. Module-level state keeps detection
+# immune to async-context resets (a fresh ContextVar copy would hide prior
+# writes and defeat the burst window entirely).
+_write_times_by_session: dict[str, list[float]] = {}
+_SESSION_KEY_DEFAULT = "__default__"
+
+
+def _session_key() -> str:
+    """Return a stable per-conversation key for the write-storm window."""
+    try:
+        from ..logmanager import LogManager
+    except ImportError:
+        return _SESSION_KEY_DEFAULT
+    log = LogManager.get_current_log()
+    return str(log.logdir) if log else _SESSION_KEY_DEFAULT
+
 
 # Tools that perform file writes (for write_storm + scope_escape detection)
 _WRITE_TOOLS = frozenset({"save", "append", "patch"})
@@ -202,13 +217,15 @@ def _check_write_storm() -> tuple[bool, str] | None:
     window = _write_window()
     now = time.monotonic()
 
-    _write_times[:] = [t for t in _write_times if now - t < window]
-    _write_times.append(now)
+    key = _session_key()
+    times = _write_times_by_session.setdefault(key, [])
+    times[:] = [t for t in times if now - t < window]
+    times.append(now)
 
-    if len(_write_times) > limit:
+    if len(times) > limit:
         return _emit(
             "write_storm",
-            f"{len(_write_times)} writes in the last {window:.0f}s (limit: {limit})",
+            f"{len(times)} writes in the last {window:.0f}s (limit: {limit})",
         )
     return None
 
@@ -384,7 +401,12 @@ def _init_from_config(config: object) -> None:
         or (isinstance(user_cfg, dict) and "anomaly_watchdog" in user_cfg)
         or (isinstance(project_cfg, dict) and "anomaly_watchdog" in project_cfg)
     ):
-        os.environ.setdefault("GPTME_ANOMALY_WATCHDOG", "warn")
+        # Only default to warn when the config does not itself set a mode;
+        # the setdefault in the loop below cannot override the "warn" seeded
+        # here, so seeding unconditionally would turn configured block/off
+        # into warn.
+        if merged.get("mode") in (None, ""):
+            os.environ.setdefault("GPTME_ANOMALY_WATCHDOG", "warn")
 
     config_to_env: dict[str, str] = {
         "mode": "GPTME_ANOMALY_WATCHDOG",

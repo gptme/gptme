@@ -14,10 +14,7 @@ Covers:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
+import pytest
 
 from .. import anomaly_watchdog
 from ..anomaly_watchdog import (
@@ -53,7 +50,15 @@ def _fake_tool_use(
 
 
 def _reset_storm_state() -> None:
-    anomaly_watchdog._write_times.clear()
+    anomaly_watchdog._write_times_by_session.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clean_storm_state():
+    """Keep the module-level write window from leaking between tests."""
+    _reset_storm_state()
+    yield
+    _reset_storm_state()
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +212,24 @@ class TestWriteStorm:
         _, msg = result
         assert "write_storm" in msg
 
+    def test_windows_are_isolated_per_session(self, monkeypatch):
+        """Writes in one conversation must not count against another."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        current = {"key": "session-a"}
+        monkeypatch.setattr(anomaly_watchdog, "_session_key", lambda: current["key"])
+
+        # Fill session-a's window to the limit, then hand off to session-b.
+        for _ in range(3):
+            assert _check_write_storm() is None
+        assert _check_write_storm() is not None  # session-a exceeds its limit
+        # session-b starts empty and must not inherit session-a's window.
+        current["key"] = "session-b"
+        for _ in range(3):
+            assert _check_write_storm() is None
+
 
 # ---------------------------------------------------------------------------
 # novel_host
@@ -348,3 +371,34 @@ class TestConfigActivation:
         import os
 
         assert os.environ["GPTME_ANOMALY_WATCHDOG"] == "warn"
+
+    @pytest.mark.parametrize("configured", ["block", "off"])
+    def test_config_mode_is_not_downgraded_to_warn(self, monkeypatch, configured):
+        """A configured ``mode`` must survive config activation unchanged."""
+        monkeypatch.delenv("GPTME_ANOMALY_WATCHDOG", raising=False)
+
+        class _Cfg:
+            class user:
+                plugin = {"anomaly_watchdog": {"mode": configured}}
+
+            project = None
+
+        anomaly_watchdog._init_from_config(_Cfg())
+        import os
+
+        assert os.environ["GPTME_ANOMALY_WATCHDOG"] == configured
+
+    def test_config_without_mode_defaults_to_warn(self, monkeypatch):
+        monkeypatch.delenv("GPTME_ANOMALY_WATCHDOG", raising=False)
+
+        class _Cfg:
+            class user:
+                plugin = {"anomaly_watchdog": {"write_limit": 5}}
+
+            project = None
+
+        anomaly_watchdog._init_from_config(_Cfg())
+        import os
+
+        assert os.environ["GPTME_ANOMALY_WATCHDOG"] == "warn"
+        assert os.environ["GPTME_ANOMALY_WRITE_LIMIT"] == "5"
