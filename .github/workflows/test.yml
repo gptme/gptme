@@ -274,6 +274,8 @@ jobs:
       OPENROUTER_API_KEY: ''
     steps:
     - uses: actions/checkout@v7
+      with:
+        submodules: 'recursive'
 
     - uses: astral-sh/setup-uv@v7
       with:
