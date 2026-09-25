@@ -1504,8 +1504,10 @@ def _is_quoted_mixed_prose(prompt: str) -> bool:
     """True when one Click argument starts with a complete path then continues as text.
 
     Distinguishes ``./missing.txt is discussed here`` (mixed prose, silent)
-    from ``/tmp/missing file.txt`` (one spaced filename, warn). If the first
-    token already has a basename with a ``.``, remaining words are prose.
+    from ``/tmp/missing file.txt`` (one spaced filename, warn). A dot in any
+    component of the first token marks it as file-ish, so the remaining words
+    are prose — including ``/tmp/v1.2/readme is discussed here``, where the
+    dot sits in a directory component rather than the basename.
     """
     parts = prompt.split(None, 1)
     if len(parts) != 2:
@@ -1513,8 +1515,7 @@ def _is_quoted_mixed_prose(prompt: str) -> bool:
     first, _rest = parts
     if not _looks_like_explicit_file_path(first):
         return False
-    base = first.replace("\\", "/").rsplit("/", 1)[-1]
-    return "." in base
+    return "." in first
 
 
 def _looks_like_explicit_file_path(path: str) -> bool:

@@ -570,6 +570,21 @@ def test_prompts_expand_quoted_mixed_prose_starting_with_path_no_warning(
     assert "warning:" not in result.stdout
 
 
+def test_prompts_expand_quoted_mixed_prose_with_dotted_dir_no_warning(
+    tmp_path, monkeypatch
+):
+    """A dot in a directory component still marks the first token as file-ish."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = f"{tmp_path}/v1.2/readme is discussed here"
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "warning:" not in result.stdout
+
+
 def test_prompts_expand_warns_on_missing_path_with_trailing_punct(
     tmp_path, monkeypatch
 ):
