@@ -556,7 +556,9 @@ document.write(`
   </button>
 `);
 </script>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -572,6 +574,15 @@ document.write(`
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-confirmation">Command Confirmation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-parsing">Command Parsing</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -968,6 +979,71 @@ contentful lines are returned verbatim, so indentation (e.g. from
 sed/head/tail of indented code) is preserved.</p>
 </dd></dl>
 
+<section id="command-confirmation">
+<h2>Command Confirmation<a class="headerlink" href="#command-confirmation" title="Link to this heading">#</a></h2>
+<p>Not every shell command requires user confirmation. gptme uses a three-tier
+model:</p>
+<p><strong>Allowlisted commands</strong> are <em>eligible</em> for auto-confirmation (no prompt).
+The command name is not enough on its own: arguments, flags, and shell
+syntax still have to pass the safety checks below. Names considered
+eligible:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>ls  stat  cd  cat  pwd  echo  head  find  rg  ag  tail  grep
+wc  sort  uniq  cut  file  which  type  tree  du  df
+</pre></div>
+</div>
+<p>Even with one of those names, a prompt is still required when the command
+has:</p>
+<ul class="simple">
+<li><p>File redirections (<code class="docutils literal notranslate"><span class="pre">ls</span> <span class="pre">&gt;</span> <span class="pre">files.txt</span></code>, <code class="docutils literal notranslate"><span class="pre">echo</span> <span class="pre">x</span> <span class="pre">&gt;&gt;</span> <span class="pre">out</span></code>)</p></li>
+<li><p>Sensitive paths (<code class="docutils literal notranslate"><span class="pre">cat</span> <span class="pre">/etc/shadow</span></code>, <code class="docutils literal notranslate"><span class="pre">ls</span> <span class="pre">/root</span></code>)</p></li>
+<li><p>Command substitution (<code class="docutils literal notranslate"><span class="pre">echo</span> <span class="pre">$(whoami)</span></code>, backticks)</p></li>
+<li><p>Unpermitted flags (<code class="docutils literal notranslate"><span class="pre">find</span> <span class="pre">.</span> <span class="pre">-delete</span></code>, <code class="docutils literal notranslate"><span class="pre">rg</span> <span class="pre">--pre</span></code>, <code class="docutils literal notranslate"><span class="pre">sort</span> <span class="pre">-o</span></code>)</p></li>
+</ul>
+<p><strong>Transparent wrappers</strong> are stripped before the allowlist check, so wrapping
+an allowlisted command with a timing or resource-limit prefix does not
+itself require a prompt. Recognised wrappers:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>time [−p]
+timeout [options] &lt;duration&gt;
+nohup
+nice [−n &lt;adj&gt;]
+stdbuf [−i/−o/−e &lt;mode&gt;]
+env [−i / −u VAR]   (bare env, without NAME=value)
+command [−p]
+builtin
+</pre></div>
+</div>
+<p>For example, <code class="docutils literal notranslate"><span class="pre">timeout</span> <span class="pre">60</span> <span class="pre">grep</span> <span class="pre">-r</span> <span class="pre">foo</span> <span class="pre">/var/log</span></code> is judged as <code class="docutils literal notranslate"><span class="pre">grep</span></code> and
+runs without a prompt <em>if</em> <code class="docutils literal notranslate"><span class="pre">grep</span></code> also passes the checks above. Variables
+(<code class="docutils literal notranslate"><span class="pre">PATH=.</span> <span class="pre">ls</span></code>) are deliberately <strong>not</strong> treated as transparent — they
+change what the command does and are always gated.</p>
+<p><strong>Denied commands</strong> are blocked outright and never executed. These match
+specific command-text patterns, not every equivalent spelling:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">add</span> <span class="pre">.</span></code> / <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">add</span> <span class="pre">-A</span></code> / <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">commit</span> <span class="pre">-a</span></code> — bulk staging</p></li>
+<li><p>Destructive git: <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">reset</span> <span class="pre">--hard</span></code>, <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">clean</span> <span class="pre">-f</span></code>, <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">-f</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">-rf</span> <span class="pre">/</span></code> (also <code class="docutils literal notranslate"><span class="pre">/./</span></code>, <code class="docutils literal notranslate"><span class="pre">/*</span></code>, quoted <code class="docutils literal notranslate"><span class="pre">/</span></code>), <code class="docutils literal notranslate"><span class="pre">sudo</span> <span class="pre">rm</span> <span class="pre">-rf</span> <span class="pre">/</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">-rf</span> <span class="pre">*</span></code>. Flag-order variants such as <code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">-fr</span> <span class="pre">/</span></code> or <code class="docutils literal notranslate"><span class="pre">rm</span> <span class="pre">-r</span> <span class="pre">-f</span> <span class="pre">/</span></code>
+are <strong>not</strong> hard-denied; they reach the confirmation prompt.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chmod</span> <span class="pre">777</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pkill</span></code> / <code class="docutils literal notranslate"><span class="pre">killall</span></code></p></li>
+<li><p>Piping to shell interpreters: <code class="docutils literal notranslate"><span class="pre">...</span> <span class="pre">|</span> <span class="pre">bash</span></code>, <code class="docutils literal notranslate"><span class="pre">...</span> <span class="pre">|</span> <span class="pre">python3</span></code></p></li>
+</ul>
+<p>Everything else falls through to the normal confirmation prompt.</p>
+</section>
+<section id="command-parsing">
+<h2>Command Parsing<a class="headerlink" href="#command-parsing" title="Link to this heading">#</a></h2>
+<p>Since v0.34.0, gptme uses <a class="reference external" href="https://github.com/tree-sitter/tree-sitter-bash">tree-sitter-bash</a> as the <strong>primary</strong> parser
+to split multi-command scripts into individual commands for sequential
+execution and to detect background operators (<code class="docutils literal notranslate"><span class="pre">&amp;</span></code>). <code class="docutils literal notranslate"><span class="pre">bashlex</span></code> remains a
+compatibility fallback when tree-sitter reports a parse error or a generated
+split fails syntax validation — which is why some scripts can still receive
+the legacy splitting behavior.</p>
+<p>The former <code class="docutils literal notranslate"><span class="pre">bashlex</span></code>-only parser could not handle several common constructs
+(<code class="docutils literal notranslate"><span class="pre">time</span></code>, <code class="docutils literal notranslate"><span class="pre">timeout</span></code>, process substitution <code class="docutils literal notranslate"><span class="pre">&lt;(…)</span></code>, arithmetic expansion
+<code class="docutils literal notranslate"><span class="pre">$((</span> <span class="pre">))</span></code>) and reported them as syntax errors to the model.</p>
+<p>The allowlist and denylist checks always operate on the <strong>raw command text</strong>
+and are unaffected by the parser.</p>
+</section>
 </section>
 
 
@@ -1005,6 +1081,22 @@ sed/head/tail of indented code) is preserved.</p>
             </div>
             
             
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-confirmation">Command Confirmation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-parsing">Command Parsing</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>
