@@ -576,7 +576,17 @@ pub struct MCPServerView {
     /// but the backend must round-trip them or a save would strip credentials.
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Unknown keys from the original server entry, preserved so a save does
+    /// not silently drop settings the view does not model.
+    #[serde(skip)]
+    pub extra: Vec<(String, toml_edit::Item)>,
 }
+
+/// Keys handled by MCPServerView fields; anything else in a server entry is
+/// round-tripped via `extra`.
+const KNOWN_SERVER_KEYS: [&str; 7] = [
+    "name", "enabled", "command", "args", "env", "url", "headers",
+];
 
 /// JSON view of the [mcp] section of config.toml.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -669,6 +679,16 @@ fn parse_args_from_value(value: Option<&toml_edit::Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn collect_extra<'a, I>(entries: I) -> Vec<(String, toml_edit::Item)>
+where
+    I: Iterator<Item = (&'a str, &'a toml_edit::Item)>,
+{
+    entries
+        .filter(|(k, _)| !KNOWN_SERVER_KEYS.contains(k))
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
+}
+
 fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
     MCPServerView {
         name: st
@@ -685,6 +705,7 @@ fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
         env: parse_str_map_from_item(st.get("env")),
         url: st.get("url").and_then(|v| v.as_str()).map(str::to_string),
         headers: parse_str_map_from_item(st.get("headers")),
+        extra: collect_extra(st.iter()),
     }
 }
 
@@ -704,6 +725,13 @@ fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
         env: parse_str_map_from_value(it.get("env")),
         url: it.get("url").and_then(|v| v.as_str()).map(str::to_string),
         headers: parse_str_map_from_value(it.get("headers")),
+        extra: {
+            let entries: Vec<(&str, toml_edit::Item)> = it
+                .iter()
+                .map(|(k, v)| (k, toml_edit::Item::Value(v.clone())))
+                .collect();
+            collect_extra(entries.iter().map(|(k, v)| (*k, v)))
+        },
     }
 }
 
@@ -792,11 +820,10 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
     let mut servers_aot = toml_edit::ArrayOfTables::new();
     for server in &mcp.servers {
         let mut st = toml_edit::Table::new();
-        // Only write `name` when present: a parsed server without one keeps
-        // its field absent instead of gaining an empty `name = ""`.
-        if !server.name.is_empty() {
-            st.insert("name", toml_edit::value(server.name.as_str()));
-        }
+        // Always write `name`, even when empty: the Python loader requires the
+        // key (MCPServerConfig.name has no default) and skips entries without
+        // it, so omitting it would make a configured server disappear.
+        st.insert("name", toml_edit::value(server.name.as_str()));
         st.insert("enabled", toml_edit::value(server.enabled));
         if let Some(cmd) = &server.command {
             st.insert("command", toml_edit::value(cmd.as_str()));
@@ -813,6 +840,13 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
             st.insert("url", toml_edit::value(url.as_str()));
         }
         insert_str_map(&mut st, "headers", &server.headers);
+        // Restore unknown keys from the original entry after the known fields
+        // so a save never drops settings the view does not model.
+        for (k, item) in &server.extra {
+            if !st.contains_key(k) {
+                st.insert(k, item.clone());
+            }
+        }
         servers_aot.push(st);
     }
     mcp_table.insert("servers", toml_edit::Item::ArrayOfTables(servers_aot));
@@ -1805,8 +1839,10 @@ env = { RETRIES = 3, VERBOSE = true }
     }
 
     #[test]
-    fn test_mcp_config_nameless_server_stays_nameless() {
-        // A server entry without a `name` must not gain `name = ""` on save.
+    fn test_mcp_config_nameless_server_gets_empty_name_key() {
+        // The Python loader requires the `name` key (MCPServerConfig.name has
+        // no default and entries without it are skipped), so saving must
+        // always write `name`, even when it was absent in the original.
         let original = r#"
 [mcp]
 enabled = true
@@ -1819,7 +1855,29 @@ command = "cmd"
         assert_eq!(cfg.servers[0].name, "");
 
         let updated = serialize_mcp_config(original, &cfg).unwrap();
-        assert!(!updated.contains("name ="));
+        assert!(updated.contains("name = \"\""));
+    }
+
+    #[test]
+    fn test_mcp_config_unknown_server_keys_survive_save() {
+        // Unknown keys inside a server entry must survive a save.
+        let original = r#"
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+name = "x"
+enabled = true
+command = "cmd"
+transport = "streamable"
+timeout = 30
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(cfg.servers[0].extra.len(), 2);
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("transport = \"streamable\""));
+        assert!(updated.contains("timeout = 30"));
     }
 
     #[test]
