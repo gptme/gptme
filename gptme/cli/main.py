@@ -752,6 +752,13 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
     help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
+@click.option(
+    "--allow-hosts",
+    "allow_hosts",
+    default=None,
+    envvar="GPTME_ALLOW_HOSTS",
+    help="Comma-separated hostnames the agent may access via web tools (e.g. 'github.com,*.googleapis.com'). Default: unrestricted. Wildcard subdomains supported.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -778,6 +785,7 @@ def main(
     context_include: tuple[str, ...],
     no_workspace: bool,
     output_schema: str | None,
+    allow_hosts: str | None,
 ):
     """Main entrypoint for the CLI."""
     show_version = version or version_json
@@ -1284,6 +1292,11 @@ def main(
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
+    # Parse allow_hosts: comma-separated string → list[str] or None
+    allow_hosts_list: list[str] | None = None
+    if allow_hosts:
+        allow_hosts_list = [h.strip() for h in allow_hosts.split(",") if h.strip()]
+
     # Setup complete configuration from CLI arguments and workspace
     try:
         config = setup_config_from_cli(
@@ -1297,6 +1310,7 @@ def main(
             stream=stream,
             interactive=interactive,
             agent_path=Path(agent_path) if agent_path else None,
+            allow_hosts=allow_hosts_list,
         )
     except ValueError as e:
         raise click.UsageError(str(e)) from e

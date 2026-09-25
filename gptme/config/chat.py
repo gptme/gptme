@@ -138,6 +138,10 @@ class ChatConfig:
 
     env: dict = field(default_factory=dict)
     mcp: MCPConfig | None = None
+    # Hostname allowlist for web tool access. None = unrestricted (default).
+    # Wildcard subdomains: "*.github.com" matches "api.github.com".
+    # Set via --allow-hosts or GPTME_ALLOW_HOSTS env var.
+    allow_hosts: list[str] | None = None
 
     @property
     def agent_config(self) -> AgentConfig | None:
