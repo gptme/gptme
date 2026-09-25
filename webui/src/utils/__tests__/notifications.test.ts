@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
-const mockInvokeTauri = jest.fn<(command: string, args?: Record<string, unknown>) => Promise<unknown>>();
+const mockInvokeTauri =
+  jest.fn<(command: string, args?: Record<string, unknown>) => Promise<unknown>>();
 const mockIsTauriEnvironment = jest.fn<() => boolean>(() => true);
 
 jest.mock('@/utils/tauri', () => ({
@@ -34,7 +35,7 @@ describe('showNotification — Tauri native path', () => {
     });
   });
 
-  it('forwards icon and silent, which the plugin does support', async () => {
+  it('forwards icon, which the plugin does support', async () => {
     await showNotification('Done', { body: 'Finished', icon: '/icon.png' });
 
     const notifyCall = mockInvokeTauri.mock.calls.find(

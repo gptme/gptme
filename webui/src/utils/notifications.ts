@@ -41,7 +41,7 @@ async function tauriRequestPermission(): Promise<NotificationPermission> {
 async function showTauriNotification(
   title: string,
   body?: string,
-  options?: { icon?: string; tag?: string; silent?: boolean }
+  options?: { icon?: string; tag?: string }
 ): Promise<boolean> {
   try {
     const granted = await tauriIsPermissionGranted();
@@ -52,9 +52,9 @@ async function showTauriNotification(
         return false;
       }
     }
-    // tauri-plugin-notification v2 Options supports icon/silent; it has no
-    // `tag` field, so browser-API tag dedup has no native equivalent — calls
-    // relying on tag dedup may stack instead of replace on desktop.
+    // tauri-plugin-notification v2 Options supports `icon`; it has no `tag`
+    // field, so browser-API tag dedup has no native equivalent — calls relying
+    // on tag dedup may stack instead of replace on desktop.
     //
     // The payload key must be `options`: the Rust command is
     // `notify(_app, notification: State<..>, options: NotificationData)`, so
@@ -69,7 +69,6 @@ async function showTauriNotification(
         title,
         body,
         ...(options?.icon ? { icon: options.icon } : {}),
-        ...(options?.silent !== undefined ? { silent: options.silent } : {}),
       },
     });
     // Record the native grant only after the notification actually went out,
