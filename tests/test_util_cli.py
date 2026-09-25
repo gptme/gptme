@@ -538,6 +538,27 @@ def test_prompts_expand_warns_on_quoted_path_with_spaces(tmp_path, monkeypatch):
     assert "warning:" not in result.stdout
 
 
+def test_prompts_expand_warns_on_relative_and_dotted_dir_spaced_paths(
+    tmp_path, monkeypatch
+):
+    """A dot from `./`, `../`, or a directory component is not prose."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    dotted_dir = tmp_path / "v1.2"
+    dotted_dir.mkdir()
+
+    for missing in (
+        "./missing file.txt",
+        "../missing file.txt",
+        str(dotted_dir / "missing file.txt"),
+    ):
+        result = runner.invoke(main, ["prompts", "expand", missing])
+
+        assert result.exit_code == 0
+        assert f"warning: path not found, not expanded: {missing}" in result.stderr
+        assert "warning:" not in result.stdout
+
+
 def test_prompts_expand_no_warning_for_existing_path_with_trailing_punct(
     tmp_path, monkeypatch
 ):
