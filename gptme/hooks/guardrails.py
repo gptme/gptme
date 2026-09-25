@@ -301,8 +301,7 @@ def guardrail_hook(
         logger.warning("Guardrail (shadow): would block — %s", block_reason)
         return None  # Shadow mode: log but don't actually block
 
-    # Enforce mode
-    logger.info("Guardrail (enforce): blocking — %s", block_reason)
+    # Enforce mode — policy_block_message logs the block once at WARNING
     message = f"Blocked by guardrail: {block_reason}"
     if tool_use.tool == "shell":
         from ..tools.shell_validation import format_denial  # fmt: skip
