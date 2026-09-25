@@ -610,6 +610,22 @@ fn gptme_config_path() -> Result<std::path::PathBuf, String> {
         .map(|d| d.join("gptme").join("config.toml"))
 }
 
+/// Render a scalar TOML value as a plain string so stringification of
+/// non-string scalars (integers, booleans, floats) never silently drops
+/// entries from env/headers maps.
+fn scalar_value_to_string(v: &toml_edit::Value) -> Option<String> {
+    if let Some(s) = v.as_str() {
+        return Some(s.to_string());
+    }
+    if let Some(b) = v.as_bool() {
+        return Some(b.to_string());
+    }
+    if let Some(i) = v.as_integer() {
+        return Some(i.to_string());
+    }
+    v.as_float().map(|f| f.to_string())
+}
+
 fn parse_str_map_from_value(value: Option<&toml_edit::Value>) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let Some(value) = value else {
@@ -617,8 +633,8 @@ fn parse_str_map_from_value(value: Option<&toml_edit::Value>) -> HashMap<String,
     };
     if let Some(it) = value.as_inline_table() {
         for (k, v) in it.iter() {
-            if let Some(s) = v.as_str() {
-                map.insert(k.to_string(), s.to_string());
+            if let Some(s) = scalar_value_to_string(v) {
+                map.insert(k.to_string(), s);
             }
         }
     }
@@ -635,8 +651,10 @@ fn parse_str_map_from_item(item: Option<&toml_edit::Item>) -> HashMap<String, St
     if let Some(t) = item.as_table() {
         let mut map = HashMap::new();
         for (k, v) in t.iter() {
-            if let Some(s) = v.as_value().and_then(|v| v.as_str()) {
-                map.insert(k.to_string(), s.to_string());
+            if let Some(val) = v.as_value() {
+                if let Some(s) = scalar_value_to_string(val) {
+                    map.insert(k.to_string(), s);
+                }
             }
         }
         return map;
@@ -762,7 +780,11 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
     let mut servers_aot = toml_edit::ArrayOfTables::new();
     for server in &mcp.servers {
         let mut st = toml_edit::Table::new();
-        st.insert("name", toml_edit::value(server.name.as_str()));
+        // Only write `name` when present: a parsed server without one keeps
+        // its field absent instead of gaining an empty `name = ""`.
+        if !server.name.is_empty() {
+            st.insert("name", toml_edit::value(server.name.as_str()));
+        }
         st.insert("enabled", toml_edit::value(server.enabled));
         if let Some(cmd) = &server.command {
             st.insert("command", toml_edit::value(cmd.as_str()));
@@ -1732,6 +1754,60 @@ env = { PATH = "/usr/bin", DEBUG = "1" }
             cfg2.servers[0].env.get("DEBUG").map(String::as_str),
             Some("1")
         );
+    }
+
+    #[test]
+    fn test_mcp_config_non_string_map_values_are_stringified() {
+        // Non-string scalars in env/headers must survive a save instead of
+        // being silently dropped (data loss).
+        let original = r#"
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+name = "srv"
+enabled = true
+command = "cmd"
+env = { RETRIES = 3, VERBOSE = true }
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(
+            cfg.servers[0].env.get("RETRIES").map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            cfg.servers[0].env.get("VERBOSE").map(String::as_str),
+            Some("true")
+        );
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(
+            cfg2.servers[0].env.get("RETRIES").map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            cfg2.servers[0].env.get("VERBOSE").map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn test_mcp_config_nameless_server_stays_nameless() {
+        // A server entry without a `name` must not gain `name = ""` on save.
+        let original = r#"
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+enabled = true
+command = "cmd"
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(cfg.servers[0].name, "");
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(!updated.contains("name ="));
     }
 
     #[test]
