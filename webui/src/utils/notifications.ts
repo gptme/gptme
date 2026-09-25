@@ -52,11 +52,6 @@ async function showTauriNotification(
         return false;
       }
     }
-    // Record the native grant in the module-level state so that
-    // `isNotificationSupported()` reflects desktop permission instead of
-    // staying at its initial 'default' forever. Denial is deliberately NOT
-    // recorded: the browser-API fallback below still gets its own chance.
-    notificationPermission = 'granted';
     // tauri-plugin-notification v2 Options supports icon/silent; it has no
     // `tag` field, so browser-API tag dedup has no native equivalent — calls
     // relying on tag dedup may stack instead of replace on desktop.
@@ -68,6 +63,11 @@ async function showTauriNotification(
         ...(options?.silent !== undefined ? { silent: options.silent } : {}),
       },
     });
+    // Record the native grant only after the notification actually went out,
+    // so a failed invoke leaves the module state 'default' and the browser-API
+    // fallback below runs its own permission request. Denial is deliberately
+    // NOT recorded: the browser-API fallback still gets its own chance.
+    notificationPermission = 'granted';
     console.log('Tauri native notification shown:', title);
     return true;
   } catch (error) {
