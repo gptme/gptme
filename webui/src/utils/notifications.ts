@@ -1,10 +1,92 @@
 /**
- * System notification utilities for desktop notifications
+ * System notification utilities for desktop notifications.
+ *
+ * When running inside Tauri, the browser Notification API may be unreliable in
+ * the embedded WebView (it can no-op silently depending on platform and OS
+ * permission state).  We therefore prefer the native Tauri notification plugin
+ * (`tauri-plugin-notification`) whenever `window.__TAURI_INTERNALS__` is
+ * present, falling back to the standard browser API for plain-web usage.
  */
+
+import { isTauriEnvironment, invokeTauri } from './tauri';
 
 type NotificationPermission = 'default' | 'granted' | 'denied';
 
 let notificationPermission: NotificationPermission = 'default';
+
+// ---------------------------------------------------------------------------
+// Tauri-native notification helpers (no extra npm package — uses invokeTauri)
+// ---------------------------------------------------------------------------
+
+async function tauriIsPermissionGranted(): Promise<boolean> {
+  try {
+    return await invokeTauri<boolean>('plugin:notification|is_permission_granted');
+  } catch {
+    return false;
+  }
+}
+
+async function tauriRequestPermission(): Promise<NotificationPermission> {
+  try {
+    return await invokeTauri<NotificationPermission>('plugin:notification|request_permission');
+  } catch {
+    return 'denied';
+  }
+}
+
+/**
+ * Show a notification via the Tauri native plugin.
+ * Returns true if the notification was sent, false on any error/denial.
+ */
+async function showTauriNotification(
+  title: string,
+  body?: string,
+  options?: { icon?: string; tag?: string }
+): Promise<boolean> {
+  try {
+    const granted = await tauriIsPermissionGranted();
+    if (!granted) {
+      const perm = await tauriRequestPermission();
+      if (perm !== 'granted') {
+        console.log('Tauri notification permission denied');
+        return false;
+      }
+    }
+    // tauri-plugin-notification v2 Options supports `icon`; it has no `tag`
+    // field, so browser-API tag dedup has no native equivalent — calls relying
+    // on tag dedup may stack instead of replace on desktop.
+    //
+    // The payload key must be `options`: the Rust command is
+    // `notify(_app, notification: State<..>, options: NotificationData)`, so
+    // Tauri deserializes the command arguments from an `options` field (the
+    // `notification` param is injected app state, not payload). The plugin's own
+    // injected shim confirms it — `init-iife.js` calls
+    // `invoke("plugin:notification|notify", { options: ... })`. Passing
+    // `notification` fails deserialization, which the catch below turns into a
+    // silent fallback, i.e. the native path never sends.
+    await invokeTauri('plugin:notification|notify', {
+      options: {
+        title,
+        body,
+        ...(options?.icon ? { icon: options.icon } : {}),
+      },
+    });
+    // Record the native grant only after the notification actually went out,
+    // so a failed invoke leaves the module state 'default' and the browser-API
+    // fallback below runs its own permission request. Denial is deliberately
+    // NOT recorded: the browser-API fallback still gets its own chance.
+    notificationPermission = 'granted';
+    console.log('Tauri native notification shown:', title);
+    return true;
+  } catch (error) {
+    console.error('Tauri native notification failed, will fall back:', error);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Browser Notification API helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Request notification permission from the browser
@@ -47,7 +129,11 @@ export function isTabActive(): boolean {
 }
 
 /**
- * Show a system notification
+ * Show a system notification.
+ *
+ * In Tauri: attempts the native plugin first; falls back to browser API on
+ * failure so the web-only path is unchanged.
+ * In browser: uses the standard Notification API directly.
  */
 export async function showNotification(
   title: string,
@@ -58,26 +144,31 @@ export async function showNotification(
     requireInactive?: boolean;
   }
 ): Promise<Notification | null> {
-  // Check if notifications are supported
+  // Only show when window is not in focus (when requireInactive is set)
+  if (options?.requireInactive && isTabActive()) {
+    console.log('Tab is active, skipping notification');
+    return null;
+  }
+
+  // Try Tauri native notifications first — avoids WebView permission quirks
+  if (isTauriEnvironment()) {
+    const sent = await showTauriNotification(title, options?.body, options);
+    if (sent) return null; // Native notification sent; no browser Notification object
+    // Fall through to browser API on failure
+  }
+
+  // Browser Notification API path
   if (!('Notification' in window)) {
     console.log('Notifications not supported in this browser');
     return null;
   }
 
-  // Request permission if needed
   if (notificationPermission === 'default') {
     await requestNotificationPermission();
   }
 
-  // Check if we have permission
   if (notificationPermission !== 'granted') {
     console.log('Notification permission denied');
-    return null;
-  }
-
-  // Check if we should only show when tab is inactive
-  if (options?.requireInactive && isTabActive()) {
-    console.log('Tab is active, skipping notification');
     return null;
   }
 
@@ -87,21 +178,19 @@ export async function showNotification(
       icon: options?.icon || '/favicon.png',
       tag: options?.tag,
       badge: '/favicon.png',
-      silent: false, // Allow sound from the notification itself
+      silent: false,
     });
 
-    // Auto-close notification after a few seconds
     setTimeout(() => {
       notification.close();
     }, 5000);
 
-    // Handle click to focus the window/tab
     notification.onclick = () => {
       window.focus();
       notification.close();
     };
 
-    console.log('Notification shown:', title);
+    console.log('Browser notification shown:', title);
     return notification;
   } catch (error) {
     console.error('Failed to show notification:', error);
@@ -121,7 +210,7 @@ export async function notifyGenerationComplete(conversationName?: string): Promi
   await showNotification(title, {
     body,
     tag: 'generation-complete',
-    requireInactive: true, // Only show when tab is not active
+    requireInactive: true,
   });
 }
 
@@ -140,7 +229,7 @@ export async function notifyToolConfirmation(
   await showNotification(title, {
     body,
     tag: 'tool-confirmation',
-    requireInactive: true, // Only show when tab is not active - chime and UI are enough when active
+    requireInactive: true,
   });
 }
 

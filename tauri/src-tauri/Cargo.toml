@@ -27,6 +27,7 @@ tauri-plugin-deep-link = "2"
 url = "2"
 log = "0.4"
 tauri-plugin-log = "2"
+tauri-plugin-notification = "2"
 getrandom = "0.3"
 tokio = { version = "1", features = ["net", "time", "io-util", "sync"] }
 
