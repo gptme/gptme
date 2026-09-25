@@ -237,7 +237,11 @@ test.describe('Tool Confirmation Flow (InlineToolConfirmation)', () => {
 
     // Target the panel's heading instead of a bare 'shell' substring, which
     // could match unrelated UI text and pass before the panel renders.
-    await expect(page.getByRole('heading', { name: 'Tool Execution Confirmation' })).toBeVisible({
+    // The heading's accessible name is its visible text ("Run shell?"), so this
+    // also asserts the pending tool name is exposed to heading navigation.
+    await expect(
+      page.getByRole('heading', { name: new RegExp(`Run ${PENDING_TOOLUSE.tool}\\?`) })
+    ).toBeVisible({
       timeout: TOOL_CONFIRM_TIMEOUT,
     });
 
