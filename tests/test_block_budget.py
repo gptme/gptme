@@ -69,6 +69,20 @@ class TestEpisodeCounter:
         ]
         assert count_policy_blocks(msgs) == 0
 
+    def test_user_quoting_marker_resets(self):
+        # A human message that quotes the auto-reply marker is still a real
+        # user message and must start a fresh episode.
+        quoted = Message("user", 'Why do I keep seeing "No tool call detected"?')
+        msgs = [PROMPT, *_blocks(3), quoted, _block()]
+        assert count_policy_blocks(msgs) == 1
+
+    def test_verify_failure_does_not_reset(self):
+        from gptme.tools.complete import _VERIFY_FAILED_MARKER
+
+        verify_fail = Message("user", f"{_VERIFY_FAILED_MARKER}: exit code 1.")
+        msgs = [PROMPT, *_blocks(2), verify_fail, _block()]
+        assert count_policy_blocks(msgs) == 3
+
     def test_episode_without_user_message_is_whole_log(self):
         msgs = [Message("system", "sys prompt"), _block()]
         assert current_episode(msgs) == msgs
