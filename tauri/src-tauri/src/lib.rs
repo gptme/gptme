@@ -862,7 +862,7 @@ pub(crate) fn kill_subprocesses(pid: u32) {
 //   - Reuse path (#2258): no CommandChild was tracked
 //   - Subprocess survival: pkill -P missed children for any reason
 #[cfg(unix)]
-fn kill_server_on_port(port: u16) {
+pub(crate) fn kill_server_on_port(port: u16) {
     // -sTCP:LISTEN restricts output to the process actually listening on the
     // port, excluding established client connections (e.g. the Tauri WebView).
     // my_pid guard is belt-and-suspenders in case lsof returns our own PID.
@@ -897,7 +897,7 @@ fn kill_server_on_port(port: u16) {
 }
 
 #[cfg(windows)]
-fn kill_server_on_port(port: u16) {
+pub(crate) fn kill_server_on_port(port: u16) {
     // netstat -ano columns: Proto  LocalAddress  ForeignAddress  State  PID
     // Match the local-address field (col[1]) exactly so ":5700" does not
     // accidentally match ":57001" via substring search.
@@ -937,7 +937,7 @@ fn kill_server_on_port(port: u16) {
 pub(crate) fn kill_subprocesses(_pid: u32) {}
 
 #[cfg(not(any(unix, windows)))]
-fn kill_server_on_port(_port: u16) {}
+pub(crate) fn kill_server_on_port(_port: u16) {}
 
 #[cfg(test)]
 mod tests {

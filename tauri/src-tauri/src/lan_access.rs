@@ -66,11 +66,19 @@ impl LanAccessInner {
 /// config (`#baseUrl=<url>&userToken=<token>`), so a phone opening it connects
 /// authenticated without any manual token entry.
 fn build_connect_url(base_url: &str, token: &str) -> String {
+    // Both values are percent-escaped so they cannot inject additional
+    // fragment parameters (the webui parses the hash as a query string).
+    // The server token is hex today, but encoding it keeps the contract
+    // robust if the token format ever changes.
     let encoded = base_url
         .replace('%', "%25")
         .replace('#', "%23")
         .replace('&', "%26");
-    format!("{base_url}#baseUrl={encoded}&userToken={token}")
+    let encoded_token = token
+        .replace('%', "%25")
+        .replace('#', "%23")
+        .replace('&', "%26");
+    format!("{base_url}#baseUrl={encoded}&userToken={encoded_token}")
 }
 
 // ── platform-specific helpers ──────────────────────────────────────────────
@@ -114,22 +122,36 @@ async fn restart_sidecar_with_lan(
     use std::time::Duration;
 
     // Only rebind a server we manage — killing a foreign server we merely
-    // found on the port would be wrong.
-    let unmanaged_err = "gptme-server is not managed by this app (external server on the port); \
-         restart gptme-tauri to enable LAN access"
-        .to_string();
+    // found on the port would be wrong. "Managed" means either we hold a
+    // child handle, or we adopted a usable server on the port (owns_port).
     let child = server
         .child
         .lock()
         .map_err(|e| format!("Lock error: {e}"))?
         .take();
-    let Some(child) = child else {
-        return Err(unmanaged_err);
+    let child = match child {
+        Some(child) => Some(child),
+        None => {
+            if !server.owns_port.load(Ordering::Relaxed) {
+                return Err(
+                    "gptme-server is not managed by this app (external server on the port); \
+                     restart gptme-tauri to enable LAN access"
+                        .to_string(),
+                );
+            }
+            // Adoption path (crash recovery): we own the port but hold no
+            // child handle. Stop whatever serves the port, then rebind.
+            log::info!("No child handle for adopted server; killing by port for LAN rebind");
+            crate::kill_server_on_port(crate::server_port());
+            None
+        }
     };
-    let old_pid = child.pid();
-    log::info!("Stopping gptme-server for LAN rebind (lan_ip: {lan_ip:?})");
-    crate::kill_subprocesses(old_pid);
-    child.kill().map_err(|e| format!("Kill error: {e}"))?;
+    if let Some(child) = child {
+        let old_pid = child.pid();
+        log::info!("Stopping gptme-server for LAN rebind (lan_ip: {lan_ip:?})");
+        crate::kill_subprocesses(old_pid);
+        child.kill().map_err(|e| format!("Kill error: {e}"))?;
+    }
     server.owns_port.store(false, Ordering::Relaxed);
 
     let app = server
@@ -255,11 +277,10 @@ pub async fn disable_lan_access(
     // If the server is not managed we cannot rebind it: clear the LAN state
     // (so the toggle stops showing "enabled") and tell the user the external
     // server may still be exposed and must be reconfigured manually.
-    let managed = server
-        .child
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?
-        .is_some();
+    // A server we adopted via the crash-recovery reuse path counts as
+    // managed: we own the port even without a child handle.
+    let managed = server.child.lock().map(|g| g.is_some()).unwrap_or(false)
+        || server.owns_port.load(std::sync::atomic::Ordering::Relaxed);
     if !managed {
         {
             let mut inner = state.0.lock().map_err(|e| e.to_string())?;
@@ -377,7 +398,7 @@ mod tests {
     #[test]
     fn connect_url_escapes_special_characters() {
         let url = build_connect_url("http://1.2.3.4:5700", "a&b#c%d");
-        assert!(url.contains("userToken=a&b#c%d"));
+        assert!(url.contains("userToken=a%26b%23c%25d"));
         assert!(url.contains("baseUrl=http://1.2.3.4:5700"));
     }
 
