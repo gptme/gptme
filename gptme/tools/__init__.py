@@ -496,7 +496,11 @@ def execute_msg(
     # change tool availability (request_tool_change) is never read-only, so the
     # eager runnability check here cannot race a mid-message enable/disable.
     runnable_calls = [tu for tu in classified if tu.is_runnable]
-    if len(runnable_calls) > 1 and all(_is_read_only(tu) for tu in runnable_calls):
+    if (
+        len(runnable_calls) > 1
+        and all(_is_read_only(tu) for tu in runnable_calls)
+        and not _has_tool_execute_hooks()
+    ):
         yield from _execute_readonly_parallel(classified, log, workspace, tool_timings)
         return
 
@@ -542,6 +546,29 @@ def _is_read_only(tooluse: ToolUse) -> bool:
     return spec is not None and spec.read_only
 
 
+# Upper bound on threads spawned for one all-read-only turn. Real turns are
+# small, but the cap keeps a pathological many-call turn from creating one
+# thread per call (memory + I/O contention).
+_MAX_PARALLEL_READONLY_TOOLS = 8
+
+
+def _has_tool_execute_hooks() -> bool:
+    """Whether any ``tool.execute.pre``/``post`` hooks are registered.
+
+    Hooks commonly mutate ContextVar-held state (token accounting, time
+    awareness). Concurrently executing that state across workers either races
+    on shared mutable objects or loses updates that never propagate back to
+    the caller, so any turn with such hooks registered stays sequential.
+    """
+    from ..hooks import HookType, get_registry  # fmt: skip
+
+    registry = get_registry()
+    return bool(
+        registry.get_hooks(HookType.TOOL_EXECUTE_PRE)
+        or registry.get_hooks(HookType.TOOL_EXECUTE_POST)
+    )
+
+
 def _unavailable_tool_result(tooluse: ToolUse) -> Message | None:
     """Paired error result for a non-runnable structured tool_use.
 
@@ -583,13 +610,23 @@ def _execute_readonly_parallel(
     their defaults. Replay the parent's variables into each worker instead of
     entering one shared Context: a Context cannot be entered by two threads at
     once, and ``Context.copy()`` is 3.11+ while gptme supports 3.10.
+
+    Only runnable calls are dispatched; non-runnable structured calls still get
+    their paired unavailable result (with the enable hint) in the yield loop.
+    Worker count is capped at ``_MAX_PARALLEL_READONLY_TOOLS`` so a large turn
+    cannot spawn one thread per call.
     """
     parent_context = copy_context()
     results: dict[int, list[Message]] = {}
     errors: dict[int, Exception] = {}
     timings: dict[int, float] = {}
+    cancelled = threading.Event()
+
+    tasks = [(idx, tu) for idx, tu in enumerate(classified) if tu.is_runnable]
 
     def run_one(idx: int, tooluse: ToolUse) -> None:
+        if cancelled.is_set():
+            return
         for var, value in parent_context.items():
             var.set(value)
         t0 = time.monotonic()
@@ -602,15 +639,20 @@ def _execute_readonly_parallel(
 
     with terminal_state_title(f"🛠️ running {len(classified)} tools"):
         pool = ThreadPoolExecutor(
-            max_workers=len(classified), thread_name_prefix="gptme-tool"
+            max_workers=min(len(tasks), _MAX_PARALLEL_READONLY_TOOLS),
+            thread_name_prefix="gptme-tool",
         )
-        futures = [pool.submit(run_one, idx, tu) for idx, tu in enumerate(classified)]
+        futures = [pool.submit(run_one, idx, tu) for idx, tu in tasks]
         try:
             for future in futures:
                 future.result()
         except KeyboardInterrupt:
             clear_interruptible()
-            pool.shutdown(wait=False, cancel_futures=True)
+            cancelled.set()
+            # Running threads cannot be killed; waiting for the in-flight
+            # read-only calls keeps them from outliving the turn. Their
+            # results are discarded.
+            pool.shutdown(wait=True)
             # Abandon the batch, but every structured call still needs a paired
             # result or the next API request 400s with a dangling tool_use.
             for tooluse in classified:
@@ -622,6 +664,7 @@ def _execute_readonly_parallel(
                     )
             return
         except BaseException:
+            cancelled.set()
             pool.shutdown(wait=False, cancel_futures=True)
             raise
         else:

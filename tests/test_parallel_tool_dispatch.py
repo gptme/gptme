@@ -14,10 +14,19 @@ from __future__ import annotations
 import threading
 import time
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
 import pytest
 
-from gptme.hooks import clear_hooks
+if TYPE_CHECKING:
+    from gptme.hooks.types import ToolExecutePreData
+
+from gptme.hooks import (
+    HookType,
+    clear_hooks,
+    register_hook,
+    unregister_hook,
+)
 from gptme.message import Message
 from gptme.tools import clear_tools, execute_msg, get_tools, set_tools
 from gptme.tools.base import ToolSpec, set_tool_format
@@ -225,3 +234,61 @@ def test_parent_contextvars_are_visible_in_workers():
         "contextvars set by the caller must be visible in the worker threads; "
         f"got {[m.content for m in results]}"
     )
+
+
+def test_parallel_path_skipped_when_tool_execute_hooks_registered():
+    """Turns with tool.execute pre/post hooks registered must stay sequential.
+
+    Hooks mutate ContextVar-held state (token accounting, time awareness).
+    Running them concurrently in workers either races on the shared objects or
+    loses updates that never propagate back to the caller.
+    """
+    probe = _Probe(parties=2)
+    set_tools(
+        [
+            _make_spec("alpha", probe, read_only=True, sync=True),
+            _make_spec("beta", probe, read_only=True, sync=True),
+        ]
+    )
+
+    hook_calls: list[str] = []
+
+    def accounting_hook(data: ToolExecutePreData):
+        tool_use = data.tool_use
+        if tool_use is not None:
+            hook_calls.append(tool_use.tool)
+        yield from ()
+
+    register_hook("test.accounting", HookType.TOOL_EXECUTE_PRE, accounting_hook)
+    try:
+        content = "\n".join([_call("alpha", "toolu_a1"), _call("beta", "toolu_b2")])
+        list(execute_msg(Message("assistant", content)))
+    finally:
+        unregister_hook("test.accounting", HookType.TOOL_EXECUTE_PRE)
+
+    assert probe.max_active == 1, (
+        "turn with tool.execute hooks registered must stay sequential "
+        f"(max concurrent = {probe.max_active})"
+    )
+    assert sorted(hook_calls) == ["alpha", "beta"], (
+        "each call's pre hook must still run exactly once, sequentially"
+    )
+
+
+def test_disabled_call_in_parallel_turn_keeps_enable_hint():
+    """A non-runnable call in an all-read-only turn must keep its hint.
+
+    Only runnable calls go to the pool; the disabled call takes the
+    unavailable-result path (with the enable hint) rather than
+    ToolUse.execute's generic error.
+    """
+    probe = _Probe()
+    set_tools([_make_spec("reader", probe, read_only=True)])
+
+    content = "\n".join([_call("reader", "toolu_r1"), _call("ghost", "toolu_g2")])
+    results = list(execute_msg(Message("assistant", content)))
+
+    assert any("reader result" in m.content for m in results)
+    ghost_results = [m for m in results if m.call_id == "toolu_g2"]
+    assert len(ghost_results) == 1
+    assert "not available for execution" in ghost_results[0].content
