@@ -404,6 +404,39 @@ class TestWriteStorm:
             assert _check_write_storm() is None
         assert anomaly_watchdog._write_times_by_session == {}
 
+    def test_post_hook_skips_a_blocked_call_from_its_result(
+        self, tmp_path, monkeypatch
+    ):
+        """A blocked call must not be recorded, even off the identity marker.
+
+        The marker is keyed on the ``ToolUse`` object, which the hook pipeline
+        may copy or reconstruct. The result text is this module's own, so it
+        survives that; without it a refused write would still advance the
+        window and could lock out later legitimate writes.
+        """
+        from ...message import Message
+
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("save", args=["x.txt"]),
+                    workspace=tmp_path,
+                    result_msgs=(
+                        Message(
+                            "system",
+                            f"{anomaly_watchdog._BLOCK_PREFIX}\n"
+                            "scope_escape: /etc/secret",
+                        ),
+                    ),
+                )
+            )
+        )
+        assert anomaly_watchdog._write_times_by_session == {}
+
     def test_post_hook_records_only_write_tools(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
@@ -598,6 +631,20 @@ class TestNovelHost:
         _, msg = result
         assert "novel_host" in msg
         assert "evil.example.com" in msg
+
+    def test_non_http_scheme_is_flagged(self, monkeypatch):
+        """A scheme with no hostname must not slip past the allowlist.
+
+        ``file:///etc/passwd`` and ``data:`` parse to an empty hostname, so a
+        hostname-only check would return no finding at all.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_HOSTS", "trusted.example")
+
+        for url in ("file:///etc/passwd", "data:text/plain,hi"):
+            result = _check_novel_host(_fake_tool_use("browser", args=[url]))
+            assert result is not None, url
+            assert "non-http(s)" in result[1]
 
     def test_browser_subtool_warns(self, monkeypatch):
         """Subtools invoked as 'browser.read_url' must not bypass host checks."""

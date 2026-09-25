@@ -150,6 +150,10 @@ _BUILTIN_TRUSTED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 _MAX_DETAIL_LEN = 200
 
+# Skip reason prefix. The post hook reads it back to recognise a blocked call
+# (see ``_result_was_blocked``), so writer and reader share one constant.
+_BLOCK_PREFIX = "Blocked by anomaly_watchdog:"
+
 
 def _tool_namespace(tool: str) -> str:
     """Strip subtool suffix: 'browser.read_url' -> 'browser'."""
@@ -398,17 +402,31 @@ def _extract_url(tool_use: Any) -> str | None:
 
 
 def _check_novel_host(tool_use: Any) -> tuple[bool, str] | None:
-    """Detect a network call to a hostname not in the allowlist."""
+    """Detect a network call to a hostname not in the allowlist.
+
+    A URL whose scheme is not http(s) is flagged before the hostname is
+    considered: it has no hostname for the allowlist to match
+    (``file:///etc/passwd`` → "", ``data:`` → ""), so a hostname-only check
+    would let the call through unexamined.
+    """
     url = _extract_url(tool_use)
     if not url:
         return None
 
     try:
-        hostname = urlparse(url).hostname or ""
+        parsed = urlparse(url)
     except Exception:
         return None
 
-    hostname = hostname.lower()
+    scheme = (parsed.scheme or "").lower()
+    if scheme and scheme not in ("http", "https"):
+        return _emit(
+            "novel_host",
+            f"network call using a non-http(s) URL scheme ({_quote(scheme)}), "
+            "which the hostname allowlist cannot cover",
+        )
+
+    hostname = (parsed.hostname or "").lower()
     if not hostname:
         return None
 
@@ -519,6 +537,20 @@ def check_tool_pre(
     )
 
 
+def _result_was_blocked(result_msgs: tuple[Message, ...] | None) -> bool:
+    """Whether a tool result is this watchdog's own skip message.
+
+    Independent of the identity marker: the reason is a string this module
+    owns, so it still identifies a blocked call if the ``ToolUse`` object is
+    copied or reconstructed between the confirm and post hooks.
+    """
+    for msg in result_msgs or ():
+        content = msg.content
+        if isinstance(content, str) and content.startswith(_BLOCK_PREFIX):
+            return True
+    return False
+
+
 def check_tool_post(
     data: ToolExecutePostData,
 ) -> Generator[Message, None, None]:
@@ -536,7 +568,10 @@ def check_tool_post(
     """
     tool_use = data.tool_use
     if _enabled() and tool_use is not None:
-        rejected = _consume_rejected(tool_use)
+        # Two independent signals: the identity marker the confirm hook left
+        # (works even when no result is available) and this watchdog's own skip
+        # text in the result (works whatever object reaches this hook).
+        rejected = _consume_rejected(tool_use) or _result_was_blocked(data.result_msgs)
         if not rejected and _tool_namespace(tool_use.tool) in _WRITE_TOOLS:
             record_write()
     yield from ()
@@ -564,7 +599,7 @@ def anomaly_watchdog_confirm(
 
     from ..hooks.confirm import ConfirmationResult
 
-    reason = "Blocked by anomaly_watchdog:\n" + "\n".join(blockable)
+    reason = _BLOCK_PREFIX + "\n" + "\n".join(blockable)
     logger.info("anomaly_watchdog (block): %s", reason)
     _mark_rejected(tool_use)
     return ConfirmationResult.skip(reason)
