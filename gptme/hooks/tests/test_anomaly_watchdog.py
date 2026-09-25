@@ -200,6 +200,19 @@ class TestScopeEscape:
         _, msg = result
         assert "scope_escape" in msg
 
+    def test_timestamped_headers_are_not_false_positives(self, tmp_path, monkeypatch):
+        """GNU/git diffs append a tab-separated timestamp to header lines."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        diff_content = (
+            "--- a/ok.txt\t2024-01-01 00:00:00 +0000\n"
+            "+++ b/ok.txt\t2024-01-01 00:00:01 +0000\n"
+            "@@ -1 +1 @@\n"
+            "+fine"
+        )
+        tool_use = _fake_tool_use("patch", content=diff_content)
+        assert _check_scope_escape(tool_use, tmp_path) is None
+
 
 # ---------------------------------------------------------------------------
 # write_storm
@@ -228,6 +241,23 @@ class TestWriteStorm:
         assert result is not None
         _, msg = result
         assert "write_storm" in msg
+
+    def test_rejected_writes_do_not_fill_the_storm_window(self, tmp_path, monkeypatch):
+        """A call already rejected by another check must not count toward
+        write_storm, or a few bad attempts block later valid writes."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+
+        outside = _fake_tool_use("save", args=["/etc/shadow"])
+        for _ in range(3):
+            findings = anomaly_watchdog._detect_findings(outside, tmp_path)
+            assert any("scope_escape" in f for f in findings)
+            assert not any("write_storm" in f for f in findings)
+
+        inside = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
+        assert anomaly_watchdog._detect_findings(inside, tmp_path) == []
 
     def test_denied_attempts_do_not_refresh_the_window(self, monkeypatch):
         """Attempts past the limit must not extend their own window."""

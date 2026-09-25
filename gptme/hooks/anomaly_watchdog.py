@@ -141,7 +141,9 @@ def _extract_paths(tool_use: Any) -> list[Path]:
     if tool_use.tool == "patch" and tool_use.content:
         paths: list[Path] = []
         for line in tool_use.content.splitlines():
-            m = re.match(r"^(?:---|\+\+\+)\s+(?:[ab]/)?(.+)", line)
+            # Strip the optional tab-separated timestamp that GNU/git diffs
+            # append to headers (``--- a/x\t2024-01-01 00:00:00 +0000``).
+            m = re.match(r"^(?:---|\+\+\+)\s+(?:[ab]/)?([^\t]+)", line)
             if m:
                 candidate = m.group(1).strip()
                 if (
@@ -289,9 +291,13 @@ def _detect_findings(tool_use: Any, workspace: Path | None) -> list[str]:
             result = check(tool_use, workspace)
             if result is not None:
                 findings.append(result[1])
-        result = _check_write_storm()
-        if result is not None:
-            findings.append(result[1])
+        # Only count writes that no other check already rejected: a call that
+        # never executed must not fill the storm window, or a few rejected
+        # attempts would deny every later legitimate write (storm lockout).
+        if not findings:
+            result = _check_write_storm()
+            if result is not None:
+                findings.append(result[1])
 
     if namespace in _NETWORK_TOOLS:
         result = _check_novel_host(tool_use)
