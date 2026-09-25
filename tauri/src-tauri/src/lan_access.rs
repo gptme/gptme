@@ -234,7 +234,7 @@ pub async fn enable_lan_access(
         .ok_or_else(|| "Could not detect a LAN IP address on this machine".to_string())?;
 
     let (port, token) = {
-        let inner = state.0.lock().map_err(|e| e.to_string())?;
+        let inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
         (inner.port, server.token.clone())
     };
     let base_url = format!("http://{lan_ip}:{port}");
@@ -246,7 +246,7 @@ pub async fn enable_lan_access(
     // Rebind the sidecar to 0.0.0.0 before reporting success.
     restart_sidecar_with_lan(&server, Some(&lan_ip)).await?;
 
-    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
     inner.enabled = true;
     inner.lan_ip = Some(lan_ip);
     inner.url = Some(connect_url.clone());
@@ -283,7 +283,7 @@ pub async fn disable_lan_access(
         || server.owns_port.load(std::sync::atomic::Ordering::Relaxed);
     if !managed {
         {
-            let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+            let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
             inner.enabled = false;
             inner.lan_ip = None;
             inner.url = None;
@@ -298,7 +298,7 @@ pub async fn disable_lan_access(
         );
     }
     restart_sidecar_with_lan(&server, None).await?;
-    let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+    let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
     inner.enabled = false;
     inner.lan_ip = None;
     inner.url = None;
