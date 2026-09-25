@@ -3643,8 +3643,12 @@ def split_commands(script: str) -> list[str]:
     # A clean tree is not proof of correct Bash boundaries. In particular,
     # tree-sitter can parse `time { ... }` as ordinary words, with no ERROR
     # node. Let Bash reject incomplete fragments before they reach the shell.
+    # strict=True so a check failure (OSError/timeout) does not read as
+    # "bash accepted the boundary" and run the script whole.
     if len(commands) > 1 and any(
-        _bash_syntax_error(command, fallback="Cannot validate split boundary")
+        _bash_syntax_error(
+            command, fallback="Cannot validate split boundary", strict=True
+        )
         is not None
         for command in commands
     ):
