@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.hooks._policy_block import policy_block_message
 from gptme.message import Message
-from gptme.tools._policy_block import policy_block_message
 from gptme.tools.complete import (
     SessionCompleteException,
     auto_reply_hook,
