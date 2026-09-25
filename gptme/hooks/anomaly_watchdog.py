@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from ..hooks.confirm import ConfirmationResult
-    from ..hooks.types import ToolExecutePreData
+    from ..hooks.types import ToolExecutePostData, ToolExecutePreData
     from ..message import Message
     from ..tools.base import ToolUse
 
@@ -211,21 +211,49 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
+def _prune_stale_windows(now: float, window: float) -> None:
+    """Drop aged-out timestamps and evict windows that have gone empty.
+
+    Keys are removed once a session's window is empty: a long-lived server
+    hosts many conversations over its lifetime, so retaining a dictionary key
+    per conversation would grow without bound.
+    """
+    for session_key in list(_write_times_by_session):
+        times = _write_times_by_session[session_key]
+        times[:] = [t for t in times if now - t < window]
+        if not times:
+            del _write_times_by_session[session_key]
+
+
+def record_write() -> None:
+    """Record that a write actually executed (called from the post hook).
+
+    Recording happens *after* execution, so a call that was blocked by this
+    watchdog or declined by a later confirm hook never enters the window —
+    otherwise a burst of non-executing attempts would reach the limit and
+    lock out later legitimate writes.
+    """
+    window = _write_window()
+    now = time.monotonic()
+    _prune_stale_windows(now, window)
+    _write_times_by_session.setdefault(_session_key(), []).append(now)
+
+
 def _check_write_storm() -> tuple[bool, str] | None:
     """Detect an excessive write rate in the sliding window.
 
-    Counts write *attempts* at pre-execution time: a burst of rejected or
-    malformed write calls is itself the anomaly signal this check exists for.
-    Attempts that trip the limit are not recorded, so a blocked burst cannot
-    keep refreshing its own window and lock out later legitimate writes.
+    Read-only: the window holds writes that actually executed (see
+    ``record_write``), so this is a pure check. A call that trips the limit is
+    skipped in block mode (see ``anomaly_watchdog_confirm``) and so is never
+    recorded, which is what keeps a rejected burst from refreshing its own
+    window and locking out later legitimate writes.
     """
     limit = _write_limit()
     window = _write_window()
     now = time.monotonic()
 
-    key = _session_key()
-    times = _write_times_by_session.setdefault(key, [])
-    times[:] = [t for t in times if now - t < window]
+    _prune_stale_windows(now, window)
+    times = _write_times_by_session.get(_session_key(), [])
 
     if len(times) >= limit:
         return _emit(
@@ -233,7 +261,6 @@ def _check_write_storm() -> tuple[bool, str] | None:
             f"{limit} writes in the last {window:.0f}s (limit: {limit})",
         )
 
-    times.append(now)
     return None
 
 
@@ -287,14 +314,15 @@ def _detect_findings(tool_use: Any, workspace: Path | None) -> list[str]:
     namespace = _tool_namespace(tool_use.tool)
 
     if namespace in _WRITE_TOOLS:
-        for check in (_check_scope_escape,):
-            result = check(tool_use, workspace)
-            if result is not None:
-                findings.append(result[1])
-        # Only count writes that no other check already rejected: a call that
-        # never executed must not fill the storm window, or a few rejected
-        # attempts would deny every later legitimate write (storm lockout).
-        if not findings:
+        result = _check_scope_escape(tool_use, workspace)
+        blocked = False
+        if result is not None:
+            findings.append(result[1])
+            blocked = result[0]
+        # Don't pile a storm warning onto a call already being blocked for a
+        # different reason. The storm window itself is only advanced by writes
+        # that actually executed (see ``record_write``).
+        if not blocked:
             result = _check_write_storm()
             if result is not None:
                 findings.append(result[1])
@@ -342,6 +370,21 @@ def check_tool_pre(
     )
 
 
+def check_tool_post(
+    data: ToolExecutePostData,
+) -> Generator[Message, None, None]:
+    """TOOL_EXECUTE_POST hook: record writes that actually executed.
+
+    The storm window is advanced here rather than at pre-execution time, so a
+    call that was blocked by this watchdog or declined by a later confirm hook
+    never counts toward it.
+    """
+    if _enabled() and data.tool_use is not None:
+        if _tool_namespace(data.tool_use.tool) in _WRITE_TOOLS:
+            record_write()
+    yield from ()
+
+
 def anomaly_watchdog_confirm(
     tool_use: ToolUse,
     preview: str | None = None,
@@ -385,6 +428,12 @@ def register() -> None:
         HookType.TOOL_EXECUTE_PRE,
         check_tool_pre,
         priority=150,  # after guardrails (200), before confirm hooks
+    )
+    register_hook(
+        "anomaly_watchdog.tool_post",
+        HookType.TOOL_EXECUTE_POST,
+        check_tool_post,
+        priority=150,
     )
     register_hook(
         "anomaly_watchdog.confirm",

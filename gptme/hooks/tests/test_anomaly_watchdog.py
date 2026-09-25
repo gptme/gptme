@@ -23,8 +23,10 @@ from ..anomaly_watchdog import (
     _check_write_storm,
     _enabled,
     anomaly_watchdog_confirm,
+    check_tool_post,
     check_tool_pre,
 )
+from ..types import ToolExecutePostData
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -224,59 +226,98 @@ class TestWriteStorm:
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
-        _reset_storm_state()
-        result = None
         for _ in range(4):
-            result = _check_write_storm()
-        assert result is None
+            anomaly_watchdog.record_write()
+        assert _check_write_storm() is None
 
     def test_at_limit_triggers(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
-        _reset_storm_state()
-        result = None
-        for _ in range(4):
-            result = _check_write_storm()
+        for _ in range(3):
+            anomaly_watchdog.record_write()
+        result = _check_write_storm()
         assert result is not None
         _, msg = result
         assert "write_storm" in msg
 
-    def test_rejected_writes_do_not_fill_the_storm_window(self, tmp_path, monkeypatch):
-        """A call already rejected by another check must not count toward
-        write_storm, or a few bad attempts block later valid writes."""
+    def test_warn_mode_counts_executed_writes(self, tmp_path, monkeypatch):
+        """In warn mode nothing is blocked, so out-of-workspace writes that
+        execute must still count toward the storm window."""
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
 
         outside = _fake_tool_use("save", args=["/etc/shadow"])
+        post = ToolExecutePostData(tool_use=outside, workspace=tmp_path)
         for _ in range(3):
             findings = anomaly_watchdog._detect_findings(outside, tmp_path)
             assert any("scope_escape" in f for f in findings)
             assert not any("write_storm" in f for f in findings)
+            # Warn mode does not block, so the flagged write still executes.
+            list(check_tool_post(post))
+        # The fourth executed write reaches the limit and trips the storm.
+        findings = anomaly_watchdog._detect_findings(outside, tmp_path)
+        assert any("write_storm" in f for f in findings)
 
+    def test_blocked_or_declined_writes_are_never_recorded(self, tmp_path, monkeypatch):
+        """The window is advanced only after execution, so a call that is
+        blocked by the watchdog (or declined by a later confirm hook) never
+        counts toward it."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+
+        outside = _fake_tool_use("save", args=["/etc/shadow"])
+        for _ in range(5):
+            findings = anomaly_watchdog._detect_findings(outside, tmp_path)
+            assert any("scope_escape" in f for f in findings)
+            assert not any("write_storm" in f for f in findings)
+
+        # A sub-limit call that is declined before execution must not count
+        # either: running the checks alone must never advance the window.
         inside = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
-        assert anomaly_watchdog._detect_findings(inside, tmp_path) == []
+        for _ in range(5):
+            assert anomaly_watchdog._detect_findings(inside, tmp_path) == []
+            assert _check_write_storm() is None
 
-    def test_denied_attempts_do_not_refresh_the_window(self, monkeypatch):
-        """Attempts past the limit must not extend their own window."""
+    def test_check_does_not_advance_the_window(self, monkeypatch):
+        """Checking the storm must not record a write, or blocked attempts
+        would refresh their own window and lock out later writes."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        for _ in range(10):
+            assert _check_write_storm() is None
+        assert anomaly_watchdog._write_times_by_session == {}
+
+    def test_post_hook_records_only_write_tools(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
 
-        now = {"t": 1000.0}
-        monkeypatch.setattr(anomaly_watchdog.time, "monotonic", lambda: now["t"])
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("shell", args=["ls"]), workspace=tmp_path
+                )
+            )
+        )
+        assert anomaly_watchdog._write_times_by_session == {}
 
-        for _ in range(3):
-            assert _check_write_storm() is None
-        assert _check_write_storm() is not None
-        # Still over the limit, but the denied attempt did not move the window.
-        now["t"] += 30
-        assert _check_write_storm() is not None
-        # Once the original window elapses the check recovers (no livelock).
-        now["t"] += 31
-        assert _check_write_storm() is None
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("save", args=["x.txt"]), workspace=tmp_path
+                )
+            )
+        )
+        assert (
+            sum(len(v) for v in anomaly_watchdog._write_times_by_session.values()) == 1
+        )
 
     def test_windows_are_isolated_per_session(self, monkeypatch):
         """Writes in one conversation must not count against another."""
@@ -289,12 +330,34 @@ class TestWriteStorm:
 
         # Fill session-a's window to the limit, then hand off to session-b.
         for _ in range(3):
-            assert _check_write_storm() is None
+            anomaly_watchdog.record_write()
         assert _check_write_storm() is not None  # session-a exceeds its limit
         # session-b starts empty and must not inherit session-a's window.
         current["key"] = "session-b"
         for _ in range(3):
             assert _check_write_storm() is None
+            anomaly_watchdog.record_write()
+
+    def test_empty_windows_are_evicted(self, monkeypatch):
+        """A conversation's window key must not linger once its timestamps
+        age out, or a long-lived server accumulates one key per session."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "10")
+
+        now = {"t": 1000.0}
+        monkeypatch.setattr(anomaly_watchdog.time, "monotonic", lambda: now["t"])
+        current = {"key": "session-a"}
+        monkeypatch.setattr(anomaly_watchdog, "_session_key", lambda: current["key"])
+
+        anomaly_watchdog.record_write()
+        assert "session-a" in anomaly_watchdog._write_times_by_session
+
+        # Switch conversations and let session-a's window age out.
+        current["key"] = "session-b"
+        now["t"] += 11
+        assert _check_write_storm() is None
+        assert "session-a" not in anomaly_watchdog._write_times_by_session
 
 
 # ---------------------------------------------------------------------------
