@@ -647,7 +647,9 @@ def block_budget_hook(
 
     budget = _block_budget()
     chat = get_config().chat
-    if not budget or chat is None or chat.interactive:
+    # ``chat is None`` means no Chat object was constructed (library/headless
+    # usage) — there is no human at a terminal, so treat it as non-interactive.
+    if not budget or (chat is not None and chat.interactive):
         return
     blocks = count_policy_blocks(manager.log.messages)
     if blocks >= 2 * budget:
