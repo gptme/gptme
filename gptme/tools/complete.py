@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, Any
 from xml.sax.saxutils import escape as xml_escape
 
 from ..hooks import HookType, StopPropagation
+from ..hooks._policy_block import POLICY_BLOCK_MARKER
 from ..hooks.confirm import ConfirmAction, get_confirmation
 from ..message import Message
-from ._policy_block import POLICY_BLOCK_MARKER
 from .base import ToolSpec, ToolUse
 from .shell_validation import is_denylisted
 from .todo import get_incomplete_todos_summary, has_incomplete_todos
