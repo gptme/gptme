@@ -20,6 +20,7 @@ Optional tuning:
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 import os
 import threading
@@ -98,8 +99,11 @@ def _session_key() -> str:
     return key
 
 
-# Tools that perform file writes (for write_storm + scope_escape detection)
-_WRITE_TOOLS = frozenset({"save", "append", "patch"})
+# Tools that perform file writes (for write_storm + scope_escape detection).
+# ``patch_many`` is included: it edits an arbitrary number of files and
+# accepts absolute targets, so leaving it out left a direct file-editing path
+# with neither scope_escape nor write-storm coverage.
+_WRITE_TOOLS = frozenset({"save", "append", "patch", "patch_many"})
 
 # Browser-like tools that make network calls (for novel_host detection).
 # Subtools (e.g. "browser.read_url", "browser.open_page") are matched by
@@ -184,7 +188,45 @@ def _extract_paths(tool_use: Any) -> list[Path]:
     if tool_use.args:
         paths.append(Path(tool_use.args[0]))
 
+    if tool_use.tool == "patch_many":
+        paths.extend(_patch_many_paths(tool_use))
+
     return paths
+
+
+def _patch_many_paths(tool_use: Any) -> list[Path]:
+    """Every target of a ``patch_many`` call beyond its first argument.
+
+    ``patch_many`` writes several files and takes its paths from three places:
+    all positional arguments (simple format), the ``=== PATH: ... ===``
+    headers in the payload (multi-hunk format), and the ``patches`` entries in
+    kwargs (function-call format). The payload parsing is delegated to the tool
+    itself so the two cannot drift; an unparseable payload is ignored here
+    because the tool rejects it before writing anything anyway.
+    """
+    try:
+        from ..tools import patch_many as tool_module
+    except ImportError:  # tool unavailable: positional args were already checked
+        return []
+
+    extra: list[Path] = []
+    try:
+        if tool_use.kwargs and "patches" in tool_use.kwargs:
+            extra.extend(
+                path
+                for path, _ in tool_module._parse_patches_from_kwargs(tool_use.kwargs)
+            )
+        elif tool_use.content:
+            extra.extend(
+                path
+                for path, _ in tool_module._parse_confirmation_payload(tool_use.content)
+            )
+    except (ValueError, json.JSONDecodeError):
+        pass
+
+    if tool_use.args:
+        extra.extend(Path(arg) for arg in tool_use.args[1:] if arg)
+    return extra
 
 
 def _check_scope_escape(

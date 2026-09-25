@@ -17,6 +17,7 @@ Covers:
 from __future__ import annotations
 
 import contextvars
+import json
 
 import pytest
 
@@ -140,6 +141,65 @@ class TestScopeEscape:
         tool_use = _fake_tool_use("save", args=["/etc/passwd"])
         result = _check_scope_escape(tool_use, None)
         assert result is None
+
+    def test_patch_many_extra_args_are_checked(self, tmp_path, monkeypatch):
+        """``patch_many`` edits several files, so every argument is a target."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use(
+            "patch_many", args=[str(tmp_path / "ok.txt"), "/etc/secret"]
+        )
+        # Through _detect_findings: the tool must also be gated as a write tool.
+        findings = anomaly_watchdog._detect_findings(tool_use, tmp_path)
+        assert any("scope_escape" in f and "secret" in f for f in findings)
+
+    def test_patch_many_multi_hunk_headers_are_checked(self, tmp_path, monkeypatch):
+        """The multi-hunk format carries its paths in ``=== PATH: ... ===``."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        content = (
+            f"=== PATH: {tmp_path / 'ok.txt'} ===\n<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED\n"
+            "=== PATH: /etc/secret ===\n<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+        )
+        findings = anomaly_watchdog._detect_findings(
+            _fake_tool_use("patch_many", content=content), tmp_path
+        )
+        assert any("scope_escape" in f for f in findings)
+
+    def test_patch_many_kwargs_patches_are_checked(self, tmp_path, monkeypatch):
+        """The function-call format passes a ``patches`` JSON payload."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        payload = json.dumps([{"path": "/etc/secret", "patch": "x"}])
+        findings = anomaly_watchdog._detect_findings(
+            _fake_tool_use("patch_many", kwargs={"patches": payload}), tmp_path
+        )
+        assert any("scope_escape" in f for f in findings)
+
+    def test_patch_many_all_inside_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use(
+            "patch_many", args=[str(tmp_path / "a.txt"), str(tmp_path / "b.txt")]
+        )
+        assert anomaly_watchdog._detect_findings(tool_use, tmp_path) == []
+
+    def test_patch_many_counts_as_a_write(self, tmp_path, monkeypatch):
+        """A multi-file edit is one write event for the storm window."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("patch_many", args=["a.txt"]),
+                    workspace=tmp_path,
+                )
+            )
+        )
+        assert (
+            sum(len(v) for v in anomaly_watchdog._write_times_by_session.values()) == 1
+        )
 
     def test_patch_path_arg_alone_is_checked(self, tmp_path, monkeypatch):
         """The path argument is the patch tool's only destination."""
