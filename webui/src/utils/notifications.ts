@@ -55,8 +55,17 @@ async function showTauriNotification(
     // tauri-plugin-notification v2 Options supports icon/silent; it has no
     // `tag` field, so browser-API tag dedup has no native equivalent — calls
     // relying on tag dedup may stack instead of replace on desktop.
+    //
+    // The payload key must be `options`: the Rust command is
+    // `notify(_app, notification: State<..>, options: NotificationData)`, so
+    // Tauri deserializes the command arguments from an `options` field (the
+    // `notification` param is injected app state, not payload). The plugin's own
+    // injected shim confirms it — `init-iife.js` calls
+    // `invoke("plugin:notification|notify", { options: ... })`. Passing
+    // `notification` fails deserialization, which the catch below turns into a
+    // silent fallback, i.e. the native path never sends.
     await invokeTauri('plugin:notification|notify', {
-      notification: {
+      options: {
         title,
         body,
         ...(options?.icon ? { icon: options.icon } : {}),
