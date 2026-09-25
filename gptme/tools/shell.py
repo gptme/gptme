@@ -141,6 +141,13 @@ def _redirect_background_stdin(command: str) -> str:
     source = command.encode("utf-8")
     root = _parse_bash(source)
     if root.has_error:
+        # Grammar gap: we cannot classify every ``&`` operator confidently, so
+        # no mid-command rewrite. But a trailing ``&`` is unambiguous — its
+        # background job would otherwise keep the persistent shell's stdin and
+        # hang the session. Redirect it conservatively rather than skipping.
+        stripped = source.rstrip()
+        if stripped.endswith(b"&") and not stripped.endswith(b"&&"):
+            return (stripped[:-1].rstrip() + b" < /dev/null &").decode("utf-8")
         return command
 
     positions: list[int] = []

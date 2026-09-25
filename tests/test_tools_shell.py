@@ -151,6 +151,27 @@ def test_redirect_background_stdin_before_ampersand():
     )
 
 
+def test_redirect_background_stdin_grammar_gap_trailing_ampersand(monkeypatch):
+    """On a tree-sitter grammar gap the trailing ``&`` still gets its stdin
+    redirect: an unredirected background job would keep the persistent shell's
+    stdin and hang the session."""
+    from gptme.tools import shell
+
+    class FakeNode:
+        type = "program"
+        has_error = True
+
+    monkeypatch.setattr(shell, "_parse_bash", lambda source: FakeNode())
+    assert (
+        shell._redirect_background_stdin("some-weird-grammar-gap-command &")
+        == "some-weird-grammar-gap-command < /dev/null &"
+    )
+    # mid-command operators stay untouched (cannot be classified confidently)
+    assert shell._redirect_background_stdin("weird & gap") == "weird & gap"
+    # a trailing ``&&`` is not a background operator — leave it alone
+    assert shell._redirect_background_stdin("weird &&") == "weird &&"
+
+
 def test_heredoc_complex(shell):
     # Test nested heredocs
     ret, out, err = shell.run(
