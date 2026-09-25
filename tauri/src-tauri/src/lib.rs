@@ -563,6 +563,122 @@ fn show_port_conflict_dialog(app: &tauri::AppHandle, message: String) {
 
 // --- MCP config panel backend ---
 
+/// JSON (de)serialization for `extra`: converts preserved unknown TOML items
+/// to JSON and back so they survive the Tauri IPC boundary
+/// (get_mcp_config → frontend → save_mcp_config).
+mod extra_items {
+    pub fn item_to_json(item: &toml_edit::Item) -> Option<serde_json::Value> {
+        if let Some(v) = item.as_value() {
+            return value_to_json(v);
+        }
+        if let Some(t) = item.as_table_like() {
+            let mut map = serde_json::Map::new();
+            for (k, v) in t.iter() {
+                map.insert(k.to_string(), item_to_json(v)?);
+            }
+            return Some(serde_json::Value::Object(map));
+        }
+        None
+    }
+
+    fn value_to_json(v: &toml_edit::Value) -> Option<serde_json::Value> {
+        if let Some(s) = v.as_str() {
+            return Some(s.to_string().into());
+        }
+        if let Some(b) = v.as_bool() {
+            return Some(b.into());
+        }
+        if let Some(i) = v.as_integer() {
+            return Some(i.into());
+        }
+        if let Some(f) = v.as_float() {
+            return Some(f.into());
+        }
+        if let Some(d) = v.as_datetime() {
+            return Some(d.to_string().into());
+        }
+        if let Some(a) = v.as_array() {
+            let mut out = Vec::new();
+            for val in a.iter() {
+                out.push(value_to_json(val)?);
+            }
+            return Some(serde_json::Value::Array(out));
+        }
+        if let Some(it) = v.as_inline_table() {
+            let mut map = serde_json::Map::new();
+            for (k, val) in it.iter() {
+                map.insert(k.to_string(), value_to_json(val)?);
+            }
+            return Some(serde_json::Value::Object(map));
+        }
+        None
+    }
+
+    pub fn json_to_item(v: &serde_json::Value) -> Option<toml_edit::Item> {
+        Some(toml_edit::Item::Value(json_to_value(v)?))
+    }
+
+    fn json_to_value(v: &serde_json::Value) -> Option<toml_edit::Value> {
+        use toml_edit::Value;
+        Some(match v {
+            serde_json::Value::String(s) => Value::from(s.as_str()),
+            serde_json::Value::Bool(b) => Value::from(*b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Value::from(i)
+                } else {
+                    Value::from(n.as_f64()?)
+                }
+            }
+            serde_json::Value::Array(a) => {
+                let mut arr = toml_edit::Array::new();
+                for val in a {
+                    arr.push(json_to_value(val)?);
+                }
+                Value::from(arr)
+            }
+            serde_json::Value::Object(m) => {
+                let mut it = toml_edit::InlineTable::new();
+                for (k, val) in m {
+                    it.insert(k.as_str(), json_to_value(val)?);
+                }
+                Value::from(it)
+            }
+            serde_json::Value::Null => return None,
+        })
+    }
+
+    pub fn serialize<S: serde::Serializer>(
+        extra: &[(String, toml_edit::Item)],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut map = serde_json::Map::new();
+        for (k, item) in extra {
+            if let Some(v) = item_to_json(item) {
+                map.insert(k.clone(), v);
+            }
+        }
+        use serde::Serialize as _;
+        serde_json::Value::Object(map).serialize(s)
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        d: D,
+    ) -> Result<Vec<(String, toml_edit::Item)>, D::Error> {
+        use serde::Deserialize as _;
+        let v = serde_json::Value::deserialize(d)?;
+        let mut out = Vec::new();
+        if let serde_json::Value::Object(m) = v {
+            for (k, val) in m {
+                if let Some(item) = json_to_item(&val) {
+                    out.push((k, item));
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// JSON view of a single MCP server entry from config.toml.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct MCPServerView {
@@ -577,8 +693,9 @@ pub struct MCPServerView {
     #[serde(default)]
     pub headers: HashMap<String, String>,
     /// Unknown keys from the original server entry, preserved so a save does
-    /// not silently drop settings the view does not model.
-    #[serde(skip)]
+    /// not silently drop settings the view does not model. Serialized through
+    /// the IPC JSON boundary so the get → save round trip keeps them.
+    #[serde(default, with = "extra_items")]
     pub extra: Vec<(String, toml_edit::Item)>,
 }
 
@@ -609,14 +726,11 @@ fn mcp_config_defaults() -> MCPConfigView {
 /// That helper is `platformdirs.user_config_dir("gptme")`:
 /// - Unix: `$XDG_CONFIG_HOME/gptme` or `~/.config/gptme`
 /// - macOS: `~/Library/Application Support/gptme`
-/// - Windows: `%LOCALAPPDATA%\gptme` (not Roaming `%APPDATA%`)
+/// - Windows: `%APPDATA%\gptme` (Roaming — platformdirs.user_config_dir
+///   defaults to Roaming on Windows, and `dirs::config_dir()` matches it)
 fn gptme_config_path() -> Result<std::path::PathBuf, String> {
-    let base = if cfg!(windows) {
-        dirs::config_local_dir()
-    } else {
-        dirs::config_dir()
-    };
-    base.ok_or_else(|| "Cannot determine system config directory".to_string())
+    dirs::config_dir()
+        .ok_or_else(|| "Cannot determine system config directory".to_string())
         .map(|d| d.join("gptme").join("config.toml"))
 }
 
@@ -689,6 +803,22 @@ where
         .collect()
 }
 
+/// Preserve a known key whose value has an unexpected type: the typed view
+/// cannot represent it and it is excluded from `extra` by name, so it would
+/// otherwise be silently dropped on save.
+fn keep_if_mistyped(
+    item: Option<toml_edit::Item>,
+    valid: impl Fn(&toml_edit::Item) -> bool,
+    key: &str,
+    extra: &mut Vec<(String, toml_edit::Item)>,
+) {
+    if let Some(item) = item {
+        if !valid(&item) {
+            extra.push((key.to_string(), item));
+        }
+    }
+}
+
 fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
     MCPServerView {
         name: st
@@ -705,7 +835,54 @@ fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
         env: parse_str_map_from_item(st.get("env")),
         url: st.get("url").and_then(|v| v.as_str()).map(str::to_string),
         headers: parse_str_map_from_item(st.get("headers")),
-        extra: collect_extra(st.iter()),
+        extra: {
+            let mut extra = collect_extra(st.iter());
+            keep_if_mistyped(
+                st.get("enabled").cloned(),
+                |i| i.as_value().and_then(|v| v.as_bool()).is_some(),
+                "enabled",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("command").cloned(),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "command",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("args").cloned(),
+                |i| i.as_value().and_then(|v| v.as_array()).is_some(),
+                "args",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("env").cloned(),
+                |i| {
+                    i.as_value()
+                        .map(|v| v.as_inline_table().is_some())
+                        .unwrap_or(i.as_table().is_some())
+                },
+                "env",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("url").cloned(),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "url",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("headers").cloned(),
+                |i| {
+                    i.as_value()
+                        .map(|v| v.as_inline_table().is_some())
+                        .unwrap_or(i.as_table().is_some())
+                },
+                "headers",
+                &mut extra,
+            );
+            extra
+        },
     }
 }
 
@@ -730,7 +907,52 @@ fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
                 .iter()
                 .map(|(k, v)| (k, toml_edit::Item::Value(v.clone())))
                 .collect();
-            collect_extra(entries.iter().map(|(k, v)| (*k, v)))
+            let mut extra = collect_extra(entries.iter().map(|(k, v)| (*k, v)));
+            keep_if_mistyped(
+                it.get("enabled").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_bool()).is_some(),
+                "enabled",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("command").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "command",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("args").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_array()).is_some(),
+                "args",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("env").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| {
+                    i.as_value()
+                        .map(|v| v.as_inline_table().is_some())
+                        .unwrap_or(false)
+                },
+                "env",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("url").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "url",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("headers").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| {
+                    i.as_value()
+                        .map(|v| v.as_inline_table().is_some())
+                        .unwrap_or(false)
+                },
+                "headers",
+                &mut extra,
+            );
+            extra
         },
     }
 }
@@ -840,12 +1062,13 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
             st.insert("url", toml_edit::value(url.as_str()));
         }
         insert_str_map(&mut st, "headers", &server.headers);
-        // Restore unknown keys from the original entry after the known fields
-        // so a save never drops settings the view does not model.
+        // Restore the original entry's extra keys after the known fields so a
+        // save never drops settings the view does not model. This includes
+        // known keys whose original value had an unexpected type (they cannot
+        // be represented by the typed fields), so they override the defaulted
+        // typed value.
         for (k, item) in &server.extra {
-            if !st.contains_key(k) {
-                st.insert(k, item.clone());
-            }
+            st.insert(k, item.clone());
         }
         servers_aot.push(st);
     }
@@ -972,6 +1195,14 @@ fn get_mcp_config() -> Result<MCPConfigView, String> {
 /// All other config sections are preserved unchanged.
 #[tauri::command]
 fn save_mcp_config(mcp: MCPConfigView) -> Result<(), String> {
+    // Serialize the read-modify-write cycle: two concurrent invocations (rapid
+    // clicks, two windows) would otherwise both read the same original file
+    // and the second write silently lose the first save's updates.
+    static SAVE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = SAVE_LOCK
+        .get_or_init(std::sync::Mutex::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = gptme_config_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -1881,6 +2112,59 @@ timeout = 30
     }
 
     #[test]
+    fn test_mcp_config_unknown_keys_survive_ipc_json_round_trip() {
+        // `extra` must survive the Tauri IPC boundary: get_mcp_config returns
+        // JSON, the frontend sends it back to save_mcp_config, and the view's
+        // serde layer has to carry the unknown keys across or a save drops them.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = true
+command = "cmd"
+transport = "streamable"
+timeout = 30
+tags = ["a", "b"]
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+
+        // Simulate the IPC boundary with serde_json on the view.
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            json["servers"][0]["extra"]["transport"].is_string(),
+            "unknown keys must appear in the IPC JSON under `extra`"
+        );
+        let round_tripped: MCPConfigView = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped.servers[0].extra.len(), 3);
+
+        let updated = serialize_mcp_config(original, &round_tripped).unwrap();
+        assert!(updated.contains("transport = \"streamable\""));
+        assert!(updated.contains("timeout = 30"));
+        assert!(updated.contains("tags = [\"a\", \"b\"]"));
+    }
+
+    #[test]
+    fn test_mcp_config_mistyped_known_keys_survive_save() {
+        // A known key with an unexpected type cannot be represented by the
+        // typed view; it must still not be silently dropped on save.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = "yes"
+command = 123
+args = "not-an-array"
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "enabled"));
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "command"));
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "args"));
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("enabled = \"yes\""));
+        assert!(updated.contains("command = 123"));
+        assert!(updated.contains("args = \"not-an-array\""));
+    }
+
+    #[test]
     fn test_mcp_config_unknown_keys_survive_save() {
         // Keys inside [mcp] the view does not model must survive a save.
         let original = r#"
@@ -2005,11 +2289,11 @@ servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x
         assert!(path.ends_with(std::path::Path::new("gptme").join("config.toml")));
         #[cfg(windows)]
         {
-            let local = dirs::config_local_dir()
+            let roaming = dirs::config_dir()
                 .unwrap()
                 .join("gptme")
                 .join("config.toml");
-            assert_eq!(path, local);
+            assert_eq!(path, roaming);
         }
         #[cfg(not(windows))]
         {
@@ -2064,7 +2348,11 @@ servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         write_config_atomically(&path, "new = true\n").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
+        // OpenOptions::mode() is subject to the ambient umask on creation, so
+        // the exact resulting mode is `0o600 & !umask` and cannot be asserted
+        // exactly without reading the umask (not in std). The security-relevant
+        // property — no group/other access beyond the umask — is umask-proof.
+        assert_eq!(mode & 0o077, 0, "file must not gain group/other access");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2076,7 +2364,9 @@ servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x
         let path = dir.join("config.toml");
         write_config_atomically(&path, "new = true\n").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
+        // See note above: assert the umask-proof security property, not the
+        // exact 0o600 bits (the ambient umask masks them on creation).
+        assert_eq!(mode & 0o077, 0, "file must not gain group/other access");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
