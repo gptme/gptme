@@ -172,6 +172,26 @@ def test_redirect_background_stdin_grammar_gap_trailing_ampersand(monkeypatch):
     assert shell._redirect_background_stdin("weird &&") == "weird &&"
 
 
+def test_redirect_background_stdin_grammar_gap_leaves_literals_alone():
+    """Only a real trailing ``&`` operator is rewritten on a grammar gap.
+
+    Multiple heredocs make tree-sitter report a grammar gap while ``bash -n``
+    still accepts the script, so this reaches the raw-suffix branch with a
+    Bash-valid input. An escaped ``&`` is a literal and a ``&`` in a trailing
+    comment is not an operator — rewriting either changes what the shell runs.
+    """
+    from gptme.tools.shell import _redirect_background_stdin
+
+    gap = "cat <<A <<B\nx\nA\ny\nB\n"
+    assert _redirect_background_stdin(gap + "echo foo \\&\n") == gap + "echo foo \\&\n"
+    assert _redirect_background_stdin(gap + "# note &\n") == gap + "# note &\n"
+    # sanity check: a real trailing operator still gets the stdin redirect
+    # (the rewrite strips the trailing newline, matching the clean-tree path)
+    assert (
+        _redirect_background_stdin(gap + "sleep 1 &\n") == gap + "sleep 1 < /dev/null &"
+    )
+
+
 def test_heredoc_complex(shell):
     # Test nested heredocs
     ret, out, err = shell.run(

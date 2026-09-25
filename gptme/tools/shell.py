@@ -147,7 +147,14 @@ def _redirect_background_stdin(command: str) -> str:
         # hang the session. Redirect it conservatively rather than skipping.
         stripped = source.rstrip()
         if stripped.endswith(b"&") and not stripped.endswith(b"&&"):
-            return (stripped[:-1].rstrip() + b" < /dev/null &").decode("utf-8")
+            operand = stripped[:-1]
+            # Only an unescaped ``&`` outside a trailing comment is a background
+            # operator: ``echo foo \&`` is a literal and ``# note &`` is inside a
+            # comment, so rewriting either would change what the shell runs.
+            backslashes = len(operand) - len(operand.rstrip(b"\\"))
+            last_line = operand.rsplit(b"\n", 1)[-1].strip()
+            if backslashes % 2 == 0 and not last_line.startswith(b"#"):
+                return (operand.rstrip() + b" < /dev/null &").decode("utf-8")
         return command
 
     positions: list[int] = []
