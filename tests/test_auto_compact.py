@@ -1528,7 +1528,9 @@ def test_autocompact_throttle_is_per_conversation(monkeypatch):
     ):
         # First conversation records no attempt because action is none, so
         # seed the guard as if it just compacted.
-        hook_module._last_autocompact_attempt[str(first.logdir)] = (
+        hook_module._last_autocompact_attempt[
+            (str(first.logdir), first.current_branch)
+        ] = (
             time.time(),
             len(first.log.messages),
         )
@@ -1553,7 +1555,10 @@ def test_autocompact_throttle_allows_retry_when_log_grows(monkeypatch):
     manager = MagicMock()
     manager.logdir = "/tmp/conv-grow"
     manager.log.messages = [Message("user", "one"), Message("assistant", "two")]
-    hook_module._last_autocompact_attempt[str(manager.logdir)] = (
+    manager.current_branch = "main"
+    hook_module._last_autocompact_attempt[
+        (str(manager.logdir), manager.current_branch)
+    ] = (
         time.time(),
         2,
     )
