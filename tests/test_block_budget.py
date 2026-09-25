@@ -1,6 +1,7 @@
 """Tests for the policy-block budget: episode counter, budget text, hard stop."""
 
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -87,6 +88,17 @@ class TestEpisodeCounter:
         msgs = [Message("system", "sys prompt"), _block()]
         assert current_episode(msgs) == msgs
 
+    def test_stuck_nudge_does_not_reset(self):
+        # The stuck-loop nudge is a harness-generated user message, so it stays
+        # inside the episode — otherwise the block count resets and an agent
+        # that gets blocked, then stuck, then continues bypasses the budget.
+        stuck = Message(
+            "user",
+            "<system>You appear stuck: the same tool call was repeated.</system>",
+        )
+        msgs = [PROMPT, *_blocks(2), stuck, _block()]
+        assert count_policy_blocks(msgs) == 3
+
 
 class TestBudgetAutoReply:
     @patch("gptme.tools.complete.has_incomplete_todos", return_value=True)
@@ -133,6 +145,21 @@ class TestBudgetAutoReply:
         with pytest.raises(SessionCompleteException):
             _replies(_manager(msgs), interactive=False, prompt_queue=[])
 
+    @patch("gptme.tools.complete.has_incomplete_todos", return_value=False)
+    def test_human_quoting_marker_not_counted_as_auto_reply(self, _h, monkeypatch):
+        # A real user message that merely quotes the marker must not inflate the
+        # consecutive auto-reply counter (which force-ends the session at 2).
+        monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
+        quoted = Message("user", 'Why do I keep seeing "No tool call detected"?')
+        nudge = Message(
+            "user",
+            "<system>No tool call detected in last message. Did you mean to finish?</system>",
+        )
+        msgs = [PROMPT, quoted, THINK, nudge, THINK]
+        out = _replies(_manager(msgs), interactive=False, prompt_queue=[])
+        assert len(out) == 1
+        assert "Did you mean to finish?" in out[0].content
+
 
 class TestHardStop:
     def test_stops_at_twice_budget(self, monkeypatch, caplog):
@@ -167,3 +194,41 @@ class TestHardStop:
         msgs = [PROMPT, *_blocks(6), Message("user", "ok, new plan"), _block()]
         with _chat(interactive=False):
             assert list(block_budget_hook(_manager(msgs))) == []
+
+    def test_stuck_nudge_does_not_reset_hard_stop(self, monkeypatch):
+        # The stuck-loop nudge is harness-generated: it must not be mistaken
+        # for a real user message, or the episode (and the block count) resets
+        # and the hard stop can be bypassed indefinitely.
+        monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
+        stuck = Message("user", "<system>You appear stuck: repeated.</system>")
+        msgs = [PROMPT, *_blocks(3), stuck, *_blocks(3)]
+        with _chat(interactive=False), pytest.raises(SessionCompleteException):
+            list(block_budget_hook(_manager(msgs)))
+
+    def test_no_chat_resolves_interactive_from_conversation_logdir(
+        self, monkeypatch, tmp_path
+    ):
+        # Server steps run with the process-level workspace config (chat=None);
+        # the conversation's own interactive flag lives in its logdir. A
+        # human-driven conversation must not be force-ended.
+        monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
+        (tmp_path / "config.toml").write_text("[chat]\ninteractive = true\n")
+        manager = MagicMock()
+        manager.logdir = tmp_path
+        manager.log.messages = [PROMPT, *_blocks(6)]
+        with patch("gptme.config.get_config", return_value=SimpleNamespace(chat=None)):
+            assert list(block_budget_hook(manager)) == []
+
+    def test_no_chat_no_logdir_still_hard_stops(self, monkeypatch):
+        # Library/headless usage with no chat and no conversation config: no
+        # human is present, so the hard stop still applies.
+        monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
+        # No ``logdir`` attribute at all — mirrors a library/headless manager.
+        manager = cast(
+            Any, SimpleNamespace(log=SimpleNamespace(messages=[PROMPT, *_blocks(6)]))
+        )
+        with (
+            patch("gptme.config.get_config", return_value=SimpleNamespace(chat=None)),
+            pytest.raises(SessionCompleteException),
+        ):
+            list(block_budget_hook(manager))
