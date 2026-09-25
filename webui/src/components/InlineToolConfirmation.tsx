@@ -239,13 +239,16 @@ export function InlineToolConfirmation({
               {/* Compact header */}
               <div className="flex items-center gap-2 border-b border-amber-200 px-3 py-2 dark:border-amber-800">
                 <Settings className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                <h3
+                  aria-label="Tool Execution Confirmation"
+                  className="text-sm font-medium text-amber-800 dark:text-amber-200"
+                >
                   Run{' '}
                   <code className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs dark:bg-amber-900/40">
                     {pendingTool.tooluse.tool}
                   </code>
                   ?
-                </span>
+                </h3>
                 <span className="ml-auto text-xs text-amber-600 dark:text-amber-400">
                   Press Enter to execute
                 </span>
