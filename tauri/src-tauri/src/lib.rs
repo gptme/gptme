@@ -991,6 +991,60 @@ fn insert_str_map(st: &mut toml_edit::Table, key: &str, map: &HashMap<String, St
     );
 }
 
+/// The preserved original for `key`, when the reader stashed one in `extra`.
+fn preserved_item<'a>(
+    extra: &'a [(String, toml_edit::Item)],
+    key: &str,
+) -> Option<&'a toml_edit::Item> {
+    extra.iter().find(|(k, _)| k == key).map(|(_, item)| item)
+}
+
+/// Write a string-map field, overlaying the typed entries on a preserved
+/// original the typed view could not represent (it contained a nested value).
+///
+/// The reader leaves the typed map empty in that case, so writing only the
+/// typed map after a user edit would delete every value the panel never
+/// displayed — for `headers`, potentially an authorization header. Typed
+/// entries win on key collisions; keys only present in the original (including
+/// nested values) are kept.
+fn insert_str_map_merged(
+    st: &mut toml_edit::Table,
+    key: &str,
+    map: &HashMap<String, String>,
+    preserved: Option<&toml_edit::Item>,
+) {
+    let Some(preserved) = preserved else {
+        insert_str_map(st, key, map);
+        return;
+    };
+    let mut merged = toml_edit::Table::new();
+    if let Some(table) = preserved.as_table() {
+        for (k, v) in table.iter() {
+            merged.insert(k, v.clone());
+        }
+    } else if let Some(inline) = preserved.as_value().and_then(|v| v.as_inline_table()) {
+        for (k, v) in inline.iter() {
+            merged.insert(k, toml_edit::Item::Value(v.clone()));
+        }
+    } else {
+        // Not a map at all: keep it verbatim while the typed field is
+        // untouched, otherwise the explicit edit wins (as for other keys).
+        if map.is_empty() {
+            st.insert(key, preserved.clone());
+        } else {
+            insert_str_map(st, key, map);
+        }
+        return;
+    }
+    for (k, v) in map {
+        merged.insert(k, toml_edit::value(v.as_str()));
+    }
+    if merged.is_empty() {
+        return;
+    }
+    st.insert(key, toml_edit::Item::Table(merged));
+}
+
 /// Parse an `[mcp]` section from TOML text. Empty input yields defaults.
 fn parse_mcp_config(content: &str) -> Result<MCPConfigView, String> {
     if content.is_empty() {
@@ -1059,11 +1113,21 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
             }
             st.insert("args", toml_edit::value(arr));
         }
-        insert_str_map(&mut st, "env", &server.env);
+        insert_str_map_merged(
+            &mut st,
+            "env",
+            &server.env,
+            preserved_item(&server.extra, "env"),
+        );
         if let Some(url) = &server.url {
             st.insert("url", toml_edit::value(url.as_str()));
         }
-        insert_str_map(&mut st, "headers", &server.headers);
+        insert_str_map_merged(
+            &mut st,
+            "headers",
+            &server.headers,
+            preserved_item(&server.extra, "headers"),
+        );
         // Restore the original entry's extra keys after the known fields so a
         // save never drops settings the view does not model. Known keys whose
         // original value had an unexpected type are preserved only while the
@@ -1100,8 +1164,9 @@ fn preserved_extra(
                 "command" => server.command.is_none(),
                 "url" => server.url.is_none(),
                 "args" => server.args.is_empty(),
-                "env" => server.env.is_empty(),
-                "headers" => server.headers.is_empty(),
+                // env/headers are merged with their preserved original by
+                // `insert_str_map_merged`, not re-inserted here.
+                "env" | "headers" => false,
                 _ => true, // "name": always written from the typed field
             }
         })
@@ -1199,6 +1264,14 @@ fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(),
     write_config_via(path, &temp_path_for(path), contents)
 }
 
+/// Drop a temp file left behind by a failed save.
+///
+/// Failure to remove it is ignored: the save has already failed, and reporting
+/// a secondary cleanup error would mask the original one.
+fn discard_temp_file(tmp: &std::path::Path) {
+    let _ = std::fs::remove_file(tmp);
+}
+
 /// Write `contents` to `tmp` and move it over `path`.
 ///
 /// On Unix the temp file inherits the destination mode when it exists, otherwise
@@ -1225,10 +1298,19 @@ fn write_config_via(
     let mut file = opts
         .open(tmp)
         .map_err(|e| format!("Failed to create temp file: {e}"))?;
-    file.write_all(contents.as_bytes())
-        .map_err(|e| format!("Failed to write temp file: {e}"))?;
-    file.sync_all()
-        .map_err(|e| format!("Failed to sync temp file: {e}"))?;
+    if let Err(e) = file.write_all(contents.as_bytes()) {
+        drop(file);
+        // The temp file is ours (created with `create_new`), so it is safe to
+        // remove: never leave a partial copy of the credential-bearing config
+        // behind on a failed write.
+        discard_temp_file(tmp);
+        return Err(format!("Failed to write temp file: {e}"));
+    }
+    if let Err(e) = file.sync_all() {
+        drop(file);
+        discard_temp_file(tmp);
+        return Err(format!("Failed to sync temp file: {e}"));
+    }
     drop(file);
 
     if let Err(e) = replace_file(tmp, path) {
@@ -2489,6 +2571,89 @@ NESTED = { sub = "x" }
                 .and_then(|v| v.as_str())
         };
         assert_eq!(sub, Some("x"));
+    }
+
+    #[test]
+    fn test_nested_env_merges_with_user_added_entry() {
+        // The reader cannot represent a nested env value, so the panel starts
+        // from an empty map. Adding an entry must not delete the entries the
+        // panel never displayed.
+        let existing = r#"
+[[mcp.servers]]
+name = "srv"
+command = "run"
+
+[mcp.servers.env]
+PLAIN = "1"
+NESTED = { sub = "x" }
+"#;
+        let mut view = parse_mcp_config(existing).unwrap();
+        view.servers[0]
+            .env
+            .insert("ADDED".to_string(), "2".to_string());
+        let out = serialize_mcp_config(existing, &view).unwrap();
+        let reparsed: toml_edit::DocumentMut = out.parse().unwrap();
+        let env = reparsed
+            .get("mcp")
+            .and_then(|m| m.get("servers"))
+            .and_then(|s| s.as_array_of_tables())
+            .and_then(|aot| aot.get(0))
+            .and_then(|t| t.get("env"))
+            .expect("env must survive the save");
+        assert_eq!(
+            env.get("PLAIN").and_then(|v| v.as_str()),
+            Some("1"),
+            "an original scalar entry must not be dropped by an unrelated edit"
+        );
+        assert_eq!(env.get("ADDED").and_then(|v| v.as_str()), Some("2"));
+        assert!(
+            env.get("NESTED").is_some(),
+            "the nested entry must survive the save"
+        );
+    }
+
+    #[test]
+    fn test_merged_headers_keep_original_authorization() {
+        let existing = r#"
+[[mcp.servers]]
+name = "remote"
+url = "https://mcp.example.com"
+
+[mcp.servers.headers]
+Authorization = "Bearer secret"
+NESTED = { sub = "x" }
+"#;
+        let mut view = parse_mcp_config(existing).unwrap();
+        view.servers[0]
+            .headers
+            .insert("X-Added".to_string(), "1".to_string());
+        let out = serialize_mcp_config(existing, &view).unwrap();
+        let reparsed: toml_edit::DocumentMut = out.parse().unwrap();
+        let headers = reparsed
+            .get("mcp")
+            .and_then(|m| m.get("servers"))
+            .and_then(|s| s.as_array_of_tables())
+            .and_then(|aot| aot.get(0))
+            .and_then(|t| t.get("headers"))
+            .expect("headers must survive the save");
+        assert_eq!(
+            headers.get("Authorization").and_then(|v| v.as_str()),
+            Some("Bearer secret"),
+            "an edit must not delete the authorization header"
+        );
+        assert_eq!(headers.get("X-Added").and_then(|v| v.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_discard_temp_file_removes_residue() {
+        let dir = unique_temp_dir();
+        let tmp = dir.join("config.toml.tmp");
+        std::fs::write(&tmp, "[mcp]\n").unwrap();
+        discard_temp_file(&tmp);
+        assert!(!tmp.exists(), "failed save must not leave the temp file");
+        // Idempotent: a missing file must not panic the cleanup path.
+        discard_temp_file(&tmp);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
