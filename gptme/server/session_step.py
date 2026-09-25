@@ -495,13 +495,33 @@ async def _acp_step(
                     _append_and_notify(manager, session, hook_msg)
                 manager.write()
 
-        if pre_msgs := trigger_hook(
-            HookType.STEP_PRE,
-            manager=manager,
-        ):
-            for hook_msg in pre_msgs:
-                _append_and_notify(manager, session, hook_msg)
-            manager.write()
+        try:
+            if pre_msgs := trigger_hook(
+                HookType.STEP_PRE,
+                manager=manager,
+            ):
+                for hook_msg in pre_msgs:
+                    _append_and_notify(manager, session, hook_msg)
+                manager.write()
+        except Exception as e:
+            # The STEP_PRE trigger sits outside the inner try/finally that
+            # releases the generating reservation, so a session-completion
+            # signal from a hook (e.g. the policy-block budget) would otherwise
+            # escape _acp_step with the reservation still held and no
+            # step_complete emitted — leaving the session stuck as
+            # "generating". Release it with the same compare-and-clear contract
+            # as the finally block before propagating (parity with step()).
+            from ..tools.complete import SessionCompleteException  # fmt: skip
+
+            if isinstance(e, SessionCompleteException):
+                with session.step_lock:
+                    if session.step_seq == my_step_seq:
+                        session.generating = False
+                        session.generating_since = None
+                        SessionManager.add_event(
+                            conversation_id, {"type": "step_complete"}
+                        )
+            raise
 
         user_messages = [m for m in manager.log.messages if m.role == "user"]
         if not user_messages:
@@ -860,15 +880,41 @@ def step(
 
     # Trigger STEP_PRE hook BEFORE preparing messages
     # This ensures hook messages are included in the LLM input
-    if pre_msgs := trigger_hook(
-        HookType.STEP_PRE,
-        manager=manager,
-    ):
-        for msg in pre_msgs:
-            _append_and_notify(manager, session, msg)
-        # Write messages to disk to ensure they're persisted
-        manager.write()
-        logger.debug("Wrote step.pre hook messages to disk")
+    try:
+        if pre_msgs := trigger_hook(
+            HookType.STEP_PRE,
+            manager=manager,
+        ):
+            for msg in pre_msgs:
+                _append_and_notify(manager, session, msg)
+            # Write messages to disk to ensure they're persisted
+            manager.write()
+            logger.debug("Wrote step.pre hook messages to disk")
+    except Exception as e:
+        # This trigger sits OUTSIDE the try/finally below, so a session-
+        # completion signal from a hook (e.g. the policy-block budget) would
+        # otherwise escape step() with the generating reservation still held
+        # and no step_complete emitted — leaving the session stuck as
+        # "generating". Release it with the same compare-and-clear contract
+        # as the finally block before propagating.
+        from ..tools.complete import SessionCompleteException  # fmt: skip
+
+        if isinstance(e, SessionCompleteException):
+            # Unlike the CLI (whose turn-level TURN_POST at the end of the step
+            # loop is skipped by this raise), the server triggers TURN_POST after
+            # every generation (see the normal path below). The preceding step is
+            # what produced the policy blocks that exhausted the budget, so its
+            # post-turn hooks (pre-commit checks, autocommit) have already run.
+            # Re-triggering here would fire per-step hooks twice for one turn.
+            with session.step_lock:
+                if session.step_seq == my_step_seq:
+                    session.finish_skill_turn("abandoned")
+                    session.generating = False
+                    session.generating_since = None
+                    # Emit while still holding step_lock — see the step()
+                    # finally for why the release and the event are atomic.
+                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
+        raise
 
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
