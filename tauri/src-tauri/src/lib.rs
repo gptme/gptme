@@ -1063,18 +1063,48 @@ fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, S
         }
         insert_str_map(&mut st, "headers", &server.headers);
         // Restore the original entry's extra keys after the known fields so a
-        // save never drops settings the view does not model. This includes
-        // known keys whose original value had an unexpected type (they cannot
-        // be represented by the typed fields), so they override the defaulted
-        // typed value.
-        for (k, item) in &server.extra {
-            st.insert(k, item.clone());
+        // save never drops settings the view does not model. Known keys whose
+        // original value had an unexpected type are preserved only while the
+        // typed field is still untouched (at the reader's default); if the
+        // user edited the typed field, the edit wins over the stale preserved
+        // value.
+        for (k, item) in &preserved_extra(&server.extra, server) {
+            st.insert(k.as_str(), item.clone());
         }
         servers_aot.push(st);
     }
     mcp_table.insert("servers", toml_edit::Item::ArrayOfTables(servers_aot));
     doc.insert("mcp", toml_edit::Item::Table(mcp_table));
     Ok(doc.to_string())
+}
+
+/// Filter preserved `extra` items for serialization. A preserved *known* key
+/// (its original value had an unexpected type, so the reader defaulted the
+/// typed field) must not override an explicit user edit of that field: keep
+/// it only when the typed field still equals the reader's default. Unknown
+/// keys are always kept.
+fn preserved_extra(
+    extra: &[(String, toml_edit::Item)],
+    server: &MCPServerView,
+) -> Vec<(String, toml_edit::Item)> {
+    extra
+        .iter()
+        .filter(|(k, _)| {
+            if !KNOWN_SERVER_KEYS.contains(&k.as_str()) {
+                return true;
+            }
+            match k.as_str() {
+                "enabled" => server.enabled, // reader default: true
+                "command" => server.command.is_none(),
+                "url" => server.url.is_none(),
+                "args" => server.args.is_empty(),
+                "env" => server.env.is_empty(),
+                "headers" => server.headers.is_empty(),
+                _ => true, // "name": always written from the typed field
+            }
+        })
+        .cloned()
+        .collect()
 }
 
 fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
@@ -2162,6 +2192,30 @@ args = "not-an-array"
         assert!(updated.contains("enabled = \"yes\""));
         assert!(updated.contains("command = 123"));
         assert!(updated.contains("args = \"not-an-array\""));
+    }
+
+    #[test]
+    fn test_mcp_config_user_edit_overrides_preserved_mistyped_key() {
+        // If the user edits a typed field whose original value was preserved
+        // as mistyped `extra`, the edit must win over the stale value.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = "yes"
+command = 123
+"#;
+        let mut cfg = parse_mcp_config(original).unwrap();
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "enabled"));
+
+        // User disables the server in the UI and sets a proper command.
+        cfg.servers[0].enabled = false;
+        cfg.servers[0].command = Some("other".to_string());
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("enabled = false"), "{updated}");
+        assert!(!updated.contains("\"yes\""), "{updated}");
+        assert!(updated.contains("command = \"other\""), "{updated}");
+        assert!(!updated.contains("command = 123"), "{updated}");
     }
 
     #[test]
