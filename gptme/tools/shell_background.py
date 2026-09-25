@@ -23,6 +23,7 @@ from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
+from ..hooks._policy_block import policy_block_message
 from ..hooks.types import StopPropagation
 from ..message import Message
 from ..sandbox import apply_memory_limit
@@ -717,8 +718,9 @@ def execute_bg_command(
     # Check if command is denylisted - blocked even for background jobs
     is_denied, deny_reason, matched_cmd = is_denylisted(command)
     if is_denied:
-        yield Message(
-            "system", f"Background command denied: `{matched_cmd}`\n\n{deny_reason}"
+        yield policy_block_message(
+            "denylist-bg",
+            f"Background command denied: `{matched_cmd}`\n\n{deny_reason}",
         )
         return
 
