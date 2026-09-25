@@ -23,11 +23,11 @@ from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
+from ..hooks._policy_block import policy_block_message
 from ..hooks.types import StopPropagation
 from ..message import Message
 from ..sandbox import apply_memory_limit
 from ..util.context import md_codeblock
-from ._policy_block import policy_block_message
 
 _is_windows = os.name == "nt"
 

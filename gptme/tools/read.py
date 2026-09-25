@@ -12,12 +12,12 @@ import os
 from collections.abc import Generator
 from pathlib import Path
 
+from ..hooks._policy_block import policy_block_message
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.context_savings import record_context_savings
 from ..util.output_storage import save_large_output
 from ..util.tokens import len_tokens
-from ._policy_block import policy_block_message
 from .base import (
     Parameter,
     ToolSpec,

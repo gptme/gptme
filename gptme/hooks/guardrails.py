@@ -40,7 +40,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..tools._policy_block import policy_block_message
+from ._policy_block import policy_block_message
 from .confirm import ConfirmationResult
 
 if TYPE_CHECKING:
