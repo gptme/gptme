@@ -378,9 +378,14 @@ class TestServerConfirmHook:
 class TestRegisterUnregister:
     def test_register(self):
         """register() should not raise."""
-        from gptme.hooks.server_confirm import register
+        from gptme.hooks.server_confirm import register, unregister
 
-        register()
+        # Unregister afterwards: a leaked priority-100 TOOL_CONFIRM hook
+        # short-circuits lower-priority hooks in later tests on the same worker.
+        try:
+            register()
+        finally:
+            unregister()
 
     def test_unregister(self):
         """unregister() should not raise even if not registered."""
