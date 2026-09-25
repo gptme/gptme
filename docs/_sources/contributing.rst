@@ -39,6 +39,23 @@ You can now start ``gptme`` from your development environment using the regular 
 
 You can also install it in editable mode with ``pipx`` using ``pipx install -e .`` which will let you use your development version of gptme regardless of venv.
 
+Verify your development setup
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before making changes, run this smoke test from the repository root:
+
+.. code-block:: bash
+
+   make build
+   poetry run gptme --version
+   poetry run pytest tests/test_cli.py::test_version -q
+
+The install must finish without errors, the CLI command must print a version,
+and the focused test must report ``1 passed``. These checks do not require an
+API key. They make no LLM calls on a fresh setup. If ``ANTHROPIC_API_KEY`` is
+already set in the environment or gptme config, pytest's sessionstart hook may
+send a one-token Anthropic quota probe before the selected test runs.
+
 Keeping your environment in sync
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

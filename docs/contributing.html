@@ -580,6 +580,7 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#verify-your-development-setup">Verify your development setup</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-your-environment-in-sync">Keeping your environment in sync</a></li>
 </ul>
 </li>
@@ -653,6 +654,20 @@ make<span class="w"> </span>build
 </div>
 <p>You can now start <code class="docutils literal notranslate"><span class="pre">gptme</span></code> from your development environment using the regular commands.</p>
 <p>You can also install it in editable mode with <code class="docutils literal notranslate"><span class="pre">pipx</span></code> using <code class="docutils literal notranslate"><span class="pre">pipx</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">.</span></code> which will let you use your development version of gptme regardless of venv.</p>
+<section id="verify-your-development-setup">
+<h3>Verify your development setup<a class="headerlink" href="#verify-your-development-setup" title="Link to this heading">#</a></h3>
+<p>Before making changes, run this smoke test from the repository root:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>build
+poetry<span class="w"> </span>run<span class="w"> </span>gptme<span class="w"> </span>--version
+poetry<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/test_cli.py::test_version<span class="w"> </span>-q
+</pre></div>
+</div>
+<p>The install must finish without errors, the CLI command must print a version,
+and the focused test must report <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">passed</span></code>. These checks do not require an
+API key. They make no LLM calls on a fresh setup. If <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> is
+already set in the environment or gptme config, pytest’s sessionstart hook may
+send a one-token Anthropic quota probe before the selected test runs.</p>
+</section>
 <section id="keeping-your-environment-in-sync">
 <h3>Keeping your environment in sync<a class="headerlink" href="#keeping-your-environment-in-sync" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">poetry.lock</span></code> pins the toolchain, and <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> pins the
@@ -1062,6 +1077,7 @@ so signing secrets are never exposed to PR-triggered builds.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install">Install</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#verify-your-development-setup">Verify your development setup</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-your-environment-in-sync">Keeping your environment in sync</a></li>
 </ul>
 </li>
