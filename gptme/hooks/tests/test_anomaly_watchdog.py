@@ -79,6 +79,11 @@ def _session_key() -> str:
     return anomaly_watchdog._session_key()
 
 
+def _msgs(findings) -> list[str]:
+    """Messages of ``_detect_findings`` results, which pair (blockable, message)."""
+    return [message for _, message in findings]
+
+
 def _reset_storm_state() -> None:
     anomaly_watchdog._write_times_by_session.clear()
     anomaly_watchdog._rejected_calls.clear()
@@ -173,7 +178,7 @@ class TestScopeEscape:
         )
         # Through _detect_findings: the tool must also be gated as a write tool.
         findings = anomaly_watchdog._detect_findings(tool_use, tmp_path)
-        assert any("scope_escape" in f and "secret" in f for f in findings)
+        assert any("scope_escape" in m and "secret" in m for m in _msgs(findings))
 
     def test_patch_many_multi_hunk_headers_are_checked(self, tmp_path, monkeypatch):
         """The multi-hunk format carries its paths in ``=== PATH: ... ===``."""
@@ -186,7 +191,7 @@ class TestScopeEscape:
         findings = anomaly_watchdog._detect_findings(
             _fake_tool_use("patch_many", content=content), tmp_path
         )
-        assert any("scope_escape" in f for f in findings)
+        assert any("scope_escape" in m for m in _msgs(findings))
 
     def test_patch_many_kwargs_patches_are_checked(self, tmp_path, monkeypatch):
         """The function-call format passes a ``patches`` JSON payload."""
@@ -196,7 +201,7 @@ class TestScopeEscape:
         findings = anomaly_watchdog._detect_findings(
             _fake_tool_use("patch_many", kwargs={"patches": payload}), tmp_path
         )
-        assert any("scope_escape" in f for f in findings)
+        assert any("scope_escape" in m for m in _msgs(findings))
 
     def test_patch_many_all_inside_ok(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
@@ -316,13 +321,13 @@ class TestWriteStorm:
         post = ToolExecutePostData(tool_use=outside, workspace=tmp_path)
         for _ in range(3):
             findings = anomaly_watchdog._detect_findings(outside, tmp_path)
-            assert any("scope_escape" in f for f in findings)
-            assert not any("write_storm" in f for f in findings)
+            assert any("scope_escape" in m for m in _msgs(findings))
+            assert not any("write_storm" in m for m in _msgs(findings))
             # Warn mode does not block, so the flagged write still executes.
             list(check_tool_post(post))
         # The fourth executed write reaches the limit and trips the storm.
         findings = anomaly_watchdog._detect_findings(outside, tmp_path)
-        assert any("write_storm" in f for f in findings)
+        assert any("write_storm" in m for m in _msgs(findings))
 
     def test_blocked_writes_are_not_recorded_by_the_post_hook(
         self, tmp_path, monkeypatch
@@ -494,6 +499,48 @@ class TestWriteStorm:
 
         assert len(seen) == 2
         assert seen[0] != seen[1]
+
+    def test_approximate_identity_is_reported_but_not_enforced(
+        self, tmp_path, monkeypatch
+    ):
+        """A thread-shared window must never block a write it may not own.
+
+        Without a log directory or a session id the window is only known to be
+        continuous, not exclusive — between two sessions sharing a worker, a
+        burst in one could otherwise stop the other's legitimate write.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "2")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        _no_log(monkeypatch)
+        monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id(None))
+        monkeypatch.setattr(anomaly_watchdog, "current_session_id", _stub_id(None))
+
+        tool_use = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
+        for _ in range(2):
+            anomaly_watchdog.record_write()
+
+        findings = anomaly_watchdog._detect_findings(tool_use, tmp_path)
+        assert any("write_storm" in m and "reported only" in m for m in _msgs(findings))
+        # Reported, but the confirm hook must not skip the write.
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+    def test_exact_identity_still_enforces(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "2")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        _no_log(monkeypatch)
+        monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id("c1"))
+        monkeypatch.setattr(anomaly_watchdog, "current_session_id", _stub_id(None))
+
+        tool_use = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
+        for _ in range(2):
+            anomaly_watchdog.record_write()
+
+        blocked = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
+        assert blocked is not None
+        assert blocked.action == ConfirmAction.SKIP
 
     def test_server_conversation_id_wins_over_the_thread(self, monkeypatch):
         monkeypatch.setattr(

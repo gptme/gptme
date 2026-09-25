@@ -75,8 +75,8 @@ _rejected_calls: dict[int, float] = {}
 _REJECTED_TTL = 300.0
 
 
-def _session_key() -> str:
-    """Return a stable per-conversation key for the write-storm window.
+def _session_identity() -> tuple[str, bool]:
+    """Return the write-storm window key and whether that identity is exact.
 
     The window has to satisfy two constraints at once: it must not merge two
     conversations (a burst in one would then block the other), and it must be
@@ -84,10 +84,12 @@ def _session_key() -> str:
     ACP copies a fresh context for each turn, so a key minted per context would
     reset the window every turn and write-storm would never trip.
 
-    Hence the preference order: the conversation's log directory is exact when
-    it exists, the server's conversation/session id is exact during a server
-    session, and the thread is the continuity fallback — stable across context
-    copies within a worker, distinct between workers.
+    Only an exact identity can satisfy both. In preference order: the
+    conversation's log directory, the server's conversation/session id, then the
+    thread — which is continuous across context copies within a worker but cannot
+    separate two sessions that share one. ``exact=False`` therefore means "this
+    window may not be the caller's own", and a finding from it is reported but
+    never enforced (see ``_check_write_storm``).
     """
     try:
         from ..logmanager import LogManager
@@ -96,13 +98,18 @@ def _session_key() -> str:
     except ImportError:
         log = None
     if log is not None:
-        return str(log.logdir)
+        return str(log.logdir), True
 
     if conversation_id := current_conversation_id.get():
-        return f"conv-{conversation_id}"
+        return f"conv-{conversation_id}", True
     if session_id := current_session_id.get():
-        return f"session-{session_id}"
-    return f"thread-{threading.get_ident()}"
+        return f"session-{session_id}", True
+    return f"thread-{threading.get_ident()}", False
+
+
+def _session_key() -> str:
+    """Window key for the current session (see ``_session_identity``)."""
+    return _session_identity()[0]
 
 
 # Tools that perform file writes (for write_storm + scope_escape detection).
@@ -339,10 +346,15 @@ def _check_write_storm() -> tuple[bool, str] | None:
         times = list(_write_times_by_session.get(_session_key(), []))
 
     if len(times) >= limit:
-        return _emit(
-            "write_storm",
-            f"{limit} writes in the last {window:.0f}s (limit: {limit})",
-        )
+        detail = f"{limit} writes in the last {window:.0f}s (limit: {limit})"
+        exact = _session_identity()[1]
+        if not exact:
+            detail += (
+                " — reported only: this session has no log directory or session"
+                " id, so its window is shared per worker thread and is not"
+                " enforced"
+            )
+        return _emit("write_storm", detail, blockable=exact)
 
     return None
 
@@ -408,16 +420,21 @@ def _consume_rejected(tool_use: Any) -> bool:
     return marked is not None and time.monotonic() - marked <= _REJECTED_TTL
 
 
-def _detect_findings(tool_use: Any, workspace: Path | None) -> list[str]:
-    """Run all enabled anomaly checks; return finding messages."""
-    findings: list[str] = []
+def _detect_findings(tool_use: Any, workspace: Path | None) -> list[tuple[bool, str]]:
+    """Run all enabled anomaly checks; return ``(blockable, message)`` pairs.
+
+    ``blockable`` is False for a finding whose evidence cannot be trusted to
+    stop the call (see ``_check_write_storm``); those are reported to the
+    session but never turned into a confirmation skip.
+    """
+    findings: list[tuple[bool, str]] = []
     namespace = _tool_namespace(tool_use.tool)
 
     if namespace in _WRITE_TOOLS:
         result = _check_scope_escape(tool_use, workspace)
         blocked = False
         if result is not None:
-            findings.append(result[1])
+            findings.append(result)
             blocked = result[0]
         # Don't pile a storm warning onto a call already being blocked for a
         # different reason. The storm window itself is only advanced by writes
@@ -425,21 +442,28 @@ def _detect_findings(tool_use: Any, workspace: Path | None) -> list[str]:
         if not blocked:
             result = _check_write_storm()
             if result is not None:
-                findings.append(result[1])
+                findings.append(result)
 
     if namespace in _NETWORK_TOOLS:
         result = _check_novel_host(tool_use)
         if result is not None:
-            findings.append(result[1])
+            findings.append(result)
 
     return findings
 
 
-def _emit(anomaly_type: str, detail: str) -> tuple[bool, str]:
-    """Log + return (should_block, message)."""
+def _emit(
+    anomaly_type: str, detail: str, *, blockable: bool = True
+) -> tuple[bool, str]:
+    """Log + return (should_block, message).
+
+    ``blockable=False`` downgrades a finding to report-only even in block mode:
+    used for checks whose evidence cannot distinguish one session from another,
+    where blocking could stop a write this watchdog does not own.
+    """
     msg = f"[anomaly_watchdog] {anomaly_type}: {detail}"
     logger.warning(msg)
-    return _mode() == "block", msg
+    return (_mode() == "block") and blockable, msg
 
 
 def check_tool_pre(
@@ -451,22 +475,25 @@ def check_tool_pre(
     ``anomaly_watchdog_confirm``) — TOOL_EXECUTE_PRE cannot prevent tool
     execution, it only stops lower-priority hooks.
     """
-    if _mode() != "warn":
-        return
-
     tool_use = data.tool_use
-    if tool_use is None:
+    if tool_use is None or not _enabled():
         return
 
     findings = _detect_findings(tool_use, data.workspace)
-    if not findings:
+    # In warn mode every finding is reported. In block mode the blockable ones
+    # are the confirm hook's to enforce, but a report-only finding must still
+    # reach the session — that hook can only return a skip, not a message.
+    reportable = [
+        msg for blockable, msg in findings if _mode() == "warn" or not blockable
+    ]
+    if not reportable:
         return
 
     from ..message import Message
 
     yield Message(
         "system",
-        "⚠️ [anomaly_watchdog] Anomaly detected:\n" + "\n".join(findings),
+        "⚠️ [anomaly_watchdog] Anomaly detected:\n" + "\n".join(reportable),
     )
 
 
@@ -507,13 +534,15 @@ def anomaly_watchdog_confirm(
     if _mode() != "block":
         return None
 
-    findings = _detect_findings(tool_use, workspace)
-    if not findings:
+    blockable = [
+        msg for blockable, msg in _detect_findings(tool_use, workspace) if blockable
+    ]
+    if not blockable:
         return None
 
     from ..hooks.confirm import ConfirmationResult
 
-    reason = "Blocked by anomaly_watchdog:\n" + "\n".join(findings)
+    reason = "Blocked by anomaly_watchdog:\n" + "\n".join(blockable)
     logger.info("anomaly_watchdog (block): %s", reason)
     _mark_rejected(tool_use)
     return ConfirmationResult.skip(reason)
