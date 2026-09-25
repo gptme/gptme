@@ -900,16 +900,12 @@ def step(
         from ..tools.complete import SessionCompleteException  # fmt: skip
 
         if isinstance(e, SessionCompleteException):
-            # Mirror the CLI: a completion signal from a STEP_PRE hook ends the
-            # session, but the preceding step's tool results must still run the
-            # post-turn hooks (pre-commit checks, autocommit) before it does.
-            if post_msgs := trigger_hook(
-                HookType.TURN_POST,
-                manager=manager,
-            ):
-                for hook_msg in post_msgs:
-                    _append_and_notify(manager, session, hook_msg)
-                manager.write(sync=True)
+            # Unlike the CLI (whose turn-level TURN_POST at the end of the step
+            # loop is skipped by this raise), the server triggers TURN_POST after
+            # every generation (see the normal path below). The preceding step is
+            # what produced the policy blocks that exhausted the budget, so its
+            # post-turn hooks (pre-commit checks, autocommit) have already run.
+            # Re-triggering here would fire per-step hooks twice for one turn.
             with session.step_lock:
                 if session.step_seq == my_step_seq:
                     session.finish_skill_turn("abandoned")
