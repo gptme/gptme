@@ -150,7 +150,8 @@ def _request_allowlisted(method: str, url: str, timeout: int) -> requests.Respon
 
 
 # Availability check only — pypdf itself is imported lazily in _read_pdf_url,
-# so PDF support doesn't add ~250ms to every startup.
+# so PDF support doesn't add ~80ms to every startup (measured: `import pypdf`
+# costs ~84ms per `python -X importtime`).
 has_pypdf = importlib.util.find_spec("pypdf") is not None
 
 
