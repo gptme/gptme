@@ -56,21 +56,27 @@ class TestIsPdfUrl:
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
             mock_resp.headers = {"Content-Type": "text/html"}
+            mock_resp.url = "https://example.com/page.html"
             mock_req.head.return_value = mock_resp
+            mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/page.html") is False
 
     def test_no_extension_pdf_content_type(self):
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
             mock_resp.headers = {"Content-Type": "application/pdf"}
+            mock_resp.url = "https://example.com/document"
             mock_req.head.return_value = mock_resp
+            mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/document") is True
 
     def test_no_extension_html_content_type(self):
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
             mock_resp.headers = {"Content-Type": "text/html; charset=utf-8"}
+            mock_resp.url = "https://example.com/page"
             mock_req.head.return_value = mock_resp
+            mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/page") is False
 
     def test_request_failure_non_pdf(self):
@@ -85,12 +91,14 @@ class TestIsPdfUrl:
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
             mock_resp.headers = {"Content-Type": "application/pdf"}
+            mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_req.head.return_value = mock_resp
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/doc.pdf?v=2") is True
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
             mock_resp.headers = {"Content-Type": "text/html"}
+            mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_req.head.return_value = mock_resp
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/doc.pdf?v=2") is False
@@ -436,7 +444,9 @@ class TestReadPdfUrl:
         # Create a minimal mock for pypdf
         mock_response = MagicMock()
         mock_response.content = b"fake pdf content"
+        mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
         with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
@@ -458,7 +468,9 @@ class TestReadPdfUrl:
 
         mock_response = MagicMock()
         mock_response.content = b"fake"
+        mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
         with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
@@ -485,7 +497,9 @@ class TestReadPdfUrl:
 
         mock_response = MagicMock()
         mock_response.content = b"fake"
+        mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
         with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
@@ -511,7 +525,9 @@ class TestReadPdfUrl:
 
         mock_response = MagicMock()
         mock_response.content = b"fake"
+        mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
         with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
@@ -532,7 +548,9 @@ class TestReadPdfUrl:
 
         mock_response = MagicMock()
         mock_response.content = b"fake"
+        mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
         with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
@@ -698,7 +716,9 @@ class TestPdfToImages:
 
         mock_response = MagicMock()
         mock_response.content = b"%PDF-fake"
+        mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.ConnectionError = Exception
         mock_convert.return_value = []
 
         pdf_to_images("https://example.com/doc.pdf", output_dir=tmp_path)
@@ -715,7 +735,9 @@ class TestPdfToImages:
 
         mock_response = MagicMock()
         mock_response.content = b"%PDF-fake"
+        mock_response.url = "HTTP://example.com/x.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.ConnectionError = Exception
         mock_convert.return_value = []
 
         pdf_to_images("HTTP://example.com/x.pdf", output_dir=tmp_path)
@@ -738,7 +760,9 @@ class TestPdfToImages:
         (dest / "doc.pdf").write_bytes(b"%PDF-fake")
         mock_response = MagicMock()
         mock_response.content = b"%PDF-remote"
+        mock_response.url = "HTTP://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
+        mock_requests.ConnectionError = Exception
         mock_convert.return_value = []
 
         pdf_to_images("HTTP://example.com/doc.pdf", output_dir=tmp_path)
