@@ -462,6 +462,62 @@ def _loaded_tool_names() -> set[str] | None:
         return None
 
 
+# Provider-independent cap on tool descriptions. Tool descriptions (notably MCP
+# server descriptions) are attacker-controlled text that reaches the system
+# prompt; capping them bounds context-budget drain and the prompt-injection
+# surface on every provider, not just OpenAI (#1697 was OpenAI-scoped).
+MAX_TOOL_DESCRIPTION_LENGTH = 1024
+
+
+def truncate_tool_description(
+    description: str,
+    tool_name: str = "",
+    *,
+    limit: int = MAX_TOOL_DESCRIPTION_LENGTH,
+) -> str:
+    """Cap a tool description at ``limit`` characters, logging when it clips."""
+    if len(description) <= limit:
+        return description
+    logger.warning(
+        "Description for tool `%s` is too long (%d > %d chars). Truncating...",
+        tool_name,
+        len(description),
+        limit,
+    )
+    return description[:limit]
+
+
+def truncate_tool_description_xml(
+    description: str,
+    tool_name: str = "",
+    *,
+    limit: int = MAX_TOOL_DESCRIPTION_LENGTH,
+) -> str:
+    """XML-escape a tool description, capped so the *rendered* form fits ``limit``.
+
+    ``truncate_tool_description`` bounds the raw text, but XML escaping can
+    expand it (``&`` becomes ``&amp;``), so the rendered form could overshoot
+    the cap by up to 5x. Cap the escaped text instead, backing off a trailing
+    partial entity (``&am``) so the result stays valid XML.
+    """
+    escaped = xml_escape(description)
+    if len(escaped) <= limit:
+        return escaped
+    logger.warning(
+        "Description for tool `%s` is too long when XML-escaped (%d > %d chars). Truncating...",
+        tool_name,
+        len(escaped),
+        limit,
+    )
+    truncated = escaped[:limit]
+    # xml_escape emits an entity for every '&', so an '&' after the last ';'
+    # starts a partial entity — cut it so the output remains well-formed XML.
+    amp = truncated.rfind("&")
+    if amp > truncated.rfind(";"):
+        truncated = truncated[:amp]
+    return truncated
+
+
 # init=False is intentional: ToolSpec needs a wide constructor input type while
 # storing normalized fields. Dataclasses will not call __post_init__ here.
 @dataclass(frozen=True, eq=False, init=False)
@@ -688,7 +744,9 @@ class ToolSpec:
             return self._get_tool_prompt_xml(examples, tool_format)
         prompt = ""
         prompt += f"\n\n## {self.name}"
-        prompt += f"\n\n**Description:** {self.desc}" if self.desc else ""
+        if self.desc:
+            desc = truncate_tool_description(self.desc, self.name)
+            prompt += f"\n\n**Description:** {desc}"
         instructions = self.get_instructions(tool_format)
         if instructions:
             prompt += f"\n\n**Instructions:** {instructions}"
@@ -704,7 +762,8 @@ class ToolSpec:
         """Generate tool prompt with XML-sectioned structure."""
         parts = [f"\n<tool name={quoteattr(self.name)}>"]
         if self.desc:
-            parts.append(f"<description>{xml_escape(self.desc)}</description>")
+            desc = truncate_tool_description_xml(self.desc, self.name)
+            parts.append(f"<description>{desc}</description>")
         # Note: xml_escape is applied here, so any instructions_format["xml"] entry
         # should NOT embed raw XML markup — it would be double-escaped.
         # If a future tool needs unescaped XML in instructions, add a separate tag here.
