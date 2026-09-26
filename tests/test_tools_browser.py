@@ -58,7 +58,7 @@ class TestIsPdfUrl:
             mock_resp.url = "https://example.com/page.html"
             mock_resp.headers = {"Content-Type": "text/html"}
             mock_resp.url = "https://example.com/page.html"
-            mock_req.head.return_value = mock_resp
+            mock_req.Session.return_value.request.return_value = mock_resp
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/page.html") is False
 
@@ -68,7 +68,7 @@ class TestIsPdfUrl:
             mock_resp.url = "https://example.com/document"
             mock_resp.headers = {"Content-Type": "application/pdf"}
             mock_resp.url = "https://example.com/document"
-            mock_req.head.return_value = mock_resp
+            mock_req.Session.return_value.request.return_value = mock_resp
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/document") is True
 
@@ -78,14 +78,16 @@ class TestIsPdfUrl:
             mock_resp.url = "https://example.com/page"
             mock_resp.headers = {"Content-Type": "text/html; charset=utf-8"}
             mock_resp.url = "https://example.com/page"
-            mock_req.head.return_value = mock_resp
+            mock_req.Session.return_value.request.return_value = mock_resp
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/page") is False
 
     def test_request_failure_non_pdf(self):
         """When HEAD request fails and URL doesn't end in .pdf, returns False."""
         with patch("gptme.tools.browser.requests") as mock_req:
-            mock_req.head.side_effect = Exception("connection failed")
+            mock_req.Session.return_value.request.side_effect = Exception(
+                "connection failed"
+            )
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/page") is False
 
@@ -96,7 +98,7 @@ class TestIsPdfUrl:
             mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_resp.headers = {"Content-Type": "application/pdf"}
             mock_resp.url = "https://example.com/doc.pdf?v=2"
-            mock_req.head.return_value = mock_resp
+            mock_req.Session.return_value.request.return_value = mock_resp
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/doc.pdf?v=2") is True
         with patch("gptme.tools.browser.requests") as mock_req:
@@ -104,7 +106,7 @@ class TestIsPdfUrl:
             mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_resp.headers = {"Content-Type": "text/html"}
             mock_resp.url = "https://example.com/doc.pdf?v=2"
-            mock_req.head.return_value = mock_resp
+            mock_req.Session.return_value.request.return_value = mock_resp
             mock_req.RequestException = Exception
             assert _is_pdf_url("https://example.com/doc.pdf?v=2") is False
 
@@ -112,14 +114,13 @@ class TestIsPdfUrl:
         with patch("gptme.tools.browser.requests") as mock_req:
             with pytest.raises(ValueError, match="not allowed"):
                 _is_pdf_url("file:///etc/passwd")
-            mock_req.head.assert_not_called()
-            mock_req.get.assert_not_called()
+            mock_req.Session.return_value.request.assert_not_called()
 
     def test_rejects_gopher_scheme_before_head(self):
         with patch("gptme.tools.browser.requests") as mock_req:
             with pytest.raises(ValueError, match="not allowed"):
                 _is_pdf_url("gopher://example.com/x.pdf")
-            mock_req.head.assert_not_called()
+            mock_req.Session.return_value.request.assert_not_called()
 
     def test_accepts_uppercase_http_scheme(self):
         assert _is_pdf_url("HTTP://example.com/x.pdf") is True
@@ -420,7 +421,7 @@ class TestReadPdfUrl:
 
         with pytest.raises(ValueError, match="not allowed"):
             _read_pdf_url("file:///tmp/x.pdf")
-        mock_requests.get.assert_not_called()
+        mock_requests.Session.return_value.request.assert_not_called()
 
     @patch("gptme.tools.browser.has_pypdf", True)
     @patch("gptme.tools.browser.requests")
@@ -429,15 +430,21 @@ class TestReadPdfUrl:
 
         with pytest.raises(ValueError, match="not allowed"):
             _read_pdf_url("gopher://example.com/x.pdf")
-        mock_requests.get.assert_not_called()
+        mock_requests.Session.return_value.request.assert_not_called()
 
     @patch("gptme.tools.browser.has_pypdf", True)
     @patch("gptme.tools.browser.requests")
     def test_download_failure(self, mock_requests):
         from gptme.tools.browser import _read_pdf_url
 
-        mock_requests.get.side_effect = Exception("connection error")
-        result = _read_pdf_url("https://example.com/doc.pdf")
+        mock_requests.Session.return_value.request.side_effect = Exception(
+            "connection error"
+        )
+        # pypdf may be absent in the test env; patch it so the (failing) fetch
+        # is what produces the error, not the import.
+        mock_pypdf = MagicMock()
+        with patch.dict(sys.modules, {"pypdf": mock_pypdf}):
+            result = _read_pdf_url("https://example.com/doc.pdf")
         assert "Error" in result
 
     @patch("gptme.tools.browser.has_pypdf", True)
@@ -451,7 +458,7 @@ class TestReadPdfUrl:
         mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake pdf content"
         mock_response.url = "https://example.com/doc.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
@@ -476,7 +483,7 @@ class TestReadPdfUrl:
         mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
@@ -506,7 +513,7 @@ class TestReadPdfUrl:
         mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
@@ -535,7 +542,7 @@ class TestReadPdfUrl:
         mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
@@ -559,7 +566,7 @@ class TestReadPdfUrl:
         mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.RequestException = Exception
 
         mock_pypdf = MagicMock()
@@ -728,13 +735,13 @@ class TestPdfToImages:
         mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"%PDF-fake"
         mock_response.url = "https://example.com/doc.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.ConnectionError = Exception
         mock_convert.return_value = []
 
         pdf_to_images("https://example.com/doc.pdf", output_dir=tmp_path)
 
-        mock_requests.get.assert_called_once()
+        mock_requests.Session.return_value.request.assert_called_once()
 
     @patch("gptme.tools.browser.requests")
     @patch("gptme.tools.browser._convert_with_pdftoppm")
@@ -748,14 +755,17 @@ class TestPdfToImages:
         mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"%PDF-fake"
         mock_response.url = "HTTP://example.com/x.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.ConnectionError = Exception
         mock_convert.return_value = []
 
         pdf_to_images("HTTP://example.com/x.pdf", output_dir=tmp_path)
 
-        mock_requests.get.assert_called_once_with(
-            "HTTP://example.com/x.pdf", timeout=60, allow_redirects=False
+        mock_requests.Session.return_value.request.assert_called_once_with(
+            "GET",
+            "HTTP://example.com/x.pdf",
+            timeout=60,
+            allow_redirects=False,
         )
 
     @patch("gptme.tools.browser.requests")
@@ -774,14 +784,17 @@ class TestPdfToImages:
         mock_response.url = "HTTP://example.com/doc.pdf"
         mock_response.content = b"%PDF-remote"
         mock_response.url = "HTTP://example.com/doc.pdf"
-        mock_requests.get.return_value = mock_response
+        mock_requests.Session.return_value.request.return_value = mock_response
         mock_requests.ConnectionError = Exception
         mock_convert.return_value = []
 
         pdf_to_images("HTTP://example.com/doc.pdf", output_dir=tmp_path)
 
-        mock_requests.get.assert_called_once_with(
-            "HTTP://example.com/doc.pdf", timeout=60, allow_redirects=False
+        mock_requests.Session.return_value.request.assert_called_once_with(
+            "GET",
+            "HTTP://example.com/doc.pdf",
+            timeout=60,
+            allow_redirects=False,
         )
 
     @patch("gptme.tools.browser.requests")
@@ -803,7 +816,7 @@ class TestPdfToImages:
         weird = f"{tmp_path}/https://example.com/doc.pdf"
         pdf_to_images(weird, output_dir=tmp_path)
 
-        mock_requests.get.assert_not_called()
+        mock_requests.Session.return_value.request.assert_not_called()
         mock_convert.assert_called_once()
 
     @patch("gptme.tools.browser.requests")
@@ -821,7 +834,7 @@ class TestPdfToImages:
 
         pdf_to_images("https:report.pdf", output_dir=tmp_path)
 
-        mock_requests.get.assert_not_called()
+        mock_requests.Session.return_value.request.assert_not_called()
         mock_convert.assert_called_once()
 
     @patch("gptme.tools.browser.requests")
@@ -831,7 +844,7 @@ class TestPdfToImages:
 
         with pytest.raises(ValueError, match="not allowed"):
             pdf_to_images("file:///tmp/x.pdf", output_dir=tmp_path)
-        mock_requests.get.assert_not_called()
+        mock_requests.Session.return_value.request.assert_not_called()
 
     @patch("gptme.tools.browser.requests")
     @patch("gptme.tools.browser._has_pdftoppm", return_value=True)
@@ -840,7 +853,7 @@ class TestPdfToImages:
 
         with pytest.raises(ValueError, match="not allowed"):
             pdf_to_images("gopher://example.com/x.pdf", output_dir=tmp_path)
-        mock_requests.get.assert_not_called()
+        mock_requests.Session.return_value.request.assert_not_called()
 
     @patch("gptme.tools.browser._convert_with_pdftoppm")
     @patch("gptme.tools.browser._has_pdftoppm", return_value=True)

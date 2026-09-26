@@ -127,26 +127,33 @@ def _request_allowlisted(method: str, url: str, timeout: int) -> requests.Respon
     any check can run -- the network request to the disallowed host already
     happened even though the response is later discarded. Following each hop
     explicitly (and validating the target URL first) closes that gap.
+
+    A per-call ``Session`` preserves cookies across hops: a PDF endpoint may
+    set a cookie on the redirect response that the destination requires, and
+    per-hop standalone requests would drop it.
     """
-    # Explicit method dispatch (not requests.request): callers and tests patch
-    # requests.get / requests.head individually.
-    if method.upper() == "HEAD":
-        response = requests.head(url, timeout=timeout, allow_redirects=False)
-    else:
-        response = requests.get(url, timeout=timeout, allow_redirects=False)
-    for _ in range(_MAX_REDIRECT_HOPS):
-        if response.status_code not in (301, 302, 303, 307, 308) or not (
-            response.headers.get("Location") or ""
-        ):
-            return response
-        # Location may be relative; resolve against the current URL.
-        next_url = urljoin(response.url, response.headers["Location"])
-        _validate_url_scheme(next_url)
-        if method.upper() == "HEAD":
-            response = requests.head(next_url, timeout=timeout, allow_redirects=False)
-        else:
-            response = requests.get(next_url, timeout=timeout, allow_redirects=False)
-    raise RuntimeError(f"Too many redirects fetching {url}")
+    method = method.upper()
+    session = requests.Session()
+    try:
+        response: requests.Response = session.request(
+            method, url, timeout=timeout, allow_redirects=False
+        )
+        for hop in range(_MAX_REDIRECT_HOPS + 1):
+            if response.status_code not in (301, 302, 303, 307, 308) or not (
+                response.headers.get("Location") or ""
+            ):
+                return response
+            if hop == _MAX_REDIRECT_HOPS:
+                break
+            # Location may be relative; resolve against the current URL.
+            next_url = urljoin(response.url, response.headers["Location"])
+            _validate_url_scheme(next_url)
+            response = session.request(
+                method, next_url, timeout=timeout, allow_redirects=False
+            )
+        raise RuntimeError(f"Too many redirects fetching {url}")
+    finally:
+        session.close()
 
 
 # Availability check only — pypdf itself is imported lazily in _read_pdf_url,

@@ -272,14 +272,20 @@ def test_request_allowlisted_validates_every_redirect_hop(monkeypatch):
         def raise_for_status(self):
             pass
 
-    def fake_get(url, timeout=None, allow_redirects=False):
+    def fake_request(method, url, timeout=None, allow_redirects=False):
         assert allow_redirects is False
         requested_urls.append(url)
         if url == "https://allowed.example.com/start":
             return FakeResponse(url, redirect_to="https://evil.example.net/exfil")
         return FakeResponse(url)
 
-    monkeypatch.setattr(browser.requests, "get", fake_get)
+    class FakeSession:
+        request = staticmethod(fake_request)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(browser.requests, "Session", FakeSession)
     set_session_allow_hosts(["allowed.example.com"])
     try:
         with pytest.raises(ValueError, match="not in the session's allowed-hosts"):
@@ -306,16 +312,106 @@ def test_request_allowlisted_follows_allowed_redirects(monkeypatch):
 
     urls = ["https://a.example.com/start", "https://b.example.com/end"]
 
-    def fake_get(url, timeout=None, allow_redirects=False):
+    def fake_request(method, url, timeout=None, allow_redirects=False):
         next_url = (
             urls[urls.index(url) + 1] if urls.index(url) + 1 < len(urls) else None
         )
         return FakeResponse(url, redirect_to=next_url)
 
-    monkeypatch.setattr(browser.requests, "get", fake_get)
+    class FakeSession:
+        request = staticmethod(fake_request)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(browser.requests, "Session", FakeSession)
     set_session_allow_hosts(["a.example.com", "b.example.com"])
     try:
         resp = browser._request_allowlisted("GET", "https://a.example.com/start", 10)
     finally:
         set_session_allow_hosts(None)
     assert resp.url == "https://b.example.com/end"
+
+
+def test_request_allowlisted_preserves_cookies_across_hops(monkeypatch):
+    """A cookie set on the redirect response must reach the destination request.
+
+    A PDF endpoint may set a cookie in the redirect response that the
+    destination requires; per-hop standalone requests would drop it.
+    """
+    from gptme.tools import browser
+
+    sent_cookies = []
+
+    class FakeResponse:
+        def __init__(self, url, redirect_to=None):
+            self.url = url
+            self.status_code = 302 if redirect_to else 200
+            self.headers = {"Location": redirect_to} if redirect_to else {}
+
+    class FakeCookies:
+        def __init__(self):
+            self._cookies: dict = {}
+
+    class FakeSession:
+        def __init__(self):
+            self.cookies = FakeCookies()
+
+        def request(self, method, url, timeout=None, allow_redirects=False):
+            sent_cookies.append(dict(self.cookies._cookies))
+            if url == "https://allowed.example.com/start":
+                resp = FakeResponse(url, redirect_to="https://allowed.example.com/doc")
+                self.cookies._cookies["session"] = "abc"
+                return resp
+            return FakeResponse(url)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(browser.requests, "Session", FakeSession)
+    set_session_allow_hosts(["allowed.example.com"])
+    try:
+        browser._request_allowlisted("GET", "https://allowed.example.com/start", 10)
+    finally:
+        set_session_allow_hosts(None)
+    assert sent_cookies == [{}, {"session": "abc"}]
+
+
+def test_request_allowlisted_tenth_hop_response_is_checked(monkeypatch):
+    """A response after exactly _MAX_REDIRECT_HOPS redirects must be returned,
+    not rejected as 'too many redirects'."""
+    from gptme.tools import browser
+    from gptme.tools.browser import _MAX_REDIRECT_HOPS
+
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, url, redirect_to=None):
+            self.url = url
+            self.status_code = 302 if redirect_to else 200
+            self.headers = {"Location": redirect_to} if redirect_to else {}
+
+    class FakeSession:
+        def request(self, method, url, timeout=None, allow_redirects=False):
+            calls.append(url)
+            # Redirect on every request except the one after the max hops.
+            redirect_to = (
+                f"https://allowed.example.com/hop{len(calls)}"
+                if len(calls) <= _MAX_REDIRECT_HOPS
+                else None
+            )
+            return FakeResponse(url, redirect_to=redirect_to)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(browser.requests, "Session", FakeSession)
+    set_session_allow_hosts(["allowed.example.com"])
+    try:
+        resp = browser._request_allowlisted(
+            "GET", "https://allowed.example.com/start", 10
+        )
+    finally:
+        set_session_allow_hosts(None)
+    assert resp.status_code == 200
+    assert len(calls) == _MAX_REDIRECT_HOPS + 1
