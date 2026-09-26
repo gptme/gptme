@@ -250,6 +250,7 @@ jobs:
       run: |
         poetry run pytest -v `
           tests/test_dirs.py `
+          tests/test_logmanager_locking.py `
           tests/test_config.py::test_custom_tool_file_allowlist_preserved `
           tests/test_config.py::test_custom_tool_file_mixed_allowlist `
           tests/test_llm_openai.py::TestIsProxy `
