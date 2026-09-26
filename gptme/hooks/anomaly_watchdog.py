@@ -374,6 +374,13 @@ def _check_write_storm() -> tuple[bool, str] | None:
     limit is skipped in block mode (see ``anomaly_watchdog_confirm``) and so is
     never recorded, which is what keeps a rejected burst from refreshing its own
     window and locking out later legitimate writes.
+
+    Concurrency boundary: the snapshot is taken under the lock but the decision
+    applies to the call in flight, so a burst of concurrent calls in the same
+    session could each observe the same window and all execute. Tool calls run
+    sequentially in the chat loop today, so this is a documented trade-off, not
+    a live gap; even with future parallel dispatch the under-count is bounded
+    by the in-flight batch and the window still trips on the next check.
     """
     limit = _write_limit()
     window = _write_window()
@@ -466,7 +473,11 @@ def _mark_rejected(tool_use: Any) -> None:
             if now - _rejected_calls.get(key, now) > _REJECTED_TTL:
                 _rejected_calls.pop(key, None)
         if len(_rejected_calls) >= 512:
-            _rejected_calls.clear()
+            # Evict the oldest entry only: clearing the whole ledger would
+            # drop the markers of blocked calls still awaiting their post
+            # hook, letting them be counted as executed writes.
+            oldest = min(_rejected_calls, key=_rejected_calls.__getitem__)
+            _rejected_calls.pop(oldest, None)
         _rejected_calls[id(tool_use)] = now
 
 

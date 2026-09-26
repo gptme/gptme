@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextvars
 import json
 import threading
+import time
 
 import pytest
 
@@ -632,6 +633,30 @@ class TestWriteStorm:
         marker_thread.join(timeout=5)
         assert consumed.wait(timeout=5), "ledger read did not resume"
         consumer_thread.join(timeout=5)
+
+    def test_reject_ledger_overflow_evicts_oldest_only(self):
+        """Hitting the 512-entry cap must not drop other live markers.
+
+        ``_mark_rejected`` used to ``clear()`` the whole ledger at the cap,
+        which silently un-blocked every call still awaiting its post hook —
+        they would then be counted as executed writes by ``check_tool_post``.
+        """
+        # Fill the ledger with fresh synthetic keys (so the TTL prune does not
+        # remove them before the overflow path runs), then add one more live
+        # marker to trigger the cap.
+        fresh = time.monotonic()
+        for i in range(512):
+            anomaly_watchdog._rejected_calls[i] = fresh + i * 1e-6
+        live = _fake_tool_use("save", args=["/tmp/live"])
+        anomaly_watchdog._mark_rejected(live)
+
+        assert len(anomaly_watchdog._rejected_calls) <= 512
+        assert anomaly_watchdog._consume_rejected(live), (
+            "live marker was dropped by the overflow path"
+        )
+        # Only the oldest entry was evicted; the rest survive.
+        assert 0 not in anomaly_watchdog._rejected_calls
+        assert 510 in anomaly_watchdog._rejected_calls
 
 
 # ---------------------------------------------------------------------------
