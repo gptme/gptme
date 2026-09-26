@@ -127,7 +127,10 @@ def test_allowlist_enforced_from_worker_thread():
     from queue import Empty, Queue
     from threading import Lock
 
-    from gptme.tools._browser_thread import BrowserThread
+    # _browser_thread imports playwright at module level; skip when the browser
+    # extra isn't installed (the no-extras CI job has no playwright).
+    bt_mod = pytest.importorskip("gptme.tools._browser_thread")
+    BrowserThread = bt_mod.BrowserThread
 
     set_session_allow_hosts(["github.com"])
 
