@@ -15,12 +15,11 @@ _MAX_INPUT_LENGTH = 2048
 # Session-level host allowlist. None means unrestricted (default).
 _allow_hosts_var: ContextVar[list[str] | None] = ContextVar("allow_hosts", default=None)
 
-# Process-level mirror of the allowlist. The browser runs on a dedicated thread
-# (BrowserThread) that does not inherit the caller's ContextVar context, so
-# checks executed there would otherwise see the default ``None`` and silently
-# no-op -- disabling the restriction for the very paths (post-redirect and
-# post-interaction) it exists to guard. gptme runs one chat session per CLI
-# process, so a process-level value is the correct scope here.
+# Process-level fallback mirror of the allowlist. BrowserThread.execute copies
+# the caller's context so the ContextVar propagates to the worker thread
+# per-session; the mirror only covers checks that run on raw threads outside
+# any session context (e.g. ad-hoc scripts). chat() always calls
+# set_session_allow_hosts, so each new session resets it.
 _allow_hosts_process: list[str] | None = None
 
 
@@ -33,7 +32,7 @@ def set_session_allow_hosts(allow_hosts: list[str] | None) -> None:
 
 def _get_allow_hosts() -> list[str] | None:
     """Return the effective allowlist, reading through the context to the
-    process-level mirror when the current context has none set."""
+    process-level fallback when the current context has none set."""
     value = _allow_hosts_var.get()
     return value if value is not None else _allow_hosts_process
 

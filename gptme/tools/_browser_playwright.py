@@ -217,10 +217,12 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         # A server redirect, meta-refresh, or JS navigation can land on a host
         # outside the allowlist; re-check the live document URL (page.url, not
         # nav_response.url which only reflects the initial response) so redirected
-        # content is never returned. Raises ValueError if blocked. Runs inside
-        # this try so the finally below still closes the managed page.
-        if nav_response is not None:
-            _validate_page_url(page.url)
+        # content is never returned. Checked unconditionally: page.goto can
+        # raise after a redirect (e.g. the final response fails), leaving
+        # page.url on the redirected host with nav_response still None.
+        # Raises ValueError if blocked. Runs inside this try so the finally
+        # below still closes the managed page.
+        _validate_page_url(page.url)
 
         # Server returned markdown directly — preserve source whitespace and skip HTML extraction
         if is_markdown:
