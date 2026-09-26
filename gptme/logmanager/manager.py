@@ -1173,7 +1173,7 @@ def prepare_messages(
     # This should never fire in normal operation — compaction (via the TURN_POST
     # autocompact hook) keeps the log below the context budget before we get here.
     # If it fires, something bypassed compaction; log a warning so it's visible.
-    msgs_limited = limit_log(msgs_pruned)
+    msgs_limited = _merge_consecutive_messages(limit_log(msgs_pruned))
     if len(msgs_pruned) != len(msgs_limited):
         tokens_before = len_tokens(msgs_pruned, model.model)
         tokens_after = len_tokens(msgs_limited, model.model)
