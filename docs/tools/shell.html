@@ -960,8 +960,9 @@ This is the thread-safe replacement for os.chdir() in server contexts.</p>
 <dd><p>Split at top-level newlines, preserving Bash lists and original source.</p>
 <p>Tree-sitter spans include heredoc bodies and use byte offsets, so slicing
 UTF-8 source preserves quoted delimiters and non-ASCII text without rewrites.
-Keep bashlex as a compatibility fallback for one release: tree-sitter’s
-error recovery must never turn an incomplete tree into executable fragments.</p>
+When tree-sitter cannot produce a clean tree, <code class="docutils literal notranslate"><span class="pre">bash</span> <span class="pre">-n</span></code> is the authority:
+actual syntax errors raise ValueError; valid-but-unparseable scripts are
+returned as a single command.</p>
 </dd></dl>
 
 <dl class="py function">
