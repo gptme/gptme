@@ -338,18 +338,23 @@ pub async fn disable_lan_access(
                 .to_string(),
         );
     }
-    // Clear the LAN state regardless of the restart outcome: once the rebind
-    // attempt is made the toggle must stop showing "enabled", even if the
-    // rebind itself failed (the server is loopback-bound or dead either way).
     let restart_result = restart_sidecar_with_lan(&server, None).await;
     {
         let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        inner.enabled = false;
-        inner.lan_ip = None;
-        inner.url = None;
-        inner.qr_svg = None;
+        if restart_result.is_ok() {
+            // Rebind to loopback succeeded — the server is no longer LAN-exposed.
+            inner.enabled = false;
+            inner.lan_ip = None;
+            inner.url = None;
+            inner.qr_svg = None;
+            log::info!("LAN access disabled");
+        } else {
+            // Rebind failed: the server may still be LAN-exposed. Keep
+            // enabled=true so the panel does not hide a potential exposure —
+            // the user must see the error and retry or restart the app.
+            log::warn!("LAN disable failed; keeping enabled=true to avoid hiding exposure");
+        }
     }
-    log::info!("LAN access disabled");
     restart_result
 }
 

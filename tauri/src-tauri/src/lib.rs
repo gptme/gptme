@@ -97,14 +97,30 @@ pub(crate) fn server_pid_on_port(port: u16) -> Option<u32> {
 #[cfg(unix)]
 pub(crate) fn pid_is_gptme_server(pid: u32) -> bool {
     let matches = |s: &str| s.contains("gptme-server") || s.contains("gptme_server");
-    if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
-        if matches(&cmdline.replace('\0', " ")) {
-            return true;
+
+    // Linux: /proc is available and cheap.
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
+            if matches(&cmdline.replace('\0', " ")) {
+                return true;
+            }
         }
+        std::fs::read_link(format!("/proc/{pid}/exe"))
+            .map(|exe| matches(&exe.to_string_lossy()))
+            .unwrap_or(false)
     }
-    std::fs::read_link(format!("/proc/{pid}/exe"))
-        .map(|exe| matches(&exe.to_string_lossy()))
-        .unwrap_or(false)
+
+    // macOS and other POSIX (no /proc): use `ps -p PID -o command=`.
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "command="])
+            .output();
+        output
+            .map(|o| matches(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or(false)
+    }
 }
 
 #[cfg(windows)]
