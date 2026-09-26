@@ -1292,8 +1292,16 @@ fn temp_path_for(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Write `contents` over `path` via a sibling temp file.
+///
+/// If `path` is a symlink the write targets the resolved real file so the
+/// symlink is preserved (e.g. a dotfiles setup where config.toml links into a
+/// versioned tree).  The symlink itself is never replaced.
 fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(), String> {
-    write_config_via(path, &temp_path_for(path), contents)
+    // canonicalize resolves symlinks and normalises the path.  It fails when
+    // the target doesn't exist yet (new config), in which case we fall through
+    // to the original path and create a regular file as before.
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    write_config_via(&resolved, &temp_path_for(&resolved), contents)
 }
 
 /// Drop a temp file left behind by a failed save.
@@ -2635,6 +2643,34 @@ servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x
         assert!(write_config_via(&path, &tmp, "new = true\n").is_err());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "secret\n");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "old = true\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_follows_destination_symlink() {
+        // If config.toml is a symlink (e.g. dotfiles setup), write_config_atomically
+        // must update the real target and leave the symlink in place.
+        use std::os::unix::fs::symlink;
+        let dir = unique_temp_dir();
+        let target = dir.join("config.toml.real");
+        let link = dir.join("config.toml");
+        std::fs::write(&target, "old = true\n").unwrap();
+        symlink(&target, &link).unwrap();
+
+        write_config_atomically(&link, "new = true\n").unwrap();
+
+        // The symlink must still be there.
+        assert!(
+            link.symlink_metadata().unwrap().file_type().is_symlink(),
+            "symlink should be preserved"
+        );
+        // The real target must have the new content.
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "new = true\n",
+            "real target should be updated"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
