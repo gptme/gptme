@@ -880,6 +880,12 @@ fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
         extra: {
             let mut extra = collect_extra(st.iter());
             keep_if_mistyped(
+                st.get("name").cloned(),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "name",
+                &mut extra,
+            );
+            keep_if_mistyped(
                 st.get("enabled").cloned(),
                 |i| i.as_value().and_then(|v| v.as_bool()).is_some(),
                 "enabled",
@@ -937,6 +943,12 @@ fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
                 .map(|(k, v)| (k, toml_edit::Item::Value(v.clone())))
                 .collect();
             let mut extra = collect_extra(entries.iter().map(|(k, v)| (*k, v)));
+            keep_if_mistyped(
+                it.get("name").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "name",
+                &mut extra,
+            );
             keep_if_mistyped(
                 it.get("enabled").map(|v| toml_edit::Item::Value(v.clone())),
                 |i| i.as_value().and_then(|v| v.as_bool()).is_some(),
@@ -1179,6 +1191,7 @@ fn preserved_extra(
                 return true;
             }
             match k.as_str() {
+                "name" => server.name.is_empty(),
                 "enabled" => server.enabled, // reader default: true
                 "command" => server.command.is_none(),
                 "url" => server.url.is_none(),
@@ -1186,7 +1199,7 @@ fn preserved_extra(
                 // env/headers are merged with their preserved original by
                 // `insert_str_map_merged`, not re-inserted here.
                 "env" | "headers" => false,
-                _ => true, // "name": always written from the typed field
+                _ => true,
             }
         })
         .cloned()
@@ -2365,6 +2378,45 @@ args = "not-an-array"
         assert!(updated.contains("enabled = \"yes\""));
         assert!(updated.contains("command = 123"));
         assert!(updated.contains("args = \"not-an-array\""));
+    }
+
+    #[test]
+    fn test_mcp_config_mistyped_name_survives_save() {
+        for original in [
+            r#"
+[[mcp.servers]]
+name = 123
+enabled = true
+command = "cmd"
+"#,
+            r#"
+[mcp]
+servers = [{ name = 123, enabled = true, command = "cmd" }]
+"#,
+        ] {
+            let cfg = parse_mcp_config(original).unwrap();
+            assert_eq!(cfg.servers[0].name, "");
+            assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "name"));
+
+            let updated = serialize_mcp_config(original, &cfg).unwrap();
+            assert!(updated.contains("name = 123"), "{updated}");
+        }
+    }
+
+    #[test]
+    fn test_mcp_config_user_edit_overrides_preserved_mistyped_name() {
+        let original = r#"
+[[mcp.servers]]
+name = 123
+enabled = true
+command = "cmd"
+"#;
+        let mut cfg = parse_mcp_config(original).unwrap();
+        cfg.servers[0].name = "fixed".to_string();
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("name = \"fixed\""), "{updated}");
+        assert!(!updated.contains("name = 123"), "{updated}");
     }
 
     #[test]
