@@ -1297,10 +1297,17 @@ fn temp_path_for(path: &std::path::Path) -> std::path::PathBuf {
 /// symlink is preserved (e.g. a dotfiles setup where config.toml links into a
 /// versioned tree).  The symlink itself is never replaced.
 fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(), String> {
-    // canonicalize resolves symlinks and normalises the path.  It fails when
-    // the target doesn't exist yet (new config), in which case we fall through
-    // to the original path and create a regular file as before.
-    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let resolved = if let Ok(target) = std::fs::read_link(path) {
+        // path is a symlink; resolve its target relative to path's parent
+        if target.is_absolute() {
+            target
+        } else {
+            path.parent().map(|p| p.join(&target)).unwrap_or(target)
+        }
+    } else {
+        // path is not a symlink; use it as-is (or canonicalize if it exists)
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    };
     write_config_via(&resolved, &temp_path_for(&resolved), contents)
 }
 
