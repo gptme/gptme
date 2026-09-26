@@ -249,3 +249,73 @@ def test_parse_allow_hosts_lowercases():
         "github.com",
         "api.openai.com",
     ]
+
+
+def test_request_allowlisted_validates_every_redirect_hop(monkeypatch):
+    """Redirects must be checked BEFORE each request, not after the fetch.
+
+    With allow_redirects=True the disallowed host is already contacted (the
+    exfiltration happens on the wire) even though the response is discarded.
+    """
+    from gptme.tools import browser
+
+    requested_urls = []
+
+    class FakeResponse:
+        def __init__(self, url, redirect_to=None):
+            self.url = url
+            self.status_code = 302 if redirect_to else 200
+            self.headers = {"Location": redirect_to} if redirect_to else {}
+            self.is_redirect = bool(redirect_to)
+            self.is_permanent_redirect = False
+
+        def raise_for_status(self):
+            pass
+
+    def fake_request(method, url, timeout=None, allow_redirects=False):
+        assert allow_redirects is False
+        requested_urls.append(url)
+        if url == "https://allowed.example.com/start":
+            return FakeResponse(url, redirect_to="https://evil.example.net/exfil")
+        return FakeResponse(url)
+
+    monkeypatch.setattr(browser.requests, "request", fake_request)
+    set_session_allow_hosts(["allowed.example.com"])
+    try:
+        with pytest.raises(ValueError, match="not in the session's allowed-hosts"):
+            browser._request_allowlisted("GET", "https://allowed.example.com/start", 10)
+    finally:
+        set_session_allow_hosts(None)
+    # The disallowed host must never have been requested.
+    assert requested_urls == ["https://allowed.example.com/start"]
+
+
+def test_request_allowlisted_follows_allowed_redirects(monkeypatch):
+    from gptme.tools import browser
+
+    class FakeResponse:
+        def __init__(self, url, redirect_to=None):
+            self.url = url
+            self.status_code = 302 if redirect_to else 200
+            self.headers = {"Location": redirect_to} if redirect_to else {}
+            self.is_redirect = bool(redirect_to)
+            self.is_permanent_redirect = False
+
+        def raise_for_status(self):
+            pass
+
+    urls = ["https://a.example.com/start", "https://b.example.com/end"]
+
+    def fake_request(method, url, timeout=None, allow_redirects=False):
+        next_url = (
+            urls[urls.index(url) + 1] if urls.index(url) + 1 < len(urls) else None
+        )
+        return FakeResponse(url, redirect_to=next_url)
+
+    monkeypatch.setattr(browser.requests, "request", fake_request)
+    set_session_allow_hosts(["a.example.com", "b.example.com"])
+    try:
+        resp = browser._request_allowlisted("GET", "https://a.example.com/start", 10)
+    finally:
+        set_session_allow_hosts(None)
+    assert resp.url == "https://b.example.com/end"

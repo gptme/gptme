@@ -30,6 +30,7 @@ from ..logmanager import LogManager, prepare_messages
 from ..message import Message, MessageMetadata, MessageTimings
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools
+from ..tools._url_safety import set_session_allow_hosts
 from ..tools.shell import set_workspace_cwd
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
@@ -479,6 +480,9 @@ async def _acp_step(
             chat_config=chat_config,
         )
 
+        # Enforce the session's URL-host allowlist on this step context.
+        set_session_allow_hosts(chat_config.allow_hosts)
+
         manager = LogManager.load(conversation_id, lock=False)
         CostTracker.ensure_session(session_id_for_logdir(manager.logdir))
 
@@ -753,6 +757,11 @@ def step(
         tools=chat_config.tools,
         chat_config=chat_config,
     )
+
+    # Enforce the session's URL-host allowlist for tools executed directly
+    # on this step thread (execute_tool_thread sets it again for its own
+    # execution context).
+    set_session_allow_hosts(chat_config.allow_hosts)
 
     # Load conversation
     manager = LogManager.load(
@@ -1172,6 +1181,12 @@ def start_tool_execution(
 
         current_conversation_id.set(conversation_id)
         current_session_id.set(session.id)
+
+        # Enforce the session's URL-host allowlist in this execution context.
+        # Tools run on this thread, not the step thread, so the ContextVar
+        # must be set here -- the saved allowlist in chat_config is otherwise
+        # silently unenforced in server deployments.
+        set_session_allow_hosts(chat_config.allow_hosts)
 
         try:
             # Prepare execution environment (config, tools, hooks, .env)
