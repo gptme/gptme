@@ -90,7 +90,11 @@ def get_context_budget(
             budget = None
         if budget is not None:
             logger.debug("Context budget from GPTME_CONTEXT_BUDGET: %d tokens", budget)
-            return min(max(budget, 1000), safe_ceiling)
+            # Explicit overrides are never raised above their resolved value:
+            # the 1000-token minimum is a default-path preference, not a
+            # correction of operator intent (a 0.5 fraction on a 500-token
+            # window must stay 250, not be clamped up to the ceiling).
+            return min(budget, safe_ceiling)
         logger.warning(
             "GPTME_CONTEXT_BUDGET=%r is not a valid fraction (0<x≤1) or "
             "absolute token count (>1); using config/default",
@@ -110,7 +114,8 @@ def get_context_budget(
         budget = resolve(budget_cfg)
         if budget is not None:
             logger.debug("Context budget from config: %d tokens", budget)
-            return min(max(budget, 1000), safe_ceiling)
+            # Same rule as the env override: respect the resolved value.
+            return min(budget, safe_ceiling)
 
     # 3. Dynamic default
     budget = min(int(_DEFAULT_FRACTION * model_context), safe_ceiling)

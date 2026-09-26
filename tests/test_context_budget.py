@@ -177,3 +177,29 @@ def test_subfloor_window_env_override_is_bounded_by_window():
 
     with patch.dict(os.environ, {"GPTME_CONTEXT_BUDGET": "1.0"}):
         assert get_context_budget(500) <= 500
+
+
+def test_explicit_fraction_override_not_clamped_up_to_ceiling():
+    """An explicit fraction must not be raised above its resolved value.
+
+    Regression test: on a sub-floor window (500 tokens, max_output=0,
+    headroom=0 → safe_ceiling=500), GPTME_CONTEXT_BUDGET=0.5 resolved to 250
+    but the 1000-token floor clamped it up to 500 — the full window — so
+    compaction fired later than the operator configured.
+    """
+    import os
+    from unittest.mock import patch
+
+    with patch.dict(os.environ, {"GPTME_CONTEXT_BUDGET": "0.5"}):
+        assert get_context_budget(500, max_output=0, headroom=0) == 250
+
+
+def test_explicit_config_budget_not_clamped_up_to_ceiling():
+    """Config-level explicit budgets follow the same no-raise rule."""
+    from unittest.mock import patch
+
+    with patch("gptme.config.get_config") as mock_cfg:
+        cfg = mock_cfg.return_value
+        cfg.project = None
+        cfg.user.context.budget = 0.25
+        assert get_context_budget(500, max_output=0, headroom=0) == 125
