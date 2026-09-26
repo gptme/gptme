@@ -63,6 +63,7 @@ def test_attest_sign_and_verify_file_roundtrip(tmp_path, monkeypatch):
     output_file.write_text("signed content\n")
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    monkeypatch.delenv("AGENT_SESSION_ID", raising=False)
     monkeypatch.setenv("BOB_SESSION_ID", "84b9")
     monkeypatch.setenv("CC_MODEL", "gpt-5.4")
 
@@ -99,6 +100,7 @@ def test_attest_verify_rejects_missing_workspace_commit(tmp_path, monkeypatch):
     output_file.write_text("signed content\n")
 
     monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    monkeypatch.delenv("AGENT_SESSION_ID", raising=False)
     monkeypatch.setenv("BOB_SESSION_ID", "84b9")
     monkeypatch.setenv("CC_MODEL", "gpt-5.4")
 
