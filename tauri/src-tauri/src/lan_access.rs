@@ -251,8 +251,20 @@ async fn restart_sidecar_with_lan(
             crate::server_port()
         );
         return match restore {
-            // Recovery started a loopback server — the old LAN server is gone.
-            Ok(()) => SidecarRebindResult::FailedRecovered(bind_err),
+            Ok(()) => {
+                // spawn_server_sidecar returned Ok but the port was never freed:
+                // it adopted the existing orphan rather than starting a fresh
+                // loopback server.  The old LAN-exposed server is still running
+                // with its original token — we cannot clear the exposure without
+                // killing it.  Return FailedNoBackend so disable_lan_access keeps
+                // enabled=true and the user sees the LAN is still active.
+                // owns_port was set to true by the adoption, so exit cleanup
+                // will call kill_server_on_port.
+                SidecarRebindResult::FailedNoBackend(format!(
+                    "{bind_err}; could not stop the LAN-exposed server — \
+                     restart the app to rebind to loopback"
+                ))
+            }
             Err(e) => {
                 // Port still occupied and recovery also failed — an orphan may
                 // hold the port LAN-exposed with the old token.  Mark owns_port
