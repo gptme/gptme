@@ -48,6 +48,7 @@ from .tools import (
     execute_msg,
     get_tools,
 )
+from .tools._url_safety import set_session_allow_hosts
 from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
 from .util.auto_naming import MAX_ASSISTANT_MSGS_FOR_NAMING, try_auto_name
@@ -202,6 +203,11 @@ def chat(
         # init
         # Mode detection for confirmation hooks is now handled inside init_hooks()
         init(model, interactive, tool_allowlist, tool_format, no_confirm)
+
+        # Apply session-level host allowlist for web tools (if configured)
+        chat_config = get_config().chat
+        if chat_config is not None:
+            set_session_allow_hosts(chat_config.allow_hosts)
 
         # Trigger session start hooks
         if session_start_msgs := trigger_hook(

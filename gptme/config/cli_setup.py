@@ -114,6 +114,7 @@ def setup_config_from_cli(
     stream: bool = True,
     interactive: bool = True,
     agent_path: Path | None = None,
+    allow_hosts: list[str] | None = None,
 ) -> Config:
     """
     Initialize and return a complete config from CLI arguments and workspace.
@@ -281,6 +282,7 @@ def setup_config_from_cli(
             no_confirm=resolved_no_confirm,
             workspace=workspace,
             agent=resolved_agent_path,
+            allow_hosts=allow_hosts,
         ),
     )
 

@@ -30,6 +30,7 @@ from ._browser_thread import (
     set_storage_state_override,
 )
 from ._computer_gate import sensitive_action_gate
+from ._url_safety import _validate_entry_url, _validate_page_url
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
@@ -213,6 +214,16 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
     _last_logs = {"logs": logs, "errors": page_errors, "url": url}
 
     try:
+        # A server redirect, meta-refresh, or JS navigation can land on a host
+        # outside the allowlist; re-check the live document URL (page.url, not
+        # nav_response.url which only reflects the initial response) so redirected
+        # content is never returned. Checked unconditionally: page.goto can
+        # raise after a redirect (e.g. the final response fails), leaving
+        # page.url on the redirected host with nav_response still None.
+        # Raises ValueError if blocked. Runs inside this try so the finally
+        # below still closes the managed page.
+        _validate_page_url(page.url)
+
         # Server returned markdown directly — preserve source whitespace and skip HTML extraction
         if is_markdown:
             return page.text_content("body") or "", True
@@ -337,6 +348,7 @@ def _extract_main_content(page: Page) -> str:
 
 def read_url(url: str) -> str:
     """Read the text of a webpage and return the text in Markdown format."""
+    _validate_entry_url(url)
     body_content, is_markdown = _execute_with_retry(_load_page, url)
     if is_markdown:
         return _inline_data_image.sub("", body_content)
@@ -372,11 +384,14 @@ def read_logs() -> str:
 def _search_google(browser: Browser, query: str) -> str:
     query = urllib.parse.quote(query)
     url = f"https://www.google.com/search?q={query}&hl=en"
+    # Search hits a fixed host, but it is still web access: honour the allowlist.
+    _validate_entry_url(url)
 
     managed = _create_page(browser, **get_context_options())
     page = managed.page
     try:
         page.goto(url)
+        _validate_page_url(page.url)
 
         els = _list_clickable_elements(page)
         for el in els:
@@ -401,11 +416,14 @@ def search_google(query: str) -> str:
 
 def _search_duckduckgo(browser: Browser, query: str) -> str:
     url = f"https://html.duckduckgo.com/html?q={query}"
+    # Search hits a fixed host, but it is still web access: honour the allowlist.
+    _validate_entry_url(url)
 
     managed = _create_page(browser, **get_context_options())
     page = managed.page
     try:
         page.goto(url)
+        _validate_page_url(page.url)
         return _list_results_duckduckgo(page)
     finally:
         managed.close()
@@ -542,6 +560,8 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
         page.goto(
             url
         )  # waits for "load" state by default; networkidle can hang on SPAs/analytics
+        # A redirect can land outside the allowlist; reject the final URL.
+        _validate_page_url(page.url)
         snapshot = page.locator("body").aria_snapshot()
         if not snapshot:
             return "Error: Could not get accessibility snapshot for this page."
@@ -553,6 +573,7 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
 def aria_snapshot(url: str) -> str:
     """Get the ARIA accessibility snapshot of a webpage."""
     logger.info(f"Getting ARIA snapshot of '{url}'")
+    _validate_entry_url(url)
     return _execute_with_retry(_get_aria_snapshot, url)
 
 
@@ -580,6 +601,8 @@ def _page_snapshot() -> str:
     """Get ARIA snapshot of the current persistent page."""
     if _current_page is None:
         raise RuntimeError("No page is currently open")
+    # Never surface content from a page that has left the allowlist.
+    _enforce_current_page_allowlist()
     snapshot = _current_page.locator("body").aria_snapshot()
     if not snapshot:
         raise RuntimeError("Could not get accessibility snapshot.")
@@ -590,6 +613,8 @@ def _read_page_text(browser: Browser) -> str:
     """Read the text content of the current persistent page as Markdown."""
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
+    # The page may have navigated away from the allowlist since it was opened.
+    _enforce_current_page_allowlist()
     body_html = _current_page.inner_html("body")
     return html_to_markdown(body_html)
 
@@ -626,8 +651,12 @@ def _open_page(browser: Browser, url: str) -> str:
 
     try:
         _current_page.goto(url)
+        # A redirect may land outside the allowlist; reject the final URL.
+        _validate_page_url(_current_page.url)
     except Exception as e:
         _close_current_page()
+        if isinstance(e, ValueError):
+            raise
         raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
 
     return _page_snapshot()
@@ -637,6 +666,22 @@ def _do_close_page(browser: Browser) -> str:
     """Close the current page on the browser thread."""
     _close_current_page()
     return "Page closed."
+
+
+def _enforce_current_page_allowlist() -> None:
+    """Close the interactive page and raise if it left the allowlist.
+
+    A click, form submit, meta-refresh, or JS navigation can move an already
+    open page to a host outside the allowlist. Called before any content from
+    the page is returned to the agent.
+    """
+    if _current_page is None:
+        return
+    try:
+        _validate_page_url(_current_page.url)
+    except ValueError:
+        _close_current_page()
+        raise
 
 
 def close_page() -> str:
@@ -783,6 +828,7 @@ def open_page(url: str) -> str:
     click_element(), fill_element(), and scroll_page() calls.
     """
     logger.info(f"Opening page for interaction: '{url}'")
+    _validate_entry_url(url)
     return _execute_with_retry(_open_page, url)
 
 
@@ -796,6 +842,8 @@ def _click(browser: Browser, selector: str) -> str:
         _current_page.wait_for_load_state("domcontentloaded", timeout=5000)
     except PlaywrightTimeoutError:
         pass  # Timeout is fine — page may not navigate
+    # The click may have navigated to a host outside the allowlist.
+    _enforce_current_page_allowlist()
     return _page_snapshot()
 
 
@@ -884,6 +932,8 @@ def _press_key(browser: Browser, key: str) -> str:
         _current_page.wait_for_load_state("domcontentloaded", timeout=5000)
     except PlaywrightTimeoutError:
         pass  # Timeout is fine — key press may not navigate
+    # Enter/form submit may have navigated to a host outside the allowlist.
+    _enforce_current_page_allowlist()
     return _page_snapshot()
 
 
@@ -1116,6 +1166,8 @@ def _take_screenshot(
     page = managed.page
     try:
         page.goto(url)
+        # A redirect can land outside the allowlist; reject the final URL.
+        _validate_page_url(page.url)
         page.screenshot(path=path)
         return Path(path)
     finally:
@@ -1125,6 +1177,7 @@ def _take_screenshot(
 def screenshot_url(url: str, path: Path | str | None = None) -> Path:
     """Take a screenshot of a webpage and save it to a file."""
     logger.info(f"Taking screenshot of '{url}' and saving to '{path}'")
+    _validate_entry_url(url)
     path = _execute_with_retry(_take_screenshot, url, path)
     print(f"Screenshot saved to {path}")
     return path

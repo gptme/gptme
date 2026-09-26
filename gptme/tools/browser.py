@@ -102,7 +102,7 @@ from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -116,8 +116,49 @@ from ..util.gh import (
 from ._url_safety import _validate_url_scheme
 from .base import ToolFunction, ToolSpec, ToolUse
 
+_MAX_REDIRECT_HOPS = 10
+
+
+def _request_allowlisted(method: str, url: str, timeout: int) -> requests.Response:
+    """Issue an HTTP request following redirects manually, so every hop is
+    allowlist-checked *before* the request is made.
+
+    With ``allow_redirects=True`` requests fetches the redirected host before
+    any check can run -- the network request to the disallowed host already
+    happened even though the response is later discarded. Following each hop
+    explicitly (and validating the target URL first) closes that gap.
+
+    A per-call ``Session`` preserves cookies across hops: a PDF endpoint may
+    set a cookie on the redirect response that the destination requires, and
+    per-hop standalone requests would drop it.
+    """
+    method = method.upper()
+    session = requests.Session()
+    try:
+        response: requests.Response = session.request(
+            method, url, timeout=timeout, allow_redirects=False
+        )
+        for hop in range(_MAX_REDIRECT_HOPS + 1):
+            if response.status_code not in (301, 302, 303, 307, 308) or not (
+                response.headers.get("Location") or ""
+            ):
+                return response
+            if hop == _MAX_REDIRECT_HOPS:
+                break
+            # Location may be relative; resolve against the current URL.
+            next_url = urljoin(response.url, response.headers["Location"])
+            _validate_url_scheme(next_url)
+            response = session.request(
+                method, next_url, timeout=timeout, allow_redirects=False
+            )
+        raise RuntimeError(f"Too many redirects fetching {url}")
+    finally:
+        session.close()
+
+
 # Availability check only — pypdf itself is imported lazily in _read_pdf_url,
-# so PDF support doesn't add ~250ms to every startup.
+# so PDF support doesn't add ~80ms to every startup (measured: `import pypdf`
+# costs ~84ms per `python -X importtime`).
 has_pypdf = importlib.util.find_spec("pypdf") is not None
 
 
@@ -231,7 +272,9 @@ def pdf_to_images(
     if _pdf_source_is_remote(url_or_path):
         logger.info(f"Downloading PDF from: {url_or_path}")
         try:
-            response = requests.get(url_or_path, timeout=60)
+            # Manual redirect following: every hop is allowlist-checked
+            # before the request is made.
+            response = _request_allowlisted("GET", url_or_path, timeout=60)
             response.raise_for_status()
         except requests.ConnectionError as e:
             raise RuntimeError(f"Failed to connect to PDF URL: {url_or_path}") from e
@@ -666,7 +709,9 @@ def _is_pdf_url(url: str) -> bool:
 
     # Check Content-Type header
     try:
-        response = requests.head(url, allow_redirects=True, timeout=10)
+        # Manual redirect following: every hop is allowlist-checked
+        # before the request is made.
+        response = _request_allowlisted("HEAD", url, timeout=10)
         content_type = response.headers.get("Content-Type", "").lower()
         return "application/pdf" in content_type
     except requests.RequestException:
@@ -700,7 +745,9 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
     try:
         # Download PDF content
         logger.info(f"Downloading PDF from: {url}")
-        response = requests.get(url, timeout=30)
+        # Manual redirect following: every hop is allowlist-checked
+        # before the request is made.
+        response = _request_allowlisted("GET", url, timeout=30)
         response.raise_for_status()
 
         # Read PDF

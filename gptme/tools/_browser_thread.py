@@ -1,3 +1,4 @@
+import contextvars
 import importlib
 import logging
 import shutil
@@ -398,7 +399,16 @@ class BrowserThread:
             raise RuntimeError("Browser thread died")
 
         cmd_id = object()  # unique id
-        self.queue.put((Command(func, args, kwargs), cmd_id))
+        # Run the command inside a copy of the caller's context so
+        # ContextVar-based session state (e.g. the URL host allowlist) set in
+        # the calling session reaches checks that execute on this worker
+        # thread -- per session, not process-wide.
+        ctx = contextvars.copy_context()
+
+        def run_in_context(browser: Any, *call_args: Any, **call_kwargs: Any) -> T:
+            return ctx.run(func, browser, *call_args, **call_kwargs)
+
+        self.queue.put((Command(run_in_context, args, kwargs), cmd_id))
 
         deadline = time.monotonic() + TIMEOUT
         while time.monotonic() < deadline:
