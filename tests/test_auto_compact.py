@@ -1998,7 +1998,14 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     ctx = MagicMock()
     ctx.manager = manager
 
-    def fake_resume(active_manager, _msgs, *, use_view_branch):
+    def fake_resume(
+        active_manager,
+        _msgs,
+        *,
+        use_view_branch,
+        compact_instructions=None,
+        keep_recent_tokens=20_000,
+    ):
         assert use_view_branch is False
         active_manager.log = Log([Message("system", "summary")])
         yield Message("system", "done")
@@ -2996,3 +3003,163 @@ def test_hook_installs_view_above_min_savings(monkeypatch):
         list(hook_module.autocompact_hook(manager))
 
     assert manager.create_view.called, "a view with real savings should be installed"
+
+# ── Phase 2: compact_instructions and keep_recent_tokens ───────────────────
+
+
+
+def test_resume_via_llm_appends_compact_instructions(tmp_path, monkeypatch):
+    """compact_instructions are appended to the checkpoint prompt."""
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task 1"),
+        Message("assistant", "done 1"),
+        Message("user", "task 2"),
+        Message("assistant", "done 2"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    captured_prompt: list[str] = []
+
+    def fake_reply(msgs, **kwargs):
+        last_user = next((m for m in reversed(msgs) if m.role == "user"), None)
+        captured_prompt.append(last_user.content if last_user else "")
+        return Message(
+            "assistant", "## Objective\nTest task.\n\n## Context Files\n(none)"
+        )
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, compact_instructions="Focus on test X."))
+
+    assert captured_prompt, "LLM was never called"
+    assert "Focus on test X." in captured_prompt[0]
+
+
+def test_resume_via_llm_keep_recent_appends_tail(tmp_path, monkeypatch):
+    """keep_recent_tokens > 0 preserves a tail of recent history after checkpoint."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=500))
+
+    new_msgs = manager.log.messages
+    contents = [m.content for m in new_msgs]
+    # Recent tail should be preserved
+    assert any("recent task" in c for c in contents), "Recent tail not in new log"
+
+
+def test_resume_via_llm_keep_recent_zero_no_tail(tmp_path, monkeypatch):
+    """keep_recent_tokens=0 omits the recent tail — checkpoint only."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=0))
+
+    new_msgs = manager.log.messages
+    contents = [m.content for m in new_msgs]
+    # No raw history should remain (only system + checkpoint)
+    assert not any("recent task" in c or "old message" in c for c in contents), (
+        "Raw history unexpectedly present with keep_recent_tokens=0"
+    )
+
+
+def test_cmd_compact_summarize_passes_instructions(tmp_path, monkeypatch):
+    """/compact summarize <instructions> passes them to _resume_via_llm."""
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import Log, LogManager
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task"),
+        Message("user", "/compact summarize focus on issue #123"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    ctx = MagicMock()
+    ctx.manager = manager
+    ctx.args = ["summarize", "focus", "on", "issue", "#123"]
+
+    captured: list[str] = []
+
+    def fake_resume(
+        mgr,
+        msgs,
+        *,
+        use_view_branch,
+        compact_instructions=None,
+        keep_recent_tokens=20_000,
+    ):
+        captured.append(compact_instructions or "")
+        mgr.log = Log([Message("system", "checkpoint")])
+        yield Message("system", "compacted")
+
+    monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
+    list(cmd_compact_handler(ctx))
+
+    assert captured, "resume was not called"
+    assert "focus on issue #123" in captured[0]
+
+
+def test_autocompact_hook_cooldown_not_set_on_early_exit(monkeypatch):
+    """Cooldown is NOT updated when action == 'none' (no premature rate-limit)."""
+    from unittest.mock import MagicMock
+
+    from gptme.tools.autocompact.hook import (
+        _last_autocompact_attempt,
+        autocompact_hook,
+    )
+
+    mock_manager = MagicMock()
+    mock_manager.logdir = "/fake/conv"
+    mock_manager.current_branch = "main"
+    mock_manager.log.messages = [Message("user", "hello")]
+    conv_key = (str(mock_manager.logdir), mock_manager.current_branch)
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.hook.should_auto_compact",
+        lambda msgs, limit=None: "none",
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.hook.get_default_model",
+        lambda: MagicMock(context=200_000, max_output=8192),
+    )
+
+    _last_autocompact_attempt.pop(conv_key, None)
+    list(autocompact_hook(mock_manager))
+    assert conv_key not in _last_autocompact_attempt, (
+        "Cooldown must not be set when action is 'none'"
+    )

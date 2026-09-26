@@ -20,6 +20,9 @@ from ...util.context import md_codeblock
 if TYPE_CHECKING:
     from ...logmanager import LogManager
 
+# Default keep_recent window — last N tokens of history kept verbatim after checkpoint
+_DEFAULT_KEEP_RECENT_TOKENS = 20_000
+
 logger = logging.getLogger(__name__)
 
 
@@ -173,11 +176,37 @@ def _logfile_snapshot(path: Path) -> tuple[int, int] | None:
     return (stat.st_size, stat.st_mtime_ns)
 
 
+def _get_recent_tail(
+    msgs: list[Message],
+    keep_tokens: int,
+    *,
+    model: str | None = None,
+) -> list[Message]:
+    """Return the last messages that fit within keep_tokens, preserving tool-call pairs."""
+    if keep_tokens <= 0 or not msgs:
+        return []
+    tail: list[Message] = []
+    total = 0
+    model_str: str = model or "gpt-4"
+    for msg in reversed(msgs):
+        t = len_tokens([msg], model=model_str)
+        if total + t > keep_tokens:
+            break
+        tail.insert(0, msg)
+        total += t
+    # Drop dangling tool-result at head (no matching tool-call)
+    while tail and tail[0].role == "tool":
+        tail = tail[1:]
+    return tail
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
     use_view_branch: bool = False,
     llm_unlocked: AbstractContextManager[object] | None = None,
+    compact_instructions: str | None = None,
+    keep_recent_tokens: int = _DEFAULT_KEEP_RECENT_TOKENS,
 ) -> Generator[Message, None, None]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
 
@@ -187,6 +216,10 @@ def _resume_via_llm(
         use_view_branch: If True, create a view branch (for auto-triggered resume)
             and mark status messages as hidden. If False, replace the log directly
             (for user-invoked /compact resume).
+        compact_instructions: Additional instructions to append to the checkpoint prompt
+            (from project config or /compact <instructions>).
+        keep_recent_tokens: Tokens of recent history to keep verbatim after the
+            checkpoint (Phase 2 keep_recent window). Default 20k.
     """
 
     # Prepare messages for summarization
@@ -209,27 +242,32 @@ def _resume_via_llm(
         ui_only=True,
     )
 
-    resume_prompt = """Please create a comprehensive resume of this conversation that includes:
+    resume_prompt = """Context budget has been reached — produce a structured checkpoint before history is compacted.
 
-1. **Conversation Summary**: Key topics, decisions made, and progress achieved
-2. **Technical Context**: Important code changes, configurations, or technical details
-3. **Current State**: What was accomplished and what remains to be done
-4. **Context Files**: List the specific files that should be included in future context
+Write a concise checkpoint with these sections:
 
-For the Context Files section, use this format:
+## Objective
+One sentence: what is this conversation trying to accomplish?
+
+## Key Decisions
+Bullet list of important decisions or constraints already established.
+
+## Current State
+What has been completed; what is in progress; what blockers exist.
+
+## Open Items
+Numbered list of remaining work, in priority order.
+
 ## Context Files
+Files that must be reloaded to continue effectively. Format:
+- `path/to/file.py` — reason this file is needed
+- `docs/spec.md` — contains the specification being implemented
 
-List each file on its own line with a bullet point and backticks:
-- `path/to/file.py` - Brief rationale for including this file
-- `docs/spec.md` - Contains the specification being implemented
-
-Include files such as:
-- Specs, PRDs, or design documents being referenced
-- Source files being actively modified
-- Configuration files relevant to the work
-- Task or plan files tracking progress
-
-Format the response as a structured document that could serve as a RESUME.md file."""
+Focus on files that are actively referenced or modified. Omit files that are
+only mentioned in passing.
+"""
+    if compact_instructions:
+        resume_prompt += f"\n\nAdditional instructions:\n{compact_instructions}"
 
     # Create a temporary message for the LLM prompt
     resume_request = Message("user", resume_prompt)
@@ -342,7 +380,21 @@ Format the response as a structured document that could serve as a RESUME.md fil
     )
     resume_msg = Message("assistant", resume_content)
 
-    new_log = original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
+    # Phase 2: keep_recent — include the last N tokens of actual conversation
+    # verbatim after the checkpoint so the model has immediate context.
+    m = get_default_model()
+    recent_tail = _get_recent_tail(
+        msgs,
+        keep_recent_tokens,
+        model=m.model if m else None,
+    )
+
+    new_log = (
+        original_system_msgs
+        + file_context_msgs
+        + [resume_intro_msg, resume_msg]
+        + recent_tail
+    )
 
     if use_view_branch:
         view_name = manager.get_next_view_name()

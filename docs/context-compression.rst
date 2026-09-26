@@ -78,9 +78,20 @@ Two strategies are available:
   results, and compresses long assistant messages. Fast and deterministic; no LLM call.
   If savings would be low, gptme will suggest ``/compact summarize`` instead.
 
-- **summarize** — LLM-powered: asks the model to produce a ``RESUME.md`` capturing
-  key decisions, open tasks, and relevant file paths, then starts a fresh context
-  from that summary. More thorough but requires a model call and restarts context.
+- **summarize** — LLM-powered: produces a structured checkpoint (objective,
+  decisions, current state, open items, files to reload), then rebuilds context
+  from that checkpoint plus the most recent ``keep_recent_tokens`` of history
+  (default 20k). More thorough but requires a model call.
+
+  Optional instructions can be passed inline::
+
+      /compact summarize focus on the failing test suite
+
+  Or set project-wide via ``[context] compact_instructions`` in ``gptme.toml``::
+
+      [context]
+      compact_instructions = "Always note the current task ID and git branch."
+      keep_recent_tokens = 15000   # tokens of history to keep after checkpoint
 
 .. deprecated::
    ``/compact auto`` and ``/compact resume`` are deprecated aliases for ``trim`` and
