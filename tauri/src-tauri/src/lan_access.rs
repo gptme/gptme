@@ -253,9 +253,16 @@ async fn restart_sidecar_with_lan(
         return match restore {
             // Recovery started a loopback server — the old LAN server is gone.
             Ok(()) => SidecarRebindResult::FailedRecovered(bind_err),
-            Err(e) => SidecarRebindResult::FailedNoBackend(format!(
-                "{bind_err}; automatic recovery also failed: {e}"
-            )),
+            Err(e) => {
+                // Port still occupied and recovery also failed — an orphan may
+                // hold the port LAN-exposed with the old token.  Mark owns_port
+                // so cleanup_server_process will call kill_server_on_port on
+                // exit rather than skipping the orphan.
+                server.owns_port.store(true, Ordering::Relaxed);
+                SidecarRebindResult::FailedNoBackend(format!(
+                    "{bind_err}; automatic recovery also failed: {e}"
+                ))
+            }
         };
     }
 
