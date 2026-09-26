@@ -207,10 +207,12 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
 
-    # A redirect can land on a host outside the allowlist; re-check the final
-    # URL so redirected content is never returned. Raises ValueError if blocked.
+    # A server redirect, meta-refresh, or JS navigation can land on a host
+    # outside the allowlist; re-check the live document URL (page.url, not
+    # nav_response.url which only reflects the initial response) so redirected
+    # content is never returned. Raises ValueError if blocked.
     if nav_response is not None:
-        _validate_url_scheme(nav_response.url)
+        _validate_url_scheme(page.url)
 
     content_type = nav_response.headers.get("content-type", "") if nav_response else ""
     is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
@@ -588,6 +590,8 @@ def _page_snapshot() -> str:
     """Get ARIA snapshot of the current persistent page."""
     if _current_page is None:
         raise RuntimeError("No page is currently open")
+    # Never surface content from a page that has left the allowlist.
+    _enforce_current_page_allowlist()
     snapshot = _current_page.locator("body").aria_snapshot()
     if not snapshot:
         raise RuntimeError("Could not get accessibility snapshot.")
@@ -598,6 +602,8 @@ def _read_page_text(browser: Browser) -> str:
     """Read the text content of the current persistent page as Markdown."""
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
+    # The page may have navigated away from the allowlist since it was opened.
+    _enforce_current_page_allowlist()
     body_html = _current_page.inner_html("body")
     return html_to_markdown(body_html)
 
@@ -649,6 +655,22 @@ def _do_close_page(browser: Browser) -> str:
     """Close the current page on the browser thread."""
     _close_current_page()
     return "Page closed."
+
+
+def _enforce_current_page_allowlist() -> None:
+    """Close the interactive page and raise if it left the allowlist.
+
+    A click, form submit, meta-refresh, or JS navigation can move an already
+    open page to a host outside the allowlist. Called before any content from
+    the page is returned to the agent.
+    """
+    if _current_page is None:
+        return
+    try:
+        _validate_url_scheme(_current_page.url)
+    except ValueError:
+        _close_current_page()
+        raise
 
 
 def close_page() -> str:
@@ -809,6 +831,8 @@ def _click(browser: Browser, selector: str) -> str:
         _current_page.wait_for_load_state("domcontentloaded", timeout=5000)
     except PlaywrightTimeoutError:
         pass  # Timeout is fine — page may not navigate
+    # The click may have navigated to a host outside the allowlist.
+    _enforce_current_page_allowlist()
     return _page_snapshot()
 
 
@@ -897,6 +921,8 @@ def _press_key(browser: Browser, key: str) -> str:
         _current_page.wait_for_load_state("domcontentloaded", timeout=5000)
     except PlaywrightTimeoutError:
         pass  # Timeout is fine — key press may not navigate
+    # Enter/form submit may have navigated to a host outside the allowlist.
+    _enforce_current_page_allowlist()
     return _page_snapshot()
 
 
