@@ -160,6 +160,30 @@ describe('useConversation', () => {
     ).toBe(false);
   });
 
+  it('uses the latest generation settings for the initial step', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    // Regression for gptme/gptme#3903: settings can change while the event
+    // subscription is connecting; the initial step must read the store at
+    // connection time instead of using values captured at subscription time.
+    act(() => {
+      conversations$.get('chat-placeholder')?.maxTokens.set(64);
+      conversations$.get('chat-placeholder')?.temperature.set(0.2);
+      conversations$.get('chat-placeholder')?.topP.set(0.8);
+    });
+
+    await act(async () => {
+      eventHandlers?.onConnected?.();
+      await Promise.resolve();
+    });
+
+    expect(step).toHaveBeenCalledWith('chat-placeholder', undefined, false, 'main', 64, 0.2, 0.8);
+  });
+
   it('honors Stop before the SSE session exists by cancelling the pending initial step', async () => {
     conversations$.get('chat-placeholder')?.isGenerating.set(true);
 
