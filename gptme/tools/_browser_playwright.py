@@ -207,13 +207,6 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
 
-    # A server redirect, meta-refresh, or JS navigation can land on a host
-    # outside the allowlist; re-check the live document URL (page.url, not
-    # nav_response.url which only reflects the initial response) so redirected
-    # content is never returned. Raises ValueError if blocked.
-    if nav_response is not None:
-        _validate_page_url(page.url)
-
     content_type = nav_response.headers.get("content-type", "") if nav_response else ""
     is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
 
@@ -221,6 +214,14 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
     _last_logs = {"logs": logs, "errors": page_errors, "url": url}
 
     try:
+        # A server redirect, meta-refresh, or JS navigation can land on a host
+        # outside the allowlist; re-check the live document URL (page.url, not
+        # nav_response.url which only reflects the initial response) so redirected
+        # content is never returned. Raises ValueError if blocked. Runs inside
+        # this try so the finally below still closes the managed page.
+        if nav_response is not None:
+            _validate_page_url(page.url)
+
         # Server returned markdown directly — preserve source whitespace and skip HTML extraction
         if is_markdown:
             return page.text_content("body") or "", True

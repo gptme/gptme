@@ -27,7 +27,6 @@ import gptme
 
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
-from ..tools._url_safety import parse_allow_hosts
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -1292,6 +1291,11 @@ def main(
         ensure_workspace_dir(workspace_path)
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
+
+    # Imported lazily: a module-level import of gptme.tools initializes the
+    # whole tools package even for --help/--version/external dispatch, which
+    # is startup-benchmarked.
+    from ..tools._url_safety import parse_allow_hosts
 
     # Parse allow_hosts: comma-separated string → list[str] or None.
     # Empty string is a deliberate empty allowlist (block all hosts), not
