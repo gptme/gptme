@@ -107,6 +107,21 @@ fn generate_qr_svg(url: &str) -> Result<String, String> {
 
 // ── Sidecar rebinding (desktop) ────────────────────────────────────────────
 
+/// Outcome of `restart_sidecar_with_lan`, used by callers to decide whether
+/// LAN state should be cleared (safe when loopback is already running) vs kept
+/// (unsafe to clear when exposure status is unknown).
+#[cfg(desktop)]
+enum SidecarRebindResult {
+    /// Requested binding succeeded.
+    Ok,
+    /// Primary operation failed, but a loopback-only fallback server started
+    /// successfully — the old LAN server is gone, the app has a backend.
+    FailedRecovered(String),
+    /// Primary operation failed and recovery also failed — the app may have no
+    /// backend; old-server exposure status is unknown.
+    FailedNoBackend(String),
+}
+
 /// Restart the managed gptme-server sidecar, optionally bound to the LAN.
 /// `lan_ip = None` rebinds to the default loopback-only configuration.
 ///
@@ -117,23 +132,24 @@ fn generate_qr_svg(url: &str) -> Result<String, String> {
 async fn restart_sidecar_with_lan(
     server: &crate::ServerProcess,
     lan_ip: Option<&str>,
-) -> Result<(), String> {
+) -> SidecarRebindResult {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     // Only rebind a server we manage — killing a foreign server we merely
     // found on the port would be wrong. "Managed" means either we hold a
     // child handle, or we adopted a usable server on the port (owns_port).
-    let child = server
-        .child
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?
-        .take();
+    let child = match server.child.lock() {
+        Ok(mut g) => g.take(),
+        Err(e) => {
+            return SidecarRebindResult::FailedNoBackend(format!("Lock error: {e}"));
+        }
+    };
     let child = match child {
         Some(child) => Some(child),
         None => {
             if !server.owns_port.load(Ordering::Relaxed) {
-                return Err(
+                return SidecarRebindResult::FailedNoBackend(
                     "gptme-server is not managed by this app (external server on the port); \
                      restart gptme-tauri to enable LAN access"
                         .to_string(),
@@ -152,7 +168,7 @@ async fn restart_sidecar_with_lan(
                     crate::kill_server_on_port(crate::server_port());
                 }
                 Some(pid) => {
-                    return Err(format!(
+                    return SidecarRebindResult::FailedNoBackend(format!(
                         "Port {} is held by PID {pid}, which is not a gptme-server; \
                          refusing to kill it for LAN rebind",
                         crate::server_port()
@@ -178,12 +194,19 @@ async fn restart_sidecar_with_lan(
     }
     server.owns_port.store(false, Ordering::Relaxed);
 
-    let app = server
-        .app_handle
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?
-        .clone()
-        .ok_or_else(|| "App handle not initialized".to_string())?;
+    let app = match server.app_handle.lock() {
+        Ok(g) => match g.clone() {
+            Some(h) => h,
+            None => {
+                return SidecarRebindResult::FailedNoBackend(
+                    "App handle not initialized".to_string(),
+                );
+            }
+        },
+        Err(e) => {
+            return SidecarRebindResult::FailedNoBackend(format!("Lock error: {e}"));
+        }
+    };
 
     // Wait for the port to actually free up (uvicorn workers + TIME_WAIT).
     let mut port_free = false;
@@ -228,8 +251,11 @@ async fn restart_sidecar_with_lan(
             crate::server_port()
         );
         return match restore {
-            Ok(()) => Err(bind_err),
-            Err(e) => Err(format!("{bind_err}; automatic recovery also failed: {e}")),
+            // Recovery started a loopback server — the old LAN server is gone.
+            Ok(()) => SidecarRebindResult::FailedRecovered(bind_err),
+            Err(e) => SidecarRebindResult::FailedNoBackend(format!(
+                "{bind_err}; automatic recovery also failed: {e}"
+            )),
         };
     }
 
@@ -254,11 +280,14 @@ async fn restart_sidecar_with_lan(
         )
         .await;
         return match restore {
-            Ok(()) => Err(e),
-            Err(e2) => Err(format!("{e}; automatic recovery also failed: {e2}")),
+            // Recovery started a loopback server — the old LAN server is gone.
+            Ok(()) => SidecarRebindResult::FailedRecovered(e),
+            Err(e2) => SidecarRebindResult::FailedNoBackend(format!(
+                "{e}; automatic recovery also failed: {e2}"
+            )),
         };
     }
-    Ok(())
+    SidecarRebindResult::Ok
 }
 
 // ── Tauri commands ─────────────────────────────────────────────────────────
@@ -285,7 +314,12 @@ pub async fn enable_lan_access(
     let qr_svg = generate_qr_svg(&connect_url)?;
 
     // Rebind the sidecar to 0.0.0.0 before reporting success.
-    restart_sidecar_with_lan(&server, Some(&lan_ip)).await?;
+    match restart_sidecar_with_lan(&server, Some(&lan_ip)).await {
+        SidecarRebindResult::Ok => {}
+        SidecarRebindResult::FailedRecovered(e) | SidecarRebindResult::FailedNoBackend(e) => {
+            return Err(e);
+        }
+    }
 
     let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
     inner.enabled = true;
@@ -341,21 +375,30 @@ pub async fn disable_lan_access(
     let restart_result = restart_sidecar_with_lan(&server, None).await;
     {
         let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        if restart_result.is_ok() {
-            // Rebind to loopback succeeded — the server is no longer LAN-exposed.
-            inner.enabled = false;
-            inner.lan_ip = None;
-            inner.url = None;
-            inner.qr_svg = None;
-            log::info!("LAN access disabled");
-        } else {
-            // Rebind failed: the server may still be LAN-exposed. Keep
-            // enabled=true so the panel does not hide a potential exposure —
-            // the user must see the error and retry or restart the app.
-            log::warn!("LAN disable failed; keeping enabled=true to avoid hiding exposure");
+        match &restart_result {
+            SidecarRebindResult::Ok | SidecarRebindResult::FailedRecovered(_) => {
+                // Either succeeded, or failed but a loopback-only fallback is
+                // running — either way the old LAN server is gone. Clear state
+                // so the panel doesn't display a stale URL and QR code for an
+                // unreachable address.
+                inner.enabled = false;
+                inner.lan_ip = None;
+                inner.url = None;
+                inner.qr_svg = None;
+                log::info!("LAN access disabled");
+            }
+            SidecarRebindResult::FailedNoBackend(_) => {
+                // Recovery also failed — the old server may still be running
+                // and LAN-exposed. Keep enabled=true so the panel does not
+                // hide a potential exposure; the user must retry or restart.
+                log::warn!("LAN disable failed; keeping enabled=true to avoid hiding exposure");
+            }
         }
     }
-    restart_result
+    match restart_result {
+        SidecarRebindResult::Ok => Ok(()),
+        SidecarRebindResult::FailedRecovered(e) | SidecarRebindResult::FailedNoBackend(e) => Err(e),
+    }
 }
 
 #[cfg(not(desktop))]
