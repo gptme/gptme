@@ -4,6 +4,8 @@ import pytest
 
 from gptme.tools._url_safety import (
     _host_matches,
+    _validate_entry_url,
+    _validate_page_url,
     _validate_url_scheme,
     parse_allow_hosts,
     set_session_allow_hosts,
@@ -116,25 +118,42 @@ def test_url_with_uppercase_host_matches_lowercase_allowlist():
 
 
 def test_allowlist_enforced_from_worker_thread():
-    # The browser runs on a dedicated thread that does not inherit the caller's
-    # ContextVar context; the allowlist must still apply there (or the
-    # post-redirect / post-interaction checks silently no-op).
+    # BrowserThread.execute copies the caller's contextvars context and runs
+    # commands inside it; the session allowlist must reach checks through that
+    # copy (or the post-redirect / post-interaction checks silently no-op).
+    import contextvars
     import threading
 
     set_session_allow_hosts(["github.com"])
+    ctx = contextvars.copy_context()
     errors: list[ValueError] = []
 
     def worker() -> None:
         try:
-            _validate_url_scheme("https://urlquery.net/")
+            ctx.run(_validate_url_scheme, "https://urlquery.net/")
         except ValueError as exc:
             errors.append(exc)
-        _validate_url_scheme("https://github.com/ok")  # no raise
+        ctx.run(_validate_url_scheme, "https://github.com/ok")  # no raise
 
     thread = threading.Thread(target=worker)
     thread.start()
     thread.join()
     assert errors, "allowlist must be enforced outside the setting thread"
+
+
+def test_data_url_blocked_when_allowlist_active():
+    # data:/about: are offline content, but with an explicit allowlist the
+    # strict scheme validation applies so "block all hosts" blocks everything.
+    set_session_allow_hosts(["github.com"])
+    with pytest.raises(ValueError, match="not allowed"):
+        _validate_entry_url("data:text/html;base64,SGVsbG8=")
+    with pytest.raises(ValueError, match="not allowed"):
+        _validate_page_url("data:text/html,<h1>x</h1>")
+    with pytest.raises(ValueError, match="not allowed"):
+        _validate_page_url("about:blank")
+    set_session_allow_hosts(None)
+    _validate_entry_url("data:text/html;base64,SGVsbG8=")  # no raise
+    _validate_page_url("about:blank")  # no raise
 
 
 def test_error_message_names_host_and_list():

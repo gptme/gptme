@@ -15,26 +15,22 @@ _MAX_INPUT_LENGTH = 2048
 # Session-level host allowlist. None means unrestricted (default).
 _allow_hosts_var: ContextVar[list[str] | None] = ContextVar("allow_hosts", default=None)
 
-# Process-level fallback mirror of the allowlist. BrowserThread.execute copies
-# the caller's context so the ContextVar propagates to the worker thread
-# per-session; the mirror only covers checks that run on raw threads outside
-# any session context (e.g. ad-hoc scripts). chat() always calls
-# set_session_allow_hosts, so each new session resets it.
-_allow_hosts_process: list[str] | None = None
-
 
 def set_session_allow_hosts(allow_hosts: list[str] | None) -> None:
-    """Set the hostname allowlist for the current session."""
-    global _allow_hosts_process
-    _allow_hosts_process = allow_hosts
+    """Set the hostname allowlist for the current session.
+
+    Context-scoped: BrowserThread.execute copies the caller's context so the
+    value reaches checks that run on the browser worker thread, per session.
+    Never read a process-level fallback here — that would leak one session's
+    policy into another in multi-session processes.
+    """
     _allow_hosts_var.set(allow_hosts)
 
 
 def _get_allow_hosts() -> list[str] | None:
-    """Return the effective allowlist, reading through the context to the
-    process-level fallback when the current context has none set."""
-    value = _allow_hosts_var.get()
-    return value if value is not None else _allow_hosts_process
+    """Return the effective allowlist for the current context (None =
+    unrestricted)."""
+    return _allow_hosts_var.get()
 
 
 def parse_allow_hosts(value: str | None) -> list[str] | None:
@@ -116,10 +112,12 @@ def _validate_entry_url(url: str) -> None:
     """Validate a browser-tool entry URL (agent input).
 
     ``data:`` URLs are offline inline content (no network access; used e.g. by
-    computer-use HTML fixtures) and are permitted; everything else goes through
-    the strict scheme/hostname/credential validation.
+    computer-use HTML fixtures) and are permitted while the session is
+    unrestricted. When a host allowlist is active, data: is held to the same
+    strict scheme validation as everything else, so "block all hosts" really
+    blocks everything.
     """
-    if urlparse(url).scheme.lower() == "data":
+    if urlparse(url).scheme.lower() == "data" and _get_allow_hosts() is None:
         return
     _validate_url_scheme(url)
 
@@ -128,9 +126,9 @@ def _validate_page_url(url: str) -> None:
     """Validate the live ``page.url`` after navigation.
 
     The page URL is browser state, not agent input: no length limit, and the
-    local schemes (``data:``, ``about:``) are offline and always permitted.
-    Network URLs must still be http(s), credential-free, and inside the
-    session's host allowlist.
+    local schemes (``data:``, ``about:``) are offline content, permitted only
+    while the session is unrestricted. Network URLs must still be http(s),
+    credential-free, and inside the session's host allowlist.
     """
     if not url:
         return
@@ -140,7 +138,7 @@ def _validate_page_url(url: str) -> None:
     except ValueError as exc:
         raise ValueError("Invalid URL") from exc
     scheme = parsed.scheme.lower()
-    if scheme in ("data", "about"):
+    if scheme in ("data", "about") and _get_allow_hosts() is None:
         return
     if scheme not in ("http", "https"):
         raise ValueError(
