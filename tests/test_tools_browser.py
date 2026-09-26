@@ -755,7 +755,7 @@ class TestPdfToImages:
         pdf_to_images("HTTP://example.com/x.pdf", output_dir=tmp_path)
 
         mock_requests.get.assert_called_once_with(
-            "HTTP://example.com/x.pdf", timeout=60
+            "HTTP://example.com/x.pdf", timeout=60, allow_redirects=False
         )
 
     @patch("gptme.tools.browser.requests")
@@ -781,7 +781,7 @@ class TestPdfToImages:
         pdf_to_images("HTTP://example.com/doc.pdf", output_dir=tmp_path)
 
         mock_requests.get.assert_called_once_with(
-            "HTTP://example.com/doc.pdf", timeout=60
+            "HTTP://example.com/doc.pdf", timeout=60, allow_redirects=False
         )
 
     @patch("gptme.tools.browser.requests")

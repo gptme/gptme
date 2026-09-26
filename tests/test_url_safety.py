@@ -272,14 +272,14 @@ def test_request_allowlisted_validates_every_redirect_hop(monkeypatch):
         def raise_for_status(self):
             pass
 
-    def fake_request(method, url, timeout=None, allow_redirects=False):
+    def fake_get(url, timeout=None, allow_redirects=False):
         assert allow_redirects is False
         requested_urls.append(url)
         if url == "https://allowed.example.com/start":
             return FakeResponse(url, redirect_to="https://evil.example.net/exfil")
         return FakeResponse(url)
 
-    monkeypatch.setattr(browser.requests, "request", fake_request)
+    monkeypatch.setattr(browser.requests, "get", fake_get)
     set_session_allow_hosts(["allowed.example.com"])
     try:
         with pytest.raises(ValueError, match="not in the session's allowed-hosts"):
@@ -306,13 +306,13 @@ def test_request_allowlisted_follows_allowed_redirects(monkeypatch):
 
     urls = ["https://a.example.com/start", "https://b.example.com/end"]
 
-    def fake_request(method, url, timeout=None, allow_redirects=False):
+    def fake_get(url, timeout=None, allow_redirects=False):
         next_url = (
             urls[urls.index(url) + 1] if urls.index(url) + 1 < len(urls) else None
         )
         return FakeResponse(url, redirect_to=next_url)
 
-    monkeypatch.setattr(browser.requests, "request", fake_request)
+    monkeypatch.setattr(browser.requests, "get", fake_get)
     set_session_allow_hosts(["a.example.com", "b.example.com"])
     try:
         resp = browser._request_allowlisted("GET", "https://a.example.com/start", 10)

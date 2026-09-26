@@ -128,16 +128,24 @@ def _request_allowlisted(method: str, url: str, timeout: int) -> requests.Respon
     happened even though the response is later discarded. Following each hop
     explicitly (and validating the target URL first) closes that gap.
     """
-    response = requests.request(method, url, timeout=timeout, allow_redirects=False)
+    # Explicit method dispatch (not requests.request): callers and tests patch
+    # requests.get / requests.head individually.
+    if method.upper() == "HEAD":
+        response = requests.head(url, timeout=timeout, allow_redirects=False)
+    else:
+        response = requests.get(url, timeout=timeout, allow_redirects=False)
     for _ in range(_MAX_REDIRECT_HOPS):
-        if not (response.is_redirect or response.is_permanent_redirect):
+        if response.status_code not in (301, 302, 303, 307, 308) or not (
+            response.headers.get("Location") or ""
+        ):
             return response
         # Location may be relative; resolve against the current URL.
         next_url = urljoin(response.url, response.headers["Location"])
         _validate_url_scheme(next_url)
-        response = requests.request(
-            method, next_url, timeout=timeout, allow_redirects=False
-        )
+        if method.upper() == "HEAD":
+            response = requests.head(next_url, timeout=timeout, allow_redirects=False)
+        else:
+            response = requests.get(next_url, timeout=timeout, allow_redirects=False)
     raise RuntimeError(f"Too many redirects fetching {url}")
 
 
