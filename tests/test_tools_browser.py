@@ -55,6 +55,7 @@ class TestIsPdfUrl:
     def test_html_extension(self):
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
+            mock_resp.url = "https://example.com/page.html"
             mock_resp.headers = {"Content-Type": "text/html"}
             mock_resp.url = "https://example.com/page.html"
             mock_req.head.return_value = mock_resp
@@ -64,6 +65,7 @@ class TestIsPdfUrl:
     def test_no_extension_pdf_content_type(self):
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
+            mock_resp.url = "https://example.com/document"
             mock_resp.headers = {"Content-Type": "application/pdf"}
             mock_resp.url = "https://example.com/document"
             mock_req.head.return_value = mock_resp
@@ -73,6 +75,7 @@ class TestIsPdfUrl:
     def test_no_extension_html_content_type(self):
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
+            mock_resp.url = "https://example.com/page"
             mock_resp.headers = {"Content-Type": "text/html; charset=utf-8"}
             mock_resp.url = "https://example.com/page"
             mock_req.head.return_value = mock_resp
@@ -90,6 +93,7 @@ class TestIsPdfUrl:
         # .pdf?v=2 doesn't end with .pdf, so it falls through to HEAD check — mock it
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
+            mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_resp.headers = {"Content-Type": "application/pdf"}
             mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_req.head.return_value = mock_resp
@@ -97,6 +101,7 @@ class TestIsPdfUrl:
             assert _is_pdf_url("https://example.com/doc.pdf?v=2") is True
         with patch("gptme.tools.browser.requests") as mock_req:
             mock_resp = MagicMock()
+            mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_resp.headers = {"Content-Type": "text/html"}
             mock_resp.url = "https://example.com/doc.pdf?v=2"
             mock_req.head.return_value = mock_resp
@@ -443,6 +448,7 @@ class TestReadPdfUrl:
 
         # Create a minimal mock for pypdf
         mock_response = MagicMock()
+        mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake pdf content"
         mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
@@ -467,6 +473,7 @@ class TestReadPdfUrl:
         from gptme.tools.browser import _read_pdf_url
 
         mock_response = MagicMock()
+        mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
@@ -496,6 +503,7 @@ class TestReadPdfUrl:
         from gptme.tools.browser import _read_pdf_url
 
         mock_response = MagicMock()
+        mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
@@ -524,6 +532,7 @@ class TestReadPdfUrl:
         from gptme.tools.browser import _read_pdf_url
 
         mock_response = MagicMock()
+        mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
@@ -547,6 +556,7 @@ class TestReadPdfUrl:
         from gptme.tools.browser import _read_pdf_url
 
         mock_response = MagicMock()
+        mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"fake"
         mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
@@ -715,6 +725,7 @@ class TestPdfToImages:
         from gptme.tools.browser import pdf_to_images
 
         mock_response = MagicMock()
+        mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"%PDF-fake"
         mock_response.url = "https://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
@@ -734,6 +745,7 @@ class TestPdfToImages:
         from gptme.tools.browser import pdf_to_images
 
         mock_response = MagicMock()
+        mock_response.url = "https://example.com/doc.pdf"
         mock_response.content = b"%PDF-fake"
         mock_response.url = "HTTP://example.com/x.pdf"
         mock_requests.get.return_value = mock_response
@@ -759,6 +771,7 @@ class TestPdfToImages:
         dest.mkdir(parents=True)
         (dest / "doc.pdf").write_bytes(b"%PDF-fake")
         mock_response = MagicMock()
+        mock_response.url = "HTTP://example.com/doc.pdf"
         mock_response.content = b"%PDF-remote"
         mock_response.url = "HTTP://example.com/doc.pdf"
         mock_requests.get.return_value = mock_response
@@ -1240,6 +1253,7 @@ class TestPlaywrightMarkdownResponse:
 
         markdown = "    indented code\n\n| a  | b |\n| -- | - |"
         page = MagicMock()
+        page.url = "https://example.com"
         page.goto.return_value.headers = {"content-type": content_type}
         page.text_content.return_value = markdown
         managed = MagicMock(page=page)

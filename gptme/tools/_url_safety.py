@@ -111,3 +111,45 @@ def _validate_url_scheme(url: str) -> None:
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("URL must not include embedded credentials.")
     _validate_url_host(hostname)
+
+
+def _validate_entry_url(url: str) -> None:
+    """Validate a browser-tool entry URL (agent input).
+
+    ``data:`` URLs are offline inline content (no network access; used e.g. by
+    computer-use HTML fixtures) and are permitted; everything else goes through
+    the strict scheme/hostname/credential validation.
+    """
+    if urlparse(url).scheme.lower() == "data":
+        return
+    _validate_url_scheme(url)
+
+
+def _validate_page_url(url: str) -> None:
+    """Validate the live ``page.url`` after navigation.
+
+    The page URL is browser state, not agent input: no length limit, and the
+    local schemes (``data:``, ``about:``) are offline and always permitted.
+    Network URLs must still be http(s), credential-free, and inside the
+    session's host allowlist.
+    """
+    if not url:
+        return
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise ValueError("Invalid URL") from exc
+    scheme = parsed.scheme.lower()
+    if scheme in ("data", "about"):
+        return
+    if scheme not in ("http", "https"):
+        raise ValueError(
+            f"URL scheme '{parsed.scheme}' not allowed. "
+            "Only {'http', 'https'} are permitted for security reasons."
+        )
+    if not hostname:
+        raise ValueError("URL must include a hostname.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL must not include embedded credentials.")
+    _validate_url_host(hostname)
