@@ -1300,7 +1300,12 @@ def main(
     # Parse allow_hosts: comma-separated string → list[str] or None.
     # Empty string is a deliberate empty allowlist (block all hosts), not
     # "unrestricted" -- parse_allow_hosts preserves that distinction.
-    allow_hosts_list = parse_allow_hosts(allow_hosts)
+    # Invalid entries (e.g. a bare '*') surface as a click usage error,
+    # not a traceback.
+    try:
+        allow_hosts_list = parse_allow_hosts(allow_hosts)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
 
     # Setup complete configuration from CLI arguments and workspace
     try:
