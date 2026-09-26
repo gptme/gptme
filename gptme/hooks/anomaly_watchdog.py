@@ -363,15 +363,16 @@ def record_write() -> None:
 def _check_write_storm() -> tuple[bool, str] | None:
     """Detect an excessive write rate in the sliding window.
 
-    The limit is inclusive: the N-th write in the window trips the check, so at
-    most N-1 are allowed. Tripping one write early is the conservative direction
-    for a watchdog whose signal can skip a write in block mode; the header
-    documents the same contract.
+    The limit is inclusive and counts the call being checked: the N-th write in
+    the window trips the check, so at most N-1 execute. Tripping one write early
+    is the conservative direction for a watchdog whose signal can skip a write
+    in block mode; the header documents the same contract.
 
-    Read-only: the window holds writes that actually executed (see
-    ``record_write``), so this is a pure check. A call that trips the limit is
-    skipped in block mode (see ``anomaly_watchdog_confirm``) and so is never
-    recorded, which is what keeps a rejected burst from refreshing its own
+    Read-only: the window holds writes that already executed (see
+    ``record_write``), and this check runs *before* the call in flight executes,
+    so the window cannot count it — hence the ``+ 1``. A call that trips the
+    limit is skipped in block mode (see ``anomaly_watchdog_confirm``) and so is
+    never recorded, which is what keeps a rejected burst from refreshing its own
     window and locking out later legitimate writes.
     """
     limit = _write_limit()
@@ -382,8 +383,11 @@ def _check_write_storm() -> tuple[bool, str] | None:
         _prune_stale_windows(now, window)
         times = list(_write_times_by_session.get(_session_key(), []))
 
-    if len(times) >= limit:
-        detail = f"{limit} writes in the last {window:.0f}s (limit: {limit})"
+    if len(times) + 1 >= limit:
+        detail = (
+            f"this call would be write #{len(times) + 1} in the last "
+            f"{window:.0f}s (limit: {limit})"
+        )
         exact = _session_identity()[1]
         if not exact:
             detail += (

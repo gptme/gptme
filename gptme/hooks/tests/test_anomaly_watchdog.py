@@ -291,12 +291,16 @@ class TestScopeEscape:
 
 class TestWriteStorm:
     def test_below_limit_ok(self, monkeypatch):
+        """The check counts the call in flight: the N-th write is the first
+        tripped, so exactly N-1 execute."""
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
-        for _ in range(4):
+        for _ in range(3):
             anomaly_watchdog.record_write()
-        assert _check_write_storm() is None
+        assert _check_write_storm() is None  # the 4th write is still allowed
+        anomaly_watchdog.record_write()
+        assert _check_write_storm() is not None  # the 5th is the first tripped
 
     def test_at_limit_triggers(self, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
@@ -319,13 +323,13 @@ class TestWriteStorm:
 
         outside = _fake_tool_use("save", args=["/etc/shadow"])
         post = ToolExecutePostData(tool_use=outside, workspace=tmp_path)
-        for _ in range(3):
+        for _ in range(2):
             findings = anomaly_watchdog._detect_findings(outside, tmp_path)
             assert any("scope_escape" in m for m in _msgs(findings))
             assert not any("write_storm" in m for m in _msgs(findings))
             # Warn mode does not block, so the flagged write still executes.
             list(check_tool_post(post))
-        # The fourth executed write reaches the limit and trips the storm.
+        # The third executed write is the limit-th and trips the storm.
         findings = anomaly_watchdog._detect_findings(outside, tmp_path)
         assert any("write_storm" in m for m in _msgs(findings))
 
@@ -362,13 +366,14 @@ class TestWriteStorm:
         )
 
     def test_prune_survives_a_key_removed_mid_snapshot(self, monkeypatch):
-        """Server sessions prune the shared window from separate threads.
+        """Pruning must tolerate a key missing from the snapshot it iterates.
 
-        A thread that removes a key between another thread's snapshot
-        (``list(dict)``) and its indexed access used to raise ``KeyError``,
-        which the hook registry swallows — so the check silently failed open
-        and the write window could be lost. This reproduces that interleaving
-        deterministically: the mapping deletes a key as the snapshot is taken.
+        ``_WINDOW_LOCK`` already excludes a concurrent remover, so this is the
+        crash guard on the snapshot/access pair in ``_prune_stale_windows``,
+        not a reproduction of a live race. The mapping below deletes a key as
+        the snapshot is taken, which pins the guard deterministically: without
+        it the indexed access raised ``KeyError``, the hook registry swallows
+        that, and the check silently failed open with the window lost.
         """
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
@@ -477,7 +482,7 @@ class TestWriteStorm:
         assert _check_write_storm() is not None  # session-a exceeds its limit
         # session-b starts empty and must not inherit session-a's window.
         current["key"] = "session-b"
-        for _ in range(3):
+        for _ in range(2):
             assert _check_write_storm() is None
             anomaly_watchdog.record_write()
 
