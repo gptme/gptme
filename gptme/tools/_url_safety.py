@@ -40,10 +40,20 @@ def parse_allow_hosts(value: str | None) -> list[str] | None:
     deliberate empty allowlist that blocks every host -- it must not be
     silently coerced to ``None``, which would disable the restriction.
     Hostnames are lowercased because DNS names are case-insensitive.
+    A bare ``*`` is rejected as ambiguous: users who mean "allow everything"
+    should leave the allowlist unset, and ``*`` would otherwise be a silent
+    security footgun.
     """
     if value is None:
         return None
-    return [h.strip().lower() for h in value.split(",") if h.strip()]
+    entries = [h.strip().lower() for h in value.split(",") if h.strip()]
+    if "*" in entries:
+        raise ValueError(
+            "'*' is not a valid --allow-hosts entry: it is ambiguous. "
+            "Leave --allow-hosts unset to allow all hosts, or list explicit "
+            "hosts/wildcards (e.g. '*.example.com')."
+        )
+    return entries
 
 
 def _host_matches(hostname: str, pattern: str) -> bool:
@@ -122,12 +132,23 @@ def _validate_entry_url(url: str) -> None:
     _validate_url_scheme(url)
 
 
+_UNRESTRICTED_LOCAL_SCHEMES = frozenset(
+    {
+        "data",  # offline inline content
+        "about",  # browser-internal pages (about:blank)
+        "blob",  # same-origin content minted by a page that was already allowed
+        "chrome",  # browser-internal UI pages
+    }
+)
+
+
 def _validate_page_url(url: str) -> None:
     """Validate the live ``page.url`` after navigation.
 
     The page URL is browser state, not agent input: no length limit, and the
-    local schemes (``data:``, ``about:``) are offline content, permitted only
-    while the session is unrestricted. Network URLs must still be http(s),
+    local/browser-internal schemes (``data:``, ``about:``, ``blob:``,
+    ``chrome:``) never touch the network directly, so they are permitted while
+    the session is unrestricted. Network URLs must still be http(s),
     credential-free, and inside the session's host allowlist.
     """
     if not url:
@@ -138,7 +159,7 @@ def _validate_page_url(url: str) -> None:
     except ValueError as exc:
         raise ValueError("Invalid URL") from exc
     scheme = parsed.scheme.lower()
-    if scheme in ("data", "about") and _get_allow_hosts() is None:
+    if scheme in _UNRESTRICTED_LOCAL_SCHEMES and _get_allow_hosts() is None:
         return
     if scheme not in ("http", "https"):
         raise ValueError(

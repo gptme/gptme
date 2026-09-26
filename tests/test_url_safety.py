@@ -121,24 +121,69 @@ def test_allowlist_enforced_from_worker_thread():
     # BrowserThread.execute copies the caller's contextvars context and runs
     # commands inside it; the session allowlist must reach checks through that
     # copy (or the post-redirect / post-interaction checks silently no-op).
-    import contextvars
+    # This exercises the real execute() path (queue + worker thread), with a
+    # stubbed worker loop standing in for the playwright runner.
     import threading
+    from queue import Empty, Queue
+    from threading import Lock
+
+    from gptme.tools._browser_thread import BrowserThread
 
     set_session_allow_hosts(["github.com"])
-    ctx = contextvars.copy_context()
-    errors: list[ValueError] = []
 
-    def worker() -> None:
-        try:
-            ctx.run(_validate_url_scheme, "https://urlquery.net/")
-        except ValueError as exc:
-            errors.append(exc)
-        ctx.run(_validate_url_scheme, "https://github.com/ok")  # no raise
+    # Build a BrowserThread without launching a real browser: stub the worker
+    # loop that _run() would normally provide.
+    bt = BrowserThread.__new__(BrowserThread)
+    bt.queue = Queue()
+    bt.results = {}
+    bt.lock = Lock()
 
-    thread = threading.Thread(target=worker)
+    def worker_loop() -> None:
+        while True:
+            try:
+                cmd, cmd_id = bt.queue.get(timeout=1.0)
+            except Empty:
+                continue
+            if cmd == "stop":
+                break
+            try:
+                result = cmd.func(None, *cmd.args, **cmd.kwargs)
+                with bt.lock:
+                    bt.results[cmd_id] = (result, None)
+            except Exception as e:
+                with bt.lock:
+                    bt.results[cmd_id] = (None, e)
+
+    thread = threading.Thread(target=worker_loop, daemon=True)
     thread.start()
-    thread.join()
-    assert errors, "allowlist must be enforced outside the setting thread"
+    bt.thread = thread
+
+    # Tool functions receive the browser as their first argument; mirror that
+    # calling convention here.
+    check = lambda _browser, url: _validate_url_scheme(url)  # noqa: E731
+
+    errors: list[ValueError] = []
+    try:
+        bt.execute(check, "https://urlquery.net/")
+    except ValueError as exc:
+        errors.append(exc)
+    bt.execute(check, "https://github.com/ok")  # no raise
+    bt.stop()
+    assert errors, "allowlist must reach checks executed via BrowserThread.execute"
+
+
+def test_page_url_allows_browser_internal_schemes_when_unrestricted():
+    # blob:/chrome: are browser-internal or same-origin state; pages that
+    # legitimately navigate there must keep working in unrestricted sessions.
+    _validate_page_url("blob:https://example.com/9a3f-4c1d")
+    _validate_page_url("chrome://settings/")
+
+
+def test_bare_star_allowlist_entry_rejected():
+    # A bare "*" is ambiguous: reject it instead of silently allowing or
+    # silently blocking everything.
+    with pytest.raises(ValueError, match="ambiguous"):
+        parse_allow_hosts("*")
 
 
 def test_data_url_blocked_when_allowlist_active():
