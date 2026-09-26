@@ -246,6 +246,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
         return
     snapshot = None
     file_snapshot = None
+    conv_snapshot = None
     if llm_unlocked is not None:
         # The conversation lock is released while the summary generates, so
         # other workers may append via their own LogManager instances. Those
@@ -257,6 +258,12 @@ Format the response as a structured document that could serve as a RESUME.md fil
             manager.log.messages[-1].content if manager.log.messages else None,
         )
         file_snapshot = _logfile_snapshot(manager.logfile)
+        if manager.current_branch != "main" and manager.logdir:
+            # On non-main branches, logfile is branches/<branch>.jsonl but
+            # concurrent view-path appends (dual-write) update conversation.jsonl
+            # and views/<view>.jsonl, not the branch file.  Snapshot
+            # conversation.jsonl too so those appends are detected.
+            conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
     with llm_unlocked or nullcontext():
         resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
     if snapshot is not None:
@@ -265,7 +272,14 @@ Format the response as a structured document that could serve as a RESUME.md fil
             len(manager.log.messages),
             manager.log.messages[-1].content if manager.log.messages else None,
         )
-        if current != snapshot or _logfile_snapshot(manager.logfile) != file_snapshot:
+        conv_changed = conv_snapshot is not None and (
+            _logfile_snapshot(manager.logdir / "conversation.jsonl") != conv_snapshot
+        )
+        if (
+            current != snapshot
+            or _logfile_snapshot(manager.logfile) != file_snapshot
+            or conv_changed
+        ):
             logger.info(
                 "Discarding stale summarizer result; conversation changed during llm.reply"
             )
