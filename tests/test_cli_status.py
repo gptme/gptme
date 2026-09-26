@@ -592,14 +592,26 @@ def test_session_id_from_env(monkeypatch):
     monkeypatch.setenv("GPTME_SESSION_ID", "abc123")
     assert _session_id() == "abc123"
     monkeypatch.delenv("GPTME_SESSION_ID")
+    monkeypatch.setenv("AGENT_SESSION_ID", "agent789")
+    assert _session_id() == "agent789"
+    monkeypatch.delenv("AGENT_SESSION_ID")
     monkeypatch.setenv("BOB_SESSION_ID", "def456")
     assert _session_id() == "def456"
+
+
+def test_session_id_agent_takes_precedence_over_bob(monkeypatch):
+    """AGENT_SESSION_ID takes precedence over BOB_SESSION_ID (neutral protocol wins)."""
+    monkeypatch.delenv("GPTME_SESSION_ID", raising=False)
+    monkeypatch.setenv("AGENT_SESSION_ID", "neutral-id")
+    monkeypatch.setenv("BOB_SESSION_ID", "legacy-id")
+    assert _session_id() == "neutral-id"
 
 
 def test_session_id_fallback(monkeypatch):
     """Verify _session_id returns 'none' when no env var is set."""
     for key in (
         "GPTME_SESSION_ID",
+        "AGENT_SESSION_ID",
         "BOB_SESSION_ID",
         "SESSION_ID",
         "GIT_COMMITTER_SESSION_ID",

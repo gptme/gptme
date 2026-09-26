@@ -19,6 +19,7 @@ from .util.git_worktree import get_git_root
 
 _SESSION_ENV_VARS = (
     "GPTME_SESSION_ID",
+    "AGENT_SESSION_ID",
     "BOB_SESSION_ID",
     "SESSION_ID",
     "GIT_COMMITTER_SESSION_ID",
