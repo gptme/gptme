@@ -1580,6 +1580,63 @@ def test_autocompact_throttle_allows_retry_when_log_grows(monkeypatch):
     assert should_compact.called
 
 
+def test_autocompact_throttle_allows_retry_after_failed_compaction(monkeypatch):
+    """Failed compaction must not suppress retry for the same message count.
+
+    Regression: before the fix, _last_autocompact_attempt was recorded before
+    provider.compress() ran. A compress() exception left the record set, so the
+    next call with the same conversation and message count was throttled for 60s
+    even though no compaction had succeeded.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    hook_module._last_autocompact_attempt.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [Message("user", f"m{i}") for i in range(3)]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-fail-retry"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+
+    mock_provider = MagicMock()
+    mock_provider.compress.side_effect = RuntimeError("provider down")
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="rule_based",
+        ) as should_compact,
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+    ):
+        # First call — compress() raises; hook must swallow the exception
+        list(autocompact_hook(manager))
+
+        # Attempt must NOT be recorded for a failed compaction
+        conv_key = (str(manager.logdir), manager.current_branch)
+        assert conv_key not in hook_module._last_autocompact_attempt, (
+            "A failed compaction must not populate _last_autocompact_attempt; "
+            "the retry window should remain open"
+        )
+
+        should_compact.reset_mock()
+
+        # Second call with identical messages — must NOT be throttled
+        list(autocompact_hook(manager))
+
+    assert should_compact.called, (
+        "should_auto_compact must be called on retry after a failed compaction "
+        "with unchanged message count — no premature throttle should apply"
+    )
+
+
 def test_get_keep_head_negative_falls_back_to_default(monkeypatch):
     """_get_keep_head must treat negative env values as invalid and return the configured default.
 
