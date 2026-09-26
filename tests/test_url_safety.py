@@ -5,6 +5,7 @@ import pytest
 from gptme.tools._url_safety import (
     _host_matches,
     _validate_url_scheme,
+    parse_allow_hosts,
     set_session_allow_hosts,
 )
 
@@ -44,6 +45,18 @@ def test_wildcard_does_not_match_sibling():
 
 def test_wildcard_does_not_partial_match():
     assert _host_matches("evildotgithub.com", "*.github.com") is False
+
+
+def test_case_insensitive_hostname():
+    assert _host_matches("GitHub.com", "github.com") is True
+
+
+def test_case_insensitive_pattern():
+    assert _host_matches("github.com", "GitHub.com") is True
+
+
+def test_case_insensitive_wildcard():
+    assert _host_matches("API.GitHub.com", "*.github.com") is True
 
 
 # ── _validate_url_host via _validate_url_scheme ────────────────────────────
@@ -90,6 +103,18 @@ def test_multiple_allowed_hosts():
         _validate_url_scheme("https://evil.com/")
 
 
+def test_empty_allowlist_blocks_all_hosts():
+    # An explicit empty list is "block everything", not "unrestricted".
+    set_session_allow_hosts([])
+    with pytest.raises(ValueError, match="not in the session's allowed-hosts"):
+        _validate_url_scheme("https://github.com/")
+
+
+def test_url_with_uppercase_host_matches_lowercase_allowlist():
+    set_session_allow_hosts(["github.com"])
+    _validate_url_scheme("https://GitHub.com/user/repo")  # no raise
+
+
 def test_error_message_names_host_and_list():
     set_session_allow_hosts(["github.com"])
     with pytest.raises(
@@ -102,22 +127,36 @@ def test_error_message_names_host_and_list():
     assert "--allow-hosts" in msg
 
 
-# ── env-var parsing contract (unit only — no actual env reading) ──────────
+# ── parse_allow_hosts (the actual CLI/env-var parsing path) ────────────────
 
 
-def test_env_var_comma_parsing():
-    raw = "github.com, api.github.com"
-    parsed = [h.strip() for h in raw.split(",") if h.strip()]
-    assert parsed == ["github.com", "api.github.com"]
+def test_parse_allow_hosts_comma_separated():
+    assert parse_allow_hosts("github.com, api.github.com") == [
+        "github.com",
+        "api.github.com",
+    ]
 
 
-def test_env_var_single():
-    raw = "github.com"
-    parsed = [h.strip() for h in raw.split(",") if h.strip()]
-    assert parsed == ["github.com"]
+def test_parse_allow_hosts_single():
+    assert parse_allow_hosts("github.com") == ["github.com"]
 
 
-def test_env_var_empty_string_gives_empty_list():
-    raw = ""
-    parsed = [h.strip() for h in raw.split(",") if h.strip()]
-    assert parsed == []
+def test_parse_allow_hosts_none_is_unrestricted():
+    assert parse_allow_hosts(None) is None
+
+
+def test_parse_allow_hosts_empty_string_is_empty_list():
+    # Must be [] (block all), not None (unrestricted): the CLI guard used to
+    # coerce "" to None, silently disabling the restriction.
+    assert parse_allow_hosts("") == []
+
+
+def test_parse_allow_hosts_whitespace_only_is_empty_list():
+    assert parse_allow_hosts("   ") == []
+
+
+def test_parse_allow_hosts_lowercases():
+    assert parse_allow_hosts("GitHub.com, API.OpenAI.com") == [
+        "github.com",
+        "api.openai.com",
+    ]

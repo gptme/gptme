@@ -27,6 +27,7 @@ import gptme
 
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
+from ..tools._url_safety import parse_allow_hosts
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -1292,10 +1293,10 @@ def main(
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
-    # Parse allow_hosts: comma-separated string → list[str] or None
-    allow_hosts_list: list[str] | None = None
-    if allow_hosts:
-        allow_hosts_list = [h.strip() for h in allow_hosts.split(",") if h.strip()]
+    # Parse allow_hosts: comma-separated string → list[str] or None.
+    # Empty string is a deliberate empty allowlist (block all hosts), not
+    # "unrestricted" -- parse_allow_hosts preserves that distinction.
+    allow_hosts_list = parse_allow_hosts(allow_hosts)
 
     # Setup complete configuration from CLI arguments and workspace
     try:

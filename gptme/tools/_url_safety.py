@@ -21,11 +21,27 @@ def set_session_allow_hosts(allow_hosts: list[str] | None) -> None:
     _allow_hosts_var.set(allow_hosts)
 
 
+def parse_allow_hosts(value: str | None) -> list[str] | None:
+    """Parse a comma-separated ``--allow-hosts`` / ``GPTME_ALLOW_HOSTS`` value.
+
+    ``None`` means unrestricted. An empty (or whitespace-only) string is a
+    deliberate empty allowlist that blocks every host -- it must not be
+    silently coerced to ``None``, which would disable the restriction.
+    Hostnames are lowercased because DNS names are case-insensitive.
+    """
+    if value is None:
+        return None
+    return [h.strip().lower() for h in value.split(",") if h.strip()]
+
+
 def _host_matches(hostname: str, pattern: str) -> bool:
     """Match a hostname against a pattern, supporting *.example.com wildcards.
 
     *.example.com matches sub.example.com but NOT example.com itself.
+    Matching is case-insensitive: DNS hostnames are not case-sensitive.
     """
+    hostname = hostname.lower()
+    pattern = pattern.lower()
     if pattern.startswith("*."):
         suffix = pattern[1:]  # ".example.com"
         return hostname.endswith(suffix)

@@ -233,6 +233,8 @@ def pdf_to_images(
         try:
             response = requests.get(url_or_path, timeout=60)
             response.raise_for_status()
+            # Redirects can leave the allowlist; the final URL must also be allowed.
+            _validate_url_scheme(response.url)
         except requests.ConnectionError as e:
             raise RuntimeError(f"Failed to connect to PDF URL: {url_or_path}") from e
         except requests.Timeout as e:
@@ -667,6 +669,8 @@ def _is_pdf_url(url: str) -> bool:
     # Check Content-Type header
     try:
         response = requests.head(url, allow_redirects=True, timeout=10)
+        # Redirects can leave the allowlist; the final URL must also be allowed.
+        _validate_url_scheme(response.url)
         content_type = response.headers.get("Content-Type", "").lower()
         return "application/pdf" in content_type
     except requests.RequestException:
@@ -702,6 +706,8 @@ def _read_pdf_url(url: str, max_pages: int | None = None) -> str:
         logger.info(f"Downloading PDF from: {url}")
         response = requests.get(url, timeout=30)
         response.raise_for_status()
+        # Redirects can leave the allowlist; the final URL must also be allowed.
+        _validate_url_scheme(response.url)
 
         # Read PDF
         pdf_file = BytesIO(response.content)

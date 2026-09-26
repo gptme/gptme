@@ -30,6 +30,7 @@ from ._browser_thread import (
     set_storage_state_override,
 )
 from ._computer_gate import sensitive_action_gate
+from ._url_safety import _validate_url_scheme
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
@@ -206,6 +207,11 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
 
+    # A redirect can land on a host outside the allowlist; re-check the final
+    # URL so redirected content is never returned. Raises ValueError if blocked.
+    if nav_response is not None:
+        _validate_url_scheme(nav_response.url)
+
     content_type = nav_response.headers.get("content-type", "") if nav_response else ""
     is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
 
@@ -337,6 +343,7 @@ def _extract_main_content(page: Page) -> str:
 
 def read_url(url: str) -> str:
     """Read the text of a webpage and return the text in Markdown format."""
+    _validate_url_scheme(url)
     body_content, is_markdown = _execute_with_retry(_load_page, url)
     if is_markdown:
         return _inline_data_image.sub("", body_content)
@@ -553,6 +560,7 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
 def aria_snapshot(url: str) -> str:
     """Get the ARIA accessibility snapshot of a webpage."""
     logger.info(f"Getting ARIA snapshot of '{url}'")
+    _validate_url_scheme(url)
     return _execute_with_retry(_get_aria_snapshot, url)
 
 
@@ -626,8 +634,12 @@ def _open_page(browser: Browser, url: str) -> str:
 
     try:
         _current_page.goto(url)
+        # A redirect may land outside the allowlist; reject the final URL.
+        _validate_url_scheme(_current_page.url)
     except Exception as e:
         _close_current_page()
+        if isinstance(e, ValueError):
+            raise
         raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
 
     return _page_snapshot()
@@ -783,6 +795,7 @@ def open_page(url: str) -> str:
     click_element(), fill_element(), and scroll_page() calls.
     """
     logger.info(f"Opening page for interaction: '{url}'")
+    _validate_url_scheme(url)
     return _execute_with_retry(_open_page, url)
 
 
@@ -1125,6 +1138,7 @@ def _take_screenshot(
 def screenshot_url(url: str, path: Path | str | None = None) -> Path:
     """Take a screenshot of a webpage and save it to a file."""
     logger.info(f"Taking screenshot of '{url}' and saving to '{path}'")
+    _validate_url_scheme(url)
     path = _execute_with_retry(_take_screenshot, url, path)
     print(f"Screenshot saved to {path}")
     return path
