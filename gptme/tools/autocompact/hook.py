@@ -154,8 +154,6 @@ def autocompact_hook(
     if action == "none":
         return
 
-    _last_autocompact_attempt[conv_key] = (current_time, n_messages)
-
     if action == "rule_based":
         logger.info("Auto-compacting triggered: conversation has massive tool results")
 
