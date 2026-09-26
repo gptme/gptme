@@ -798,8 +798,8 @@ but is distinguishable from plain strings and built-in Provider literals.</p>
 
 <span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;minimax&quot;</span><span class="p">,</span>
-    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MINIMAX_API_KEY&quot;</span><span class="p">,</span>
     <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.minimax.chat/v1&quot;</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MINIMAX_API_KEY&quot;</span><span class="p">,</span>
     <span class="n">models</span><span class="o">=</span><span class="p">[</span>
         <span class="n">ModelMeta</span><span class="p">(</span>
             <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
@@ -822,20 +822,38 @@ but is distinguishable from plain strings and built-in Provider literals.</p>
 <span class="p">)</span>
 </pre></div>
 </div>
+<p>For providers that do not use an API key (e.g. those authenticating via
+per-request payment or a custom <code class="docutils literal notranslate"><span class="pre">init</span></code> function), omit <code class="docutils literal notranslate"><span class="pre">api_key_env</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;blockrun&quot;</span><span class="p">,</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.blockrun.ai/v1&quot;</span><span class="p">,</span>
+    <span class="c1"># api_key_env omitted — BlockRun uses x402 per-request payment</span>
+    <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.llm.models.ProviderPlugin.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">name:</span> <span class="pre">str,</span> <span class="pre">api_key_env:</span> <span class="pre">str,</span> <span class="pre">base_url:</span> <span class="pre">str,</span> <span class="pre">models:</span> <span class="pre">list[ModelMeta]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;,</span> <span class="pre">init:</span> <span class="pre">Callable[[Config],</span> <span class="pre">None]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.llm.models.ProviderPlugin.__init__" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">name:</span> <span class="pre">str,</span> <span class="pre">api_key_env:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">base_url:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'',</span> <span class="pre">models:</span> <span class="pre">list[ModelMeta]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;,</span> <span class="pre">init:</span> <span class="pre">Callable[[Config],</span> <span class="pre">None]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.llm.models.ProviderPlugin.__init__" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="gptme.llm.models.ProviderPlugin.api_key_env">
-<span class="sig-name descname"><span class="pre">api_key_env</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></em><a class="headerlink" href="#gptme.llm.models.ProviderPlugin.api_key_env" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">api_key_env</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#gptme.llm.models.ProviderPlugin.api_key_env" title="Link to this definition">#</a></dt>
 <dd><p>Name of the environment variable that holds the API key, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;MINIMAX_API_KEY&quot;</span></code>.</p>
+<p>Set to <code class="docutils literal notranslate"><span class="pre">None</span></code> for providers that do not use an API key (e.g. those using
+per-request payment or a custom <a class="reference internal" href="#gptme.llm.models.ProviderPlugin.init" title="gptme.llm.models.ProviderPlugin.init"><code class="xref py py-attr docutils literal notranslate"><span class="pre">init</span></code></a> function that handles auth).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Field order is preserved from when this field was required, so
+existing positional constructions <code class="docutils literal notranslate"><span class="pre">ProviderPlugin(name,</span> <span class="pre">api_key_env,</span>
+<span class="pre">base_url)</span></code> keep working.</p>
+</div>
 </dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="gptme.llm.models.ProviderPlugin.base_url">
-<span class="sig-name descname"><span class="pre">base_url</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></em><a class="headerlink" href="#gptme.llm.models.ProviderPlugin.base_url" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">base_url</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">''</span></em><a class="headerlink" href="#gptme.llm.models.ProviderPlugin.base_url" title="Link to this definition">#</a></dt>
 <dd><p>Base URL for the OpenAI-compatible API endpoint, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;https://api.minimax.chat/v1&quot;</span></code>.</p>
 </dd></dl>
 

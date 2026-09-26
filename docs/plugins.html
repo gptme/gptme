@@ -1226,10 +1226,18 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
 <span class="c1"># LLM provider (optional)</span>
 <span class="n">my_provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_llm&quot;</span><span class="p">,</span>
-    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MY_LLM_API_KEY&quot;</span><span class="p">,</span>
     <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.example.com/v1&quot;</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MY_LLM_API_KEY&quot;</span><span class="p">,</span>
     <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;my_llm/fast&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)],</span>
 <span class="p">)</span>
+
+<span class="c1"># Keyless provider — omit api_key_env for payment-based or custom-auth endpoints</span>
+<span class="c1"># my_provider = ProviderPlugin(</span>
+<span class="c1">#     name=&quot;my_llm&quot;,</span>
+<span class="c1">#     base_url=&quot;https://api.example.com/v1&quot;,</span>
+<span class="c1">#     # api_key_env omitted — this provider authenticates per-request</span>
+<span class="c1">#     models=[...],</span>
+<span class="c1"># )</span>
 
 <span class="c1"># Plugin initialization (optional)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_init</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
