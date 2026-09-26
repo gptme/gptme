@@ -8,6 +8,9 @@ from an MCP server, so the cap belongs at the shared rendering/serialization
 layer, not per provider.
 """
 
+import re
+import xml.etree.ElementTree as ET
+
 from gptme.llm.llm_anthropic import _spec2tool as _anthropic_spec2tool
 from gptme.llm.llm_openai import _spec2tool as _openai_spec2tool
 from gptme.llm.models.types import ModelMeta
@@ -17,6 +20,7 @@ from gptme.tools.base import (
     ToolFormat,
     ToolSpec,
     truncate_tool_description,
+    truncate_tool_description_xml,
 )
 
 LONG = "A" * (MAX_TOOL_DESCRIPTION_LENGTH + 500)
@@ -46,6 +50,25 @@ class TestTruncateToolDescription:
 
     def test_custom_limit(self):
         assert truncate_tool_description(LONG, "demo", limit=10) == LONG[:10]
+
+
+class TestTruncateToolDescriptionXml:
+    def test_short_description_escaped_unchanged(self):
+        assert truncate_tool_description_xml("a < b & c", "demo") == "a &lt; b &amp; c"
+
+    def test_escaping_cannot_exceed_limit(self):
+        limit = 64
+        result = truncate_tool_description_xml("&" * 100, "demo", limit=limit)
+        assert len(result) <= limit
+
+    def test_truncation_does_not_split_an_entity(self):
+        # A partial entity (`&am`) would make the enclosing XML invalid.
+        result = truncate_tool_description_xml("&" * 100, "demo", limit=10)
+        assert result == "&amp;&amp;"
+
+    def test_at_limit_after_escaping_unchanged(self):
+        # 16 raw '&' escape to exactly 80 chars; at the limit, nothing is cut.
+        assert truncate_tool_description_xml("&" * 16, "demo", limit=80) == "&amp;" * 16
 
 
 class TestOpenAISchemaCap:
@@ -81,6 +104,17 @@ class TestSystemPromptRendererCap:
         prompt = _long_desc_spec().get_tool_prompt(examples=False, tool_format="xml")
         assert LONG not in prompt
         assert LONG[:MAX_TOOL_DESCRIPTION_LENGTH] in prompt
+
+    def test_xml_escaped_description_capped(self):
+        """Characters that expand when escaped must not defeat the cap."""
+        limit = MAX_TOOL_DESCRIPTION_LENGTH
+        spec = ToolSpec(name="mcp_demo", desc="&" * limit)
+        prompt = spec.get_tool_prompt(examples=False, tool_format="xml")
+        rendered = re.search(r"<description>(.*?)</description>", prompt, re.DOTALL)
+        assert rendered is not None
+        assert len(rendered.group(1)) <= limit
+        # The prompt must stay parseable — a cut mid-entity would break XML.
+        ET.fromstring(prompt)
 
     def test_short_desc_not_truncated(self):
         spec = ToolSpec(name="demo", desc="Executes shell commands")
