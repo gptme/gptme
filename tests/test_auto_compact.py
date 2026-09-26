@@ -906,6 +906,92 @@ def test_load_context_files_truncates_long_files(tmp_path):
     assert "truncated" in loaded[0][1].lower()
 
 
+def test_load_context_files_rejects_paths_outside_workspace(tmp_path):
+    """Summarizer-suggested paths must not escape the workspace."""
+    from gptme.tools.autocompact import _load_context_files
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "ok.py").write_text("print('ok')")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SECRET")
+
+    loaded = _load_context_files(
+        [
+            "ok.py",
+            str(secret),
+            "../secret.txt",
+            "~/.ssh/id_rsa",
+            "/etc/passwd",
+        ],
+        workspace=workspace,
+    )
+    assert [path for path, _ in loaded] == ["ok.py"]
+    assert "SECRET" not in "".join(content for _, content in loaded)
+
+
+def test_load_context_files_allows_absolute_path_inside_workspace(tmp_path):
+    """Absolute paths are fine when they resolve inside the workspace."""
+    from gptme.tools.autocompact import _load_context_files
+
+    target = tmp_path / "inside.py"
+    target.write_text("inside")
+    loaded = _load_context_files([str(target)], workspace=tmp_path)
+    assert len(loaded) == 1
+    assert "inside" in loaded[0][1]
+
+
+def test_load_context_files_rejects_symlink_escape(tmp_path):
+    """Symlinks that resolve outside the workspace must not be read."""
+    from gptme.tools.autocompact import _load_context_files
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SECRET")
+    link = workspace / "link.txt"
+    try:
+        link.symlink_to(secret)
+    except OSError:
+        pytest.skip("symlink not permitted")
+
+    loaded = _load_context_files(["link.txt"], workspace=workspace)
+    assert loaded == []
+
+
+def test_should_auto_compact_uses_budget_for_massive_tool_result_threshold():
+    """A massive tool result below the configured budget must not trigger."""
+    messages = [Message("system", "x " * 2500)]
+
+    assert should_auto_compact(messages, limit=100_000) == "none"
+
+
+def test_auto_compact_trims_at_exact_budget(monkeypatch):
+    """Decision and engine use the same inclusive budget boundary.
+
+    Token counts must be mocked for every equivalent list, not just the
+    original ``messages`` object — the engine copies into ``compacted_log``.
+    """
+    messages = [Message("system", "tool output " * 100)]
+    from gptme.tools.autocompact import engine
+
+    def fake_len_tokens(value, model=None):
+        if isinstance(value, list):
+            return sum(fake_len_tokens(item, model) for item in value)
+        content = value.content if isinstance(value, Message) else value
+        if isinstance(content, str) and content.startswith("tool output"):
+            return 5000
+        return 50
+
+    monkeypatch.setattr(engine, "len_tokens", fake_len_tokens)
+
+    compacted = list(
+        auto_compact_log(messages, limit=5000, max_tool_result_tokens=2000)
+    )
+
+    assert compacted[0].content != messages[0].content
+
+
 def test_should_auto_compact_returns_summarize_when_over_limit_low_savings():
     """Test that should_auto_compact returns 'summarize' when over limit but rule-based savings are too low."""
     # Many short user messages: over a low limit but nothing to rule-based compact
@@ -1000,6 +1086,159 @@ def test_resume_via_llm_with_view_branch():
     # Status messages should be hidden
     for msg in results:
         assert msg.hide is True
+
+
+def test_resume_via_llm_unlocks_during_provider_call():
+    """Summarization must drop a held conversation lock around llm.reply."""
+    import threading
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _resume_via_llm
+
+    mock_manager = MagicMock()
+    mock_manager.workspace = None
+    mock_manager.logdir = None
+    mock_manager.current_view = None
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+    mock_manager.log.messages = messages
+    mock_manager.get_next_view_name.return_value = "view-1"
+
+    lock = threading.RLock()
+    lock.acquire()
+    unlocked_during_reply: list[bool] = []
+
+    def fake_reply(*args, **kwargs):
+        contended = threading.Event()
+
+        def probe() -> None:
+            got = lock.acquire(blocking=False)
+            if got:
+                lock.release()
+            else:
+                contended.set()
+
+        probe_thread = threading.Thread(target=probe)
+        probe_thread.start()
+        probe_thread.join(timeout=5)
+        unlocked_during_reply.append(not contended.is_set())
+        mock_response = MagicMock()
+        mock_response.content = "# Resume\n## Summary\nDone.\n"
+        return mock_response
+
+    @contextmanager
+    def released():
+        lock.release()
+        try:
+            yield
+        finally:
+            lock.acquire()
+
+    with (
+        patch("gptme.tools.autocompact.resume.llm") as mock_llm,
+        patch("gptme.tools.autocompact.resume.get_default_model") as mock_model,
+    ):
+        mock_llm.reply.side_effect = fake_reply
+        mock_m = MagicMock()
+        mock_m.full = "test-model"
+        mock_model.return_value = mock_m
+        list(
+            _resume_via_llm(
+                mock_manager,
+                messages,
+                use_view_branch=True,
+                llm_unlocked=released(),
+            )
+        )
+
+    assert unlocked_during_reply == [True]
+    reacquired = threading.Event()
+
+    def probe_after() -> None:
+        got = lock.acquire(blocking=False)
+        if got:
+            lock.release()
+        else:
+            reacquired.set()
+
+    after_thread = threading.Thread(target=probe_after)
+    after_thread.start()
+    after_thread.join(timeout=5)
+    assert reacquired.is_set()
+    lock.release()
+
+
+def test_resume_via_llm_discards_stale_result_after_unlock():
+    """Do not apply a summary if the conversation moved during llm.reply."""
+    import threading
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.autocompact import _resume_via_llm
+
+    mock_manager = MagicMock()
+    mock_manager.workspace = None
+    mock_manager.logdir = None
+    mock_manager.current_view = None
+    mock_manager.log.messages = [
+        Message("system", "System prompt"),
+        Message("user", "User message 1"),
+        Message("assistant", "Assistant response 1"),
+    ]
+    mock_manager.get_next_view_name.return_value = "view-1"
+
+    messages = list(mock_manager.log.messages) + [
+        Message("user", "User message 2"),
+        Message("assistant", "Assistant response 2"),
+    ]
+
+    lock = threading.RLock()
+    lock.acquire()
+
+    def fake_reply(*args, **kwargs):
+        mock_manager.current_view = "compacted-001"
+        mock_manager.log.messages = mock_manager.log.messages + [
+            Message("system", "tool result arrived during summary")
+        ]
+        mock_response = MagicMock()
+        mock_response.content = "# Resume\n## Summary\nStale.\n"
+        return mock_response
+
+    @contextmanager
+    def released():
+        lock.release()
+        try:
+            yield
+        finally:
+            lock.acquire()
+
+    with (
+        patch("gptme.tools.autocompact.resume.llm") as mock_llm,
+        patch("gptme.tools.autocompact.resume.get_default_model") as mock_model,
+    ):
+        mock_llm.reply.side_effect = fake_reply
+        mock_m = MagicMock()
+        mock_m.full = "test-model"
+        mock_model.return_value = mock_m
+        results = list(
+            _resume_via_llm(
+                mock_manager,
+                messages,
+                use_view_branch=True,
+                llm_unlocked=released(),
+            )
+        )
+
+    mock_manager.create_view.assert_not_called()
+    mock_manager.switch_view.assert_not_called()
+    assert any("stale" in msg.content.lower() for msg in results)
+    lock.release()
 
 
 def test_keep_head_protects_head_messages_from_reasoning_strip():
@@ -1216,7 +1455,7 @@ def test_autocompact_hook_honors_keep_head(monkeypatch):
     mock_manager.logdir = MagicMock()
     mock_manager.log.messages = msgs
     # Reset rate-limiting timer so the hook doesn't short-circuit
-    hook_module._last_autocompact_time = 0
+    hook_module._last_autocompact_attempt.clear()
 
     captured_keep_head: dict = {}
     mock_provider = MagicMock()
@@ -1259,6 +1498,86 @@ def test_autocompact_hook_honors_keep_head(monkeypatch):
         f"Expected keep_head=3 from env override, got {captured_keep_head.get('value')}; "
         "hook.py must call _get_keep_head() and pass it as CompressionConfig.keep_head"
     )
+
+
+def test_autocompact_throttle_is_per_conversation(monkeypatch):
+    """A compact on one conversation must not skip a sibling's budget check."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    hook_module._last_autocompact_attempt.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    def make_manager(logdir: str, n: int = 3) -> MagicMock:
+        manager = MagicMock()
+        manager.logdir = logdir
+        manager.log.messages = [Message("user", f"m{i}") for i in range(n)]
+        return manager
+
+    first = make_manager("/tmp/conv-a")
+    second = make_manager("/tmp/conv-b")
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="none",
+        ) as should_compact,
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+    ):
+        # First conversation records no attempt because action is none, so
+        # seed the guard as if it just compacted.
+        hook_module._last_autocompact_attempt[
+            (str(first.logdir), first.current_branch)
+        ] = (
+            time.time(),
+            len(first.log.messages),
+        )
+        list(autocompact_hook(second))
+
+    assert should_compact.called, (
+        "Sibling conversation must still run should_auto_compact "
+        "while another conversation is inside the reentrancy window"
+    )
+
+
+def test_autocompact_throttle_allows_retry_when_log_grows(monkeypatch):
+    """Tool results appended inside the interval must not be skipped."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    hook_module._last_autocompact_attempt.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-grow"
+    manager.log.messages = [Message("user", "one"), Message("assistant", "two")]
+    manager.current_branch = "main"
+    hook_module._last_autocompact_attempt[
+        (str(manager.logdir), manager.current_branch)
+    ] = (
+        time.time(),
+        2,
+    )
+    manager.log.messages = [
+        Message("user", "one"),
+        Message("assistant", "two"),
+        Message("system", "huge tool result"),
+    ]
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="none",
+        ) as should_compact,
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+    ):
+        list(autocompact_hook(manager))
+
+    assert should_compact.called
 
 
 def test_get_keep_head_negative_falls_back_to_default(monkeypatch):
@@ -1631,3 +1950,111 @@ def test_compact_trim_handler_honors_env_keep_head(monkeypatch):
     assert captured_keep_head.get("value") == 7, (
         f"Expected keep_head=7 from env override, got {captured_keep_head.get('value')}"
     )
+
+
+def test_cli_post_tool_compaction_appends_hook_messages(monkeypatch):
+    """The CLI chat loop must run compaction after tool results, like the server.
+
+    Regression test: TURN_POST fires only after the final assistant message of
+    a turn, so a large tool result appended mid-turn used to ride the
+    continuation request past the context budget with only limit_log as a
+    last-resort guard. The CLI now mirrors the server's
+    _compact_after_tool_results between steps.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.chat import _run_post_tool_compaction
+    from gptme.hooks import StopPropagation
+    from gptme.message import Message
+
+    manager = MagicMock()
+    appended: list = []
+    manager.append.side_effect = appended.append
+
+    hook_msgs = [
+        Message("system", "compaction notice"),
+        StopPropagation(),
+        Message("system", "after stop"),
+    ]
+
+    with patch(
+        "gptme.tools.autocompact.hook.autocompact_hook",
+        return_value=iter(hook_msgs),
+    ):
+        _run_post_tool_compaction(manager)
+
+    assert [m.content for m in appended] == ["compaction notice", "after stop"], (
+        "The StopPropagation sentinel itself must not be appended to the log "
+        "(matching the server's _compact_after_tool_results behavior)"
+    )
+
+
+def test_cli_post_tool_compaction_swallows_hook_errors(monkeypatch):
+    """A compaction failure must not kill the CLI chat loop."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.chat import _run_post_tool_compaction
+
+    manager = MagicMock()
+
+    with patch(
+        "gptme.tools.autocompact.hook.autocompact_hook",
+        side_effect=RuntimeError("boom"),
+    ):
+        # Must not raise
+        _run_post_tool_compaction(manager)
+
+    manager.append.assert_not_called()
+
+
+def test_cli_post_tool_compaction_reports_view_switch():
+    """_run_post_tool_compaction must report whether the view was switched.
+
+    Regression test (Greptile P1): when compaction replaces the active view
+    mid-turn, the resumed log ends with the summary resume instead of the
+    assistant's tool call, so the chat loop's content-based continuation check
+    would end the turn without making the continuation request. The loop
+    relies on this return value to keep the pre-compaction decision.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from gptme.chat import _run_post_tool_compaction
+
+    manager = MagicMock()
+    manager.current_view = "view-a"
+
+    # No compaction (hook yields nothing): same view → False
+    with patch("gptme.tools.autocompact.hook.autocompact_hook", return_value=iter([])):
+        assert _run_post_tool_compaction(manager) is False
+
+    # Compaction switches the view → True
+    def switching_hook(manager):
+        manager.current_view = "view-b"
+        return iter([])
+
+    with patch(
+        "gptme.tools.autocompact.hook.autocompact_hook", side_effect=switching_hook
+    ):
+        assert _run_post_tool_compaction(manager) is True
+
+
+def test_has_pending_tooluse_detects_runnable_tool_call():
+    from gptme.chat import _has_pending_tooluse
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        [
+            Message("user", "run this"),
+            Message("assistant", "```shell\necho hi\n```"),
+        ]
+    )
+    assert _has_pending_tooluse(log) is True
+
+    log_plain = Log(
+        [
+            Message("user", "hi"),
+            Message("assistant", "All done, nothing left to run."),
+        ]
+    )
+    assert _has_pending_tooluse(log_plain) is False

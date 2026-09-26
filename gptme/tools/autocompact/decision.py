@@ -9,6 +9,7 @@ from typing import Literal
 
 from ...llm.models import get_default_model, get_model
 from ...message import Message, len_tokens
+from ...util.context_budget import get_context_budget
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +56,10 @@ def estimate_compaction_savings(
     log_length = len(log)
 
     if limit is None:
-        limit = int(0.9 * model.context)
+        limit = get_context_budget(model.context, max_output=model.max_output or 8192)
 
-    # Match actual compaction logic: only remove tool results when over/close to limit
-    close_to_limit = total_tokens >= int(0.8 * model.context)
-    would_remove_tool_results = total_tokens > limit or close_to_limit
+    # The configured budget is the sole compaction trigger.
+    would_remove_tool_results = total_tokens >= limit
 
     estimated_tool_result_savings = 0
     estimated_reasoning_savings = 0
@@ -117,32 +117,19 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> Compact
             (LLM-powered summarization should be used instead),
         "none" if no compaction is needed.
 
-    Auto-compacting is triggered when:
-    1. The conversation exceeds the limit, OR
-    2. The conversation is close to the limit (80%+) AND contains massive tool results
-    3. AND estimated savings exceed MIN_SAVINGS_RATIO (to justify cache invalidation)
+    Auto-compacting is triggered when the conversation reaches the resolved budget.
+    Rule-based compaction is selected only when estimated savings exceed
+    ``MIN_SAVINGS_RATIO``; otherwise the LLM summarizer handles the same trigger.
     """
 
     model = get_default_model() or get_model("gpt-4")
     if limit is None:
-        limit = int(0.9 * model.context)
+        limit = get_context_budget(model.context, max_output=model.max_output or 8192)
 
     total_tokens = len_tokens(log, model.model)
-    close_to_limit = total_tokens >= int(
-        0.5 * model.context
-    )  # 50% threshold (more proactive)
 
-    # Check if there are any massive system messages (tool results)
-    has_massive_tool_result = False
-    for msg in log:
-        if not msg.pinned and msg.role == "system":
-            msg_tokens = len_tokens(msg.content, model.model)
-            if msg_tokens > 2000:  # Threshold for "massive"
-                has_massive_tool_result = True
-                break
-
-    # First check: would we trigger based on token count?
-    would_trigger = total_tokens > limit or (close_to_limit and has_massive_tool_result)
+    # One budget means one trigger: no separate provider-window fraction.
+    would_trigger = total_tokens >= limit
 
     if not would_trigger:
         return "none"

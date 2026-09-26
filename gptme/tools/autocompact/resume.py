@@ -7,6 +7,7 @@ context files, and manages conversation resumption.
 import logging
 import re
 from collections.abc import Generator
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -87,7 +88,13 @@ def _load_context_files(
     max_tokens_per_file: int = 2000,
 ) -> list[tuple[str, str]]:
     """
-    Load contents of specified files that exist.
+    Load contents of specified files that exist inside the workspace.
+
+    Absolute and ``~/`` paths are resolved, then rejected unless they stay
+    inside ``workspace``. This is load-bearing now that autocompact's
+    LLM-powered summarize branch can run without an explicit tool allowlist:
+    untrusted conversation content must not be able to name ``~/.ssh/id_rsa``
+    and have its contents inserted into the compacted log.
 
     Args:
         file_paths: List of file paths to load
@@ -98,16 +105,32 @@ def _load_context_files(
         List of (path, content) tuples for files that exist and are readable
     """
     loaded_files: list[tuple[str, str]] = []
-    workspace_path = workspace or Path.cwd()
+    workspace_path = (workspace or Path.cwd()).resolve()
 
     for file_path in file_paths:
-        # Resolve path
-        if file_path.startswith("/"):
-            full_path = Path(file_path)
-        elif file_path.startswith("~"):
-            full_path = Path(file_path).expanduser()
+        # Resolve path. Absolute and ~/ suggestions are allowed only when the
+        # resolved file stays inside the workspace — the summarizer output is
+        # model-generated and must not become a local-file exfil path.
+        if file_path.startswith("~"):
+            candidate = Path(file_path).expanduser()
+        elif file_path.startswith("/"):
+            candidate = Path(file_path)
         else:
-            full_path = workspace_path / file_path
+            candidate = workspace_path / file_path
+
+        try:
+            full_path = candidate.resolve()
+        except (OSError, RuntimeError) as e:
+            logger.warning(f"Could not resolve context file {file_path}: {e}")
+            continue
+
+        if not full_path.is_relative_to(workspace_path):
+            logger.warning(
+                "Skipping context file outside workspace: %s (resolved to %s)",
+                file_path,
+                full_path,
+            )
+            continue
 
         try:
             if full_path.exists() and full_path.is_file():
@@ -141,10 +164,20 @@ def _load_context_files(
     return loaded_files
 
 
+def _logfile_snapshot(path: Path) -> tuple[int, int] | None:
+    """Size + mtime of the conversation log, for detecting concurrent appends."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_size, stat.st_mtime_ns)
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
     use_view_branch: bool = False,
+    llm_unlocked: AbstractContextManager[object] | None = None,
 ) -> Generator[Message, None, None]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
 
@@ -211,7 +244,38 @@ Format the response as a structured document that could serve as a RESUME.md fil
             hide=use_view_branch,
         )
         return
-    resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+    snapshot = None
+    file_snapshot = None
+    if llm_unlocked is not None:
+        # The conversation lock is released while the summary generates, so
+        # other workers may append via their own LogManager instances. Those
+        # writes update the file on disk but not this in-memory log, so the
+        # in-memory comparison alone can never detect them.
+        snapshot = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
+        file_snapshot = _logfile_snapshot(manager.logfile)
+    with llm_unlocked or nullcontext():
+        resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+    if snapshot is not None:
+        current = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
+        if current != snapshot or _logfile_snapshot(manager.logfile) != file_snapshot:
+            logger.info(
+                "Discarding stale summarizer result; conversation changed during llm.reply"
+            )
+            yield Message(
+                "system",
+                "Skipped stale auto-summarize: the conversation changed while "
+                "the summary was generating.",
+                hide=use_view_branch,
+            )
+            return
     resume_content = resume_response.content
 
     # Save RESUME.md to logdir (not workspace) for reference/debugging

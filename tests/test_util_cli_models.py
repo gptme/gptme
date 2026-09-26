@@ -217,6 +217,21 @@ class TestModelsInfo:
         data = json.loads(result.stdout)
         assert data["model"] == "bogus/model"
 
+    def test_unknown_provider_json_stays_clean_after_stdout_logging(self):
+        """A prior interactive logging setup must not contaminate JSON stdout."""
+        from gptme.init import init_logging
+        from gptme.llm.models.resolution import _logged_warnings
+
+        init_logging(verbose=False, stderr=False)
+        _logged_warnings.clear()
+
+        result = self._run_models_info("bogus/model", "--json")
+
+        assert result.returncode == 0, result.stderr
+        assert "Unrecognized provider" in result.stderr
+        data = json.loads(result.stdout)
+        assert data["model"] == "bogus/model"
+
 
 class TestModelsRecommended:
     """Tests for 'models recommended' (rendered into docs/evals.rst at build time)."""

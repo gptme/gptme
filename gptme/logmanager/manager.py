@@ -48,8 +48,6 @@ from ..util.conversation_ids import conversation_id_error, validate_conversation
 from ..util.reduce import (
     _drop_orphaned_tool_pairs,
     limit_log,
-    proactive_summarize_log,
-    reduce_log,
 )
 from ..util.uri import URI
 from . import eventlog
@@ -317,11 +315,20 @@ class LogManager:
                 )
                 logger.debug(f"Loaded view branch: {view_name}")
 
-        # If a view was requested, load it as the active log
-        if self.current_view and self.current_view in self._views:
-            # When on a view, the "current" log is the view
-            # but we track master separately for dual-write
-            pass  # View is already loaded in _views
+        # Restore the last active view unless the caller selected one.
+        # Compaction switches are otherwise in-memory and lost on the next
+        # LogManager.load() (server tool workers, resumed CLI sessions).
+        # Views dual-write to main; restoring one while on another branch
+        # would redirect appends away from the requested branch.
+        if view is None and self.current_branch == "main":
+            self._restore_current_view()
+        elif self.current_view and self.current_view not in self._views:
+            logger.warning(
+                "Requested view %r does not exist; staying on branch %s",
+                self.current_view,
+                self.current_branch,
+            )
+            self.current_view = None
 
     def _acquire_lock(self):
         """Acquire an exclusive lock on the conversation directory.
@@ -818,7 +825,10 @@ class LogManager:
         manager = cls(msgs, logdir=logdir, branch=branch, lock=lock, **kwargs)
         manager._sync_root = sync_root
         if log.messages:
-            manager.log = manager.log.replace(
+            # Attach append-cursor metadata to the branch we just loaded, not
+            # to manager.log — that may already be a restored compacted view.
+            branch_log = manager._branches[manager.current_branch]
+            manager._branches[manager.current_branch] = branch_log.replace(
                 persisted=log.persisted,
                 persisted_path=log.persisted_path,
                 persisted_size=log.persisted_size,
@@ -890,6 +900,7 @@ class LogManager:
             raise ValueError(f"View '{name}' does not exist")
         self.write()  # Save current state first
         self.current_view = name
+        self._persist_current_view()
         # log getter now returns view when current_view is set
         logger.info(f"Switched to view: {name}")
 
@@ -897,8 +908,50 @@ class LogManager:
         """Switch back to master (full uncompacted history)."""
         self.write()  # Save current state first
         self.current_view = None
+        self._persist_current_view()
         # log getter now returns branch when current_view is None
         logger.info("Switched to master branch")
+
+    def _current_view_marker(self) -> Path:
+        return self.logdir / "views" / ".current"
+
+    def _persist_current_view(self) -> None:
+        """Record the active main view so the next main load restores it."""
+        # Non-main views are intentionally not restored because doing so would
+        # redirect later appends away from the requested branch. They must not
+        # overwrite or clear the marker owned by the main branch either.
+        if self.current_branch != "main":
+            return
+        marker = self._current_view_marker()
+        if self.current_view is None:
+            try:
+                marker.unlink()
+            except FileNotFoundError:
+                return
+            except OSError as e:
+                logger.warning("Could not clear current view marker: %s", e)
+            return
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(self.current_view + "\n", encoding="utf-8")
+        except OSError as e:
+            logger.warning("Could not persist current view marker: %s", e)
+
+    def _restore_current_view(self) -> None:
+        """Restore the active view from the on-disk marker, if valid."""
+        marker = self._current_view_marker()
+        try:
+            name = marker.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return
+        except OSError as e:
+            logger.warning("Could not read current view marker: %s", e)
+            return
+        if not name or "/" in name or "\\" in name or name not in self._views:
+            logger.warning("Ignoring invalid current view marker: %r", name)
+            return
+        self.current_view = name
+        logger.info("Restored active view: %s", name)
 
     def get_next_view_name(self) -> str:
         """Generate the next sequential view name."""
@@ -1102,35 +1155,34 @@ def prepare_messages(
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)
 
-    # Proactively summarize older turns when approaching the context limit.
-    # No-op unless GPTME_AUTO_SUMMARIZE_THRESHOLD is set (e.g. export GPTME_AUTO_SUMMARIZE_THRESHOLD=0.8).
-    msgs = proactive_summarize_log(msgs)
-
-    # Use regular reduction
-    msgs_reduced = list(reduce_log(msgs))
-
-    # Prune expired ephemeral messages (e.g. thinking blocks) after reduction
-    # but before hard context limiting, so the budget goes to durable content.
+    # Prune expired ephemeral messages (e.g. thinking blocks).
     # Adjacent same-role messages created by pruning are merged before provider
     # formatting; strict APIs reject consecutive user/assistant turns.
-    msgs_pruned = prune_ephemeral_messages(msgs_reduced)
-    if len(msgs_reduced) != len(msgs_pruned):
+    msgs_pruned = prune_ephemeral_messages(msgs)
+    if len(msgs) != len(msgs_pruned):
         logger.debug(
             "Pruned/merged "
-            f"{len(msgs_reduced) - len(msgs_pruned)} messages during ephemeral cleanup"
+            f"{len(msgs) - len(msgs_pruned)} messages during ephemeral cleanup"
         )
 
     model = get_default_model()
     if model is None:
         raise ValueError("No model loaded")
-    if (len_from := len_tokens(msgs, model.model)) != (
-        len_to := len_tokens(msgs_pruned, model.model)
-    ):
-        logger.debug(f"Reduced log from {len_from // 1} to {len_to // 1} tokens")
+
+    # Last-resort hard limit against the provider window.
+    # This should never fire in normal operation — compaction (via the TURN_POST
+    # autocompact hook) keeps the log below the context budget before we get here.
+    # If it fires, something bypassed compaction; log a warning so it's visible.
     msgs_limited = limit_log(msgs_pruned)
     if len(msgs_pruned) != len(msgs_limited):
-        logger.info(
-            f"Limited log from {len(msgs_pruned)} to {len(msgs_limited)} messages"
+        tokens_before = len_tokens(msgs_pruned, model.model)
+        tokens_after = len_tokens(msgs_limited, model.model)
+        logger.warning(
+            "limit_log fired as last resort: dropped %d messages (%d→%d tokens). "
+            "Compaction should have prevented this — check autocompact is enabled.",
+            len(msgs_pruned) - len(msgs_limited),
+            tokens_before,
+            tokens_after,
         )
 
     # Evidence replay: re-inject relevant earlier messages lost to compaction.

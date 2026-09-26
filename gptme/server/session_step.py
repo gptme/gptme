@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterable
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -215,6 +216,43 @@ def _get_use_acp_default() -> bool:
     if val is None:
         return False
     return val.lower() in ("1", "true", "yes", "on")
+
+
+@contextmanager
+def _released(lock: threading.RLock):
+    """Drop a reentrant lock around blocking I/O, then re-acquire it."""
+    lock.release()
+    try:
+        yield
+    finally:
+        lock.acquire()
+
+
+def _compact_after_tool_results(
+    manager: LogManager,
+    session: ConversationSession,
+    conversation_id: str,
+    llm_unlocked: AbstractContextManager[object] | None = None,
+) -> None:
+    """Run always-on compaction after tool results are on the log.
+
+    Server TURN_POST fires after the assistant message and before tools run.
+    Removing request-time ``reduce_log`` from ``prepare_messages`` means a
+    large tool result can otherwise ride the continuation request past the
+    context budget until the next assistant TURN_POST.
+    """
+    from ..hooks import StopPropagation
+    from ..tools.autocompact.hook import autocompact_hook
+
+    try:
+        for hook_msg in autocompact_hook(manager, llm_unlocked=llm_unlocked):
+            if isinstance(hook_msg, StopPropagation):
+                continue
+            _append_and_notify(manager, session, hook_msg)
+    except Exception:
+        logger.exception(
+            "Post-tool compaction failed for conversation %s", conversation_id
+        )
 
 
 def _append_and_notify(manager: LogManager, session: ConversationSession, msg: Message):
@@ -1380,6 +1418,28 @@ def start_tool_execution(
                     # bookkeeping state as quiescent.
                     with SessionManager.conversation_lock(conversation_id):
                         session._executing_tools.discard(claimed_tool_id)
+
+            # Compact after tool results, before the continuation provider call.
+            # Serialize with the same conversation lock as tool-result appends
+            # and continuation election so concurrent workers cannot race view
+            # creation or the active-view marker.
+            try:
+                conv_lock = SessionManager.conversation_lock(conversation_id)
+                with conv_lock:
+                    manager = LogManager.load(
+                        conversation_id, branch=branch, lock=False
+                    )
+                    _compact_after_tool_results(
+                        manager,
+                        session,
+                        conversation_id,
+                        llm_unlocked=_released(conv_lock),
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to load conversation %s for post-tool compaction",
+                    conversation_id,
+                )
 
             # Elect exactly one continuation while holding the same lock used to
             # add and remove execution claims. This makes quiescence observation

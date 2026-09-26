@@ -554,6 +554,95 @@ def test_view_undo_works_on_view():
     assert len(mgr._branches["main"]) == 2  # hello + hi
 
 
+def test_active_view_survives_reload(tmp_path: Path, monkeypatch):
+    """switch_view must persist so a new LogManager.load() keeps the compacted log."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "full history one"))
+    manager.append(Message("assistant", "full history two"))
+    manager.create_view("compacted-001", Log([Message("system", "summary")]))
+    manager.switch_view("compacted-001")
+
+    reloaded = LogManager.load(logdir, lock=False)
+    assert reloaded.current_view == "compacted-001"
+    assert [m.content for m in reloaded.log] == ["summary"]
+    assert [m.content for m in reloaded.master_log] == [
+        "full history one",
+        "full history two",
+    ]
+
+    reloaded.switch_to_master()
+    restored = LogManager.load(logdir, lock=False)
+    assert restored.current_view is None
+    assert [m.content for m in restored.log] == [
+        "full history one",
+        "full history two",
+    ]
+
+
+def test_active_view_does_not_override_non_main_branch(tmp_path: Path, monkeypatch):
+    """Loading a non-main branch must not restore the compacted main view."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv-branch"
+    manager = LogManager(logdir=logdir, lock=False)
+    manager.append(Message("user", "main one"))
+    manager.append(Message("assistant", "main two"))
+    manager.branch("feature")
+    manager.append(Message("user", "feature only"))
+    manager.branch("main")
+    manager.create_view("compacted-001", Log([Message("system", "summary")]))
+    manager.switch_view("compacted-001")
+
+    reloaded = LogManager.load(logdir, branch="feature", lock=False)
+    assert reloaded.current_view is None
+    assert reloaded.current_branch == "feature"
+    assert [m.content for m in reloaded.log] == [
+        "main one",
+        "main two",
+        "feature only",
+    ]
+
+    reloaded.append(Message("assistant", "feature reply"))
+    assert [m.content for m in reloaded.log] == [
+        "main one",
+        "main two",
+        "feature only",
+        "feature reply",
+    ]
+
+    main_reloaded = LogManager.load(logdir, lock=False)
+    assert main_reloaded.current_view == "compacted-001"
+    assert [m.content for m in main_reloaded.log] == ["summary"]
+    assert [m.content for m in main_reloaded.master_log] == [
+        "main one",
+        "main two",
+    ]
+
+
+def test_non_main_view_does_not_replace_persisted_main_view(
+    tmp_path: Path, monkeypatch
+):
+    """A feature-branch view must not become the active main-branch view."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv-branch-marker"
+    manager = LogManager(logdir=logdir, lock=False)
+    manager.append(Message("user", "main history"))
+    manager.branch("feature")
+    manager.append(Message("user", "feature history"))
+    manager.branch("main")
+    manager.create_view("main-view", Log([Message("system", "main summary")]))
+    manager.switch_view("main-view")
+
+    feature = LogManager.load(logdir, branch="feature", lock=False)
+    feature.create_view("feature-view", Log([Message("system", "feature summary")]))
+    feature.switch_view("feature-view")
+
+    main_reloaded = LogManager.load(logdir, lock=False)
+    assert main_reloaded.current_view == "main-view"
+    assert [message.content for message in main_reloaded.log] == ["main summary"]
+
+
 def test_undo_more_than_log_length():
     """Regression: undo(n) where n > len(log) should not crash."""
     log = LogManager()

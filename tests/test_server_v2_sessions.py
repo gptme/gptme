@@ -1942,6 +1942,77 @@ class TestConcurrentToolConfirmation:
         assert step_calls == [True]
         assert session._executing_tools == set()
 
+    def test_post_tool_compaction_holds_conversation_lock(
+        self, conv, client: FlaskClient
+    ):
+        """Post-tool compaction must serialize on conversation_lock."""
+        from gptme.config import ChatConfig
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+
+        tool_id = str(uuid.uuid4())
+        tool_exec = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "echo done"),
+            auto_confirm=False,
+        )
+        tool_exec.tooluse = MagicMock(
+            tool="bash", args=[], content="echo done", call_id=tool_id
+        )
+        tool_exec.tooluse.execute = lambda *args, **kwargs: []
+        session.pending_tools[tool_id] = tool_exec
+
+        held_during_compact: list[bool] = []
+
+        def capturing_compact(manager, session_obj, conversation_id, **kwargs):
+            lock = SessionManager.conversation_lock(conversation_id)
+            contended = threading.Event()
+
+            def probe() -> None:
+                got = lock.acquire(blocking=False)
+                if got:
+                    lock.release()
+                else:
+                    contended.set()
+
+            probe_thread = threading.Thread(target=probe)
+            probe_thread.start()
+            probe_thread.join(timeout=5)
+            held_during_compact.append(contended.is_set())
+
+        chat_config = ChatConfig(model="mock/model")
+        with (
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch(
+                "gptme.server.session_step.LogManager.load",
+                return_value=MagicMock(
+                    log=MagicMock(messages=[]), workspace=MagicMock()
+                ),
+            ),
+            patch("gptme.server.session_step._append_and_notify"),
+            patch("gptme.server.session_step._attach_tool_timings"),
+            patch("gptme.server.session_step._start_step_thread"),
+            patch(
+                "gptme.server.session_step._compact_after_tool_results",
+                side_effect=capturing_compact,
+            ),
+        ):
+            thread = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                tool_id,
+                None,
+                "mock/model",
+                chat_config,
+                branch="main",
+            )
+            thread.join(timeout=5)
+
+        assert not thread.is_alive()
+        assert held_during_compact == [True]
+
     def test_claim_released_when_setup_raises_before_execution(
         self, conv, client: FlaskClient
     ):

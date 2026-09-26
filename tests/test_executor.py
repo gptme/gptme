@@ -50,6 +50,7 @@ def mock_tools():
 class TestPrepareExecutionEnvironment:
     """Tests for the main prepare_execution_environment() function."""
 
+    @patch("gptme.executor._register_core_compaction_hook")
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
     @patch("gptme.executor.load_dotenv")
@@ -62,6 +63,7 @@ class TestPrepareExecutionEnvironment:
         mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
+        mock_register_core_compaction_hook,
         tmp_workspace,
         mock_tools,
     ):
@@ -82,6 +84,7 @@ class TestPrepareExecutionEnvironment:
         # Tools and hooks initialized
         mock_init_tools.assert_called_once_with(None)
         mock_init_hooks.assert_called_once()
+        mock_register_core_compaction_hook.assert_called_once()
         # Returns the right objects
         assert tools == mock_tools
 
