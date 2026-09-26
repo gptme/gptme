@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from typing_extensions import NotRequired
 
+from ..tools.base import truncate_tool_description
 from .utils import extract_tool_uses_from_assistant_message, parameters2dict
 
 if TYPE_CHECKING:
@@ -181,13 +182,7 @@ def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
         or spec.desc
         or ""
     )
-    if len(description) > 1024:
-        logger.warning(
-            "Description for tool `%s` is too long ( %d > 1024 chars). Truncating...",
-            spec.name,
-            len(description),
-        )
-        description = description[:1024]
+    description = truncate_tool_description(description, spec.name)
     return {
         "type": "function",
         "name": name,

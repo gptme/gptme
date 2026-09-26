@@ -17,7 +17,7 @@ from pydantic import BaseModel  # fmt: skip
 from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import record_llm_request
-from ..tools.base import ToolSpec
+from ..tools.base import ToolSpec, truncate_tool_description
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
 from .retry_abort import backoff_wait, current_generation
@@ -1337,7 +1337,9 @@ def _spec2tool(
         "anthropic.types.ToolParam",
         {
             "name": name,
-            "description": spec.get_instructions("tool"),
+            "description": truncate_tool_description(
+                spec.get_instructions("tool"), spec.name
+            ),
             "input_schema": parameters2dict(spec.parameters),
         },
     )

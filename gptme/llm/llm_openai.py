@@ -15,6 +15,7 @@ from ..config import Config, get_config
 from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import _calculate_llm_cost, record_llm_request
+from ..tools.base import truncate_tool_description
 from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
 from .models import (
     CustomProvider,
@@ -2231,13 +2232,7 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
         or spec.desc
         or ""
     )
-    if len(description) > 1024:
-        logger.warning(
-            "Description for tool `%s` is too long ( %d > 1024 chars). Truncating...",
-            spec.name,
-            len(description),
-        )
-        description = description[:1024]
+    description = truncate_tool_description(description, spec.name)
 
     # Custom providers are OpenAI-compatible and support tools API.
     # grok-subscription routes to xAI's OpenAI-compatible subscription proxy
