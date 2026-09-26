@@ -620,6 +620,29 @@ def test_active_view_does_not_override_non_main_branch(tmp_path: Path, monkeypat
     ]
 
 
+def test_non_main_view_does_not_replace_persisted_main_view(
+    tmp_path: Path, monkeypatch
+):
+    """A feature-branch view must not become the active main-branch view."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv-branch-marker"
+    manager = LogManager(logdir=logdir, lock=False)
+    manager.append(Message("user", "main history"))
+    manager.branch("feature")
+    manager.append(Message("user", "feature history"))
+    manager.branch("main")
+    manager.create_view("main-view", Log([Message("system", "main summary")]))
+    manager.switch_view("main-view")
+
+    feature = LogManager.load(logdir, branch="feature", lock=False)
+    feature.create_view("feature-view", Log([Message("system", "feature summary")]))
+    feature.switch_view("feature-view")
+
+    main_reloaded = LogManager.load(logdir, lock=False)
+    assert main_reloaded.current_view == "main-view"
+    assert [message.content for message in main_reloaded.log] == ["main summary"]
+
+
 def test_undo_more_than_log_length():
     """Regression: undo(n) where n > len(log) should not crash."""
     log = LogManager()

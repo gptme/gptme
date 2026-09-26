@@ -916,7 +916,12 @@ class LogManager:
         return self.logdir / "views" / ".current"
 
     def _persist_current_view(self) -> None:
-        """Record the active view so the next LogManager.load() restores it."""
+        """Record the active main view so the next main load restores it."""
+        # Non-main views are intentionally not restored because doing so would
+        # redirect later appends away from the requested branch. They must not
+        # overwrite or clear the marker owned by the main branch either.
+        if self.current_branch != "main":
+            return
         marker = self._current_view_marker()
         if self.current_view is None:
             try:
