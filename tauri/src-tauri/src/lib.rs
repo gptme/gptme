@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 #[cfg(desktop)]
 use std::net::TcpListener;
 #[cfg(desktop)]
@@ -560,6 +561,841 @@ fn show_port_conflict_dialog(app: &tauri::AppHandle, message: String) {
         .show(|_result| {});
 }
 
+// --- MCP config panel backend ---
+
+/// JSON (de)serialization for `extra`: converts preserved unknown TOML items
+/// to JSON and back so they survive the Tauri IPC boundary
+/// (get_mcp_config → frontend → save_mcp_config).
+mod extra_items {
+    pub fn item_to_json(item: &toml_edit::Item) -> Option<serde_json::Value> {
+        if let Some(v) = item.as_value() {
+            return value_to_json(v);
+        }
+        if let Some(t) = item.as_table_like() {
+            return Some(table_to_json(t));
+        }
+        // `Item::ArrayOfTables` (TOML's `[[mcp.servers.custom]]` form) is
+        // neither a `Value` nor table-like, so without this branch it would
+        // fall through to `None` and the key would be silently dropped at the
+        // IPC boundary. It travels as a JSON array of objects and returns as
+        // an inline array of tables — the values survive; only the syntactic
+        // form is normalized.
+        if let Some(aot) = item.as_array_of_tables() {
+            let mut out = Vec::new();
+            for t in aot.iter() {
+                out.push(table_to_json(t));
+            }
+            return Some(serde_json::Value::Array(out));
+        }
+        None
+    }
+
+    fn table_to_json(t: &dyn toml_edit::TableLike) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        for (k, v) in t.iter() {
+            if let Some(v) = item_to_json(v) {
+                map.insert(k.to_string(), v);
+            }
+        }
+        serde_json::Value::Object(map)
+    }
+
+    fn value_to_json(v: &toml_edit::Value) -> Option<serde_json::Value> {
+        if let Some(s) = v.as_str() {
+            return Some(s.to_string().into());
+        }
+        if let Some(b) = v.as_bool() {
+            return Some(b.into());
+        }
+        if let Some(i) = v.as_integer() {
+            return Some(i.into());
+        }
+        if let Some(f) = v.as_float() {
+            return Some(f.into());
+        }
+        if let Some(d) = v.as_datetime() {
+            return Some(d.to_string().into());
+        }
+        if let Some(a) = v.as_array() {
+            let mut out = Vec::new();
+            for val in a.iter() {
+                out.push(value_to_json(val)?);
+            }
+            return Some(serde_json::Value::Array(out));
+        }
+        if let Some(it) = v.as_inline_table() {
+            let mut map = serde_json::Map::new();
+            for (k, val) in it.iter() {
+                map.insert(k.to_string(), value_to_json(val)?);
+            }
+            return Some(serde_json::Value::Object(map));
+        }
+        None
+    }
+
+    pub fn json_to_item(v: &serde_json::Value) -> Option<toml_edit::Item> {
+        Some(toml_edit::Item::Value(json_to_value(v)?))
+    }
+
+    fn json_to_value(v: &serde_json::Value) -> Option<toml_edit::Value> {
+        use toml_edit::Value;
+        Some(match v {
+            serde_json::Value::String(s) => Value::from(s.as_str()),
+            serde_json::Value::Bool(b) => Value::from(*b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Value::from(i)
+                } else {
+                    Value::from(n.as_f64()?)
+                }
+            }
+            serde_json::Value::Array(a) => {
+                let mut arr = toml_edit::Array::new();
+                for val in a {
+                    arr.push(json_to_value(val)?);
+                }
+                Value::from(arr)
+            }
+            serde_json::Value::Object(m) => {
+                let mut it = toml_edit::InlineTable::new();
+                for (k, val) in m {
+                    it.insert(k.as_str(), json_to_value(val)?);
+                }
+                Value::from(it)
+            }
+            serde_json::Value::Null => return None,
+        })
+    }
+
+    pub fn serialize<S: serde::Serializer>(
+        extra: &[(String, toml_edit::Item)],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut map = serde_json::Map::new();
+        for (k, item) in extra {
+            if let Some(v) = item_to_json(item) {
+                map.insert(k.clone(), v);
+            }
+        }
+        use serde::Serialize as _;
+        serde_json::Value::Object(map).serialize(s)
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        d: D,
+    ) -> Result<Vec<(String, toml_edit::Item)>, D::Error> {
+        use serde::Deserialize as _;
+        let v = serde_json::Value::deserialize(d)?;
+        let mut out = Vec::new();
+        if let serde_json::Value::Object(m) = v {
+            for (k, val) in m {
+                if let Some(item) = json_to_item(&val) {
+                    out.push((k, item));
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// JSON view of a single MCP server entry from config.toml.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct MCPServerView {
+    pub name: String,
+    pub enabled: bool,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+    pub url: Option<String>,
+    /// HTTP headers (Authorization, etc.). Phase 1 has no GUI editor for these,
+    /// but the backend must round-trip them or a save would strip credentials.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    /// Unknown keys from the original server entry, preserved so a save does
+    /// not silently drop settings the view does not model. Serialized through
+    /// the IPC JSON boundary so the get → save round trip keeps them.
+    #[serde(default, with = "extra_items")]
+    pub extra: Vec<(String, toml_edit::Item)>,
+}
+
+/// Keys handled by MCPServerView fields; anything else in a server entry is
+/// round-tripped via `extra`.
+const KNOWN_SERVER_KEYS: [&str; 7] = [
+    "name", "enabled", "command", "args", "env", "url", "headers",
+];
+
+/// JSON view of the [mcp] section of config.toml.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct MCPConfigView {
+    pub enabled: bool,
+    pub auto_start: bool,
+    pub servers: Vec<MCPServerView>,
+}
+
+fn mcp_config_defaults() -> MCPConfigView {
+    MCPConfigView {
+        enabled: true,
+        auto_start: false,
+        servers: vec![],
+    }
+}
+
+/// User-level config.toml path, matching Python `gptme.dirs.get_config_dir()`.
+///
+/// That helper is `platformdirs.user_config_dir("gptme")`:
+/// - Unix: `$XDG_CONFIG_HOME/gptme` or `~/.config/gptme`
+/// - macOS: `~/Library/Application Support/gptme`
+/// - Windows: `%APPDATA%\gptme` (Roaming — platformdirs.user_config_dir
+///   defaults to Roaming on Windows, and `dirs::config_dir()` matches it)
+fn gptme_config_path() -> Result<std::path::PathBuf, String> {
+    dirs::config_dir()
+        .ok_or_else(|| "Cannot determine system config directory".to_string())
+        .map(|d| d.join("gptme").join("config.toml"))
+}
+
+/// Render a scalar TOML value as a plain string so stringification of
+/// non-string scalars (integers, booleans, floats) never silently drops
+/// entries from env/headers maps.
+fn scalar_value_to_string(v: &toml_edit::Value) -> Option<String> {
+    if let Some(s) = v.as_str() {
+        return Some(s.to_string());
+    }
+    if let Some(b) = v.as_bool() {
+        return Some(b.to_string());
+    }
+    if let Some(i) = v.as_integer() {
+        return Some(i.to_string());
+    }
+    v.as_float().map(|f| f.to_string())
+}
+
+fn parse_str_map_from_value(value: Option<&toml_edit::Value>) -> HashMap<String, String> {
+    let Some(value) = value else {
+        return HashMap::new();
+    };
+    let Some(it) = value.as_inline_table() else {
+        return HashMap::new();
+    };
+    // A nested table cannot round-trip through `HashMap<String, String>`.
+    // Returning only the scalar entries would let the save path write that
+    // partial map and silently drop the rest; returning nothing lets the
+    // caller preserve the whole original value in `extra` instead.
+    if it.iter().any(|(_, v)| scalar_value_to_string(v).is_none()) {
+        return HashMap::new();
+    }
+    it.iter()
+        .filter_map(|(k, v)| scalar_value_to_string(v).map(|s| (k.to_string(), s)))
+        .collect()
+}
+
+fn parse_str_map_from_item(item: Option<&toml_edit::Item>) -> HashMap<String, String> {
+    let Some(item) = item else {
+        return HashMap::new();
+    };
+    if let Some(val) = item.as_value() {
+        return parse_str_map_from_value(Some(val));
+    }
+    if let Some(t) = item.as_table() {
+        let mut map = HashMap::new();
+        for (k, v) in t.iter() {
+            let Some(val) = v.as_value() else {
+                return HashMap::new();
+            };
+            let Some(s) = scalar_value_to_string(val) else {
+                return HashMap::new();
+            };
+            map.insert(k.to_string(), s);
+        }
+        return map;
+    }
+    HashMap::new()
+}
+
+/// True when `item` is a string map the typed view can represent exactly: an
+/// inline table or a regular table whose values are all scalars.
+fn is_scalar_str_map(item: &toml_edit::Item) -> bool {
+    if let Some(v) = item.as_value() {
+        return v
+            .as_inline_table()
+            .map(|it| it.iter().all(|(_, v)| scalar_value_to_string(v).is_some()))
+            .unwrap_or(false);
+    }
+    item.as_table()
+        .map(|t| {
+            t.iter()
+                .all(|(_, v)| v.as_value().and_then(scalar_value_to_string).is_some())
+        })
+        .unwrap_or(false)
+}
+
+fn parse_args_from_value(value: Option<&toml_edit::Value>) -> Vec<String> {
+    value
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(scalar_value_to_string).collect())
+        .unwrap_or_default()
+}
+
+fn collect_extra<'a, I>(entries: I) -> Vec<(String, toml_edit::Item)>
+where
+    I: Iterator<Item = (&'a str, &'a toml_edit::Item)>,
+{
+    entries
+        .filter(|(k, _)| !KNOWN_SERVER_KEYS.contains(k))
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
+}
+
+/// Preserve a known key whose value has an unexpected type: the typed view
+/// cannot represent it and it is excluded from `extra` by name, so it would
+/// otherwise be silently dropped on save.
+fn keep_if_mistyped(
+    item: Option<toml_edit::Item>,
+    valid: impl Fn(&toml_edit::Item) -> bool,
+    key: &str,
+    extra: &mut Vec<(String, toml_edit::Item)>,
+) {
+    if let Some(item) = item {
+        if !valid(&item) {
+            extra.push((key.to_string(), item));
+        }
+    }
+}
+
+fn parse_server_table(st: &toml_edit::Table) -> MCPServerView {
+    MCPServerView {
+        name: st
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        enabled: st.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+        command: st
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        args: parse_args_from_value(st.get("args").and_then(|v| v.as_value())),
+        env: parse_str_map_from_item(st.get("env")),
+        url: st.get("url").and_then(|v| v.as_str()).map(str::to_string),
+        headers: parse_str_map_from_item(st.get("headers")),
+        extra: {
+            let mut extra = collect_extra(st.iter());
+            keep_if_mistyped(
+                st.get("name").cloned(),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "name",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("enabled").cloned(),
+                |i| i.as_value().and_then(|v| v.as_bool()).is_some(),
+                "enabled",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("command").cloned(),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "command",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("args").cloned(),
+                |i| i.as_value().and_then(|v| v.as_array()).is_some(),
+                "args",
+                &mut extra,
+            );
+            keep_if_mistyped(st.get("env").cloned(), is_scalar_str_map, "env", &mut extra);
+            keep_if_mistyped(
+                st.get("url").cloned(),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "url",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                st.get("headers").cloned(),
+                is_scalar_str_map,
+                "headers",
+                &mut extra,
+            );
+            extra
+        },
+    }
+}
+
+fn parse_server_inline(it: &toml_edit::InlineTable) -> MCPServerView {
+    MCPServerView {
+        name: it
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        enabled: it.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+        command: it
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        args: parse_args_from_value(it.get("args")),
+        env: parse_str_map_from_value(it.get("env")),
+        url: it.get("url").and_then(|v| v.as_str()).map(str::to_string),
+        headers: parse_str_map_from_value(it.get("headers")),
+        extra: {
+            let entries: Vec<(&str, toml_edit::Item)> = it
+                .iter()
+                .map(|(k, v)| (k, toml_edit::Item::Value(v.clone())))
+                .collect();
+            let mut extra = collect_extra(entries.iter().map(|(k, v)| (*k, v)));
+            keep_if_mistyped(
+                it.get("name").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "name",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("enabled").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_bool()).is_some(),
+                "enabled",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("command").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "command",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("args").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_array()).is_some(),
+                "args",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("env").map(|v| toml_edit::Item::Value(v.clone())),
+                is_scalar_str_map,
+                "env",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("url").map(|v| toml_edit::Item::Value(v.clone())),
+                |i| i.as_value().and_then(|v| v.as_str()).is_some(),
+                "url",
+                &mut extra,
+            );
+            keep_if_mistyped(
+                it.get("headers").map(|v| toml_edit::Item::Value(v.clone())),
+                is_scalar_str_map,
+                "headers",
+                &mut extra,
+            );
+            extra
+        },
+    }
+}
+
+/// Accept both `[[mcp.servers]]` (array of tables) and
+/// `servers = [{ name = "…" }]` (inline array of tables).
+fn parse_servers(item: Option<&toml_edit::Item>) -> Vec<MCPServerView> {
+    let Some(item) = item else {
+        return Vec::new();
+    };
+    if let Some(aot) = item.as_array_of_tables() {
+        return aot.iter().map(parse_server_table).collect();
+    }
+    if let Some(arr) = item.as_array() {
+        return arr
+            .iter()
+            .filter_map(|value| value.as_inline_table().map(parse_server_inline))
+            .collect();
+    }
+    Vec::new()
+}
+
+fn insert_str_map(st: &mut toml_edit::Table, key: &str, map: &HashMap<String, String>) {
+    if map.is_empty() {
+        return;
+    }
+    let mut it = toml_edit::InlineTable::new();
+    for (k, v) in map {
+        it.insert(k.as_str(), toml_edit::Value::from(v.as_str()));
+    }
+    st.insert(
+        key,
+        toml_edit::Item::Value(toml_edit::Value::InlineTable(it)),
+    );
+}
+
+/// The preserved original for `key`, when the reader stashed one in `extra`.
+fn preserved_item<'a>(
+    extra: &'a [(String, toml_edit::Item)],
+    key: &str,
+) -> Option<&'a toml_edit::Item> {
+    extra.iter().find(|(k, _)| k == key).map(|(_, item)| item)
+}
+
+/// Write a string-map field, overlaying the typed entries on a preserved
+/// original the typed view could not represent (it contained a nested value).
+///
+/// The reader leaves the typed map empty in that case, so writing only the
+/// typed map after a user edit would delete every value the panel never
+/// displayed — for `headers`, potentially an authorization header. Typed
+/// entries win on key collisions; keys only present in the original (including
+/// nested values) are kept.
+fn insert_str_map_merged(
+    st: &mut toml_edit::Table,
+    key: &str,
+    map: &HashMap<String, String>,
+    preserved: Option<&toml_edit::Item>,
+) {
+    let Some(preserved) = preserved else {
+        insert_str_map(st, key, map);
+        return;
+    };
+    let mut merged = toml_edit::Table::new();
+    if let Some(table) = preserved.as_table() {
+        for (k, v) in table.iter() {
+            merged.insert(k, v.clone());
+        }
+    } else if let Some(inline) = preserved.as_value().and_then(|v| v.as_inline_table()) {
+        for (k, v) in inline.iter() {
+            merged.insert(k, toml_edit::Item::Value(v.clone()));
+        }
+    } else {
+        // Not a map at all: keep it verbatim while the typed field is
+        // untouched, otherwise the explicit edit wins (as for other keys).
+        if map.is_empty() {
+            st.insert(key, preserved.clone());
+        } else {
+            insert_str_map(st, key, map);
+        }
+        return;
+    }
+    for (k, v) in map {
+        merged.insert(k, toml_edit::value(v.as_str()));
+    }
+    if merged.is_empty() {
+        return;
+    }
+    st.insert(key, toml_edit::Item::Table(merged));
+}
+
+/// Parse an `[mcp]` section from TOML text. Empty input yields defaults.
+fn parse_mcp_config(content: &str) -> Result<MCPConfigView, String> {
+    if content.is_empty() {
+        return Ok(mcp_config_defaults());
+    }
+    let doc: toml_edit::DocumentMut = content
+        .parse()
+        .map_err(|e: toml_edit::TomlError| format!("Failed to parse TOML: {e}"))?;
+    let mcp = doc.get("mcp");
+    Ok(MCPConfigView {
+        enabled: mcp
+            .and_then(|t| t.get("enabled"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        auto_start: mcp
+            .and_then(|t| t.get("auto_start"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        servers: parse_servers(mcp.and_then(|t| t.get("servers"))),
+    })
+}
+
+/// Rebuild `[mcp]` from `mcp`, preserving every other top-level table.
+fn serialize_mcp_config(existing: &str, mcp: &MCPConfigView) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = existing
+        .parse()
+        .map_err(|e: toml_edit::TomlError| format!("Failed to parse TOML: {e}"))?;
+    // Keep any unknown keys that lived inside the original [mcp] table so a
+    // save does not silently drop settings the view does not model. Known
+    // keys are rebuilt below.
+    let mut mcp_table = match doc.get("mcp") {
+        Some(toml_edit::Item::Table(t)) => t.clone(),
+        // `mcp = { ... }` inline tables promote to a regular table on save.
+        Some(toml_edit::Item::Value(v)) => {
+            let mut t = toml_edit::Table::new();
+            if let Some(it) = v.as_inline_table() {
+                for (k, val) in it.iter() {
+                    t.insert(k, toml_edit::Item::Value(val.clone()));
+                }
+            }
+            t
+        }
+        _ => toml_edit::Table::new(),
+    };
+    mcp_table.remove("enabled");
+    mcp_table.remove("auto_start");
+    mcp_table.remove("servers");
+    mcp_table.insert("enabled", toml_edit::value(mcp.enabled));
+    mcp_table.insert("auto_start", toml_edit::value(mcp.auto_start));
+
+    let mut servers_aot = toml_edit::ArrayOfTables::new();
+    for server in &mcp.servers {
+        let mut st = toml_edit::Table::new();
+        // Always write `name`, even when empty: the Python loader requires the
+        // key (MCPServerConfig.name has no default) and skips entries without
+        // it, so omitting it would make a configured server disappear.
+        st.insert("name", toml_edit::value(server.name.as_str()));
+        st.insert("enabled", toml_edit::value(server.enabled));
+        if let Some(cmd) = &server.command {
+            st.insert("command", toml_edit::value(cmd.as_str()));
+        }
+        if !server.args.is_empty() {
+            let mut arr = toml_edit::Array::new();
+            for a in &server.args {
+                arr.push(a.as_str());
+            }
+            st.insert("args", toml_edit::value(arr));
+        }
+        insert_str_map_merged(
+            &mut st,
+            "env",
+            &server.env,
+            preserved_item(&server.extra, "env"),
+        );
+        if let Some(url) = &server.url {
+            st.insert("url", toml_edit::value(url.as_str()));
+        }
+        insert_str_map_merged(
+            &mut st,
+            "headers",
+            &server.headers,
+            preserved_item(&server.extra, "headers"),
+        );
+        // Restore the original entry's extra keys after the known fields so a
+        // save never drops settings the view does not model. Known keys whose
+        // original value had an unexpected type are preserved only while the
+        // typed field is still untouched (at the reader's default); if the
+        // user edited the typed field, the edit wins over the stale preserved
+        // value.
+        for (k, item) in &preserved_extra(&server.extra, server) {
+            st.insert(k.as_str(), item.clone());
+        }
+        servers_aot.push(st);
+    }
+    mcp_table.insert("servers", toml_edit::Item::ArrayOfTables(servers_aot));
+    doc.insert("mcp", toml_edit::Item::Table(mcp_table));
+    Ok(doc.to_string())
+}
+
+/// Filter preserved `extra` items for serialization. A preserved *known* key
+/// (its original value had an unexpected type, so the reader defaulted the
+/// typed field) must not override an explicit user edit of that field: keep
+/// it only when the typed field still equals the reader's default. Unknown
+/// keys are always kept.
+fn preserved_extra(
+    extra: &[(String, toml_edit::Item)],
+    server: &MCPServerView,
+) -> Vec<(String, toml_edit::Item)> {
+    extra
+        .iter()
+        .filter(|(k, _)| {
+            if !KNOWN_SERVER_KEYS.contains(&k.as_str()) {
+                return true;
+            }
+            match k.as_str() {
+                "name" => server.name.is_empty(),
+                "enabled" => server.enabled, // reader default: true
+                "command" => server.command.is_none(),
+                "url" => server.url.is_none(),
+                "args" => server.args.is_empty(),
+                // env/headers are merged with their preserved original by
+                // `insert_str_map_merged`, not re-inserted here.
+                "env" | "headers" => false,
+                _ => true,
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        windows_replace_file(from, to)
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(from, to)
+    }
+}
+
+/// Replace `to` with `from` without deleting `to` first.
+///
+/// `std::fs::rename` cannot overwrite on Windows. Deleting `to` and then
+/// renaming is not acceptable for a credential-bearing config: a failed
+/// rename (or a crash between the two operations) plus the error path's
+/// temp-file cleanup would drop the original file. `MoveFileExW` with
+/// `MOVEFILE_REPLACE_EXISTING` is the Windows replacement primitive.
+#[cfg(windows)]
+fn windows_replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        #[link_name = "MoveFileExW"]
+        fn move_file_ex_w(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+
+    fn to_wide(path: &std::path::Path) -> Vec<u16> {
+        path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    let from_w = to_wide(from);
+    let to_w = to_wide(to);
+    // SAFETY: both buffers are null-terminated UTF-16 paths. MoveFileExW only
+    // reads them for the duration of the call and does not retain the pointers.
+    let ok = unsafe {
+        move_file_ex_w(
+            from_w.as_ptr(),
+            to_w.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Sibling temp path for `path` that a local attacker cannot pre-empt.
+///
+/// The name carries the pid, a process-local counter, and a nanosecond stamp.
+/// Predictability is the attack: an attacker with write access to the config
+/// directory could pre-create a symlink at a fixed temp name, and a plain
+/// `create(true)` open would follow it and truncate the target. The writer
+/// additionally opens with `create_new`, so even a guessed name fails closed.
+fn temp_path_for(path: &std::path::Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let uniq = format!(
+        "{}-{}-{nanos}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_else(|| "config.toml".into());
+    name.push(format!(".{uniq}.tmp"));
+    path.with_file_name(name)
+}
+
+/// Write `contents` over `path` via a sibling temp file.
+fn write_config_atomically(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    write_config_via(path, &temp_path_for(path), contents)
+}
+
+/// Drop a temp file left behind by a failed save.
+///
+/// Failure to remove it is ignored: the save has already failed, and reporting
+/// a secondary cleanup error would mask the original one.
+fn discard_temp_file(tmp: &std::path::Path) {
+    let _ = std::fs::remove_file(tmp);
+}
+
+/// Write `contents` to `tmp` and move it over `path`.
+///
+/// On Unix the temp file inherits the destination mode when it exists, otherwise
+/// `0o600`, so a save cannot weaken a private credential file to `0644`.
+fn write_config_via(
+    path: &std::path::Path,
+    tmp: &std::path::Path,
+    contents: &str,
+) -> Result<(), String> {
+    use std::io::Write;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mode = std::fs::metadata(path)
+            .map(|m| m.permissions().mode())
+            .unwrap_or(0o600);
+        opts.mode(mode);
+    }
+
+    let mut file = opts
+        .open(tmp)
+        .map_err(|e| format!("Failed to create temp file: {e}"))?;
+    if let Err(e) = file.write_all(contents.as_bytes()) {
+        drop(file);
+        // The temp file is ours (created with `create_new`), so it is safe to
+        // remove: never leave a partial copy of the credential-bearing config
+        // behind on a failed write.
+        discard_temp_file(tmp);
+        return Err(format!("Failed to write temp file: {e}"));
+    }
+    if let Err(e) = file.sync_all() {
+        drop(file);
+        discard_temp_file(tmp);
+        return Err(format!("Failed to sync temp file: {e}"));
+    }
+    drop(file);
+
+    if let Err(e) = replace_file(tmp, path) {
+        // Only drop the temp file when the destination is still there. If a
+        // replacement implementation ever deletes dest before succeeding, keep
+        // the temp copy so the user's config is not both dest-gone and tmp-gone.
+        if path.exists() {
+            let _ = std::fs::remove_file(tmp);
+        }
+        return Err(format!("Failed to replace config: {e}"));
+    }
+    Ok(())
+}
+
+/// Read the [mcp] section of the user-level gptme config.toml.
+/// Returns safe defaults when the file or section is absent.
+#[tauri::command]
+fn get_mcp_config() -> Result<MCPConfigView, String> {
+    let path = gptme_config_path()?;
+    if !path.exists() {
+        return Ok(mcp_config_defaults());
+    }
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read config: {e}"))?;
+    parse_mcp_config(&content)
+}
+
+/// Replace the [mcp] section of the user-level gptme config.toml atomically.
+/// All other config sections are preserved unchanged.
+#[tauri::command]
+fn save_mcp_config(mcp: MCPConfigView) -> Result<(), String> {
+    // Serialize the read-modify-write cycle: two concurrent invocations (rapid
+    // clicks, two windows) would otherwise both read the same original file
+    // and the second write silently lose the first save's updates.
+    static SAVE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = SAVE_LOCK
+        .get_or_init(std::sync::Mutex::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = gptme_config_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {e}"))?;
+    }
+    let content = if path.exists() {
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read config: {e}"))?
+    } else {
+        String::new()
+    };
+    let serialized = serialize_mcp_config(&content, &mcp)?;
+    write_config_atomically(&path, &serialized)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -615,6 +1451,8 @@ pub fn run() {
             enable_lan_access,
             disable_lan_access,
             get_lan_access_status,
+            get_mcp_config,
+            save_mcp_config,
         ])
         .setup(|app| {
             log::info!("Starting gptme application");
@@ -935,6 +1773,8 @@ mod tests {
                 enable_lan_access,
                 disable_lan_access,
                 get_lan_access_status,
+                get_mcp_config,
+                save_mcp_config,
             ])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
@@ -1283,5 +2123,698 @@ mod tests {
     #[test]
     fn test_gptme_server_port_constant() {
         assert_eq!(GPTME_SERVER_PORT, 5700);
+    }
+
+    // --- MCP config tests ---
+    // These call the same parse/serialize/write helpers as the Tauri commands.
+
+    fn unique_temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "gptme-mcp-config-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_get_mcp_config_missing_file_returns_defaults() {
+        let cfg = parse_mcp_config("").unwrap();
+        assert!(cfg.enabled);
+        assert!(!cfg.auto_start);
+        assert!(cfg.servers.is_empty());
+    }
+
+    #[test]
+    fn test_mcp_config_round_trip_preserves_unrelated_sections() {
+        let original = r#"
+[provider]
+default = "openai"
+api_key = "sk-test"
+
+[mcp]
+enabled = true
+auto_start = false
+
+[[mcp.servers]]
+name = "filesystem"
+enabled = true
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem"]
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+
+        // [provider] section must survive unchanged
+        assert!(updated.contains("[provider]"));
+        assert!(updated.contains("default = \"openai\""));
+        assert!(updated.contains("api_key = \"sk-test\""));
+
+        // MCP section must be present
+        assert!(updated.contains("[mcp]"));
+        assert!(updated.contains("[[mcp.servers]]"));
+        assert!(updated.contains("name = \"filesystem\""));
+    }
+
+    #[test]
+    fn test_mcp_config_env_round_trip() {
+        let original = r#"
+[mcp]
+enabled = true
+auto_start = false
+
+[[mcp.servers]]
+name = "my-server"
+enabled = true
+command = "my-cmd"
+args = []
+env = { PATH = "/usr/bin", DEBUG = "1" }
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(cfg.servers.len(), 1);
+        let srv = &cfg.servers[0];
+        assert_eq!(srv.env.get("PATH").map(String::as_str), Some("/usr/bin"));
+        assert_eq!(srv.env.get("DEBUG").map(String::as_str), Some("1"));
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(
+            cfg2.servers[0].env.get("PATH").map(String::as_str),
+            Some("/usr/bin")
+        );
+        assert_eq!(
+            cfg2.servers[0].env.get("DEBUG").map(String::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn test_mcp_config_non_string_map_values_are_stringified() {
+        // Non-string scalars in env/headers must survive a save instead of
+        // being silently dropped (data loss).
+        let original = r#"
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+name = "srv"
+enabled = true
+command = "cmd"
+env = { RETRIES = 3, VERBOSE = true }
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(
+            cfg.servers[0].env.get("RETRIES").map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            cfg.servers[0].env.get("VERBOSE").map(String::as_str),
+            Some("true")
+        );
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(
+            cfg2.servers[0].env.get("RETRIES").map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            cfg2.servers[0].env.get("VERBOSE").map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn test_mcp_config_nameless_server_gets_empty_name_key() {
+        // The Python loader requires the `name` key (MCPServerConfig.name has
+        // no default and entries without it are skipped), so saving must
+        // always write `name`, even when it was absent in the original.
+        let original = r#"
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+enabled = true
+command = "cmd"
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(cfg.servers[0].name, "");
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("name = \"\""));
+    }
+
+    #[test]
+    fn test_mcp_config_unknown_server_keys_survive_save() {
+        // Unknown keys inside a server entry must survive a save.
+        let original = r#"
+[mcp]
+enabled = true
+
+[[mcp.servers]]
+name = "x"
+enabled = true
+command = "cmd"
+transport = "streamable"
+timeout = 30
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(cfg.servers[0].extra.len(), 2);
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("transport = \"streamable\""));
+        assert!(updated.contains("timeout = 30"));
+    }
+
+    #[test]
+    fn test_mcp_config_unknown_keys_survive_ipc_json_round_trip() {
+        // `extra` must survive the Tauri IPC boundary: get_mcp_config returns
+        // JSON, the frontend sends it back to save_mcp_config, and the view's
+        // serde layer has to carry the unknown keys across or a save drops them.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = true
+command = "cmd"
+transport = "streamable"
+timeout = 30
+tags = ["a", "b"]
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+
+        // Simulate the IPC boundary with serde_json on the view.
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            json["servers"][0]["extra"]["transport"].is_string(),
+            "unknown keys must appear in the IPC JSON under `extra`"
+        );
+        let round_tripped: MCPConfigView = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped.servers[0].extra.len(), 3);
+
+        let updated = serialize_mcp_config(original, &round_tripped).unwrap();
+        assert!(updated.contains("transport = \"streamable\""));
+        assert!(updated.contains("timeout = 30"));
+        assert!(updated.contains("tags = [\"a\", \"b\"]"));
+    }
+
+    #[test]
+    fn test_mcp_config_unknown_array_of_tables_survives_ipc_round_trip() {
+        // An unknown key whose value is an array of tables (the
+        // `[[mcp.servers.custom]]` TOML form) must survive the IPC boundary
+        // too. `Item::ArrayOfTables` is neither a `Value` nor table-like, so
+        // the JSON bridge has to handle it explicitly or the key is dropped.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = true
+command = "cmd"
+
+[[mcp.servers.custom]]
+id = 1
+
+[[mcp.servers.custom]]
+id = 2
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "custom"));
+
+        // Simulate the IPC boundary with serde_json on the view.
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            json["servers"][0]["extra"]["custom"].is_array(),
+            "array-of-tables must appear in the IPC JSON under `extra`: {json}"
+        );
+        let round_tripped: MCPConfigView = serde_json::from_value(json).unwrap();
+
+        let updated = serialize_mcp_config(original, &round_tripped).unwrap();
+        assert!(updated.contains("custom"), "key dropped on save: {updated}");
+        assert!(
+            updated.contains("id = 1") && updated.contains("id = 2"),
+            "table contents dropped on save: {updated}"
+        );
+    }
+
+    #[test]
+    fn test_mcp_config_mistyped_known_keys_survive_save() {
+        // A known key with an unexpected type cannot be represented by the
+        // typed view; it must still not be silently dropped on save.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = "yes"
+command = 123
+args = "not-an-array"
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "enabled"));
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "command"));
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "args"));
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("enabled = \"yes\""));
+        assert!(updated.contains("command = 123"));
+        assert!(updated.contains("args = \"not-an-array\""));
+    }
+
+    #[test]
+    fn test_mcp_config_mistyped_name_survives_save() {
+        for original in [
+            r#"
+[[mcp.servers]]
+name = 123
+enabled = true
+command = "cmd"
+"#,
+            r#"
+[mcp]
+servers = [{ name = 123, enabled = true, command = "cmd" }]
+"#,
+        ] {
+            let cfg = parse_mcp_config(original).unwrap();
+            assert_eq!(cfg.servers[0].name, "");
+            assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "name"));
+
+            let updated = serialize_mcp_config(original, &cfg).unwrap();
+            assert!(updated.contains("name = 123"), "{updated}");
+        }
+    }
+
+    #[test]
+    fn test_mcp_config_user_edit_overrides_preserved_mistyped_name() {
+        let original = r#"
+[[mcp.servers]]
+name = 123
+enabled = true
+command = "cmd"
+"#;
+        let mut cfg = parse_mcp_config(original).unwrap();
+        cfg.servers[0].name = "fixed".to_string();
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("name = \"fixed\""), "{updated}");
+        assert!(!updated.contains("name = 123"), "{updated}");
+    }
+
+    #[test]
+    fn test_mcp_config_user_edit_overrides_preserved_mistyped_key() {
+        // If the user edits a typed field whose original value was preserved
+        // as mistyped `extra`, the edit must win over the stale value.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = "yes"
+command = 123
+"#;
+        let mut cfg = parse_mcp_config(original).unwrap();
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "enabled"));
+
+        // User disables the server in the UI and sets a proper command.
+        cfg.servers[0].enabled = false;
+        cfg.servers[0].command = Some("other".to_string());
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("enabled = false"), "{updated}");
+        assert!(!updated.contains("\"yes\""), "{updated}");
+        assert!(updated.contains("command = \"other\""), "{updated}");
+        assert!(!updated.contains("command = 123"), "{updated}");
+    }
+
+    #[test]
+    fn test_mcp_config_unknown_keys_survive_save() {
+        // Keys inside [mcp] the view does not model must survive a save.
+        let original = r#"
+[mcp]
+enabled = true
+auto_start = false
+log_level = "debug"
+
+[[mcp.servers]]
+name = "srv"
+enabled = true
+command = "cmd"
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("log_level = \"debug\""));
+        assert!(updated.contains("enabled = true"));
+        assert!(updated.contains("name = \"srv\""));
+    }
+
+    #[test]
+    fn test_mcp_config_inline_table_keys_survive_save() {
+        // `mcp = { ... }` inline form must not lose unknown keys on save.
+        let original = r#"
+mcp = { enabled = true, log_level = "debug", servers = [{ name = "srv", enabled = true, command = "cmd" }] }
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        assert!(updated.contains("log_level = \"debug\""));
+        assert!(updated.contains("name = \"srv\""));
+    }
+
+    #[test]
+    fn test_mcp_config_http_server_round_trip() {
+        let original = r#"
+[mcp]
+enabled = false
+auto_start = true
+
+[[mcp.servers]]
+name = "remote"
+enabled = true
+url = "https://mcp.example.com"
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert!(!cfg.enabled);
+        assert!(cfg.auto_start);
+        let srv = &cfg.servers[0];
+        assert_eq!(srv.url.as_deref(), Some("https://mcp.example.com"));
+        assert!(srv.command.is_none());
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(
+            cfg2.servers[0].url.as_deref(),
+            Some("https://mcp.example.com")
+        );
+    }
+
+    #[test]
+    fn test_mcp_config_headers_round_trip() {
+        let original = r#"
+[mcp]
+enabled = true
+auto_start = false
+
+[[mcp.servers]]
+name = "remote"
+enabled = true
+url = "https://mcp.example.com"
+headers = { Authorization = "Bearer secret", X-Custom = "1" }
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(
+            cfg.servers[0]
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer secret")
+        );
+        assert_eq!(
+            cfg.servers[0].headers.get("X-Custom").map(String::as_str),
+            Some("1")
+        );
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(
+            cfg2.servers[0]
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer secret")
+        );
+        assert!(updated.contains("Authorization"));
+    }
+
+    #[test]
+    fn test_mcp_config_inline_servers_are_read_not_erased() {
+        let original = r#"
+[mcp]
+enabled = true
+auto_start = false
+servers = [{ name = "inline", enabled = true, command = "echo", url = "https://x.example" }]
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert_eq!(cfg.servers.len(), 1);
+        assert_eq!(cfg.servers[0].name, "inline");
+        assert_eq!(cfg.servers[0].command.as_deref(), Some("echo"));
+        assert_eq!(cfg.servers[0].url.as_deref(), Some("https://x.example"));
+
+        let updated = serialize_mcp_config(original, &cfg).unwrap();
+        let cfg2 = parse_mcp_config(&updated).unwrap();
+        assert_eq!(cfg2.servers.len(), 1);
+        assert_eq!(cfg2.servers[0].name, "inline");
+        assert!(updated.contains("[[mcp.servers]]") || updated.contains("name = \"inline\""));
+    }
+
+    #[test]
+    fn test_gptme_config_path_matches_platformdirs_layout() {
+        let path = gptme_config_path().unwrap();
+        assert!(path.ends_with(std::path::Path::new("gptme").join("config.toml")));
+        #[cfg(windows)]
+        {
+            let roaming = dirs::config_dir()
+                .unwrap()
+                .join("gptme")
+                .join("config.toml");
+            assert_eq!(path, roaming);
+        }
+        #[cfg(not(windows))]
+        {
+            let unix = dirs::config_dir()
+                .unwrap()
+                .join("gptme")
+                .join("config.toml");
+            assert_eq!(path, unix);
+        }
+    }
+
+    #[test]
+    fn test_atomic_write_replaces_existing_file() {
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old = true\n").unwrap();
+        write_config_atomically(&path, "new = true\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new = true\n");
+        // The temp file is consumed by the rename, and its name is unique per
+        // call, so the directory holds only the destination afterwards.
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .filter(|n| n != "config.toml")
+            .collect();
+        assert!(leftovers.is_empty(), "leftover temp files: {leftovers:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_temp_path_is_not_predictable() {
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        let first = temp_path_for(&path);
+        let second = temp_path_for(&path);
+        assert_ne!(
+            first, second,
+            "a reusable temp name lets another local user pre-create it"
+        );
+        // Still a sibling of the destination, so the rename stays same-filesystem.
+        assert_eq!(first.parent(), path.parent());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_fails_closed_on_symlinked_temp_path() {
+        use std::os::unix::fs::symlink;
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old = true\n").unwrap();
+        let victim = dir.join("victim");
+        std::fs::write(&victim, "secret\n").unwrap();
+
+        // Simulate the attacker winning the race: an entry already exists at
+        // the temp path. O_EXCL must refuse to open it rather than following a
+        // symlink and truncating the target.
+        let tmp = dir.join("config.toml.planted.tmp");
+        symlink(&victim, &tmp).unwrap();
+        assert!(write_config_via(&path, &tmp, "new = true\n").is_err());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "secret\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old = true\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_nested_env_table_is_preserved_verbatim() {
+        // A nested table inside env/headers cannot be represented by the typed
+        // view; it must survive a save instead of being trimmed to its scalar
+        // siblings.
+        let existing = r#"
+[other]
+keep = 1
+
+[[mcp.servers]]
+name = "srv"
+command = "run"
+
+[mcp.servers.env]
+PLAIN = "1"
+NESTED = { sub = "x" }
+"#;
+        let view = parse_mcp_config(existing).unwrap();
+        assert!(view.servers[0].env.is_empty());
+        let out = serialize_mcp_config(existing, &view).unwrap();
+        let reparsed: toml_edit::DocumentMut = out.parse().unwrap();
+        let env = reparsed
+            .get("mcp")
+            .and_then(|m| m.get("servers"))
+            .and_then(|s| s.as_array_of_tables())
+            .and_then(|aot| aot.get(0))
+            .and_then(|t| t.get("env"))
+            .expect("env must survive the save");
+        assert_eq!(env.get("PLAIN").and_then(|v| v.as_str()), Some("1"));
+        let nested = env
+            .get("NESTED")
+            .expect("nested entry must survive the save");
+        let sub = if let Some(it) = nested.as_value().and_then(|v| v.as_inline_table()) {
+            it.get("sub").and_then(|v| v.as_str())
+        } else {
+            nested
+                .as_table()
+                .and_then(|t| t.get("sub"))
+                .and_then(|v| v.as_str())
+        };
+        assert_eq!(sub, Some("x"));
+    }
+
+    #[test]
+    fn test_nested_env_merges_with_user_added_entry() {
+        // The reader cannot represent a nested env value, so the panel starts
+        // from an empty map. Adding an entry must not delete the entries the
+        // panel never displayed.
+        let existing = r#"
+[[mcp.servers]]
+name = "srv"
+command = "run"
+
+[mcp.servers.env]
+PLAIN = "1"
+NESTED = { sub = "x" }
+"#;
+        let mut view = parse_mcp_config(existing).unwrap();
+        view.servers[0]
+            .env
+            .insert("ADDED".to_string(), "2".to_string());
+        let out = serialize_mcp_config(existing, &view).unwrap();
+        let reparsed: toml_edit::DocumentMut = out.parse().unwrap();
+        let env = reparsed
+            .get("mcp")
+            .and_then(|m| m.get("servers"))
+            .and_then(|s| s.as_array_of_tables())
+            .and_then(|aot| aot.get(0))
+            .and_then(|t| t.get("env"))
+            .expect("env must survive the save");
+        assert_eq!(
+            env.get("PLAIN").and_then(|v| v.as_str()),
+            Some("1"),
+            "an original scalar entry must not be dropped by an unrelated edit"
+        );
+        assert_eq!(env.get("ADDED").and_then(|v| v.as_str()), Some("2"));
+        assert!(
+            env.get("NESTED").is_some(),
+            "the nested entry must survive the save"
+        );
+    }
+
+    #[test]
+    fn test_merged_headers_keep_original_authorization() {
+        let existing = r#"
+[[mcp.servers]]
+name = "remote"
+url = "https://mcp.example.com"
+
+[mcp.servers.headers]
+Authorization = "Bearer secret"
+NESTED = { sub = "x" }
+"#;
+        let mut view = parse_mcp_config(existing).unwrap();
+        view.servers[0]
+            .headers
+            .insert("X-Added".to_string(), "1".to_string());
+        let out = serialize_mcp_config(existing, &view).unwrap();
+        let reparsed: toml_edit::DocumentMut = out.parse().unwrap();
+        let headers = reparsed
+            .get("mcp")
+            .and_then(|m| m.get("servers"))
+            .and_then(|s| s.as_array_of_tables())
+            .and_then(|aot| aot.get(0))
+            .and_then(|t| t.get("headers"))
+            .expect("headers must survive the save");
+        assert_eq!(
+            headers.get("Authorization").and_then(|v| v.as_str()),
+            Some("Bearer secret"),
+            "an edit must not delete the authorization header"
+        );
+        assert_eq!(headers.get("X-Added").and_then(|v| v.as_str()), Some("1"));
+    }
+
+    #[test]
+    fn test_discard_temp_file_removes_residue() {
+        let dir = unique_temp_dir();
+        let tmp = dir.join("config.toml.tmp");
+        std::fs::write(&tmp, "[mcp]\n").unwrap();
+        discard_temp_file(&tmp);
+        assert!(!tmp.exists(), "failed save must not leave the temp file");
+        // Idempotent: a missing file must not panic the cleanup path.
+        discard_temp_file(&tmp);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_replace_file_failure_leaves_destination_intact() {
+        let dir = unique_temp_dir();
+        let dest = dir.join("config.toml");
+        std::fs::create_dir(&dest).unwrap();
+        let marker = dest.join("keep-me");
+        std::fs::write(&marker, "still here\n").unwrap();
+        let tmp = dir.join("config.toml.tmp");
+        std::fs::write(&tmp, "new = true\n").unwrap();
+
+        assert!(replace_file(&tmp, &dest).is_err());
+        assert!(
+            marker.exists(),
+            "replace must not delete dest before succeeding"
+        );
+        assert!(
+            tmp.exists(),
+            "source must remain so the caller can decide cleanup"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_preserves_existing_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old = true\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        write_config_atomically(&path, "new = true\n").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        // OpenOptions::mode() is subject to the ambient umask on creation, so
+        // the exact resulting mode is `0o600 & !umask` and cannot be asserted
+        // exactly without reading the umask (not in std). The security-relevant
+        // property — no group/other access beyond the umask — is umask-proof.
+        assert_eq!(mode & 0o077, 0, "file must not gain group/other access");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_new_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_temp_dir();
+        let path = dir.join("config.toml");
+        write_config_atomically(&path, "new = true\n").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        // See note above: assert the umask-proof security property, not the
+        // exact 0o600 bits (the ambient umask masks them on creation).
+        assert_eq!(mode & 0o077, 0, "file must not gain group/other access");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
