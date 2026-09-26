@@ -115,6 +115,28 @@ def test_url_with_uppercase_host_matches_lowercase_allowlist():
     _validate_url_scheme("https://GitHub.com/user/repo")  # no raise
 
 
+def test_allowlist_enforced_from_worker_thread():
+    # The browser runs on a dedicated thread that does not inherit the caller's
+    # ContextVar context; the allowlist must still apply there (or the
+    # post-redirect / post-interaction checks silently no-op).
+    import threading
+
+    set_session_allow_hosts(["github.com"])
+    errors: list[ValueError] = []
+
+    def worker() -> None:
+        try:
+            _validate_url_scheme("https://urlquery.net/")
+        except ValueError as exc:
+            errors.append(exc)
+        _validate_url_scheme("https://github.com/ok")  # no raise
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join()
+    assert errors, "allowlist must be enforced outside the setting thread"
+
+
 def test_error_message_names_host_and_list():
     set_session_allow_hosts(["github.com"])
     with pytest.raises(

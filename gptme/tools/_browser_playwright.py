@@ -381,11 +381,14 @@ def read_logs() -> str:
 def _search_google(browser: Browser, query: str) -> str:
     query = urllib.parse.quote(query)
     url = f"https://www.google.com/search?q={query}&hl=en"
+    # Search hits a fixed host, but it is still web access: honour the allowlist.
+    _validate_url_scheme(url)
 
     managed = _create_page(browser, **get_context_options())
     page = managed.page
     try:
         page.goto(url)
+        _validate_url_scheme(page.url)
 
         els = _list_clickable_elements(page)
         for el in els:
@@ -410,11 +413,14 @@ def search_google(query: str) -> str:
 
 def _search_duckduckgo(browser: Browser, query: str) -> str:
     url = f"https://html.duckduckgo.com/html?q={query}"
+    # Search hits a fixed host, but it is still web access: honour the allowlist.
+    _validate_url_scheme(url)
 
     managed = _create_page(browser, **get_context_options())
     page = managed.page
     try:
         page.goto(url)
+        _validate_url_scheme(page.url)
         return _list_results_duckduckgo(page)
     finally:
         managed.close()
@@ -551,6 +557,8 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
         page.goto(
             url
         )  # waits for "load" state by default; networkidle can hang on SPAs/analytics
+        # A redirect can land outside the allowlist; reject the final URL.
+        _validate_url_scheme(page.url)
         snapshot = page.locator("body").aria_snapshot()
         if not snapshot:
             return "Error: Could not get accessibility snapshot for this page."
@@ -1155,6 +1163,8 @@ def _take_screenshot(
     page = managed.page
     try:
         page.goto(url)
+        # A redirect can land outside the allowlist; reject the final URL.
+        _validate_url_scheme(page.url)
         page.screenshot(path=path)
         return Path(path)
     finally:
