@@ -572,13 +572,32 @@ mod extra_items {
             return value_to_json(v);
         }
         if let Some(t) = item.as_table_like() {
-            let mut map = serde_json::Map::new();
-            for (k, v) in t.iter() {
-                map.insert(k.to_string(), item_to_json(v)?);
+            return Some(table_to_json(t));
+        }
+        // `Item::ArrayOfTables` (TOML's `[[mcp.servers.custom]]` form) is
+        // neither a `Value` nor table-like, so without this branch it would
+        // fall through to `None` and the key would be silently dropped at the
+        // IPC boundary. It travels as a JSON array of objects and returns as
+        // an inline array of tables — the values survive; only the syntactic
+        // form is normalized.
+        if let Some(aot) = item.as_array_of_tables() {
+            let mut out = Vec::new();
+            for t in aot.iter() {
+                out.push(table_to_json(t));
             }
-            return Some(serde_json::Value::Object(map));
+            return Some(serde_json::Value::Array(out));
         }
         None
+    }
+
+    fn table_to_json(t: &dyn toml_edit::TableLike) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        for (k, v) in t.iter() {
+            if let Some(v) = item_to_json(v) {
+                map.insert(k.to_string(), v);
+            }
+        }
+        serde_json::Value::Object(map)
     }
 
     fn value_to_json(v: &toml_edit::Value) -> Option<serde_json::Value> {
@@ -2287,6 +2306,43 @@ tags = ["a", "b"]
         assert!(updated.contains("transport = \"streamable\""));
         assert!(updated.contains("timeout = 30"));
         assert!(updated.contains("tags = [\"a\", \"b\"]"));
+    }
+
+    #[test]
+    fn test_mcp_config_unknown_array_of_tables_survives_ipc_round_trip() {
+        // An unknown key whose value is an array of tables (the
+        // `[[mcp.servers.custom]]` TOML form) must survive the IPC boundary
+        // too. `Item::ArrayOfTables` is neither a `Value` nor table-like, so
+        // the JSON bridge has to handle it explicitly or the key is dropped.
+        let original = r#"
+[[mcp.servers]]
+name = "x"
+enabled = true
+command = "cmd"
+
+[[mcp.servers.custom]]
+id = 1
+
+[[mcp.servers.custom]]
+id = 2
+"#;
+        let cfg = parse_mcp_config(original).unwrap();
+        assert!(cfg.servers[0].extra.iter().any(|(k, _)| k == "custom"));
+
+        // Simulate the IPC boundary with serde_json on the view.
+        let json = serde_json::to_value(&cfg).unwrap();
+        assert!(
+            json["servers"][0]["extra"]["custom"].is_array(),
+            "array-of-tables must appear in the IPC JSON under `extra`: {json}"
+        );
+        let round_tripped: MCPConfigView = serde_json::from_value(json).unwrap();
+
+        let updated = serialize_mcp_config(original, &round_tripped).unwrap();
+        assert!(updated.contains("custom"), "key dropped on save: {updated}");
+        assert!(
+            updated.contains("id = 1") && updated.contains("id = 2"),
+            "table contents dropped on save: {updated}"
+        );
     }
 
     #[test]
