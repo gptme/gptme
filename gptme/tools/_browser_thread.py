@@ -404,7 +404,11 @@ class BrowserThread:
         # the calling session reaches checks that execute on this worker
         # thread -- per session, not process-wide.
         ctx = contextvars.copy_context()
-        self.queue.put((Command(ctx.run, (func, *args), kwargs), cmd_id))
+
+        def run_in_context(browser: Any, *call_args: Any, **call_kwargs: Any) -> T:
+            return ctx.run(func, browser, *call_args, **call_kwargs)
+
+        self.queue.put((Command(run_in_context, args, kwargs), cmd_id))
 
         deadline = time.monotonic() + TIMEOUT
         while time.monotonic() < deadline:
