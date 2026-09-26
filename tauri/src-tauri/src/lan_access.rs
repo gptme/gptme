@@ -396,8 +396,10 @@ pub async fn disable_lan_access(
         }
     }
     match restart_result {
-        SidecarRebindResult::Ok => Ok(()),
-        SidecarRebindResult::FailedRecovered(e) | SidecarRebindResult::FailedNoBackend(e) => Err(e),
+        // Both outcomes mean the LAN server is gone and loopback is running;
+        // the disable goal was achieved even if the path was rocky.
+        SidecarRebindResult::Ok | SidecarRebindResult::FailedRecovered(_) => Ok(()),
+        SidecarRebindResult::FailedNoBackend(e) => Err(e),
     }
 }
 
