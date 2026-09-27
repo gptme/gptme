@@ -203,6 +203,27 @@ def _get_recent_tail(
     return tail
 
 
+def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None) -> str:
+    """Truncate text to approximately max_tokens, cutting at a line boundary."""
+    if max_tokens <= 0:
+        return ""
+    model_str = model or "gpt-4"
+    if len_tokens(text, model=model_str) <= max_tokens:
+        return text
+    # Binary-search the longest fitting prefix (keep it simple: linear per-char
+    # is too slow for large checkpoints; estimate then adjust).
+    ratio = max_tokens / max(1, len_tokens(text, model=model_str))
+    cut = int(len(text) * ratio)
+    candidate = text[:cut]
+    while candidate and len_tokens(candidate, model=model_str) > max_tokens:
+        candidate = candidate[: int(len(candidate) * 0.9)]
+    # Avoid cutting mid-line when possible
+    last_nl = candidate.rfind("\n")
+    if last_nl > 0:
+        candidate = candidate[:last_nl]
+    return candidate
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
@@ -399,12 +420,55 @@ only mentioned in passing.
         original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
     )
     m2 = get_default_model()
-    if m2 and recent_tail and isinstance(m2.context, int) and m2.context > 0:
+    if m2 and isinstance(m2.context, int) and m2.context > 0:
         budget = get_context_budget(m2.context, max_output=m2.max_output or 8192)
-        fixed_tokens = len_tokens(fixed_parts, model=m2.model)
+        model_str = m2.model
+
+        # If the fixed content alone exceeds the budget, shrink it: drop
+        # loaded context files (least essential) newest-last first. The
+        # system messages and the checkpoint are kept.
+        fixed_tokens = len_tokens(fixed_parts, model=model_str)
+        if fixed_tokens > budget:
+            essential = original_system_msgs + [resume_intro_msg, resume_msg]
+            essential_tokens = len_tokens(essential, model=model_str)
+            while file_context_msgs and essential_tokens > budget:
+                dropped = file_context_msgs.pop()
+                essential_tokens -= len_tokens([dropped], model=model_str)
+            if essential_tokens > budget:
+                # Even system messages + checkpoint alone are too large:
+                # truncate the checkpoint content to fit, keeping a notice.
+                overhead = len_tokens(
+                    original_system_msgs + [resume_intro_msg], model=model_str
+                )
+                room = max(0, budget - overhead)
+                resume_content_trunc = _truncate_to_tokens(
+                    resume_content, room, model=model_str
+                )
+                resume_msg = Message(
+                    "assistant",
+                    resume_content_trunc
+                    + ("\n\n[checkpoint truncated to fit context budget]"),
+                )
+                logger.warning(
+                    "Checkpoint + system messages exceed context budget "
+                    f"({essential_tokens} > {budget}); checkpoint truncated."
+                )
+            else:
+                dropped_count = len(loaded_files) - len(file_context_msgs)
+                logger.warning(
+                    "Context files exceed remaining budget; dropped "
+                    f"{dropped_count} of the loaded context files to fit."
+                )
+            fixed_parts = (
+                original_system_msgs
+                + file_context_msgs
+                + [resume_intro_msg, resume_msg]
+            )
+            fixed_tokens = len_tokens(fixed_parts, model=model_str)
+
         available = budget - fixed_tokens
-        if available < len_tokens(recent_tail, model=m2.model):
-            recent_tail = _get_recent_tail(msgs, max(0, available), model=m2.model)
+        if recent_tail and available < len_tokens(recent_tail, model=model_str):
+            recent_tail = _get_recent_tail(msgs, max(0, available), model=model_str)
 
     new_log = fixed_parts + recent_tail
 

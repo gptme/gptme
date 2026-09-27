@@ -3163,3 +3163,54 @@ def test_autocompact_hook_cooldown_not_set_on_early_exit(monkeypatch):
     assert conv_key not in _last_autocompact_attempt, (
         "Cooldown must not be set when action is 'none'"
     )
+
+
+def test_resume_via_llm_fixed_content_over_budget_fits(tmp_path, monkeypatch):
+    """When fixed content (checkpoint + system) alone exceeds the budget, the
+    compacted view is shrunk (files dropped, checkpoint truncated) so the new
+    log actually fits — instead of silently exceeding the budget."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.tokens import len_tokens
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    # Large checkpoint (~2000+ tokens) so fixed parts alone exceed the budget.
+    big_checkpoint = "## Objective\n" + ("lorem ipsum dolor sit amet " * 400)
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", big_checkpoint)
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    # Small-budget fake model: budget = min(0.9*3000, 3000-200-1000) = 1800.
+    fake_model = SimpleNamespace(
+        model="gpt-4", context=3000, max_output=200, full="gpt-4"
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+
+    budget = 1800
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    new_msgs = manager.log.messages
+    total = len_tokens(new_msgs, model="gpt-4")
+    assert total <= budget, (
+        f"Compacted view exceeds budget: {total} > {budget} ({len(new_msgs)} messages)"
+    )
+    # The checkpoint must still be present in truncated form
+    contents = [m.content for m in new_msgs]
+    assert any("Objective" in c for c in contents), "Checkpoint lost entirely"
+    assert any("truncated to fit context budget" in c for c in contents), (
+        "Truncation notice missing"
+    )
