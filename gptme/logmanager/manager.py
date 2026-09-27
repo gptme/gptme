@@ -1049,12 +1049,21 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
     and message flags via Message.concat().
 
     Exceptions: system messages with a call_id are structured tool results,
-    and the explicit prompt-cache boundary must remain a standalone message.
+    the explicit prompt-cache boundary must remain a standalone message, and
+    messages from different prompt generations must stay separate. Concat keeps
+    the first message's metadata, so merging generations would send stale +
+    current instructions under the earlier generation marker.
     Merging tool results would discard all but the first call_id, causing
     providers that use the Responses API (Codex/OpenAI) to return 400 "No tool
     output found for function call <id>" on the next multi-tool-call turn.
     """
     from ..prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
+
+    def _generation(msg: Message) -> str | None:
+        if not msg.metadata:
+            return None
+        value = msg.metadata.get("prompt_generation")
+        return value if isinstance(value, str) else None
 
     merged: list[Message] = []
     for msg in msgs:
@@ -1065,6 +1074,7 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
             and not merged[-1].call_id
             and msg.content != SYSTEM_PROMPT_CACHE_BOUNDARY
             and merged[-1].content != SYSTEM_PROMPT_CACHE_BOUNDARY
+            and _generation(merged[-1]) == _generation(msg)
         ):
             merged[-1] = merged[-1].concat(msg)
         else:
@@ -1153,19 +1163,23 @@ def prepare_messages(
     # model-facing content, they inflate the measured token count, and they can
     # break strict providers (e.g. a status message between a tool call and its
     # result). Filtering here is the single provider-visibility gate.
+    original_len = len(msgs)
     filtered = [m for m in msgs if not m.ui_only]
-    # Removing a ui_only message that was the only thing separating two
-    # same-role messages would create consecutive same-role turns strict
-    # providers reject — merge them, same as the ephemeral-prune path does.
-    msgs = (
-        _merge_consecutive_messages(filtered)
-        if len(filtered) != len(msgs)
-        else filtered
-    )
 
     # A runtime model/tool change appends a replacement generated prompt. Keep
     # the historical prompts on disk, but only send the newest generation.
-    msgs = _active_prompt_generation(msgs)
+    # Must run BEFORE merging consecutive same-role turns: a ui_only status
+    # between two generations would otherwise glue them together (concat keeps
+    # the earlier generation marker) and the provider would see stale + current
+    # instructions as one prompt.
+    msgs = _active_prompt_generation(filtered)
+
+    # Removing a ui_only message (or an obsolete generation) that was the only
+    # thing separating two same-role messages would create consecutive same-role
+    # turns strict providers reject — merge them, same as the ephemeral-prune
+    # path does.
+    if len(msgs) != original_len:
+        msgs = _merge_consecutive_messages(msgs)
 
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)

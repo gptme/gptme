@@ -21,6 +21,7 @@ from gptme.logmanager import (
 from gptme.logmanager.manager import (
     _active_prompt_generation,
     _merge_consecutive_messages,
+    prepare_messages,
 )
 from gptme.message import Message
 from gptme.tools import init_tools
@@ -761,6 +762,79 @@ def test_merge_consecutive_preserves_prompt_cache_boundary():
     ]
 
     assert _merge_consecutive_messages(msgs) == msgs
+
+
+def test_merge_consecutive_does_not_merge_distinct_prompt_generations():
+    """Concat keeps the first message's metadata, so gluing generations would
+    send stale + current instructions under the earlier generation marker."""
+    msgs = [
+        Message(
+            "system",
+            "old prompt",
+            pinned=True,
+            metadata={"prompt_generation": "one"},
+        ),
+        Message(
+            "system",
+            "new prompt",
+            pinned=True,
+            metadata={"prompt_generation": "two"},
+        ),
+    ]
+    result = _merge_consecutive_messages(msgs)
+    assert len(result) == 2
+    assert result[0].content == "old prompt"
+    assert result[1].content == "new prompt"
+
+
+def test_prepare_messages_selects_generation_before_merging_across_ui_only():
+    """A ui_only status between two prompt generations must not glue them.
+
+    Filter → merge → select-generation would concatenate both prompts while
+    keeping the older generation marker, so the provider would receive stale
+    instructions. Select the active generation first.
+    """
+    gen1 = Message(
+        "system",
+        "old prompt",
+        pinned=True,
+        hide=True,
+        metadata={"prompt_generation": "one"},
+    )
+    status = Message("system", "🔄 Auto-compacted conversation", ui_only=True)
+    gen2 = Message(
+        "system",
+        "new prompt",
+        pinned=True,
+        hide=True,
+        metadata={"prompt_generation": "two"},
+    )
+    user = Message("user", "hello")
+    assistant = Message("assistant", "hi")
+
+    prepared = prepare_messages([gen1, status, gen2, user, assistant])
+    contents = "\n".join(m.content for m in prepared)
+
+    assert "old prompt" not in contents
+    assert "new prompt" in contents
+    assert "Auto-compacted" not in contents
+    assert all(not m.ui_only for m in prepared)
+
+
+def test_prepare_messages_still_merges_same_role_turns_split_by_ui_only():
+    """Dropping a ui_only separator must not leave consecutive same-role turns."""
+    prepared = prepare_messages(
+        [
+            Message("user", "first"),
+            Message("system", "status", ui_only=True),
+            Message("user", "second"),
+            Message("assistant", "ok"),
+        ]
+    )
+    users = [m for m in prepared if m.role == "user"]
+    assert len(users) == 1
+    assert "first" in users[0].content
+    assert "second" in users[0].content
 
 
 def test_read_jsonl_unknown_field(tmp_path):

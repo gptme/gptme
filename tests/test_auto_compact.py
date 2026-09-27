@@ -2190,7 +2190,10 @@ def test_auto_compact_does_not_strip_reasoning_by_default():
         for i in range(8)
     ]
 
-    compacted = list(auto_compact_log(msgs))
+    # Force the compaction path. Without a low limit, 8 short messages sit
+    # under the default 80% context budget and early-return unchanged — the
+    # test would pass even if default stripping were still enabled.
+    compacted = list(auto_compact_log(msgs, limit=1))
 
     assert all("<think>" in m.content for m in compacted), (
         "Default compaction must not strip reasoning; pass "
@@ -2198,7 +2201,7 @@ def test_auto_compact_does_not_strip_reasoning_by_default():
     )
 
     # Opting in restores the old behavior.
-    opted_in = list(auto_compact_log(msgs, reasoning_strip_age_threshold=2))
+    opted_in = list(auto_compact_log(msgs, limit=1, reasoning_strip_age_threshold=2))
     assert any("<think>" not in m.content for m in opted_in)
 
 
