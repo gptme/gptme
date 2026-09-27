@@ -1151,6 +1151,8 @@ class GptmeApp(App):
         # lives in a ContextVar inside _chat_ctx, which the UI thread
         # cannot enter while a worker is running
         self._model: ModelMeta | None = None
+        # set by /restart; main() re-execs gptme-tui after the app exits
+        self.restart_requested = False
 
     # ------------------------------------------------------------------ UI
 
@@ -1512,6 +1514,13 @@ class GptmeApp(App):
                 "Commands can't run while the agent is working; retry when idle."
             )
             return
+        if cmd == "restart":
+            # The shared command prompts on stdin and execs in place, which
+            # can't work under Textual: exit cleanly, main() re-execs.
+            self.manager.write(sync=True)
+            self.restart_requested = True
+            self.exit()
+            return
 
         msg = Message("user", text, quiet=True)
         before = self.manager.log.messages
@@ -1536,7 +1545,13 @@ class GptmeApp(App):
         except SystemExit:  # /exit
             self.exit()
             return
-        except EOFError:
+        except (EOFError, RuntimeError) as e:
+            # prompt_toolkit prompts call asyncio.run(), which fails inside
+            # Textual's running loop; other RuntimeErrors are real failures
+            if isinstance(e, RuntimeError) and "event loop" not in str(e):
+                logger.exception("Command failed")
+                self._show_info(f"Command failed: {e}", error=True)
+                return
             self._show_info(
                 f"/{cmd} needs interactive input, which the TUI doesn't "
                 f"support; pass arguments directly (e.g. /{cmd} <args>) or "

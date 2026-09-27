@@ -195,6 +195,13 @@ def main(
         app.run(inline=True, inline_no_clear=True, mouse=False)
     else:
         app.run()
+    if app.restart_requested:
+        from ..tools.restart import _do_restart
+
+        # the app has exited and restored the terminal; re-exec in place,
+        # resuming this conversation with the same flags
+        print(f"Restarting gptme-tui with conversation: {logdir.name}")
+        _do_restart(logdir.name)
     print(f"Conversation saved: {logdir.name}")
     print(f"Resume with: gptme-tui -n {logdir.name}  (or gptme -r in the CLI)")
     sys.exit(0)

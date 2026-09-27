@@ -1463,3 +1463,16 @@ async def test_confirm_help_precedes_preview(tmp_path):
         dialog = app.screen.query_one("#confirm-dialog")
         ids = [child.id for child in dialog.children]
         assert ids.index("confirm-help") < ids.index("confirm-preview")
+
+
+@pytest.mark.asyncio
+async def test_restart_command_exits_for_reexec(tmp_path):
+    """/restart can't prompt or exec under Textual: exit and let main() re-exec."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/restart"
+        await pilot.press("enter")
+        await pilot.pause()
+    assert app.restart_requested
