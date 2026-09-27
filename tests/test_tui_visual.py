@@ -161,6 +161,12 @@ def snapshot_update(request):
     return request.config.getoption("--snapshot-update", default=False)
 
 
+@pytest.fixture(autouse=True)
+def no_default_model(monkeypatch):
+    """Keep the status bar independent of the local model config."""
+    monkeypatch.setattr("gptme.tui.app.get_default_model", lambda: None)
+
+
 # ── tests ─────────────────────────────────────────────────────────────────────
 
 
