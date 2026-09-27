@@ -83,10 +83,15 @@ fn build_connect_url(base_url: &str, token: &str) -> String {
 
 // ── platform-specific helpers ──────────────────────────────────────────────
 
-/// Detect the primary LAN IPv4 address of this machine.
+/// Detect the primary LAN IP address of this machine.
 #[cfg(desktop)]
 fn detect_lan_ip() -> Option<String> {
-    local_ip_address::local_ip().ok().map(|ip| ip.to_string())
+    local_ip_address::local_ip().ok().map(|ip| match ip {
+        // IPv6 literals must be bracketed in URLs: `http://fe80::1:5700`
+        // is ambiguous/malformed, `http://[fe80::1]:5700` is not.
+        std::net::IpAddr::V6(v6) => format!("[{v6}]"),
+        std::net::IpAddr::V4(v4) => v4.to_string(),
+    })
 }
 
 /// Render an SVG QR code for `url`.
@@ -198,12 +203,20 @@ async fn restart_sidecar_with_lan(
         Ok(g) => match g.clone() {
             Some(h) => h,
             None => {
+                // The child handle was already taken (and the old sidecar
+                // killed, best-effort) — do not return with a possibly-live
+                // untracked server on the port. Best-effort clear it so the
+                // slot/owns_port loss cannot leak a running process.
+                log::warn!("App handle not initialized during LAN rebind; force-clearing port");
+                crate::kill_server_on_port(crate::server_port(), Some(&server.token));
                 return SidecarRebindResult::FailedNoBackend(
                     "App handle not initialized".to_string(),
                 );
             }
         },
         Err(e) => {
+            log::warn!("App handle lock poisoned during LAN rebind; force-clearing port");
+            crate::kill_server_on_port(crate::server_port(), Some(&server.token));
             return SidecarRebindResult::FailedNoBackend(format!("Lock error: {e}"));
         }
     };
