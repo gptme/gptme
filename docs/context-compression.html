@@ -580,8 +580,9 @@ document.write(`
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuring-the-context-budget">Configuring the Context Budget</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-compression-strategy">Built-in Compression Strategy</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-the-default-compressor">Using the Default Compressor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-compaction">Using Compaction</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-compression-providers-plugin-interface">Custom Compression Providers (Plugin Interface)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-a-custom-provider">Implementing a Custom Provider</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-interface">Provider Interface</a><ul class="visible nav section-nav flex-column">
@@ -668,11 +669,28 @@ document.write(`
 <p>gptme provides a pluggable context compression system that allows conversations to be compacted when they grow too large. This enables long-running sessions while keeping context windows manageable.</p>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>The context compression system has two main components:</p>
+<p>The context compression system has one unified pipeline:</p>
 <ol class="arabic simple">
-<li><p><strong>Automatic Compaction</strong> - Triggered when conversations exceed token limits or contain massive tool results</p></li>
+<li><p><strong>Context Budget</strong> - A configurable token threshold at which compaction is triggered (distinct from the provider window)</p></li>
+<li><p><strong>Automatic Compaction</strong> - Triggered after each turn when the log approaches the budget; also retried once on provider context-length overflow</p></li>
 <li><p><strong>Plugin Interface</strong> - Allows third-party packages to provide custom compression strategies</p></li>
 </ol>
+<p>The budget defaults to <code class="docutils literal notranslate"><span class="pre">min(0.9</span> <span class="pre">×</span> <span class="pre">window,</span> <span class="pre">window</span> <span class="pre">−</span> <span class="pre">max_output</span> <span class="pre">−</span> <span class="pre">headroom)</span></code>.
+For a 200k-window model with 64k maximum output this is 135k; for a 1M-window
+model with an 8k maximum output it is 900k. Explicit budgets are clamped to the
+same output/headroom ceiling so they cannot make provider requests overflow.</p>
+</section>
+<section id="configuring-the-context-budget">
+<h2>Configuring the Context Budget<a class="headerlink" href="#configuring-the-context-budget" title="Link to this heading">#</a></h2>
+<p>The budget can be set at multiple levels (first match wins):</p>
+<ul class="simple">
+<li><p><strong>Environment variable</strong>: <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET=0.85</span></code> (fraction) or <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET=300000</span></code> (absolute tokens)</p></li>
+<li><p><strong>Project config</strong>: <code class="docutils literal notranslate"><span class="pre">[context]</span> <span class="pre">budget</span> <span class="pre">=</span> <span class="pre">0.85</span></code> or <code class="docutils literal notranslate"><span class="pre">budget</span> <span class="pre">=</span> <span class="pre">300000</span></code> in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
+<li><p><strong>User config</strong>: the same <code class="docutils literal notranslate"><span class="pre">[context]</span></code> section in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>
+(project config overrides user config)</p></li>
+<li><p><strong>Default</strong>: <code class="docutils literal notranslate"><span class="pre">min(0.9</span> <span class="pre">×</span> <span class="pre">window,</span> <span class="pre">window</span> <span class="pre">−</span> <span class="pre">max_output</span> <span class="pre">−</span> <span class="pre">headroom)</span></code></p></li>
+</ul>
+<p>Note: <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_LENGTH</span></code> overrides the <em>provider window</em> for local models; <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET</span></code> controls when compaction fires.</p>
 </section>
 <section id="built-in-compression-strategy">
 <h2>Built-in Compression Strategy<a class="headerlink" href="#built-in-compression-strategy" title="Link to this heading">#</a></h2>
@@ -684,10 +702,14 @@ document.write(`
 </ol>
 <p>This approach intelligently prioritizes the largest messages for removal to achieve target reduction with minimal information loss.</p>
 </section>
-<section id="using-the-default-compressor">
-<h2>Using the Default Compressor<a class="headerlink" href="#using-the-default-compressor" title="Link to this heading">#</a></h2>
-<p>When you enable the <code class="docutils literal notranslate"><span class="pre">autocompact</span></code> tool, automatic compression is triggered via a post-turn hook:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tool<span class="w"> </span>autocompact
+<section id="using-compaction">
+<h2>Using Compaction<a class="headerlink" href="#using-compaction" title="Link to this heading">#</a></h2>
+<p>Compaction is <strong>enabled by default</strong> — the post-turn hook runs after every turn without needing <code class="docutils literal notranslate"><span class="pre">--tool</span> <span class="pre">autocompact</span></code>. You can also trigger it manually:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Compaction fires automatically; no extra flag needed</span>
+gptme
+
+<span class="c1"># Still works as an explicit opt-in (no change in behavior)</span>
+gptme<span class="w"> </span>--tool<span class="w"> </span>autocompact
 </pre></div>
 </div>
 <p>You can also manually compact a conversation:</p>
@@ -1206,8 +1228,9 @@ Invalidated when the source log is mutated after compaction.</p>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuring-the-context-budget">Configuring the Context Budget</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-compression-strategy">Built-in Compression Strategy</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-the-default-compressor">Using the Default Compressor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-compaction">Using Compaction</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-compression-providers-plugin-interface">Custom Compression Providers (Plugin Interface)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-a-custom-provider">Implementing a Custom Provider</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-interface">Provider Interface</a><ul class="visible nav section-nav flex-column">
