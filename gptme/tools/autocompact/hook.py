@@ -277,9 +277,10 @@ def autocompact_hook(
                 current_time,
                 _effective_message_count(manager.log.messages),
             )
-            # A successful trim is a successful compaction: allow the summarize
-            # path to be retried once the conversation regrows over budget.
-            _failed_summarize.pop(conv_key, None)
+            # The latch deliberately survives a successful trim: an ineffective
+            # trim that leaves the conversation over budget must not reset the
+            # growth clock, or summarize retries (and fails) every 20 messages.
+            # The latch still lifts on growth >= _FAILURE_RETRY_GROWTH_MESSAGES.
 
             # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
             # (e.g., attention-router can batch-apply decay and re-evaluate tiers)

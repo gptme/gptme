@@ -2526,3 +2526,57 @@ def test_estimate_excludes_think_bearing_assistant_messages():
         "Think-bearing assistant messages are skipped by the engine and must not "
         "count toward estimated compression savings"
     )
+
+
+def test_failed_summarize_latch_survives_ineffective_trim(monkeypatch):
+    """A trim while latched must not clear the latch and reset the growth clock.
+
+    Otherwise an ineffective trim (still over budget) lets summarize retry and
+    fail again every 20 messages, creating repeated expensive attempts and
+    throwaway views.
+    """
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.context_provider import CompactionResult
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [Message("user", f"m{i}") for i in range(5)]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-latch-trim-survives"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.current_view = "main"
+
+    mock_provider = MagicMock()
+    mock_provider.compress.side_effect = lambda messages, config: CompactionResult(
+        messages=list(messages),  # trim achieves nothing
+        source_digest=hashlib.sha256(b"test").hexdigest(),
+        covered_through=len(messages) - 1,
+    )
+
+    conv_key = ("/tmp/conv-latch-trim-survives", "master")
+    hook_module._failed_summarize[conv_key] = 0
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        list(hook_module.autocompact_hook(manager))
+
+    assert mock_provider.compress.called, "Latched summarize must trim"
+    assert conv_key in hook_module._failed_summarize, (
+        "An ineffective trim must not clear the failure latch"
+    )
