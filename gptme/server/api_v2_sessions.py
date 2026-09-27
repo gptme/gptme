@@ -195,14 +195,22 @@ def api_conversation_events(conversation_id: str):
             {"error": f"Conversation not found: {conversation_id}"}
         ), 404
     session_id = request.args.get("session_id")
-    if not session_id:
-        # Create a new session if none provided
+    session_obj = SessionManager.get_session(session_id) if session_id else None
+    if session_obj is None:
+        # Create a new session if none was provided, or if the requested one is
+        # gone (server restart, eviction). Sessions are in-memory, so a client
+        # resuming after a restart always holds a stale ID; answering 404 made
+        # every reconnect fail until the client gave up. The fresh session ID is
+        # returned in the `connected` event, which the client adopts.
+        if session_id:
+            logger.info(
+                "Session %s not found for conversation %s, creating a new one",
+                session_id,
+                conversation_id,
+            )
         session = SessionManager.create_session(conversation_id)
         session_id = session.id
     else:
-        session_obj = SessionManager.get_session(session_id)
-        if session_obj is None:
-            return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
         if session_obj.conversation_id != conversation_id:
             return flask.jsonify(
                 {

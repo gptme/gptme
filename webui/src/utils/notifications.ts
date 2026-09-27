@@ -71,11 +71,11 @@ async function showTauriNotification(
         ...(options?.icon ? { icon: options.icon } : {}),
       },
     });
-    // Record the native grant only after the notification actually went out,
-    // so a failed invoke leaves the module state 'default' and the browser-API
-    // fallback below runs its own permission request. Denial is deliberately
-    // NOT recorded: the browser-API fallback still gets its own chance.
-    notificationPermission = 'granted';
+    // Deliberately do not touch `notificationPermission`: it tracks the
+    // *browser* Notification permission, a separate domain from the native
+    // grant. Recording the native grant there would let a later native failure
+    // fall through to `new Notification()` without the browser permission
+    // request ever running.
     console.log('Tauri native notification shown:', title);
     return true;
   } catch (error) {

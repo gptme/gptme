@@ -46,3 +46,32 @@ describe('showNotification — Tauri native path', () => {
     });
   });
 });
+
+describe('showNotification — native grant does not leak into the browser path', () => {
+  it('still requests browser permission when a later native call fails', async () => {
+    const requestPermission = jest.fn(async () => 'denied' as NotificationPermission);
+    const NotificationCtor = jest.fn();
+    Object.assign(NotificationCtor, { permission: 'default', requestPermission });
+    Object.defineProperty(window, 'Notification', {
+      value: NotificationCtor,
+      configurable: true,
+      writable: true,
+    });
+    mockIsTauriEnvironment.mockReturnValue(true);
+
+    // 1st call: native path succeeds.
+    mockInvokeTauri.mockReset();
+    mockInvokeTauri.mockResolvedValue(true);
+    await showNotification('First');
+    expect(NotificationCtor).not.toHaveBeenCalled();
+
+    // 2nd call: native path throws → falls back to the browser API, which must
+    // ask for its own permission rather than assume the native grant covers it.
+    mockInvokeTauri.mockReset();
+    mockInvokeTauri.mockRejectedValue(new Error('plugin unavailable'));
+    await showNotification('Second');
+
+    expect(requestPermission).toHaveBeenCalled();
+    expect(NotificationCtor).not.toHaveBeenCalled();
+  });
+});

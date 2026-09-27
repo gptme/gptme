@@ -2400,12 +2400,26 @@ class TestElicitRespondEndpoint:
 class TestEventsEndpoint:
     """Test GET /api/v2/conversations/<id>/events validation."""
 
-    def test_invalid_session_id_returns_404(self, conv, client: FlaskClient):
-        """Events with nonexistent session_id returns 404."""
+    def test_stale_session_id_creates_new_session(self, conv, client: FlaskClient):
+        """A stale session_id (e.g. after a server restart) gets a fresh session.
+
+        Returning 404 here made every client reconnect fail until it gave up,
+        since sessions are in-memory and a restart invalidates all of them.
+        """
+        from gptme.server.api_v2_sessions import SessionManager
+
         response = client.get(
-            f"/api/v2/conversations/{conv['conversation_id']}/events?session_id=nonexistent"
+            f"/api/v2/conversations/{conv['conversation_id']}/events?session_id=nonexistent",
+            buffered=False,
         )
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.content_type.startswith("text/event-stream")
+        first = next(response.response)
+        response.close()
+        event = json.loads(first.decode().removeprefix("data: ").strip())
+        assert event["type"] == "connected"
+        assert event["session_id"] != "nonexistent"
+        assert SessionManager.get_session(event["session_id"]) is not None
 
     def test_no_session_id_creates_session(self, conv, client: FlaskClient):
         """Events without session_id creates a new session and streams."""
