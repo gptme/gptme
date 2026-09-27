@@ -104,6 +104,7 @@ def _summarize(content: str, maxlen: int = 80) -> str:
 
 
 _THINK_RE = re.compile(r"<think(?:ing)?>(.*?)</think(?:ing)?>", re.DOTALL)
+_THINK_OPEN_RE = re.compile(r"<think(?:ing)?>")
 _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
 # Matches the `tool` format: @tool_name(call_id): {...json...}. Calls end at
@@ -125,7 +126,10 @@ def _split_thinking(content: str) -> list[tuple[bool, str]]:
     """Split message content into (is_thinking, text) segments.
 
     Detects <think>/<thinking> blocks and separates them from normal content
-    so the TUI can render them in collapsible sections.
+    so the TUI can render them in collapsible sections. An unclosed trailing
+    block (interrupted or malformed output) is treated as thinking too, matching
+    ``_strip_thinking`` — otherwise hidden mode would print the reasoning as
+    ordinary content.
     """
     segments: list[tuple[bool, str]] = []
     last_end = 0
@@ -138,12 +142,16 @@ def _split_thinking(content: str) -> list[tuple[bool, str]]:
             segments.append((True, inner))
         last_end = m.end()
     tail = content[last_end:]
-    if tail.strip():
+    if open_m := _THINK_OPEN_RE.search(tail):
+        before = tail[: open_m.start()]
+        if before.strip():
+            segments.append((False, before))
+        inner = _THINK_SIG_RE.sub("", tail[open_m.end() :]).strip()
+        if inner:
+            segments.append((True, inner))
+    elif tail.strip():
         segments.append((False, tail))
     return segments
-
-
-_THINK_OPEN_RE = re.compile(r"<think(?:ing)?>")
 
 
 def _strip_thinking(text: str) -> str:

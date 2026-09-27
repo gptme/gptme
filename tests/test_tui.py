@@ -920,6 +920,26 @@ def test_split_thinking_only_block():
     assert "inner" in result[0][1]
 
 
+def test_split_thinking_unclosed_block():
+    """An interrupted response ending inside <think> is still thinking.
+
+    Hidden mode uses this split for completed inline output; treating the
+    unclosed tail as ordinary content would leak the reasoning.
+    """
+    result = _split_thinking("<think>\nsecret plan")
+    assert result == [(True, "secret plan")]
+
+    result = _split_thinking("visible\n<thinking>\npartial")
+    assert any(not is_think and "visible" in text for is_think, text in result)
+    assert any(is_think and "partial" in text for is_think, text in result)
+    assert all("partial" not in text or is_think for is_think, text in result)
+
+    result = _split_thinking("<think>a</think>\nkeep\n<think>\nopen")
+    assert any(is_think and "a" in text for is_think, text in result)
+    assert any(not is_think and "keep" in text for is_think, text in result)
+    assert any(is_think and "open" in text for is_think, text in result)
+
+
 @pytest.mark.asyncio
 async def test_assistant_message_renders_thinking_as_collapsible(tmp_path):
     """AssistantMessage with <think> block renders a Collapsible for the thinking."""
@@ -1365,6 +1385,17 @@ def test_renderables_for_message_hides_thinking():
         "thinking panel should be replaced by a stub"
     )
     assert any("2 lines hidden" in str(r) for r in hidden if isinstance(r, Text))
+    shown = renderables_for_message(msg, show_thinking=True)
+    assert any(isinstance(r, Panel) and r.title == "Thinking" for r in shown)
+
+
+def test_renderables_for_message_hides_unclosed_thinking():
+    """Interrupted <think> must not leak as ordinary markdown when hidden."""
+    msg = Message("assistant", "<think>\nsecret plan")
+    hidden = renderables_for_message(msg, show_thinking=False)
+    blobs = " ".join(str(r) for r in hidden)
+    assert "secret plan" not in blobs
+    assert any("hidden" in str(r) for r in hidden if isinstance(r, Text))
     shown = renderables_for_message(msg, show_thinking=True)
     assert any(isinstance(r, Panel) and r.title == "Thinking" for r in shown)
 
