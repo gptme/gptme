@@ -23,7 +23,14 @@ from typing import TYPE_CHECKING, Literal
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
 from ...prompt_queue import drain_steer_prompts
-from .. import clear_tools, get_available_tools, get_tools, load_tool, set_tools
+from .. import (
+    clear_tools,
+    get_available_tools,
+    get_session_allowlist,
+    get_tools,
+    load_tool,
+    set_tools,
+)
 from .._allowlist import (
     is_hint_pattern,
     matching_allowlist_tools,
@@ -82,21 +89,31 @@ def _resolve_profile_tools(
     """Resolve the final toolset for a profile-restricted subagent.
 
     A profile allowlist restricts the toolset, but it may also name tools that
-    are disabled by default (e.g. ``read``). The profile is an explicit opt-in,
-    so load those tools before filtering: without this, a disabled-by-default
-    tool named by the profile is absent from ``get_tools()``, so it is reported
-    as "unknown" and dropped from the allowed set — silently stripping file
-    reads from the built-in explorer/verifier/researcher profiles.
+    are disabled by default (e.g. ``read``). Load those tools before filtering:
+    without this, a disabled-by-default tool named by the profile is absent
+    from ``get_tools()``, so it is reported as "unknown" and dropped from the
+    allowed set — silently stripping file reads from the built-in
+    explorer/verifier/researcher profiles.
+
+    Matching mirrors ``get_toolchain`` so name globs and ``hint:`` patterns
+    work too (e.g. ``hint:read-only`` or ``*.read``). The operator's session
+    allowlist stays authoritative: a profile can restrict further, never grant
+    a capability the operator excluded.
     """
+    session_allowlist = get_session_allowlist()
     loaded_names = {tool.name for tool in get_tools()}
-    available_names = {tool.name for tool in get_available_tools()}
-    for pattern in tool_allowlist:
-        if is_hint_pattern(pattern):
+    for tool in get_available_tools():
+        if not tool.disabled_by_default or tool.name in loaded_names:
             continue
-        if pattern in loaded_names or pattern not in available_names:
+        if not tool_matches_allowlist(tool.name, tool_allowlist, tool.hints):
+            continue
+        if session_allowlist is not None and not tool_matches_allowlist(
+            tool.name, session_allowlist, tool.hints
+        ):
+            # Profile would re-grant a tool the operator's allowlist excluded.
             continue
         try:
-            load_tool(pattern, allow_required=True)
+            load_tool(tool.name)
         except ValueError:
             # Already loaded or otherwise unavailable — the filter below decides.
             pass
@@ -328,10 +345,10 @@ def _create_subagent_thread(
     if tool_allowlist is not None:
         # Hard enforcement: replace loaded tools so execute_msg() only sees
         # allowed tools (plus the signal tools needed to end/ask cleanly).
-        set_tools(
-            _resolve_profile_tools(tool_allowlist, profile.name if profile else None)
+        available_tools = _resolve_profile_tools(
+            tool_allowlist, profile.name if profile else None
         )
-        available_tools = get_tools()
+        set_tools(available_tools)
     else:
         available_tools = get_tools()
 

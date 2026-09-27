@@ -7574,3 +7574,46 @@ class TestProfileToolResolution:
             names = {t.name for t in _resolve_profile_tools(["not_a_real_tool"], "x")}
         assert "not_a_real_tool" not in names
         assert "references unknown tools" in caplog.text
+
+    def test_profile_glob_loads_disabled_by_default_tool(self):
+        """Glob and hint patterns must load disabled-by-default tools too.
+
+        Regression (Greptile P1): only exact tool names were loaded, so a
+        read-only profile expressed as ``hint:read-only`` or a name glob lost
+        ``read`` because it was never loaded before filtering.
+        """
+        from gptme.tools import clear_tools, get_tools
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        for pattern in ("hint:read-only", "r*"):
+            clear_tools()
+            self._setup_base_tools()
+            assert "read" not in {t.name for t in get_tools()}
+            _ensure_subagent_signal_tools_loaded()
+            names = {
+                t.name
+                for t in _resolve_profile_tools([pattern, "complete", "clarify"], "x")
+            }
+            assert "read" in names, f"pattern {pattern!r} did not load read"
+
+    def test_session_allowlist_not_overridden_by_profile(self):
+        """The operator's session allowlist stays authoritative over a profile.
+
+        Regression (Greptile P1): ``allow_required=True`` bypassed the session
+        allowlist, letting a profile re-grant a capability the operator excluded
+        (e.g. an explorer subagent regaining ``read`` under TOOL_ALLOWLIST=shell).
+        """
+        from gptme.tools import init_tools
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        init_tools(allowlist=["shell"])
+        _ensure_subagent_signal_tools_loaded()
+        names = {t.name for t in _resolve_profile_tools(["read", "shell"], "explorer")}
+        assert "read" not in names, "profile re-granted an operator-excluded tool"
+        assert "shell" in names
