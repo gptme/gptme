@@ -656,7 +656,10 @@ class ChatConfig(BaseModel):
     )
     context_budget: float | int | None = Field(
         None,
-        description="Compaction threshold as a window fraction (0<x≤1) or absolute tokens (>1)",
+        description=(
+            "Compaction threshold as a window fraction (0<x≤1) or absolute tokens "
+            "(integer >1; fractional values above 1 are rejected)"
+        ),
         gt=0,
     )
     temperature: float | None = Field(

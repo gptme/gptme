@@ -153,7 +153,11 @@ def _find_closest_model_properties(
             logger.debug(
                 f"Using closest match {best[0]} for unknown model {model_name}"
             )
-            return best[1]
+            # The context_budget opt-out was validated only for the exact listed
+            # model identity; unlisted models must not inherit it.
+            family_props = cast("_ModelDictMeta", dict(best[1]))
+            family_props.pop("context_budget", None)
+            return family_props
 
     # Fall back to the recommended model's properties for this provider
     try:
@@ -166,7 +170,11 @@ def _find_closest_model_properties(
             logger.debug(
                 f"Using recommended model {rec_name} as fallback for {model_name}"
             )
-            return provider_models[rec_name_bare]
+            recommended_props = cast(
+                "_ModelDictMeta", dict(provider_models[rec_name_bare])
+            )
+            recommended_props.pop("context_budget", None)
+            return recommended_props
     except ValueError:
         pass
 
