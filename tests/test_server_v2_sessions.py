@@ -2414,7 +2414,7 @@ class TestEventsEndpoint:
         )
         assert response.status_code == 200
         assert response.content_type.startswith("text/event-stream")
-        first = next(response.response)
+        first = next(response.iter_encoded())
         response.close()
         event = json.loads(first.decode().removeprefix("data: ").strip())
         assert event["type"] == "connected"
