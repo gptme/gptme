@@ -216,18 +216,14 @@ def _get_recent_tail(
     return tail
 
 
-def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None) -> str:
-    """Truncate text to approximately max_tokens, cutting at a line boundary."""
-    if max_tokens <= 0:
-        return ""
-    model_str = model or "gpt-4"
-    if len_tokens(text, model=model_str) <= max_tokens:
-        return text
-    # Binary-search the longest fitting prefix (keep it simple: linear per-char
-    # is too slow for large checkpoints; estimate then adjust).
+_TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"
+
+
+def _fit_prefix(text: str, max_tokens: int, model_str: str) -> str:
+    """Longest fitting prefix, cut at a line boundary when possible."""
+    # Estimate then adjust (linear per-char is too slow for large checkpoints).
     ratio = max_tokens / max(1, len_tokens(text, model=model_str))
-    cut = int(len(text) * ratio)
-    candidate = text[:cut]
+    candidate = text[: int(len(text) * ratio)]
     while candidate and len_tokens(candidate, model=model_str) > max_tokens:
         candidate = candidate[: int(len(candidate) * 0.9)]
     # Avoid cutting mid-line when possible
@@ -235,6 +231,50 @@ def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None)
     if last_nl > 0:
         candidate = candidate[:last_nl]
     return candidate
+
+
+def _fit_suffix(text: str, max_tokens: int, model_str: str) -> str:
+    """Longest fitting suffix, cut at a line boundary when possible."""
+    ratio = max_tokens / max(1, len_tokens(text, model=model_str))
+    cut = len(text) - int(len(text) * ratio)
+    candidate = text[cut:]
+    while candidate and len_tokens(candidate, model=model_str) > max_tokens:
+        candidate = candidate[int(len(candidate) * 0.1) :]
+    first_nl = candidate.find("\n")
+    if 0 <= first_nl < len(candidate) - 1:
+        candidate = candidate[first_nl + 1 :]
+    return candidate
+
+
+def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None) -> str:
+    """Truncate text to approximately max_tokens, keeping head and tail.
+
+    The tail (up to ~30% of the budget) is preserved so trailing checkpoint
+    sections such as "Open Items" and "Context Files" survive truncation
+    instead of being cut off when the beginning alone is kept.
+    """
+    if max_tokens <= 0:
+        return ""
+    model_str = model or "gpt-4"
+    total = len_tokens(text, model=model_str)
+    if total <= max_tokens:
+        return text
+
+    tail_budget = int(max_tokens * 0.3)
+    # Only bother preserving a tail when the middle is meaningfully large;
+    # a barely-over budget is fine with a plain prefix cut.
+    if tail_budget <= 0 or total < max_tokens + 2 * tail_budget:
+        return _fit_prefix(text, max_tokens, model_str)
+
+    tail = _fit_suffix(text, tail_budget, model_str)
+    tail_tokens = len_tokens(tail, model=model_str) if tail else 0
+    head_budget = (
+        max_tokens - tail_tokens - len_tokens(_TRUNCATION_MARK, model=model_str)
+    )
+    if head_budget <= 0:
+        return tail
+    head = _fit_prefix(text, head_budget, model_str)
+    return head + _TRUNCATION_MARK + tail
 
 
 def _resume_via_llm(
@@ -419,11 +459,13 @@ only mentioned in passing.
 
     # Phase 2: keep_recent — include the last N tokens of actual conversation
     # verbatim after the checkpoint so the model has immediate context.
-    m = get_default_model()
+    # One model lookup for both the tail tokenization and the budget guard so
+    # they always use the same tokenizer and context window.
+    model_meta = get_default_model()
     recent_tail = _get_recent_tail(
         msgs,
         keep_recent_tokens,
-        model=m.model if m else None,
+        model=model_meta.model if model_meta else None,
     )
 
     # Budget guard: if fixed parts + recent_tail exceeds the model's context
@@ -432,10 +474,11 @@ only mentioned in passing.
     fixed_parts = (
         original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
     )
-    m2 = get_default_model()
-    if m2 and isinstance(m2.context, int) and m2.context > 0:
-        budget = get_context_budget(m2.context, max_output=m2.max_output or 8192)
-        model_str = m2.model
+    if model_meta and isinstance(model_meta.context, int) and model_meta.context > 0:
+        budget = get_context_budget(
+            model_meta.context, max_output=model_meta.max_output or 8192
+        )
+        model_str = model_meta.model
 
         # If the fixed content alone exceeds the budget, shrink it: drop
         # loaded context files (least essential) newest-last first. The

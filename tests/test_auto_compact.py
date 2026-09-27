@@ -3216,24 +3216,48 @@ def test_resume_via_llm_fixed_content_over_budget_fits(tmp_path, monkeypatch):
     )
 
 
+def test_truncate_to_tokens_preserves_tail_sections():
+    """Truncation must keep the checkpoint's tail (Open Items, Context Files),
+    not only its beginning — otherwise the agent loses its remaining work."""
+    from gptme.tools.autocompact.resume import _truncate_to_tokens
+    from gptme.util.tokens import len_tokens
+
+    head = "## Objective\nfix the thing\n\n" + ("filler line of text here\n" * 200)
+    tail = "## Open Items\n- pending item xyz\n\n## Context Files\n- src/main.py"
+    text = head + tail
+
+    out = _truncate_to_tokens(text, 80, model="gpt-4")
+    assert "Open Items" in out, "Open Items section lost to truncation"
+    assert "pending item xyz" in out, "tail content lost to truncation"
+    assert "Context Files" in out, "Context Files section lost to truncation"
+    # Truncation mark marks the elided middle.
+    assert "middle truncated" in out
+    # And the result actually fits the budget (with slack for the mark/lines).
+    assert len_tokens(out, model="gpt-4") <= 90
+
+
 def test_get_recent_tail_drops_trailing_unmatched_tool_call():
     """A tail ending on an assistant tool-call whose result never arrived
     (mid-turn) must not keep the unmatched tool call."""
     from gptme.tools import ToolUse
     from gptme.tools.autocompact.resume import _get_recent_tail
 
+    # End the conversation with the assistant tool call itself (result never
+    # arrives) so the trailing-unmatched-tool-call branch is actually reached.
     msgs = [
         Message("system", "system prompt"),
         Message("user", "run the thing"),
-        Message("assistant", "```shell\necho hi\n```"),
         Message("user", "thanks"),
+        Message("assistant", "```shell\necho hi\n```"),
     ]
     tail = _get_recent_tail(msgs, 10_000)
     assert tail, "tail unexpectedly empty"
-    last = tail[-1]
-    assert not any(
-        tooluse.is_runnable for tooluse in ToolUse.iter_from_content(last.content)
+    assert tail[-1].role != "assistant" or not any(
+        tooluse.is_runnable for tooluse in ToolUse.iter_from_content(tail[-1].content)
     ), "Trailing unmatched tool call left in tail"
+    assert any("run the thing" in m.content for m in tail), (
+        "earlier messages unexpectedly dropped"
+    )
 
 
 def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
@@ -3269,13 +3293,15 @@ def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
     )
 
     # Suggest a context file that cannot save the over-budget essentials.
+    # Stubs respect the real contracts: _parse_context_files returns paths,
+    # _load_context_files returns (path, content) tuples.
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume._parse_context_files",
-        lambda content: [("README.md", "small file")],
+        lambda content: ["README.md"],
     )
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume._load_context_files",
-        lambda suggested, workspace: [("README.md", "small file")],
+        lambda suggested, workspace: [(s, "small file") for s in suggested],
     )
 
     list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))

@@ -156,8 +156,12 @@ def _compact_summarize(
             if proj_cfg.context.keep_recent_tokens is not None:
                 proj_keep_recent = proj_cfg.context.keep_recent_tokens
             proj_instructions = proj_cfg.context.compact_instructions
-    except Exception:
-        pass  # config read failure is non-fatal; fall back to defaults
+    except FileNotFoundError:
+        pass  # no project config; fall back to defaults
+    except Exception as e:
+        # A malformed gptme.toml (e.g. invalid keep_recent_tokens) must be
+        # visible to the user, not silently replaced by defaults.
+        logger.warning("Failed to read project compaction config: %s", e)
 
     # Inline instructions (from /compact summarize <text>) append to project instructions.
     merged_instructions: str | None
