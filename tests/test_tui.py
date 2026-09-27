@@ -171,19 +171,31 @@ async def test_queue_while_generating(tmp_path):
 async def test_toggle_outputs(tmp_path):
     manager = make_manager(
         tmp_path,
-        [Message("system", "some output"), Message("system", "more output")],
+        [
+            Message("system", "some output"),
+            Message("system", "more output"),
+            Message("assistant", "<think>\nreasoning\n</think>\nAnswer"),
+        ],
     )
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
         collapsibles = list(app.query(Collapsible))
+        assert any(c.has_class("thinking-block") for c in collapsibles)
         assert all(c.collapsed for c in collapsibles)
+        # Ctrl+O expands outputs and thinking together
         await pilot.press("ctrl+o")
         await pilot.pause()
         assert all(not c.collapsed for c in collapsibles)
+        assert app.show_thinking
         await pilot.press("ctrl+o")
         await pilot.pause()
         assert all(c.collapsed for c in collapsibles)
+        # partially expanded (thinking only): Ctrl+O expands everything
+        app._set_thinking(True)
+        await pilot.press("ctrl+o")
+        await pilot.pause()
+        assert all(not c.collapsed for c in collapsibles)
 
 
 @pytest.mark.asyncio

@@ -1091,7 +1091,9 @@ class GptmeApp(App):
         Binding("escape", "interrupt", "Interrupt", show=True),
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt/Quit", priority=True),
         Binding("ctrl+d", "quit", "Quit", show=True),
-        Binding("ctrl+o", "toggle_outputs", "Expand/collapse outputs", show=True),
+        Binding(
+            "ctrl+o", "toggle_details", "Expand/collapse outputs+thinking", show=True
+        ),
     ]
 
     def __init__(
@@ -1596,8 +1598,12 @@ class GptmeApp(App):
             return
         if name == "thinking":
             self._set_thinking(on)
+            state = "shown" if on else "hidden"
         else:
             self._set_outputs(on)
+            state = "expanded" if on else "collapsed"
+        note = " (applies to new output)" if self.inline else ""
+        self._show_info(f"{name.capitalize()} {state}{note}.")
 
     def _set_thinking(self, on: bool) -> None:
         self.show_thinking = on
@@ -1606,8 +1612,6 @@ class GptmeApp(App):
         if not self.inline:
             for block in self.query(".thinking-block").results(Collapsible):
                 block.collapsed = not on
-        note = " (applies to new output)" if self.inline else ""
-        self._show_info(f"Thinking {'shown' if on else 'hidden'}{note}.")
 
     def _drain_command_queued_prompts(self) -> None:
         """Turn durable prompts queued by a command into a TUI user turn.
@@ -1974,23 +1978,24 @@ class GptmeApp(App):
         else:
             self.exit()
 
-    def action_toggle_outputs(self) -> None:
-        self._set_outputs(not self._outputs_expanded)
+    def action_toggle_details(self) -> None:
+        """Ctrl+O: expand outputs and thinking, or collapse both if expanded."""
+        on = not (self._outputs_expanded and self.show_thinking)
+        self._set_outputs(on)
+        self._set_thinking(on)
+        if self.inline:
+            # scrollback is immutable; the toggle affects future output
+            state = "expanded" if on else "collapsed"
+            self._show_info(f"Tool output and thinking {state} from now on.")
 
     def _set_outputs(self, expanded: bool) -> None:
         self._outputs_expanded = expanded
         if self.inline:
-            # scrollback is immutable; the toggle affects future tool output
-            self._show_info(
-                "Tool output will be printed "
-                + ("expanded" if self._outputs_expanded else "collapsed")
-                + " from now on."
-            )
             return
         # thinking has its own setting (/display thinking)
         for collapsible in self.query(Collapsible):
             if not collapsible.has_class("thinking-block"):
-                collapsible.collapsed = not self._outputs_expanded
+                collapsible.collapsed = not expanded
 
     async def action_quit(self) -> None:
         self._quitting = True

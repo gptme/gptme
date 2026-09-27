@@ -61,7 +61,7 @@ Terminal/tmux scrolling then works normally, and the transcript stays in your
 scrollback after exit. Prompts submitted while the agent works are listed
 above the input until they are sent. Trade-offs: past tool output can't be
 expanded in place (:kbd:`Ctrl+O` instead toggles whether *future* tool output
-prints expanded), mouse interaction is left entirely to the terminal, and
+and thinking print expanded), mouse interaction is left entirely to the terminal, and
 dragging the terminal narrower can leave fragments of the input area in the
 scrollback.
 
@@ -76,8 +76,10 @@ current settings.
   finished message shows a one-line placeholder, and the live preview shows
   only the response. Set ``GPTME_TUI_DISPLAY_THINKING=1`` to show it from
   startup.
-- ``/display outputs [on|off]``: expand or collapse tool output, like
-  :kbd:`Ctrl+O`.
+- ``/display outputs [on|off]``: expand or collapse tool output.
+
+:kbd:`Ctrl+O` is the shorthand for both: it expands tool output and thinking,
+or collapses both when both are already expanded.
 
 Without ``on``/``off`` the setting toggles. In the default view the change
 applies to existing messages; in inline mode it applies to messages printed
@@ -95,7 +97,7 @@ Key                Action
 :kbd:`Escape`      Interrupt generation
 :kbd:`Ctrl+C`      Interrupt generation, or quit when idle
 :kbd:`Ctrl+D`      Quit
-:kbd:`Ctrl+O`      Expand/collapse all tool outputs
+:kbd:`Ctrl+O`      Expand/collapse all tool outputs and thinking
 =================  ==========================================================
 
 When a tool is about to execute, a confirmation dialog shows a preview;
