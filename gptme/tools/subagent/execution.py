@@ -139,6 +139,10 @@ def _resolve_profile_tools(
         tool
         for tool in loaded_tools
         if tool_matches_allowlist(tool.name, tool_allowlist, tool.hints)
+        and (
+            session_allowlist is None
+            or tool_matches_allowlist(tool.name, session_allowlist, tool.hints)
+        )
     ]
     # Always include completion/clarification signal tools so restricted
     # subagents can still end cleanly or ask the parent for more context.

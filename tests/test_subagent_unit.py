@@ -7606,7 +7606,10 @@ class TestProfileToolResolution:
         allowlist, letting a profile re-grant a capability the operator excluded
         (e.g. an explorer subagent regaining ``read`` under TOOL_ALLOWLIST=shell).
         """
+        from unittest.mock import patch
+
         from gptme.tools import init_tools
+        from gptme.tools.base import ToolSpec
         from gptme.tools.subagent.execution import (
             _ensure_subagent_signal_tools_loaded,
             _resolve_profile_tools,
@@ -7614,6 +7617,20 @@ class TestProfileToolResolution:
 
         init_tools(allowlist=["shell"])
         _ensure_subagent_signal_tools_loaded()
-        names = {t.name for t in _resolve_profile_tools(["read", "shell"], "explorer")}
+        # A default-enabled tool outside the session allowlist, loaded before
+        # profile resolution, must not survive the final filter.
+        loaded = [
+            ToolSpec(name="shell", desc=""),
+            ToolSpec(name="chats", desc=""),
+            ToolSpec(name="complete", desc=""),
+            ToolSpec(name="clarify", desc=""),
+        ]
+        with patch("gptme.tools.subagent.execution.get_tools", return_value=loaded):
+            names = {
+                t.name
+                for t in _resolve_profile_tools(["read", "shell", "chats"], "explorer")
+            }
         assert "read" not in names, "profile re-granted an operator-excluded tool"
+        assert "chats" not in names, "filter did not enforce the session allowlist"
         assert "shell" in names
+        assert {"complete", "clarify"} <= names
