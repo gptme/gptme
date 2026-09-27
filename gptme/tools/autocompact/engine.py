@@ -314,13 +314,24 @@ def shadow_prune_stale_tool_outputs(
         append_phase0_shadow_event(logdir, [d.to_dict() for d in decisions])
 
     return decisions
+_REASONING_TAGS = ("<think>", "<thinking>")
+
+
+def _has_reasoning_block(content: str) -> bool:
+    """True if content contains inline reasoning that must not be rewritten.
+
+    Reasoning is persisted inline (``<think>…<!-- think-sig -->``). Editing it
+    destroys the provider signature (Anthropic) or strips ``reasoning_content``
+    from a retained tool-calling turn (DeepSeek/Kimi).
+    """
+    return any(tag in content for tag in _REASONING_TAGS)
 
 
 def auto_compact_log(
     log: list[Message],
     limit: int | None = None,
     max_tool_result_tokens: int = 2000,
-    reasoning_strip_age_threshold: int = 5,
+    reasoning_strip_age_threshold: int | None = None,
     logdir: Path | None = None,
     keep_head: int = 0,
 ) -> Generator[Message, None, None]:
@@ -346,7 +357,11 @@ def auto_compact_log(
         log: List of messages to compact
         limit: Token limit (defaults to 80% of model context for direct callers)
         max_tool_result_tokens: Maximum tokens allowed in a tool result before removal
-        reasoning_strip_age_threshold: Strip reasoning from messages >N positions back
+        reasoning_strip_age_threshold: Strip reasoning from messages >N positions
+            back. Disabled by default (None): age-based stripping edits the
+            provider-visible prefix before retained signed thinking blocks, which
+            invalidates Anthropic signatures and drops DeepSeek/Kimi
+            ``reasoning_content`` on retained tool turns. Pass an int to opt in.
         logdir: Path to conversation directory for saving removed outputs
         keep_head: Number of messages at the start of the log to protect from all
             compaction (default 0 = no protection, existing behavior). Protected
@@ -406,10 +421,12 @@ def auto_compact_log(
     # Calculate message positions from end (for age-based reasoning stripping)
     log_length = len(log)
 
-    # Check if any reasoning stripping is needed
-    needs_reasoning_strip = any(
+    # Check if any reasoning stripping is needed. Off by default (see
+    # ``reasoning_strip_age_threshold``) because it violates provider thinking
+    # constraints on the common path.
+    needs_reasoning_strip = reasoning_strip_age_threshold is not None and any(
         (log_length - idx - 1) >= reasoning_strip_age_threshold
-        and ("<think>" in msg.content or "<thinking>" in msg.content)
+        and _has_reasoning_block(msg.content)
         for idx, msg in enumerate(log)
     )
     needs_compacting = tokens >= limit
@@ -419,6 +436,7 @@ def auto_compact_log(
         (log_length - idx - 1) >= 3  # Don't compress very recent messages
         and msg.role == "assistant"  # Only compress assistant responses
         and not message_contains_tool_use(msg)  # Keep tool-call pairs parseable
+        and not _has_reasoning_block(msg.content)  # Never rewrite signed thinking
         and len_tokens(msg.content, model.model) > 1000  # Only compress long messages
         for idx, msg in enumerate(log)
     )
@@ -454,20 +472,20 @@ def auto_compact_log(
             compacted_log.append(msg)
             continue
 
-        distance_from_end = log_length - idx - 1
-
-        # Strip reasoning from messages beyond the threshold
-        if distance_from_end >= reasoning_strip_age_threshold:
-            stripped_content, reasoning_saved = strip_reasoning(
-                msg.content, model.model
-            )
-            if reasoning_saved > 0:
-                msg = msg.replace(content=stripped_content)
-                reasoning_tokens_saved += reasoning_saved
-                logger.debug(
-                    f"Stripped reasoning from message {idx}: "
-                    f"saved {reasoning_saved} tokens (distance from end: {distance_from_end})"
+        # Strip reasoning from messages beyond the threshold (opt-in only).
+        if reasoning_strip_age_threshold is not None:
+            distance_from_end = log_length - idx - 1
+            if distance_from_end >= reasoning_strip_age_threshold:
+                stripped_content, reasoning_saved = strip_reasoning(
+                    msg.content, model.model
                 )
+                if reasoning_saved > 0:
+                    msg = msg.replace(content=stripped_content)
+                    reasoning_tokens_saved += reasoning_saved
+                    logger.debug(
+                        f"Stripped reasoning from message {idx}: "
+                        f"saved {reasoning_saved} tokens (distance from end: {distance_from_end})"
+                    )
 
         compacted_log.append(msg)
 
@@ -556,6 +574,7 @@ def auto_compact_log(
             distance_from_end >= 3  # Don't compress very recent messages
             and msg.role == "assistant"  # Only compress assistant responses
             and not message_contains_tool_use(msg)  # Preserve tool-call pairs
+            and not _has_reasoning_block(msg.content)  # Never rewrite signed thinking
             and msg_tokens > 1000  # Only compress long messages
         ):
             compressed_content = compress_content(msg.content, target_ratio=0.7)

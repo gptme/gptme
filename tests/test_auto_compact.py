@@ -2143,3 +2143,271 @@ def test_has_pending_tooluse_detects_runnable_tool_call():
         ]
     )
     assert _has_pending_tooluse(log_plain) is False
+
+
+# --- Phase 1.5a safety fixes (gptme/gptme#3812) ---
+
+
+def test_auto_compact_does_not_strip_reasoning_by_default():
+    """Age-based reasoning stripping must be off by default (Phase 1.5a).
+
+    Stripping edits the provider-visible prefix before retained signed thinking
+    blocks, invalidating Anthropic signatures and dropping DeepSeek/Kimi
+    ``reasoning_content`` on retained tool turns.
+    """
+    msgs = [
+        Message(
+            "user",
+            f"message {i} <think>old reasoning {i}</think>",
+            datetime.now(tz=timezone.utc),
+        )
+        for i in range(8)
+    ]
+
+    compacted = list(auto_compact_log(msgs))
+
+    assert all("<think>" in m.content for m in compacted), (
+        "Default compaction must not strip reasoning; pass "
+        "reasoning_strip_age_threshold to opt in"
+    )
+
+    # Opting in restores the old behavior.
+    opted_in = list(auto_compact_log(msgs, reasoning_strip_age_threshold=2))
+    assert any("<think>" not in m.content for m in opted_in)
+
+
+def test_compress_content_preserves_think_blocks_verbatim():
+    """compress_content must treat inline reasoning as opaque text."""
+    from gptme.tools.autocompact.scoring import compress_content
+
+    think = "<think>step one. step two. step three. signature-critical</think>"
+    body = ". ".join(f"Sentence number {i} about the task" for i in range(20))
+    content = f"{body}. {think} A final sentence."
+
+    compressed = compress_content(content, target_ratio=0.5)
+
+    assert think in compressed, (
+        "Think block must survive compression byte-for-byte; rewriting it "
+        "destroys the provider signature"
+    )
+
+
+def test_no_compaction_with_pending_tool_calls(monkeypatch):
+    """Never compact while the last assistant message has unanswered tool calls."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "do the thing"),
+        Message("assistant", "```shell\necho hi\n```"),  # pending tool call
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-pending-tools"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.current_view = "main"
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook._resume_via_llm") as mock_resume,
+    ):
+        list(hook_module.autocompact_hook(manager))
+
+    assert not mock_resume.called, "Must not compact with pending tool calls"
+
+
+def test_reasoning_strip_and_tool_guard_are_not_run_when_not_pending(monkeypatch):
+    """Sanity: with the tool result present the guard no longer blocks recovery."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "do the thing"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "hi"),  # tool result answers the call
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-answered-tools"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.current_view = "main"
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ) as should_compact,
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=lambda m, messages, **kw: iter([]),
+        ) as mock_resume,
+    ):
+        list(hook_module.autocompact_hook(manager))
+
+    assert should_compact.called
+    assert mock_resume.called
+
+
+def test_failed_summarize_latches_trim_only(monkeypatch):
+    """A rejected summarize must not be retried every tool step (failure latch)."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [Message("user", f"m{i}") for i in range(5)]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-latch"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.current_view = "main"
+
+    def rejected_resume(manager, messages, **kwargs):
+        # Yield a status message but do not switch views (a rejected summarize).
+        yield Message("system", "Generating...", hide=True, ui_only=True)
+
+    conv_key = ("/tmp/conv-latch", "master")
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=rejected_resume,
+        ) as mock_resume,
+    ):
+        list(hook_module.autocompact_hook(manager))
+        assert conv_key in hook_module._failed_summarize
+        mock_resume.reset_mock()
+
+        # Second step, same effective message count -> latched, no retry.
+        list(hook_module.autocompact_hook(manager))
+        assert not mock_resume.called, "Latch must suppress the summarize retry"
+
+        # After substantial growth the latch releases.
+        manager.log.messages = msgs + [
+            Message("user", f"more{i}")
+            for i in range(hook_module._FAILURE_RETRY_GROWTH_MESSAGES)
+        ]
+        list(hook_module.autocompact_hook(manager))
+        assert mock_resume.called, "Latch must release after enough growth"
+
+
+def test_hook_status_messages_do_not_count_as_growth(monkeypatch):
+    """Hook-yielded UI-only messages must not defeat the effective-count throttle."""
+    from gptme.tools.autocompact.hook import _effective_message_count
+
+    msgs = [Message("user", "hi"), Message("assistant", "ok")]
+    statuses = [Message("system", "status", ui_only=True) for _ in range(5)]
+    assert _effective_message_count(msgs + statuses) == len(msgs)
+
+
+def test_rule_based_status_message_is_ui_only(monkeypatch):
+    """The rule-based success notice must be UI-only (not sent to the provider)."""
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "word " * 200),
+        Message("system", "tool result " * 200),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-ui-only"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.current_view = "main"
+
+    from gptme.tools.autocompact.context_provider import CompactionResult
+
+    mock_provider = MagicMock()
+    mock_provider.compress.side_effect = lambda messages, config: CompactionResult(
+        messages=list(messages),
+        source_digest=hashlib.sha256(b"test").hexdigest(),
+        covered_through=len(messages) - 1,
+    )
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="rule_based",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        yielded = list(hook_module.autocompact_hook(manager))
+
+    notices = [m for m in yielded if isinstance(m, Message)]
+    assert notices, "Expected a status message from the rule-based path"
+    assert all(m.ui_only for m in notices), "Status messages must be ui_only"
+
+
+def test_ui_only_is_excluded_from_provider_context():
+    """prepare_messages drops ui_only messages from the provider-visible stream."""
+    from gptme.logmanager import prepare_messages
+
+    msgs = [
+        Message("user", "hello"),
+        Message("system", "🔄 Generating conversation resume...", ui_only=True),
+        Message("assistant", "hi"),
+    ]
+
+    prepared = prepare_messages(msgs)
+
+    assert all(not m.ui_only for m in prepared)
+    assert "Generating conversation resume" not in "".join(m.content for m in prepared)
+
+
+def test_ui_only_round_trips_through_json(tmp_path):
+    """ui_only must persist to/from the log so it survives a resume."""
+    import json
+
+    from gptme.logmanager.manager import _gen_read_jsonl
+    from gptme.message import Message
+
+    msg = Message("system", "status", ui_only=True)
+    assert msg.to_dict().get("ui_only") is True
+
+    logfile = tmp_path / "conversation.jsonl"
+    logfile.write_text(json.dumps(msg.to_dict()) + "\n")
+
+    reloaded = list(_gen_read_jsonl(logfile))
+    assert len(reloaded) == 1
+    assert reloaded[0].ui_only is True
+
+
+def test_ui_only_false_is_omitted_from_json():
+    """Default messages must not gain a ui_only key (keeps logs unchanged)."""
+    from gptme.message import Message
+
+    assert "ui_only" not in Message("user", "hi").to_dict()

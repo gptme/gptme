@@ -1148,6 +1148,13 @@ def prepare_messages(
 
     from gptme.llm.models import get_default_model  # fmt: skip
 
+    # Drop UI/status messages (compaction progress, hook notices). They are kept
+    # in the log for display but must never be sent to the provider: they are not
+    # model-facing content, they inflate the measured token count, and they can
+    # break strict providers (e.g. a status message between a tool call and its
+    # result). Filtering here is the single provider-visibility gate.
+    msgs = [m for m in msgs if not m.ui_only]
+
     # A runtime model/tool change appends a replacement generated prompt. Keep
     # the historical prompts on disk, but only send the newest generation.
     msgs = _active_prompt_generation(msgs)

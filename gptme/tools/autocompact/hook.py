@@ -16,7 +16,7 @@ from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
 from ...message import Message, len_tokens
 from ...util.context_budget import get_context_budget
-from ..base import ToolSpec
+from ..base import ToolSpec, ToolUse
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
 from .decision import should_auto_compact
@@ -41,9 +41,57 @@ _autocompact_min_interval = 60  # Minimum 60 seconds between unchanged attempts
 # per conversation it has ever compacted.
 _MAX_TRACKED_CONVERSATIONS = 512
 
+# Failure latch: after a summarize attempt fails or is rejected, do not retry
+# the summarize path until either a summarize succeeds or the conversation has
+# grown by this many provider-visible messages. Without it every tool step
+# re-ran a full-window summarize, because the (previously provider-visible)
+# progress message grew the message count past the throttle. Keys are
+# (logdir, branch); values are the effective message count at the failure.
+_failed_summarize: dict[tuple[str, str], int] = {}
+_FAILURE_RETRY_GROWTH_MESSAGES = 20
+
+
+def _effective_message_count(messages: list[Message]) -> int:
+    """Count provider-visible messages (excludes UI-only status/hook messages)."""
+    return sum(1 for m in messages if not m.ui_only)
+
+
+def _has_pending_tool_calls(messages: list[Message]) -> bool:
+    """True if the last assistant message requests tools that have not run yet.
+
+    Compacting here would send ``assistant(tool_use X)`` as the final message,
+    or build a view that drops X and orphans the later tool result. Server
+    TURN_POST fires before tools execute, so this guard is what keeps the
+    pre-tool call site from compacting.
+    """
+    last_assistant_idx = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if messages[i].role == "assistant"
+        ),
+        None,
+    )
+    if last_assistant_idx is None:
+        return False
+    # Any provider-visible message after the assistant answers its tool calls.
+    if any(not m.ui_only for m in messages[last_assistant_idx + 1 :]):
+        return False
+    return any(
+        tu.is_runnable
+        for tu in ToolUse.iter_from_content(messages[last_assistant_idx].content)
+    )
+
 
 def _prune_attempts(now: float) -> None:
-    """Drop cooldown entries for conversations we no longer need to throttle."""
+    """Drop cooldown/latch entries for conversations we no longer need to track."""
+    # The failure latch is bounded independently: its keys need not overlap the
+    # cooldown map, so it must not be gated behind the cooldown map's size.
+    if len(_failed_summarize) > _MAX_TRACKED_CONVERSATIONS:
+        for key in list(_failed_summarize)[
+            : len(_failed_summarize) - _MAX_TRACKED_CONVERSATIONS
+        ]:
+            del _failed_summarize[key]
     if len(_last_autocompact_attempt) <= _MAX_TRACKED_CONVERSATIONS:
         return
     # Prefer entries past the cooldown window; if that is not enough (a burst
@@ -128,7 +176,9 @@ def autocompact_hook(
     _prune_attempts(current_time)
     conv_key = (str(manager.logdir), manager.current_branch)
     messages = manager.log.messages
-    n_messages = len(messages)
+    # Growth is measured in provider-visible messages: hook-yielded status
+    # messages must not defeat the throttle (they no longer reach the provider).
+    n_messages = _effective_message_count(messages)
     last_attempt = _last_autocompact_attempt.get(conv_key)
     if last_attempt is not None:
         last_time, last_len = last_attempt
@@ -159,6 +209,30 @@ def autocompact_hook(
     if action == "none":
         return
 
+    # Never compact while the last assistant message has unanswered tool calls:
+    # the summarize request would end on a tool_use and strict providers reject
+    # it, and a view built here would orphan the pending tool result.
+    if _has_pending_tool_calls(messages):
+        logger.debug(
+            "Skipping autocompact: last assistant message has pending tool calls"
+        )
+        return
+
+    # Failure latch: stay on the trim path until the conversation grows enough
+    # (or a summarize succeeds) before retrying the failing summarize.
+    failed_at = _failed_summarize.get(conv_key)
+    if failed_at is not None:
+        if n_messages - failed_at < _FAILURE_RETRY_GROWTH_MESSAGES:
+            if action == "summarize":
+                logger.info(
+                    "Skipping summarize: previous attempt failed; retrying after "
+                    "%d more messages (trim-only meanwhile)",
+                    _FAILURE_RETRY_GROWTH_MESSAGES,
+                )
+                return
+        else:
+            _failed_summarize.pop(conv_key, None)
+
     if action == "rule_based":
         logger.info("Auto-compacting triggered: conversation has massive tool results")
 
@@ -186,7 +260,7 @@ def autocompact_hook(
             manager.switch_view(view_name)
             _last_autocompact_attempt[conv_key] = (
                 current_time,
-                len(manager.log.messages),
+                _effective_message_count(manager.log.messages),
             )
 
             # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
@@ -223,6 +297,7 @@ def autocompact_hook(
                 f"({reduction_pct:.1f}% reduction)\n"
                 f"• View: {view_name} (master branch preserved with full history)",
                 hide=True,  # Hide to prevent triggering responses
+                ui_only=True,  # Status message: never sent to the provider
             )
         except Exception as e:
             logger.error(f"Auto-compact failed during compaction: {e}")
@@ -231,22 +306,40 @@ def autocompact_hook(
 
     elif action == "summarize":
         logger.info("Auto-summarize triggered: rule-based compaction insufficient")
+        m = get_default_model()
+        original_tokens = len_tokens(messages, m.model) if m else 0
+        original_count = len(messages)
+        view_before = manager.current_view
         try:
-            m = get_default_model()
-            original_tokens = len_tokens(messages, m.model) if m else 0
-            original_count = len(messages)
-
             yield from _resume_via_llm(
                 manager,
                 messages,
                 use_view_branch=True,
                 llm_unlocked=llm_unlocked,
             )
-            _last_autocompact_attempt[conv_key] = (
-                current_time,
-                len(manager.log.messages),
-            )
+        except Exception as e:
+            logger.error(f"Auto-summarize failed: {e}")
+            _failed_summarize[conv_key] = n_messages
+            _prune_attempts(current_time)
+            return
 
+        if manager.current_view == view_before:
+            # The summarizer yielded an error/status message without compacting
+            # (no view branch was created). Latch to trim-only.
+            logger.warning(
+                "Auto-summarize produced no compaction; latching trim-only path"
+            )
+            _failed_summarize[conv_key] = n_messages
+            _prune_attempts(current_time)
+            return
+
+        _last_autocompact_attempt[conv_key] = (
+            current_time,
+            _effective_message_count(manager.log.messages),
+        )
+        _failed_summarize.pop(conv_key, None)
+
+        try:
             compacted_tokens = len_tokens(manager.log.messages, m.model) if m else 0
             append_compaction_event(
                 manager.logdir,

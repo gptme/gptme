@@ -197,6 +197,7 @@ def _resume_via_llm(
             "system",
             "Not enough conversation history to create a meaningful resume.",
             hide=use_view_branch,
+            ui_only=True,
         )
         return
 
@@ -205,6 +206,7 @@ def _resume_via_llm(
         "system",
         "🔄 Generating conversation resume with LLM...",
         hide=use_view_branch,
+        ui_only=True,
     )
 
     resume_prompt = """Please create a comprehensive resume of this conversation that includes:
@@ -242,6 +244,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
             "❌ Failed to generate resume: No default model configured. "
             "Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.",
             hide=use_view_branch,
+            ui_only=True,
         )
         return
     snapshot = None
@@ -288,6 +291,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
                 "Skipped stale auto-summarize: the conversation changed while "
                 "the summary was generating.",
                 hide=use_view_branch,
+                ui_only=True,
             )
             return
     resume_content = resume_response.content
@@ -377,4 +381,5 @@ Format the response as a structured document that could serve as a RESUME.md fil
         f"{view_note}"
         f"• Conversation history replaced with resume",
         hide=use_view_branch,
+        ui_only=True,
     )

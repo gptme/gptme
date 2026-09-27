@@ -306,6 +306,25 @@ def extract_code_blocks(content: str) -> tuple[str, list[tuple[str, str]]]:
     return cleaned, code_blocks
 
 
+# Inline reasoning blocks (<think>…</think> / <thinking>…</thinking>). Their
+# provider signature is computed over the exact bytes, so they must survive
+# compression verbatim and be treated as opaque text.
+_THINK_BLOCK_PATTERN = r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>"
+
+
+def extract_think_blocks(content: str) -> tuple[str, list[tuple[str, str]]]:
+    """Extract inline reasoning blocks, returning cleaned content and blocks."""
+    think_blocks: list[tuple[str, str]] = []
+
+    def replacer(match):
+        marker = f"__THINK_BLOCK_{len(think_blocks)}__"
+        think_blocks.append((marker, match.group(0)))
+        return marker
+
+    cleaned = re.sub(_THINK_BLOCK_PATTERN, replacer, content)
+    return cleaned, think_blocks
+
+
 def score_sentence(sentence: str, position: int, total: int) -> float:
     """
     Score sentence importance using heuristics and semantic patterns.
@@ -391,8 +410,10 @@ def compress_content(content: str, target_ratio: float = 0.7) -> str:
     Returns:
         Compressed content
     """
-    # Extract and preserve code blocks
+    # Extract and preserve code and reasoning blocks. Reasoning blocks are
+    # opaque: rewriting them destroys the provider signature.
     cleaned, code_blocks = extract_code_blocks(content)
+    cleaned, think_blocks = extract_think_blocks(cleaned)
 
     # Split into sentences (simple split on . ! ?)
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
@@ -400,11 +421,11 @@ def compress_content(content: str, target_ratio: float = 0.7) -> str:
         # Too few sentences to compress meaningfully
         return content
 
-    # Keep sentences that contain code block markers (don't score them)
+    # Keep sentences that contain block markers (don't score them)
     marker_sentences = []
     scoreable_sentences = []
     for i, sent in enumerate(sentences):
-        if "__CODE_BLOCK_" in sent:
+        if "__CODE_BLOCK_" in sent or "__THINK_BLOCK_" in sent:
             marker_sentences.append((i, sent))
         else:
             scoreable_sentences.append((i, sent))
@@ -429,9 +450,11 @@ def compress_content(content: str, target_ratio: float = 0.7) -> str:
     # Reconstruct compressed content
     compressed = " ".join(sent for _, sent in all_selected)
 
-    # Restore code blocks
+    # Restore code and reasoning blocks
     for marker, code_block in code_blocks:
         compressed = compressed.replace(marker, code_block)
+    for marker, think_block in think_blocks:
+        compressed = compressed.replace(marker, think_block)
 
     return compressed
 

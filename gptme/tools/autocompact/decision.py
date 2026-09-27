@@ -88,6 +88,10 @@ def estimate_compaction_savings(
 
     log_length = len(work_log)
     estimated_tool_result_savings = 0
+    # Age-based reasoning stripping is no longer part of the default compaction
+    # path (it edits the provider-visible prefix before retained signed reasoning
+    # blocks), so it contributes nothing to the estimate. The third return value
+    # is kept at zero for API compatibility.
     estimated_reasoning_savings = 0
     estimated_compression_savings = 0
 
@@ -97,12 +101,6 @@ def estimate_compaction_savings(
 
         msg_tokens = len_tokens(msg.content, model.model)
         distance_from_end = log_length - idx - 1
-
-        # Phase 1: Estimate reasoning stripping savings (always applied to old messages)
-        if distance_from_end >= reasoning_strip_age_threshold:
-            if "<think>" in msg.content or "<thinking>" in msg.content:
-                # Rough estimate: reasoning usually ~30-50% of content
-                estimated_reasoning_savings += int(msg_tokens * 0.3)
 
         # Phase 2: Estimate massive tool result removal savings
         # CRITICAL: Only count if we would actually remove tool results

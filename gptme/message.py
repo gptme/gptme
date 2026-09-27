@@ -291,6 +291,8 @@ class Message:
         hide: Whether this message should be hidden from the chat output (but still be sent to the assistant).
         quiet: Whether this message should be printed on execution (will still print on resume, unlike hide).
                This is not persisted to the log file.
+        ui_only: Whether this message is a UI/status message that must not be sent to
+               the provider. Kept in the log for display, but excluded by prepare_messages().
         metadata: Optional metadata including token usage and cost information.
     """
 
@@ -304,6 +306,10 @@ class Message:
     pinned: bool = False
     hide: bool = False
     quiet: bool = False
+    # Status/progress messages are shown in the UI but never sent to the provider.
+    # Unlike ``hide`` (which is display-only), this removes the message from the
+    # provider-visible context entirely (see prepare_messages()).
+    ui_only: bool = False
     # Number of later assistant turns after which this message is pruned from context.
     # None means the message is never automatically pruned.
     # ephemeral_ttl=2 means: keep for 2 more assistant turns, then drop from prepare_messages().
@@ -359,10 +365,11 @@ class Message:
             content=f"{self.content}{separator}{other.content}",
             files=self.files + other.files,
             file_hashes=merged_hashes,
-            # Keep pinned/hide/quiet if either message has it set
+            # Keep pinned/hide/quiet/ui_only if either message has it set
             pinned=self.pinned or other.pinned,
             hide=self.hide or other.hide,
             quiet=self.quiet or other.quiet,
+            ui_only=self.ui_only or other.ui_only,
             ephemeral_ttl=merged_ttl,
         )
 
@@ -395,6 +402,8 @@ class Message:
             d["pinned"] = True
         if self.hide:
             d["hide"] = True
+        if self.ui_only:
+            d["ui_only"] = True
         if self.ephemeral_ttl is not None:
             d["ephemeral_ttl"] = self.ephemeral_ttl
         if self.call_id:
@@ -453,6 +462,8 @@ class Message:
             flags.append("pinned")
         if self.hide:
             flags.append("hide")
+        if self.ui_only:
+            flags.append("ui_only")
         flags_toml = "\n".join(f"{flag} = true" for flag in flags)
         if self.ephemeral_ttl is not None:
             sep = "\n" if flags_toml else ""
@@ -528,6 +539,7 @@ timestamp = "{self.timestamp.isoformat()}"
             _fix_toml_content(msg["content"]),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
+            ui_only=msg.get("ui_only", False),
             ephemeral_ttl=msg.get("ephemeral_ttl"),
             files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=msg.get("file_hashes", {}),
@@ -794,6 +806,7 @@ def toml_to_msgs(toml: str) -> list[Message]:
             _fix_toml_content(msg["content"]),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
+            ui_only=msg.get("ui_only", False),
             timestamp=isoparse(msg["timestamp"]),
             files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=dict(msg.get("file_hashes", {})),

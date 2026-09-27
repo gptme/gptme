@@ -71,7 +71,7 @@ class CompressionConfig:
     limit: int | None = None
     max_tool_result_tokens: int = 2000
     logdir: Path | None = None
-    reasoning_strip_age_threshold: int = 5
+    reasoning_strip_age_threshold: int | None = None
     keep_head: int = 0
     extra_config: dict = field(default_factory=dict)
 
