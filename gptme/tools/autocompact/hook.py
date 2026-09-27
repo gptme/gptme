@@ -237,6 +237,12 @@ def autocompact_hook(
     # (or a summarize succeeds) before retrying the failing summarize.
     failed_at = _failed_summarize.get(conv_key)
     if failed_at is not None:
+        if n_messages < failed_at:
+            # The conversation shrank below the failure baseline (e.g. a manual
+            # /compact or a view switch replaced the log). Rebase the latch to
+            # the new count, otherwise n_messages - failed_at stays negative
+            # forever and the latch can never release.
+            _failed_summarize[conv_key] = failed_at = n_messages
         if n_messages - failed_at < _FAILURE_RETRY_GROWTH_MESSAGES:
             if action == "summarize":
                 # Trim-only: a summarize just failed, so fall back to the cheap

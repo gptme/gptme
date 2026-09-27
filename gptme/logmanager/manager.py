@@ -1153,7 +1153,15 @@ def prepare_messages(
     # model-facing content, they inflate the measured token count, and they can
     # break strict providers (e.g. a status message between a tool call and its
     # result). Filtering here is the single provider-visibility gate.
-    msgs = [m for m in msgs if not m.ui_only]
+    filtered = [m for m in msgs if not m.ui_only]
+    # Removing a ui_only message that was the only thing separating two
+    # same-role messages would create consecutive same-role turns strict
+    # providers reject — merge them, same as the ephemeral-prune path does.
+    msgs = (
+        _merge_consecutive_messages(filtered)
+        if len(filtered) != len(msgs)
+        else filtered
+    )
 
     # A runtime model/tool change appends a replacement generated prompt. Keep
     # the historical prompts on disk, but only send the newest generation.
