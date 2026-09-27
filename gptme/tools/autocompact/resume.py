@@ -15,6 +15,7 @@ from ... import llm
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
 from ...message import Message, len_tokens
+from ...tools import ToolUse
 from ...util.context import md_codeblock
 from ...util.context_budget import get_context_budget
 
@@ -200,6 +201,18 @@ def _get_recent_tail(
     # (e.g. system/user role in some provider formats).
     while tail and (tail[0].role == "tool" or tail[0].call_id):
         tail = tail[1:]
+    # Drop a trailing assistant tool-call whose result is not in the tail
+    # (e.g. the conversation ends mid-turn). An unmatched tool call at the
+    # end of the compacted view breaks strict providers.
+    while (
+        tail
+        and tail[-1].role == "assistant"
+        and any(
+            tooluse.is_runnable
+            for tooluse in ToolUse.iter_from_content(tail[-1].content)
+        )
+    ):
+        tail = tail[:-1]
     return tail
 
 
@@ -431,9 +444,14 @@ only mentioned in passing.
         if fixed_tokens > budget:
             essential = original_system_msgs + [resume_intro_msg, resume_msg]
             essential_tokens = len_tokens(essential, model=model_str)
-            while file_context_msgs and essential_tokens > budget:
-                dropped = file_context_msgs.pop()
-                essential_tokens -= len_tokens([dropped], model=model_str)
+            # Drop file context messages (least essential) until the whole
+            # fixed set fits within the budget.
+            while file_context_msgs and (
+                essential_tokens
+                + sum(len_tokens([m], model=model_str) for m in file_context_msgs)
+                > budget
+            ):
+                file_context_msgs.pop()
             if essential_tokens > budget:
                 # Even system messages + checkpoint alone are too large:
                 # truncate the checkpoint content to fit, keeping a notice.

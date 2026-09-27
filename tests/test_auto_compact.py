@@ -3214,3 +3214,75 @@ def test_resume_via_llm_fixed_content_over_budget_fits(tmp_path, monkeypatch):
     assert any("truncated to fit context budget" in c for c in contents), (
         "Truncation notice missing"
     )
+
+
+def test_get_recent_tail_drops_trailing_unmatched_tool_call():
+    """A tail ending on an assistant tool-call whose result never arrived
+    (mid-turn) must not keep the unmatched tool call."""
+    from gptme.tools import ToolUse
+    from gptme.tools.autocompact.resume import _get_recent_tail
+
+    msgs = [
+        Message("system", "system prompt"),
+        Message("user", "run the thing"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("user", "thanks"),
+    ]
+    tail = _get_recent_tail(msgs, 10_000)
+    assert tail, "tail unexpectedly empty"
+    last = tail[-1]
+    assert not any(
+        tooluse.is_runnable for tooluse in ToolUse.iter_from_content(last.content)
+    ), "Trailing unmatched tool call left in tail"
+
+
+def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
+    """The file-dropping loop must compare total fixed tokens (essential +
+    files) against the budget, not subtract file tokens from the essential
+    count. With essentials over budget, the checkpoint gets truncated."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.tokens import len_tokens
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    big_checkpoint = "## Objective\n" + ("lorem ipsum dolor sit amet " * 400)
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", big_checkpoint)
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+    fake_model = SimpleNamespace(
+        model="gpt-4", context=3000, max_output=200, full="gpt-4"
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+
+    # Suggest a context file that cannot save the over-budget essentials.
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume._parse_context_files",
+        lambda content: [("README.md", "small file")],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume._load_context_files",
+        lambda suggested, workspace: [("README.md", "small file")],
+    )
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    new_msgs = manager.log.messages
+    total = len_tokens(new_msgs, model="gpt-4")
+    assert total <= 1800, f"Compacted view exceeds budget: {total} > 1800"
+    assert any("truncated to fit context budget" in m.content for m in new_msgs), (
+        "Checkpoint truncation notice missing"
+    )
