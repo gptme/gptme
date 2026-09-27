@@ -58,9 +58,22 @@ region (streaming preview, input, status bar) stays at the bottom::
     gptme-tui --inline
 
 Terminal/tmux scrolling then works normally, and the transcript stays in your
-scrollback after exit. Trade-offs: past tool output can't be expanded in
-place (:kbd:`Ctrl+O` instead toggles whether *future* tool output prints
-expanded), and mouse interaction is left entirely to the terminal.
+scrollback after exit. Prompts submitted while the agent works are listed
+above the input until they are sent. Trade-offs: past tool output can't be
+expanded in place (:kbd:`Ctrl+O` instead toggles whether *future* tool output
+prints expanded), mouse interaction is left entirely to the terminal, and
+dragging the terminal narrower can leave fragments of the input area in the
+scrollback.
+
+Thinking
+--------
+
+Model thinking (reasoning) is hidden by default: a finished message shows a
+one-line placeholder, and the live preview shows only the response. Toggle it
+with ``/thinking``, or set it explicitly with ``/thinking on`` and
+``/thinking off``. In the default view this expands or collapses the thinking
+sections; in inline mode it applies to messages printed afterwards. To show
+thinking from startup, set ``GPTME_TUI_THINKING=1``.
 
 Keys
 ----
@@ -88,7 +101,7 @@ The TUI supports the same :doc:`slash-commands <commands>` as the CLI
 (``/model``, ``/undo``, ``/tokens``, …), with the same Tab completion,
 by routing them through the shared command registry. Command output is
 shown inline in the conversation. ``/quit`` is a TUI-local alias for
-``/exit``.
+``/exit``, and ``/thinking`` (see `Thinking`_) is TUI-only.
 
 Limitations
 -----------

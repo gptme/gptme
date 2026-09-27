@@ -4,6 +4,8 @@ import pytest
 
 pytest.importorskip("textual")
 
+from rich.panel import Panel
+from rich.text import Text
 from textual.color import Color
 from textual.filter import ANSIToTruecolor
 from textual.widgets import Collapsible, Static
@@ -14,6 +16,7 @@ from gptme.tui.app import (
     AssistantMessage,
     BouncingError,
     ChatInput,
+    ConfirmScreen,
     CostMessage,
     GptmeApp,
     InfoMessage,
@@ -30,9 +33,11 @@ from gptme.tui.app import (
     _split_thinking,
     _split_tool_calls,
     _split_xml_tool_calls,
+    _strip_thinking,
     _summarize,
     _tool_call_renderable,
     _xml_tool_renderables,
+    complete_input,
     renderables_for_message,
 )
 
@@ -1325,3 +1330,110 @@ def test_renderables_for_message_mixed_formats():
     assert len(panels) >= 2, (
         f"expected ≥2 Panels for mixed @tool+XML content, got {len(panels)}"
     )
+
+
+def test_strip_thinking_closed_and_open_blocks():
+    assert _strip_thinking("<think>\nhmm\n</think>\nAnswer") == "\nAnswer"
+    # still streaming: cut the unclosed block
+    assert _strip_thinking("Hi\n<thinking>\npartial") == "Hi\n"
+    assert _strip_thinking("plain") == "plain"
+
+
+def test_renderables_for_message_hides_thinking():
+    msg = Message("assistant", "<think>\na\nb\n</think>\nFinal answer.")
+    hidden = renderables_for_message(msg, show_thinking=False)
+    assert not any(isinstance(r, Panel) and r.title == "Thinking" for r in hidden), (
+        "thinking panel should be replaced by a stub"
+    )
+    assert any("2 lines hidden" in str(r) for r in hidden if isinstance(r, Text))
+    shown = renderables_for_message(msg, show_thinking=True)
+    assert any(isinstance(r, Panel) and r.title == "Thinking" for r in shown)
+
+
+def test_thinking_hidden_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("GPTME_TUI_THINKING", raising=False)
+    assert not GptmeApp(make_manager(tmp_path), workspace=tmp_path).show_thinking
+    monkeypatch.setenv("GPTME_TUI_THINKING", "1")
+    assert GptmeApp(make_manager(tmp_path), workspace=tmp_path).show_thinking
+
+
+def test_complete_input_tui_commands():
+    assert "/thinking" in complete_input("/thi")
+    assert complete_input("/thinking o") == ["/thinking on", "/thinking off"]
+
+
+@pytest.mark.asyncio
+async def test_thinking_command_toggles_collapsibles(tmp_path, monkeypatch):
+    monkeypatch.delenv("GPTME_TUI_THINKING", raising=False)
+    manager = make_manager(
+        tmp_path, [Message("assistant", "<think>\nreasoning\n</think>\nAnswer")]
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        block = app.query(".thinking-block").results(Collapsible).__next__()
+        assert block.collapsed
+        inp = app.query_one("#input", ChatInput)
+        for text, expanded in [("/thinking", True), ("/thinking off", False)]:
+            inp.text = text
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.show_thinking is expanded
+            assert block.collapsed is not expanded
+        # display-only toggle stays available while the agent works
+        app.generating = True
+        inp.text = "/thinking on"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.show_thinking
+
+
+@pytest.mark.asyncio
+async def test_inline_stream_preview_hides_thinking(tmp_path, monkeypatch):
+    monkeypatch.delenv("GPTME_TUI_THINKING", raising=False)
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        app._on_stream_token("<think>\nsecret reasoning")
+        await pilot.pause()
+        live = app.query_one("#live")
+        assert "secret" not in str(live.render())
+        assert "Thinking" in str(live.render())
+        app._on_stream_token("\n</think>\nvisible answer")
+        await pilot.pause()
+        assert "visible answer" in str(live.render())
+        assert "secret" not in str(live.render())
+
+
+@pytest.mark.asyncio
+async def test_inline_queued_prompts_visible(tmp_path):
+    manager = make_manager(tmp_path, [Message("user", "hello")])
+    app = GptmeApp(manager, workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.generating = True
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "queued prompt"
+        await pilot.press("enter")
+        await pilot.pause()
+        queued = app.query_one("#queued", Static)
+        assert "queued prompt" in str(queued.render())
+        # interrupting hands the text back and clears the queued view
+        app._interrupt_event.set()
+        await app._generation_done()
+        await pilot.pause()
+        assert "queued prompt" not in str(queued.render())
+        assert inp.text == "queued prompt"
+
+
+@pytest.mark.asyncio
+async def test_confirm_help_precedes_preview(tmp_path):
+    """Key hints must not be clipped away by a tall preview."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.push_screen(ConfirmScreen(None, "echo hi\n" * 100))
+        await pilot.pause()
+        dialog = app.screen.query_one("#confirm-dialog")
+        ids = [child.id for child in dialog.children]
+        assert ids.index("confirm-help") < ids.index("confirm-preview")
