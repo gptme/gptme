@@ -498,17 +498,17 @@ only mentioned in passing.
             if essential_tokens > budget:
                 # Even system messages + checkpoint alone are too large:
                 # truncate the checkpoint content to fit, keeping a notice.
+                TRUNCATION_NOTICE = "\n\n[checkpoint truncated to fit context budget]"
                 overhead = len_tokens(
                     original_system_msgs + [resume_intro_msg], model=model_str
-                )
+                ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
                 room = max(0, budget - overhead)
                 resume_content_trunc = _truncate_to_tokens(
                     resume_content, room, model=model_str
                 )
                 resume_msg = Message(
                     "assistant",
-                    resume_content_trunc
-                    + ("\n\n[checkpoint truncated to fit context budget]"),
+                    resume_content_trunc + TRUNCATION_NOTICE,
                 )
                 logger.warning(
                     "Checkpoint + system messages exceed context budget "
