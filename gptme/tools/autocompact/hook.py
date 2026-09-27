@@ -74,13 +74,25 @@ def _has_pending_tool_calls(messages: list[Message]) -> bool:
     )
     if last_assistant_idx is None:
         return False
-    # Any provider-visible message after the assistant answers its tool calls.
-    if any(not m.ui_only for m in messages[last_assistant_idx + 1 :]):
-        return False
-    return any(
-        tu.is_runnable
+    calls = [
+        tu
         for tu in ToolUse.iter_from_content(messages[last_assistant_idx].content)
-    )
+        if tu.is_runnable
+    ]
+    if not calls:
+        return False
+    results = messages[last_assistant_idx + 1 :]
+    if not results:
+        return True
+    # Prefer explicit call-id matching when the tool format carries ids.
+    call_ids = {tu.call_id for tu in calls if tu.call_id}
+    if call_ids:
+        result_ids = {m.call_id for m in results if m.call_id}
+        return not call_ids.issubset(result_ids)
+    # Markdown format has no ids; one result message per call is expected, so a
+    # partial result set (one of several tools still pending confirmation) is
+    # still pending rather than treated as fully answered.
+    return len(results) < len(calls)
 
 
 def _prune_attempts(now: float) -> None:
@@ -224,12 +236,15 @@ def autocompact_hook(
     if failed_at is not None:
         if n_messages - failed_at < _FAILURE_RETRY_GROWTH_MESSAGES:
             if action == "summarize":
+                # Trim-only: a summarize just failed, so fall back to the cheap
+                # rule-based trim instead of leaving the conversation over budget
+                # until the next growth step.
                 logger.info(
-                    "Skipping summarize: previous attempt failed; retrying after "
-                    "%d more messages (trim-only meanwhile)",
+                    "Previous summarize failed; using trim-only until %d more "
+                    "messages or a successful compaction",
                     _FAILURE_RETRY_GROWTH_MESSAGES,
                 )
-                return
+                action = "rule_based"
         else:
             _failed_summarize.pop(conv_key, None)
 
@@ -262,6 +277,9 @@ def autocompact_hook(
                 current_time,
                 _effective_message_count(manager.log.messages),
             )
+            # A successful trim is a successful compaction: allow the summarize
+            # path to be retried once the conversation regrows over budget.
+            _failed_summarize.pop(conv_key, None)
 
             # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
             # (e.g., attention-router can batch-apply decay and re-evaluate tiers)

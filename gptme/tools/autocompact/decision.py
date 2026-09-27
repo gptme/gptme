@@ -113,11 +113,15 @@ def estimate_compaction_savings(
             estimated_tool_result_savings += msg_tokens - 200
 
         # Phase 3: Estimate assistant message compression savings
-        # Only for older messages (distance >= threshold) with enough tokens
+        # Only for older messages (distance >= threshold) with enough tokens.
+        # Think-bearing messages are skipped by the engine (rewriting them would
+        # destroy the provider signature), so they must not count here either.
         if (
             would_remove_tool_results
             and distance_from_end >= assistant_compression_age_threshold
             and msg.role == "assistant"
+            and "<think>" not in msg.content
+            and "<thinking>" not in msg.content
             and msg_tokens > assistant_compression_min_tokens
         ):
             # Compression targets 70% of original, so saves ~30%
