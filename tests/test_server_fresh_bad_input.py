@@ -40,15 +40,26 @@ class TestSSEEdgeCases:
         )
 
     def test_events_nonexistent_session(self, client):
-        """Events with nonexistent session_id."""
+        """Events with unknown session_id gets a fresh session and streams SSE.
+
+        Returning 404 made every client reconnect fail until it gave up,
+        since sessions are in-memory and a restart invalidates all of them.
+        """
         cid = f"test-{uuid.uuid4().hex[:12]}"
         client.put(f"/api/v2/conversations/{cid}", json={})
         resp = client.get(
-            f"/api/v2/conversations/{cid}/events?session_id=nonexistent-foo"
+            f"/api/v2/conversations/{cid}/events?session_id=nonexistent-foo",
+            buffered=False,
         )
-        assert resp.status_code == 404, (
-            f"Expected 404, got {resp.status_code}: {resp.get_json()}"
+        assert resp.status_code == 200, (
+            f"Expected 200, got {resp.status_code}: {resp.get_json()}"
         )
+        # Bounded read: first SSE event only, then close the stream
+        first = next(resp.iter_encoded())
+        resp.close()
+        event = json.loads(first.decode().removeprefix("data: ").strip())
+        assert event["type"] == "connected"
+        assert event["session_id"] != "nonexistent-foo"
 
     def test_events_garbage_session_id(self, client):
         """Events with binary/garbage in session_id."""
@@ -56,34 +67,45 @@ class TestSSEEdgeCases:
         client.put(f"/api/v2/conversations/{cid}", json={})
         for garbage in ["\x00\x01\x02", "../../../etc/passwd", "a" * 10000]:
             resp = client.get(
-                f"/api/v2/conversations/{cid}/events?session_id={garbage}"
+                f"/api/v2/conversations/{cid}/events?session_id={garbage}",
+                buffered=False,
             )
-            # Should get 404 (not found) or 400 (bad request), not 500
-            assert resp.status_code in (400, 404), (
-                f"Expected 400/404 for session_id={garbage!r}, "
+            # Garbage session IDs are treated as unknown: a fresh session is
+            # created (the passed ID is discarded) and the stream starts.
+            assert resp.status_code == 200, (
+                f"Expected 200 for session_id={garbage!r}, "
                 f"got {resp.status_code}: {resp.get_json()}"
             )
+            first = next(resp.iter_encoded(), None)
+            resp.close()
+            assert first is not None, f"no SSE data for session_id={garbage!r}"
+            event = json.loads(first.decode().removeprefix("data: ").strip())
+            assert event["type"] == "connected"
+            assert event["session_id"] != garbage
 
     def test_events_wrong_conversation_session(self, client):
         """Session that belongs to a different conversation."""
+        from gptme.server.api_v2_sessions import SessionManager
+
         cid1 = f"test-{uuid.uuid4().hex[:12]}"
         cid2 = f"test-{uuid.uuid4().hex[:12]}"
         client.put(f"/api/v2/conversations/{cid1}", json={})
         client.put(f"/api/v2/conversations/{cid2}", json={})
 
-        # Create session via step on cid1
-        resp = client.post(
-            f"/api/v2/conversations/{cid1}/step",
-            json={"session_id": "shared-sess-1", "stream": False},
-        )
+        # Create a session bound to cid1 directly (deterministic without
+        # relying on step succeeding without API keys)
+        sess = SessionManager.create_session(cid1)
+
         # Try events from cid2 with cid1's session
         resp = client.get(
-            f"/api/v2/conversations/{cid2}/events?session_id=shared-sess-1"
+            f"/api/v2/conversations/{cid2}/events?session_id={sess.id}",
+            buffered=False,
         )
-        assert resp.status_code in (403, 404), (
-            f"Expected 403/404 for wrong-conversation session, "
+        assert resp.status_code == 403, (
+            f"Expected 403 for wrong-conversation session, "
             f"got {resp.status_code}: {resp.get_json()}"
         )
+        resp.close()
 
 
 class TestToolConfirmEdgeCases:

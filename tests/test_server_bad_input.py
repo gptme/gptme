@@ -186,14 +186,25 @@ def test_external_session_invalid_days():
 
 
 def test_get_session_nonexistent():
-    """Getting a non-existent session should return 404."""
+    """Unknown session_id on events creates a fresh session and streams SSE.
+
+    Returning 404 made every client reconnect fail until it gave up, since
+    sessions are in-memory and a restart invalidates all of them. The fresh
+    session ID arrives in the `connected` event.
+    """
     cid, _session_id, _ = _create_conversation()
-    status, data = _req(
-        "GET",
-        f"/api/v2/conversations/{cid}/events?session_id=nonexistent-session",
+    req = urllib.request.Request(
+        f"{SERVER_URL}/api/v2/conversations/{cid}/events?session_id=nonexistent-session"
     )
-    assert status == 404, f"expected 404, got {status}: {data}"
-    print("  PASS: 404 on nonexistent session")
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        assert resp.status == 200, f"expected 200, got {resp.status}"
+        assert resp.headers.get("Content-Type", "").startswith("text/event-stream")
+        # Bounded read: only the first SSE line, then close the stream
+        first = resp.readline().decode()
+    event = json.loads(first.removeprefix("data: ").strip())
+    assert event["type"] == "connected"
+    assert event["session_id"] != "nonexistent-session"
+    print("  PASS: fresh session created for unknown session_id")
 
 
 def test_get_conversation_traversal_attempt():
