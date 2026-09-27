@@ -273,14 +273,16 @@ def autocompact_hook(
             view_name = manager.get_next_view_name()
             manager.create_view(view_name, compacted_msgs)
             manager.switch_view(view_name)
-            _last_autocompact_attempt[conv_key] = (
-                current_time,
-                _effective_message_count(manager.log.messages),
-            )
+            post_trim_count = _effective_message_count(manager.log.messages)
+            _last_autocompact_attempt[conv_key] = (current_time, post_trim_count)
             # The latch deliberately survives a successful trim: an ineffective
             # trim that leaves the conversation over budget must not reset the
             # growth clock, or summarize retries (and fails) every 20 messages.
-            # The latch still lifts on growth >= _FAILURE_RETRY_GROWTH_MESSAGES.
+            # But growth must be measured from the post-trim view — otherwise a
+            # trim that shrinks the log leaves the latch comparing against a
+            # larger pre-trim count and it can never lift.
+            if conv_key in _failed_summarize:
+                _failed_summarize[conv_key] = post_trim_count
 
             # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
             # (e.g., attention-router can batch-apply decay and re-evaluate tiers)

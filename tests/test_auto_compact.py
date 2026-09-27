@@ -2580,3 +2580,78 @@ def test_failed_summarize_latch_survives_ineffective_trim(monkeypatch):
     assert conv_key in hook_module._failed_summarize, (
         "An ineffective trim must not clear the failure latch"
     )
+
+
+def test_failed_summarize_latch_rebases_after_trim(monkeypatch):
+    """Growth is measured from the post-trim view, so the latch can still lift."""
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.context_provider import CompactionResult
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [Message("user", f"m{i}") for i in range(30)]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-rebase"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.current_view = "main"
+
+    trimmed = [Message("user", "summary")]
+
+    def create_view(_name, compacted):
+        manager.log.messages = list(compacted)
+
+    manager.create_view.side_effect = create_view
+
+    mock_provider = MagicMock()
+    mock_provider.compress.side_effect = lambda messages, config: CompactionResult(
+        messages=list(trimmed),
+        source_digest=hashlib.sha256(b"t").hexdigest(),
+        covered_through=0,
+    )
+
+    def rejected_resume(manager, messages, **kwargs):
+        yield Message("system", "Generating...", hide=True, ui_only=True)
+
+    conv_key = ("/tmp/conv-rebase", "master")
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=rejected_resume,
+        ) as mock_resume,
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        # 1. A rejected summarize latches at the current count (30).
+        list(hook_module.autocompact_hook(manager))
+        assert hook_module._failed_summarize[conv_key] == 30
+        mock_resume.reset_mock()
+
+        # 2. Latched -> trim; the latch must rebase to the post-trim view (1).
+        list(hook_module.autocompact_hook(manager))
+        assert not mock_resume.called
+        assert hook_module._failed_summarize[conv_key] == 1, (
+            "Latch must rebase to the post-trim count, or it can never lift"
+        )
+
+        # 3. Growth >= threshold since the post-trim view releases the latch.
+        manager.log.messages = trimmed + [
+            Message("user", f"g{i}")
+            for i in range(hook_module._FAILURE_RETRY_GROWTH_MESSAGES)
+        ]
+        list(hook_module.autocompact_hook(manager))
+        assert mock_resume.called, "Latch must lift after growth measured post-trim"
