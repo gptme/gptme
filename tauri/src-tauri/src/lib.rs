@@ -95,7 +95,7 @@ pub(crate) fn server_pid_on_port(port: u16) -> Option<u32> {
 /// Checks the command line and executable path for the gptme-server binary
 /// name (both `gptme-server` and the Python module form `gptme_server`).
 #[cfg(unix)]
-pub(crate) fn pid_is_gptme_server(pid: u32) -> bool {
+pub(crate) fn pid_is_gptme_server(pid: u32, token: Option<&str>) -> bool {
     let matches = |s: &str| s.contains("gptme-server") || s.contains("gptme_server");
 
     // Linux: /proc is available and cheap.
@@ -106,9 +106,28 @@ pub(crate) fn pid_is_gptme_server(pid: u32) -> bool {
                 return true;
             }
         }
-        std::fs::read_link(format!("/proc/{pid}/exe"))
-            .map(|exe| matches(&exe.to_string_lossy()))
-            .unwrap_or(false)
+        if let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) {
+            if matches(&exe.to_string_lossy()) {
+                return true;
+            }
+        }
+        // Decisive fallback: a server we spawned carries our bearer token in
+        // its environment (SERVER_TOKEN_ENV). A PyInstaller onefile child can
+        // have a cmdline like `/tmp/_MEIxxxx/gptme-server` that the string
+        // match above misses, but its /proc/<pid>/environ still contains the
+        // token we passed at spawn — proof of identity no foreign process can
+        // produce. Compared in memory only; the token is never logged.
+        if let Some(token) = token {
+            if let Ok(environ) = std::fs::read_to_string(format!("/proc/{pid}/environ")) {
+                if environ
+                    .split('\0')
+                    .any(|kv| kv == format!("{SERVER_TOKEN_ENV}={token}"))
+                {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     // macOS and other POSIX (no /proc): use `ps -p PID -o command=`.
@@ -124,8 +143,10 @@ pub(crate) fn pid_is_gptme_server(pid: u32) -> bool {
 }
 
 #[cfg(windows)]
-pub(crate) fn pid_is_gptme_server(pid: u32) -> bool {
+pub(crate) fn pid_is_gptme_server(pid: u32, _token: Option<&str>) -> bool {
     // PowerShell CIM query (wmic is deprecated on Windows 11+).
+    // NOTE: the token-based /proc/<pid>/environ identity check is Linux-only;
+    // Windows has no cheap equivalent, so identity stays cmdline-based there.
     let output = std::process::Command::new("powershell")
         .args([
             "-NoProfile",
@@ -923,7 +944,7 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
             "Cleaning up any remaining process on port {}...",
             server_port()
         );
-        kill_server_on_port(server_port());
+        kill_server_on_port(server_port(), Some(&state.token));
         state.owns_port.store(false, Ordering::Relaxed);
     }
 }
@@ -953,7 +974,7 @@ pub(crate) fn kill_subprocesses(pid: u32) {
 //   - Reuse path (#2258): no CommandChild was tracked
 //   - Subprocess survival: pkill -P missed children for any reason
 #[cfg(unix)]
-pub(crate) fn kill_server_on_port(port: u16) {
+pub(crate) fn kill_server_on_port(port: u16, token: Option<&str>) {
     // -sTCP:LISTEN restricts output to the process actually listening on the
     // port, excluding established client connections (e.g. the Tauri WebView).
     // my_pid guard is belt-and-suspenders in case lsof returns our own PID.
@@ -982,7 +1003,7 @@ pub(crate) fn kill_server_on_port(port: u16) {
             // caller's check and this point the gptme-server may have died and
             // an unrelated process taken the port (TOCTOU). Never kill a
             // process we cannot identify as a gptme-server.
-            if !pid_is_gptme_server(pid) {
+            if !pid_is_gptme_server(pid, token) {
                 log::info!(
                     "PID {} on port {} is not a gptme-server; refusing to kill it",
                     pid,
@@ -1000,7 +1021,7 @@ pub(crate) fn kill_server_on_port(port: u16) {
 }
 
 #[cfg(windows)]
-pub(crate) fn kill_server_on_port(port: u16) {
+pub(crate) fn kill_server_on_port(port: u16, token: Option<&str>) {
     // netstat -ano columns: Proto  LocalAddress  ForeignAddress  State  PID
     // Match the local-address field (col[1]) exactly so ":5700" does not
     // accidentally match ":57001" via substring search.
@@ -1030,7 +1051,7 @@ pub(crate) fn kill_server_on_port(port: u16) {
                 }
                 // Identity re-check immediately before the kill (TOCTOU guard,
                 // same as the unix variant): only kill a verified gptme-server.
-                if !pid_is_gptme_server(pid) {
+                if !pid_is_gptme_server(pid, token) {
                     log::info!(
                         "PID {} on port {} is not a gptme-server; refusing to kill it",
                         pid,
@@ -1063,7 +1084,7 @@ pub(crate) fn kill_server_on_port(port: u16) {
 pub(crate) fn kill_subprocesses(_pid: u32) {}
 
 #[cfg(not(any(unix, windows)))]
-pub(crate) fn kill_server_on_port(_port: u16) {}
+pub(crate) fn kill_server_on_port(_port: u16, _token: Option<&str>) {}
 
 #[cfg(test)]
 mod tests {

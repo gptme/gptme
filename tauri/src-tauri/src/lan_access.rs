@@ -161,11 +161,11 @@ async fn restart_sidecar_with_lan(
             // The adopted process may have died since adoption and an
             // unrelated process taken the port; never kill one of those.
             match crate::server_pid_on_port(crate::server_port()) {
-                Some(pid) if crate::pid_is_gptme_server(pid) => {
+                Some(pid) if crate::pid_is_gptme_server(pid, Some(&server.token)) => {
                     log::info!(
                         "No child handle for adopted server; killing gptme-server PID {pid} for LAN rebind"
                     );
-                    crate::kill_server_on_port(crate::server_port());
+                    crate::kill_server_on_port(crate::server_port(), Some(&server.token));
                 }
                 Some(pid) => {
                     return SidecarRebindResult::FailedNoBackend(format!(
@@ -226,7 +226,7 @@ async fn restart_sidecar_with_lan(
             "Port {} did not free up; force-clearing possible orphan",
             crate::server_port()
         );
-        crate::kill_server_on_port(crate::server_port());
+        crate::kill_server_on_port(crate::server_port(), Some(&server.token));
         for _ in 0..10 {
             if crate::is_port_available(crate::server_port()) {
                 port_free = true;
@@ -252,18 +252,51 @@ async fn restart_sidecar_with_lan(
         );
         return match restore {
             Ok(()) => {
-                // spawn_server_sidecar returned Ok but the port was never freed:
-                // it adopted the existing orphan rather than starting a fresh
-                // loopback server.  The old LAN-exposed server is still running
-                // with its original token — we cannot clear the exposure without
-                // killing it.  Return FailedNoBackend so disable_lan_access keeps
-                // enabled=true and the user sees the LAN is still active.
-                // owns_port was set to true by the adoption, so exit cleanup
-                // will call kill_server_on_port.
-                SidecarRebindResult::FailedNoBackend(format!(
-                    "{bind_err}; could not stop the LAN-exposed server — \
-                     restart the app to rebind to loopback"
-                ))
+                // spawn_server_sidecar returned Ok with the port still occupied:
+                // it adopted the existing holder rather than starting a fresh
+                // loopback server. If that holder is our own orphan — missed by
+                // the cmdline identity check — the token passed into the kill
+                // gives a decisive /proc environ match (Linux), so one more
+                // identity-verified kill can still clear the exposure and let
+                // the loopback restore succeed.
+                crate::kill_server_on_port(crate::server_port(), Some(&server.token));
+                let mut cleared = false;
+                for _ in 0..10 {
+                    if crate::is_port_available(crate::server_port()) {
+                        cleared = true;
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                if !cleared {
+                    // The holder is genuinely foreign (no cmdline or token
+                    // match) — we must not kill it, and we cannot clear the
+                    // LAN exposure from here. Return FailedNoBackend so
+                    // disable_lan_access keeps enabled=true and the user sees
+                    // the LAN is still active; owns_port was set to true by
+                    // the adoption, so exit cleanup will attempt the kill
+                    // again on exit.
+                    return SidecarRebindResult::FailedNoBackend(format!(
+                        "{bind_err}; could not stop the LAN-exposed server — \
+                         restart the app to rebind to loopback"
+                    ));
+                }
+                // Exposure cleared: respawn a loopback server so the app is
+                // not left without a backend, then report the recovery.
+                match crate::spawn_server_sidecar(
+                    &app,
+                    server.child.clone(),
+                    server.owns_port.clone(),
+                    &server.token,
+                    None,
+                )
+                .await
+                {
+                    Ok(()) => SidecarRebindResult::FailedRecovered(bind_err),
+                    Err(e) => SidecarRebindResult::FailedNoBackend(format!(
+                        "{bind_err}; loopback restore after clearing the orphan failed: {e}"
+                    )),
+                }
             }
             Err(e) => {
                 // Port still occupied and recovery also failed — an orphan may
