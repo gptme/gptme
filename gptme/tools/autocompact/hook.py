@@ -278,11 +278,15 @@ def autocompact_hook(
             # The latch deliberately survives a successful trim: an ineffective
             # trim that leaves the conversation over budget must not reset the
             # growth clock, or summarize retries (and fails) every 20 messages.
-            # But growth must be measured from the post-trim view — otherwise a
-            # trim that shrinks the log leaves the latch comparing against a
-            # larger pre-trim count and it can never lift.
+            # The baseline may only move *down* — to the post-trim count when a
+            # trim actually shrinks the view (otherwise growth measured from a
+            # larger pre-trim count could never reach the threshold). A trim that
+            # preserves the message count leaves the baseline untouched, so
+            # growth keeps accumulating across repeated trims.
             if conv_key in _failed_summarize:
-                _failed_summarize[conv_key] = post_trim_count
+                _failed_summarize[conv_key] = min(
+                    _failed_summarize[conv_key], post_trim_count
+                )
 
             # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
             # (e.g., attention-router can batch-apply decay and re-evaluate tiers)

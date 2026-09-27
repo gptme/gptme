@@ -2655,3 +2655,82 @@ def test_failed_summarize_latch_rebases_after_trim(monkeypatch):
         ]
         list(hook_module.autocompact_hook(manager))
         assert mock_resume.called, "Latch must lift after growth measured post-trim"
+
+
+def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
+    """A count-preserving trim must not advance the latch baseline.
+
+    Otherwise repeated trims each reset the growth clock and summarize is never
+    retried (and each step creates another view).
+    """
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.context_provider import CompactionResult
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-baseline"
+    manager.current_branch = "master"
+    manager.current_view = "main"
+
+    def set_msgs(n):
+        manager.log.messages = [Message("user", f"m{i}") for i in range(n)]
+
+    def create_view(_name, compacted):
+        manager.log.messages = list(compacted)
+
+    manager.create_view.side_effect = create_view
+
+    # A trim that preserves the message count (content truncation only).
+    mock_provider = MagicMock()
+    mock_provider.compress.side_effect = lambda messages, config: CompactionResult(
+        messages=list(messages),
+        source_digest=hashlib.sha256(b"same").hexdigest(),
+        covered_through=len(messages) - 1,
+    )
+
+    def rejected_resume(manager, messages, **kwargs):
+        yield Message("system", "Generating...", hide=True, ui_only=True)
+
+    conv_key = ("/tmp/conv-baseline", "master")
+    threshold = hook_module._FAILURE_RETRY_GROWTH_MESSAGES
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=rejected_resume,
+        ) as mock_resume,
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        # Latch at 30.
+        set_msgs(30)
+        list(hook_module.autocompact_hook(manager))
+        assert hook_module._failed_summarize[conv_key] == 30
+
+        # A count-preserving trim at 35 must NOT move the baseline up.
+        set_msgs(35)
+        list(hook_module.autocompact_hook(manager))
+        assert hook_module._failed_summarize[conv_key] == 30, (
+            "Count-preserving trim must not advance the latch baseline"
+        )
+
+        # Growth from 30 still accumulates: 50 - 30 = 20 releases the latch.
+        set_msgs(30 + threshold)
+        list(hook_module.autocompact_hook(manager))
+        assert mock_resume.called, (
+            "Latch must release once real growth reaches threshold"
+        )
