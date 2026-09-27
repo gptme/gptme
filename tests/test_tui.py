@@ -1351,20 +1351,25 @@ def test_renderables_for_message_hides_thinking():
 
 
 def test_thinking_hidden_by_default(tmp_path, monkeypatch):
-    monkeypatch.delenv("GPTME_TUI_THINKING", raising=False)
+    monkeypatch.delenv("GPTME_TUI_DISPLAY_THINKING", raising=False)
     assert not GptmeApp(make_manager(tmp_path), workspace=tmp_path).show_thinking
-    monkeypatch.setenv("GPTME_TUI_THINKING", "1")
+    monkeypatch.setenv("GPTME_TUI_DISPLAY_THINKING", "1")
     assert GptmeApp(make_manager(tmp_path), workspace=tmp_path).show_thinking
 
 
 def test_complete_input_tui_commands():
-    assert "/thinking" in complete_input("/thi")
-    assert complete_input("/thinking o") == ["/thinking on", "/thinking off"]
+    assert "/display" in complete_input("/disp")
+    assert complete_input("/display ") == ["/display thinking", "/display outputs"]
+    assert complete_input("/display thinking o") == [
+        "/display thinking on",
+        "/display thinking off",
+    ]
+    assert complete_input("/display thinking on ") == []
 
 
 @pytest.mark.asyncio
-async def test_thinking_command_toggles_collapsibles(tmp_path, monkeypatch):
-    monkeypatch.delenv("GPTME_TUI_THINKING", raising=False)
+async def test_display_thinking_toggles_collapsibles(tmp_path, monkeypatch):
+    monkeypatch.delenv("GPTME_TUI_DISPLAY_THINKING", raising=False)
     manager = make_manager(
         tmp_path, [Message("assistant", "<think>\nreasoning\n</think>\nAnswer")]
     )
@@ -1374,7 +1379,10 @@ async def test_thinking_command_toggles_collapsibles(tmp_path, monkeypatch):
         block = app.query(".thinking-block").results(Collapsible).__next__()
         assert block.collapsed
         inp = app.query_one("#input", ChatInput)
-        for text, expanded in [("/thinking", True), ("/thinking off", False)]:
+        for text, expanded in [
+            ("/display thinking", True),
+            ("/display thinking off", False),
+        ]:
             inp.text = text
             await pilot.press("enter")
             await pilot.pause()
@@ -1382,15 +1390,21 @@ async def test_thinking_command_toggles_collapsibles(tmp_path, monkeypatch):
             assert block.collapsed is not expanded
         # display-only toggle stays available while the agent works
         app.generating = True
-        inp.text = "/thinking on"
+        inp.text = "/display thinking on"
         await pilot.press("enter")
         await pilot.pause()
         assert app.show_thinking
+        # outputs toggle leaves thinking alone
+        inp.text = "/display outputs off"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not app._outputs_expanded
+        assert not block.collapsed
 
 
 @pytest.mark.asyncio
 async def test_inline_stream_preview_hides_thinking(tmp_path, monkeypatch):
-    monkeypatch.delenv("GPTME_TUI_THINKING", raising=False)
+    monkeypatch.delenv("GPTME_TUI_DISPLAY_THINKING", raising=False)
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
     async with app.run_test() as pilot:
         app._begin_stream()

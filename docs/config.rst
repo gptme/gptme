@@ -439,7 +439,7 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream. Default is model-dependent: ``false`` for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), ``true`` for others. Set to ``0`` to force parallel tool calls, ``1`` to force single tool call per response.
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
-- ``GPTME_TUI_THINKING`` - Show model thinking in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/thinking``)
+- ``GPTME_TUI_DISPLAY_THINKING`` - Show model thinking in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/display thinking``). Display only; does not affect reasoning.
 
 .. rubric:: API Configuration
 

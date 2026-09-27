@@ -65,15 +65,23 @@ prints expanded), mouse interaction is left entirely to the terminal, and
 dragging the terminal narrower can leave fragments of the input area in the
 scrollback.
 
-Thinking
---------
+Display settings
+----------------
 
-Model thinking (reasoning) is hidden by default: a finished message shows a
-one-line placeholder, and the live preview shows only the response. Toggle it
-with ``/thinking``, or set it explicitly with ``/thinking on`` and
-``/thinking off``. In the default view this expands or collapses the thinking
-sections; in inline mode it applies to messages printed afterwards. To show
-thinking from startup, set ``GPTME_TUI_THINKING=1``.
+``/display`` changes what the TUI shows; it never changes what the model does
+(for reasoning effort, see :ref:`reasoning-effort`). Run it alone to list the
+current settings.
+
+- ``/display thinking [on|off]``: model thinking. Hidden by default: a
+  finished message shows a one-line placeholder, and the live preview shows
+  only the response. Set ``GPTME_TUI_DISPLAY_THINKING=1`` to show it from
+  startup.
+- ``/display outputs [on|off]``: expand or collapse tool output, like
+  :kbd:`Ctrl+O`.
+
+Without ``on``/``off`` the setting toggles. In the default view the change
+applies to existing messages; in inline mode it applies to messages printed
+afterwards.
 
 Keys
 ----
@@ -101,7 +109,7 @@ The TUI supports the same :doc:`slash-commands <commands>` as the CLI
 (``/model``, ``/undo``, ``/tokens``, …), with the same Tab completion,
 by routing them through the shared command registry. Command output is
 shown inline in the conversation. ``/quit`` is a TUI-local alias for
-``/exit``, and ``/thinking`` (see `Thinking`_) is TUI-only.
+``/exit``, and ``/display`` (see `Display settings`_) is TUI-only.
 
 Limitations
 -----------

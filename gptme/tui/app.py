@@ -160,12 +160,13 @@ def _strip_thinking(text: str) -> str:
 def _thinking_stub(text: str) -> str:
     """One-line placeholder for a hidden thinking block."""
     n = len(text.splitlines())
-    return f"▸ Thinking ({n} line{'s' if n != 1 else ''} hidden, /thinking to show)"
+    lines = f"{n} line{'s' if n != 1 else ''}"
+    return f"▸ Thinking ({lines} hidden, /display thinking to show)"
 
 
 def _show_thinking_default() -> bool:
-    """Whether thinking is displayed at startup (``GPTME_TUI_THINKING``)."""
-    return bool(get_config().get_env_bool("GPTME_TUI_THINKING", default=False))
+    """Whether thinking is displayed at startup (``GPTME_TUI_DISPLAY_THINKING``)."""
+    return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_THINKING", default=False))
 
 
 def _split_tool_calls(text: str) -> list[tuple[bool, str]]:
@@ -615,9 +616,17 @@ def renderables_for_message(
     return renderables
 
 
-# TUI-local commands (handled by the app, not the shared registry) and
-# their argument completions
-TUI_COMMANDS: dict[str, list[str]] = {"quit": [], "thinking": ["on", "off"]}
+# display-only settings toggled by /display (they never affect the model)
+DISPLAY_SETTINGS = ("thinking", "outputs")
+_ON = ("on", "show", "expanded", "true", "1")
+_OFF = ("off", "hide", "collapsed", "false", "0")
+
+# TUI-local commands (handled by the app, not the shared registry) and the
+# completion candidates for each positional argument
+TUI_COMMANDS: dict[str, list[list[str]]] = {
+    "quit": [],
+    "display": [list(DISPLAY_SETTINGS), ["on", "off"]],
+}
 
 
 def complete_input(text: str) -> list[str]:
@@ -631,17 +640,19 @@ def complete_input(text: str) -> list[str]:
         commands = set(get_user_commands()) | {f"/{c}" for c in TUI_COMMANDS}
         return sorted(c for c in commands if c.startswith(text))
     # completing command arguments
-    if (tui_args := TUI_COMMANDS.get(parts[0][1:])) is not None:
-        arg_text = parts[1] if len(parts) > 1 else ""
-        return [f"{parts[0]} {a}" for a in tui_args if a.startswith(arg_text)]
-    completer = get_command_completer(parts[0][1:])
-    if completer is None:
-        return []
     arg_text = parts[1] if len(parts) > 1 else ""
     args = arg_text.split()
     partial = args[-1] if args and not arg_text.endswith(" ") else ""
     prev_args = args[:-1] if args and not arg_text.endswith(" ") else args
     base = text[: len(text) - len(partial)]
+    if (positional := TUI_COMMANDS.get(parts[0][1:])) is not None:
+        if len(prev_args) >= len(positional):
+            return []
+        choices = positional[len(prev_args)]
+        return [base + c for c in choices if c.startswith(partial)]
+    completer = get_command_completer(parts[0][1:])
+    if completer is None:
+        return []
     try:
         return sorted(
             base + candidate
@@ -1485,8 +1496,8 @@ class GptmeApp(App):
         if cmd in ("quit", "q"):  # TUI-local alias for /exit
             self.exit()
             return
-        if cmd == "thinking":  # TUI-local: display only, allowed while working
-            self._toggle_thinking(text.split()[1:])
+        if cmd == "display":  # TUI-local: display only, allowed while working
+            self._display_command(text.split()[1:])
             return
         if cmd in self.UNSUPPORTED_COMMANDS:
             self._show_info(
@@ -1555,26 +1566,48 @@ class GptmeApp(App):
             self._drain_command_queued_prompts()
         self._update_status()
 
-    def _toggle_thinking(self, args: list[str]) -> None:
-        """``/thinking [on|off]``: show or hide model thinking."""
-        arg = args[0].lower() if args else ""
-        if arg in ("on", "show", "true", "1"):
-            self.show_thinking = True
-        elif arg in ("off", "hide", "false", "0"):
-            self.show_thinking = False
-        elif not arg:
-            self.show_thinking = not self.show_thinking
-        else:
-            self._show_info("Usage: /thinking [on|off]", error=True)
+    def _display_command(self, args: list[str]) -> None:
+        """``/display [thinking|outputs] [on|off]``: display-only settings.
+
+        No setting lists the current state; no value toggles.
+        """
+        usage = "Usage: /display [thinking|outputs] [on|off]"
+        if not args:
+            self._show_info(
+                f"thinking: {'on' if self.show_thinking else 'off'}, "
+                f"outputs: {'expanded' if self._outputs_expanded else 'collapsed'}"
+                f"\n{usage}"
+            )
             return
+        name = args[0].lower()
+        value = args[1].lower() if len(args) > 1 else None
+        if name not in DISPLAY_SETTINGS or len(args) > 2:
+            self._show_info(usage, error=True)
+            return
+        current = self.show_thinking if name == "thinking" else self._outputs_expanded
+        if value is None:
+            on = not current
+        elif value in _ON:
+            on = True
+        elif value in _OFF:
+            on = False
+        else:
+            self._show_info(usage, error=True)
+            return
+        if name == "thinking":
+            self._set_thinking(on)
+        else:
+            self._set_outputs(on)
+
+    def _set_thinking(self, on: bool) -> None:
+        self.show_thinking = on
         if self._stream_widget is not None:
-            self._stream_widget.show_thinking = self.show_thinking
+            self._stream_widget.show_thinking = on
         if not self.inline:
             for block in self.query(".thinking-block").results(Collapsible):
-                block.collapsed = not self.show_thinking
-        state = "shown" if self.show_thinking else "hidden"
+                block.collapsed = not on
         note = " (applies to new output)" if self.inline else ""
-        self._show_info(f"Thinking {state}{note}.")
+        self._show_info(f"Thinking {'shown' if on else 'hidden'}{note}.")
 
     def _drain_command_queued_prompts(self) -> None:
         """Turn durable prompts queued by a command into a TUI user turn.
@@ -1942,7 +1975,10 @@ class GptmeApp(App):
             self.exit()
 
     def action_toggle_outputs(self) -> None:
-        self._outputs_expanded = not self._outputs_expanded
+        self._set_outputs(not self._outputs_expanded)
+
+    def _set_outputs(self, expanded: bool) -> None:
+        self._outputs_expanded = expanded
         if self.inline:
             # scrollback is immutable; the toggle affects future tool output
             self._show_info(
@@ -1951,8 +1987,10 @@ class GptmeApp(App):
                 + " from now on."
             )
             return
+        # thinking has its own setting (/display thinking)
         for collapsible in self.query(Collapsible):
-            collapsible.collapsed = not self._outputs_expanded
+            if not collapsible.has_class("thinking-block"):
+                collapsible.collapsed = not self._outputs_expanded
 
     async def action_quit(self) -> None:
         self._quitting = True
