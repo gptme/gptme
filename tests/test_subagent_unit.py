@@ -7515,6 +7515,15 @@ class TestMidTurnSteerInjection:
 class TestProfileToolResolution:
     """A profile allowlist must be able to name disabled-by-default tools."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_tool_state(self):
+        """Restore pristine tool state after each test (isolation)."""
+        from gptme.tools import clear_tools, init_tools
+
+        yield
+        clear_tools()
+        init_tools(allowlist=None)
+
     @staticmethod
     def _setup_base_tools():
         from gptme.tools import init_tools
@@ -7602,14 +7611,11 @@ class TestProfileToolResolution:
     def test_session_allowlist_not_overridden_by_profile(self):
         """The operator's session allowlist stays authoritative over a profile.
 
-        Regression (Greptile P1): ``allow_required=True`` bypassed the session
-        allowlist, letting a profile re-grant a capability the operator excluded
-        (e.g. an explorer subagent regaining ``read`` under TOOL_ALLOWLIST=shell).
+        Regression (Greptile P1): the profile loader must not load (or keep) a
+        tool the operator excluded — an explorer profile naming ``read`` must
+        not regain file reads under a TOOL_ALLOWLIST=shell session.
         """
-        from unittest.mock import patch
-
-        from gptme.tools import init_tools
-        from gptme.tools.base import ToolSpec
+        from gptme.tools import get_tools, init_tools
         from gptme.tools.subagent.execution import (
             _ensure_subagent_signal_tools_loaded,
             _resolve_profile_tools,
@@ -7617,20 +7623,33 @@ class TestProfileToolResolution:
 
         init_tools(allowlist=["shell"])
         _ensure_subagent_signal_tools_loaded()
-        # A default-enabled tool outside the session allowlist, loaded before
-        # profile resolution, must not survive the final filter.
-        loaded = [
-            ToolSpec(name="shell", desc=""),
-            ToolSpec(name="chats", desc=""),
-            ToolSpec(name="complete", desc=""),
-            ToolSpec(name="clarify", desc=""),
-        ]
-        with patch("gptme.tools.subagent.execution.get_tools", return_value=loaded):
-            names = {
-                t.name
-                for t in _resolve_profile_tools(["read", "shell", "chats"], "explorer")
-            }
+        names = {
+            t.name
+            for t in _resolve_profile_tools(["read", "shell", "chats"], "explorer")
+        }
         assert "read" not in names, "profile re-granted an operator-excluded tool"
-        assert "chats" not in names, "filter did not enforce the session allowlist"
+        assert "read" not in {t.name for t in get_tools()}, (
+            "profile loader loaded an operator-excluded tool"
+        )
         assert "shell" in names
         assert {"complete", "clarify"} <= names
+
+    def test_file_backed_tool_survives_profile_resolution(self, tmp_path):
+        """A tool loaded from an operator-allowed .py file survives resolution.
+
+        Regression (Greptile P1): the session-allowlist filter compared tool
+        *names* against raw allowlist entries, but a file allowlist stores a
+        path (e.g. ``/path/mytool.py``), so a file-exported tool that both the
+        operator and the profile allowed was silently dropped.
+        """
+        from gptme.tools import init_tools
+        from gptme.tools.subagent.execution import _resolve_profile_tools
+
+        tool_file = tmp_path / "mycustomtool.py"
+        tool_file.write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "tool = ToolSpec(name='mycustomtool', desc='test tool')\n"
+        )
+        init_tools(allowlist=[str(tool_file)])
+        names = {t.name for t in _resolve_profile_tools(["mycustomtool"], "custom")}
+        assert "mycustomtool" in names, "file-backed tool dropped by session filter"

@@ -101,7 +101,12 @@ def _resolve_profile_tools(
     a capability the operator excluded.
     """
     session_allowlist = get_session_allowlist()
-    loaded_names = {tool.name for tool in get_tools()}
+    # Tools already loaded were vetted against the session allowlist by
+    # init_tools() — including tools exported by operator-allowed .py tool
+    # files, whose names never appear verbatim in the allowlist (it stores
+    # the file path). Only newly loaded tools need the session check.
+    session_vetted_names = {tool.name for tool in get_tools()}
+    loaded_names = set(session_vetted_names)
     for tool in get_available_tools():
         if not tool.disabled_by_default or tool.name in loaded_names:
             continue
@@ -141,6 +146,7 @@ def _resolve_profile_tools(
         if tool_matches_allowlist(tool.name, tool_allowlist, tool.hints)
         and (
             session_allowlist is None
+            or tool.name in session_vetted_names
             or tool_matches_allowlist(tool.name, session_allowlist, tool.hints)
         )
     ]
