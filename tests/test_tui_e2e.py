@@ -316,7 +316,7 @@ class TmuxTUI:
         Right after first paint, Textual is still negotiating terminal
         protocols and can drop the first keypress.
         """
-        self.wait_for("Type a message")
+        self.wait_for("Ctrl+J newline")
         time.sleep(0.7)
 
     def resume(self, expect: str, timeout: float = 10.0) -> str:
@@ -457,7 +457,7 @@ class TestTmuxInlineMode:
         tui.send_key("Enter")
         tui.wait_for("Echo: hello inline")
         # Wait for the input prompt to confirm rendering is complete.
-        tui.wait_for("Type a message")
+        tui.wait_for("Ctrl+J newline")
         # In --inline mode the response is emitted to native scrollback (above
         # the live input region). tmux capture-pane without -S only shows the
         # current 30-line visible screen, so "Echo: hello inline" can scroll
@@ -470,7 +470,7 @@ class TestTmuxInlineMode:
         # input region which contains the prompt (higher index). Use rindex so
         # we compare against the re-rendered prompt AFTER the echo, not the
         # initial startup prompt that appears earlier in the scrollback.
-        assert pane.index("Echo: hello inline") < pane.rindex("Type a message")
+        assert pane.index("Echo: hello inline") < pane.rindex("Ctrl+J newline")
 
     def test_inline_tool_flow(self, tmux_tui, tmp_path):
         marker = tmp_path / "inline_marker"

@@ -941,8 +941,9 @@ class GptmeApp(App):
     Screen:inline {
         height: auto;
         max-height: 40%;
-        /* Textual pads the inline region with a blank line below; the
-           full-screen layout has none */
+        /* Textual pads the inline region with blank lines above and below;
+           the full-screen layout has neither */
+        border-top: none;
         border-bottom: none;
     }
     #live {
@@ -1044,33 +1045,43 @@ class GptmeApp(App):
         color: $text-muted;
         background: ansi_default;
     }
+    /* input between two horizontal rules, prompt marker on the left */
+    #input-row {
+        height: auto;
+        margin-top: 1;
+        border-top: solid $foreground 25%;
+        border-bottom: solid $foreground 25%;
+        background: ansi_default;
+    }
+    #prompt-marker {
+        width: 2;
+        background: ansi_default;
+    }
     #input {
-        margin: 1 1 0 1;
+        border: none;
+        padding: 0;
         height: auto;
         max-height: 10;
         background: ansi_default;
     }
-    /* hint and status line up with the input text (margin + border + pad) */
-    #input-hint {
+    #input .text-area--cursor-line {
+        background: transparent;
+    }
+    /* status lines up with the input text, key hints on the right */
+    #status-row {
         height: 1;
-        margin: 0 3;
+        margin: 0 2;
         background: ansi_default;
     }
-    #input-hint Static {
+    #status-row Static {
         color: $text-muted;
         background: ansi_default;
-    }
-    #hint-left {
-        width: 1fr;
-    }
-    #hint-right {
-        width: auto;
     }
     #status {
-        height: 1;
-        margin: 1 3 0 3;
-        color: $text-muted;
-        background: ansi_default;
+        width: 1fr;
+    }
+    #keys {
+        width: auto;
     }
     ConfirmScreen {
         align: center middle;
@@ -1180,26 +1191,22 @@ class GptmeApp(App):
             # queued prompts stay visible here until dispatched: printing them
             # into scrollback would duplicate them once they are submitted
             yield Static(id="queued")
-            yield ChatInput(id="input")
-            yield self._input_hint()
-            yield Static(id="status")
+            yield from self._compose_input()
             return
         yield VerticalScroll(id="chat")
         with Vertical(id="bottom"):
             yield Static("", id="completions")
-            yield ChatInput(id="input")
-            yield self._input_hint()
-            yield Static(id="status")
+            yield from self._compose_input()
 
-    @staticmethod
-    def _input_hint() -> Horizontal:
-        return Horizontal(
-            Static(Text("Type a message…"), id="hint-left"),
-            Static(
-                Text("Enter send · Ctrl+J newline · Ctrl+O details"), id="hint-right"
-            ),
-            id="input-hint",
-        )
+    def _compose_input(self) -> ComposeResult:
+        with Horizontal(id="input-row"):
+            yield Static(Text("❯"), id="prompt-marker")
+            yield ChatInput(id="input")
+        with Horizontal(id="status-row"):
+            yield Static(id="status")
+            yield Static(
+                Text("Enter send · Ctrl+J newline · Ctrl+O details"), id="keys"
+            )
 
     def on_mount(self) -> None:
         # Redirect stdout/stderr to a log file: core machinery (tool output

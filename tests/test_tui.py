@@ -82,7 +82,14 @@ async def test_active_surfaces_use_ansi_default_background(tmp_path):
         assert app.screen.styles.background == expected
         assert app.screen.styles.height is None
         assert app.screen.styles.max_height is None
-        for selector in ("#chat", "#bottom", "#input", "#input-hint", "#status"):
+        for selector in (
+            "#chat",
+            "#bottom",
+            "#input-row",
+            "#input",
+            "#status-row",
+            "#status",
+        ):
             assert app.query_one(selector).styles.background == expected
 
 
