@@ -208,9 +208,11 @@ def api_conversation_events(conversation_id: str):
         # every reconnect fail until the client gave up. The fresh session ID is
         # returned in the `connected` event, which the client adopts.
         if session_id:
+            # session_id is client-controlled; bound it so oversized or
+            # control-byte values can't flood logs or forge log entries.
             logger.info(
                 "Session %s not found for conversation %s, creating a new one",
-                session_id,
+                session_id[:80],
                 conversation_id,
             )
         session = SessionManager.create_session(conversation_id)
