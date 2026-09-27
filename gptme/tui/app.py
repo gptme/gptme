@@ -733,6 +733,12 @@ class ChatInput(TextArea):
             self._clear_completions()
             self.post_message(self.Submitted(self.text))
             return
+        if event.key == "ctrl+d" and not self.text:
+            # like a shell: Ctrl+D quits on empty input, else deletes forward
+            event.stop()
+            event.prevent_default()
+            await self.run_action("app.quit")
+            return
         if event.key in ("alt+enter", "shift+enter", "ctrl+j"):
             event.stop()
             event.prevent_default()
@@ -1231,9 +1237,12 @@ class GptmeApp(App):
             self.manager.logdir, self._active_skill_invocation_id, "abandoned"
         )
         unregister_hook("tui_confirm", HookType.TOOL_CONFIRM)
-        if self._real_stdout is not None:
+        # The saved streams are Textual's stdout/stderr captures, and unmount
+        # can run after Textual has already restored the real streams:
+        # only undo our own redirect, or later prints go to a dead capture.
+        if self._real_stdout is not None and sys.stdout is self._stdio_sink:
             sys.stdout = self._real_stdout
-        if self._real_stderr is not None:
+        if self._real_stderr is not None and sys.stderr is self._stdio_sink:
             sys.stderr = self._real_stderr
         if self._stdio_sink is not None:
             self._stdio_sink.close()
@@ -1277,6 +1286,29 @@ class GptmeApp(App):
         self._previous_cursor_position = Offset(0, 0)
         size = Size(width, height)
         self.post_message(events.Resize(size, size))
+
+    def end_session(self) -> None:
+        """Run SESSION_END hooks (e.g. the cost summary), like the CLI on exit.
+
+        Called after the app has exited, so hook output reaches the terminal.
+        """
+
+        def run_hooks() -> None:
+            if msgs := trigger_hook(
+                HookType.SESSION_END,
+                logdir=self.manager.logdir,
+                manager=self.manager,
+            ):
+                for msg in msgs:
+                    self.manager.append(msg)
+
+        try:
+            # cost tracking and other session state live in the chat context
+            self._chat_ctx.run(run_hooks)
+        except RuntimeError:
+            # a generation thread that outlived the app still holds the context
+            logger.warning("Skipping session-end hooks: generation still running")
+        self.manager.write(sync=True)
 
     def _render_history(self) -> None:
         chat = self.query_one("#chat", VerticalScroll)

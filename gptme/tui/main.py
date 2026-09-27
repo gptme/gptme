@@ -202,6 +202,7 @@ def main(
         # resuming this conversation with the same flags
         print(f"Restarting gptme-tui with conversation: {logdir.name}")
         _do_restart(logdir.name)
+    app.end_session()
     print(f"Conversation saved: {logdir.name}")
     print(f"Resume with: gptme-tui -n {logdir.name}  (or gptme -r in the CLI)")
     sys.exit(0)

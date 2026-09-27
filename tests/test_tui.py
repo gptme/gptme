@@ -1476,3 +1476,46 @@ async def test_restart_command_exits_for_reexec(tmp_path):
         await pilot.press("enter")
         await pilot.pause()
     assert app.restart_requested
+
+
+def test_end_session_prints_cost_summary(tmp_path, capsys):
+    """Exiting the TUI fires SESSION_END in the chat context (cost summary)."""
+    from gptme.hooks import HookType, register_hook, unregister_hook
+    from gptme.hooks.cost_awareness import session_end_cost_summary
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    register_hook("test.cost_summary", HookType.SESSION_END, session_end_cost_summary)
+    try:
+        app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+        entry = CostEntry(
+            timestamp=0.0,
+            model="test",
+            input_tokens=2000,
+            output_tokens=100,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.25,
+        )
+        app._chat_ctx.run(CostTracker.record, entry)
+        app.end_session()
+    finally:
+        unregister_hook("test.cost_summary", HookType.SESSION_END)
+    assert "Session: $0.25" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_ctrl_d_quits_only_on_empty_input(tmp_path):
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "draft"
+        inp.move_cursor((0, 0))
+        await pilot.press("ctrl+d")
+        await pilot.pause()
+        assert app.is_running
+        assert inp.text == "raft"  # deleted forward instead
+        inp.text = ""
+        await pilot.press("ctrl+d")
+        await pilot.pause()
+        assert not app.is_running
