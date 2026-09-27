@@ -2566,3 +2566,37 @@ class TestTranscriptEndpointInputValidation:
         data = response.get_json()
         assert data is not None
         assert "call_sid" in data["error"]
+
+
+class TestSafeSessionIdForLog:
+    """Client-controlled session_id must be log-safe before hitting the logger."""
+
+    def test_truncates_oversized_id(self):
+        from gptme.server.api_v2_sessions import _safe_session_id_for_log
+
+        result = _safe_session_id_for_log("x" * 500)
+        assert len(result) == 80
+        assert result == "x" * 80
+
+    def test_strips_newlines_and_control_bytes(self):
+        from gptme.server.api_v2_sessions import _safe_session_id_for_log
+
+        result = _safe_session_id_for_log("abc\ndef\r\x00\x1bghi")
+        assert "\n" not in result and "\r" not in result
+        assert result == "abc?def???ghi"
+
+    def test_newline_within_first_80_chars_is_neutralized(self):
+        # Regression: a previous slice truncated to 80 chars but left the
+        # newline intact, so forged multi-line log output was still possible.
+        from gptme.server.api_v2_sessions import _safe_session_id_for_log
+
+        payload = "a" * 40 + "\nFAKE ERROR: total pwnage\n" + "b" * 100
+        result = _safe_session_id_for_log(payload)
+        assert "\n" not in result
+        assert len(result) == 80
+
+    def test_keeps_valid_uuid_untouched(self):
+        from gptme.server.api_v2_sessions import _safe_session_id_for_log
+
+        sid = str(uuid.uuid4())
+        assert _safe_session_id_for_log(sid) == sid

@@ -9,6 +9,7 @@ Data models live in session_models.py; execution logic in session_step.py.
 import dataclasses
 import logging
 import math
+import re
 import time
 import uuid
 from collections.abc import Generator
@@ -23,6 +24,17 @@ from ..llm.models import get_default_model
 from ..logmanager import LogManager
 from ..message import Message
 from .api_v2_common import _validate_branch, _validate_conversation_id
+
+# Log-safe rendering of client-controlled session ids: collapse anything
+# outside printable ASCII (control bytes, DEL, non-ASCII) and cap length so a
+# crafted id can't flood logs or forge multi-line log entries.
+_LOG_UNSAFE_RE = re.compile(r"[^\x20-\x7e]")
+
+
+def _safe_session_id_for_log(session_id: str, max_len: int = 80) -> str:
+    return _LOG_UNSAFE_RE.sub("?", session_id)[:max_len]
+
+
 from .auth import require_auth
 from .constants import DEFAULT_FALLBACK_MODEL
 from .metrics import sse_connection_close, sse_connection_open
@@ -212,7 +224,7 @@ def api_conversation_events(conversation_id: str):
             # control-byte values can't flood logs or forge log entries.
             logger.info(
                 "Session %s not found for conversation %s, creating a new one",
-                session_id[:80],
+                _safe_session_id_for_log(session_id),
                 conversation_id,
             )
         session = SessionManager.create_session(conversation_id)
