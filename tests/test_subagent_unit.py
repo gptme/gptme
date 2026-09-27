@@ -7505,3 +7505,72 @@ class TestMidTurnSteerInjection:
 
         # Hook must not consume non-steer messages
         assert msgs == []
+
+
+# ---------------------------------------------------------------------------
+# Profile tool resolution tests
+# ---------------------------------------------------------------------------
+
+
+class TestProfileToolResolution:
+    """A profile allowlist must be able to name disabled-by-default tools."""
+
+    @staticmethod
+    def _setup_base_tools():
+        from gptme.tools import init_tools
+
+        init_tools(allowlist=None)
+
+    def test_profile_loads_disabled_by_default_tool(self):
+        """`read` is disabled by default; explorer's allowlist must still load it.
+
+        Regression: the subagent executor filtered the already-loaded tools and
+        never loaded disabled-by-default tools named by the profile, so the
+        built-in explorer/verifier/researcher profiles silently lost file reads.
+        """
+        from gptme.tools import get_tools
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        self._setup_base_tools()
+        assert "read" not in {t.name for t in get_tools()}, (
+            "read is expected to be disabled by default"
+        )
+
+        _ensure_subagent_signal_tools_loaded()
+        names = {t.name for t in _resolve_profile_tools(["read", "chats"], "explorer")}
+        assert "read" in names
+        assert "chats" in names
+        # Signal tools are always retained so the subagent can end/ask cleanly.
+        assert {"complete", "clarify"} <= names
+
+    def test_profile_restricts_to_allowlist(self):
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        self._setup_base_tools()
+        _ensure_subagent_signal_tools_loaded()
+        names = {t.name for t in _resolve_profile_tools(["chats"], "isolated")}
+        assert names & {"shell", "save", "patch"} == set(), (
+            "non-allowlisted tools leaked"
+        )
+        assert "chats" in names
+
+    def test_unknown_profile_tool_warns_without_raising(self, caplog):
+        import logging
+
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        self._setup_base_tools()
+        _ensure_subagent_signal_tools_loaded()
+        with caplog.at_level(logging.WARNING):
+            names = {t.name for t in _resolve_profile_tools(["not_a_real_tool"], "x")}
+        assert "not_a_real_tool" not in names
+        assert "references unknown tools" in caplog.text
