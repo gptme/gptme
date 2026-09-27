@@ -3067,6 +3067,37 @@ def test_resume_via_llm_keep_recent_appends_tail(tmp_path, monkeypatch):
     assert any("recent task" in c for c in contents), "Recent tail not in new log"
 
 
+def test_resume_via_llm_keep_recent_no_system_duplication(tmp_path, monkeypatch):
+    """The recent tail must not duplicate the leading system messages that
+    fixed_parts already re-add verbatim (short-conversation case)."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=500))
+
+    new_msgs = manager.log.messages
+    system_prompts = [
+        m for m in new_msgs if m.role == "system" and m.content == "system prompt"
+    ]
+    assert len(system_prompts) == 1, (
+        f"System prompt duplicated {len(system_prompts)}x in compacted log"
+    )
+
+
 def test_resume_via_llm_keep_recent_zero_no_tail(tmp_path, monkeypatch):
     """keep_recent_tokens=0 omits the recent tail — checkpoint only."""
     from gptme.logmanager import LogManager

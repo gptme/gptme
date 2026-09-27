@@ -461,9 +461,12 @@ only mentioned in passing.
     # verbatim after the checkpoint so the model has immediate context.
     # One model lookup for both the tail tokenization and the budget guard so
     # they always use the same tokenizer and context window.
+    # The leading system messages are re-added verbatim in fixed_parts, so the
+    # tail is derived from the conversation after them to avoid duplication.
     model_meta = get_default_model()
+    tail_source = msgs[len(original_system_msgs) :]
     recent_tail = _get_recent_tail(
-        msgs,
+        tail_source,
         keep_recent_tokens,
         model=model_meta.model if model_meta else None,
     )
@@ -529,7 +532,9 @@ only mentioned in passing.
 
         available = budget - fixed_tokens
         if recent_tail and available < len_tokens(recent_tail, model=model_str):
-            recent_tail = _get_recent_tail(msgs, max(0, available), model=model_str)
+            recent_tail = _get_recent_tail(
+                tail_source, max(0, available), model=model_str
+            )
 
     new_log = fixed_parts + recent_tail
 
