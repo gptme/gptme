@@ -978,6 +978,18 @@ pub(crate) fn kill_server_on_port(port: u16) {
                 log::debug!("Skipping self (PID {}) in port {} cleanup", pid, port);
                 continue;
             }
+            // Identity is re-checked immediately before the kill: between the
+            // caller's check and this point the gptme-server may have died and
+            // an unrelated process taken the port (TOCTOU). Never kill a
+            // process we cannot identify as a gptme-server.
+            if !pid_is_gptme_server(pid) {
+                log::info!(
+                    "PID {} on port {} is not a gptme-server; refusing to kill it",
+                    pid,
+                    port
+                );
+                continue;
+            }
             log::info!("Killing orphan gptme-server PID {} on port {}", pid, port);
             kill_subprocesses(pid);
             let _ = std::process::Command::new("kill")
@@ -1011,6 +1023,29 @@ pub(crate) fn kill_server_on_port(port: u16) {
             continue;
         }
         if let Some(pid_str) = cols.last() {
+            if let Ok(pid) = pid_str.parse::<u32>() {
+                if pid == std::process::id() {
+                    log::debug!("Skipping self (PID {}) in port {} cleanup", pid, port);
+                    continue;
+                }
+                // Identity re-check immediately before the kill (TOCTOU guard,
+                // same as the unix variant): only kill a verified gptme-server.
+                if !pid_is_gptme_server(pid) {
+                    log::info!(
+                        "PID {} on port {} is not a gptme-server; refusing to kill it",
+                        pid,
+                        port
+                    );
+                    continue;
+                }
+            } else {
+                log::warn!(
+                    "Unparseable PID {:?} on port {}; not killing it",
+                    pid_str,
+                    port
+                );
+                continue;
+            }
             log::info!(
                 "Killing orphan gptme-server PID {} on port {}",
                 pid_str,
