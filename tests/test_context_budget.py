@@ -5,8 +5,10 @@ import math
 import pytest
 
 from gptme.config import (
+    ChatConfig,
     Config,
     ContextConfig,
+    ModelConfig,
     ProjectConfig,
     UserConfig,
     get_config,
@@ -117,13 +119,123 @@ def test_env_budget_zero_ignored(monkeypatch):
     assert budget < window
 
 
-def test_large_window_uses_fraction():
-    """For a 1M-window model the budget should be 0.9 × 1M = 900k."""
-    window = 1_000_000
-    budget = get_context_budget(window)
-    # With max_output=8192, headroom=1000:
-    # min(0.9 × 1M, 1M − 8192 − 1000) = min(900k, 990808) = 900k
-    assert budget == int(0.9 * window)
+def test_large_window_default_is_capped_at_256k():
+    """Unvalidated long-window models compact before quality degrades."""
+    assert get_context_budget(1_000_000) == 256_000
+
+
+def test_model_metadata_can_opt_out_of_large_window_cap():
+    """Validated near-window models retain the safe fraction-based budget."""
+    assert (
+        get_context_budget(
+            1_000_000,
+            max_output=64_000,
+            model_context_budget=0.9,
+        )
+        == 900_000
+    )
+
+
+def test_anthropic_1m_metadata_opts_out_of_cap():
+    from gptme.llm.models import get_model
+
+    model = get_model("anthropic/claude-sonnet-4-6")
+    assert model.context_budget == 0.9
+    assert (
+        get_context_budget(
+            model.context,
+            max_output=model.max_output or 8192,
+            model_id=model.full,
+            model_context_budget=model.context_budget,
+        )
+        == 900_000
+    )
+
+
+def test_per_model_config_overrides_metadata(monkeypatch):
+    monkeypatch.delenv("GPTME_CONTEXT_BUDGET", raising=False)
+    previous = get_config()
+    try:
+        user = UserConfig()
+        user.models.overrides["deepseek/deepseek-v4"] = ModelConfig(
+            context_budget=300_000
+        )
+        set_config(Config(user=user))
+        assert (
+            get_context_budget(
+                1_000_000,
+                model_id="deepseek/deepseek-v4",
+                model_context_budget=0.9,
+            )
+            == 300_000
+        )
+    finally:
+        set_config(previous)
+
+
+def test_broad_context_config_overrides_model_metadata(monkeypatch):
+    monkeypatch.delenv("GPTME_CONTEXT_BUDGET", raising=False)
+    previous = get_config()
+    try:
+        set_config(Config(user=UserConfig(context=ContextConfig(budget=0.8))))
+        assert (
+            get_context_budget(
+                1_000_000,
+                model_context_budget=0.9,
+            )
+            == 800_000
+        )
+    finally:
+        set_config(previous)
+
+
+def test_cli_budget_overrides_environment_and_model_config(monkeypatch):
+    monkeypatch.setenv("GPTME_CONTEXT_BUDGET", "350000")
+    previous = get_config()
+    try:
+        user = UserConfig()
+        user.models.overrides["deepseek/deepseek-v4"] = ModelConfig(
+            context_budget=300_000
+        )
+        set_config(
+            Config(
+                user=user,
+                chat=ChatConfig(context_budget=400_000),
+            )
+        )
+        assert (
+            get_context_budget(
+                1_000_000,
+                model_id="deepseek/deepseek-v4",
+                model_context_budget=0.9,
+            )
+            == 400_000
+        )
+    finally:
+        set_config(previous)
+
+
+def test_invalid_per_model_context_budget_is_rejected(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[models."deepseek/deepseek-v4"]\ncontext_budget = 1.5\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="context_budget"):
+        load_user_config(str(config_path))
+
+
+def test_per_model_context_budget_is_loaded(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[models."deepseek/deepseek-v4"]\ncontext_budget = 300000\n',
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(config_path))
+
+    assert config.models.get_context_budget("deepseek/deepseek-v4") == 300_000
 
 
 def test_minimum_budget_clamp():
@@ -200,6 +312,8 @@ def test_explicit_config_budget_not_clamped_up_to_ceiling():
 
     with patch("gptme.config.get_config") as mock_cfg:
         cfg = mock_cfg.return_value
+        cfg.chat = None
         cfg.project = None
+        cfg.user.models.overrides = {}
         cfg.user.context.budget = 0.25
         assert get_context_budget(500, max_output=0, headroom=0) == 125

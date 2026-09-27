@@ -129,6 +129,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         "claude-opus-4-8": {
             "context": 1_000_000,
             "max_output": 128_000,
+            "context_budget": 0.9,
             # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 5,
             "price_output": 25,
@@ -143,6 +144,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         "claude-opus-4-7": {
             "context": 1_000_000,
             "max_output": 128_000,
+            "context_budget": 0.9,
             # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 5,
             "price_output": 25,
@@ -157,6 +159,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         "claude-opus-4-6": {
             "context": 1_000_000,
             "max_output": 128_000,
+            "context_budget": 0.9,
             # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 5,
             "price_output": 25,
@@ -171,6 +174,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         "claude-sonnet-4-6": {
             "context": 1_000_000,
             "max_output": 64_000,
+            "context_budget": 0.9,
             # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 3,
             "price_output": 15,

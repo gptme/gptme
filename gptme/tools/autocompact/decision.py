@@ -56,7 +56,12 @@ def estimate_compaction_savings(
     log_length = len(log)
 
     if limit is None:
-        limit = get_context_budget(model.context, max_output=model.max_output or 8192)
+        limit = get_context_budget(
+            model.context,
+            max_output=model.max_output or 8192,
+            model_id=model.full,
+            model_context_budget=model.context_budget,
+        )
 
     # The configured budget is the sole compaction trigger.
     would_remove_tool_results = total_tokens >= limit
@@ -124,7 +129,12 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> Compact
 
     model = get_default_model() or get_model("gpt-4")
     if limit is None:
-        limit = get_context_budget(model.context, max_output=model.max_output or 8192)
+        limit = get_context_budget(
+            model.context,
+            max_output=model.max_output or 8192,
+            model_id=model.full,
+            model_context_budget=model.context_budget,
+        )
 
     total_tokens = len_tokens(log, model.model)
 

@@ -3204,6 +3204,7 @@ def test_v2_chat_config_update_works(client: FlaskClient):
     ) == _normalize_config_for_comparison(input_config.to_dict())
 
     input_config.model = "openai/gpt-4o-mini"
+    input_config.context_budget = 90_000
     updated_config_dict = input_config.to_dict()
     # Strip workspace: PATCH still enforces workspace containment (unlike create).
     updated_config_dict.get("chat", {}).pop("workspace", None)

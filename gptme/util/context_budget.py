@@ -5,9 +5,12 @@ It is deliberately distinct from the provider *context window* (what the API
 accepts) and from the *max_output* tokens.
 
 Resolution order (first match wins):
-1. ``GPTME_CONTEXT_BUDGET`` env var — fraction or absolute
-2. ``[context] budget`` in project/user config
-3. Dynamic default: ``min(0.9 × window, window − max_output − headroom)``
+1. Per-chat CLI override persisted by ``--context-budget``
+2. ``GPTME_CONTEXT_BUDGET`` env var — fraction or absolute
+3. Per-model ``[models."<id>"] context_budget``
+4. ``[context] budget`` in project/user config (legacy broad override)
+5. Model metadata ``context_budget``
+6. Capped default: ``min(0.9 × window, window − max_output − headroom, 256k)``
 
 Why keep it separate from the window:
 - 1M-window models never hit the 50% autocompact trigger that works for 200k
@@ -31,6 +34,7 @@ _DEFAULT_FRACTION = 0.9
 # explicit budget fraction would leave less room.
 _DEFAULT_MAX_OUTPUT = 8192
 _DEFAULT_HEADROOM = 1000
+_DEFAULT_LONG_WINDOW_CAP = 256_000
 
 # Floor for the budget on tiny windows where reserving output tokens and
 # headroom leaves nothing: clamp instead of raising so compaction stays
@@ -43,6 +47,8 @@ def get_context_budget(
     *,
     max_output: int = _DEFAULT_MAX_OUTPUT,
     headroom: int = _DEFAULT_HEADROOM,
+    model_id: str | None = None,
+    model_context_budget: float | int | None = None,
 ) -> int:
     """Return the context budget in tokens for the given model window.
 
@@ -50,6 +56,8 @@ def get_context_budget(
         model_context: The model's declared context window in tokens.
         max_output: Reserved tokens for model output (default 8192).
         headroom: Additional safety margin (default 1000).
+        model_id: Fully-qualified model ID used for per-model config lookup.
+        model_context_budget: Budget declared by built-in model metadata.
 
     Returns:
         Token count at which compaction should be triggered.
@@ -81,7 +89,18 @@ def get_context_budget(
             return min(int(parsed), safe_ceiling)
         return None
 
-    # 1. Environment variable override
+    from ..config import get_config  # fmt: skip
+
+    cfg = get_config()
+
+    # 1. One-chat CLI override (persisted in the conversation config).
+    if cfg.chat is not None and cfg.chat.context_budget is not None:
+        budget = resolve(cfg.chat.context_budget)
+        if budget is not None:
+            logger.debug("Context budget from CLI/chat config: %d tokens", budget)
+            return min(budget, safe_ceiling)
+
+    # 2. Environment variable override.
     env_val = os.environ.get("GPTME_CONTEXT_BUDGET")
     if env_val:
         try:
@@ -101,10 +120,18 @@ def get_context_budget(
             env_val,
         )
 
-    # 2. Config-level budget (project overrides user).
-    from ..config import get_config  # fmt: skip
+    # 3. Per-model user config.
+    if model_id is not None:
+        model_budget = cfg.user.models.get_context_budget(model_id)
+        if model_budget is not None:
+            budget = resolve(model_budget)
+            if budget is not None:
+                logger.debug(
+                    "Context budget from config for %s: %d tokens", model_id, budget
+                )
+                return min(budget, safe_ceiling)
 
-    cfg = get_config()
+    # 4. Broad config-level budget (project overrides user).
     budget_cfg = (
         cfg.project.context.budget
         if cfg.project is not None and cfg.project.context.budget is not None
@@ -117,8 +144,20 @@ def get_context_budget(
             # Same rule as the env override: respect the resolved value.
             return min(budget, safe_ceiling)
 
-    # 3. Dynamic default
-    budget = min(int(_DEFAULT_FRACTION * model_context), safe_ceiling)
+    # 5. Model metadata (used to opt validated long-window models out of the cap).
+    if model_context_budget is not None:
+        budget = resolve(model_context_budget)
+        if budget is not None:
+            logger.debug("Context budget from model metadata: %d tokens", budget)
+            return min(budget, safe_ceiling)
+
+    # 6. Conservative default. The absolute cap avoids replaying degraded
+    # long contexts unless a model has an explicit, evidence-backed override.
+    budget = min(
+        int(_DEFAULT_FRACTION * model_context),
+        safe_ceiling,
+        _DEFAULT_LONG_WINDOW_CAP,
+    )
     # Prefer a 1000-token minimum when the safe ceiling permits it.
     budget = min(max(budget, 1000), safe_ceiling)
     logger.debug(

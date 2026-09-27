@@ -725,6 +725,12 @@ Run 'gptme-util --help' for all utility commands."""
     help="Enable profiling and save results to gptme-profile-{timestamp}.prof",
 )
 @click.option(
+    "--context-budget",
+    type=float,
+    default=None,
+    help="Compaction threshold as a window fraction (0<x≤1) or absolute tokens (>1).",
+)
+@click.option(
     "--context",
     "context_include",
     multiple=True,
@@ -782,6 +788,7 @@ def main(
     workspace: str | None,
     agent_path: str | None,
     profile: bool,
+    context_budget: float | None,
     context_include: tuple[str, ...],
     no_workspace: bool,
     output_schema: str | None,
@@ -874,6 +881,12 @@ def main(
             "--no-workspace and --context are mutually exclusive: "
             "--no-workspace strips all workspace context, so --context values would be silently ignored."
         )
+
+    # Click's auto_envvar_prefix also maps GPTME_CONTEXT_BUDGET onto this option.
+    # Keep that value in the environment layer rather than persisting it as a
+    # one-chat CLI override.
+    if ctx.get_parameter_source("context_budget") != ParameterSource.COMMANDLINE:
+        context_budget = None
 
     # Apply agent profile if specified
     selected_profile = None
@@ -1170,6 +1183,7 @@ def main(
                     stream=stream,
                     interactive=interactive,
                     agent_path=Path(agent_path) if agent_path else None,
+                    context_budget=context_budget,
                 )
             except ValueError as e:
                 raise click.UsageError(str(e)) from e
@@ -1321,6 +1335,7 @@ def main(
             interactive=interactive,
             agent_path=Path(agent_path) if agent_path else None,
             allow_hosts=allow_hosts_list,
+            context_budget=context_budget,
         )
     except ValueError as e:
         raise click.UsageError(str(e)) from e

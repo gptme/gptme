@@ -145,7 +145,12 @@ def autocompact_hook(
 
     model = get_default_model()
     budget = (
-        get_context_budget(model.context, max_output=model.max_output or 8192)
+        get_context_budget(
+            model.context,
+            max_output=model.max_output or 8192,
+            model_id=model.full,
+            model_context_budget=model.context_budget,
+        )
         if model is not None
         else None
     )

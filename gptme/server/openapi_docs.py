@@ -654,6 +654,11 @@ class ChatConfig(BaseModel):
         description="Max tokens for the model's response (None = model default)",
         gt=0,
     )
+    context_budget: float | int | None = Field(
+        None,
+        description="Compaction threshold as a window fraction (0<x≤1) or absolute tokens (>1)",
+        gt=0,
+    )
     temperature: float | None = Field(
         None,
         description="Sampling temperature (None = env/constant default 0; 0 = deterministic; higher = more creative). Max 1.0 for Anthropic; up to 2.0 for OpenAI (values above 1.0 will fail for Anthropic).",

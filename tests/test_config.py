@@ -12,7 +12,9 @@ from gptme.config import (
     ChatConfig,
     Config,
     MCPConfig,
+    ModelConfig,
     ProjectConfig,
+    UserConfig,
     UserIdentityConfig,
     UserPromptConfig,
     get_config,
@@ -241,6 +243,69 @@ project_config_json = """
 def test_get_config():
     config = get_config()
     assert config
+
+
+def test_models_per_id_context_budget_loaded(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[models]\ndefault = "anthropic/claude-sonnet-4-6"\n'
+        '[models."deepseek/deepseek-v4"]\ncontext_budget = 300000\n',
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(config_path))
+
+    assert config.models.default == "anthropic/claude-sonnet-4-6"
+    assert config.models.get_context_budget("deepseek/deepseek-v4") == 300_000
+
+
+def test_models_per_id_context_budget_survives_runtime_overlay(tmp_path):
+    main = tmp_path / "config.toml"
+    main.write_text(
+        '[models."deepseek/deepseek-v4"]\ncontext_budget = 300000\n',
+        encoding="utf-8",
+    )
+    get_user_config_runtime_path(str(main)).write_text(
+        '[models]\ndefault = "anthropic/claude-sonnet-4-6"\n',
+        encoding="utf-8",
+    )
+
+    config = load_user_config(str(main))
+
+    assert config.models.default == "anthropic/claude-sonnet-4-6"
+    assert config.models.get_context_budget("deepseek/deepseek-v4") == 300_000
+
+
+def test_new_user_config_serializes_model_budget_tables(monkeypatch, tmp_path):
+    import gptme.config.user as user_mod
+
+    config_path = tmp_path / "config.toml"
+    configured = UserConfig()
+    configured.models.overrides["deepseek/deepseek-v4"] = ModelConfig(
+        context_budget=300_000
+    )
+    monkeypatch.setattr(user_mod, "default_config", configured)
+
+    user_mod._load_config_doc(str(config_path))
+
+    content = config_path.read_text(encoding="utf-8")
+    assert '[models."deepseek/deepseek-v4"]' in content
+    assert "context_budget = 300000" in content
+    assert "overrides" not in content
+
+
+def test_setup_config_from_cli_persists_context_budget(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=tmp_path / "log",
+        context_budget=300_000,
+    )
+
+    assert config.chat is not None
+    assert config.chat.context_budget == 300_000
+    assert ChatConfig.from_logdir(tmp_path / "log").context_budget == 300_000
 
 
 def test_project_config_exclude_field():

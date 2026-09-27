@@ -176,6 +176,7 @@ export interface ChatConfig {
     temperature?: number | null;
     top_p?: number | null;
     max_tokens?: number | null;
+    context_budget?: number | null;
   };
   env: Record<string, string>;
   mcp: McpConfig;

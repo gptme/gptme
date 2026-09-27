@@ -221,6 +221,20 @@ class ModelsConfig:
     # "anthropic/claude-opus-4-8"). Surfaced prominently in model pickers.
     favorites: list[str] = field(default_factory=list)
 
+    # Per-model overrides from ``[models."provider/model"]`` tables.
+    overrides: dict[str, "ModelConfig"] = field(default_factory=dict)
+
+    def get_context_budget(self, model_id: str) -> float | int | None:
+        override = self.overrides.get(model_id)
+        return override.context_budget if override is not None else None
+
+
+@dataclass
+class ModelConfig:
+    """Configuration overrides for one fully-qualified model ID."""
+
+    context_budget: float | int | None = None
+
 
 @dataclass
 class SettingsConfig:

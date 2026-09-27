@@ -7,6 +7,31 @@ from typing import Any
 from .selector.config import ContextSelectorConfig
 
 
+def parse_context_budget(
+    value: object, field_name: str = "context.budget"
+) -> float | int:
+    """Validate and normalize a fractional or absolute context budget."""
+    error = (
+        f"{field_name} must be a fraction (0<x≤1) or absolute token count "
+        f"(>1), got {value!r}"
+    )
+    if isinstance(value, bool):
+        raise ValueError(error)
+    if not isinstance(value, int | float | str):
+        raise ValueError(error)
+    try:
+        parsed = float(value)
+    except ValueError as e:
+        raise ValueError(error) from e
+    if (
+        not math.isfinite(parsed)
+        or parsed <= 0
+        or (parsed > 1 and not parsed.is_integer())
+    ):
+        raise ValueError(error)
+    return int(parsed) if parsed > 1 else parsed
+
+
 @dataclass
 class ContextConfig:
     """Unified configuration for context management.
@@ -36,7 +61,8 @@ class ContextConfig:
     scout_model: str | None = None
 
     # Context budget: token count at which compaction is triggered.
-    # - None (default): compute dynamically as min(0.9 × window, window − max_output − headroom)
+    # - None (default): min(0.9 × window, window − max_output − headroom, 256k),
+    #   unless model metadata declares an evidence-backed override
     # - float 0 < x ≤ 1: fraction of the model context window (e.g. 0.85)
     # - int > 1: absolute token count (e.g. 300000)
     # Can also be set via GPTME_CONTEXT_BUDGET env var.
@@ -69,23 +95,7 @@ class ContextConfig:
         )
 
         budget_raw = config_dict.get("budget")
-        budget: float | int | None = None
-        if budget_raw is not None:
-            try:
-                value = float(budget_raw)
-            except (TypeError, ValueError) as e:
-                raise ValueError(
-                    f"context.budget must be a fraction (0<x≤1) or absolute token count (>1), got {budget_raw!r}"
-                ) from e
-            if (
-                not math.isfinite(value)
-                or value <= 0
-                or (value > 1 and not value.is_integer())
-            ):
-                raise ValueError(
-                    f"context.budget must be a fraction (0<x≤1) or absolute token count (>1), got {budget_raw!r}"
-                )
-            budget = int(value) if value > 1 else value
+        budget = parse_context_budget(budget_raw) if budget_raw is not None else None
 
         return cls(
             enabled=config_dict.get("enabled", False),

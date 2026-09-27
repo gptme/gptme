@@ -2576,6 +2576,7 @@ def api_models():
                 "model": model.model,
                 "context": model.context,
                 "max_output": model.max_output,
+                "context_budget": model.context_budget,
                 "supports_streaming": model.supports_streaming,
                 "supports_vision": model.supports_vision,
                 "supports_reasoning": model.supports_reasoning,

@@ -26,6 +26,8 @@ def model_to_dict(model: ModelMeta) -> dict[str, Any]:
     }
     if model.max_output is not None:
         d["max_output"] = model.max_output
+    if model.context_budget is not None:
+        d["context_budget"] = model.context_budget
     d["supports_streaming"] = model.supports_streaming
     d["supports_vision"] = model.supports_vision
     d["supports_reasoning"] = model.supports_reasoning

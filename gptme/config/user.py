@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from tomlkit.container import Container
     from tomlkit.items import AoT
 
+from ..context.config import parse_context_budget as _parse_context_budget
 from ..util import path_with_tilde
 from .models import (
     ContextConfig,
@@ -28,6 +29,7 @@ from .models import (
     LessonsConfig,
     MCPConfig,
     MCPServerConfig,
+    ModelConfig,
     ModelsConfig,
     PluginsConfig,
     ProviderConfig,
@@ -430,9 +432,18 @@ def load_user_config(path: str | None = None) -> UserConfig:
         ) from exc
 
 
+def _serialize_user_config(config: UserConfig) -> dict[str, Any]:
+    """Serialize model overrides using their public TOML table shape."""
+    data = asdict(config)
+    model_data = data["models"]
+    overrides = model_data.pop("overrides", {})
+    model_data.update(overrides)
+    return _strip_none(data)
+
+
 def _with_builtin_defaults(config: dict[str, Any]) -> dict[str, Any]:
     """Apply built-in defaults beneath the explicit runtime/main/local layers."""
-    defaults = _strip_none(asdict(default_config))
+    defaults = _serialize_user_config(default_config)
     prompt = config.get("prompt", {})
     if isinstance(prompt, dict):
         # Legacy prompt preferences must still beat built-in user defaults.
@@ -665,19 +676,47 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     if not isinstance(models_data, dict):
         logger.warning(f"[models] should be a table, got {type(models_data).__name__}")
         models_data = {}
-    favorites_data = models_data.get("favorites", [])
+    favorites_data = models_data.pop("favorites", [])
     if not isinstance(favorites_data, list):
         logger.warning(
             f"[models].favorites should be a list, got {type(favorites_data).__name__}"
         )
         favorites_data = []
-    default_model = models_data.get("default")
+    default_model = models_data.pop("default", None)
     if default_model is not None and not isinstance(default_model, str):
         logger.warning("[models].default should be a string")
         default_model = None
+
+    overrides: dict[str, ModelConfig] = {}
+    for model_id, model_data in models_data.items():
+        if not isinstance(model_data, dict):
+            logger.warning(
+                f"[models.{model_id!r}] should be a table, got "
+                f"{type(model_data).__name__}"
+            )
+            continue
+        unknown = set(model_data) - {"context_budget"}
+        if unknown:
+            logger.warning(
+                f"Unknown keys in [models.{model_id!r}]: {sorted(unknown)} (ignored)"
+            )
+        budget = model_data.get("context_budget")
+        if budget is None:
+            if not unknown:
+                logger.warning(
+                    f"[models.{model_id!r}] has no recognized overrides (ignored)"
+                )
+            continue
+        overrides[model_id] = ModelConfig(
+            context_budget=_parse_context_budget(
+                budget, f'models."{model_id}".context_budget'
+            )
+        )
+
     models_config = ModelsConfig(
         default=default_model,
         favorites=[str(m) for m in favorites_data if isinstance(m, str)],
+        overrides=overrides,
     )
 
     # Parse lessons config
@@ -766,7 +805,7 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
         initial = (
             {}
             if get_user_config_runtime_path(path).exists()
-            else _strip_none(asdict(default_config))
+            else _serialize_user_config(default_config)
         )
         toml = tomlkit.dumps(initial)
         with open(path, "w", encoding="utf-8") as config_file:

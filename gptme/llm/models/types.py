@@ -172,6 +172,11 @@ class ModelMeta:
     # Subscription models preserve token counts but have zero marginal USD cost.
     pricing_type: Literal["per_token", "subscription"] = "per_token"
 
+    # Explicit default compaction budget for models validated near their full
+    # window. None applies the conservative long-window cap. Kept last to avoid
+    # shifting the existing positional constructor fields.
+    context_budget: float | int | None = None
+
     @property
     def full(self) -> str:
         # For unknown providers (including custom providers), the model field
@@ -287,6 +292,7 @@ class ProviderPlugin:
 class _ModelDictMeta(TypedDict):
     context: int
     max_output: NotRequired[int]
+    context_budget: NotRequired[float | int]
 
     # price in USD per 1M tokens
     price_input: NotRequired[float]

@@ -613,6 +613,15 @@ class TestModelToDict:
         d = model_to_dict(m)
         assert d["max_output"] == 64_000
 
+    def test_context_budget_included_when_set(self):
+        m = ModelMeta(
+            provider="anthropic",
+            model="test",
+            context=1_000_000,
+            context_budget=0.9,
+        )
+        assert model_to_dict(m)["context_budget"] == 0.9
+
     def test_max_output_excluded_when_none(self):
         m = ModelMeta(provider="openai", model="test", context=128_000)
         d = model_to_dict(m)
