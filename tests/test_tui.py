@@ -1519,3 +1519,27 @@ async def test_ctrl_d_quits_only_on_empty_input(tmp_path):
         await pilot.press("ctrl+d")
         await pilot.pause()
         assert not app.is_running
+
+
+@pytest.mark.asyncio
+async def test_status_shows_session_cost(tmp_path):
+    from gptme.util.cost_tracker import CostEntry, CostTracker
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        status = app.query_one("#status", Static)
+        assert "$" not in str(status.render())
+        entry = CostEntry(
+            timestamp=0.0,
+            model="test",
+            input_tokens=1000,
+            output_tokens=10,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.123,
+        )
+        app._chat_ctx.run(CostTracker.record, entry)
+        app._update_status()
+        await pilot.pause()
+        assert "$0.12" in str(status.render())

@@ -36,7 +36,7 @@ from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.filter import ANSIToTruecolor
 from textual.geometry import Offset, Size
 from textual.message import Message as TextualMessage
@@ -941,6 +941,9 @@ class GptmeApp(App):
     Screen:inline {
         height: auto;
         max-height: 40%;
+        /* Textual pads the inline region with a blank line below; the
+           full-screen layout has none */
+        border-bottom: none;
     }
     #live {
         height: auto;
@@ -1047,21 +1050,27 @@ class GptmeApp(App):
         max-height: 10;
         background: ansi_default;
     }
+    /* hint and status line up with the input text (margin + border + pad) */
     #input-hint {
         height: 1;
         margin: 0 3;
+        background: ansi_default;
+    }
+    #input-hint Static {
         color: $text-muted;
         background: ansi_default;
+    }
+    #hint-left {
+        width: 1fr;
+    }
+    #hint-right {
+        width: auto;
     }
     #status {
         height: 1;
-        margin-top: 1;
-        padding: 0 1;
+        margin: 1 3 0 3;
         color: $text-muted;
         background: ansi_default;
-    }
-    Screen:inline #status {
-        margin-top: 0;
     }
     ConfirmScreen {
         align: center middle;
@@ -1134,7 +1143,8 @@ class GptmeApp(App):
         self._chat_ctx = contextvars.copy_context()
         # Own one CostTracker window for this TUI run so command admission
         # and generation workers share the same tracking_id.
-        self._chat_ctx.run(
+        # kept for the status bar, which can't enter _chat_ctx mid-generation
+        self._session_costs = self._chat_ctx.run(
             CostTracker.ensure_session, session_id_for_logdir(self.manager.logdir)
         )
         self._skill_session_id = str(uuid4())
@@ -1171,21 +1181,25 @@ class GptmeApp(App):
             # into scrollback would duplicate them once they are submitted
             yield Static(id="queued")
             yield ChatInput(id="input")
-            yield Static(
-                Text("Type a message… (Enter to send, Ctrl+J / Alt+Enter for newline)"),
-                id="input-hint",
-            )
+            yield self._input_hint()
             yield Static(id="status")
             return
         yield VerticalScroll(id="chat")
         with Vertical(id="bottom"):
             yield Static("", id="completions")
             yield ChatInput(id="input")
-            yield Static(
-                Text("Type a message… (Enter to send, Ctrl+J / Alt+Enter for newline)"),
-                id="input-hint",
-            )
+            yield self._input_hint()
             yield Static(id="status")
+
+    @staticmethod
+    def _input_hint() -> Horizontal:
+        return Horizontal(
+            Static(Text("Type a message…"), id="hint-left"),
+            Static(
+                Text("Enter send · Ctrl+J newline · Ctrl+O details"), id="hint-right"
+            ),
+            id="input-hint",
+        )
 
     def on_mount(self) -> None:
         # Redirect stdout/stderr to a log file: core machinery (tool output
@@ -1432,6 +1446,8 @@ class GptmeApp(App):
                 parts.append(f"{tokens // 1000}k/{model.context // 1000}k ({pct:.0f}%)")
             except Exception:  # token counting must never break the UI
                 pass
+        if cost := sum(e.cost for e in self._session_costs.snapshot_entries()):
+            parts.append(f"${cost:.2f}")
         parts.append(self.state)
         if self.prompt_queue:
             parts.append(f"{len(self.prompt_queue)} queued")
