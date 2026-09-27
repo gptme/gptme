@@ -4,6 +4,7 @@ import logging
 from collections.abc import Generator
 from time import monotonic
 
+from ...config import get_project_config
 from ...llm.models import get_default_model
 from ...logmanager import Log
 from ...message import Message, len_tokens
@@ -146,6 +147,25 @@ def _compact_summarize(
 ) -> Generator[Message, None, None]:
     """LLM-powered summarization: creates RESUME.md, extracts key files, and starts a new conversation with the context."""
 
+    # Read project-level compact settings so manual /compact honors gptme.toml config.
+    proj_keep_recent = 20_000
+    proj_instructions: str | None = None
+    try:
+        proj_cfg = get_project_config(ctx.manager.workspace)
+        if proj_cfg and proj_cfg.context:
+            if proj_cfg.context.keep_recent_tokens is not None:
+                proj_keep_recent = proj_cfg.context.keep_recent_tokens
+            proj_instructions = proj_cfg.context.compact_instructions
+    except Exception:
+        pass  # config read failure is non-fatal; fall back to defaults
+
+    # Inline instructions (from /compact summarize <text>) append to project instructions.
+    merged_instructions: str | None
+    if compact_instructions and proj_instructions:
+        merged_instructions = f"{proj_instructions}\n{compact_instructions}"
+    else:
+        merged_instructions = compact_instructions or proj_instructions
+
     started = monotonic()
     m = get_default_model()
     original_tokens = len_tokens(msgs, m.model) if m else 0
@@ -154,7 +174,8 @@ def _compact_summarize(
             ctx.manager,
             msgs,
             use_view_branch=False,
-            compact_instructions=compact_instructions,
+            compact_instructions=merged_instructions,
+            keep_recent_tokens=proj_keep_recent,
         )
         compacted_messages = ctx.manager.log.messages
         if not isinstance(compacted_messages, list):

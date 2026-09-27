@@ -16,6 +16,7 @@ from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
 from ...message import Message, len_tokens
 from ...util.context import md_codeblock
+from ...util.context_budget import get_context_budget
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager
@@ -194,8 +195,10 @@ def _get_recent_tail(
             break
         tail.insert(0, msg)
         total += t
-    # Drop dangling tool-result at head (no matching tool-call)
-    while tail and tail[0].role == "tool":
+    # Drop dangling tool-result at head (no matching tool-call).
+    # Tool results can have role="tool" OR a non-tool role with call_id set
+    # (e.g. system/user role in some provider formats).
+    while tail and (tail[0].role == "tool" or tail[0].call_id):
         tail = tail[1:]
     return tail
 
@@ -389,12 +392,21 @@ only mentioned in passing.
         model=m.model if m else None,
     )
 
-    new_log = (
-        original_system_msgs
-        + file_context_msgs
-        + [resume_intro_msg, resume_msg]
-        + recent_tail
+    # Budget guard: if fixed parts + recent_tail exceeds the model's context
+    # budget, re-derive the tail within the remaining room so the compacted
+    # view actually fits.
+    fixed_parts = (
+        original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
     )
+    m2 = get_default_model()
+    if m2 and recent_tail and isinstance(m2.context, int) and m2.context > 0:
+        budget = get_context_budget(m2.context, max_output=m2.max_output or 8192)
+        fixed_tokens = len_tokens(fixed_parts, model=m2.model)
+        available = budget - fixed_tokens
+        if available < len_tokens(recent_tail, model=m2.model):
+            recent_tail = _get_recent_tail(msgs, max(0, available), model=m2.model)
+
+    new_log = fixed_parts + recent_tail
 
     if use_view_branch:
         view_name = manager.get_next_view_name()

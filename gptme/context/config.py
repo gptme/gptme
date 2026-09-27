@@ -108,14 +108,15 @@ class ContextConfig:
         budget = parse_context_budget(budget_raw) if budget_raw is not None else None
 
         keep_recent_raw = config_dict.get("keep_recent_tokens", 20_000)
-        try:
-            keep_recent = int(keep_recent_raw)
-            if keep_recent < 0:
-                raise ValueError
-        except (TypeError, ValueError) as e:
+        if (
+            isinstance(keep_recent_raw, bool)
+            or not isinstance(keep_recent_raw, int)
+            or keep_recent_raw < 0
+        ):
             raise ValueError(
                 f"context.keep_recent_tokens must be a non-negative integer, got {keep_recent_raw!r}"
-            ) from e
+            )
+        keep_recent = keep_recent_raw
 
         return cls(
             enabled=config_dict.get("enabled", False),
