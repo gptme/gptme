@@ -2148,6 +2148,32 @@ def test_has_pending_tooluse_detects_runnable_tool_call():
 # --- Phase 1.5a safety fixes (gptme/gptme#3812) ---
 
 
+def test_pending_tool_guard_ignores_ui_only_messages():
+    """UI-only status messages must not count as tool results (Phase 1.5a).
+
+    A hook notice between the tool call and its result previously satisfied the
+    markdown fallback count, letting compaction orphan the pending result.
+    """
+    from gptme.tools.autocompact.hook import _has_pending_tool_calls
+
+    msgs = [
+        Message("user", "run this"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "hook notice", ui_only=True),
+    ]
+    assert _has_pending_tool_calls(msgs) is True
+
+    # With the real result present, the call is answered even with UI-only
+    # noise in between.
+    msgs_answered = [
+        Message("user", "run this"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "hook notice", ui_only=True),
+        Message("system", "Ran shell command"),
+    ]
+    assert _has_pending_tool_calls(msgs_answered) is False
+
+
 def test_auto_compact_does_not_strip_reasoning_by_default():
     """Age-based reasoning stripping must be off by default (Phase 1.5a).
 
