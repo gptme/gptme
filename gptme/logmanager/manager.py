@@ -1163,7 +1163,6 @@ def prepare_messages(
     # model-facing content, they inflate the measured token count, and they can
     # break strict providers (e.g. a status message between a tool call and its
     # result). Filtering here is the single provider-visibility gate.
-    original_len = len(msgs)
     filtered = [m for m in msgs if not m.ui_only]
 
     # A runtime model/tool change appends a replacement generated prompt. Keep
@@ -1174,12 +1173,12 @@ def prepare_messages(
     # instructions as one prompt.
     msgs = _active_prompt_generation(filtered)
 
-    # Removing a ui_only message (or an obsolete generation) that was the only
-    # thing separating two same-role messages would create consecutive same-role
-    # turns strict providers reject — merge them, same as the ephemeral-prune
-    # path does.
-    if len(msgs) != original_len:
-        msgs = _merge_consecutive_messages(msgs)
+    # Always merge after the filter/reorder. A length-change guard misses the
+    # same-count case: a single tagged prompt sitting between two same-role
+    # turns is pulled to the front without dropping a message, leaving those
+    # turns adjacent. ui_only filtering can also drop a separator. The helper
+    # is a no-op when nothing is adjacent.
+    msgs = _merge_consecutive_messages(msgs)
 
     # Enrich with enabled context enhancements (RAG, fresh context)
     msgs = enrich_messages_with_context(msgs, workspace)

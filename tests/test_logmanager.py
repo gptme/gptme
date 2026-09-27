@@ -103,6 +103,25 @@ def test_active_prompt_generation_keeps_only_newest_replacement():
     assert result == [generation_two, user]
 
 
+def test_active_prompt_generation_reorder_can_create_adjacent_same_role():
+    """A single generation between two user turns is pulled to the front
+    without dropping a message, so the users become adjacent at the same
+    length. prepare_messages must still merge — a len-change guard would skip.
+    """
+    gen = Message(
+        "system",
+        "prompt",
+        pinned=True,
+        hide=True,
+        metadata={"prompt_generation": "one"},
+    )
+    user1 = Message("user", "first")
+    user2 = Message("user", "second")
+    result = _active_prompt_generation([user1, gen, user2])
+    assert [m.role for m in result] == ["system", "user", "user"]
+    assert len(result) == 3
+
+
 def test_load_snapshots_initial_message_files(tmp_path: Path):
     """Startup attachments must not be re-rendered from mutable live files."""
     from gptme.util.context import enrich_messages_with_context
@@ -835,6 +854,33 @@ def test_prepare_messages_still_merges_same_role_turns_split_by_ui_only():
     assert len(users) == 1
     assert "first" in users[0].content
     assert "second" in users[0].content
+
+
+def test_prepare_messages_merges_same_role_after_generation_reorder():
+    """A single generation between two user turns reorders without a length
+    change ([user, gen, user2] → [gen, user, user2] is 3→3). The early merge
+    must still run so the provider sees one user turn, not two consecutive.
+    """
+    gen = Message(
+        "system",
+        "prompt",
+        pinned=True,
+        hide=True,
+        metadata={"prompt_generation": "one"},
+    )
+    prepared = prepare_messages(
+        [
+            Message("user", "first"),
+            gen,
+            Message("user", "second"),
+            Message("assistant", "ok"),
+        ]
+    )
+    users = [m for m in prepared if m.role == "user"]
+    assert len(users) == 1
+    assert "first" in users[0].content
+    assert "second" in users[0].content
+    assert "prompt" in "\n".join(m.content for m in prepared)
 
 
 def test_read_jsonl_unknown_field(tmp_path):
