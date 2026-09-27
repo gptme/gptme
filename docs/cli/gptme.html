@@ -782,11 +782,26 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dd><p>Skip all workspace context (prompt files and context_cmd). Tools and agent config are still included.</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-allow-hosts">
+<span class="sig-name descname"><span class="pre">--allow-hosts</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;allow_hosts&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-allow-hosts" title="Link to this definition">#</a></dt>
+<dd><p>Comma-separated hostnames the agent may access via web tools (e.g. ‘github.com,*.googleapis.com’). Default: unrestricted. Wildcard subdomains supported.</p>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-arg-PROMPTS">
 <span class="sig-name descname"><span class="pre">PROMPTS</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-arg-PROMPTS" title="Link to this definition">#</a></dt>
 <dd><p>Optional argument(s)</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<dl class="std envvar" id="gptme-allow-hosts-gptme-allow-hosts">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">GPTME_ALLOW_HOSTS</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-allow-hosts"><code class="xref std std-option docutils literal notranslate"><span class="pre">--allow-hosts</span></code></a></p>
+</div></blockquote>
 </dd></dl>
 
 </section>
