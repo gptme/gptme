@@ -178,7 +178,12 @@ sessions_api = flask.Blueprint("sessions_api", __name__)
             "in": "query",
             "required": False,
             "schema": {"type": "string"},
-            "description": "Session ID (creates new session if not provided)",
+            "description": (
+                "Session ID to resume. If omitted, unknown (e.g. after a server"
+                " restart), or evicted, a fresh session is created and its ID is"
+                " sent in the `connected` event. A known ID belonging to a"
+                " different conversation returns 403."
+            ),
         },
     ],
     tags=["sessions"],
