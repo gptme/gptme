@@ -149,7 +149,7 @@ export async function showNotification(
 ): Promise<Notification | null> {
   // Only show when window is not in focus (when requireInactive is set)
   if (options?.requireInactive && isTabActive()) {
-    console.warn('Tab is active, skipping notification', {
+    console.info('Tab is active, skipping notification', {
       documentHidden: document.hidden,
       documentHasFocus: document.hasFocus(),
     });

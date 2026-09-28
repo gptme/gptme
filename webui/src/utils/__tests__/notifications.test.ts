@@ -78,12 +78,12 @@ describe('showNotification — Tauri native path', () => {
   it('skips notifications while the window is visible and focused', async () => {
     setDocumentHidden(false);
     jest.spyOn(document, 'hasFocus').mockReturnValue(true);
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const info = jest.spyOn(console, 'info').mockImplementation(() => undefined);
 
     await showNotification('Tool confirmation', { requireInactive: true });
 
     expect(mockInvokeTauri).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith('Tab is active, skipping notification', {
+    expect(info).toHaveBeenCalledWith('Tab is active, skipping notification', {
       documentHidden: false,
       documentHasFocus: true,
     });
