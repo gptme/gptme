@@ -1700,7 +1700,25 @@ def stream(
                 reasoning_effort=reasoning_effort,
             )
 
-    for chunk_raw in _stream_obj:
+    _stream_iter = iter(_stream_obj)
+    while True:
+        try:
+            chunk_raw = next(_stream_iter)
+        except StopIteration:
+            break
+        except Exception as _e:
+            from openai import (  # fmt: skip
+                APIConnectionError,
+                APIStatusError,
+                RateLimitError,
+            )
+
+            if isinstance(_e, (APIStatusError, APIConnectionError, RateLimitError)):
+                raise
+            raise ValueError(
+                f"OpenAI stream iteration failed while parsing a chunk from "
+                f"{model} (provider={provider}): {_e!r}"
+            ) from _e
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
             ChoiceDeltaToolCall,

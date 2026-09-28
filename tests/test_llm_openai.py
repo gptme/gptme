@@ -3225,6 +3225,83 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert result == "Hello"
 
 
+class TestOpenAIStreamMalformedChunk:
+    """stream() must convert an SDK chunk-parsing crash into a clean, classifiable
+    error carrying model + provider context, while re-raising real provider
+    errors (APIStatusError etc.) unchanged.
+
+    Regression guard for the minimax-m3 `list index out of range` crash
+    (gptme/llm/llm_openai.py stream(), 2026-09-28) that died opaque and
+    unclassifiable. See tasks/gptme-openai-stream-malformed-chunk-crash.md.
+    """
+
+    @staticmethod
+    def _setup_stream(monkeypatch, stream_obj):
+        from gptme.message import Message
+
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: stream_obj)
+            )
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+        monkeypatch.setattr(
+            llm_openai, "_should_use_responses_api", lambda *args: False
+        )
+        return [Message(role="user", content="Hi")]
+
+    def test_malformed_chunk_raises_clean_valueerror(self, monkeypatch):
+        """A chunk-parsing IndexError surfaces as a ValueError naming model+provider."""
+
+        class _BadStream:
+            response = SimpleNamespace(headers={})
+
+            def __iter__(self):
+                raise IndexError("list index out of range")
+                yield  # pragma: no cover
+
+        messages = self._setup_stream(monkeypatch, _BadStream())
+        with pytest.raises(
+            ValueError, match="OpenAI stream iteration failed"
+        ) as excinfo:
+            list(
+                llm_openai.stream(
+                    messages,
+                    "openrouter/minimax/minimax-m3",
+                    None,
+                )
+            )
+        msg = str(excinfo.value)
+        assert "OpenAI stream iteration failed" in msg
+        assert "minimax-m3" in msg
+        assert "openrouter" in msg
+        assert "list index out of range" in msg
+
+    def test_api_error_during_iteration_reraises_unchanged(self, monkeypatch):
+        """A real provider API error mid-stream is NOT converted to ValueError."""
+        err = _make_api_status_error(
+            "rate limited", 429, body={"error": "rate limited"}
+        )
+
+        class _BadStream:
+            response = SimpleNamespace(headers={})
+
+            def __iter__(self):
+                raise err
+                yield  # pragma: no cover
+
+        messages = self._setup_stream(monkeypatch, _BadStream())
+        with pytest.raises(openai.APIStatusError):
+            list(
+                llm_openai.stream(
+                    messages,
+                    "openrouter/deepseek/deepseek-v4-flash-0731",
+                    None,
+                )
+            )
+
+
 class TestRecordUsageCacheTokens:
     """Tests for _record_usage cache token extraction.
 
