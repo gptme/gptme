@@ -2329,6 +2329,16 @@ def test_tool_format_title_shows_path_not_json():
     assert lang == "json"
 
 
+def test_tool_format_title_non_string_path():
+    """A numeric path must still render instead of crashing the TUI."""
+    title, code, lang = _tool_call_renderable(
+        '@save(call_1): {"path": 123, "content": "print(1)"}'
+    )
+    assert title == "▶ save: 123"
+    assert '"content": "print(1)"' in code
+    assert lang == "json"
+
+
 @pytest.mark.asyncio
 async def test_display_highlight_and_toggle_refocus(tmp_path):
     manager = make_manager(

@@ -276,7 +276,7 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
     elif isinstance(args, dict):
         # e.g. save/patch: title by path, but expand to all the arguments
         code = json.dumps(args, indent=2)
-        summary = args.get("path") or json_body
+        summary = str(args.get("path") or json_body)
         lang = "json"
     else:
         code = summary = json_body
@@ -2525,7 +2525,7 @@ class GptmeApp(App):
         The generation thread blocks on the tool-confirm dialog, so an
         interrupt has to answer it (as declined) to take effect.
         """
-        screen = self.screen
+        screen: object = self.screen
         if isinstance(screen, ConfirmScreen):
             screen.dismiss(ConfirmationResult.skip(INTERRUPT_CONTENT))
         elif isinstance(screen, UrlConfirmScreen):
