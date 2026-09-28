@@ -1928,7 +1928,6 @@ def test_bg_text_is_plain_bash_not_an_overlay():
     ("command", "handler"),
     [
         ("jobs", "execute_jobs_command"),
-        ("output 7", "execute_output_command"),
         ("wait 7", "execute_wait_command"),
         ("kill 7", "execute_kill_command"),
     ],

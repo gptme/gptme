@@ -335,3 +335,167 @@ def _wait_for_completion(timeout: float = 2.0) -> list[Message]:
         completions = list(background_job_completion_hook(manager))
         time.sleep(0.01)
     return completions
+
+
+def _confirmed_shell(command: str) -> list[Message]:
+    """Run a whole shell tool call (dispatch + confirmation), auto-confirmed."""
+    from unittest.mock import patch
+
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import execute_shell
+
+    with patch(
+        "gptme.hooks.get_confirmation", return_value=ConfirmationResult.confirm()
+    ):
+        return list(execute_shell(command, [], None))
+
+
+def test_promotion_message_names_job_control_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+
+    content = _confirmed_shell("sleep 1")[-1].content
+
+    assert "Promoted to background shell job #1" in content
+    for call in ("`output 1`", "`wait 1 [timeout]`", "`kill 1`", "`jobs`"):
+        assert call in content
+    assert "*entire* shell command" in content
+
+
+def test_output_of_promoted_job_is_a_whole_tool_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    _confirmed_shell("printf progress; sleep 1")
+
+    content = _confirmed_shell("output 1")[-1].content
+
+    assert "**Job #1** - Running" in content
+    assert "progress" in content
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "output 1 | tail -5",
+        "sleep 0; output 1",
+        "touch ran && output 1",
+        "touch ran\noutput 1",
+    ],
+)
+def test_output_inside_script_is_explained_not_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, script: str
+) -> None:
+    """`output N` in a script used to reach bash: 'output: command not found'."""
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    monkeypatch.setattr("gptme.tools.shell.shutil.which", lambda _name: None)
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    _confirmed_shell("sleep 1")
+
+    content = _confirmed_shell(script)[-1].content
+
+    assert "command not found" not in content
+    assert "Not run: `output 1` is a gptme job-control command" in content
+    assert "`wait 1 [timeout]`" in content
+    assert not (tmp_path / "ran").exists()
+
+
+@pytest.mark.parametrize(
+    "script",
+    ["echo 'output 1'", "cat <<EOF\noutput 1\nEOF", "echo hi # output 1"],
+)
+def test_output_as_data_still_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, script: str
+) -> None:
+    monkeypatch.setattr("gptme.tools.shell.shutil.which", lambda _name: None)
+    set_shell(ShellSession(cwd=str(tmp_path)))
+
+    content = _confirmed_shell(script)[-1].content
+
+    assert content.startswith("Ran ")
+    assert "Not run" not in content
+
+
+def test_output_for_unknown_job_explains_instead_of_bash_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("gptme.tools.shell.shutil.which", lambda _name: None)
+    set_shell(ShellSession(cwd=str(tmp_path)))
+
+    content = _confirmed_shell("output 9")[-1].content
+
+    assert "No background job #9" in content
+    assert "command not found" not in content
+
+
+def test_explicit_timeout_prefix_defers_promotion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`timeout N cmd` is waited on in the foreground up to its own limit."""
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+
+    messages = list(execute_shell_impl("timeout 5 sleep 0.5", logdir=None, timeout=30))
+
+    assert "Ran command" in messages[-1].content
+    assert list_background_jobs() == []
+    assert get_shell() is shell
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("timeout 400 python run.py", 400.0),
+        ("timeout 5m make test", 300.0),
+        ("timeout 1.5h ./train", 5400.0),
+        ("timeout -s KILL 30 sleep 60", 30.0),
+        ("timeout --signal=INT -k 10 30s sleep 60", 40.0),
+        ("timeout --kill-after=1m --preserve-status 2m cmd", 180.0),
+        ("/usr/bin/timeout 7 cmd arg\nsecond line", 7.0),
+        ("timeout 0 sleep 60", None),
+        ("timeout 30", None),
+        ("sleep 400", None),
+        ("echo timeout 400 cmd", None),
+        ("timeout 'unbalanced", None),
+    ],
+)
+def test_explicit_timeout_seconds(command: str, expected: float | None) -> None:
+    from gptme.tools.shell import _explicit_timeout_seconds
+
+    assert _explicit_timeout_seconds(command) == expected
+
+
+def test_completion_report_includes_output_tail_and_full_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    logdir = tmp_path / "log"
+    monkeypatch.setattr("gptme.tools.shell_background._current_log_dir", lambda: logdir)
+    set_shell(ShellSession(cwd=str(tmp_path)))
+
+    messages = list(
+        execute_shell_impl(
+            "sleep 0.3; printf '%s%s' FIR ST; head -c 20000 /dev/zero | tr '\\0' x; "
+            "printf 'LAST'; printf 'oops' >&2",
+            logdir=None,
+            timeout=5,
+        )
+    )
+    assert "Promoted to background shell job #1" in messages[-1].content
+
+    completions = _wait_for_completion(timeout=5)
+    assert len(completions) == 1
+    content = completions[0].content
+    assert "finished (exit code 0)" in content
+    assert "LAST" in content and "oops" in content
+    assert "FIRST" not in content
+    assert "truncated, showing last 8000 of 20009 chars" in content
+    log_files = list((logdir / "tool-outputs" / "shell-jobs").glob("job-1-*.log"))
+    assert len(log_files) == 1
+    assert f"Full output: `{log_files[0]}`" in content
+    full = log_files[0].read_text()
+    assert "FIRST" in full and "LAST" in full and "oops" in full

@@ -21,6 +21,7 @@ import threading
 import time
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from ..hooks.types import StopPropagation
@@ -40,6 +41,12 @@ logger = logging.getLogger(__name__)
 
 # Maximum buffer size to prevent memory issues (1MB per buffer)
 _MAX_BUFFER_SIZE = 1024 * 1024
+
+# Tail of each stream shown in `output N`, promotion and completion messages.
+# Longer output is saved to a per-job log file (when the conversation has a
+# logdir) and the message names that file.
+_STDOUT_DISPLAY_CHARS = 8000
+_STDERR_DISPLAY_CHARS = 2000
 
 # Control-file fingerprints already yielded as a wait interruption. The file is
 # left for STEP_PRE's subagent cancel checkpoint; yielding again on the same
@@ -113,6 +120,12 @@ class BackgroundJob:
     _output_callback: Callable[[], tuple[str, str]] | None = field(
         default=None, repr=False
     )
+    # Conversation logdir captured at registration; full output of a job whose
+    # displayed output is truncated is written under it.
+    log_dir: Path | None = field(default=None, repr=False)
+    log_path: Path | None = field(default=None, repr=False)
+    # Set once the log holds the job's final, complete output (not a snapshot).
+    _final_log_written: bool = field(default=False, repr=False)
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
@@ -302,6 +315,102 @@ def _current_conversation_id() -> str | None:
     return current_conversation_id.get() or (manager.chat_id if manager else None)
 
 
+def _current_log_dir() -> Path | None:
+    from ..logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    logdir = getattr(manager, "logdir", None) if manager else None
+    return Path(logdir) if logdir else None
+
+
+def control_commands_help(job_id: int) -> str:
+    """Describe the job-control calls for ``job_id`` exactly as they must be made."""
+    return (
+        "Manage it with these gptme job-control commands. Each must be the "
+        "*entire* shell command (they are not bash commands, so they cannot be "
+        "piped, chained, or used inside a script):\n"
+        f"- `output {job_id}` - show recent output (`output {job_id} --new` for "
+        "output since the last check)\n"
+        f"- `wait {job_id} [timeout]` - block until it finishes, e.g. "
+        f"`wait {job_id} 10m`, then show its output\n"
+        f"- `kill {job_id}` - terminate it\n"
+        "- `jobs` - list background jobs"
+    )
+
+
+# Serializes log writes so a live snapshot never overwrites the final log.
+_job_log_lock = threading.Lock()
+
+
+def _write_job_log(
+    job: BackgroundJob, stdout: str, stderr: str, *, final: bool
+) -> Path | None:
+    """Write a job's output to its log file; return the path, or None.
+
+    A non-final (live snapshot) write is skipped once the final, complete
+    output has been written, and the existing log path is returned instead.
+    """
+    if job.log_dir is None:
+        return None
+    with _job_log_lock:
+        if job._final_log_written:
+            return job.log_path
+        path = _write_job_log_locked(job, stdout, stderr, final=final)
+        if path is not None and final:
+            job._final_log_written = True
+        return path
+
+
+def _write_job_log_locked(
+    job: BackgroundJob, stdout: str, stderr: str, *, final: bool
+) -> Path | None:
+    assert job.log_dir is not None
+    if job.log_path is None:
+        job.log_path = (
+            job.log_dir
+            / "tool-outputs"
+            / "shell-jobs"
+            / f"job-{job.id}-{int(job.start_time)}.log"
+        )
+    dropped = job._stdout_buffer_start + job._stderr_buffer_start
+    parts = [f"$ {job.command}\n"]
+    if dropped and not final:
+        parts.append(
+            f"[earliest {dropped} chars were dropped from the in-memory buffer]\n"
+        )
+    parts.append(f"\n--- stdout ---\n{stdout}")
+    if stderr:
+        parts.append(f"\n--- stderr ---\n{stderr}")
+    try:
+        job.log_path.parent.mkdir(parents=True, exist_ok=True)
+        job.log_path.write_text("".join(parts), encoding="utf-8")
+    except OSError as e:
+        logger.warning("Could not write background job log %s: %s", job.log_path, e)
+        return None
+    return job.log_path
+
+
+def format_job_output(job: BackgroundJob, stdout: str, stderr: str) -> str:
+    """Render the tails of a job's output, naming the full log if truncated."""
+    blocks: list[str] = []
+    truncated = False
+    for name, text, limit in (
+        ("stdout", stdout, _STDOUT_DISPLAY_CHARS),
+        ("stderr", stderr, _STDERR_DISPLAY_CHARS),
+    ):
+        if not text:
+            continue
+        if len(text) > limit:
+            truncated = True
+            text = f"...(truncated, showing last {limit} of {len(text)} chars)...\n{text[-limit:]}"
+        blocks.append(md_codeblock(name, text))
+    if truncated:
+        log_path = _write_job_log(job, *job.get_output(), final=False)
+        if log_path is not None:
+            blocks.append(f"Full output: `{log_path}`")
+    return "\n\n".join(blocks)
+
+
 def _get_next_job_id_locked(conversation_id: str | None) -> int:
     """Get the next conversation-local job ID while holding ``_job_lock``."""
     job_id = _next_job_ids.get(conversation_id, 1)
@@ -362,6 +471,7 @@ def register_background_job(
             _kill_callback=kill_callback,
             _close_callback=close_callback,
             _output_callback=output_callback,
+            log_dir=_current_log_dir(),
         )
         _jobs_for(conversation_id)[job.id] = job
     return job
@@ -369,6 +479,10 @@ def register_background_job(
 
 def complete_background_job(job: BackgroundJob, stdout: str, stderr: str) -> None:
     """Store final output and publish one completion for a registered job."""
+    if len(stdout) > _STDOUT_DISPLAY_CHARS or len(stderr) > _STDERR_DISPLAY_CHARS:
+        # Persist the complete output now: the in-memory buffer keeps only
+        # the last _MAX_BUFFER_SIZE chars, and messages show only a tail.
+        _write_job_log(job, stdout, stderr, final=True)
     with job._buffer_lock:
         job._output_callback = None
         if stdout:
@@ -415,6 +529,7 @@ def start_background_job(
             # Capture it at creation rather than resolving the PID during kill,
             # after the leader may have exited and its PID may have been reused.
             process_group_id=None if _is_windows else process.pid,
+            log_dir=_current_log_dir(),
         )
         _jobs_for(conversation_id)[job_id] = job
     job.start_reader()
@@ -495,12 +610,8 @@ atexit.register(reset_background_jobs)
 def _completion_message(job: BackgroundJob) -> Message:
     status = f"exit code {job.process.returncode}"
     stdout, stderr = job.get_output()
-    details: list[str] = []
-    if stdout:
-        details.append(md_codeblock("stdout", stdout[-8000:]))
-    if stderr:
-        details.append(md_codeblock("stderr", stderr[-2000:]))
-    suffix = "\n\n" + "\n\n".join(details) if details else ""
+    details = format_job_output(job, stdout, stderr)
+    suffix = f"\n\n{details}" if details else "\n\nNo output."
     return Message(
         "system",
         f"Background shell job #{job.id} finished ({status}): `{job.command}`{suffix}",
@@ -726,11 +837,7 @@ def execute_bg_command(
     yield Message(
         "system",
         f"Started background job **#{job.id}**: `{command}`\n\n"
-        f"Use these commands to manage it:\n"
-        f"- `jobs` - List all background jobs\n"
-        f"- `output {job.id}` - Show output from job #{job.id}\n"
-        f"- `wait {job.id}` - Wait for job #{job.id} to finish\n"
-        f"- `kill {job.id}` - Terminate job #{job.id}",
+        + control_commands_help(job.id),
     )
 
 
@@ -801,20 +908,9 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
             "the remaining output.\n\n"
         )
 
-    if stdout:
-        # Truncate if too long
-        if len(stdout) > 8000:
-            stdout = stdout[-8000:]
-            msg += md_codeblock("stdout", "...(truncated)...\n" + stdout) + "\n\n"
-        else:
-            msg += md_codeblock("stdout", stdout) + "\n\n"
-    if stderr:
-        if len(stderr) > 2000:
-            stderr = stderr[-2000:]
-            msg += md_codeblock("stderr", "...(truncated)...\n" + stderr) + "\n\n"
-        else:
-            msg += md_codeblock("stderr", stderr) + "\n\n"
-    if not stdout and not stderr:
+    if stdout or stderr:
+        msg += format_job_output(job, stdout, stderr) + "\n\n"
+    else:
         msg += "No new output.\n" if incremental else "No output yet.\n"
 
     yield Message("system", msg)

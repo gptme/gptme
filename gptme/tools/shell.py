@@ -12,6 +12,10 @@ Configuration:
     GPTME_SHELL_FOREGROUND_TIMEOUT: Soft timeout before a foreground command is
         promoted to a conversation-owned background job. Defaults to 120 seconds.
         Set to 0 to disable promotion. GPTME_SHELL_TIMEOUT remains the hard limit.
+        A command that starts with ``timeout DURATION`` is not promoted before
+        that duration (plus a short grace) has passed. Promoted jobs are managed
+        with the ``output N``, ``wait N [timeout]``, ``kill N`` and ``jobs``
+        control commands, each given as the entire shell command.
         POSIX only — Windows has no process-group promotion path, so this setting
         is ignored there and long commands wait for GPTME_SHELL_TIMEOUT.
 
@@ -85,10 +89,12 @@ from .shell_background import (
     background_job_completion_hook,
     background_job_wait_hook,
     complete_background_job,
+    control_commands_help,
     execute_jobs_command,
     execute_kill_command,
     execute_output_command,
     execute_wait_command,
+    format_job_output,
     get_background_job,
     register_background_job,
 )
@@ -102,7 +108,11 @@ from .shell_background import (
     start_background_job as start_background_job,
 )
 from .shell_validation import (
+    _blank_heredoc_bodies,
+    _blank_shell_comments,
     _find_first_unquoted_pipe,
+    _find_quotes,
+    _is_in_quoted_region,
     check_with_shellcheck,
     is_allowlisted,
     is_denylisted,
@@ -241,9 +251,10 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 Use `background: true` for work you already know will run long — dev servers,
 builds, test suites. A foreground command that outruns the soft timeout is
-promoted for you: keep doing other useful work, and the result arrives
-automatically before the next model step. Use `wait` only when later steps
-need that result.
+promoted to background job N; its exit code and output arrive automatically.
+A leading `timeout DURATION` keeps a command in the foreground that long.
+Manage jobs with `output N`, `wait N [timeout]`, `kill N`, `jobs`: not bash,
+so send each as the entire command, never piped or inside a script.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -304,38 +315,41 @@ def examples(tool_format):
         ).to_output(tool_format)
     }
 
-#### Background jobs for long-running commands
+#### Long-running commands become background jobs
 
-> User: start a dev server
-> Assistant: I'll start the dev server as a background job so it doesn't block:
-{ToolUse("shell", [], "bg npm run dev").to_output(tool_format)}
-> System: Started background job **#1**: `npm run dev`
+> User: run the training script
+> Assistant: Let me start the training run:
+{ToolUse("shell", [], "python train.py").to_output(tool_format)}
+> System: Promoted to background shell job #1 after 120s: `python train.py`
 >
-> Use these commands to manage it:
-> - `jobs` - List all background jobs
-> - `output 1` - Show output from job #1
-> - `wait 1 60s` - Wait up to 60 seconds for job #1
-> - `kill 1` - Terminate job #1
+> The command is still running. Its exit code and output will be reported automatically when it finishes.
+>
+> Manage it with these gptme job-control commands. Each must be the *entire* shell command (they are not bash commands, so they cannot be piped, chained, or used inside a script):
+> - `output 1` - show recent output (`output 1 --new` for output since the last check)
+> - `wait 1 [timeout]` - block until it finishes, e.g. `wait 1 10m`, then show its output
+> - `kill 1` - terminate it
+> - `jobs` - list background jobs
 
-> User: check the server output
+> User: how is it going?
 > Assistant: Let me check the output from the background job:
 {ToolUse("shell", [], "output 1").to_output(tool_format)}
-> System: **Job #1** - Running (45.2s)
-> Command: `npm run dev`
+> System: **Job #1** - Running (185.2s)
+> Command: `python train.py`
 >
 > ```stdout
-> > project@1.0.0 dev
-> > vite
->
-> VITE v5.0.0  ready in 300 ms
->
-> ➜  Local:   http://localhost:5173/
+> epoch 3/10 loss=0.412
 > ```
 
-> User: stop the server
-> Assistant: I'll terminate the background job:
-{ToolUse("shell", [], "kill 1").to_output(tool_format)}
-> System: Terminated job #1: `npm run dev`
+> User: wait for it to finish
+> Assistant: I'll block on the job for up to 20 minutes:
+{ToolUse("shell", [], "wait 1 20m").to_output(tool_format)}
+> System: **Job #1** - Finished (exit code: 0) (912.4s)
+> Command: `python train.py`
+>
+> ```stdout
+> epoch 10/10 loss=0.107
+> saved model.pt
+> ```
 """.strip()
 
 
@@ -2891,6 +2905,13 @@ def execute_shell_impl(
 
     start_time = time.monotonic()
     foreground_timeout = _get_foreground_timeout()
+    explicit_timeout = _explicit_timeout_seconds(cmd)
+    if foreground_timeout is not None and explicit_timeout is not None:
+        # A leading `timeout N` states how long the caller is prepared to
+        # wait; don't promote before the command's own limit (+ grace) is up.
+        foreground_timeout = max(
+            foreground_timeout, explicit_timeout + _EXPLICIT_TIMEOUT_GRACE
+        )
     # Promotion is POSIX-only: Windows has no start_new_session / killpg path.
     promoted = (
         not _is_windows
@@ -2976,16 +2997,14 @@ def execute_shell_impl(
 
                 threading.Thread(target=publish, daemon=True).start()
                 partial_stdout, partial_stderr = shell.active_output()
-                tail = ""
-                if partial_stdout:
-                    tail += "\n\n" + md_codeblock("stdout", partial_stdout[-8000:])
-                if partial_stderr:
-                    tail += "\n\n" + md_codeblock("stderr", partial_stderr[-2000:])
+                partial = format_job_output(job, partial_stdout, partial_stderr)
+                tail = f"\n\nOutput so far:\n\n{partial}" if partial else ""
                 msg = (
                     f"Promoted to background shell job #{job.id} after "
                     f"{foreground_timeout:g}s: `{cmd}`\n\n"
-                    "The command is still running. Completion will be reported "
-                    f"automatically; use `output {job.id}` for current output.{tail}"
+                    "The command is still running. Its exit code and output "
+                    "will be reported automatically when it finishes.\n\n"
+                    f"{control_commands_help(job.id)}{tail}"
                 )
                 yield Message(
                     "system",
@@ -3267,6 +3286,108 @@ def _get_foreground_timeout() -> float | None:
     return timeout if timeout > 0 else None
 
 
+# Extra foreground time granted beyond a leading `timeout N` before promotion,
+# so the command's own timeout fires (and is reported) in the foreground.
+_EXPLICIT_TIMEOUT_GRACE = 5.0
+_TIMEOUT_DURATION_RE = re.compile(r"(\d+(?:\.\d*)?|\.\d+)([smhd]?)")
+_TIMEOUT_UNITS = {"": 1.0, "s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0}
+
+
+def _parse_timeout_duration(value: str) -> float | None:
+    match = _TIMEOUT_DURATION_RE.fullmatch(value)
+    if not match:
+        return None
+    return float(match.group(1)) * _TIMEOUT_UNITS[match.group(2)]
+
+
+def _explicit_timeout_seconds(cmd: str) -> float | None:
+    """Return the limit of a leading coreutils ``timeout DURATION cmd``, if any.
+
+    Includes ``-k/--kill-after``. Returns None when the command does not start
+    with ``timeout`` or the invocation cannot be parsed, and for a zero
+    duration (which disables timeout's limit).
+    """
+    first_line = cmd.strip().split("\n", 1)[0]
+    try:
+        tokens = shlex.split(first_line)
+    except ValueError:
+        return None
+    if not tokens or os.path.basename(tokens[0]) not in ("timeout", "gtimeout"):
+        return None
+    kill_after = 0.0
+    i = 1
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "--":
+            i += 1
+            break
+        if token in ("-s", "--signal"):
+            i += 2
+            continue
+        if token in ("-k", "--kill-after"):
+            value = tokens[i + 1] if i + 1 < len(tokens) else ""
+            i += 2
+        elif token.startswith(("--kill-after=", "-k")):
+            value = token.split("=", 1)[1] if "=" in token else token[2:]
+            i += 1
+        elif token.startswith("-"):
+            i += 1  # -v, --foreground, --preserve-status, -sKILL, --signal=...
+            continue
+        else:
+            break
+        parsed = _parse_timeout_duration(value)
+        if parsed is None:
+            return None
+        kill_after = parsed
+    # The duration must be followed by the command it limits.
+    if i + 1 >= len(tokens):
+        return None
+    duration = _parse_timeout_duration(tokens[i])
+    if not duration:
+        return None
+    return duration + kill_after
+
+
+# `output` is a gptme job-control command, not a bash command. Find it where
+# bash would try to execute it: at a command position of a script/pipeline.
+_OUTPUT_COMMAND_RE = re.compile(
+    r"(?:^|[;&|({\n]|\b(?:then|do|else)[ \t])[ \t]*output[ \t]+#?(\d+)\b"
+)
+
+
+def _find_output_command(cmd: str) -> int | None:
+    """Return the job ID of an ``output N`` that bash would fail to run."""
+    if shutil.which("output"):
+        return None  # A real `output` executable: bash owns the name.
+    text = _blank_shell_comments(_blank_heredoc_bodies(cmd))
+    quoted = _find_quotes(text)
+    for match in _OUTPUT_COMMAND_RE.finditer(text):
+        if not _is_in_quoted_region(match.start(1), quoted):
+            return int(match.group(1))
+    return None
+
+
+def _misplaced_output_message(cmd: str, job_id: int) -> str:
+    jobs = list_background_jobs()
+    if cmd in (f"output {job_id}", f"output {job_id} --new"):
+        known = ", ".join(f"#{job.id}" for job in jobs) or "none"
+        return (
+            f"No background job #{job_id} in this conversation "
+            f"(known jobs: {known}). Background jobs do not survive a gptme "
+            "restart."
+        )
+    msg = (
+        f"Not run: `output {job_id}` is a gptme job-control command, not a bash "
+        "command, so it only works as the *entire* shell command. It cannot be "
+        "piped, chained, or used inside a script.\n\n"
+        f"Call `output {job_id}` on its own to see recent output, or "
+        f"`wait {job_id} [timeout]` to block until the job finishes."
+    )
+    if not any(job.id == job_id for job in jobs):
+        msg += f"\n\nNote: there is no background job #{job_id} in this conversation."
+    return msg
+
+
 def _get_timeout() -> float | None:
     timeout: float | None = 1200.0
     timeout_env = os.environ.get("GPTME_SHELL_TIMEOUT")
@@ -3317,6 +3438,9 @@ def execute_shell(
         if get_background_job(int(match.group(1))) is not None:
             yield from execute_kill_command(match.group(1))
             return
+    if (output_job_id := _find_output_command(cmd)) is not None:
+        yield Message("system", _misplaced_output_message(cmd_stripped, output_job_id))
+        return
 
     timeout = _get_timeout()
 
@@ -3349,7 +3473,8 @@ def execute_shell(
             yield Message(
                 "system",
                 f"Started background shell job #{job.id}: `{command}`\n\n"
-                "Completion will be reported automatically.",
+                "Its exit code and output will be reported automatically when "
+                f"it finishes.\n\n{control_commands_help(job.id)}",
             )
             return
         yield from execute_shell_impl(command, path, timeout=timeout)
