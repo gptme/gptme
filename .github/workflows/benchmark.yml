@@ -5,6 +5,20 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+    # startup/size benchmarks only depend on the Python package and its deps
+    paths:
+      - 'gptme/**'
+      - 'pyproject.toml'
+      - 'poetry.lock'
+      - 'scripts/**'
+      - 'Makefile'
+      - '.github/workflows/benchmark.yml'
+
+# Cancel a PR's older runs when it gets a new push (they're superseded).
+# Pushes to master are grouped by commit, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   pull-requests: write

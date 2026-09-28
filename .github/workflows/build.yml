@@ -11,6 +11,12 @@ on:
         description: 'Release tag to build and upload artifacts for (e.g., v0.31.1.dev20260310)'
         required: false
 
+# Cancel a PR's older runs when it gets a new push (they're superseded).
+# Pushes to master are grouped by commit, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-docker:
     name: Docker

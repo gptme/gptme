@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ master ]
 
+# Cancel a PR's older runs when it gets a new push (they're superseded).
+# Pushes to master are grouped by commit, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -106,11 +112,13 @@ jobs:
     - name: Install playwright
       run: poetry run playwright install chromium
 
-    - name: Run tests (without API keys, including slow)
+    # Slow tests (browser, MCP, integration) run on master and dispatch only:
+    # they dominate this job's runtime, and PR CI waits on it.
+    - name: Run tests (without API keys; slow tests on master only)
       env:
         TERM: xterm
         MODEL: local/test
-      run: make test SLOW=true
+      run: make test ${{ github.event_name != 'pull_request' && 'SLOW=true' || '' }}
 
     - name: Upload visual snapshot diffs on failure
       if: failure()

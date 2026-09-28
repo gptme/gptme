@@ -5,9 +5,22 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+    # advisories depend on dependencies (the weekly schedule catches new ones)
+    paths:
+      - 'pyproject.toml'
+      - 'poetry.lock'
+      - 'webui/package.json'
+      - 'webui/package-lock.json'
+      - '.github/workflows/security-advisories.yml'
   schedule:
     - cron: '0 8 * * 1'  # Weekly, Monday 8am UTC
   workflow_dispatch:
+
+# Cancel a PR's older runs when it gets a new push (they're superseded).
+# Pushes to master are grouped by commit, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
