@@ -11,6 +11,11 @@ on:
       - 'pyproject.toml'
       - 'poetry.lock'
       - 'gptme.toml'
+      # files and lessons the repo's gptme.toml loads in the start/exit cycle
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'docs/glossary.md'
+      - 'docs/lessons/**'
       - 'scripts/**'
       - 'Makefile'
       - '.github/workflows/benchmark.yml'
