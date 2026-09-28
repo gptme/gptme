@@ -2,6 +2,7 @@
 Constants
 """
 
+import functools
 import os
 
 # Optimized for code
@@ -30,6 +31,35 @@ ROLE_COLOR = {
 }
 
 
+def valid_color(value: object, where: str) -> str | None:
+    """Return *value* if it is a color Rich can parse, else warn and drop it.
+
+    Accepts hex (``#e5a50a``), ``rgb(r,g,b)`` and color names. An invalid
+    color (or a non-string, e.g. ``color = 123`` in TOML) must not stop gptme
+    from starting or break rendering.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        from rich.color import Color, ColorParseError
+
+        try:
+            Color.parse(value)
+            return value
+        except (ColorParseError, ValueError):
+            pass
+    import logging
+
+    logging.getLogger(__name__).warning("Ignoring invalid %s color %r", where, value)
+    return None
+
+
+@functools.lru_cache(maxsize=8)
+def _env_agent_color(value: str) -> str | None:
+    # cached: validate (and warn about) each GPTME_AGENT_COLOR value once
+    return valid_color(value, "GPTME_AGENT_COLOR")
+
+
 def configured_role_color(role: str) -> str | None:
     """Display color configured for a role, or None to use the default.
 
@@ -37,7 +67,8 @@ def configured_role_color(role: str) -> str | None:
     in gptme.toml; the user color from ``[user].color``.
     """
     if role == "assistant" and (env := os.environ.get("GPTME_AGENT_COLOR")):
-        return env
+        if color := _env_agent_color(env):
+            return color
     if role not in ("user", "assistant"):
         return None
     from .config import get_config

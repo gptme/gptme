@@ -3216,3 +3216,28 @@ def test_agent_and_user_color_config(tmp_path, caplog):
     # the [prompt] fallback rebuilds the identity; color must survive it
     assert user_config.user.color == "magenta"
     assert user_config.user.about == "hi"
+
+
+def test_invalid_color_types_are_ignored(caplog):
+    """Non-string or unparsable colors warn and are dropped, never crash."""
+    config = ProjectConfig.from_dict({"agent": {"name": "Bob", "color": 123}})
+    assert config.agent is not None
+    assert config.agent.color is None
+    assert "123" in caplog.text
+
+
+def test_invalid_agent_color_env_is_ignored(monkeypatch):
+    from gptme import constants
+
+    constants._env_agent_color.cache_clear()
+    monkeypatch.setenv("GPTME_AGENT_COLOR", "notacolor")
+    monkeypatch.setattr("gptme.config.get_config", lambda: _NoColorConfig())
+    assert constants.configured_role_color("assistant") is None
+    assert constants.role_color("assistant") == "green"
+    monkeypatch.setenv("GPTME_AGENT_COLOR", "red")
+    assert constants.configured_role_color("assistant") == "red"
+
+
+class _NoColorConfig:
+    class chat:
+        agent_config = None

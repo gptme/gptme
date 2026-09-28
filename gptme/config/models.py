@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import Self
 
+from ..constants import valid_color
 from ..context.config import ContextConfig
 from ..context.selector.config import ContextSelectorConfig
 from ..util import path_with_tilde
@@ -32,24 +33,6 @@ def _pop_object_section(config_data: dict, key: str) -> dict:
         return {}
     if not isinstance(value, dict):
         raise ValueError(f"{key} must be an object")
-    return value
-
-
-def _valid_color(value: str | None, where: str) -> str | None:
-    """Return *value* if it is a color Rich can parse, else warn and drop it.
-
-    Accepts hex (``#e5a50a``), ``rgb(r,g,b)`` and color names. An invalid
-    color must not stop gptme from starting.
-    """
-    if value is None:
-        return None
-    from rich.color import Color, ColorParseError
-
-    try:
-        Color.parse(value)
-    except ColorParseError:
-        logger.warning("Ignoring invalid %s color %r", where, value)
-        return None
     return value
 
 
@@ -223,7 +206,7 @@ class UserIdentityConfig:
     """Display color for the user's name (hex, ``rgb(...)`` or a color name)."""
 
     def __post_init__(self) -> None:
-        self.color = _valid_color(self.color, "user")
+        self.color = valid_color(self.color, "user")
 
 
 @dataclass
@@ -316,7 +299,7 @@ class AgentConfig:
     """Display color for the agent's name (hex, ``rgb(...)`` or a color name)."""
 
     def __post_init__(self) -> None:
-        self.color = _valid_color(self.color, "agent")
+        self.color = valid_color(self.color, "agent")
 
 
 @dataclass
