@@ -1523,6 +1523,9 @@ def main(
             _write_terminal_error_to_log(logdir, error_class, exit_code, str(e))
         else:
             exit_code = 1
+        # the conversation is saved; say how to get back to it once the
+        # cause is fixed (printed at exit if the log is nonempty)
+        show_resume_hint_on_exit = True
         sys.exit(exit_code)
     finally:
         if signal.getsignal(signal.SIGTERM) is handle_sigterm:

@@ -270,3 +270,26 @@ def test_generic_error_exits_1(
         cli.main, ["--non-interactive", "--name", "test-generic-err", "ping"]
     )
     assert result.exit_code == 1
+
+
+def test_fatal_error_prints_resume_hint(
+    tmp_path: Path,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runner: CliRunner,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """After a crash the conversation is saved: tell the user how to resume it."""
+    handlers: list = []
+    monkeypatch.setattr(cli.atexit, "register", handlers.append)
+    _setup_cli_mocks(monkeypatch, tmp_path, chat_raises=RuntimeError("boom"))
+    result = runner.invoke(
+        cli.main, ["--non-interactive", "--name", "test-crash-hint", "ping"]
+    )
+    assert result.exit_code != 0
+
+    # the saved log is nonempty (the terminal error event), so the exit
+    # handler registered by the CLI prints the resume command
+    for handler in handlers:
+        handler()
+    assert "gptme --name test-crash-hint" in capsys.readouterr().out
