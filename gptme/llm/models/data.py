@@ -686,10 +686,13 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         # overrides (half price outside 01-04 / 06-10 UTC Mon-Fri).
         # Reasoning on by default (``reasoning`` param). MIT, 552B total /
         # 8B active prefill / 16B active decode, 1M context.
-        # The official endpoint trains on prompts, so gptme's default
-        # ``OPENROUTER_DATA_COLLECTION=deny`` finds no endpoint for this id
-        # until a no-train host serves it; set the env var to ``allow`` (or
-        # pin ``@deepseek`` with it) to use it today.
+        # As of 2026-09-17 (rechecked 2026-09-28) 29 third-party hosts serve
+        # this id; all report ``data_collection: null``, which satisfies
+        # gptme's default ``OPENROUTER_DATA_COLLECTION=deny`` request
+        # preference (deny filters out hosts that explicitly allow
+        # collection). The official ``@deepseek`` endpoint still trains on
+        # prompts and is excluded under deny. Unpinned, this is the
+        # OpenRouter default.
         # https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash
         "deepseek/deepseek-v4.1-flash": {
             "context": 1_048_576,
@@ -706,9 +709,9 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         # OpenRouter dropped the official ``@deepseek`` endpoint for this id on
         # 2026-09-10 (DeepSeek retired V4 Flash in favour of V4.1 Flash); 28
         # third-party hosts remain (all deny-compatible), which list lower
-        # miss prices but 2-7x higher cache-read prices. Unpinned, this is the
-        # OpenRouter default; pin a host allowlist for consistency (see
-        # docs/evals.rst).
+        # miss prices but 2-7x higher cache-read prices. Superseded as the
+        # unpinned OpenRouter default by v4.1-flash; pin a host allowlist
+        # for consistency (see docs/providers-supported.rst).
         "deepseek/deepseek-v4-flash-0731": {
             "context": 1_000_000,
             "max_output": 384_000,

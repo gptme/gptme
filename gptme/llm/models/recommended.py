@@ -25,11 +25,13 @@ RECOMMENDED_MODELS: dict[str, str] = {
     # subscription default can be the frontier model without a cost tradeoff.
     "openai-subscription": "gpt-6-astra",
     # Unpinned so OpenRouter can route across the 29 third-party hosts that
-    # serve deepseek-v4.1-flash with ``data_collection: deny`` — verified
-    # 2026-09-28 (all endpoints return ``data_collection: null``). The
+    # satisfy gptme's default ``OPENROUTER_DATA_COLLECTION=deny`` *request*
+    # preference. Verified 2026-09-28: every listed endpoint reports
+    # ``data_collection: null``. Null is deny-compatible — OpenRouter's deny
+    # filter only excludes hosts that explicitly allow collection. The
     # ``@deepseek`` endpoint for v4-flash-0731 was removed 2026-09-10; v4.1-
-    # flash replaced it once deny-compatible hosts appeared (recheck done
-    # 2026-09-17). See docs/evals.rst "Choosing an OpenRouter provider".
+    # flash became the default once those hosts appeared (recheck done
+    # 2026-09-17). See docs/providers-supported.rst "Choosing a subprovider".
     "openrouter": "deepseek/deepseek-v4.1-flash",
     "gemini": "gemini-3.1-pro-preview",
     "xai": "grok-4.6",
