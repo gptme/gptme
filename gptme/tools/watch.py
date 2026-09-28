@@ -9,6 +9,7 @@ Design: knowledge/design/2026-09-10-gptme-monitors-and-completion-events.md
 """
 
 import logging
+import queue
 import re
 import shlex
 import subprocess
@@ -25,6 +26,7 @@ from pathlib import Path
 
 from ..message import Message
 from .base import ToolSpec
+from .shell_validation import is_denylisted
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,10 @@ _CANCEL_COUNT = 200
 _CANCEL_WINDOW = 5 * 60.0
 _MAX_EVENTS = 1000
 _POLL_INTERVAL = 1.0
+
+# Option names the watch parser consumes. Anything else starting with `--`
+# belongs to the command being watched (e.g. `gh pr checks 42 --repo x`).
+_WATCH_OPT_NAMES = frozenset({"every", "timeout", "pattern", "stable"})
 
 
 @dataclass
@@ -53,13 +59,14 @@ class Watch:
     cancelled: bool = False
     fired: bool = False
     logdir: Path | None = None  # routing key: conversation logdir at arm time
+    proc: subprocess.Popen | None = None  # set for run/stream; killed on cancel
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 _watches: dict[str, Watch] = {}
 _watches_lock = threading.Lock()
 _watch_seq = 0
-# Offline fallback queue drained at STEP_PRE: (watch_id, text)
+# Offline fallback queue drained at STEP_PRE: (logdir, watch_id, text)
 _pending_deliveries: deque[tuple[Path | None, str, str]] = deque()
 _pending_lock = threading.Lock()
 
@@ -76,11 +83,39 @@ def _register(watch: Watch) -> None:
         _watches[watch.id] = watch
 
 
-def _get(watch_id: str) -> Watch:
+def _visible(watch: Watch, logdir: Path | None) -> bool:
+    """True if `logdir`'s conversation may see/act on `watch`.
+
+    Strictly per-conversation: a server process hosts many conversations and
+    the global registry must not leak IDs, descriptions, or output across
+    them. A `None` logdir means "no conversation context" (CLI arming without
+    a manager), which sees everything.
+    """
+    return logdir is None or watch.logdir == logdir
+
+
+def _get(watch_id: str, logdir: Path | None = None) -> Watch:
     with _watches_lock:
-        if watch_id not in _watches:
-            raise ValueError(f"unknown watch id: {watch_id}")
-        return _watches[watch_id]
+        watch = _watches.get(watch_id)
+    if watch is None or not _visible(watch, logdir):
+        # Same error whether it is unknown or another conversation's watch,
+        # so the message does not confirm the ID exists elsewhere.
+        raise ValueError(f"unknown watch id: {watch_id}")
+    return watch
+
+
+def _kill_proc(proc: subprocess.Popen | None) -> None:
+    """Best-effort terminate then kill a child, so no worker outlives cancel."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    except Exception:
+        logger.debug("failed to kill watched process", exc_info=True)
 
 
 def _record_event(watch: Watch, text: str) -> bool:
@@ -150,12 +185,40 @@ def _deliver(watch: Watch, text: str) -> None:
             )
             if woke:
                 return
-            # No live server session (CLI or idle-free) — fall through to
-            # the STEP_PRE queue so the event still reaches the model.
+            # Conversation is busy (generating/tool-active); the event is
+            # re-attempted at step completion by retry_deferred_watch_wakes,
+            # and drained at STEP_PRE as a fallback.
         except Exception:
             logger.debug("server delivery failed for %s", watch.id, exc_info=True)
     with _pending_lock:
         _pending_deliveries.append((watch.logdir, watch.id, text))
+
+
+def take_queued_watch_events(logdir: Path | None) -> list[tuple[str, str]]:
+    """Pop offline-queued watch events for `logdir` (server retry path).
+
+    Mirrors ``take_queued_completions``: the server re-attempts a live wake
+    when a conversation goes idle, so an event that arrived mid-step is not
+    stranded waiting for a turn that never starts.
+    """
+    returned: list[tuple[str, str]] = []
+    with _pending_lock:
+        retained = type(_pending_deliveries)()
+        for item in _pending_deliveries:
+            item_logdir, watch_id, text = item
+            if logdir is None or item_logdir == logdir:
+                returned.append((watch_id, text))
+            else:
+                retained.append(item)
+        _pending_deliveries.clear()
+        _pending_deliveries.extend(retained)
+    return returned
+
+
+def requeue_watch_event(logdir: Path | None, watch_id: str, text: str) -> None:
+    """Put an event back at the head of the offline queue after a failed retry."""
+    with _pending_lock:
+        _pending_deliveries.appendleft((logdir, watch_id, text))
 
 
 def _fire(watch: Watch, text: str, once: bool = True) -> None:
@@ -195,31 +258,61 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
 
 
 def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
-    """Each stdout line is an event; process exit ends the watch."""
+    """Each stdout line is an event; process exit ends the watch.
+
+    A reader thread decouples the blocking ``readline`` from the loop so the
+    watch deadline is still enforced when the source goes quiet.
+    """
     assert proc.stdout is not None
-    for line in iter(proc.stdout.readline, ""):
+    stdout = proc.stdout
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def _reader() -> None:
+        try:
+            for line in iter(stdout.readline, ""):
+                lines.put(line)
+        finally:
+            lines.put(None)
+
+    threading.Thread(target=_reader, daemon=True).start()
+    while True:
         if watch.cancelled:
             break
+        if watch.deadline is not None and time.time() > watch.deadline:
+            _kill_proc(proc)
+            _fire(watch, f"expired without event ({watch.description})")
+            return
+        try:
+            line = lines.get(timeout=0.5)
+        except queue.Empty:
+            continue
+        if line is None:
+            break
         line = line.rstrip("\n")
-        if line and _record_event(watch, line):
+        if line:
             _fire(watch, line, once=False)
+    if watch.cancelled:
+        _kill_proc(proc)
+        return
     rc = proc.wait()
-    if not watch.cancelled:
-        _fire(watch, f"stream ended (rc={rc})")
+    _fire(watch, f"stream ended (rc={rc})")
 
 
 def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
-    rc = proc.wait()
+    """Wait for a process to exit, reading output concurrently (no deadlock)."""
+    timeout = None
+    if watch.deadline is not None:
+        timeout = max(0.1, watch.deadline - time.time())
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_proc(proc)
+        _fire(watch, f"expired without exit ({watch.description})")
+        return
     if watch.cancelled:
         return
-    tail = ""
-    try:
-        if proc.stdout is not None:
-            tail = proc.stdout.read() or ""
-            tail = tail[-1000:]
-    except Exception:
-        pass
-    _fire(watch, f"process exited rc={rc} {tail}".strip())
+    tail = (out or "")[-1000:]
+    _fire(watch, f"process exited rc={proc.returncode} {tail}".strip())
 
 
 def _poll_timer(watch: Watch, seconds: float) -> None:
@@ -303,18 +396,7 @@ def _watch_drain_hook(manager, **kwargs) -> "Generator[Message, None, None]":
     """
 
     manager_logdir = getattr(manager, "logdir", None)
-    drained: list[tuple[str, str]] = []
-    with _pending_lock:
-        retained = type(_pending_deliveries)()
-        for item in _pending_deliveries:
-            logdir, watch_id, text = item
-            if logdir is None or logdir == manager_logdir:
-                drained.append((watch_id, text))
-            else:
-                retained.append(item)
-        _pending_deliveries.clear()
-        _pending_deliveries.extend(retained)
-    for watch_id, text in drained:
+    for watch_id, text in take_queued_watch_events(manager_logdir):
         yield Message("system", f"Watch {watch_id} fired: {text}")
 
 
@@ -330,6 +412,11 @@ def _parse_duration(text: str) -> float:
 
 
 def _parse_opts(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
+    """Split watch options from the command being watched.
+
+    Only the known watch option names are consumed; any other ``--flag``
+    (e.g. ``--repo`` on a ``gh pr checks`` probe) stays with the command.
+    """
     opts: dict[str, str] = {}
     rest: list[str] = []
     i = 0
@@ -339,19 +426,33 @@ def _parse_opts(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
             name = tok[2:]
             if "=" in name:
                 key, val = name.split("=", 1)
-                opts[key] = val
-                i += 1
-                continue
-            if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                if key in _WATCH_OPT_NAMES:
+                    opts[key] = val
+                    i += 1
+                    continue
+            elif (
+                name in _WATCH_OPT_NAMES
+                and i + 1 < len(tokens)
+                and not tokens[i + 1].startswith("--")
+            ):
                 opts[name] = tokens[i + 1]
                 i += 2
-            else:
-                opts[name] = "true"
-                i += 1
-        else:
-            rest.append(tok)
-            i += 1
+                continue
+        rest.append(tok)
+        i += 1
     return opts, rest
+
+
+def _require_safe_command(command: str) -> None:
+    """Reject commands the shell tool would deny, before arming a worker.
+
+    Watch runs commands in a background thread with no interactive
+    confirmation, so the shell denylist is the hard safety floor it shares
+    with the shell tool.
+    """
+    denied, reason, matched = is_denylisted(command)
+    if denied:
+        raise ValueError(f"Command denied: `{matched}`\n\n{reason}")
 
 
 def _deadline(opts: dict[str, str]) -> float | None:
@@ -379,10 +480,11 @@ def _watch(
 
     if verb == "list":
         with _watches_lock:
-            if not _watches:
+            visible = [w for w in _watches.values() if _visible(w, logdir)]
+            if not visible:
                 return Message("system", "No armed watches.")
             lines = []
-            for w in _watches.values():
+            for w in visible:
                 status = (
                     "cancelled" if w.cancelled else ("fired" if w.fired else "armed")
                 )
@@ -395,15 +497,21 @@ def _watch(
     if verb == "cancel":
         if not rest:
             raise ValueError("usage: watch cancel <id>")
-        w = _get(rest[0])
-        w.cancelled = True
+        w = _get(rest[0], logdir)
+        with w.lock:
+            w.cancelled = True
+            proc = w.proc
+        # A cancelled run/stream worker is blocked in communicate/readline;
+        # kill the child so the daemon thread and its pipes are released.
+        _kill_proc(proc)
         return Message("system", f"Cancelled watch {w.id}.")
 
     if verb == "wait":
-        # Non-blocking fallback: poll the watch until fired or timeout.
+        # Blocking wait for a fired event (design: the explicit escape hatch
+        # from "keep working"). Observation-only: never kills the source.
         if not rest:
             raise ValueError("usage: watch wait <id> [timeout]")
-        w = _get(rest[0])
+        w = _get(rest[0], logdir)
         timeout = _parse_duration(rest[1]) if len(rest) > 1 else 60.0
         end = time.time() + timeout
         while time.time() < end:
@@ -444,6 +552,9 @@ def _watch(
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
         opts, positional = _parse_opts(rest)
         command = " ".join(positional)
+        if not command:
+            raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
+        _require_safe_command(command)
         w = Watch(
             id="",
             kind=verb,
@@ -464,6 +575,7 @@ def _watch(
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+            w.proc = proc
             return _spawn(w, _poll_run, proc)
         proc = subprocess.Popen(
             command,
@@ -473,6 +585,7 @@ def _watch(
             text=True,
             bufsize=1,
         )
+        w.proc = proc
         return _spawn(w, _poll_stream, proc)
 
     if verb == "tmux":
@@ -511,9 +624,12 @@ tool = ToolSpec(
         "- `watch timer 10m [desc]`: fire once after a duration (ScheduleWakeup)\n"
         "- `watch tmux <session> --pattern <re> --stable 5s`: fire on pane match/stability\n"
         "- `watch list` / `watch cancel <id>` / `watch wait <id> [timeout]`\n"
-        "All options: --every, --timeout, --pattern, --stable. Never poll with "
-        "`sleep N; check` — arm a watch instead. Runaway sources are "
-        "auto-cancelled by storm guards."
+        "All options: --every, --timeout, --pattern, --stable (other `--flags` "
+        "belong to the watched command). `wait` is a blocking observation-only "
+        "wait — normally prefer keep-working and let the event wake you. Never "
+        "poll with `sleep N; check` — arm a watch instead. Runaway sources are "
+        "auto-cancelled by storm guards. Commands run in the background without "
+        "interactive confirmation, so the shell denylist is enforced."
     ),
     examples=(
         "> User: Wait for CI on PR 42 without blocking\n"

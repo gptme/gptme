@@ -209,3 +209,73 @@ def _fire_once(w: Watch) -> None:
     from gptme.tools.watch import _fire
 
     _fire(w, "once")
+
+
+def test_parse_opts_preserves_command_flags():
+    # `--repo` belongs to the watched command, not the watch options.
+    opts, rest = _parse_opts(
+        ["gh", "pr", "checks", "42", "--repo", "gptme/gptme", "--every", "60s"]
+    )
+    assert opts == {"every": "60s"}
+    assert rest == ["gh", "pr", "checks", "42", "--repo", "gptme/gptme"]
+
+
+def test_command_flags_survive_arming(tmp_path: Path):
+    _watch_cli("until gh pr checks 42 --repo gptme/gptme --every 0.1s", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "until")
+    assert w.description == "gh pr checks 42 --repo gptme/gptme"
+
+
+def test_stream_records_each_line_once(tmp_path: Path):
+    _watch_cli("stream seq 1 3", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "stream")
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if any("stream ended" in e for e in list(w.events)):
+            break
+        time.sleep(0.05)
+    # 3 lines + the stream-ended marker, each recorded exactly once.
+    assert w.delivered == 4
+    assert len(w.events) == 4
+
+
+def test_run_honors_timeout(tmp_path: Path):
+    _watch_cli("run sleep 30 --timeout 0.3s", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "run")
+    deadline = time.time() + 5
+    while not w.fired and time.time() < deadline:
+        time.sleep(0.05)
+    assert w.fired
+    assert "expired" in w.events[-1]
+
+
+def test_cancel_kills_watched_process(tmp_path: Path):
+    out = _watch_cli("run sleep 30", tmp_path)
+    wid = out.content.split()[2]
+    w = next(w for w in _record_all() if w.kind == "run")
+    assert w.proc is not None and w.proc.poll() is None
+    _watch_cli(f"cancel {wid}", tmp_path)
+    deadline = time.time() + 5
+    while w.proc.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
+    assert w.proc.poll() is not None
+
+
+def test_watches_are_scoped_to_conversation(tmp_path: Path):
+    logdir_a = tmp_path / "conv-a"
+    logdir_b = tmp_path / "conv-b"
+    out = _watch_cli("timer 60s private", logdir_a)
+    wid = out.content.split()[2]
+    # Another conversation sees nothing and cannot address the watch by id.
+    assert "No armed watches" in _watch_cli("list", logdir_b).content
+    with pytest.raises(ValueError, match="unknown watch id"):
+        _watch_cli(f"cancel {wid}", logdir_b)
+    with pytest.raises(ValueError, match="unknown watch id"):
+        _watch_cli(f"wait {wid} 0.1s", logdir_b)
+    # The owner still can.
+    assert wid in _watch_cli("list", logdir_a).content
+
+
+def test_denylisted_command_rejected(tmp_path: Path):
+    with pytest.raises(ValueError, match="Command denied"):
+        _watch_cli("run rm -rf / --no-preserve-root", tmp_path)
