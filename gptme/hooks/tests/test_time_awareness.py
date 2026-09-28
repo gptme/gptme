@@ -427,7 +427,7 @@ class TestClockConsistency:
     def test_truncated_log_updates_session_start(
         self, workspace: Path, fake_clock: FakeClock
     ) -> None:
-        """If the log shrinks (e.g. /backtrack) the cached start is recomputed."""
+        """If the log shrinks (e.g. /backtrack) the session start is recomputed."""
         created = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)
         history = datetime(2026, 9, 27, 9, 0, tzinfo=UTC)
         prompt = Message("system", "fresh prompt", timestamp=created)
@@ -437,6 +437,38 @@ class TestClockConsistency:
         assert "since session start at 2026-09-27 11:00 CEST" in notice.content
 
         # The old history is removed; the remaining log starts at `created`.
+        fake_clock.utc = created + timedelta(minutes=6)
+        (notice,) = _call_with_log(workspace, Log([prompt]))
+        assert "Time elapsed: 6min since session start at 2026-09-28 11:00" in (
+            notice.content
+        )
+
+    def test_truncated_log_does_not_suppress_new_milestones(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """Rewind must not keep old milestone numbers that would hide new notices.
+
+        A long session records 1/5/10/15/20 in shown_milestones. After /edit
+        drops the imported history, those numbers would suppress the new
+        session's 5-min and 20-min notices unless tracking is reset.
+        """
+        created = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)
+        history = datetime(2026, 9, 27, 9, 0, tzinfo=UTC)
+        prompt = Message("system", "fresh prompt", timestamp=created)
+        log = Log([prompt, Message("user", "old question", timestamp=history)])
+
+        # Walk the long session through early milestones so 5 and 20 are
+        # actually in shown_milestones (a single late call only records the
+        # current one).
+        fake_clock.utc = history
+        _call_with_log(workspace, log)
+        for minutes in (2, 6, 12, 16, 22):
+            fake_clock.utc = history + timedelta(minutes=minutes)
+            msgs = _call_with_log(workspace, log)
+            assert len(msgs) == 1
+            log = Log([*log.messages, *msgs])
+
+        # History and those notices are gone; remaining log starts at `created`.
         fake_clock.utc = created + timedelta(minutes=6)
         (notice,) = _call_with_log(workspace, Log([prompt]))
         assert "Time elapsed: 6min since session start at 2026-09-28 11:00" in (

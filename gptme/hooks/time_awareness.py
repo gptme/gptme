@@ -164,7 +164,14 @@ def add_time_message(
         # call: measured ~1.5µs/message (~3ms at 2000 messages), negligible
         # next to tool execution, so no cache to keep in sync.
         log_start = _session_start(data.log)
+        prev_start = conversation_start_times.get(workspace_str)
         if log_start is not None and log_start <= current:
+            if prev_start is not None and to_local(prev_start) != log_start:
+                # Log rewritten (backtrack/edit): milestones and in-context
+                # last-notice were relative to the old start and would suppress
+                # notices for the new, shorter session.
+                shown_milestones[workspace_str] = set()
+                last_notices.pop(workspace_str, None)
             conversation_start_times[workspace_str] = log_start
         elif workspace_str not in conversation_start_times:
             # Without a log, fall back to the first hook call in this context.
