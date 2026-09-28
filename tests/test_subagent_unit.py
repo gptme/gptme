@@ -2086,7 +2086,17 @@ class TestSubagentContinue:
         with _subagents_lock:
             continued = next(s for s in _subagents if s.agent_id == sa.agent_id)
         assert continued.thread is not None
-        continued.thread.join(timeout=1)
+        # The continuation runs on a worker thread that must first acquire the
+        # global subagent slot semaphore before it starts the ACP client. A
+        # fixed 1s join is too tight under a loaded parallel CI runner (-n 16):
+        # the thread may not have been scheduled yet, the call list is still
+        # empty, and the assertion flakes. Wait for the expected calls with a
+        # bounded deadline, then require the thread to have terminated.
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and len(calls) < 2:
+            time.sleep(0.01)
+        continued.thread.join(timeout=5)
+        assert not continued.thread.is_alive(), "ACP continuation thread did not finish"
 
         assert calls == [
             ("load", "session-123", tmp_path),

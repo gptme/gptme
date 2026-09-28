@@ -454,13 +454,8 @@ class TestMCPServerHandlers:
         """MCP confirms at the boundary; inner tool confirmation must not re-dispatch."""
         import mcp.types as types
 
-        from gptme.hooks import (
-            HookType,
-            get_confirmation,
-            register_hook,
-            unregister_hook,
-        )
-        from gptme.hooks.registry import get_registry
+        from gptme.hooks import HookType, get_confirmation
+        from gptme.hooks.registry import HookRegistry
         from gptme.message import Message
 
         calls: list[str] = []
@@ -468,39 +463,43 @@ class TestMCPServerHandlers:
         def counting_hook(tool_use, preview=None, workspace=None):
             calls.append(tool_use.tool)
 
-        register_hook(
+        # Use an isolated registry instead of the ambient (context-local) one.
+        # In a full-suite xdist worker the ambient registry may already hold a
+        # higher-priority TOOL_CONFIRM hook registered by another test that
+        # returns a decision for this tool, which shadows this counter and makes
+        # the assertion flake depending on test ordering. A fresh registry makes
+        # the test hermetic: this counter is the only TOOL_CONFIRM hook.
+        registry = HookRegistry()
+        registry.register(
             "count-confirm", HookType.TOOL_CONFIRM, counting_hook, priority=50
         )
-        server_with_mock_tools._hook_registry = get_registry()
-        try:
+        server_with_mock_tools._hook_registry = registry
 
-            def spy(code, args, kwargs):
-                inner = get_confirmation()
-                assert inner.action.value == "confirm"
-                yield Message("system", "ok")
+        def spy(code, args, kwargs):
+            inner = get_confirmation()
+            assert inner.action.value == "confirm"
+            yield Message("system", "ok")
 
-            server_with_mock_tools._loaded_tools[0] = ToolSpec(
-                name="shell",
-                desc="Shell.",
-                execute=spy,
-                block_types=["shell"],
-                parameters=[Parameter(name="command", type="string", required=True)],
-            )
+        server_with_mock_tools._loaded_tools[0] = ToolSpec(
+            name="shell",
+            desc="Shell.",
+            execute=spy,
+            block_types=["shell"],
+            parameters=[Parameter(name="command", type="string", required=True)],
+        )
 
-            req = types.CallToolRequest(
-                method="tools/call",
-                params=types.CallToolRequestParams(
-                    name="shell", arguments={"command": "echo test"}
-                ),
-            )
-            result = await server_with_mock_tools._server.request_handlers[
-                types.CallToolRequest
-            ](req)
-            assert isinstance(result.root, types.CallToolResult)
-            assert not result.root.isError
-            assert calls == ["shell"], f"TOOL_CONFIRM must fire once, got {calls!r}"
-        finally:
-            unregister_hook("count-confirm", HookType.TOOL_CONFIRM)
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(
+                name="shell", arguments={"command": "echo test"}
+            ),
+        )
+        result = await server_with_mock_tools._server.request_handlers[
+            types.CallToolRequest
+        ](req)
+        assert isinstance(result.root, types.CallToolResult)
+        assert not result.root.isError
+        assert calls == ["shell"], f"TOOL_CONFIRM must fire once, got {calls!r}"
 
     """Tests for the gptme-mcp-server CLI command."""
 
