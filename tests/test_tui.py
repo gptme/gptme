@@ -181,8 +181,8 @@ async def test_toggle_outputs(tmp_path):
     manager = make_manager(
         tmp_path,
         [
-            Message("system", "some output"),
-            Message("system", "more output"),
+            Message("system", "some output\nline 2"),
+            Message("system", "more output\nline 2"),
             Message("assistant", "<think>\nreasoning\n</think>\nAnswer"),
         ],
     )
@@ -1674,3 +1674,51 @@ async def test_tool_call_collapsible_has_single_marker(tmp_path):
         await pilot.pause()
         block = widget.query(".tool-call-block").results(Collapsible).__next__()
         assert block.title == "shell: ls"
+
+
+def test_system_display_text_strips_wrapper_tags():
+    from gptme.tui.app import _system_display_text
+
+    assert (
+        _system_display_text(
+            "<system_info>Working directory changed to: /x</system_info>"
+        )
+        == "Working directory changed to: /x"
+    )
+    assert _system_display_text("plain output") == "plain output"
+    # only a tag wrapping the whole message is stripped
+    assert _system_display_text("a <system_info>b</system_info>") == (
+        "a <system_info>b</system_info>"
+    )
+
+
+@pytest.mark.asyncio
+async def test_one_line_system_message_not_collapsible(tmp_path):
+    manager = make_manager(
+        tmp_path, [Message("system", "<system_info>cwd is /x</system_info>")]
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one(SystemMessage)
+        assert not widget.query(Collapsible)
+        assert "cwd is /x" in str(widget.query_one(Static).render())
+        assert "system_info" not in str(widget.query_one(Static).render())
+
+
+def test_renderables_one_line_system_message():
+    msg = Message("system", "<system_info>cwd is /x</system_info>")
+    rendered = [str(r) for r in renderables_for_message(msg)]
+    assert rendered[0] == "cwd is /x"
+
+
+@pytest.mark.asyncio
+async def test_hidden_step_messages_not_shown(tmp_path):
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._on_step_message(
+            Message("system", "<system_warning>Token usage</system_warning>", hide=True)
+        )
+        await pilot.pause()
+        assert not app.query(SystemMessage)

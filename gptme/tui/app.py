@@ -449,14 +449,34 @@ class AssistantMessage(Vertical):
                         )
 
 
+_SYSTEM_TAG_RE = re.compile(r"\A<(system_\w+)>(.*)</\1>\Z", re.DOTALL)
+
+
+def _system_display_text(content: str) -> str:
+    """System message text for display, without a wrapping <system_*> tag.
+
+    Hooks wrap notices (cwd changes, warnings) in tags meant for the model.
+    """
+    content = content.strip()
+    if m := _SYSTEM_TAG_RE.match(content):
+        return m.group(2).strip()
+    return content
+
+
 class SystemMessage(Vertical):
-    """A system/tool-output message, collapsed by default (like <details>)."""
+    """A system/tool-output message, collapsed by default (like <details>).
+
+    One-line messages are shown as-is: there is nothing to expand.
+    """
 
     def __init__(self, content: str):
         super().__init__(classes="message system")
-        self.content = content.strip()
+        self.content = _system_display_text(content)
 
     def compose(self) -> ComposeResult:
+        if "\n" not in self.content:
+            yield Static(Text(self.content), classes="system-line")
+            return
         yield Collapsible(
             Markdown(self.content),
             title=_summarize(self.content),
@@ -624,6 +644,9 @@ def renderables_for_message(
         items.append(Text())
         return items
     # system/tool output: compact summary line, optionally expanded
+    content = _system_display_text(content)
+    if "\n" not in content:
+        return [Text(content, style="dim"), Text()]
     renderables: list = [Text(f"▶ {_summarize(content)}", style="dim")]
     if expanded:
         renderables.append(Padding(RichMarkdown(content), (0, 0, 0, 2)))
@@ -1000,6 +1023,9 @@ class GptmeApp(App):
     .message.system {
         border-left: thick $surface-lighten-2;
         padding-left: 1;
+    }
+    .message.system > .system-line {
+        color: $text-muted;
     }
     .message.system Collapsible {
         border: none;
@@ -1439,6 +1465,8 @@ class GptmeApp(App):
         self.refresh()
 
     def _show_message(self, msg: Message) -> None:
+        if msg.hide:  # e.g. token/time notices meant only for the model
+            return
         cost_text = inline_cost_text(msg) if msg.role == "assistant" else None
         if self.inline:
             renderables = renderables_for_message(
