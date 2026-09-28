@@ -414,6 +414,7 @@ def test_output_inside_script_is_explained_not_run(
         "echo hi # output 1",
         "echo do output 1",
         "echo then { output 1",
+        "f() { output 1; }; echo defined",
     ],
 )
 def test_output_as_data_still_runs(
@@ -480,6 +481,8 @@ def test_explicit_timeout_prefix_defers_promotion(
         ("timeout 10m a &", None),
         ("timeout 10m a\nb", None),
         ("timeout 10m a;", None),
+        ('timeout 400 echo "$(sleep 500)"', None),
+        ("timeout 400 diff <(sleep 500) b", None),
         # Quoted scripts run entirely inside the timeout.
         ("timeout 400 bash -c 'sleep 500; do_work' 2>&1", 400.0),
         ("timeout 5 cmd <<EOF\nline; other\nEOF", 5.0),

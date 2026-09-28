@@ -3320,6 +3320,8 @@ def _explicit_timeout_seconds(cmd: str) -> float | None:
         node = node.child_by_field_name("body") or node.children[0]
     if node.type != "command" or node.text is None:
         return None
+    if _has_descendant(node, ("command_substitution", "process_substitution")):
+        return None  # Bash runs these before `timeout` starts: not bounded.
     try:
         tokens = shlex.split(node.text.decode())
     except ValueError:
@@ -3383,8 +3385,21 @@ def _find_output_command(cmd: str) -> int | None:
                 and args[0].text.isdigit()
             ):
                 return int(args[0].text)
-        stack.extend(reversed(node.children))
+        # A function body only runs if the function is called.
+        stack.extend(
+            reversed([c for c in node.children if c.type != "function_definition"])
+        )
     return None
+
+
+def _has_descendant(node: "Node", types: tuple[str, ...]) -> bool:
+    stack = list(node.children)
+    while stack:
+        child = stack.pop()
+        if child.type in types:
+            return True
+        stack.extend(child.children)
+    return False
 
 
 def _misplaced_output_message(cmd: str, job_id: int) -> str:
