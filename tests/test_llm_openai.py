@@ -2941,6 +2941,32 @@ class TestExtraBody:
         result = extra_body("openrouter", meta)
         assert result["provider"]["quantizations"] == ["int4"]
 
+    def test_openrouter_quantization_all_openrouter_values_accepted(
+        self, monkeypatch, caplog
+    ):
+        """Every level OpenRouter accepts passes through without a warning."""
+        from gptme.llm.llm_openai import extra_body
+
+        levels = "int4,int8,fp4,mxfp4,nvfp4,fp6,fp8,mxfp8,fp16,bf16,fp32,unknown"
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", levels)
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        with caplog.at_level("WARNING", logger="gptme.llm.llm_openai"):
+            result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == levels.split(",")
+        assert "Unknown OPENROUTER_QUANTIZATION" not in caplog.text
+
+    def test_openrouter_quantization_unknown_value_warns(self, monkeypatch, caplog):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", "fp16,fp12")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        with caplog.at_level("WARNING", logger="gptme.llm.llm_openai"):
+            result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["fp16", "fp12"]
+        assert "Unknown OPENROUTER_QUANTIZATION value(s): fp12" in caplog.text
+
 
 def _make_api_status_error(message: str, status_code: int, body: object = None):
     """Build an openai.APIStatusError without a real httpx.Response."""

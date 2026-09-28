@@ -1281,7 +1281,22 @@ def extra_headers(provider: Provider) -> dict[str, str]:
 
 ENV_THINKING_EFFORT = "GPTME_THINKING_EFFORT"
 _OPENROUTER_REASONING_DEFAULT = 20000
-_VALID_QUANTIZATIONS = {"fp16", "bf16", "fp8", "int8", "int4", "unknown"}
+# Matches the values OpenRouter's provider routing accepts.
+# See: https://openrouter.ai/docs/features/provider-routing#quantization
+_VALID_QUANTIZATIONS = {
+    "int4",
+    "int8",
+    "fp4",
+    "mxfp4",
+    "nvfp4",
+    "fp6",
+    "fp8",
+    "mxfp8",
+    "fp16",
+    "bf16",
+    "fp32",
+    "unknown",
+}
 _KIMI_K3_REASONING_EFFORTS = {"low", "high", "max"}
 # OpenAI ``reasoning_effort`` (Chat Completions) / ``reasoning.effort``
 # (Responses API). Mirrors the openai SDK's ``ReasoningEffort`` literal; which
