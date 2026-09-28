@@ -2259,6 +2259,19 @@ class GptmeApp(App):
         chat = self.query_one("#chat", VerticalScroll)
         chat.remove_children()
         self._render_history()
+        self._remount_queued_prompts()
+
+    def _remount_queued_prompts(self) -> None:
+        """Queued prompts live only in the TUI, not the log.
+
+        Commands that rebuild the chat (``/model``, ``/display highlight``, …)
+        would otherwise drop the waiting widgets while the queue still runs.
+        """
+        self._queued_widgets.clear()
+        for prompt in self.prompt_queue:
+            widget = UserMessage(_queued_prompt_text(prompt), queued=True)
+            self._queued_widgets.append(widget)
+            self._mount_in_chat(widget)
 
     async def _submit(self, prompt: str | Message) -> None:
         if isinstance(prompt, Message):

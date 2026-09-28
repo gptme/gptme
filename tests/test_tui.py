@@ -2070,6 +2070,38 @@ async def test_initial_prompts_submit_first_and_queue_rest(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_rebuild_chat_keeps_queued_prompt_visible(tmp_path, monkeypatch):
+    """Queued prompts are TUI-only; rebuilding from the log must remount them."""
+    app = GptmeApp(
+        make_manager(tmp_path), workspace=tmp_path, initial_prompts=["one", "two"]
+    )
+
+    def fake_start() -> None:
+        app.generating = True
+
+    monkeypatch.setattr(app, "_start_generation", fake_start)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        assert app.prompt_queue == ["two"]
+        app._rebuild_chat()
+        await pilot.pause()
+        queued = [w for w in app.query(UserMessage) if "queued" in w.classes]
+        assert len(queued) == 1
+        assert queued[0].content == "two"
+        assert app._queued_widgets == queued
+        # popping after a rebuild must remove the remounted widget, not crash
+        await app._generation_done()
+        await pilot.pause()
+        assert app.prompt_queue == []
+        assert not any("queued" in w.classes for w in app.query(UserMessage))
+        assert [m.content for m in app.manager.log if m.role == "user"] == [
+            "one",
+            "two",
+        ]
+
+
+@pytest.mark.asyncio
 async def test_initial_prompts_submit_next_when_turn_finishes(tmp_path, monkeypatch):
     app = GptmeApp(
         make_manager(tmp_path), workspace=tmp_path, initial_prompts=["one", "two"]
