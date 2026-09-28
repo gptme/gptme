@@ -1,31 +1,43 @@
 name: gptme-bot
 
+# Label-triggered only: add the `bot:resolve` label to an issue and gptme tries
+# to fix it, opening a draft PR.
+#
+# There are no comment triggers here: GitHub can't filter `issue_comment`
+# events by content, so an `@gptme` or `/gptme-resolve` trigger started (and
+# skipped) a run for every comment in the repo, ~150/day of noise. The reusable
+# action in .github/actions/bot still supports `@gptme` comment mode for other
+# repos (see docs/bot.md).
+
 on:
-  issue_comment:
-    types: [created]
+  issues:
+    types: [labeled]
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
 
+# one resolver run per issue at a time
+concurrency:
+  group: gptme-bot-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
-  run-bot:
-    # Only run when the comment explicitly @-mentions the bot.
-    # Without this, CI spins up on every comment (even bot reviews, CI notifications, etc.)
-    # which wastes runner minutes for an immediate allowlist-fail exit.
-    if: contains(github.event.comment.body, '@gptme')
+  resolve:
+    if: github.event.label.name == 'bot:resolve'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # needed to run the action in the same repo
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Run gptme-bot action
+      - name: Run gptme-bot (resolve mode)
         uses: ./.github/actions/bot
         with:
           model: 'anthropic/claude-sonnet-4-6'
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           allowlist: "ErikBjare"
+          mode: resolve
