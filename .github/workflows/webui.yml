@@ -153,13 +153,14 @@ jobs:
         sleep 3
 
     - name: Health-check server (stable)
+      id: health-stable
       if: steps.install-stable.outcome == 'success'
       continue-on-error: true
       run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api/v2
 
     - name: Run e2e tests (stable)
       id: e2e-stable
-      if: steps.install-stable.outcome == 'success'
+      if: steps.install-stable.outcome == 'success' && steps.health-stable.outcome == 'success'
       continue-on-error: true
       env:
         # Latest PyPI release still has the workspace-containment create
@@ -169,6 +170,7 @@ jobs:
 
     - name: Upload stable test results
       if: always()
+      continue-on-error: true
       uses: actions/upload-artifact@v7
       with:
         name: playwright-report-stable
