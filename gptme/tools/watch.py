@@ -58,6 +58,7 @@ class Watch:
     event_times: deque[float] = field(default_factory=deque)
     cancel_times: deque[float] = field(default_factory=deque)  # never trimmed to 50
     delivered: int = 0
+    seen: int = 0  # every recorded event, including coalesced
     cancelled: bool = False
     fired: bool = False
     logdir: Path | None = None  # routing key: conversation logdir at arm time
@@ -133,15 +134,17 @@ def _record_event(watch: Watch, text: str) -> bool:
         watch.event_times.append(now)
         watch.cancel_times.append(now)
         watch.events.append(text)
+        watch.seen += 1
         while len(watch.events) > 50:
             watch.events.popleft()
             watch.event_times.popleft()
         # Trim cancel window bookkeeping
         while watch.cancel_times and now - watch.cancel_times[0] > _CANCEL_WINDOW:
             watch.cancel_times.popleft()
-        # Auto-cancel: runaway source
+        # Auto-cancel: runaway source. `seen` is lifetime total (design
+        # ">1000 total"); `delivered` only counts events that actually fire.
         recent_cancel = len(watch.cancel_times)
-        if recent_cancel > _CANCEL_COUNT or watch.delivered > _MAX_EVENTS:
+        if recent_cancel > _CANCEL_COUNT or watch.seen > _MAX_EVENTS:
             watch.cancelled = True
             logger.warning("watch %s auto-cancelled by storm guard", watch.id)
             return False

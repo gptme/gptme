@@ -100,6 +100,21 @@ def test_record_event_storm_auto_cancel():
     assert w.cancelled
 
 
+def test_lifetime_event_cap_auto_cancels(monkeypatch):
+    # Coalesced events must still count toward the lifetime cap. Disable the
+    # window/coalesce guards so only `_MAX_EVENTS` can trip.
+    monkeypatch.setattr(_watch_mod, "_MAX_EVENTS", 5)
+    monkeypatch.setattr(_watch_mod, "_CANCEL_COUNT", 10_000)
+    monkeypatch.setattr(_watch_mod, "_COALESCE_COUNT", 10_000)
+    w = Watch(id="w-cap", kind="stream", description="test", created=time.time())
+    for i in range(20):
+        _record_event(w, f"line {i}")
+        if w.cancelled:
+            break
+    assert w.cancelled
+    assert w.seen > 5
+
+
 def test_until_fires_once(tmp_path: Path):
     # Arming returns immediately; `true` can fire before the next line, so do
     # not assert on the pending queue here — that race failed in CI.
