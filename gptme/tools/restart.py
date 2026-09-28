@@ -12,7 +12,7 @@ import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from ..hooks.confirm import confirm
 from ..message import Message
@@ -257,11 +257,12 @@ def _http_status(
         return None
 
 
-def prepare_web_switch(conversation_name: str, logdir: Path) -> str:
+def prepare_web_switch(conversation_name: str) -> str:
     """Check the web UI can open this conversation and return its URL.
 
     Raises RestartError (changing nothing) if no gptme-server is reachable,
-    it doesn't serve the web UI, or it won't find this conversation.
+    it doesn't serve the web UI, or it can't serve this conversation with the
+    credentials the browser will get.
     """
     base = get_server_url()
     if _http_status(f"{base}/api/v2/version") != 200:
@@ -275,35 +276,37 @@ def prepare_web_switch(conversation_name: str, logdir: Path) -> str:
             "(see https://gptme.org/docs/webui.html)."
         )
 
+    # Ask the destination server itself, with the credentials the browser
+    # will get: it must find the conversation (same logs dir) and accept them.
     conv = quote(conversation_name, safe="")
     token = os.environ.get("GPTME_SERVER_TOKEN") or None
-    status = (
-        _http_status(f"{base}/api/v2/conversations/{conv}?limit=1", token=token)
-        if token
-        else None
-    )
+    status = _http_status(f"{base}/api/v2/conversations/{conv}?limit=1", token=token)
+    if status in (401, 403):
+        raise RestartError(
+            f"The gptme-server at {base} requires authentication. Set "
+            "GPTME_SERVER_TOKEN to its token (shown by `gptme-server token`), "
+            "or start it with that variable set, then retry."
+            if not token
+            else f"The gptme-server at {base} rejected GPTME_SERVER_TOKEN."
+        )
     if status == 404:
         raise RestartError(
             f"The gptme-server at {base} can't find conversation "
             f"{conversation_name!r} (is it using a different logs directory?)."
         )
     if status != 200:
-        # Without the server's token we can't ask it; it finds the
-        # conversation if it lives in the logs directory we share with it.
-        from ..dirs import get_logs_dir
+        raise RestartError(
+            f"The gptme-server at {base} couldn't load conversation "
+            f"{conversation_name!r} (HTTP {status})."
+        )
 
-        if logdir.resolve().parent != get_logs_dir().resolve():
-            raise RestartError(
-                f"Conversation {conversation_name!r} isn't in the logs directory "
-                f"({get_logs_dir()}), so gptme-server won't find it."
-            )
-
-    url = f"{base}/chat/{conv}"
+    # The fragment (never sent to the server) makes the web UI select this
+    # server, and sign in to it when a token is set: the same form
+    # `gptme-server` prints. The UI strips it from the address bar.
+    fragment = {"baseUrl": base}
     if token:
-        # In the fragment, like `gptme-server` prints it: never sent to the
-        # server; the web UI stores it and strips it from the address bar.
-        url += f"#userToken={quote(token, safe='')}"
-    return url
+        fragment["userToken"] = token
+    return f"{base}/chat/{conv}#{urlencode(fragment, quote_via=quote)}"
 
 
 def open_web(url: str) -> None:

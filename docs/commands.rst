@@ -344,9 +344,12 @@ The conversation keeps its model, tools and workspace when switching. For
 ``/restart web`` needs a running :doc:`gptme-server <server>` that serves
 the :doc:`web UI <webui>`. gptme looks for it at ``http://127.0.0.1:5700``,
 or at the address in ``GPTME_SERVER_URL`` (or ``GPTME_SERVER_HOST`` and
-``GPTME_SERVER_PORT``). If the server is found, gptme exits and opens the
-conversation in your browser. If ``GPTME_SERVER_TOKEN`` is set, the browser
-is signed in with it. If no server is found, gptme tells you and stays open.
+``GPTME_SERVER_PORT``). Since the server requires a token by default, set
+``GPTME_SERVER_TOKEN`` to the server's token (``gptme-server token`` shows
+it), or start the server with that variable set. gptme first checks that the
+server can open the conversation. If it can, gptme exits and opens the
+conversation in your browser, signed in with the token. If it can't, gptme
+tells you why and stays open.
 
 /clear
 ^^^^^^

@@ -228,7 +228,7 @@ def cmd_restart(ctx: CommandContext) -> None:
         target = parse_restart_target(ctx.args)
         web_url = None
         if target == "web":
-            web_url = prepare_web_switch(conversation_name, ctx.manager.logdir)
+            web_url = prepare_web_switch(conversation_name)
         elif target == "tui":
             check_interface_available(target)
     except RestartError as e:

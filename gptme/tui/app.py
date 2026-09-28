@@ -1833,19 +1833,20 @@ class GptmeApp(App):
             # the session open.
             try:
                 target = parse_restart_target(text.split()[1:])
-                web_url = (
-                    prepare_web_switch(self.manager.logdir.name, self.manager.logdir)
-                    if target == "web"
-                    else None
-                )
             except RestartError as e:
                 self._show_info(str(e))
                 return
-            self.manager.write(sync=True)
-            self.restart_requested = True
-            self.restart_target = "cli" if target == "cli" else None
-            self.restart_web_url = web_url
-            self._request_exit()
+            if target == "web":
+                # network checks: off the event loop so the UI stays responsive
+                self._show_info("Looking for a gptme-server…")
+                self.run_worker(
+                    self._web_restart_worker,
+                    thread=True,
+                    exclusive=True,
+                    group="restart",
+                )
+                return
+            self._request_restart("cli" if target == "cli" else None, None)
             return
 
         msg = Message("user", text, quiet=True)
@@ -2028,6 +2029,26 @@ class GptmeApp(App):
         self.run_worker(
             self._generation_worker, thread=True, exclusive=True, group="generation"
         )
+
+    def _web_restart_worker(self) -> None:
+        """Thread worker: check the web UI can take over, then exit to it."""
+        try:
+            url = prepare_web_switch(self.manager.logdir.name)
+        except RestartError as e:
+            self.call_from_thread(self._show_info, str(e))
+            return
+        self.call_from_thread(self._request_restart, None, url)
+
+    def _request_restart(self, target: Interface | None, web_url: str | None) -> None:
+        """Exit so main() re-execs into ``target`` (or opens ``web_url``)."""
+        if self.generating:  # a prompt was sent while the web check ran
+            self._show_info("Not restarting: the agent is working; retry when idle.")
+            return
+        self.manager.write(sync=True)
+        self.restart_requested = True
+        self.restart_target = target
+        self.restart_web_url = web_url
+        self._request_exit()
 
     def _generation_worker(self) -> None:
         """Thread worker: run the step loop inside the captured chat context."""

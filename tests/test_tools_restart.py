@@ -594,7 +594,7 @@ class TestDoRestartSwitch:
 
 class TestWebSwitch:
     @pytest.fixture(autouse=True)
-    def _env(self, monkeypatch, tmp_path):
+    def _env(self, monkeypatch):
         for var in (
             "GPTME_SERVER_URL",
             "GPTME_SERVER_HOST",
@@ -602,9 +602,6 @@ class TestWebSwitch:
             "GPTME_SERVER_TOKEN",
         ):
             monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
-        self.logdir = tmp_path / "logs" / "my-conv"
-        self.logdir.mkdir(parents=True)
 
     @staticmethod
     def _mock_http(monkeypatch, overrides: dict[str, int | None] | None = None):
@@ -634,7 +631,7 @@ class TestWebSwitch:
     def test_unreachable(self, monkeypatch):
         self._mock_http(monkeypatch, {"/api/v2/version": None})
         with pytest.raises(RestartError, match="No gptme-server reachable"):
-            prepare_web_switch("my-conv", self.logdir)
+            prepare_web_switch("my-conv")
 
     def test_http_status_unreachable_returns_none(self):
         # nothing listens on port 9 (discard) on loopback: connection refused
@@ -643,39 +640,56 @@ class TestWebSwitch:
     def test_no_webui(self, monkeypatch):
         self._mock_http(monkeypatch, {"/api/v2/version": 200, ":5700/": 503})
         with pytest.raises(RestartError, match="doesn't serve the web UI"):
-            prepare_web_switch("my-conv", self.logdir)
+            prepare_web_switch("my-conv")
 
-    def test_reachable_without_token(self, monkeypatch):
+    def test_auth_disabled_server_without_token(self, monkeypatch):
+        """The server accepted the tokenless request: hand over, selecting it."""
         requests = self._mock_http(monkeypatch)
-        url = prepare_web_switch("my-conv", self.logdir)
-        assert url == "http://127.0.0.1:5700/chat/my-conv"
-        # without a token the conversation endpoint isn't queried
-        assert not any("/conversations/" in u for u, _ in requests)
+        url = prepare_web_switch("my-conv")
+        assert url == (
+            "http://127.0.0.1:5700/chat/my-conv#baseUrl=http%3A%2F%2F127.0.0.1%3A5700"
+        )
+        assert (
+            "http://127.0.0.1:5700/api/v2/conversations/my-conv?limit=1",
+            None,
+        ) in requests
 
-    def test_without_token_outside_logs_dir(self, monkeypatch, tmp_path):
-        self._mock_http(monkeypatch)
-        elsewhere = tmp_path / "elsewhere" / "my-conv"
-        elsewhere.mkdir(parents=True)
-        with pytest.raises(RestartError, match="logs directory"):
-            prepare_web_switch("my-conv", elsewhere)
+    def test_auth_required_without_token(self, monkeypatch):
+        """Without a token for an auth-enabled server, don't hand over."""
+        self._mock_http(monkeypatch, {"/conversations/": 401})
+        with pytest.raises(RestartError, match="GPTME_SERVER_TOKEN"):
+            prepare_web_switch("my-conv")
 
-    def test_with_token_verifies_conversation(self, monkeypatch, tmp_path):
+    def test_stale_token_rejected(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SERVER_TOKEN", "stale")
+        self._mock_http(monkeypatch, {"/conversations/": 401})
+        with pytest.raises(RestartError, match="rejected GPTME_SERVER_TOKEN"):
+            prepare_web_switch("my-conv")
+
+    def test_with_token_verifies_conversation(self, monkeypatch):
         monkeypatch.setenv("GPTME_SERVER_TOKEN", "s3cret")
         requests = self._mock_http(monkeypatch)
-        # verified by the server, so the local logs-dir check isn't needed
-        elsewhere = tmp_path / "elsewhere" / "my-conv"
-        url = prepare_web_switch("my-conv", elsewhere)
-        assert url == "http://127.0.0.1:5700/chat/my-conv#userToken=s3cret"
+        url = prepare_web_switch("my-conv")
+        assert url == (
+            "http://127.0.0.1:5700/chat/my-conv"
+            "#baseUrl=http%3A%2F%2F127.0.0.1%3A5700&userToken=s3cret"
+        )
         assert (
             "http://127.0.0.1:5700/api/v2/conversations/my-conv?limit=1",
             "s3cret",
         ) in requests
 
-    def test_with_token_conversation_missing(self, monkeypatch):
-        monkeypatch.setenv("GPTME_SERVER_TOKEN", "s3cret")
+    def test_conversation_missing_on_server(self, monkeypatch):
+        """E.g. GPTME_SERVER_URL points at a server with another logs dir."""
+        monkeypatch.setenv("GPTME_SERVER_URL", "http://other:5700")
         self._mock_http(monkeypatch, {"/conversations/my-conv": 404})
         with pytest.raises(RestartError, match="can't find conversation"):
-            prepare_web_switch("my-conv", self.logdir)
+            prepare_web_switch("my-conv")
+
+    def test_conversation_check_unreachable(self, monkeypatch):
+        self._mock_http(monkeypatch, {"/conversations/": None})
+        with pytest.raises(RestartError, match="couldn't load"):
+            prepare_web_switch("my-conv")
 
     def test_open_web_releases_lock_before_browser(self, monkeypatch, capsys):
         order: list[str] = []

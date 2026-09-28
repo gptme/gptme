@@ -1621,9 +1621,10 @@ async def test_restart_bad_target_keeps_session(tmp_path, monkeypatch, arg):
 
 @pytest.mark.asyncio
 async def test_restart_web_requests_browser(tmp_path, monkeypatch):
+    """The web check runs in a worker thread, then the app exits to the UI."""
     monkeypatch.setattr(
         "gptme.tui.app.prepare_web_switch",
-        lambda name, logdir: f"http://127.0.0.1:5700/chat/{name}",
+        lambda name: f"http://127.0.0.1:5700/chat/{name}",
     )
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
@@ -1631,10 +1632,23 @@ async def test_restart_web_requests_browser(tmp_path, monkeypatch):
         inp = app.query_one("#input", ChatInput)
         inp.text = "/restart web"
         await pilot.press("enter")
+        await app.workers.wait_for_complete()
         await pilot.pause()
     assert app.restart_requested
     name = app.manager.logdir.name
     assert app.restart_web_url == f"http://127.0.0.1:5700/chat/{name}"
+
+
+def test_restart_request_refused_while_generating(tmp_path, monkeypatch):
+    """A prompt sent while the web check ran wins: don't exit mid-generation."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    infos: list[str] = []
+    monkeypatch.setattr(app, "_show_info", lambda text, *a: infos.append(text))
+    monkeypatch.setattr(app, "exit", lambda *a, **kw: infos.append("exit"))
+    app.generating = True
+    app._request_restart(None, "http://127.0.0.1:5700/chat/c")
+    assert not app.restart_requested
+    assert "exit" not in infos
 
 
 def test_finish_session_switches_to_cli(tmp_path, monkeypatch):
