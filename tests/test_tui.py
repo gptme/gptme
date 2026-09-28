@@ -2283,8 +2283,6 @@ async def test_paste_placeholder_undo_redo(tmp_path):
         assert inp._expand_pastes(inp.text) == "x 1\n2\n3"
 
 
-
-
 @pytest.mark.asyncio
 async def test_terminal_focus_changes_keep_input_focused(tmp_path):
     """Blur must not drop focus (Textual's default), and focus-in restores it."""
@@ -2525,6 +2523,8 @@ def test_restart_not_attempted_when_workspace_is_gone(tmp_path, monkeypatch, cap
     app = SimpleNamespace(
         end_session=lambda: None,
         restart_requested=True,
+        restart_web_url=None,
+        restart_target=None,
         workspace=tmp_path / "gone",
     )
     tui_main._finish_session(app, "conv")  # type: ignore[arg-type]
