@@ -1622,3 +1622,16 @@ async def test_status_shows_session_cost(tmp_path):
         app._update_status()
         await pilot.pause()
         assert "$0.12" in str(status.render())
+
+
+@pytest.mark.asyncio
+async def test_inline_queued_view_summarizes_overflow(tmp_path):
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.prompt_queue = [f"prompt {i}" for i in range(8)]
+        app._update_queued_view()
+        await pilot.pause()
+        rendered = str(app.query_one("#queued", Static).render())
+        assert rendered.count("⏳ queued") == 4
+        assert "+4 more queued" in rendered

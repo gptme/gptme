@@ -83,6 +83,8 @@ logger = logging.getLogger(__name__)
 
 # Max messages rendered when resuming a long conversation
 MAX_INITIAL_MESSAGES = 100
+# Max lines of the inline queued-prompts view (matches #queued max-height)
+MAX_QUEUED_SHOWN = 5
 
 
 def _queued_prompt_text(item: str | Message) -> str:
@@ -1476,10 +1478,17 @@ class GptmeApp(App):
 
     def _update_queued_view(self) -> None:
         """Show pending prompts above the input (inline mode)."""
-        text = Text()
-        for i, item in enumerate(self.prompt_queue):
-            first = _summarize(_queued_prompt_text(item), maxlen=100)
-            text.append(("\n" if i else "") + f"⏳ queued: {first}")
+        # the view is capped at MAX_QUEUED_SHOWN lines (CSS max-height)
+        shown = self.prompt_queue
+        if len(shown) > MAX_QUEUED_SHOWN:
+            shown = shown[: MAX_QUEUED_SHOWN - 1]
+        lines = [
+            f"⏳ queued: {_summarize(_queued_prompt_text(item), maxlen=100)}"
+            for item in shown
+        ]
+        if hidden := len(self.prompt_queue) - len(shown):
+            lines.append(f"   … +{hidden} more queued")
+        text = Text("\n".join(lines))
         queued = self.query_one("#queued", Static)
         queued.update(text)
         queued.display = bool(self.prompt_queue)
