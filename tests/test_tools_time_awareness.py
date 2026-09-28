@@ -46,6 +46,7 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
     from gptme.hooks.time_awareness import (
         _conversation_start_times_var,
         _ensure_locals,
+        _last_notice_var,
         _shown_milestones_var,
     )
 
@@ -83,6 +84,7 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
         shown_milestones = _shown_milestones_var.get()
         assert shown_milestones is not None
         shown_milestones[str(workspace)] = set()
+        _last_notice_var.set({})  # also forget the previous notice
         _shown_milestones_var.set(shown_milestones)
 
         # Set conversation start time
@@ -216,6 +218,7 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
     from gptme.hooks.time_awareness import (
         _conversation_start_times_var,
         _ensure_locals,
+        _last_notice_var,
         _shown_milestones_var,
     )
 
@@ -231,6 +234,7 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
         shown_milestones = _shown_milestones_var.get()
         assert shown_milestones is not None
         shown_milestones[str(workspace)] = set()
+        _last_notice_var.set({})  # also forget the previous notice
         _shown_milestones_var.set(shown_milestones)
 
         conversation_start_times = _conversation_start_times_var.get()

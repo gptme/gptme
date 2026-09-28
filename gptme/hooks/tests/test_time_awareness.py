@@ -1,15 +1,18 @@
 """Tests for time_awareness hook."""
 
+import contextvars
 import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from dateutil.parser import isoparse
 
 from gptme.hooks.time_awareness import (
     _conversation_start_times_var,
     _get_next_milestone,
+    _last_notice_var,
     _shown_milestones_var,
     add_time_message,
 )
@@ -31,7 +34,9 @@ def reset_contextvars():
     """Reset context vars between tests."""
     tok1 = _conversation_start_times_var.set(None)
     tok2 = _shown_milestones_var.set(None)
+    tok3 = _last_notice_var.set(None)
     yield
+    _last_notice_var.reset(tok3)
     _conversation_start_times_var.reset(tok1)
     _shown_milestones_var.reset(tok2)
 
@@ -336,15 +341,14 @@ class TestClockConsistency:
         assert "Resumed after 5h" in msgs[0].content
         log = Log([*log.messages, *msgs])
 
-        # New turn in a fresh context, same 10-minute milestone window.
-        _conversation_start_times_var.set(None)
-        _shown_milestones_var.set(None)
+        # New turn in a fresh, empty context (as a new server turn/process
+        # would see it), same 10-minute milestone window.
         fake_clock.utc = resumed + timedelta(minutes=3)
-        assert _call_with_log(workspace, log) == []
+        assert contextvars.Context().run(_call_with_log, workspace, log) == []
 
         # Next milestone is still shown.
         fake_clock.utc = resumed + timedelta(minutes=12)
-        (notice,) = _call_with_log(workspace, log)
+        (notice,) = contextvars.Context().run(_call_with_log, workspace, log)
         assert "Resumed" not in notice.content
         assert "Time elapsed: 5h 12min" in notice.content
 
@@ -400,6 +404,59 @@ class TestClockConsistency:
         fake_clock.utc += timedelta(minutes=2)
         (notice,) = _call_with_log(workspace, Log())
         assert "2026-09-28" in notice.content
+
+    def test_imported_history_older_than_system_prompt(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """Session start is the earliest message, not the (newer) generated system prompt."""
+        created = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)
+        history = datetime(2026, 9, 27, 9, 0, tzinfo=UTC)
+        log = Log(
+            [
+                Message("system", "fresh prompt", timestamp=created),
+                Message("user", "old question", timestamp=history),
+                Message("assistant", "old answer", timestamp=history),
+            ]
+        )
+        fake_clock.utc = created + timedelta(minutes=2)
+        (notice,) = _call_with_log(workspace, log)
+        assert "Time elapsed: 1d since session start at 2026-09-27 11:00 CEST" in (
+            notice.content
+        )
+
+    def test_multiple_tools_in_one_step_report_gap_once(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """The CLI buffers a step's tool outputs; the 2nd tool must not repeat the gap."""
+        start = datetime(2026, 9, 27, 13, 0, tzinfo=UTC)
+        resumed = start + timedelta(hours=14)
+        log = Log(
+            [
+                Message("system", "prompt", timestamp=start),
+                Message("user", "continue", timestamp=resumed),
+            ]
+        )
+        fake_clock.utc = resumed + timedelta(minutes=1)
+        (notice,) = _call_with_log(workspace, log)
+        assert "Resumed after 14h" in notice.content
+        # Same step, same (not yet updated) log: nothing new to report.
+        fake_clock.utc = resumed + timedelta(minutes=1, seconds=20)
+        assert _call_with_log(workspace, log) == []
+
+    def test_notice_timestamp_keeps_offset(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """Notice timestamps are aware: DST fall-back and save/reload keep the instant."""
+        # 2026-10-25 00:30 UTC == 02:30 CEST; 01:30 UTC == 02:30 CET (repeated hour)
+        start = datetime(2026, 10, 25, 0, 0, tzinfo=UTC)
+        log = Log([Message("system", "prompt", timestamp=start)])
+        fake_clock.utc = datetime(2026, 10, 25, 1, 30, tzinfo=UTC)
+        (notice,) = _call_with_log(workspace, log)
+        assert notice.timestamp.tzinfo is not None
+        assert notice.timestamp == fake_clock.utc
+        assert "2026-10-25 02:30 CET (UTC+01:00)" in notice.content
+        # Round-trip through the log's JSON serialization keeps the instant.
+        assert isoparse(notice.to_dict()["timestamp"]) == fake_clock.utc
 
 
 class TestClockFormatting:

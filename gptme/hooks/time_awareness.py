@@ -52,20 +52,25 @@ GAP_THRESHOLD = timedelta(minutes=30)
 # turns (which run in copied contexts where ContextVar writes don't persist).
 NOTICE_PREFIX = "<system_info>The time is now "
 
-# Context-local fallback state, used only when no log is available.
+# Context-local state. The log is the source of truth for what was reported;
+# these cache the session start (O(n) to compute) and cover what the log can't
+# show yet: no log at all, or notices from earlier tools in the same step that
+# the CLI has buffered but not yet appended to the log.
 _conversation_start_times_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "conversation_start_times", default=None
 )
 _shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar(
     "shown_milestones", default=None
 )
+_last_notice_var: ContextVar[dict[str, datetime] | None] = ContextVar(
+    "time_awareness_last_notice", default=None
+)
 
 
 @dataclass
 class _LogScan:
-    """Time facts derived from the conversation log."""
+    """Time facts derived from the tail of the conversation log."""
 
-    start: datetime
     last_notice: datetime | None
     gap: tuple[datetime, datetime] | None
 
@@ -74,13 +79,25 @@ def _is_notice(msg: Message) -> bool:
     return msg.role == "system" and msg.content.startswith(NOTICE_PREFIX)
 
 
+def _session_start(log: Log | None) -> datetime | None:
+    """Earliest message timestamp in the log.
+
+    Not simply the first message: a conversation created with imported history
+    can start with a freshly generated system prompt newer than the history.
+    """
+    messages = getattr(log, "messages", None)
+    if not messages:
+        return None
+    return min(to_local(m.timestamp) for m in messages)
+
+
 def _scan_log(log: Log | None) -> _LogScan | None:
     """Scan the log backwards up to the most recent time notice.
 
-    Returns the session start (first message), the last notice time, and the
-    latest gap >= GAP_THRESHOLD between consecutive messages since that notice.
-    Only messages after the last notice are visited, so the cost per tool call
-    stays proportional to recent activity rather than to the whole history.
+    Returns the last notice time and the latest gap >= GAP_THRESHOLD between
+    consecutive messages since that notice. Only messages after the last
+    notice are visited, so the cost per tool call stays proportional to
+    recent activity rather than to the whole history.
     """
     messages = getattr(log, "messages", None)
     if not messages:
@@ -96,9 +113,7 @@ def _scan_log(log: Log | None) -> _LogScan | None:
             last_notice = ts
             break
         later = ts
-    return _LogScan(
-        start=to_local(messages[0].timestamp), last_notice=last_notice, gap=gap
-    )
+    return _LogScan(last_notice=last_notice, gap=gap)
 
 
 def _ensure_locals():
@@ -107,6 +122,8 @@ def _ensure_locals():
         _conversation_start_times_var.set({})
     if _shown_milestones_var.get() is None:
         _shown_milestones_var.set({})
+    if _last_notice_var.get() is None:
+        _last_notice_var.set({})
 
 
 def _elapsed_milestone(start: datetime, at: datetime) -> int | None:
@@ -136,40 +153,51 @@ def add_time_message(
 
         conversation_start_times = _conversation_start_times_var.get()
         shown_milestones = _shown_milestones_var.get()
+        last_notices = _last_notice_var.get()
         assert conversation_start_times is not None
         assert shown_milestones is not None
+        assert last_notices is not None
 
         current = clock.now()
-        scan = _scan_log(data.log)
 
         if workspace_str not in conversation_start_times:
             # Real session start from the log survives resume; without a log,
             # fall back to the first hook call in this context.
-            start_guess = scan.start if scan and scan.start <= current else current
-            conversation_start_times[workspace_str] = start_guess
+            log_start = _session_start(data.log)
+            conversation_start_times[workspace_str] = (
+                log_start if log_start and log_start <= current else current
+            )
             shown_milestones[workspace_str] = set()
 
-        if scan and scan.start <= current:
-            start = scan.start
-        else:
-            start = to_local(conversation_start_times[workspace_str])
+        start = to_local(conversation_start_times[workspace_str])
         elapsed = current - start
         milestone = _elapsed_milestone(start, current)
 
-        # A milestone is new unless it was already reached at the last notice
-        # recorded in the log, or already shown in this context.
+        # Last notice: from the log, or from this context if more recent (an
+        # earlier tool in the same step whose output isn't in the log yet).
+        scan = _scan_log(data.log)
+        candidates = [scan.last_notice] if scan and scan.last_notice else []
+        if workspace_str in last_notices:
+            candidates.append(to_local(last_notices[workspace_str]))
+        last_notice = max(candidates) if candidates else None
+
+        # A milestone is new unless it was already reached at the last notice,
+        # or already shown in this context.
         already_shown = milestone in shown_milestones[workspace_str]
-        if scan and scan.last_notice is not None:
-            prev = _elapsed_milestone(start, scan.last_notice)
+        if last_notice is not None:
+            prev = _elapsed_milestone(start, last_notice)
             already_shown = already_shown or (
                 prev is not None and milestone is not None and milestone <= prev
             )
         new_milestone = milestone is not None and not already_shown
         gap = scan.gap if scan else None
+        if gap and last_notice is not None and gap[1] <= last_notice:
+            gap = None  # already reported
         if not (new_milestone or gap):
             return
         if milestone is not None:
             shown_milestones[workspace_str].add(milestone)
+        last_notices[workspace_str] = current
 
         parts = [
             f"The time is now {format_timestamp(current)}.",
@@ -189,9 +217,9 @@ def add_time_message(
         yield Message(
             "system",
             content,
-            # Stamp with the same clock (as naive local, matching the Message
-            # default) so the next scan knows exactly when this was reported.
-            timestamp=current.replace(tzinfo=None),
+            # Stamp with the same clock, keeping the UTC offset so the instant
+            # stays unambiguous across DST changes and save/reload.
+            timestamp=current,
             hide=True,
         )
 
