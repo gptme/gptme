@@ -16,17 +16,14 @@ import subprocess
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
-
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..message import Message
+from ..util.ask_execute import execute_with_confirmation
 from .base import ToolSpec
-from .shell_validation import is_denylisted
+from .shell_validation import is_allowlisted, is_denylisted
 
 logger = logging.getLogger(__name__)
 
@@ -501,15 +498,87 @@ def _parse_opts(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
 
 
 def _require_safe_command(command: str) -> None:
-    """Reject commands the shell tool would deny, before arming a worker.
-
-    Watch runs commands in a background thread with no interactive
-    confirmation, so the shell denylist is the hard safety floor it shares
-    with the shell tool.
-    """
+    """Reject commands the shell tool would deny, before arming a worker."""
     denied, reason, matched = is_denylisted(command)
     if denied:
         raise ValueError(f"Command denied: `{matched}`\n\n{reason}")
+
+
+def _command_from_watch_content(content: str) -> str | None:
+    """Return the inner shell command for ``run``/``until``/``stream``, else None."""
+    try:
+        tokens = shlex.split(content or "")
+    except ValueError:
+        return None
+    if not tokens or tokens[0] not in ("run", "until", "stream"):
+        return None
+    _, positional = _parse_opts(tokens[1:])
+    command = " ".join(positional)
+    return command or None
+
+
+def watch_allowlist_hook(
+    tool_use,
+    preview: str | None = None,
+    workspace: Path | None = None,
+):
+    """Auto-approve allowlisted ``run``/``until``/``stream`` commands.
+
+    Same allowlist as the shell tool, applied to the inner command (not the
+    watch verb). Non-command verbs fall through; they never reach confirmation.
+    """
+    from ..hooks.confirm import ConfirmationResult
+
+    if getattr(tool_use, "tool", None) != "watch":
+        return None
+    content = (preview or getattr(tool_use, "content", None) or "").strip()
+    command = _command_from_watch_content(content)
+    if command is None:
+        return None
+    if is_allowlisted(command, cwd=workspace):
+        logger.debug("Watch command allowlisted, auto-confirming: %s", command[:50])
+        return ConfirmationResult.confirm()
+    return None
+
+
+def _get_path_fn(
+    code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
+) -> Path | None:
+    from ..logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    return manager.logdir if manager and manager.logdir else None
+
+
+def _execute_confirmed(
+    content: str, path: Path | None
+) -> Generator[Message, None, None]:
+    yield _watch(content, None, None)
+
+
+def execute_watch(
+    code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
+) -> Generator[Message, None, None]:
+    """Arm a watch, confirming ``run``/``until``/``stream`` like the shell tool."""
+    content = (
+        code if code is not None else (kwargs.get("content", "") if kwargs else "")
+    )
+    command = _command_from_watch_content(content or "")
+    if command is not None:
+        yield from execute_with_confirmation(
+            code,
+            args,
+            kwargs,
+            execute_fn=_execute_confirmed,
+            get_path_fn=_get_path_fn,
+            preview_fn=lambda preview, path: preview,
+            preview_lang="bash",
+            confirm_msg="Arm watch command?",
+            allow_edit=True,
+            confirmation_workspace=_get_path_fn(code, args, kwargs),
+        )
+        return
+    yield _watch(code, args, kwargs)
 
 
 def _deadline(opts: dict[str, str]) -> float | None:
@@ -641,6 +710,7 @@ def _watch(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            errors="replace",
             bufsize=1,
         )
         w.proc = proc
@@ -689,9 +759,10 @@ tool = ToolSpec(
         "All options: --every, --timeout, --pattern, --stable (other `--flags` "
         "belong to the watched command). Prefer keep-working and let the event "
         "wake you. Never poll with `sleep N; check` — arm a watch instead. "
-        "Runaway sources are auto-cancelled by storm guards. Commands run in "
-        "the background without interactive confirmation, so the shell denylist "
-        "is enforced."
+        "Runaway sources are auto-cancelled by storm guards. `run`/`until`/"
+        "`stream` use the same confirmation and denylist as the shell tool "
+        "(allowlisted probes auto-confirm; others prompt). `list`/`cancel`/"
+        "`wait`/`timer`/`tmux` do not execute a user command, so they skip it."
     ),
     examples=(
         "> User: Wait for CI on PR 42 without blocking\n"
@@ -700,11 +771,12 @@ tool = ToolSpec(
         "```\n"
         "System: Watch w1 (until) fired: condition met: All checks passed"
     ),
-    execute=_watch,
+    execute=execute_watch,
     block_types=["watch"],
     disabled_by_default=True,
     hooks={
         "drain_step_pre": ("step.pre", _watch_drain_hook, 940),
+        "allowlist": ("tool.confirm", watch_allowlist_hook, 10),
     },
 )
 

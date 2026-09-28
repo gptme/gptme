@@ -312,6 +312,88 @@ def test_requeue_preserves_remaining_events(tmp_path: Path):
     assert take_queued_watch_events(logdir) == [("w2", "b"), ("w3", "c")]
 
 
+def test_command_from_watch_content():
+    from gptme.tools.watch import _command_from_watch_content
+
+    assert (
+        _command_from_watch_content(
+            "until gh pr checks 42 --repo gptme/gptme --every 60s"
+        )
+        == "gh pr checks 42 --repo gptme/gptme"
+    )
+    assert _command_from_watch_content("run echo hello") == "echo hello"
+    assert _command_from_watch_content("timer 10m coffee") is None
+    assert _command_from_watch_content("list") is None
+
+
+def test_watch_allowlist_hook_auto_confirms_allowlisted():
+    from gptme.hooks.confirm import ConfirmAction
+    from gptme.tools.base import ToolUse
+    from gptme.tools.watch import watch_allowlist_hook
+
+    tool_use = ToolUse(tool="watch", args=[], content="until ls --every 30s")
+    result = watch_allowlist_hook(tool_use)
+    assert result is not None
+    assert result.action == ConfirmAction.CONFIRM
+
+
+def test_watch_allowlist_hook_falls_through_non_allowlisted():
+    from gptme.tools.base import ToolUse
+    from gptme.tools.watch import watch_allowlist_hook
+
+    tool_use = ToolUse(tool="watch", args=[], content="run python script.py")
+    assert watch_allowlist_hook(tool_use) is None
+
+
+def test_watch_allowlist_hook_ignores_timer_and_other_tools():
+    from gptme.tools.base import ToolUse
+    from gptme.tools.watch import watch_allowlist_hook
+
+    timer = ToolUse(tool="watch", args=[], content="timer 10m")
+    assert watch_allowlist_hook(timer) is None
+    assert watch_allowlist_hook(ToolUse(tool="shell", args=[], content="ls")) is None
+
+
+def test_execute_watch_skip_does_not_arm(tmp_path: Path):
+    from gptme.hooks import HookType, register_hook, unregister_hook
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.base import ToolUse, using_current_tool_use
+    from gptme.tools.watch import execute_watch
+
+    def skip_hook(tool_use, preview=None, workspace=None):
+        return ConfirmationResult.skip("skipped by test")
+
+    register_hook("watch-skip-test", HookType.TOOL_CONFIRM, skip_hook, 100)
+    try:
+        tool_use = ToolUse(tool="watch", args=[], content="run echo should-not-run")
+        with using_current_tool_use(tool_use):
+            msgs = list(execute_watch("run echo should-not-run", None, None))
+        text = " ".join(m.content.lower() for m in msgs)
+        assert "skipped" in text or "aborted" in text
+        assert _record_all() == []
+    finally:
+        unregister_hook("watch-skip-test", HookType.TOOL_CONFIRM)
+
+
+def test_execute_watch_run_arms_when_confirmed(tmp_path: Path):
+    from gptme.logmanager.manager import _current_log_var
+    from gptme.tools.base import ToolUse, using_current_tool_use
+    from gptme.tools.watch import execute_watch
+
+    tool_use = ToolUse(tool="watch", args=[], content="run echo hello")
+    fake = _FakeManager(tmp_path)
+    token = _current_log_var.set(fake)  # type: ignore[arg-type]
+    try:
+        with using_current_tool_use(tool_use):
+            msgs = list(execute_watch("run echo hello", None, None))
+        assert any("Armed watch" in m.content for m in msgs)
+        armed = [w for w in _record_all() if w.kind == "run"]
+        assert armed
+        list(execute_watch(f"cancel {armed[0].id}", None, None))
+    finally:
+        _current_log_var.reset(token)
+
+
 def test_run_replaces_undecodable_bytes(tmp_path: Path):
     # Text-mode stdout with errors="replace" must not treat binary as EOF.
     _watch_cli(r"run printf '\377\376'", tmp_path)
