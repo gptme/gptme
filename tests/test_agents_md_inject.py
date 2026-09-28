@@ -23,8 +23,16 @@ from gptme.prompts import AGENT_FILES, _loaded_agent_files_var, find_agent_files
 
 
 def _messages_only(items: list) -> list[Message]:
-    """Filter hook results to only Message objects (exclude StopPropagation)."""
-    return [m for m in items if isinstance(m, Message)]
+    """Filter hook results to injected instruction messages.
+
+    Excludes StopPropagation and the short visible "Loaded agent instructions
+    from ..." line that accompanies each injection.
+    """
+    return [
+        m
+        for m in items
+        if isinstance(m, Message) and '<agent-instructions source="' in m.content
+    ]
 
 
 @pytest.fixture(autouse=True)

@@ -512,6 +512,21 @@ class TestForeignAgentWorkspace:
         second = _cd_messages(Log(messages=first), bob, alice)
         assert second == []
 
+    def test_notice_dedup_with_unsanitizable_path(self, tmp_path: Path):
+        """Dedup doesn't depend on the (sanitized) displayed path round-tripping."""
+        from gptme.logmanager import Log
+
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        alice = _make_agent_workspace(
+            tmp_path / "o'neil <alice>", "Alice", "# Being Alice"
+        )
+        first = _cd_messages(Log(), bob, alice)
+        assert len(first) == 1
+
+        _loaded_agent_files_var.set(None)  # fresh request context
+        second = _cd_messages(Log(messages=first), bob, alice)
+        assert second == []
+
     def test_nested_project_in_other_agent_workspace_not_injected(
         self, tmp_path: Path, empty_log
     ):

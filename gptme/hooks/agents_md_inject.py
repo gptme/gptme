@@ -94,15 +94,18 @@ def _derive_loaded_files_from_log(log: Log) -> set[str]:
             ):
                 loaded.add(f"{_HASH_PREFIX}{_content_hash(block_match.group(1))}")
             # Foreign agent workspaces already reported (notice emitted once).
+            # Keyed by a hash of the resolved root, since the displayed path is
+            # sanitized and may not round-trip.
             for skip_match in re.finditer(
-                rf'<{_FOREIGN_TAG} path="([^"]+)"', msg.content
+                rf'<{_FOREIGN_TAG} id="([0-9a-f]+)"', msg.content
             ):
-                try:
-                    root = str(Path(skip_match.group(1)).expanduser().resolve())
-                except (OSError, ValueError):
-                    root = skip_match.group(1)
-                loaded.add(f"{_FOREIGN_PREFIX}{root}")
+                loaded.add(f"{_FOREIGN_PREFIX}{skip_match.group(1)}")
     return loaded
+
+
+def _foreign_root_id(root: Path) -> str:
+    """Stable id for a foreign agent workspace root (dedup key for its notice)."""
+    return _content_hash(str(root))
 
 
 def _get_loaded_files(log: Log | None = None) -> set[str]:
@@ -262,7 +265,8 @@ def _format_foreign_notice(
         reason = "it defines a different agent identity"
     return Message(
         "system",
-        f'<{_FOREIGN_TAG} path="{display_root}" agent="{name}">\n'
+        f'<{_FOREIGN_TAG} id="{_foreign_root_id(root)}" path="{display_root}" '
+        f'agent="{name}">\n'
         f"Entered {display_root}, which is agent workspace '{name}'; "
         f"its instructions were not loaded ({reason}). "
         f"Skipped: {display_files}. "
@@ -331,7 +335,7 @@ def inject_agent_instruction_files(
             root,
             ", ".join(str(f) for f in files),
         )
-        key = f"{_FOREIGN_PREFIX}{root}"
+        key = f"{_FOREIGN_PREFIX}{_foreign_root_id(root)}"
         if key in loaded:
             continue
         loaded.add(key)
