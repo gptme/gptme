@@ -835,20 +835,48 @@ _LOCAL_FORM_HTML = """\
 </html>
 """
 
+_LOCAL_TEXT_HTML = """\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Test Page</title></head>
+<body>
+<h1>Example Domain</h1>
+<p>This domain is for use in documentation examples.</p>
+</body>
+</html>
+"""
 
-class _LocalFormHandler(http.server.BaseHTTPRequestHandler):
-    """Minimal HTTP handler that serves a simple form page."""
+
+class _LocalHTMLHandler(http.server.BaseHTTPRequestHandler):
+    """Minimal HTTP handler that serves a fixed HTML document."""
+
+    html: str = ""
 
     def log_message(self, *args):  # suppress request logs in test output
         pass
 
     def do_GET(self):
-        encoded = _LOCAL_FORM_HTML.encode()
+        encoded = type(self).html.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+
+@contextmanager
+def _serve_local_html(html: str):
+    """Serve a fixed HTML document from a background thread; yield its URL."""
+    handler = type("_Handler", (_LocalHTMLHandler,), {"html": html})
+    server = http.server.HTTPServer(("127.0.0.1", 0), handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{port}/"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
 
 
 @pytest.fixture()
@@ -858,13 +886,19 @@ def local_form_page():
     Replaces external URLs (e.g. duckduckgo.com) in browser tests so the
     suite stays hermetic and free of network flakiness.
     """
-    server = http.server.HTTPServer(("127.0.0.1", 0), _LocalFormHandler)
-    port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    yield f"http://127.0.0.1:{port}/"
-    server.shutdown()
-    thread.join(timeout=2)
+    with _serve_local_html(_LOCAL_FORM_HTML) as url:
+        yield url
+
+
+@pytest.fixture()
+def local_text_page():
+    """Serve a minimal HTML text page locally and yield its URL.
+
+    Replaces external URLs (e.g. example.com) in browser tests so the suite
+    stays hermetic and free of network flakiness.
+    """
+    with _serve_local_html(_LOCAL_TEXT_HTML) as url:
+        yield url
 
 
 @pytest.fixture
