@@ -10,7 +10,6 @@ import pytest
 from gptme.hooks.time_awareness import (
     _conversation_start_times_var,
     _get_next_milestone,
-    _last_check_var,
     _shown_milestones_var,
     add_time_message,
 )
@@ -32,9 +31,7 @@ def reset_contextvars():
     """Reset context vars between tests."""
     tok1 = _conversation_start_times_var.set(None)
     tok2 = _shown_milestones_var.set(None)
-    tok3 = _last_check_var.set(None)
     yield
-    _last_check_var.reset(tok3)
     _conversation_start_times_var.reset(tok1)
     _shown_milestones_var.reset(tok2)
 
@@ -312,9 +309,66 @@ class TestClockConsistency:
         assert "Resumed after 14h of inactivity" in content
         assert "last activity 2026-09-27 21:30 CEST (UTC+02:00)" in content
 
-        # The gap is reported once, not on every subsequent step.
+        # The notice lands in the log; the gap is reported once, not on every step.
+        log = Log([*log.messages, *msgs])
         fake_clock.utc = resumed + timedelta(minutes=2)
         assert _call_with_log(workspace, log) == []
+
+    def test_state_survives_fresh_context(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """gptme-server runs each turn in a copied context: ContextVar state is lost.
+
+        Milestones and gaps must be derived from the log, so a new context
+        neither repeats the last milestone nor re-reports an old gap.
+        """
+        start = datetime(2026, 9, 27, 13, 0, tzinfo=UTC)
+        resumed = start + timedelta(hours=5)
+        log = Log(
+            [
+                Message("system", "prompt", timestamp=start),
+                Message("user", "continue", timestamp=resumed),
+            ]
+        )
+        fake_clock.utc = resumed + timedelta(minutes=1)
+        msgs = _call_with_log(workspace, log)
+        assert len(msgs) == 1
+        assert "Resumed after 5h" in msgs[0].content
+        log = Log([*log.messages, *msgs])
+
+        # New turn in a fresh context, same 10-minute milestone window.
+        _conversation_start_times_var.set(None)
+        _shown_milestones_var.set(None)
+        fake_clock.utc = resumed + timedelta(minutes=3)
+        assert _call_with_log(workspace, log) == []
+
+        # Next milestone is still shown.
+        fake_clock.utc = resumed + timedelta(minutes=12)
+        (notice,) = _call_with_log(workspace, log)
+        assert "Resumed" not in notice.content
+        assert "Time elapsed: 5h 12min" in notice.content
+
+    def test_delayed_first_tool_call_after_resume(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """A gap is still reported if the first tool call comes long after the resume."""
+        start = datetime(2026, 9, 27, 13, 0, tzinfo=UTC)
+        resumed = start + timedelta(hours=14)
+        log = Log(
+            [
+                Message("system", "prompt", timestamp=start),
+                Message("user", "continue", timestamp=resumed),
+                Message(
+                    "assistant",
+                    "thinking...",
+                    timestamp=resumed + timedelta(seconds=30),
+                ),
+            ]
+        )
+        # e.g. a long-running tool call finishes 41min after the resume
+        fake_clock.utc = resumed + timedelta(minutes=41)
+        (notice,) = _call_with_log(workspace, log)
+        assert "Resumed after 14h of inactivity" in notice.content
 
     def test_idle_gap_within_process_reported(
         self, workspace: Path, fake_clock: FakeClock

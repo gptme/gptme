@@ -842,7 +842,8 @@ class TestPromptTimeinfo:
 
         msgs = list(prompt_timeinfo())
         content = msgs[0].content
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # Local date, matching the per-step time notices (gptme.util.clock)
+        today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
         assert today in content
 
     def test_markdown_format(self):
@@ -852,7 +853,9 @@ class TestPromptTimeinfo:
         msgs = list(prompt_timeinfo(tool_format="markdown"))
         content = msgs[0].content
         assert "## Current Date" in content
-        assert "**UTC:**" in content
+        assert "**Local date:**" in content
+        # timezone offset is stated explicitly, e.g. "CEST (UTC+02:00)" or "UTC+00:00"
+        assert "UTC+" in content or "UTC-" in content
 
     def test_xml_format(self):
         """XML format uses current-date tag."""

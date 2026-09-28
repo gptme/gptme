@@ -22,8 +22,10 @@ log, which survives resume), and gaps in the conversation (e.g. a resume after
 hours of inactivity) are reported explicitly instead of silently jumping.
 """
 
+
 import logging
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -33,9 +35,10 @@ from ..util import clock
 from ..util.clock import format_duration, format_timestamp, to_local
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Generator
 
     from ..hooks.types import ToolExecutePostData
+    from ..logmanager import Log
 
 logger = logging.getLogger(__name__)
 
@@ -43,52 +46,59 @@ logger = logging.getLogger(__name__)
 # resume/idle jump, so the assistant is told the clock moved on.
 GAP_THRESHOLD = timedelta(minutes=30)
 
-# On the first hook call in a process we have no record of what was already
-# reported, so only gaps that ended this recently count as "just resumed".
-FIRST_CALL_LOOKBACK = timedelta(minutes=15)
+# Prefix identifying notices emitted by this hook. Notices are appended to the
+# conversation log, so the log itself records what was already reported. That
+# keeps the hook correct across resumes, process restarts, and gptme-server
+# turns (which run in copied contexts where ContextVar writes don't persist).
+NOTICE_PREFIX = "<system_info>The time is now "
 
-# Context-local storage for time tracking (ensures context safety in gptme-server)
+# Context-local fallback state, used only when no log is available.
 _conversation_start_times_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "conversation_start_times", default=None
 )
 _shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar(
     "shown_milestones", default=None
 )
-# Time of the previous hook call per workspace, used to report each gap once.
-_last_check_var: ContextVar[dict[str, datetime] | None] = ContextVar(
-    "time_awareness_last_check", default=None
-)
 
 
-def _message_times(log: Iterable[Message] | None) -> list[datetime]:
-    if log is None:
-        return []
-    try:
-        return [to_local(m.timestamp) for m in log]
-    except (TypeError, AttributeError):
-        return []
+@dataclass
+class _LogScan:
+    """Time facts derived from the conversation log."""
+
+    start: datetime
+    last_notice: datetime | None
+    gap: tuple[datetime, datetime] | None
 
 
-def _session_start(times: list[datetime], current: datetime) -> datetime | None:
-    """Real session start: the earliest message timestamp, if sane."""
-    if not times:
+def _is_notice(msg: Message) -> bool:
+    return msg.role == "system" and msg.content.startswith(NOTICE_PREFIX)
+
+
+def _scan_log(log: Log | None) -> _LogScan | None:
+    """Scan the log backwards up to the most recent time notice.
+
+    Returns the session start (first message), the last notice time, and the
+    latest gap >= GAP_THRESHOLD between consecutive messages since that notice.
+    Only messages after the last notice are visited, so the cost per tool call
+    stays proportional to recent activity rather than to the whole history.
+    """
+    messages = getattr(log, "messages", None)
+    if not messages:
         return None
-    start = min(times)
-    # Ignore timestamps from the future (clock skew); fall back to process start.
-    return start if start <= current else None
-
-
-def _find_gap(
-    times: list[datetime], since: datetime
-) -> tuple[datetime, datetime] | None:
-    """Latest gap >= GAP_THRESHOLD between consecutive messages that ended after ``since``."""
-    ordered = sorted(times)
-    for before, after in reversed(list(zip(ordered, ordered[1:], strict=False))):
-        if after <= since:
+    last_notice: datetime | None = None
+    gap: tuple[datetime, datetime] | None = None
+    later: datetime | None = None
+    for msg in reversed(messages):
+        ts = to_local(msg.timestamp)
+        if gap is None and later is not None and later - ts >= GAP_THRESHOLD:
+            gap = (ts, later)
+        if _is_notice(msg):
+            last_notice = ts
             break
-        if after - before >= GAP_THRESHOLD:
-            return before, after
-    return None
+        later = ts
+    return _LogScan(
+        start=to_local(messages[0].timestamp), last_notice=last_notice, gap=gap
+    )
 
 
 def _ensure_locals():
@@ -97,8 +107,10 @@ def _ensure_locals():
         _conversation_start_times_var.set({})
     if _shown_milestones_var.get() is None:
         _shown_milestones_var.set({})
-    if _last_check_var.get() is None:
-        _last_check_var.set({})
+
+
+def _elapsed_milestone(start: datetime, at: datetime) -> int | None:
+    return _get_next_milestone(int((at - start).total_seconds() // 60))
 
 
 def add_time_message(
@@ -124,34 +136,36 @@ def add_time_message(
 
         conversation_start_times = _conversation_start_times_var.get()
         shown_milestones = _shown_milestones_var.get()
-        last_checks = _last_check_var.get()
         assert conversation_start_times is not None
         assert shown_milestones is not None
-        assert last_checks is not None
 
         current = clock.now()
-        times = _message_times(data.log)
+        scan = _scan_log(data.log)
 
-        first_call = workspace_str not in conversation_start_times
-        if first_call:
-            # Prefer the real session start from the log (survives resume);
-            # fall back to the first hook call in this process.
-            conversation_start_times[workspace_str] = (
-                _session_start(times, current) or current
-            )
+        if workspace_str not in conversation_start_times:
+            # Real session start from the log survives resume; without a log,
+            # fall back to the first hook call in this context.
+            start_guess = scan.start if scan and scan.start <= current else current
+            conversation_start_times[workspace_str] = start_guess
             shown_milestones[workspace_str] = set()
 
-        since = last_checks.get(workspace_str, current - FIRST_CALL_LOOKBACK)
-        last_checks[workspace_str] = current
-        gap = _find_gap(times, since)
-
-        start = to_local(conversation_start_times[workspace_str])
+        if scan and scan.start <= current:
+            start = scan.start
+        else:
+            start = to_local(conversation_start_times[workspace_str])
         elapsed = current - start
-        milestone = _get_next_milestone(int(elapsed.total_seconds() // 60))
+        milestone = _elapsed_milestone(start, current)
 
-        new_milestone = (
-            milestone is not None and milestone not in shown_milestones[workspace_str]
-        )
+        # A milestone is new unless it was already reached at the last notice
+        # recorded in the log, or already shown in this context.
+        already_shown = milestone in shown_milestones[workspace_str]
+        if scan and scan.last_notice is not None:
+            prev = _elapsed_milestone(start, scan.last_notice)
+            already_shown = already_shown or (
+                prev is not None and milestone is not None and milestone <= prev
+            )
+        new_milestone = milestone is not None and not already_shown
+        gap = scan.gap if scan else None
         if not (new_milestone or gap):
             return
         if milestone is not None:
@@ -170,9 +184,14 @@ def add_time_message(
                 f"Resumed after {format_duration(after - before)} of inactivity"
                 f" (last activity {format_timestamp(before)})."
             )
+        content = f"<system_info>{' '.join(parts)}</system_info>"
+        assert content.startswith(NOTICE_PREFIX)
         yield Message(
             "system",
-            f"<system_info>{' '.join(parts)}</system_info>",
+            content,
+            # Stamp with the same clock (as naive local, matching the Message
+            # default) so the next scan knows exactly when this was reported.
+            timestamp=current.replace(tzinfo=None),
             hide=True,
         )
 
