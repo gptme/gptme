@@ -3383,6 +3383,50 @@ class TestOpenAIStreamMalformedChunk:
         )
         assert calls["n"] == 2
 
+    def test_responses_api_malformed_event_raises_retryable_protocol_error(
+        self, monkeypatch
+    ):
+        """The Responses API stream is guarded too (default for GPT-5/o-series).
+
+        Same class of SDK parsing crash as the Chat Completions path: a
+        malformed SSE event from the provider must not escape as an opaque
+        ``IndexError``, since native OpenAI GPT-5/o-series route through the
+        Responses API.
+        """
+        import httpx
+
+        from gptme.llm import is_provider_error, mark_llm_reply_origin
+
+        class _BadStream:
+            def __iter__(self):
+                raise IndexError("list index out of range")
+                yield  # pragma: no cover
+
+        mock_client = SimpleNamespace(
+            responses=SimpleNamespace(create=Mock(return_value=_BadStream()))
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+        with pytest.raises(
+            httpx.RemoteProtocolError, match="OpenAI stream iteration failed"
+        ) as excinfo:
+            list(
+                llm_openai._stream_responses(
+                    [Message(role="user", content="Hi")],
+                    "openai/gpt-5",
+                    None,
+                    get_model("openai/gpt-5"),
+                )
+            )
+        err = excinfo.value
+        assert "gpt-5" in str(err)
+        assert "openai" in str(err)
+        assert isinstance(err.__cause__, IndexError)
+        assert not is_provider_error(err)
+        mark_llm_reply_origin(err)
+        assert is_provider_error(err)
+
 
 class TestRecordUsageCacheTokens:
     """Tests for _record_usage cache token extraction.

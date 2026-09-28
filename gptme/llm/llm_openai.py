@@ -1572,7 +1572,10 @@ def _stream_responses(
         )
 
     stream = client.responses.create(**kwargs)
-    yield from _stream_responses_events(stream, usage_callback=_capture_usage)
+    yield from _stream_responses_events(
+        _guarded_stream_iter(stream, model=model, provider=provider),
+        usage_callback=_capture_usage,
+    )
 
     if captured_metadata is None and reasoning_effort is not None:
         # No usage event arrived; still record what was requested.
@@ -1603,6 +1606,26 @@ def _reraise_openai_stream_iteration_error(
         f"OpenAI stream iteration failed while parsing a chunk from "
         f"{model} (provider={provider}): {exc!r}"
     ) from exc
+
+
+def _guarded_stream_iter(
+    source: Iterable[Any], *, model: str, provider: Provider
+) -> Generator[Any, None, None]:
+    """Advance a provider SDK stream, converting parser crashes on ``next()``.
+
+    Only the advance is guarded, never the consumer body, so genuine bugs in
+    gptme's own processing stay visible. Shared by the Chat Completions and
+    Responses API streams so a malformed SSE event is retryable and classifiable
+    on both paths.
+    """
+    iterator = iter(source)
+    while True:
+        try:
+            yield next(iterator)
+        except StopIteration:
+            return
+        except Exception as exc:
+            _reraise_openai_stream_iteration_error(exc, model=model, provider=provider)
 
 
 @retry_generator_on_openai_error()
@@ -1723,14 +1746,7 @@ def stream(
                 reasoning_effort=reasoning_effort,
             )
 
-    _stream_iter = iter(_stream_obj)
-    while True:
-        try:
-            chunk_raw = next(_stream_iter)
-        except StopIteration:
-            break
-        except Exception as _e:
-            _reraise_openai_stream_iteration_error(_e, model=model, provider=provider)
+    for chunk_raw in _guarded_stream_iter(_stream_obj, model=model, provider=provider):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
             ChoiceDeltaToolCall,
