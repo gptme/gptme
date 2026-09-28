@@ -19,7 +19,36 @@ on:
         description: 'Release tag to build for (e.g., v0.31.1.dev20260310)'
         required: false
 
+# Cancel a PR's older runs when it gets a new push (they're superseded).
+# Pushes to master are grouped by commit, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # On PRs that only change the web UI (not tauri/), skip the macOS, Windows
+  # and Android builds: they rarely break from web UI changes and are the
+  # slowest/scarcest runners. Lint, tests, E2E and the Linux build still run;
+  # master pushes and manual runs build everything.
+  changes:
+    name: Detect changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      tauri: ${{ steps.filter.outputs.tauri }}
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v4
+      id: filter
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        filters: |
+          tauri:
+            - 'tauri/**'
+            - '.github/workflows/tauri.yml'
+
   lint:
     name: Lint (format + clippy)
     runs-on: ubuntu-latest
@@ -220,16 +249,13 @@ jobs:
 
   build:
     name: Build (${{ matrix.platform }})
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.result != 'failure' }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: macos-latest
-            args: '--bundles app'
-          - platform: ubuntu-24.04
-            args: '--bundles appimage,deb'
-          - platform: windows-latest
-            args: '--bundles nsis'
+        # all platforms, or only Linux on web-UI-only PRs (see `changes`)
+        include: ${{ fromJson((github.event_name != 'pull_request' || needs.changes.outputs.tauri == 'true') && '[{"platform":"macos-latest","args":"--bundles app"},{"platform":"ubuntu-24.04","args":"--bundles appimage,deb"},{"platform":"windows-latest","args":"--bundles nsis"}]' || '[{"platform":"ubuntu-24.04","args":"--bundles appimage,deb"}]') }}
 
     runs-on: ${{ matrix.platform }}
 
@@ -694,7 +720,12 @@ jobs:
   build-android:
     name: Build Android (APK/AAB)
     # Only aarch64 for PR/push checks; full multi-arch on release tags
-    needs: [lint, test]
+    needs: [changes, lint, test]
+    # skipped on web-UI-only PRs (see `changes`)
+    if: >-
+      ${{ !cancelled()
+          && needs.lint.result == 'success' && needs.test.result == 'success'
+          && (github.event_name != 'pull_request' || needs.changes.outputs.tauri == 'true') }}
     runs-on: ubuntu-latest
 
     steps:
