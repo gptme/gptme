@@ -39,6 +39,10 @@ Start a new conversation in the current directory::
 
     gptme-tui
 
+Or start with a prompt, like with ``gptme`` (chain several with ``-``)::
+
+    gptme-tui "write a script that counts lines" - "now add tests"
+
 Pick a conversation to resume from a list (or start a new one), or resume
 a specific one by name::
 

@@ -198,7 +198,7 @@ to each provider's parameter:
      - same as above
    * - OpenRouter
      - ``reasoning.effort`` (replaces the default ``reasoning.max_tokens`` budget)
-     - ``none``, ``minimal``, ``low``, ``medium``, ``high``, ``xhigh``
+     - ``none``, ``minimal``, ``low``, ``medium``, ``high``, ``xhigh``, ``max``
    * - Moonshot Kimi K3
      - ``reasoning_effort``
      - ``low``, ``high``, ``max``

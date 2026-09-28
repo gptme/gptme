@@ -586,8 +586,10 @@ document.write(`
 <p>gptme TUI — interactive terminal UI for gptme.</p>
 <p>Complementary to the plain <cite>gptme</cite> CLI: supports queueing prompts while
 the agent works, collapsible tool output, and a live status bar.</p>
+<p>PROMPTS are submitted on start, like with <cite>gptme</cite>; chain several with
+‘-’ (e.g. <cite>gptme-tui “write a script” - “now test it”</cite>).</p>
 <p class="rubric">Usage</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-tui<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-tui<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PROMPTS<span class="o">]</span>...
 </pre></div>
 </div>
 <p class="rubric">Options</p>
@@ -653,6 +655,13 @@ the agent works, collapsible tool output, and a live status bar.</p>
 <dt class="sig sig-object std" id="cmdoption-gptme-tui-v">
 <span id="cmdoption-gptme-tui-verbose"></span><span class="sig-name descname"><span class="pre">-v</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--verbose</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-tui-v" title="Link to this definition">#</a></dt>
 <dd><p>Enable verbose logging.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-tui-arg-PROMPTS">
+<span class="sig-name descname"><span class="pre">PROMPTS</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-tui-arg-PROMPTS" title="Link to this definition">#</a></dt>
+<dd><p>Optional argument(s)</p>
 </dd></dl>
 
 </section>
