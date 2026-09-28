@@ -2174,6 +2174,31 @@ def test_pending_tool_guard_ignores_ui_only_messages():
     assert _has_pending_tool_calls(msgs_answered) is False
 
 
+def test_pending_tool_guard_ignores_intervening_user_messages():
+    """A user turn between a markdown tool call and its result is not an answer.
+
+    The markdown fallback counts system result messages, not "any non-ui_only
+    message". A user interrupt/follow-up would otherwise satisfy
+    ``len(results) >= len(calls)`` and let compaction orphan the pending result.
+    """
+    from gptme.tools.autocompact.hook import _has_pending_tool_calls
+
+    msgs = [
+        Message("user", "run this"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("user", "wait, actually don't"),
+    ]
+    assert _has_pending_tool_calls(msgs) is True
+
+    msgs_answered = [
+        Message("user", "run this"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("user", "wait, actually don't"),
+        Message("system", "Ran shell command"),
+    ]
+    assert _has_pending_tool_calls(msgs_answered) is False
+
+
 def test_auto_compact_does_not_strip_reasoning_by_default():
     """Age-based reasoning stripping must be off by default (Phase 1.5a).
 

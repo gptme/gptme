@@ -81,10 +81,15 @@ def _has_pending_tool_calls(messages: list[Message]) -> bool:
     ]
     if not calls:
         return False
-    # UI-only status messages (hook notices, progress markers) are not tool
-    # results; counting them would let compaction proceed while a real result
-    # is still pending.
-    results = [m for m in messages[last_assistant_idx + 1 :] if not m.ui_only]
+    # Only system messages can be tool results. UI-only status/progress
+    # notices are not results; neither is a user (or assistant) message that
+    # lands between the call and its result. Counting those would let the
+    # markdown fallback treat an unanswered call as done.
+    results = [
+        m
+        for m in messages[last_assistant_idx + 1 :]
+        if not m.ui_only and m.role == "system"
+    ]
     if not results:
         return True
     # Prefer explicit call-id matching when the tool format carries ids.
