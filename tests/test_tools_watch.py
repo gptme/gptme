@@ -312,6 +312,18 @@ def test_requeue_preserves_remaining_events(tmp_path: Path):
     assert take_queued_watch_events(logdir) == [("w2", "b"), ("w3", "c")]
 
 
+def test_run_replaces_undecodable_bytes(tmp_path: Path):
+    # Text-mode stdout with errors="replace" must not treat binary as EOF.
+    _watch_cli(r"run printf '\377\376'", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "run")
+    deadline = time.time() + 5
+    while not w.fired and time.time() < deadline:
+        time.sleep(0.05)
+    assert w.fired
+    assert "rc=0" in w.events[-1]
+    assert "errored" not in w.events[-1]
+
+
 def test_run_keeps_only_output_tail(tmp_path: Path):
     big = tmp_path / "big.txt"
     big.write_text("x" * 20000)

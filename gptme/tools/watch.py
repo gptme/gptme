@@ -327,11 +327,12 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
     assert proc.stdout is not None
     stdout = proc.stdout
     tail = ""
+    read_error: str | None = None
     buf_lock = threading.Lock()
     reader_done = threading.Event()
 
     def _reader() -> None:
-        nonlocal tail
+        nonlocal tail, read_error
         try:
             while True:
                 piece = stdout.read(4096)
@@ -339,6 +340,9 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
                     return
                 with buf_lock:
                     tail = (tail + piece)[-_RUN_TAIL_CHARS:]
+        except Exception as exc:
+            read_error = str(exc)
+            logger.debug("watch %s run reader failed", watch.id, exc_info=True)
         finally:
             reader_done.set()
 
@@ -354,6 +358,10 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
             _fire(watch, f"expired without exit ({watch.description})")
             return
     if watch.cancelled:
+        return
+    if read_error:
+        _kill_proc(proc)
+        _fire(watch, f"watch errored: {read_error}")
         return
     try:
         proc.wait(timeout=2)
@@ -623,6 +631,7 @@ def _watch(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                errors="replace",
             )
             w.proc = proc
             return _spawn(w, _poll_run, proc)
