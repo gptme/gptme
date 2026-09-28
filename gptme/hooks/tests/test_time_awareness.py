@@ -13,6 +13,7 @@ from gptme.hooks.time_awareness import (
     _conversation_start_times_var,
     _get_next_milestone,
     _last_notice_var,
+    _log_tails_var,
     _session_start,
     _shown_milestones_var,
     add_time_message,
@@ -36,7 +37,9 @@ def reset_contextvars():
     tok1 = _conversation_start_times_var.set(None)
     tok2 = _shown_milestones_var.set(None)
     tok3 = _last_notice_var.set(None)
+    tok4 = _log_tails_var.set(None)
     yield
+    _log_tails_var.reset(tok4)
     _last_notice_var.reset(tok3)
     _conversation_start_times_var.reset(tok1)
     _shown_milestones_var.reset(tok2)
@@ -511,6 +514,40 @@ class TestClockConsistency:
         # and the call would return nothing.
         fake_clock.utc = start + timedelta(minutes=6)
         (notice,) = _call_with_log(workspace, short_log)
+        assert "Time elapsed:" in notice.content
+
+    def test_rewind_then_regrow_to_same_length_resets_milestones(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """/backtrack drops a notice, then new messages restore the old length.
+
+        Length alone can't see the rewrite; the message that was last at the
+        previous call is gone, so in-context state must still be reset.
+        """
+        start = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)
+        prompt = Message("system", "prompt", timestamp=start)
+        msg1 = Message("user", "step 1", timestamp=start + timedelta(minutes=1))
+
+        log = Log([prompt, msg1])
+        for minutes in (2, 6):
+            fake_clock.utc = start + timedelta(minutes=minutes)
+            msgs = _call_with_log(workspace, log)
+            assert len(msgs) == 1
+            log = Log([*log.messages, *msgs])
+        assert len(log.messages) == 4
+
+        # Rewind to the first two messages, then two new messages arrive:
+        # same length and start as before, different tail.
+        regrown = Log(
+            [
+                prompt,
+                msg1,
+                Message("user", "redo", timestamp=start + timedelta(minutes=2)),
+                Message("assistant", "ok", timestamp=start + timedelta(minutes=3)),
+            ]
+        )
+        fake_clock.utc = start + timedelta(minutes=7)
+        (notice,) = _call_with_log(workspace, regrown)
         assert "Time elapsed:" in notice.content
 
     def test_multiple_tools_in_one_step_report_gap_once(

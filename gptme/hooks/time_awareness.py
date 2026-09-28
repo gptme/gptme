@@ -64,8 +64,11 @@ _shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar(
 _last_notice_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "time_awareness_last_notice", default=None
 )
-_log_lengths_var: ContextVar[dict[str, int] | None] = ContextVar(
-    "time_awareness_log_lengths", default=None
+# Length and last message of the log at the previous call, to detect a
+# rewritten log (/backtrack, /edit) even when the session start is unchanged
+# or the log has since grown back to its old length.
+_log_tails_var: ContextVar[dict[str, tuple[int, Message | None]] | None] = ContextVar(
+    "time_awareness_log_tails", default=None
 )
 
 
@@ -126,8 +129,29 @@ def _ensure_locals():
         _shown_milestones_var.set({})
     if _last_notice_var.get() is None:
         _last_notice_var.set({})
-    if _log_lengths_var.get() is None:
-        _log_lengths_var.set({})
+    if _log_tails_var.get() is None:
+        _log_tails_var.set({})
+
+
+def _log_rewritten(
+    messages: list[Message], prev_tail: tuple[int, Message | None] | None
+) -> bool:
+    """Whether messages seen at the previous call are no longer in the log.
+
+    True if the log shrank, or if the message that was last at the previous
+    call is gone from its position: a /backtrack followed by new messages can
+    bring the log back to (or past) its old length.
+    """
+    if prev_tail is None:
+        return False
+    prev_len, prev_last = prev_tail
+    if len(messages) < prev_len:
+        return True
+    if prev_len == 0 or prev_last is None:
+        return False
+    at = messages[prev_len - 1]
+    # Message.__eq__ ignores timestamps; a replacement often repeats content.
+    return at != prev_last or to_local(at.timestamp) != to_local(prev_last.timestamp)
 
 
 def _elapsed_milestone(start: datetime, at: datetime) -> int | None:
@@ -158,11 +182,11 @@ def add_time_message(
         conversation_start_times = _conversation_start_times_var.get()
         shown_milestones = _shown_milestones_var.get()
         last_notices = _last_notice_var.get()
-        log_lengths = _log_lengths_var.get()
+        log_tails = _log_tails_var.get()
         assert conversation_start_times is not None
         assert shown_milestones is not None
         assert last_notices is not None
-        assert log_lengths is not None
+        assert log_tails is not None
 
         current = clock.now()
 
@@ -171,24 +195,23 @@ def add_time_message(
         # call: measured ~1.5µs/message (~3ms at 2000 messages), negligible
         # next to tool execution, so no cache to keep in sync.
         log_start = _session_start(data.log)
-        log_len = len(data.log.messages) if data.log and data.log.messages else 0
+        messages = data.log.messages if data.log and data.log.messages else []
+        tail = (len(messages), messages[-1] if messages else None)
         prev_start = conversation_start_times.get(workspace_str)
-        prev_len = log_lengths.get(workspace_str)
         if log_start is not None and log_start <= current:
             start_changed = prev_start is not None and to_local(prev_start) != log_start
-            log_shrunk = prev_len is not None and log_len < prev_len
-            if start_changed or log_shrunk:
+            if start_changed or _log_rewritten(messages, log_tails.get(workspace_str)):
                 # Log rewritten (backtrack/edit): milestones and in-context
                 # last-notice were relative to the old log and would suppress
                 # notices for the new, shorter session.
                 shown_milestones[workspace_str] = set()
                 last_notices.pop(workspace_str, None)
             conversation_start_times[workspace_str] = log_start
-            log_lengths[workspace_str] = log_len
+            log_tails[workspace_str] = tail
         elif workspace_str not in conversation_start_times:
             # Without a log, fall back to the first hook call in this context.
             conversation_start_times[workspace_str] = current
-            log_lengths[workspace_str] = log_len
+            log_tails[workspace_str] = tail
         shown_milestones.setdefault(workspace_str, set())
 
         start = to_local(conversation_start_times[workspace_str])
