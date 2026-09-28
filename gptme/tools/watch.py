@@ -279,11 +279,16 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     assert proc.stdout is not None
     stdout = proc.stdout
     lines: queue.Queue[str | None] = queue.Queue(maxsize=_STREAM_LINE_QUEUE)
+    # Consumer-done signal, distinct from `watch.cancelled`: the deadline path
+    # stops the reader (so its sentinel loop cannot spin on a queue the
+    # consumer will never drain) but must NOT mark the watch cancelled, or
+    # `_fire` below would drop the expiration wake.
+    stop = threading.Event()
 
     def _reader() -> None:
         try:
             for line in iter(stdout.readline, ""):
-                if watch.cancelled:
+                if watch.cancelled or stop.is_set():
                     return
                 try:
                     lines.put(line, timeout=0.5)
@@ -297,9 +302,9 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
         finally:
             # The end-of-stream sentinel must reach the consumer or the watch
             # hangs on lines.get() forever. Retry while the queue is full; the
-            # consumer drains steadily, and if it cancelled the watch (queue
-            # overflow), the loop exits without needing the sentinel.
-            while not watch.cancelled:
+            # consumer drains steadily, and if it stopped (deadline) or
+            # cancelled the watch (queue overflow), exit without the sentinel.
+            while not stop.is_set() and not watch.cancelled:
                 try:
                     lines.put(None, timeout=0.5)
                     break
@@ -311,10 +316,9 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
         if watch.cancelled:
             break
         if watch.deadline is not None and time.time() > watch.deadline:
-            # Mark cancelled so the reader thread's sentinel loop exits instead
-            # of spinning on a queue this consumer will never drain again.
-            with watch.lock:
-                watch.cancelled = True
+            # Signal the reader that this consumer is done, then deliver the
+            # expiration wake while the watch is still live.
+            stop.set()
             _kill_proc(proc)
             _fire(watch, f"expired without event ({watch.description})")
             return

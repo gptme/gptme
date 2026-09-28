@@ -274,6 +274,20 @@ def test_stream_records_each_line_once(tmp_path: Path):
     assert len(w.events) == 4
 
 
+def test_stream_honors_timeout(tmp_path: Path):
+    # A quiet stream that reaches its deadline must still deliver its wake;
+    # signalling the reader to stop must not mark the watch cancelled.
+    _watch_cli("stream sleep 30 --timeout 0.3s", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "stream")
+    deadline = time.time() + 5
+    while not w.fired and time.time() < deadline:
+        time.sleep(0.05)
+    assert w.fired
+    assert not w.cancelled
+    assert "expired" in w.events[-1]
+    assert w.delivered == 1
+
+
 def test_run_honors_timeout(tmp_path: Path):
     _watch_cli("run sleep 30 --timeout 0.3s", tmp_path)
     w = next(w for w in _record_all() if w.kind == "run")
