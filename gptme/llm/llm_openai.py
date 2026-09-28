@@ -1621,11 +1621,14 @@ def _guarded_stream_iter(
     iterator = iter(source)
     while True:
         try:
-            yield next(iterator)
+            item = next(iterator)
         except StopIteration:
             return
         except Exception as exc:
             _reraise_openai_stream_iteration_error(exc, model=model, provider=provider)
+        # Yield is outside the try: a consumer .throw() / yield-from throw-in
+        # at this point must stay the original exception, not a protocol error.
+        yield item
 
 
 @retry_generator_on_openai_error()

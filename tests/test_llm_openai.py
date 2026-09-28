@@ -3427,6 +3427,27 @@ class TestOpenAIStreamMalformedChunk:
         mark_llm_reply_origin(err)
         assert is_provider_error(err)
 
+    def test_consumer_throw_is_not_converted_to_protocol_error(self):
+        """Only next() is guarded; a consumer .throw() stays the original exception.
+
+        Wrapping ``yield next(iterator)`` in try/except catches exceptions thrown
+        into the generator at the yield point (``.throw()`` or ``yield from``)
+        and would misclassify a genuine consumer bug as a provider protocol
+        error. Regression for gptme/gptme#3984 AI-review P1.
+        """
+        import httpx
+
+        gen = llm_openai._guarded_stream_iter(
+            iter(["chunk"]),
+            model="openrouter/minimax/minimax-m3",
+            provider="openrouter",
+        )
+        assert next(gen) == "chunk"
+        with pytest.raises(IndexError, match="consumer bug") as excinfo:
+            gen.throw(IndexError("consumer bug"))
+        assert not isinstance(excinfo.value, httpx.RemoteProtocolError)
+        assert excinfo.value.__cause__ is None
+
 
 class TestRecordUsageCacheTokens:
     """Tests for _record_usage cache token extraction.
