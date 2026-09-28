@@ -2320,10 +2320,13 @@ def test_tool_title_highlighting():
 
 
 def test_tool_format_title_shows_path_not_json():
-    title, _code, _lang = _tool_call_renderable(
+    title, code, lang = _tool_call_renderable(
         '@save(call_1): {"path": "/tmp/x.py", "content": "print(1)"}'
     )
     assert title == "▶ save: /tmp/x.py"
+    # the expanded body still shows the content to be saved
+    assert '"content": "print(1)"' in code
+    assert lang == "json"
 
 
 @pytest.mark.asyncio

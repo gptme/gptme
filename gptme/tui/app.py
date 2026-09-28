@@ -265,19 +265,26 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
         return call_text, call_text, "text"
     tool_name = m.group(2)
     json_body = m.group(3)
+    lang = "python" if tool_name in ("ipython", "python") else "bash"
     try:
         args = json.loads(json_body)
-        code: str = (
-            args.get("code") or args.get("command") or args.get("path") or json_body
-        )
     except Exception:
-        code = json_body
-    first_line = code.split("\n")[0].strip()
+        args = None
+    if isinstance(args, dict) and (args.get("code") or args.get("command")):
+        code: str = str(args.get("code") or args.get("command"))
+        summary = code
+    elif isinstance(args, dict):
+        # e.g. save/patch: title by path, but expand to all the arguments
+        code = json.dumps(args, indent=2)
+        summary = args.get("path") or json_body
+        lang = "json"
+    else:
+        code = summary = json_body
+    first_line = summary.split("\n")[0].strip()
     if len(first_line) > 55:
         first_line = first_line[:54] + "…"
-    suffix = "…" if ("\n" in code or len(code) > 60) else ""
+    suffix = "…" if ("\n" in summary or len(summary) > 60) else ""
     title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
-    lang = "python" if tool_name in ("ipython", "python") else "bash"
     return title, code, lang
 
 
