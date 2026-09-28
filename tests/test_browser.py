@@ -381,6 +381,9 @@ def test_read_page_text(local_text_page):
     text = read_page_text()
     assert text, "Text content should not be empty"
     assert "Example Domain" in text, "Should contain the page heading"
+    assert "This domain is for use in documentation examples." in text, (
+        "Should contain the fixture paragraph"
+    )
 
 
 def test_read_page_text_without_open_page():
