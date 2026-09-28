@@ -48,7 +48,7 @@ async function showTauriNotification(
     if (!granted) {
       const perm = await tauriRequestPermission();
       if (perm !== 'granted') {
-        console.log('Tauri notification permission denied');
+        console.warn('Tauri notification permission denied');
         return false;
       }
     }
@@ -125,7 +125,10 @@ export function isNotificationSupported(): boolean {
  * Check if the current tab is active/visible
  */
 export function isTabActive(): boolean {
-  return !document.hidden;
+  // WebKit can leave document.hidden=false after a Tauri window is minimized
+  // or withdrawn. Focus reflects whether the user can actually see/interact
+  // with the window, which is what the notification gate cares about.
+  return !document.hidden && document.hasFocus();
 }
 
 /**
@@ -146,7 +149,10 @@ export async function showNotification(
 ): Promise<Notification | null> {
   // Only show when window is not in focus (when requireInactive is set)
   if (options?.requireInactive && isTabActive()) {
-    console.log('Tab is active, skipping notification');
+    console.warn('Tab is active, skipping notification', {
+      documentHidden: document.hidden,
+      documentHasFocus: document.hasFocus(),
+    });
     return null;
   }
 
@@ -159,7 +165,7 @@ export async function showNotification(
 
   // Browser Notification API path
   if (!('Notification' in window)) {
-    console.log('Notifications not supported in this browser');
+    console.warn('Notifications not supported in this browser');
     return null;
   }
 
@@ -168,7 +174,7 @@ export async function showNotification(
   }
 
   if (notificationPermission !== 'granted') {
-    console.log('Notification permission denied');
+    console.warn('Notification permission denied');
     return null;
   }
 

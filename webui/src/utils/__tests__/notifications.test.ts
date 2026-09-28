@@ -11,6 +11,24 @@ jest.mock('@/utils/tauri', () => ({
 
 import { showNotification } from '@/utils/notifications';
 
+const originalHiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
+
+function setDocumentHidden(hidden: boolean): void {
+  Object.defineProperty(document, 'hidden', {
+    configurable: true,
+    value: hidden,
+  });
+}
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  if (originalHiddenDescriptor) {
+    Object.defineProperty(document, 'hidden', originalHiddenDescriptor);
+  } else {
+    Reflect.deleteProperty(document, 'hidden');
+  }
+});
+
 describe('showNotification — Tauri native path', () => {
   beforeEach(() => {
     mockInvokeTauri.mockReset();
@@ -43,6 +61,31 @@ describe('showNotification — Tauri native path', () => {
     );
     expect(notifyCall?.[1]).toEqual({
       options: { title: 'Done', body: 'Finished', icon: '/icon.png' },
+    });
+  });
+
+  it('notifies when the Tauri window is visible but unfocused', async () => {
+    setDocumentHidden(false);
+    jest.spyOn(document, 'hasFocus').mockReturnValue(false);
+
+    await showNotification('Tool confirmation', { requireInactive: true });
+
+    expect(mockInvokeTauri).toHaveBeenCalledWith('plugin:notification|notify', {
+      options: { title: 'Tool confirmation' },
+    });
+  });
+
+  it('skips notifications while the window is visible and focused', async () => {
+    setDocumentHidden(false);
+    jest.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await showNotification('Tool confirmation', { requireInactive: true });
+
+    expect(mockInvokeTauri).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('Tab is active, skipping notification', {
+      documentHidden: false,
+      documentHasFocus: true,
     });
   });
 });
