@@ -127,11 +127,19 @@ jobs:
       run: npx playwright install --with-deps chromium
 
     # ── stable pass (latest PyPI release) ────────────────────────────────────
+    # The stable pass is non-blocking (see "Require both passes to succeed"
+    # below): it exercises the latest released gptme, not this branch. Every
+    # step in it must therefore tolerate failure so a transient PyPI/registry
+    # blip cannot abort the job before the dev pass — the actual gate — runs.
     - name: Install stable gptme (PyPI)
+      id: install-stable
+      continue-on-error: true
       working-directory: .
       run: pip install 'gptme[server]'
 
     - name: Start server (stable)
+      if: steps.install-stable.outcome == 'success'
+      continue-on-error: true
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
         MODEL: anthropic/claude-3-5-haiku-latest
@@ -145,10 +153,13 @@ jobs:
         sleep 3
 
     - name: Health-check server (stable)
+      if: steps.install-stable.outcome == 'success'
+      continue-on-error: true
       run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api/v2
 
     - name: Run e2e tests (stable)
       id: e2e-stable
+      if: steps.install-stable.outcome == 'success'
       continue-on-error: true
       env:
         # Latest PyPI release still has the workspace-containment create
