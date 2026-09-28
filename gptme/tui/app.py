@@ -1304,7 +1304,11 @@ class GptmeApp(App):
         # region origin (see _print_above); move to the origin and clear down.
         # Region lines are full-width, so on a narrower terminal each one the
         # terminal reflowed now spans several rows.
-        caret = self._previous_cursor_position
+        # Textual parks this on App after the first inline frame. SIGWINCH can
+        # fire before that, so match _print_above and don't assume it exists.
+        caret = getattr(self, "_previous_cursor_position", None)
+        if caret is None:
+            caret = Offset(0, 0)
         old_width = self.size.width
         rows_per_line = -(-old_width // width) if 0 < width < old_width else 1
         up = caret.y * rows_per_line + (caret.x // width if width else 0)

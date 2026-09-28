@@ -1470,6 +1470,17 @@ async def test_inline_stream_preview_hides_thinking(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_inline_resize_without_textual_caret_attr(tmp_path):
+    """First SIGWINCH must not crash if Textual has not parked a caret yet."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        if hasattr(app, "_previous_cursor_position"):
+            delattr(app, "_previous_cursor_position")
+        app._on_inline_resize()
+
+
+@pytest.mark.asyncio
 async def test_inline_queued_prompts_visible(tmp_path):
     manager = make_manager(tmp_path, [Message("user", "hello")])
     app = GptmeApp(manager, workspace=tmp_path, inline=True)
