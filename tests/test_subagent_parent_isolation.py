@@ -110,6 +110,49 @@ def test_thread_subagent_with_workdir_restores_parent_cwd(parent_session, tmp_pa
     assert os.getcwd() == cwd_before
 
 
+def test_overlapping_subagents_restore_parent_cwd_after_last(tmp_path, monkeypatch):
+    """Concurrent thread subagents: the parent's cwd is captured by the first
+    and restored only after the last finishes, never a sibling's workspace."""
+    from gptme.tools.subagent.execution import (
+        _enter_subagent_cwd,
+        _exit_subagent_cwd,
+    )
+
+    parent, ws_a, ws_b = (tmp_path / n for n in ("parent", "a", "b"))
+    for d in (parent, ws_a, ws_b):
+        d.mkdir()
+    monkeypatch.chdir(parent)
+
+    _enter_subagent_cwd(ws_a)
+    os.chdir(ws_a)  # what subagent A's chat() does
+    _enter_subagent_cwd(ws_b)  # B starts while cwd is A's workspace
+    os.chdir(ws_b)
+
+    _exit_subagent_cwd()  # A finishes; B is still running in its workspace
+    assert Path.cwd().resolve() == ws_b.resolve()
+    _exit_subagent_cwd()  # B finishes
+    assert Path.cwd().resolve() == parent.resolve()
+
+
+def test_subagent_cwd_restore_keeps_parent_cd(tmp_path, monkeypatch):
+    """If the parent changed directory meanwhile, the restore leaves it alone."""
+    from gptme.tools.subagent.execution import (
+        _enter_subagent_cwd,
+        _exit_subagent_cwd,
+    )
+
+    parent, ws, elsewhere = (tmp_path / n for n in ("parent", "ws", "elsewhere"))
+    for d in (parent, ws, elsewhere):
+        d.mkdir()
+    monkeypatch.chdir(parent)
+
+    _enter_subagent_cwd(ws)
+    os.chdir(ws)
+    os.chdir(elsewhere)  # the parent cd'd somewhere else
+    _exit_subagent_cwd()
+    assert Path.cwd().resolve() == elsewhere.resolve()
+
+
 @pytest.mark.slow
 def test_subprocess_subagent_roundtrip(parent_session, tmp_path, monkeypatch):
     """Subprocess mode: spawn, wait, success result with the complete summary,
