@@ -97,3 +97,16 @@ class TestRegister:
             assert "cwd_awareness.notification" in names
         finally:
             set_registry(old)
+
+
+def test_cwd_change_message_is_hidden_from_output(tmp_path):
+    """The notice is for the model; the user already sees the cd in the tool call."""
+    from gptme.hooks.cwd_awareness import on_cwd_changed
+    from gptme.logmanager import Log
+
+    msgs = list(
+        on_cwd_changed(
+            Log(), workspace=tmp_path, old_cwd="/a", new_cwd="/b", tool_use=None
+        )
+    )
+    assert msgs and all(isinstance(m, Message) and m.hide for m in msgs)

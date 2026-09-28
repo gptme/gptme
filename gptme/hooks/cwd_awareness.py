@@ -38,9 +38,11 @@ def on_cwd_changed(
         new_cwd: New working directory
         tool_use: The tool that caused the change
     """
+    # for the model: the user sees the cd in the tool call
     yield Message(
         "system",
         f"<system_info>Working directory changed to: {new_cwd}</system_info>",
+        hide=True,
     )
     logger.debug(f"Working directory changed from {old_cwd} to {new_cwd}")
 
