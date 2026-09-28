@@ -64,6 +64,9 @@ _shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar(
 _last_notice_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "time_awareness_last_notice", default=None
 )
+_log_lengths_var: ContextVar[dict[str, int] | None] = ContextVar(
+    "time_awareness_log_lengths", default=None
+)
 
 
 @dataclass
@@ -123,6 +126,8 @@ def _ensure_locals():
         _shown_milestones_var.set({})
     if _last_notice_var.get() is None:
         _last_notice_var.set({})
+    if _log_lengths_var.get() is None:
+        _log_lengths_var.set({})
 
 
 def _elapsed_milestone(start: datetime, at: datetime) -> int | None:
@@ -153,9 +158,11 @@ def add_time_message(
         conversation_start_times = _conversation_start_times_var.get()
         shown_milestones = _shown_milestones_var.get()
         last_notices = _last_notice_var.get()
+        log_lengths = _log_lengths_var.get()
         assert conversation_start_times is not None
         assert shown_milestones is not None
         assert last_notices is not None
+        assert log_lengths is not None
 
         current = clock.now()
 
@@ -164,18 +171,24 @@ def add_time_message(
         # call: measured ~1.5µs/message (~3ms at 2000 messages), negligible
         # next to tool execution, so no cache to keep in sync.
         log_start = _session_start(data.log)
+        log_len = len(data.log.messages) if data.log and data.log.messages else 0
         prev_start = conversation_start_times.get(workspace_str)
+        prev_len = log_lengths.get(workspace_str)
         if log_start is not None and log_start <= current:
-            if prev_start is not None and to_local(prev_start) != log_start:
+            start_changed = prev_start is not None and to_local(prev_start) != log_start
+            log_shrunk = prev_len is not None and log_len < prev_len
+            if start_changed or log_shrunk:
                 # Log rewritten (backtrack/edit): milestones and in-context
-                # last-notice were relative to the old start and would suppress
+                # last-notice were relative to the old log and would suppress
                 # notices for the new, shorter session.
                 shown_milestones[workspace_str] = set()
                 last_notices.pop(workspace_str, None)
             conversation_start_times[workspace_str] = log_start
+            log_lengths[workspace_str] = log_len
         elif workspace_str not in conversation_start_times:
             # Without a log, fall back to the first hook call in this context.
             conversation_start_times[workspace_str] = current
+            log_lengths[workspace_str] = log_len
         shown_milestones.setdefault(workspace_str, set())
 
         start = to_local(conversation_start_times[workspace_str])

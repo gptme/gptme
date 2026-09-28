@@ -13,6 +13,7 @@ from gptme.hooks.time_awareness import (
     _conversation_start_times_var,
     _get_next_milestone,
     _last_notice_var,
+    _session_start,
     _shown_milestones_var,
     add_time_message,
 )
@@ -474,6 +475,43 @@ class TestClockConsistency:
         assert "Time elapsed: 6min since session start at 2026-09-28 11:00" in (
             notice.content
         )
+
+    def test_tail_truncation_same_start_resets_milestones(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """Log tail removed via /backtrack without changing the first message.
+
+        When /backtrack removes messages but the session start (earliest
+        timestamp) is unchanged, the P1 scenario: shown_milestones and
+        last_notice from the deleted tail must not suppress new notices for
+        the shorter session.
+        """
+        start = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)
+        prompt = Message("system", "prompt", timestamp=start)
+        msg1 = Message("user", "step 1", timestamp=start + timedelta(minutes=1))
+
+        # Build a session that crosses the 5-min milestone (reaches 10min).
+        log = Log([prompt, msg1])
+        for minutes in (2, 6, 11):
+            fake_clock.utc = start + timedelta(minutes=minutes)
+            msgs = _call_with_log(workspace, log)
+            assert len(msgs) == 1
+            log = Log([*log.messages, *msgs])
+
+        # Sanity: several milestones recorded in this context.
+        assert len(_shown_milestones_var.get()[str(workspace)]) >= 2  # type: ignore[index]
+
+        # /backtrack: drop everything after the original two messages.
+        # The session start is unchanged — only the old guard (start-change) fires.
+        short_log = Log([prompt, msg1])
+        assert _session_start(short_log) == _session_start(log)
+
+        # At minute 6 on the short log the 5-min milestone must be fresh again.
+        # Without the log-length reset it would already be in shown_milestones
+        # and the call would return nothing.
+        fake_clock.utc = start + timedelta(minutes=6)
+        (notice,) = _call_with_log(workspace, short_log)
+        assert "Time elapsed:" in notice.content
 
     def test_multiple_tools_in_one_step_report_gap_once(
         self, workspace: Path, fake_clock: FakeClock
