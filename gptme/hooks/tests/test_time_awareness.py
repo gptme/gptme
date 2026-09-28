@@ -14,7 +14,6 @@ from gptme.hooks.time_awareness import (
     _get_next_milestone,
     _last_notice_var,
     _shown_milestones_var,
-    _start_cache_var,
     add_time_message,
 )
 from gptme.hooks.types import ToolExecutePostData
@@ -36,9 +35,7 @@ def reset_contextvars():
     tok1 = _conversation_start_times_var.set(None)
     tok2 = _shown_milestones_var.set(None)
     tok3 = _last_notice_var.set(None)
-    tok4 = _start_cache_var.set(None)
     yield
-    _start_cache_var.reset(tok4)
     _last_notice_var.reset(tok3)
     _conversation_start_times_var.reset(tok1)
     _shown_milestones_var.reset(tok2)

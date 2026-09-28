@@ -17,11 +17,10 @@ Shows time elapsed messages at: 1min, 5min, 10min, 15min, 20min, then every 10mi
 All times come from a single clock (:func:`gptme.util.clock.now`): the wall clock as a
 timezone-aware datetime in the system's local timezone. Notices always include
 the full date and UTC offset, so they stay unambiguous across date boundaries.
-Elapsed time is measured from the real session start (the first message in the
-log, which survives resume), and gaps in the conversation (e.g. a resume after
+Elapsed time is measured from the real session start (the earliest message in
+the log, which survives resume), and gaps in the conversation (e.g. a resume after
 hours of inactivity) are reported explicitly instead of silently jumping.
 """
-
 
 import logging
 from contextvars import ContextVar
@@ -53,9 +52,9 @@ GAP_THRESHOLD = timedelta(minutes=30)
 NOTICE_PREFIX = "<system_info>The time is now "
 
 # Context-local state. The log is the source of truth for what was reported;
-# these cache the session start (O(n) to compute) and cover what the log can't
-# show yet: no log at all, or notices from earlier tools in the same step that
-# the CLI has buffered but not yet appended to the log.
+# these cover what the log can't show yet: no log at all, or notices from
+# earlier tools in the same step that the CLI has buffered but not yet
+# appended to the log.
 _conversation_start_times_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "conversation_start_times", default=None
 )
@@ -64,11 +63,6 @@ _shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar(
 )
 _last_notice_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "time_awareness_last_notice", default=None
-)
-# workspace -> (id of the log's first message, log length) the cached start
-# was computed for; used to detect a rewritten or truncated log.
-_start_cache_var: ContextVar[dict[str, tuple[int, int]] | None] = ContextVar(
-    "time_awareness_start_cache", default=None
 )
 
 
@@ -129,8 +123,6 @@ def _ensure_locals():
         _shown_milestones_var.set({})
     if _last_notice_var.get() is None:
         _last_notice_var.set({})
-    if _start_cache_var.get() is None:
-        _start_cache_var.set({})
 
 
 def _elapsed_milestone(start: datetime, at: datetime) -> int | None:
@@ -161,27 +153,20 @@ def add_time_message(
         conversation_start_times = _conversation_start_times_var.get()
         shown_milestones = _shown_milestones_var.get()
         last_notices = _last_notice_var.get()
-        start_cache = _start_cache_var.get()
-        assert start_cache is not None
         assert conversation_start_times is not None
         assert shown_milestones is not None
         assert last_notices is not None
 
         current = clock.now()
 
-        # Real session start from the log survives resume. It's O(n), so it
-        # is cached and only recomputed when the log was rewritten (first
-        # message replaced) or shrank (e.g. /backtrack, /edit).
-        messages = getattr(data.log, "messages", None)
-        if messages:
-            key = id(messages[0])
-            cached = start_cache.get(workspace_str)
-            if cached is None or cached[0] != key or len(messages) < cached[1]:
-                log_start = _session_start(data.log)
-                if log_start is not None and log_start <= current:
-                    conversation_start_times[workspace_str] = log_start
-            start_cache[workspace_str] = (key, len(messages))
-        if workspace_str not in conversation_start_times:
+        # Real session start from the log survives resume and always reflects
+        # the current log (e.g. after /backtrack or /edit). Recomputed every
+        # call: measured ~1.5µs/message (~3ms at 2000 messages), negligible
+        # next to tool execution, so no cache to keep in sync.
+        log_start = _session_start(data.log)
+        if log_start is not None and log_start <= current:
+            conversation_start_times[workspace_str] = log_start
+        elif workspace_str not in conversation_start_times:
             # Without a log, fall back to the first hook call in this context.
             conversation_start_times[workspace_str] = current
         shown_milestones.setdefault(workspace_str, set())
