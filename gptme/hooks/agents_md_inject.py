@@ -35,6 +35,7 @@ See: https://github.com/gptme/gptme/issues/1958
 """
 
 import logging
+import os
 import re
 from collections.abc import Generator, Iterable
 from pathlib import Path
@@ -187,29 +188,72 @@ def _find_foreign_agent_root(
     workspace is *foreign* when it is not one of the session's own roots (or an
     ancestor of one) and its agent name differs from the session's. A session
     without an agent name treats every other agent workspace as foreign.
+
+    Both the path the file was discovered at and its symlink-resolved target
+    are checked, so a symlinked ``AGENTS.md`` is foreign if either location is.
     """
+    locations = [Path(os.path.abspath(agent_file)).parent]
+    resolved_parent = agent_file.resolve().parent
+    if resolved_parent != locations[0]:
+        locations.append(resolved_parent)
+    for start in locations:
+        found = _walk_to_agent_root(start, session_name, own_roots)
+        if found is not None:
+            return found
+    return None
+
+
+def _walk_to_agent_root(
+    start: Path, session_name: str | None, own_roots: set[Path]
+) -> tuple[Path, str] | None:
+    """Walk up from ``start`` to the nearest agent root; return it if foreign."""
     home = Path.home().resolve()
-    current = agent_file.resolve().parent
+    current = start
     while True:
         name = _agent_name_of(current)
         if name is not None:
-            if any(root.is_relative_to(current) for root in own_roots):
+            resolved = current.resolve()
+            if any(root.is_relative_to(resolved) for root in own_roots):
                 return None
             if session_name is not None and name == session_name:
                 return None
-            return current, name
-        if current == home or current == current.parent:
+            return resolved, name
+        if current.resolve() == home or current == current.parent:
             return None
         current = current.parent
+
+
+def _sanitize_for_notice(text: str, max_len: int = 64) -> str:
+    """Make foreign-controlled text safe to quote in a system message.
+
+    The agent name and paths come from the foreign workspace, so they must not
+    be able to smuggle instructions or markup into the session's context:
+    collapse whitespace/control characters, drop quote and angle-bracket
+    characters, and truncate.
+    """
+    cleaned = "".join(
+        " " if (ch.isspace() or not ch.isprintable()) else ch
+        for ch in text
+        if ch not in "<>\"'`"
+    )
+    cleaned = " ".join(cleaned.split())
+    if len(cleaned) > max_len:
+        cleaned = cleaned[: max_len - 1] + "…"
+    return cleaned or "?"
 
 
 def _format_foreign_notice(
     root: Path, name: str, files: list[Path], session_name: str | None
 ) -> Message:
     """Build the visible notice for instructions skipped in a foreign workspace."""
-    display_root = _format_display_path(root)
-    display_files = ", ".join(_format_display_path(f) for f in files)
+    # Everything below except fixed text comes from the foreign workspace.
+    name = _sanitize_for_notice(name)
+    display_root = _sanitize_for_notice(_format_display_path(root), max_len=512)
+    display_files = ", ".join(
+        _sanitize_for_notice(_format_display_path(f), max_len=512) for f in files
+    )
     if session_name:
+        session_name = _sanitize_for_notice(session_name)
         reason = (
             "it defines a different agent identity than this session's "
             f"'{session_name}'"
