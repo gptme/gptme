@@ -1290,6 +1290,7 @@ class GptmeApp(App):
         auto_confirm: bool = False,
         inline: bool = False,
         experimental_jelly_errors: bool = False,
+        initial_prompts: list[str] | None = None,
     ):
         super().__init__()
         # Keep Textual's truecolor theme, but preserve ANSI default through the
@@ -1305,6 +1306,8 @@ class GptmeApp(App):
         self.auto_confirm = auto_confirm
         self.inline = inline
         self.experimental_jelly_errors = experimental_jelly_errors
+        # prompts from the command line, submitted once mounted (see on_mount)
+        self._initial_prompts = list(initial_prompts or [])
         self._stream_text = ""
         # Snapshot the caller's context (default model, output format, …) so
         # worker threads see it — gptme stores this state in ContextVars,
@@ -1412,6 +1415,16 @@ class GptmeApp(App):
         self._update_status()
         # watchdog: tools can reset the tty at any point during execution
         self.set_interval(0.5, self._restore_terminal)
+        if self._initial_prompts:
+            self.call_after_refresh(self._submit_initial_prompts)
+
+    async def _submit_initial_prompts(self) -> None:
+        """Submit command-line prompts like the CLI: the first now, the rest
+        queued, each sent when the previous turn finishes."""
+        first, *rest = self._initial_prompts
+        self._initial_prompts = []
+        self.prompt_queue.extend(rest)
+        await self._submit(first)
 
     def on_unmount(self) -> None:
         self._quitting = True

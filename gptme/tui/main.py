@@ -19,6 +19,7 @@ from ..message import set_output_format
 from ..prompts import get_prompt
 from ..tools import get_tools
 from ..util.auto_naming import generate_conversation_id
+from ..util.multiprompt import group_prompt_args
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,7 @@ def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
 
 
 @click.command("gptme-tui")
+@click.argument("prompts", nargs=-1)
 @click.option(
     "-n", "--name", default="random", help="Conversation name to open or create."
 )
@@ -147,6 +149,7 @@ def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
 )
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging.")
 def main(
+    prompts: tuple[str, ...],
     name: str,
     resume: str | None,
     model: str | None,
@@ -162,6 +165,9 @@ def main(
 
     Complementary to the plain `gptme` CLI: supports queueing prompts while
     the agent works, collapsible tool output, and a live status bar.
+
+    PROMPTS are submitted on start, like with `gptme`; chain several with
+    '-' (e.g. `gptme-tui "write a script" - "now test it"`).
     """
     try:
         from .app import GptmeApp
@@ -235,6 +241,7 @@ def main(
         auto_confirm=no_confirm,
         inline=inline,
         experimental_jelly_errors=experimental_jelly_errors,
+        initial_prompts=group_prompt_args(prompts),
     )
     if inline:
         _print_history(manager)

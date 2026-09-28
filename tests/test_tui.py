@@ -1877,6 +1877,31 @@ async def test_paste_placeholder_survives_other_edits(tmp_path):
         )
 
 
+def test_tui_accepts_prompt_arguments():
+    from gptme.tui.main import main
+    from gptme.util.multiprompt import group_prompt_args
+
+    params = main.make_context("gptme-tui", ["write it", "-", "test it"]).params
+    assert params["prompts"] == ("write it", "-", "test it")
+    # same grouping as the CLI
+    assert group_prompt_args(params["prompts"]) == ["write it", "test it"]
+
+
+@pytest.mark.asyncio
+async def test_initial_prompts_submit_first_and_queue_rest(tmp_path, monkeypatch):
+    app = GptmeApp(
+        make_manager(tmp_path), workspace=tmp_path, initial_prompts=["one", "two"]
+    )
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        assert [m.content for m in app.manager.log if m.role == "user"] == ["one"]
+        assert app.prompt_queue == ["two"]
+        assert started
+
+
 def _make_conv(logs_dir, name):
     (logs_dir / name).mkdir(parents=True)
     (logs_dir / name / "conversation.jsonl").write_text("{}\n")

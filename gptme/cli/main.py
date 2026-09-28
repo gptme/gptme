@@ -27,6 +27,7 @@ import gptme
 
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
+from ..util.multiprompt import group_prompt_args as _group_prompt_args
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -467,23 +468,6 @@ def _find_missing_explicit_local_path(prompts: list[str]) -> str | None:
         if missing := _extract_missing_explicit_local_path(prompt):
             return missing
     return None
-
-
-def _group_prompt_args(prompts: list[str] | tuple[str, ...]) -> list[str]:
-    """Group CLI prompt arguments on exact standalone separator arguments."""
-    if len(prompts) == 1:
-        return [prompts[0].strip()] if prompts[0].strip() else []
-
-    grouped: list[str] = []
-    current: list[str] = []
-    for prompt in prompts:
-        if prompt == MULTIPROMPT_SEPARATOR:
-            grouped.append("\n\n".join(current))
-            current = []
-        else:
-            current.append(prompt)
-    grouped.append("\n\n".join(current))
-    return [stripped for group in grouped if (stripped := group.strip())]
 
 
 def _known_tool_names() -> list[str]:
