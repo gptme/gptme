@@ -3237,6 +3237,9 @@ def test_invalid_color_types_are_ignored(caplog):
         ("rgb(192, 28, 40)", "#c01c28"),
         ("bright_magenta", "#ff00ff"),
         (None, None),
+        (123, None),
+        (True, None),
+        ("", None),
     ],
 )
 def test_color_to_hex(value, expected):

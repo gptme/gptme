@@ -54,16 +54,16 @@ def valid_color(value: object, where: str) -> str | None:
     return None
 
 
-def color_to_hex(value: str | None) -> str | None:
+def color_to_hex(value: object) -> str | None:
     """Convert a validated Rich color to a CSS-compatible hex value."""
-    if not value:
+    if not isinstance(value, str) or not value:
         return None
 
     from rich.color import Color, ColorParseError
 
     try:
         return Color.parse(value).get_truecolor().hex
-    except (ColorParseError, ValueError):
+    except (ColorParseError, ValueError, AttributeError, TypeError):
         return None
 
 
