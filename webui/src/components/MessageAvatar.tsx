@@ -14,7 +14,7 @@ interface MessageAvatarProps {
   agentName?: string;
   userAvatarUrl?: string;
   userName?: string;
-  userColor?: string;
+  userColor?: string | null;
 }
 
 function getInitials(name?: string): string {

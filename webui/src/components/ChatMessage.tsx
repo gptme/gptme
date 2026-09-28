@@ -162,9 +162,10 @@ interface Props {
   previousMessage$?: Observable<Message | undefined>;
   nextMessage$?: Observable<Message | undefined>;
   conversationId: string;
+  serverId?: string;
   agentAvatarUrl?: string;
   agentName?: string;
-  agentColor?: string;
+  agentColor?: string | null;
   onRetry?: (message: Message) => void;
   onEdit?: (
     index: number,
@@ -187,6 +188,7 @@ const ChatMessageComponent: FC<Props> = ({
   previousMessage$,
   nextMessage$,
   conversationId,
+  serverId,
   agentAvatarUrl,
   agentName,
   agentColor,
@@ -199,7 +201,8 @@ const ChatMessageComponent: FC<Props> = ({
   messageIndex,
   hideAvatar,
 }) => {
-  const { api, connectionConfig } = useApi();
+  const { getClient, connectionConfig } = useApi();
+  const client = getClient(serverId);
   const { settings } = useSettings();
   // TTS playback state: which message is currently being spoken (if any).
   const ttsKey = messageIndex !== undefined ? `${conversationId}:${messageIndex}` : null;
@@ -593,13 +596,13 @@ const ChatMessageComponent: FC<Props> = ({
                       chainType$={chainType$}
                       agentAvatarUrl={agentAvatarUrl}
                       agentName={agentName}
-                      userColor={api.userInfo$.color?.get()}
+                      userColor={client.userInfo$?.color?.get() ?? undefined}
                       userAvatarUrl={
-                        api.userInfo$.avatar?.get()
-                          ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/user/avatar`
+                        client.userInfo$?.avatar?.get() && client.baseUrl
+                          ? `${client.baseUrl.replace(/\/+$/, '')}/api/v2/user/avatar`
                           : undefined
                       }
-                      userName={api.userInfo$.name?.get()}
+                      userName={client.userInfo$?.name?.get() ?? undefined}
                     />
                   </div>
                 )}

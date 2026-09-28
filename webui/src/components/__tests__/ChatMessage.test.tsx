@@ -6,7 +6,22 @@ import type { Message, MessageRole } from '@/types/conversation';
 import { observable } from '@legendapp/state';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 
-// Mock the ApiContext
+// Mock the ApiContext. Primary vs secondary clients let tests assert that
+// user identity (color/avatar) comes from the conversation's server.
+const mockPrimaryUserInfo$ = observable<{
+  name?: string;
+  avatar?: string;
+  color?: string | null;
+} | null>(null);
+const mockSecondaryUserInfo$ = observable<{
+  name?: string;
+  avatar?: string;
+  color?: string | null;
+} | null>({
+  name: 'Secondary User',
+  color: '#c01c28',
+});
+
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
     baseUrl: 'http://localhost:5700',
@@ -15,8 +30,13 @@ jest.mock('@/contexts/ApiContext', () => ({
       baseUrl: 'http://localhost:5700',
     },
     api: {
-      userInfo$: observable(null),
+      baseUrl: 'http://localhost:5700',
+      userInfo$: mockPrimaryUserInfo$,
     },
+    getClient: (serverId?: string) =>
+      serverId === 'secondary-server'
+        ? { baseUrl: 'http://127.0.0.1:5701', userInfo$: mockSecondaryUserInfo$ }
+        : { baseUrl: 'http://localhost:5700', userInfo$: mockPrimaryUserInfo$ },
   }),
 }));
 
@@ -80,6 +100,27 @@ describe('ChatMessage', () => {
     expect(screen.getByLabelText('User avatar')).toHaveStyle({
       backgroundColor: '#e5a50a',
       color: '#000000',
+    });
+  });
+
+  it('reads user color from the conversation server, not the primary client', () => {
+    const message$ = observable<Message>({
+      role: 'user',
+      content: 'Hello!',
+      timestamp: new Date().toISOString(),
+    });
+
+    renderWithProviders(
+      <ChatMessage
+        message$={message$}
+        conversationId={testConversationId}
+        serverId="secondary-server"
+      />
+    );
+
+    expect(screen.getByLabelText('Secondary User avatar')).toHaveStyle({
+      backgroundColor: '#c01c28',
+      color: '#ffffff',
     });
   });
 

@@ -1041,6 +1041,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                     previousMessage$={previousMessage$}
                     nextMessage$={nextMessage$}
                     conversationId={conversationId}
+                    serverId={serverId}
                     agentAvatarUrl={agentAvatarUrl}
                     agentName={agentName}
                     agentColor={agentColor}

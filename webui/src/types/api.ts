@@ -117,14 +117,14 @@ export interface SendMessageRequest extends Message {
 export interface AgentInfo {
   name: string;
   avatar?: string;
-  color?: string;
+  color?: string | null;
 }
 
 // User identity info from global config
 export interface UserInfo {
   name: string;
   avatar?: string;
-  color?: string;
+  color?: string | null;
 }
 
 // Response from /api/conversations/<logfile>

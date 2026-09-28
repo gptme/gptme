@@ -73,6 +73,7 @@ const lastConnectionResult$ = observable<null | {
   message: string;
 }>(null);
 const sessions$ = observable(new Map<string, string>());
+const mockUserInfo$ = observable(null);
 
 // Secondary server observables for serverId tests
 const secondaryIsConnected$ = observable(true);
@@ -183,6 +184,8 @@ jest.mock('@/contexts/ApiContext', () => ({
           isConnected$: secondaryIsConnected$,
           lastConnectionResult$: secondaryLastConnectionResult$,
           checkConnection: secondaryCheckConnection,
+          userInfo$: mockUserInfo$,
+          baseUrl: 'http://127.0.0.1:5701',
         };
       }
       // Unknown server ID falls back to primary (matches ApiContext behavior)
@@ -190,6 +193,8 @@ jest.mock('@/contexts/ApiContext', () => ({
         isConnected$,
         lastConnectionResult$,
         checkConnection: mockCheckConnection,
+        userInfo$: mockUserInfo$,
+        baseUrl: 'http://localhost:5700',
       };
     },
     connectionConfig: {

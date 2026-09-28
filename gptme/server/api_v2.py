@@ -67,7 +67,7 @@ from ..config.user import (
     get_user_config_paths,
     get_user_config_runtime_info,
 )
-from ..constants import color_to_hex
+from ..constants import color_to_hex, env_agent_color
 from ..dirs import get_logs_dir
 from ..logmanager import (
     ConversationMeta,
@@ -1595,17 +1595,23 @@ def api_conversation(conversation_id: str):
         if start > 0:
             log_dict["before"] = start  # cursor for the next older page
 
-    # Include agent info if available
+    # Include agent info if available. GPTME_AGENT_COLOR overrides the
+    # conversation agent's project color, matching TUI/CLI display.
     agent_config = chat_config.agent_config
+    assistant_color = color_to_hex(
+        env_agent_color() or (agent_config.color if agent_config else None)
+    )
     if agent_config:
         log_dict["agent"] = {
             "name": agent_config.name,
             "avatar": agent_config.avatar,
-            "color": color_to_hex(agent_config.color),
+            "color": assistant_color,
             "urls": agent_config.urls or None,
         }
         if chat_config.agent:
             log_dict["agent"]["path"] = str(chat_config.agent)
+    elif assistant_color:
+        log_dict["agent"] = {"color": assistant_color}
 
     # Surface session-level state so REST polling clients can see generation
     # status and the last step error without subscribing to SSE.
