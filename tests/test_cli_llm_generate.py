@@ -1,6 +1,7 @@
 """Tests for `gptme-util llm generate` command, specifically --output-format."""
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,6 +18,16 @@ def _fake_chat_complete(messages, model, tools, **kwargs):
 
 def _fake_chat_complete_no_usage(messages, model, tools, **kwargs):
     return "hello world", {"model": model}
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_log_level():
+    """llm_generate sets the root logger to CRITICAL (fine for a one-shot CLI);
+    restore it so later tests that assert on log output still see warnings."""
+    root = logging.getLogger()
+    level = root.level
+    yield
+    root.setLevel(level)
 
 
 @pytest.fixture()

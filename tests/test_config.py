@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 from dataclasses import asdict, replace
@@ -3197,6 +3198,8 @@ def test_project_config_ignores_legacy_gear_setting():
 
 def test_agent_and_user_color_config(tmp_path, caplog):
     """[agent].color / [user].color are accepted; invalid colors warn, not fail."""
+    # Explicit level: another test may leave the root logger at CRITICAL.
+    caplog.set_level(logging.WARNING, logger="gptme.constants")
     config = ProjectConfig.from_dict({"agent": {"name": "Bob", "color": "#e5a50a"}})
     assert config.agent is not None
     assert config.agent.color == "#e5a50a"
@@ -3220,6 +3223,7 @@ def test_agent_and_user_color_config(tmp_path, caplog):
 
 def test_invalid_color_types_are_ignored(caplog):
     """Non-string or unparsable colors warn and are dropped, never crash."""
+    caplog.set_level(logging.WARNING, logger="gptme.constants")
     config = ProjectConfig.from_dict({"agent": {"name": "Bob", "color": 123}})
     assert config.agent is not None
     assert config.agent.color is None
