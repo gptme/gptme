@@ -84,7 +84,12 @@ permissions:
 jobs:
   resolve:
     if: github.event.label.name == 'bot:resolve'
+    # one resolver run per issue; job-level so other labels can't replace it
+    concurrency:
+      group: gptme-bot-${{ github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: gptme/gptme/.github/actions/bot@master
