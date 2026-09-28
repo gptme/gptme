@@ -32,17 +32,29 @@ def _get_logdir(name: str) -> Path:
     return logdir
 
 
-def _get_logdir_resume() -> Path:
-    """Get the most recently modified conversation."""
-    logs_dir = get_logs_dir()
-    candidates = sorted(
-        (d for d in logs_dir.iterdir() if (d / "conversation.jsonl").exists()),
-        key=lambda d: (d / "conversation.jsonl").stat().st_mtime,
-        reverse=True,
-    )
-    if not candidates:
-        raise click.UsageError("No conversation found to resume.")
-    return candidates[0]
+def _get_logdir_resume(name: str) -> Path:
+    """Get the named conversation, which must exist."""
+    logdir = get_logs_dir() / name
+    if not (logdir / "conversation.jsonl").exists():
+        raise click.UsageError(f"No conversation named '{name}' to resume.")
+    return logdir
+
+
+def _select_logdir(name: str, resume: str | None) -> Path:
+    """Resolve the conversation from --name / --resume [NAME]."""
+    if resume is None:
+        return _get_logdir(name)
+    # `--resume --name X` (the CLI spelling) works too
+    if target := resume or (name if name != "random" else None):
+        return _get_logdir_resume(target)
+    if not sys.stdin.isatty():
+        raise click.UsageError(
+            "--resume without a name needs a terminal to pick from; "
+            "pass the conversation name: --resume <name>"
+        )
+    from ..cli.main import pick_log
+
+    return pick_log()
 
 
 def _print_history(manager: LogManager, limit: int = 50) -> None:
@@ -86,7 +98,15 @@ def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
 @click.option(
     "-n", "--name", default="random", help="Conversation name to open or create."
 )
-@click.option("-r", "--resume", is_flag=True, help="Resume the last conversation.")
+@click.option(
+    "-r",
+    "--resume",
+    is_flag=False,
+    flag_value="",
+    default=None,
+    metavar="[NAME]",
+    help="Resume a conversation: NAME if given, else pick one from a list.",
+)
 @click.option(
     "-m",
     "--model",
@@ -128,7 +148,7 @@ def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging.")
 def main(
     name: str,
-    resume: bool,
+    resume: str | None,
     model: str | None,
     workspace: str | None,
     tool_allowlist: str | None,
@@ -156,7 +176,7 @@ def main(
     # messages itself (streaming via on_token, results via step() yields)
     set_output_format("quiet")
 
-    logdir = _get_logdir_resume() if resume else _get_logdir(name)
+    logdir = _select_logdir(name, resume)
     workspace_path = Path(workspace).expanduser().resolve() if workspace else Path.cwd()
 
     config = setup_config_from_cli(
@@ -202,7 +222,10 @@ def main(
         )
     )
 
-    manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+    try:
+        manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+    except RuntimeError as e:  # e.g. the conversation is open in another process
+        raise click.ClickException(str(e)) from e
     os.chdir(workspace_path)
 
     app = GptmeApp(

@@ -1,6 +1,7 @@
 """Tests for the Textual TUI (requires the `tui` extra)."""
 
 import signal
+import sys
 
 import pytest
 
@@ -1874,3 +1875,48 @@ async def test_paste_placeholder_survives_other_edits(tmp_path):
         assert inp._expand_pastes(inp.text) == (
             "x see [Pasted text #2 +3 lines]\n2\n3a\nb\nc"
         )
+
+
+def _make_conv(logs_dir, name):
+    (logs_dir / name).mkdir(parents=True)
+    (logs_dir / name / "conversation.jsonl").write_text("{}\n")
+
+
+def test_resume_option_takes_optional_name():
+    from gptme.tui.main import main
+
+    def params(args):
+        return main.make_context("gptme-tui", args).params
+
+    assert params([])["resume"] is None
+    assert params(["--resume"])["resume"] == ""
+    assert params(["--resume", "my-conv"])["resume"] == "my-conv"
+    # an option after the flag isn't taken as the name
+    assert params(["-r", "-m", "mock/echo"])["resume"] == ""
+
+
+def test_select_logdir(tmp_path, monkeypatch):
+    import importlib
+
+    import click
+
+    from gptme.tui import main as tui_main
+
+    cli_main = importlib.import_module("gptme.cli.main")
+    monkeypatch.setattr(tui_main, "get_logs_dir", lambda: tmp_path)
+    _make_conv(tmp_path, "older")
+    _make_conv(tmp_path, "newer")
+
+    select = tui_main._select_logdir
+    assert select("random", "older") == tmp_path / "older"
+    # CLI spelling: --resume --name older
+    assert select("older", "") == tmp_path / "older"
+    with pytest.raises(click.UsageError, match="No conversation named"):
+        select("random", "missing")
+    # bare --resume picks from a list; it never guesses "the latest"
+    monkeypatch.setattr(cli_main, "pick_log", lambda: tmp_path / "picked")
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    assert select("random", "") == tmp_path / "picked"
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    with pytest.raises(click.UsageError, match="needs a terminal"):
+        select("random", "")
