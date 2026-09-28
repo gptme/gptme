@@ -67,6 +67,7 @@ from ..config.user import (
     get_user_config_paths,
     get_user_config_runtime_info,
 )
+from ..constants import color_to_hex
 from ..dirs import get_logs_dir
 from ..logmanager import (
     ConversationMeta,
@@ -1600,6 +1601,7 @@ def api_conversation(conversation_id: str):
         log_dict["agent"] = {
             "name": agent_config.name,
             "avatar": agent_config.avatar,
+            "color": color_to_hex(agent_config.color),
             "urls": agent_config.urls or None,
         }
         if chat_config.agent:
@@ -3177,7 +3179,7 @@ def api_agent_avatar():
 @require_auth
 @api_doc(
     summary="Get user identity",
-    description="Get user identity info (name, avatar) from global config",
+    description="Get user identity info (name, avatar, color) from global config",
     responses={200: None},
     tags=["user"],
 )
@@ -3188,6 +3190,7 @@ def api_user():
         {
             "name": user_config.user.name,
             "avatar": user_config.user.avatar,
+            "color": color_to_hex(user_config.user.color),
         }
     )
 

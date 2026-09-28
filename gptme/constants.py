@@ -54,6 +54,19 @@ def valid_color(value: object, where: str) -> str | None:
     return None
 
 
+def color_to_hex(value: str | None) -> str | None:
+    """Convert a validated Rich color to a CSS-compatible hex value."""
+    if not value:
+        return None
+
+    from rich.color import Color, ColorParseError
+
+    try:
+        return Color.parse(value).get_truecolor().hex
+    except (ColorParseError, ValueError):
+        return None
+
+
 @functools.lru_cache(maxsize=8)
 def _env_agent_color(value: str) -> str | None:
     # cached: validate (and warn about) each GPTME_AGENT_COLOR value once

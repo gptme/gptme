@@ -68,6 +68,21 @@ describe('ChatMessage', () => {
     expect(avatar).not.toHaveClass('hidden');
   });
 
+  it('uses the configured user color for the avatar fallback', () => {
+    render(
+      <MessageAvatar
+        role$={observable<MessageRole>('user')}
+        chainType$={observable<'start' | 'middle' | 'end' | 'standalone'>('standalone')}
+        userColor="#e5a50a"
+      />
+    );
+
+    expect(screen.getByLabelText('User avatar')).toHaveStyle({
+      backgroundColor: '#e5a50a',
+      color: '#000000',
+    });
+  });
+
   it('renders assistant message', () => {
     const message$ = observable<Message>({
       role: 'assistant',
@@ -77,6 +92,22 @@ describe('ChatMessage', () => {
 
     renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />);
     expect(screen.getByText('Hi there!')).toBeInTheDocument();
+  });
+
+  it('uses the configured agent color as the assistant message accent', () => {
+    const message$ = observable<Message>({
+      role: 'assistant',
+      content: 'Hi there!',
+      timestamp: new Date().toISOString(),
+    });
+
+    const { container } = renderWithProviders(
+      <ChatMessage message$={message$} conversationId={testConversationId} agentColor="#e5a50a" />
+    );
+
+    expect(container.querySelector('.group\\/message')).toHaveStyle({
+      borderLeft: '3px solid #e5a50a',
+    });
   });
 
   it('renders system message with monospace font', () => {

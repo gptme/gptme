@@ -2449,6 +2449,28 @@ def test_v2_conversation_get(v2_conv, client: FlaskClient):
     assert "testing" in data["log"][0]["content"]
 
 
+def test_v2_conversation_get_exposes_agent_color(client: FlaskClient, tmp_path: Path):
+    """The web UI receives a CSS color for the conversation's configured agent."""
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "gptme.toml").write_text(
+        '[agent]\nname = "Bob"\ncolor = "bright_magenta"\n'
+    )
+    conversation_id = f"agent-color-{random.randint(0, 1000000)}"
+
+    response = client.put(
+        f"/api/v2/conversations/{conversation_id}",
+        json={
+            "prompt": "You are an AI assistant for testing.",
+            "config": {"chat": {"agent": str(agent_dir)}},
+        },
+    )
+
+    assert response.status_code == 200
+    data = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert data["agent"]["color"] == "#ff00ff"
+
+
 def test_v2_conversation_get_returns_404_for_missing_conversation(
     client: FlaskClient,
 ):
@@ -2460,6 +2482,25 @@ def test_v2_conversation_get_returns_404_for_missing_conversation(
     assert response.status_code == 404
     assert response.get_json() == {
         "error": f"Conversation not found: {conversation_id}"
+    }
+
+
+def test_v2_user_exposes_configured_color(client: FlaskClient, monkeypatch):
+    """The user identity endpoint normalizes Rich color names for CSS."""
+    from gptme.config import UserConfig, UserIdentityConfig
+
+    user_config = UserConfig(
+        user=UserIdentityConfig(name="Erik", color="bright_magenta")
+    )
+    monkeypatch.setattr("gptme.server.api_v2.load_user_config", lambda: user_config)
+
+    response = client.get("/api/v2/user")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "name": "Erik",
+        "avatar": None,
+        "color": "#ff00ff",
     }
 
 

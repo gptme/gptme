@@ -3230,6 +3230,21 @@ def test_invalid_color_types_are_ignored(caplog):
     assert "123" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("#e5a50a", "#e5a50a"),
+        ("rgb(192, 28, 40)", "#c01c28"),
+        ("bright_magenta", "#ff00ff"),
+        (None, None),
+    ],
+)
+def test_color_to_hex(value, expected):
+    from gptme.constants import color_to_hex
+
+    assert color_to_hex(value) == expected
+
+
 def test_invalid_agent_color_env_is_ignored(monkeypatch):
     from gptme import constants
 

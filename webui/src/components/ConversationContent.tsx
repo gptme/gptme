@@ -1023,6 +1023,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               ? `${baseUrl}/api/v2/conversations/${conversationId}/agent/avatar`
               : undefined;
             const agentName = conversation$.data.agent?.name?.peek();
+            const agentColor = conversation$.data.agent?.color?.peek();
 
             return (
               <div
@@ -1042,6 +1043,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                     conversationId={conversationId}
                     agentAvatarUrl={agentAvatarUrl}
                     agentName={agentName}
+                    agentColor={agentColor}
                     onRetry={isReadOnly ? undefined : retryMessage}
                     onEdit={isReadOnly ? undefined : editMessage}
                     onDelete={isReadOnly ? undefined : deleteMessage}

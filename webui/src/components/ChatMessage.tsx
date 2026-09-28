@@ -164,6 +164,7 @@ interface Props {
   conversationId: string;
   agentAvatarUrl?: string;
   agentName?: string;
+  agentColor?: string;
   onRetry?: (message: Message) => void;
   onEdit?: (
     index: number,
@@ -188,6 +189,7 @@ const ChatMessageComponent: FC<Props> = ({
   conversationId,
   agentAvatarUrl,
   agentName,
+  agentColor,
   onRetry,
   onEdit,
   onDelete,
@@ -591,6 +593,7 @@ const ChatMessageComponent: FC<Props> = ({
                       chainType$={chainType$}
                       agentAvatarUrl={agentAvatarUrl}
                       agentName={agentName}
+                      userColor={api.userInfo$.color?.get()}
                       userAvatarUrl={
                         api.userInfo$.avatar?.get()
                           ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/user/avatar`
@@ -602,7 +605,14 @@ const ChatMessageComponent: FC<Props> = ({
                 )}
 
                 <div className={`md:px-12`}>
-                  <div className={`group/message relative flex flex-col ${messageClasses$.get()}`}>
+                  <div
+                    className={`group/message relative flex flex-col ${messageClasses$.get()}`}
+                    style={
+                      message$.role.get() === 'assistant' && agentColor
+                        ? { borderLeft: `3px solid ${agentColor}` }
+                        : undefined
+                    }
+                  >
                     {/* Per-message actions — rendered under the message (order-last),
                         aligned left for assistant/system and right for user. */}
                     <div

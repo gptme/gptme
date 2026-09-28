@@ -14,6 +14,7 @@ interface MessageAvatarProps {
   agentName?: string;
   userAvatarUrl?: string;
   userName?: string;
+  userColor?: string;
 }
 
 function getInitials(name?: string): string {
@@ -26,6 +27,20 @@ function getInitials(name?: string): string {
   return parts.map((part) => part[0]?.toUpperCase()).join('');
 }
 
+function contrastColor(background: string): string | undefined {
+  const match = /^#([0-9a-f]{6})$/i.exec(background);
+  if (!match) return undefined;
+
+  const channels = [0, 2, 4].map(
+    (offset) => parseInt(match[1].slice(offset, offset + 2), 16) / 255
+  );
+  const [red, green, blue] = channels.map((channel) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  );
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance > 0.179 ? '#000000' : '#ffffff';
+}
+
 export function MessageAvatar({
   role$,
   isError$,
@@ -35,6 +50,7 @@ export function MessageAvatar({
   agentName,
   userAvatarUrl,
   userName,
+  userColor,
 }: MessageAvatarProps) {
   const role = use$(role$);
   const isError = use$(isError$);
@@ -52,6 +68,10 @@ export function MessageAvatar({
     (isAssistant && agentAvatarUrl && !imageError) || (isUser && userAvatarUrl && !imageError);
   const avatarUrl = isUser ? userAvatarUrl : agentAvatarUrl;
   const sideClass = isUser ? 'right-0' : 'left-0';
+  const fallbackStyle =
+    isUser && !showCustomAvatar && userColor
+      ? { backgroundColor: userColor, color: contrastColor(userColor) }
+      : undefined;
 
   const avatarClasses = `absolute top-1.5 flex h-8 w-8 flex-shrink-0 select-none items-center justify-center rounded-full border-2 border-border text-xs font-semibold md:h-10 md:w-10 md:text-sm ${sideClass} ${
     isUser
@@ -88,7 +108,7 @@ export function MessageAvatar({
       />
     </div>
   ) : (
-    <div className={avatarClasses} aria-label={`${tooltipText} avatar`}>
+    <div className={avatarClasses} style={fallbackStyle} aria-label={`${tooltipText} avatar`}>
       {isAssistant ? (
         <Bot className="h-4 w-4 md:h-5 md:w-5" />
       ) : role === 'system' ? (

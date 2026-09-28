@@ -55,7 +55,12 @@ from textual.worker import Worker, WorkerState
 from ..chat import step
 from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..config import get_config
-from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT, configured_role_color
+from ..constants import (
+    DECLINED_CONTENT,
+    INTERRUPT_CONTENT,
+    color_to_hex,
+    configured_role_color,
+)
 from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, trigger_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
@@ -507,15 +512,7 @@ def _has_tool_calls(text: str) -> bool:
 
 def _role_color_hex(role: str) -> str | None:
     """Configured ``[agent]``/``[user]`` color as hex, or None for the theme's."""
-    from rich.color import Color, ColorParseError
-
-    color = configured_role_color(role)
-    if not color:
-        return None
-    try:
-        return Color.parse(color).get_truecolor().hex
-    except ColorParseError:
-        return None
+    return color_to_hex(configured_role_color(role))
 
 
 def _apply_role_color(widget: Widget, role: str) -> None:
