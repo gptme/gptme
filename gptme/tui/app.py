@@ -287,6 +287,8 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
 _PATCH_BLOCK_RE = re.compile(
     r"<<<<<<< ORIGINAL\n(.*?)\n?=======\n(.*?)\n?>>>>>>> UPDATED", re.DOTALL
 )
+# Same pattern the patch executor splits on (gptme.tools.patch.Patch.from_codeblock)
+_PATCH_PLACEHOLDER_RE = re.compile(r"^[ \t]*(#|//|\") \.\.\. ?.*$")
 # tools whose content is a file's text, highlighted by the file's type
 _FILE_CONTENT_TOOLS = ("save", "append", "morph")
 
@@ -299,8 +301,16 @@ def _patch_as_diff(patch: str) -> str | None:
     lines: list[str] = []
     for original, updated in blocks:
         lines.append("@@")
-        lines += [f"-{line}" for line in original.splitlines()]
-        lines += [f"+{line}" for line in updated.splitlines()]
+        lines += [
+            f"-{line}"
+            for line in original.splitlines()
+            if not _PATCH_PLACEHOLDER_RE.match(line)
+        ]
+        lines += [
+            f"+{line}"
+            for line in updated.splitlines()
+            if not _PATCH_PLACEHOLDER_RE.match(line)
+        ]
     return "\n".join(lines)
 
 
@@ -344,7 +354,7 @@ def _patch_many_renderable(patches: object) -> tuple[str, str, str]:
         try:
             items = json.loads(items)
         except Exception:
-            return _tool_renderable("patch_many", None, items)
+            return _tool_renderable("patch_many", None, str(items))
     if not isinstance(items, list):
         return _tool_renderable("patch_many", None, str(patches))
     sections, paths = [], []
@@ -355,6 +365,8 @@ def _patch_many_renderable(patches: object) -> tuple[str, str, str]:
         paths.append(path)
         sections.append(f"--- {path}\n{_patch_as_diff(patch) or patch}")
     n = len(paths)
+    if n == 0:
+        return "▶ patch_many", "", "diff"
     title = f"▶ patch_many: {paths[0]}" + (f" (+{n - 1} more)" if n > 1 else "")
     return title, "\n".join(sections), "diff"
 

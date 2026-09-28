@@ -2362,6 +2362,38 @@ def test_patch_many_renders_per_file_diffs():
     assert "--- x.py" in code and "--- y.py" in code and "+b" in code
 
 
+def test_patch_many_empty_patches_does_not_crash():
+    """An empty patches list must still render instead of IndexError."""
+    title, code, lang = _tool_call_renderable('@patch_many(c1): {"patches": []}')
+    assert title == "▶ patch_many"
+    assert code == ""
+    assert lang == "diff"
+
+
+def test_patch_preview_skips_placeholders():
+    """`# ...` separators are not file edits; don't show them as -/+ lines."""
+    import json
+
+    patch = (
+        "<<<<<<< ORIGINAL\n"
+        "old\n"
+        "    # ...\n"
+        "tail\n"
+        "=======\n"
+        "new\n"
+        "    # ...\n"
+        "tail\n"
+        ">>>>>>> UPDATED"
+    )
+    title, code, lang = _tool_call_renderable(
+        "@patch(c1): " + json.dumps({"path": "a.py", "patch": patch})
+    )
+    assert title == "▶ patch: a.py"
+    assert lang == "diff"
+    assert "-old" in code and "+new" in code
+    assert "# ..." not in code
+
+
 def test_tool_format_title_non_string_path():
     """A numeric path must still render instead of crashing the TUI."""
     title, code, _lang = _tool_call_renderable(
