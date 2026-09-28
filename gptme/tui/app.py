@@ -100,19 +100,26 @@ def _queued_prompt_text(item: str | Message) -> str:
     return item.content if isinstance(item, Message) else item
 
 
+SUMMARY_MAXLEN = 80
+
+
 def _drop_summary_line(content: str) -> str:
     """Body for an expanded section whose title is ``_summarize(content)``.
 
-    The title already shows the first line, unless that line is a code fence
-    (the title then just says "output"), so don't repeat it.
+    The title already shows the first line, so don't repeat it, unless the
+    title doesn't show it in full: a code fence (the title then just says
+    "output") or a line truncated to fit.
     """
     lines = content.strip().splitlines()
-    if not lines or lines[0].strip().startswith("```"):
+    if not lines:
+        return content
+    first = lines[0].strip()
+    if first.startswith("```") or len(first) > SUMMARY_MAXLEN:
         return content
     return "\n".join(lines[1:]).strip("\n") or content
 
 
-def _summarize(content: str, maxlen: int = 80) -> str:
+def _summarize(content: str, maxlen: int = SUMMARY_MAXLEN) -> str:
     """One-line summary of message content, for collapsed sections."""
     lines = content.strip().splitlines() or [""]
     first = next((line for line in lines if line.strip()), "").strip()

@@ -2386,3 +2386,30 @@ async def test_messages_use_configured_role_color(tmp_path, monkeypatch):
         # no color configured for the user: theme default kept
         user = app.query_one(UserMessage)
         assert user.styles.border_left[1].hex != "#E5A50A"
+
+
+def test_drop_summary_line_keeps_truncated_first_line():
+    """A first line cut short in the title must stay in the expanded body."""
+    from gptme.tui.app import SUMMARY_MAXLEN, _drop_summary_line
+
+    long_first = "x" * (SUMMARY_MAXLEN + 5)
+    content = f"{long_first}\nmore"
+    assert _drop_summary_line(content) == content
+
+
+def test_restart_not_attempted_when_workspace_is_gone(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from gptme.tools import restart
+    from gptme.tui import main as tui_main
+
+    calls: list[str] = []
+    monkeypatch.setattr(restart, "_do_restart", lambda name: calls.append(name))
+    app = SimpleNamespace(
+        end_session=lambda: None,
+        restart_requested=True,
+        workspace=tmp_path / "gone",
+    )
+    tui_main._finish_session(app, "conv")  # type: ignore[arg-type]
+    assert calls == []
+    assert "Not restarting" in capsys.readouterr().out

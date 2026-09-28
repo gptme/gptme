@@ -1,6 +1,5 @@
 """Entry point for the gptme TUI (``gptme-tui``)."""
 
-import contextlib
 import logging
 import os
 import sys
@@ -100,11 +99,15 @@ def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
         if app.restart_web_url:
             open_web(app.restart_web_url)
             return
-        # The new process starts in our cwd. If the workspace directory was
-        # moved or replaced during the session, that cwd is stale (getcwd()
-        # fails); re-enter it by path first.
-        with contextlib.suppress(OSError):
+        # The new process takes its workspace from our cwd. If the workspace
+        # directory was moved or replaced during the session, that cwd is
+        # stale (getcwd() fails): re-enter it by path. If it's gone, don't
+        # restart somewhere else.
+        try:
             os.chdir(app.workspace)
+        except OSError as e:
+            print(f"Not restarting: workspace {app.workspace} is unavailable ({e}).")
+            return
         program = "gptme" if app.restart_target == "cli" else "gptme-tui"
         print(f"Restarting {program} with conversation: {conversation_name}")
         try:
