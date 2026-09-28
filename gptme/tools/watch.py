@@ -9,8 +9,10 @@ Design: knowledge/design/2026-09-10-gptme-monitors-and-completion-events.md
 """
 
 import logging
+import os
 import queue
 import re
+import select
 import shlex
 import subprocess
 import threading
@@ -119,6 +121,21 @@ def _kill_proc(proc: subprocess.Popen | None) -> None:
             proc.kill()
     except Exception:
         logger.debug("failed to kill watched process", exc_info=True)
+
+
+def _close_stdout(proc: subprocess.Popen | None) -> None:
+    """Close the child's stdout pipe.
+
+    Call this only after any reader thread has stopped: ``TextIOWrapper.close()``
+    deadlocks against a concurrent ``read()``. Closing still matters when a
+    grandchild inherited the write end — otherwise the fd leaks.
+    """
+    if proc is None or proc.stdout is None:
+        return
+    try:
+        proc.stdout.close()
+    except Exception:
+        pass
 
 
 def _record_event(watch: Watch, text: str) -> bool:
@@ -242,30 +259,57 @@ def _fire(watch: Watch, text: str, once: bool = True) -> None:
 
 
 def _poll_until(watch: Watch, command: str, every: float) -> None:
-    """Poll a shell command until it exits 0; fire once."""
+    """Poll a shell command until it exits 0; fire once.
+
+    ``every`` is the sleep between failed attempts, not a cap on the
+    command. A slow probe (``gh pr checks`` taking longer than ``every``)
+    must be allowed to finish. A hung probe is stopped only when the watch
+    deadline hits or the watch is cancelled.
+    """
     while not watch.cancelled and not watch.fired:
         if watch.deadline is not None and time.time() > watch.deadline:
             _fire(watch, f"expired without condition met ({watch.description})")
             return
-        # The per-invocation timeout is a hang guard, not a max runtime: a
-        # slow-but-legitimate command must keep the watch polling, not kill it.
-        try:
-            proc = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=every * 4,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            time.sleep(every)
-            continue
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+        watch.proc = proc
+        stdout = ""
+        while True:
+            if watch.cancelled:
+                _kill_proc(proc)
+                try:
+                    proc.communicate(timeout=2)
+                except Exception:
+                    pass
+                return
+            if watch.deadline is not None and time.time() > watch.deadline:
+                _kill_proc(proc)
+                try:
+                    proc.communicate(timeout=2)
+                except Exception:
+                    pass
+                _fire(watch, f"expired without condition met ({watch.description})")
+                return
+            try:
+                stdout, _ = proc.communicate(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                continue
         if proc.returncode == 0:
-            out = (proc.stdout or "").strip() or command
+            out = (stdout or "").strip() or command
             _fire(watch, f"condition met: {out[:500]}")
             return
-        time.sleep(every)
+        delay = every
+        if watch.deadline is not None:
+            delay = min(delay, max(0.0, watch.deadline - time.time()))
+        if delay:
+            time.sleep(delay)
 
 
 def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
@@ -350,16 +394,26 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
     read_error: str | None = None
     buf_lock = threading.Lock()
     reader_done = threading.Event()
+    # Stop the reader *before* closing stdout: close() vs read() deadlocks
+    # on TextIOWrapper. select() timeout lets the reader notice this.
+    stop = threading.Event()
 
     def _reader() -> None:
         nonlocal tail, read_error
         try:
-            while True:
-                piece = stdout.read(4096)
+            fd = stdout.fileno()
+            while not stop.is_set() and not watch.cancelled:
+                ready, _, _ = select.select([fd], [], [], 0.2)
+                if stop.is_set() or watch.cancelled:
+                    return
+                if not ready:
+                    continue
+                piece = os.read(fd, 4096)
                 if not piece:
                     return
+                text = piece.decode("utf-8", errors="replace")
                 with buf_lock:
-                    tail = (tail + piece)[-_RUN_TAIL_CHARS:]
+                    tail = (tail + text)[-_RUN_TAIL_CHARS:]
         except Exception as exc:
             read_error = str(exc)
             logger.debug("watch %s run reader failed", watch.id, exc_info=True)
@@ -370,23 +424,29 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
     while not reader_done.wait(timeout=0.2):
         if watch.cancelled:
             _kill_proc(proc)
+            stop.set()
             reader_done.wait(timeout=2)
+            _close_stdout(proc)
             return
         if watch.deadline is not None and time.time() > watch.deadline:
             _kill_proc(proc)
+            stop.set()
             reader_done.wait(timeout=2)
+            _close_stdout(proc)
             _fire(watch, f"expired without exit ({watch.description})")
             return
     if watch.cancelled:
         return
     if read_error:
         _kill_proc(proc)
+        _close_stdout(proc)
         _fire(watch, f"watch errored: {read_error}")
         return
     try:
         proc.wait(timeout=2)
     except subprocess.TimeoutExpired:
         _kill_proc(proc)
+        _close_stdout(proc)
     with buf_lock:
         out = tail
     _fire(watch, f"process exited rc={proc.returncode} {out}".strip())
@@ -789,7 +849,13 @@ def _watch(
         if not positional:
             raise ValueError("usage: watch tmux <session> [--pattern re] [--stable 5s]")
         session = positional[0]
-        pattern = re.compile(opts["pattern"]) if "pattern" in opts else None
+        if "pattern" in opts:
+            try:
+                pattern = re.compile(opts["pattern"])
+            except re.error as e:
+                raise ValueError(f"invalid --pattern regex: {e}") from e
+        else:
+            pattern = None
         stable = _parse_duration(opts["stable"]) if "stable" in opts else 0.0
         if pattern is None and stable <= 0:
             raise ValueError(

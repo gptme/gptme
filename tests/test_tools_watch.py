@@ -498,3 +498,69 @@ def test_quoted_operator_argument_is_allowed():
         _reject_unquoted_operators("echo ok > status.txt")
     with pytest.raises(ValueError, match="shell operators"):
         _reject_unquoted_operators("echo a | grep b")
+
+
+def test_until_slow_command_outlives_every(tmp_path: Path):
+    """A probe slower than every*4 must still be able to fire.
+
+    Regression: per-invocation timeout was ``every * 4``, so a 0.8s
+    command with ``--every 0.1s`` was killed at 0.4s on every attempt
+    and never reached exit 0.
+    """
+    _watch_cli(
+        "until python3 -c 'import time; time.sleep(0.8)' --every 0.1s --timeout 5s",
+        tmp_path,
+    )
+    w = next(w for w in _record_all() if w.kind == "until")
+    deadline = time.time() + 6
+    while not w.fired and time.time() < deadline:
+        time.sleep(0.05)
+    assert w.fired
+    assert "condition met" in w.events[-1]
+
+
+def test_tmux_invalid_pattern_is_valueerror(tmp_path: Path):
+    with pytest.raises(ValueError, match="invalid --pattern regex"):
+        _watch_cli("tmux sess --pattern '['", tmp_path)
+
+
+def test_run_timeout_closes_stdout_when_grandchild_holds_pipe(tmp_path: Path):
+    """Closing stdout unblocks the reader if a grandchild inherited the pipe."""
+    import os
+    import signal
+    import subprocess as sp
+
+    proc = sp.Popen(
+        [
+            "python3",
+            "-c",
+            "import os, time; os.fork() or time.sleep(60); time.sleep(60)",
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    w = Watch(
+        id="w-pipe",
+        kind="run",
+        description="grandchild-pipe",
+        created=time.time(),
+        deadline=time.time() + 0.3,
+        proc=proc,
+        logdir=tmp_path,
+    )
+    t = threading.Thread(target=_watch_mod._poll_run, args=(w, proc), daemon=True)
+    t.start()
+    try:
+        t.join(timeout=5)
+        assert not t.is_alive()
+        assert w.fired
+        assert "expired" in w.events[-1]
+        assert proc.stdout is None or proc.stdout.closed
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        _kill_proc(proc)
