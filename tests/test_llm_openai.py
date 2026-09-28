@@ -3371,7 +3371,9 @@ class TestOpenAIStreamMalformedChunk:
         monkeypatch.setattr(
             llm_openai, "_should_use_responses_api", lambda *args: False
         )
-        monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+        # Pin 2 (one retry). Deleting the env var inherited get_max_retries(),
+        # so GPTME_LLM_MAX_RETRIES=1 made calls["n"]==2 fail.
+        monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "2")
         monkeypatch.setattr(llm_openai, "backoff_wait", lambda *a, **k: False)
 
         from gptme.message import Message
