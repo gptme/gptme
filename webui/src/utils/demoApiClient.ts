@@ -408,7 +408,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
         logfile: forkId,
         branches: { main: clone(forkLog) },
         workspace: source.workspace,
-        agent: source.agent,
+        agent: source.agent ?? DEMO_AGENT,
       };
       localConversations.set(forkId, forked);
       saveDemoSessionStorage(localConversations);
@@ -430,6 +430,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
         logfile,
         branches: { main: clone(messages) },
         workspace: '/demo',
+        agent: DEMO_AGENT,
       };
       if (!existing) {
         localConversations.set(logfile, conv);
@@ -454,6 +455,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
         logfile,
         branches: { main: [message] },
         workspace: '/demo',
+        agent: DEMO_AGENT,
       };
       localConversations.set(logfile, conv);
       saveDemoSessionStorage(localConversations);
