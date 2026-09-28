@@ -247,14 +247,20 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
         if watch.deadline is not None and time.time() > watch.deadline:
             _fire(watch, f"expired without condition met ({watch.description})")
             return
-        proc = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=every * 4,
-            check=False,
-        )
+        # The per-invocation timeout is a hang guard, not a max runtime: a
+        # slow-but-legitimate command must keep the watch polling, not kill it.
+        try:
+            proc = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=every * 4,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            time.sleep(every)
+            continue
         if proc.returncode == 0:
             out = (proc.stdout or "").strip() or command
             _fire(watch, f"condition met: {out[:500]}")
@@ -289,10 +295,16 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                     )
                     return
         finally:
-            try:
-                lines.put(None, timeout=0.5)
-            except queue.Full:
-                pass
+            # The end-of-stream sentinel must reach the consumer or the watch
+            # hangs on lines.get() forever. Retry while the queue is full; the
+            # consumer drains steadily, and if it cancelled the watch (queue
+            # overflow), the loop exits without needing the sentinel.
+            while not watch.cancelled:
+                try:
+                    lines.put(None, timeout=0.5)
+                    break
+                except queue.Full:
+                    pass
 
     threading.Thread(target=_reader, daemon=True).start()
     while True:
@@ -500,6 +512,26 @@ def _parse_opts(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
     return opts, rest
 
 
+_SHELL_OPERATORS = frozenset(
+    {"|", "||", "&&", "&", ";", ";;", ">", ">>", "<", "<<", "|&", "(", ")", "{", "}"}
+)
+
+
+def _join_command(positional: list[str]) -> str:
+    """Join command tokens, rejecting shell operators.
+
+    ``shlex.join`` would quote an operator token as a literal argument, so
+    ``watch run echo ok > status.txt`` would silently not write the file and
+    report a result for a different command than requested. Reject instead.
+    """
+    if any(tok in _SHELL_OPERATORS for tok in positional):
+        raise ValueError(
+            "watch commands do not support shell operators (pipes, redirections); "
+            "watch a single command, or wrap the pipeline in a script"
+        )
+    return shlex.join(positional)
+
+
 def _require_safe_command(command: str) -> None:
     """Reject commands the shell tool would deny, before arming a worker."""
     denied, reason, matched = is_denylisted(command)
@@ -516,7 +548,12 @@ def _command_from_watch_content(content: str) -> str | None:
     if not tokens or tokens[0] not in ("run", "until", "stream"):
         return None
     _, positional = _parse_opts(tokens[1:])
-    command = shlex.join(positional)
+    try:
+        command = _join_command(positional)
+    except ValueError:
+        # Falls through to the normal confirmation path; `_watch` raises the
+        # operator error to the user there.
+        return None
     return command or None
 
 
@@ -538,7 +575,12 @@ def watch_allowlist_hook(
     command = _command_from_watch_content(content)
     if command is None:
         return None
-    if is_allowlisted(command, cwd=workspace):
+    # Resolve relative sensitive-path rules against the watched child's actual
+    # working directory (it inherits the process cwd), not the conversation
+    # logdir — the two can differ, and a logdir-relative check could
+    # auto-approve a relative path the command does not actually resolve
+    # against.
+    if is_allowlisted(command, cwd=Path.cwd()):
         logger.debug("Watch command allowlisted, auto-confirming: %s", command[:50])
         return ConfirmationResult.confirm()
     return None
@@ -680,7 +722,7 @@ def _watch(
         if not rest:
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
         opts, positional = _parse_opts(rest)
-        command = shlex.join(positional)
+        command = _join_command(positional)
         if not command:
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
         _require_safe_command(command)
@@ -726,6 +768,11 @@ def _watch(
         session = positional[0]
         pattern = re.compile(opts["pattern"]) if "pattern" in opts else None
         stable = _parse_duration(opts["stable"]) if "stable" in opts else 0.0
+        if pattern is None and stable <= 0:
+            raise ValueError(
+                "tmux watch needs --pattern <re> or --stable <duration>; "
+                "without either it would poll forever without firing"
+            )
         w = Watch(
             id="",
             kind="tmux",

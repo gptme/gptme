@@ -447,3 +447,22 @@ def test_run_keeps_only_output_tail(tmp_path: Path):
     # Tail only — the 20k payload must not all land in the event.
     assert len(w.events[-1]) < 2000
     assert "xxx" in w.events[-1]
+
+
+def test_run_rejects_shell_operators(tmp_path: Path):
+    import pytest
+
+    with pytest.raises(ValueError, match="shell operators"):
+        _watch_cli("run echo ok > status.txt", tmp_path)
+    with pytest.raises(ValueError, match="shell operators"):
+        _watch_cli("until echo ok | grep x", tmp_path)
+
+
+def test_tmux_requires_pattern_or_stable(tmp_path: Path):
+    import pytest
+
+    with pytest.raises(ValueError, match="--pattern"):
+        _watch_cli("tmux mysession", tmp_path)
+    # pattern-only passes validation and arms (capture failure fires as event).
+    out = _watch_cli("tmux mysession --pattern foo", tmp_path)
+    assert "Armed watch" in out.content
