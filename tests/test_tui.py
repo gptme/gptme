@@ -1639,6 +1639,42 @@ async def test_restart_web_requests_browser(tmp_path, monkeypatch):
     assert app.restart_web_url == f"http://127.0.0.1:5700/chat/{name}"
 
 
+@pytest.mark.asyncio
+async def test_input_during_web_check_cancels_switch(tmp_path, monkeypatch):
+    """A prompt submitted while /restart web is checked must not be lost."""
+    import threading
+
+    release = threading.Event()
+
+    def slow_prepare(name):
+        release.wait(5)
+        return f"http://127.0.0.1:5700/chat/{name}"
+
+    monkeypatch.setattr("gptme.tui.app.prepare_web_switch", slow_prepare)
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/restart web"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._web_restart_pending
+        # stand-in for a prompt submission (e.g. one awaiting URL confirmation)
+        monkeypatch.setattr(app, "_submit", lambda text: _noop())
+        inp.text = "look at https://example.com"
+        await pilot.press("enter")
+        await pilot.pause()
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.is_running
+    assert not app.restart_requested
+
+
+async def _noop() -> None:
+    return None
+
+
 def test_restart_request_refused_while_generating(tmp_path, monkeypatch):
     """A prompt sent while the web check ran wins: don't exit mid-generation."""
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)

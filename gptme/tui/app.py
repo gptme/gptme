@@ -1356,6 +1356,8 @@ class GptmeApp(App):
         self.restart_requested = False
         self.restart_target: Interface | None = None
         self.restart_web_url: str | None = None
+        # a /restart web check is running in a worker; cleared by new input
+        self._web_restart_pending = False
         # True while our SIGWINCH handler is installed (inline mode only)
         self._inline_sigwinch_installed = False
 
@@ -1764,6 +1766,10 @@ class GptmeApp(App):
         chat_input.text = ""
         if text:
             chat_input._push_history(text)
+            if self._web_restart_pending:
+                # new input wins over a /restart web still being checked
+                self._web_restart_pending = False
+                self._show_info("Cancelled /restart web: new input was submitted.")
         logger.debug(
             "input submitted: %r (generating=%s, queue=%d)",
             text[:80],
@@ -1839,6 +1845,7 @@ class GptmeApp(App):
             if target == "web":
                 # network checks: off the event loop so the UI stays responsive
                 self._show_info("Looking for a gptme-server…")
+                self._web_restart_pending = True
                 self.run_worker(
                     self._web_restart_worker,
                     thread=True,
@@ -2035,14 +2042,26 @@ class GptmeApp(App):
         try:
             url = prepare_web_switch(self.manager.logdir.name)
         except RestartError as e:
-            self.call_from_thread(self._show_info, str(e))
+            self.call_from_thread(self._finish_web_check, str(e))
             return
-        self.call_from_thread(self._request_restart, None, url)
+        self.call_from_thread(self._finish_web_check, None, url)
+
+    def _finish_web_check(self, error: str | None, url: str | None = None) -> None:
+        """Back on the UI thread: act on the web check unless it was cancelled."""
+        if not self._web_restart_pending:
+            return  # cancelled by input submitted meanwhile
+        self._web_restart_pending = False
+        if error is not None:
+            self._show_info(error)
+        else:
+            self._request_restart(None, url)
 
     def _request_restart(self, target: Interface | None, web_url: str | None) -> None:
         """Exit so main() re-execs into ``target`` (or opens ``web_url``)."""
-        if self.generating:  # a prompt was sent while the web check ran
-            self._show_info("Not restarting: the agent is working; retry when idle.")
+        if self.generating or len(self.screen_stack) > 1:
+            # e.g. a prompt started while the web check ran, or a dialog
+            # (tool/URL confirmation) is open: don't drop it by exiting
+            self._show_info("Not restarting: the agent is busy; retry when idle.")
             return
         self.manager.write(sync=True)
         self.restart_requested = True
