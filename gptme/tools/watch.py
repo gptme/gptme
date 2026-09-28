@@ -453,6 +453,13 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
     except subprocess.TimeoutExpired:
         _kill_proc(proc)
         _close_stdout(proc)
+        # `_kill_proc`'s terminate path reaps the child, but the SIGKILL
+        # escalation does not. Reap once more so `returncode` is populated
+        # instead of the wake reporting `rc=None` for a process we stopped.
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
     with buf_lock:
         out = tail
     _fire(watch, f"process exited rc={proc.returncode} {out}".strip())

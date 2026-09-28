@@ -312,6 +312,54 @@ def test_run_honors_timeout(tmp_path: Path):
     assert "expired" in w.events[-1]
 
 
+def test_run_reports_killed_returncode(tmp_path: Path):
+    """A stopped child is reaped before its exit wake reports `rc`.
+
+    Regression: the SIGKILL escalation path did not reap, so the exit wake
+    reported ``rc=None`` for a process that had been stopped.
+    """
+    import os
+    import signal
+    import subprocess as sp
+
+    proc = sp.Popen(
+        [
+            "python3",
+            "-c",
+            "import os, signal, time; "
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            "os.close(1); os.close(2); time.sleep(5)",
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    w = Watch(
+        id="w-rc",
+        kind="run",
+        description="slow-exit",
+        created=time.time(),
+        deadline=None,
+        proc=proc,
+        logdir=tmp_path,
+    )
+    t = threading.Thread(target=_watch_mod._poll_run, args=(w, proc), daemon=True)
+    t.start()
+    try:
+        t.join(timeout=10)
+        assert not t.is_alive()
+        assert w.fired
+        assert "process exited rc=" in w.events[-1]
+        assert "rc=None" not in w.events[-1]
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        _kill_proc(proc)
+
+
 def test_cancel_kills_watched_process(tmp_path: Path):
     out = _watch_cli("run sleep 30", tmp_path)
     wid = out.content.split()[2]
