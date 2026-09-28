@@ -1782,12 +1782,23 @@ class GptmeApp(App):
     # corrupt the TUI display
     UNSUPPORTED_COMMANDS = frozenset({"edit"})
 
+    def _request_exit(self) -> None:
+        """Request a clean exit, marking us as quitting first.
+
+        ``_quitting`` gates queued-prompt draining and worker callbacks, so it
+        must be set before ``exit()``: otherwise a prompt queued behind a
+        ``/quit`` or ``/restart`` command would still be submitted (and even
+        start a generation) while the app is shutting down.
+        """
+        self._quitting = True
+        self.exit()
+
     def _handle_command(self, text: str) -> None:
         """Run a slash-command through the CLI command registry."""
 
         cmd = text.split()[0].lstrip("/")
         if cmd in ("quit", "q"):  # TUI-local alias for /exit
-            self.exit()
+            self._request_exit()
             return
         if cmd == "display":  # TUI-local: display only, allowed while working
             self._display_command(text.split()[1:])
@@ -1808,7 +1819,7 @@ class GptmeApp(App):
             # can't work under Textual: exit cleanly, main() re-execs.
             self.manager.write(sync=True)
             self.restart_requested = True
-            self.exit()
+            self._request_exit()
             return
 
         msg = Message("user", text, quiet=True)
@@ -1832,7 +1843,7 @@ class GptmeApp(App):
 
                 handled = self._chat_ctx.run(execute_owned_command)
         except SystemExit:  # /exit
-            self.exit()
+            self._request_exit()
             return
         except (EOFError, RuntimeError) as e:
             # prompt_toolkit prompts call asyncio.run(), which fails inside
@@ -2291,7 +2302,7 @@ class GptmeApp(App):
         if self.generating:
             self.action_interrupt()
         else:
-            self.exit()
+            self._request_exit()
 
     def action_toggle_details(self) -> None:
         """Ctrl+O: expand outputs and thinking, or collapse both if expanded."""
@@ -2313,5 +2324,4 @@ class GptmeApp(App):
                 collapsible.collapsed = not expanded
 
     async def action_quit(self) -> None:
-        self._quitting = True
-        self.exit()
+        self._request_exit()

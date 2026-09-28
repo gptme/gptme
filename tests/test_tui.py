@@ -1959,6 +1959,28 @@ async def test_initial_slash_command_uses_command_handler(tmp_path, monkeypatch)
         assert app.prompt_queue == []
 
 
+@pytest.mark.asyncio
+async def test_initial_quit_command_does_not_drain_queue(tmp_path, monkeypatch):
+    """A queued prompt must not be submitted behind an exiting command."""
+    app = GptmeApp(
+        make_manager(tmp_path),
+        workspace=tmp_path,
+        initial_prompts=["/quit", "hello"],
+    )
+    started: list[str] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append("gen"))
+    # Don't really tear the app down: /quit must not submit the queued prompt
+    # even before the app has finished exiting.
+    monkeypatch.setattr(app, "exit", lambda *args, **kwargs: None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+    assert app._quitting is True
+    assert app.prompt_queue == ["hello"]
+    assert [m.content for m in app.manager.log if m.role == "user"] == []
+    assert started == []
+
+
 def _make_conv(logs_dir, name):
     (logs_dir / name).mkdir(parents=True)
     (logs_dir / name / "conversation.jsonl").write_text("{}\n")
