@@ -386,6 +386,11 @@ class UserMessage(Vertical):
         yield Markdown(self.content)
 
 
+def _collapsible_title(title: str) -> str:
+    """Tool-call titles start with ▶ for inline panels; Collapsible draws its own."""
+    return title.removeprefix("▶ ")
+
+
 class AssistantMessage(Vertical):
     """A completed assistant message, rendered as markdown."""
 
@@ -422,7 +427,7 @@ class AssistantMessage(Vertical):
                         title, code, lang = _tool_call_renderable(seg)
                         yield Collapsible(
                             Static(Syntax(code, lang, theme="ansi_dark")),
-                            title=title,
+                            title=_collapsible_title(title),
                             collapsed=True,
                             classes="tool-call-block",
                         )
@@ -430,7 +435,7 @@ class AssistantMessage(Vertical):
                         for title, code, lang in _xml_tool_renderables(seg):
                             yield Collapsible(
                                 Static(Syntax(code, lang, theme="ansi_dark")),
-                                title=title,
+                                title=_collapsible_title(title),
                                 collapsed=True,
                                 classes="tool-call-block",
                             )
@@ -438,7 +443,7 @@ class AssistantMessage(Vertical):
                         title, code, lang = _markdown_tool_renderable(seg)
                         yield Collapsible(
                             Static(Syntax(code, lang, theme="ansi_dark")),
-                            title=title,
+                            title=_collapsible_title(title),
                             collapsed=True,
                             classes="tool-call-block",
                         )

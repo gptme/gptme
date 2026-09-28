@@ -1661,3 +1661,16 @@ async def test_inline_queued_view_summarizes_overflow(tmp_path):
         rendered = str(app.query_one("#queued", Static).render())
         assert rendered.count("⏳ queued") == 4
         assert "+4 more queued" in rendered
+
+
+@pytest.mark.asyncio
+async def test_tool_call_collapsible_has_single_marker(tmp_path):
+    """Collapsible draws its own ▶; the title must not add another."""
+    content = "Running it:\n```shell\nls\n```"
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        widget = AssistantMessage(content)
+        await app.mount(widget)
+        await pilot.pause()
+        block = widget.query(".tool-call-block").results(Collapsible).__next__()
+        assert block.title == "shell: ls"
