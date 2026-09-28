@@ -65,7 +65,7 @@ def cli_confirm_hook(
     - Supports copying content to clipboard
     """
     # Get preview content - use provided preview or generate from tool_use
-    content = preview or tool_use.content
+    content = preview or tool_use.preview_content
     lang = _get_lang_for_tool(tool_use.tool, content)
 
     # Determine if content is editable/copiable

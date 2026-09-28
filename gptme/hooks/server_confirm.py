@@ -173,7 +173,7 @@ def server_confirm_hook(
                 tooluse={
                     "tool": tool_use.tool,
                     "args": tool_use.args or [],
-                    "content": tool_use.content or "",
+                    "content": tool_use.preview_content or "",
                 },
                 auto_confirm=False,
             ),

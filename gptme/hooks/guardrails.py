@@ -262,7 +262,7 @@ def guardrail_hook(
     if tool_use.tool == "shell":
         from ..tools.shell_validation import is_denylisted  # local import for speed
 
-        cmd = (preview or tool_use.content or "").strip()
+        cmd = (preview or tool_use.preview_content or "").strip()
         if cmd:
             denied, reason, matched = is_denylisted(cmd)
             if denied:
