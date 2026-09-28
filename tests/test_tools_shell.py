@@ -2238,14 +2238,17 @@ def test_shell_forgets_cwd_when_marker_is_lost(tmp_path):
 
 
 @pytest.fixture
-def subagent_tools():
-    """Load the tools the workspace hint needs (``subagent()`` runs in ipython)."""
+def subagent_tools(monkeypatch):
+    """Make ``subagent()`` callable from in-process ipython, as the hint requires."""
+    from gptme.tools import python as python_module
     from gptme.tools import set_tools
-    from gptme.tools.python import tool as ipython_tool
     from gptme.tools.shell import tool as shell_tool
+    from gptme.tools.subagent import subagent
     from gptme.tools.subagent import tool as subagent_tool
 
-    set_tools([shell_tool, ipython_tool, subagent_tool])
+    set_tools([shell_tool, python_module.tool, subagent_tool])
+    monkeypatch.setitem(python_module.registered_functions, "subagent", subagent)
+    monkeypatch.delenv("GPTME_SANDBOX", raising=False)
 
 
 def test_check_workspace_config_no_gptme_toml(tmp_path):
@@ -2319,6 +2322,45 @@ def test_check_workspace_config_hint_does_not_use_dir_name_as_agent_id(
     finally:
         os.chdir(original_cwd)
         _hinted_workspaces.discard(str(workspace.resolve()))
+
+
+def _assert_no_workspace_hint(workspace: Path) -> None:
+    from gptme.tools.shell import _check_workspace_config, _hinted_workspaces
+
+    (workspace / "gptme.toml").write_text("[gptme]\n")
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(workspace)
+        _hinted_workspaces.discard(str(workspace.resolve()))
+        assert _check_workspace_config() is None
+        assert str(workspace.resolve()) not in _hinted_workspaces
+    finally:
+        os.chdir(original_cwd)
+        _hinted_workspaces.discard(str(workspace.resolve()))
+
+
+def test_check_workspace_config_no_hint_when_subagent_not_registered(
+    tmp_path, subagent_tools, monkeypatch
+):
+    """Both tools loaded but subagent() not in ipython's namespace: no hint."""
+    from gptme.tools import python as python_module
+
+    monkeypatch.delitem(python_module.registered_functions, "subagent")
+    _assert_no_workspace_hint(tmp_path)
+
+
+@pytest.mark.parametrize("backend", ["docker", "wasmtime"])
+def test_check_workspace_config_no_hint_in_python_sandbox(
+    tmp_path, subagent_tools, monkeypatch, backend
+):
+    """Sandboxed Python backends don't expose host functions like subagent()."""
+    monkeypatch.setenv("GPTME_SANDBOX", backend)
+    # The real shell session refuses to start when the sandbox backend is
+    # missing on this machine; only its cwd matters here.
+    monkeypatch.setattr(
+        shell_module, "get_shell", lambda: Mock(get_cwd=lambda: tmp_path)
+    )
+    _assert_no_workspace_hint(tmp_path)
 
 
 @pytest.mark.parametrize("loaded", [[], ["shell"], ["shell", "subagent"]])

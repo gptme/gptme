@@ -3154,12 +3154,24 @@ _hinted_workspaces: set[str] = set()
 def _subagent_available() -> bool:
     """Whether ``subagent()`` is callable from the ipython tool this session.
 
-    The subagent tool registers ``subagent`` as an ipython function, so both
-    tools must be loaded; otherwise suggesting the call yields a NameError.
+    Suggesting the call when it isn't available yields a NameError, so check
+    that:
+    - both the subagent and ipython tools are loaded,
+    - ``subagent`` is actually registered as an ipython function (a subagent
+      tool enabled mid-session may not have been), and
+    - Python runs in-process: the docker/wasmtime sandbox backends don't
+      expose host-registered functions.
     """
     from . import has_tool  # fmt: skip
 
-    return has_tool("subagent") and has_tool("ipython")
+    if not (has_tool("subagent") and has_tool("ipython")):
+        return False
+    if os.environ.get("GPTME_SANDBOX", "none").lower() in ("docker", "wasmtime"):
+        return False
+    # ipython is loaded, so this module is already imported.
+    from .python import registered_functions  # fmt: skip
+
+    return "subagent" in registered_functions
 
 
 def _check_workspace_config() -> Message | None:
