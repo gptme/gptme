@@ -421,7 +421,8 @@ def test_execute_watch_run_arms_when_confirmed(tmp_path: Path):
 
 
 def test_run_replaces_undecodable_bytes(tmp_path: Path):
-    # Text-mode stdout with errors="replace" must not treat binary as EOF.
+    # Keep quoting so printf emits 0xff 0xfe, not the digits 377376.
+    # errors="replace" must not treat those bytes as EOF.
     _watch_cli(r"run printf '\377\376'", tmp_path)
     w = next(w for w in _record_all() if w.kind == "run")
     deadline = time.time() + 5
@@ -430,6 +431,7 @@ def test_run_replaces_undecodable_bytes(tmp_path: Path):
     assert w.fired
     assert "rc=0" in w.events[-1]
     assert "errored" not in w.events[-1]
+    assert "\ufffd" in w.events[-1]
 
 
 def test_run_keeps_only_output_tail(tmp_path: Path):
