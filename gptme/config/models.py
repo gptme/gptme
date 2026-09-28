@@ -35,6 +35,24 @@ def _pop_object_section(config_data: dict, key: str) -> dict:
     return value
 
 
+def _valid_color(value: str | None, where: str) -> str | None:
+    """Return *value* if it is a color Rich can parse, else warn and drop it.
+
+    Accepts hex (``#e5a50a``), ``rgb(r,g,b)`` and color names. An invalid
+    color must not stop gptme from starting.
+    """
+    if value is None:
+        return None
+    from rich.color import Color, ColorParseError
+
+    try:
+        Color.parse(value)
+    except ColorParseError:
+        logger.warning("Ignoring invalid %s color %r", where, value)
+        return None
+    return value
+
+
 def _build_section(section_name: str, section_cls, section_data: dict):
     """Construct a config dataclass and normalize constructor errors."""
     try:
@@ -201,6 +219,11 @@ class UserIdentityConfig:
     about: str | None = None
     response_preference: str | None = None
     avatar: str | None = None
+    color: str | None = None
+    """Display color for the user's name (hex, ``rgb(...)`` or a color name)."""
+
+    def __post_init__(self) -> None:
+        self.color = _valid_color(self.color, "user")
 
 
 @dataclass
@@ -289,6 +312,11 @@ class AgentConfig:
         dashboard = "https://myagent.github.io/dashboard/"
         repo      = "https://github.com/myorg/myagent"
     """
+    color: str | None = None
+    """Display color for the agent's name (hex, ``rgb(...)`` or a color name)."""
+
+    def __post_init__(self) -> None:
+        self.color = _valid_color(self.color, "agent")
 
 
 @dataclass

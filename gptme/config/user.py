@@ -6,6 +6,7 @@ from optional config.runtime.toml defaults, config.toml, and config.local.toml.
 
 import codecs
 import copy
+import dataclasses
 import locale
 import logging
 import os
@@ -601,11 +602,8 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     if resp_pref is None and prompt.response_preference is not None:
         resp_pref = prompt.response_preference
     if about != user_identity.about or resp_pref != user_identity.response_preference:
-        user_identity = UserIdentityConfig(
-            name=user_identity.name,
-            about=about,
-            response_preference=resp_pref,
-            avatar=user_identity.avatar,
+        user_identity = dataclasses.replace(
+            user_identity, about=about, response_preference=resp_pref
         )
 
     env = config.pop("env", {})
