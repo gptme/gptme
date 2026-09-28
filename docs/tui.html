@@ -642,6 +642,10 @@ a specific one by name:</p>
 <p>Conversations are stored in the same format and location as CLI conversations,
 so they can be opened interchangeably: start in the TUI, resume in the CLI
 (<code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--resume</span></code>), or vice versa (<code class="docutils literal notranslate"><span class="pre">gptme-tui</span> <span class="pre">-n</span> <span class="pre">&lt;name&gt;</span></code>).</p>
+<p>To switch without leaving the conversation, use <code class="docutils literal notranslate"><span class="pre">/restart</span> <span class="pre">cli</span></code> in the TUI or
+<code class="docutils literal notranslate"><span class="pre">/restart</span> <span class="pre">tui</span></code> in the CLI. <code class="docutils literal notranslate"><span class="pre">/restart</span> <span class="pre">web</span></code> opens the conversation in the
+<a class="reference internal" href="webui.html"><span class="doc">web UI</span></a> of a running <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code>
+(see <a class="reference internal" href="commands.html"><span class="doc">Commands</span></a>).</p>
 </section>
 <section id="inline-mode-experimental">
 <h2>Inline mode (experimental)<a class="headerlink" href="#inline-mode-experimental" title="Link to this heading">#</a></h2>
@@ -729,8 +733,8 @@ shown inline in the conversation. <code class="docutils literal notranslate"><sp
 <section id="limitations">
 <h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
 <p>The TUI is young and intentionally minimal. Commands that need an external
-terminal program (e.g. <code class="docutils literal notranslate"><span class="pre">/edit</span></code> spawning <code class="docutils literal notranslate"><span class="pre">$EDITOR</span></code>) don’t work yet; resume
-the conversation in the CLI for those. Non-interactive/scripted use should
+terminal program (e.g. <code class="docutils literal notranslate"><span class="pre">/edit</span></code> spawning <code class="docutils literal notranslate"><span class="pre">$EDITOR</span></code>) don’t work yet; switch
+the conversation to the CLI for those with <code class="docutils literal notranslate"><span class="pre">/restart</span> <span class="pre">cli</span></code>. Non-interactive/scripted use should
 keep using <code class="docutils literal notranslate"><span class="pre">gptme</span></code> directly.</p>
 </section>
 </section>

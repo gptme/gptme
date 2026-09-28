@@ -912,16 +912,30 @@ how arguments are substituted.</p>
 </section>
 <section id="restart">
 <h4>/restart<a class="headerlink" href="#restart" title="Link to this heading">#</a></h4>
-<p>Restart the gptme process.</p>
-<p>Useful for:</p>
+<p>Restart the gptme process, or reopen the conversation in another interface.</p>
+<p>Without an argument, restarts the current interface. Useful for:</p>
 <ul class="simple">
 <li><p>Applying configuration changes</p></li>
 <li><p>Reloading tools after code modifications</p></li>
 <li><p>Recovering from state issues</p></li>
 </ul>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/restart
+/restart tui    # continue this conversation in the TUI (gptme-tui)
+/restart cli    # continue this conversation in the plain CLI
+/restart web    # continue this conversation in the web UI
 </pre></div>
 </div>
+<p>The conversation keeps its model, tools and workspace when switching. For
+<code class="docutils literal notranslate"><span class="pre">/restart</span> <span class="pre">tui</span></code>, the <a class="reference internal" href="tui.html"><span class="doc">TUI</span></a> needs to be installed (<code class="docutils literal notranslate"><span class="pre">gptme[tui]</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">/restart</span> <span class="pre">web</span></code> needs a running <a class="reference internal" href="server.html"><span class="doc">gptme-server</span></a> that serves
+the <a class="reference internal" href="webui.html"><span class="doc">web UI</span></a>. gptme looks for it at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:5700</span></code>,
+or at the address in <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_URL</span></code> (or <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_HOST</span></code> and
+<code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_PORT</span></code>). Since the server requires a token by default, set
+<code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> to the server’s token (<code class="docutils literal notranslate"><span class="pre">gptme-server</span> <span class="pre">token</span></code> shows
+it), or start the server with that variable set. gptme first checks that the
+server can open the conversation. If it can, gptme exits and opens the
+conversation in your browser, signed in with the token. If it can’t, gptme
+tells you why and stays open.</p>
 </section>
 <section id="clear">
 <h4>/clear<a class="headerlink" href="#clear" title="Link to this heading">#</a></h4>
