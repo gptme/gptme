@@ -816,6 +816,9 @@ class ChatInput(TextArea):
             return  # Textual also dispatches TextArea's handler: plain insert
         event.stop()
         event.prevent_default()  # skip TextArea's insert
+        # terminals send CR or CRLF line breaks in pastes; TextArea's insert
+        # normalizes them, so the stored text must too
+        text = re.sub(r"\r\n?", "\n", text)
         label = _paste_label(len(self._pastes) + 1, text)
         self._pastes[label] = text
         result = self.replace(label, *self.selection)

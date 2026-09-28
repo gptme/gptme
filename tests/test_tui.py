@@ -1920,3 +1920,51 @@ def test_select_logdir(tmp_path, monkeypatch):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
     with pytest.raises(click.UsageError, match="needs a terminal"):
         select("random", "")
+
+
+@pytest.mark.asyncio
+async def test_paste_placeholder_normalizes_line_endings(tmp_path):
+    """Collapsed pastes submit LF line breaks, like TextArea's own insert."""
+    from textual import events
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.generating = True  # submissions queue, so we can inspect them
+        inp = app.query_one("#input", ChatInput)
+        # terminals commonly send CR (or CRLF) line breaks in bracketed paste
+        app.post_message(events.Paste("1\r2\r3"))
+        await pilot.pause()
+        app.post_message(events.Paste("a\r\nb\r\nc"))
+        await pilot.pause()
+        assert inp.text == "[Pasted text #1 +3 lines][Pasted text #2 +3 lines]"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.prompt_queue == ["1\n2\n3a\nb\nc"]
+
+
+@pytest.mark.asyncio
+async def test_paste_placeholder_undo_redo(tmp_path):
+    """Undo restores a whole token after a widened delete; redo removes it."""
+    from textual import events
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        await pilot.press("x", "space")
+        app.post_message(events.Paste("1\n2\n3"))
+        await pilot.pause()
+        token_text = "x [Pasted text #1 +3 lines]"
+        assert inp.text == token_text
+        await pilot.press("backspace")
+        assert inp.text == "x "
+        inp.undo()
+        await pilot.pause()
+        assert inp.text == token_text
+        inp.redo()
+        await pilot.pause()
+        assert inp.text == "x "
+        inp.undo()
+        await pilot.pause()
+        assert inp._expand_pastes(inp.text) == "x 1\n2\n3"
