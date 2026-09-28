@@ -113,12 +113,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     return document.querySelectorAll('[data-conversation-pane]').length <= 1;
   }, []);
 
-  // Fetch user info once (cached in ApiClient)
+  // Fetch user identity for the conversation's server (cached on the client).
+  // ChatMessage reads userInfo$ from getClient(serverId), so a secondary
+  // conversation needs that client's identity, not only the primary.
   useEffect(() => {
-    if (api.isConnected$.get()) {
-      api.getUserInfo().catch(() => {});
-    }
-  }, [api]);
+    if (!isConnected || serverNotFound) return;
+    serverClient.getUserInfo().catch(() => {});
+  }, [serverClient, isConnected, serverNotFound]);
 
   useObserveEffect(api.sessions$.get(conversationId), () => {
     if (!isReadOnly) {
