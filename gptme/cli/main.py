@@ -1524,8 +1524,11 @@ def main(
         else:
             exit_code = 1
         # the conversation is saved; say how to get back to it once the
-        # cause is fixed (printed at exit if the log is nonempty)
-        show_resume_hint_on_exit = True
+        # cause is fixed (printed at exit if the log is nonempty).
+        # A live lock is the exception: resume is the same failing command
+        # (gptme#2607).
+        if not _is_conversation_lock_error(e):
+            show_resume_hint_on_exit = True
         sys.exit(exit_code)
     finally:
         if signal.getsignal(signal.SIGTERM) is handle_sigterm:
@@ -1681,6 +1684,15 @@ def _cleanup_aborted_new_logdir(logdir: Path, *, preexisting: bool) -> None:
 EXIT_RATE_LIMIT = 75  # EX_TEMPFAIL — quota exhausted, retry later
 EXIT_AUTH_ERROR = 76  # EX_PROTOCOL — credential / permission problem
 EXIT_MODEL_UNAVAIL = 77  # EX_NOPERM   — model/service not reachable
+
+
+def _is_conversation_lock_error(e: BaseException) -> bool:
+    """True when another gptme instance holds the conversation lock.
+
+    Resume would retry the same locked chat, so the goodbye hint is bogus.
+    """
+    msg = str(e).lower()
+    return "another gptme instance" in msg and "is using" in msg
 
 
 def _classify_fatal_error(e: BaseException) -> tuple[str, int]:

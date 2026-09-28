@@ -154,6 +154,22 @@ def test_classify_fatal_error(
     assert exit_code == expected_code
 
 
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (RuntimeError("Another gptme instance is using /tmp/logs/foo"), True),
+        (
+            RuntimeError("Another gptme instance (PID 1234) is using /tmp/logs/foo"),
+            True,
+        ),
+        (RuntimeError("boom"), False),
+        (RuntimeError("invalid config"), False),
+    ],
+)
+def test_is_conversation_lock_error(exc: Exception, expected: bool) -> None:
+    assert cli._is_conversation_lock_error(exc) is expected
+
+
 # ---------------------------------------------------------------------------
 # Unit tests for _write_terminal_error_to_log
 # ---------------------------------------------------------------------------
