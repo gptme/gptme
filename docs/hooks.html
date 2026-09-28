@@ -979,7 +979,8 @@ guardrail rather than a prompt.</p>
 <p><strong>Session &amp; Context</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">active_context</span></code>: Selects relevant files to include before generation</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">agents_md_inject</span></code>: Loads AGENTS.md/CLAUDE.md when the working directory changes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agents_md_inject</span></code>: Loads AGENTS.md/CLAUDE.md when the working directory changes,
+skipping files inside other agents’ workspaces (see <a class="reference internal" href="config.html#agent-instruction-files"><span class="std std-ref">Agent instruction files (AGENTS.md)</span></a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">cwd_tracking</span></code>: Tracks the current working directory across tool calls</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">time_awareness</span></code>: Injects current time into context</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">token_awareness</span></code>: Monitors token budget and warns when approaching limits</p></li>

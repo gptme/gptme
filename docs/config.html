@@ -587,6 +587,7 @@ document.write(`
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-gptme-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-instruction-files-agents-md">Agent instruction files (<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>)</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>
@@ -624,6 +625,7 @@ document.write(`
 <span class="n">about</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;I am a curious human programmer.&quot;</span>
 <span class="n">response_preference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Basic concepts don&#39;t need to be explained.&quot;</span>
 <span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/Pictures/avatar.jpg&quot;</span><span class="w">  </span><span class="c1"># Path to avatar image (or URL)</span>
+<span class="n">color</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;magenta&quot;</span><span class="w">  </span><span class="c1"># Color for your name in the CLI and TUI</span>
 
 <span class="k">[prompt]</span>
 <span class="c1"># Additional files to always include in context</span>
@@ -676,6 +678,7 @@ document.write(`
 <li><p><code class="docutils literal notranslate"><span class="pre">about</span></code>: A description of yourself, included in the system prompt so the assistant knows who it’s talking to (default: <code class="docutils literal notranslate"><span class="pre">&quot;I</span> <span class="pre">am</span> <span class="pre">a</span> <span class="pre">curious</span> <span class="pre">human</span> <span class="pre">programmer.&quot;</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">response_preference</span></code>: Preferences for how the assistant should respond (e.g. level of detail, default: <code class="docutils literal notranslate"><span class="pre">&quot;Basic</span> <span class="pre">concepts</span> <span class="pre">don't</span> <span class="pre">need</span> <span class="pre">to</span> <span class="pre">be</span> <span class="pre">explained.&quot;</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">avatar</span></code>: Path to your avatar image (supports <code class="docutils literal notranslate"><span class="pre">~</span></code> expansion) or URL. Displayed in the web UI next to your messages.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">color</span></code>: Color for your name in the CLI and TUI: hex (<code class="docutils literal notranslate"><span class="pre">&quot;#e5a50a&quot;</span></code>), <code class="docutils literal notranslate"><span class="pre">&quot;rgb(229,165,10)&quot;</span></code>, or a color name. An invalid value is ignored with a warning (default: green).</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -940,12 +943,14 @@ repositories. See <a class="reference internal" href="security.html"><span class
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[agent]</span>
 <span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Bob&quot;</span>
 <span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;assets/avatar.png&quot;</span><span class="w">  </span><span class="c1"># Path to avatar image (relative to workspace)</span>
+<span class="n">color</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;#e5a50a&quot;</span><span class="w">  </span><span class="c1"># Color for the agent&#39;s name in the CLI and TUI</span>
 </pre></div>
 </div>
 <p>Options:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: The agent’s name, used in system prompts and identification.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">avatar</span></code>: Path to an avatar image (relative to workspace) or URL. Used by gptme-webui, gptme-server, and multi-agent UIs to display the agent’s profile picture.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">color</span></code>: Color for the agent’s name (and message border in the TUI): hex, <code class="docutils literal notranslate"><span class="pre">&quot;rgb(r,g,b)&quot;</span></code>, or a color name. <code class="docutils literal notranslate"><span class="pre">GPTME_AGENT_COLOR</span></code> overrides it. An invalid value is ignored with a warning.</p></li>
 </ul>
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">env</span></code>, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.</p></li>
@@ -960,6 +965,41 @@ repositories. See <a class="reference internal" href="security.html"><span class
 <p class="admonition-title">Tip</p>
 <p>Add <code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code> to your <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> to keep secrets out of version control.</p>
 </div>
+</section>
+<section id="agent-instruction-files-agents-md">
+<span id="agent-instruction-files"></span><h3>Agent instruction files (<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>)<a class="headerlink" href="#agent-instruction-files-agents-md" title="Link to this heading">#</a></h3>
+<p>At startup, gptme loads agent instruction files (<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>,
+<code class="docutils literal notranslate"><span class="pre">COPILOT.md</span></code>, <code class="docutils literal notranslate"><span class="pre">GEMINI.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.github/copilot-instructions.md</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.cursorrules</span></code>, <code class="docutils literal notranslate"><span class="pre">.windsurfrules</span></code>) from <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/</span></code> and from every
+directory between your home directory and the workspace, most general first.</p>
+<p>During a session, instructions follow you: when the working directory changes
+(for example after a <code class="docutils literal notranslate"><span class="pre">cd</span></code> in the shell tool), or a file tool reads or writes a
+path in another directory, gptme loads any instruction files for that directory
+that are not in context yet. This way a subdirectory or another project’s own
+rules apply when the assistant works there. Each load adds a short visible line
+naming the file, such as <code class="docutils literal notranslate"><span class="pre">Loaded</span> <span class="pre">agent</span> <span class="pre">instructions</span> <span class="pre">from</span> <span class="pre">~/proj/AGENTS.md</span></code>.</p>
+<p>There is one exception. Instruction files inside a different
+<a class="reference internal" href="agents.html"><span class="doc">agent</span></a> workspace are never loaded mid-session. An agent workspace
+is a directory whose <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> has an <code class="docutils literal notranslate"><span class="pre">[agent]</span></code> section, and its
+<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code> usually defines that agent’s identity. Loading it because of a
+<code class="docutils literal notranslate"><span class="pre">cd</span></code> would hand the session another agent’s persona and rules. Instead, gptme
+adds a short notice, once per workspace:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Entered ~/alice, which is agent workspace &#39;Alice&#39;; its instructions were not
+loaded (it defines a different agent identity than this session&#39;s &#39;Bob&#39;). ...
+</pre></div>
+</div>
+<p>The rule:</p>
+<ul class="simple">
+<li><p>A workspace belongs to the session when it is the session workspace, the
+session’s agent workspace, a parent directory of either, or declares the
+same agent name (for example a worktree or clone of the same agent).</p></li>
+<li><p>Any other agent workspace is foreign, including every agent workspace when
+the session itself is not an agent. Files anywhere inside a foreign workspace,
+including nested projects, are skipped.</p></li>
+<li><p>Directories without an agent <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> keep loading as usual.</p></li>
+</ul>
+<p>To work with another agent’s rules deliberately, read its <code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>
+explicitly, or start a session in that workspace.</p>
 </section>
 </section>
 <section id="chat-config">
@@ -986,6 +1026,7 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_SUGGEST_LLM</span></code> - Enable LLM-powered prompt completion (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_THINKING</span></code> - Show model thinking in the <a class="reference internal" href="tui.html"><span class="doc">TUI</span></a> at startup (default: false; toggle at runtime with <code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">thinking</span></code>). Display only; does not affect reasoning.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_HIDDEN</span></code> - Show hidden messages (sent to the model but normally not displayed, e.g. token/time notices) in the <a class="reference internal" href="tui.html"><span class="doc">TUI</span></a> at startup (default: false; toggle at runtime with <code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">hidden</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_HIGHLIGHT</span></code> - Syntax-highlight commands in tool-call titles and output summaries in the <a class="reference internal" href="tui.html"><span class="doc">TUI</span></a> (default: true; toggle at runtime with <code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">highlight</span></code>)</p></li>
 </ul>
 <p class="rubric">API Configuration</p>
 <ul class="simple">
@@ -1091,6 +1132,7 @@ The variable name is derived from the parameter name in uppercase.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-config">Project config</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-gptme-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">gptme.local.toml</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-instruction-files-agents-md">Agent instruction files (<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>)</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-config">Chat config</a></li>

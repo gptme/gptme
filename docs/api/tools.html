@@ -603,8 +603,10 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.__init__"><code class="docutils literal notranslate"><span class="pre">ToolUse.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.execute"><code class="docutils literal notranslate"><span class="pre">ToolUse.execute()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.iter_from_content"><code class="docutils literal notranslate"><span class="pre">ToolUse.iter_from_content()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.preview_content"><code class="docutils literal notranslate"><span class="pre">ToolUse.preview_content</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.set_tool_format"><code class="docutils literal notranslate"><span class="pre">set_tool_format()</span></code></a></li>
 </ul>
             </nav>
         </div>
@@ -793,6 +795,24 @@ coercion inside the function body.</p>
 </dl>
 </dd></dl>
 
+<dl class="py property">
+<dt class="sig sig-object py" id="gptme.tools.ToolUse.preview_content">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">preview_content</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></em><a class="headerlink" href="#gptme.tools.ToolUse.preview_content" title="Link to this definition">#</a></dt>
+<dd><p>What to show when asking to confirm this call.</p>
+<p>Tool-format calls (<code class="docutils literal notranslate"><span class="pre">&#64;ipython(id):</span> <span class="pre">{...}</span></code>) carry their arguments in
+<code class="docutils literal notranslate"><span class="pre">kwargs</span></code> and have no <code class="docutils literal notranslate"><span class="pre">content</span></code>: show what the tool will run
+(<code class="docutils literal notranslate"><span class="pre">command</span></code> before <code class="docutils literal notranslate"><span class="pre">code</span></code>, as shell/tmux run <code class="docutils literal notranslate"><span class="pre">command</span></code>), else
+all arguments. Non-string values fall through to the full dump.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.tools.set_tool_format">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.</span></span><span class="sig-name descname"><span class="pre">set_tool_format</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">new_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Literal" title="(in Python v3.14)"><span class="pre">Literal</span></a><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'markdown'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'xml'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'tool'</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">process_default</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.tools.set_tool_format" title="Link to this definition">#</a></dt>
+<dd><p>Set the tool format for the current context.</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">process_default=True</span></code> the format also becomes the fallback for
+contexts that never set one (only the first <code class="docutils literal notranslate"><span class="pre">init()</span></code> should do this).</p>
 </dd></dl>
 
 </section>
@@ -866,8 +886,10 @@ coercion inside the function body.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.__init__"><code class="docutils literal notranslate"><span class="pre">ToolUse.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.execute"><code class="docutils literal notranslate"><span class="pre">ToolUse.execute()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.iter_from_content"><code class="docutils literal notranslate"><span class="pre">ToolUse.iter_from_content()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolUse.preview_content"><code class="docutils literal notranslate"><span class="pre">ToolUse.preview_content</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.set_tool_format"><code class="docutils literal notranslate"><span class="pre">set_tool_format()</span></code></a></li>
 </ul>
   </nav></div>
 
