@@ -108,11 +108,7 @@ from .shell_background import (
     start_background_job as start_background_job,
 )
 from .shell_validation import (
-    _blank_heredoc_bodies,
-    _blank_shell_comments,
     _find_first_unquoted_pipe,
-    _find_quotes,
-    _is_in_quoted_region,
     check_with_shellcheck,
     is_allowlisted,
     is_denylisted,
@@ -3305,27 +3301,29 @@ def _parse_timeout_duration(value: str) -> float | None:
 def _explicit_timeout_seconds(cmd: str) -> float | None:
     """Return the limit of ``timeout DURATION cmd`` when it bounds the whole call.
 
-    Includes ``-k/--kill-after``. Returns None unless the tool call is a single
-    simple command starting with ``timeout`` (redirections allowed; no ``;``,
-    ``&&``, ``||``, pipes, ``&``, subshells or further lines, which would run
-    outside the timeout), when it cannot be parsed, and for a zero duration
-    (which disables timeout's limit).
+    Includes ``-k/--kill-after``. Returns None unless the tool call parses as a
+    single simple command starting with ``timeout`` (redirections allowed; no
+    ``;``, ``&&``, ``||``, pipes, ``&`` or further statements, which would run
+    outside the timeout), and for a zero duration (which disables the limit).
+    Quoted arguments such as ``bash -c 'a; b'`` stay inside the timeout.
     """
-    text = cmd.strip().replace("\\\n", " ")
-    if "\n" in text:
+    if "timeout" not in cmd:
+        return None  # Skip the parser for the common case.
+    root = _parse_bash(cmd.encode())
+    if root.has_error:
         return None
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
+    statements = [c for c in root.named_children if c.type != "comment"]
+    if len(statements) != 1 or len(root.children) != len(root.named_children):
+        return None  # Several statements, or a trailing `&`/`;`.
+    node = statements[0]
+    if node.type == "redirected_statement":
+        node = node.child_by_field_name("body") or node.children[0]
+    if node.type != "command" or node.text is None:
+        return None
     try:
-        tokens = list(lexer)
+        tokens = shlex.split(node.text.decode())
     except ValueError:
         return None
-    for token in tokens:
-        # Redirection operators (`>`, `2>&1`, `&>`) are fine; control
-        # operators end the timeout's scope.
-        if token in ("&", "&&") or any(c in token for c in ";|()"):
-            if not re.fullmatch(r"[<>&]*[<>][<>&]*", token):
-                return None
     if not tokens or os.path.basename(tokens[0]) not in ("timeout", "gtimeout"):
         return None
     kill_after = 0.0
@@ -3362,20 +3360,30 @@ def _explicit_timeout_seconds(cmd: str) -> float | None:
     return duration + kill_after
 
 
-# `output` is a gptme job-control command, not a bash command. Find it where
-# bash would try to execute it: at a command position of a script/pipeline.
-_OUTPUT_COMMAND_RE = re.compile(r"(?:^|[;&|(\n])[ \t]*output[ \t]+#?(\d+)\b")
-
-
 def _find_output_command(cmd: str) -> int | None:
-    """Return the job ID of an ``output N`` that bash would fail to run."""
-    if shutil.which("output"):
+    """Return the job ID of an ``output N`` that bash would try to execute.
+
+    ``output`` is a gptme job-control command, not a bash command. Only
+    commands in the parsed script count, so quoted strings, heredoc bodies,
+    comments and arguments (``echo output 1``) are left alone.
+    """
+    if "output" not in cmd or shutil.which("output"):
         return None  # A real `output` executable: bash owns the name.
-    text = _blank_shell_comments(_blank_heredoc_bodies(cmd))
-    quoted = _find_quotes(text)
-    for match in _OUTPUT_COMMAND_RE.finditer(text):
-        if not _is_in_quoted_region(match.start(1), quoted):
-            return int(match.group(1))
+    stack = [_parse_bash(cmd.encode())]
+    while stack:
+        node = stack.pop()
+        if node.type == "command":
+            name = node.child_by_field_name("name")
+            args = [c for c in node.named_children if c.type != "command_name"]
+            if (
+                name is not None
+                and name.text == b"output"
+                and args
+                and args[0].text is not None
+                and args[0].text.isdigit()
+            ):
+                return int(args[0].text)
+        stack.extend(reversed(node.children))
     return None
 
 

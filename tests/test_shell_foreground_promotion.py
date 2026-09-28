@@ -384,6 +384,9 @@ def test_output_of_promoted_job_is_a_whole_tool_call(
         "sleep 0; output 1",
         "touch ran && output 1",
         "touch ran\noutput 1",
+        "touch ran; if true; then output 1; fi",
+        "touch ran; { output 1; }",
+        "touch ran; echo $(output 1)",
     ],
 )
 def test_output_inside_script_is_explained_not_run(
@@ -476,6 +479,10 @@ def test_explicit_timeout_prefix_defers_promotion(
         ("timeout 10m a | tee log", None),
         ("timeout 10m a &", None),
         ("timeout 10m a\nb", None),
+        ("timeout 10m a;", None),
+        # Quoted scripts run entirely inside the timeout.
+        ("timeout 400 bash -c 'sleep 500; do_work' 2>&1", 400.0),
+        ("timeout 5 cmd <<EOF\nline; other\nEOF", 5.0),
     ],
 )
 def test_explicit_timeout_seconds(command: str, expected: float | None) -> None:
