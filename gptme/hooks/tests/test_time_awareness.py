@@ -14,6 +14,7 @@ from gptme.hooks.time_awareness import (
     _get_next_milestone,
     _last_notice_var,
     _shown_milestones_var,
+    _start_cache_var,
     add_time_message,
 )
 from gptme.hooks.types import ToolExecutePostData
@@ -35,7 +36,9 @@ def reset_contextvars():
     tok1 = _conversation_start_times_var.set(None)
     tok2 = _shown_milestones_var.set(None)
     tok3 = _last_notice_var.set(None)
+    tok4 = _start_cache_var.set(None)
     yield
+    _start_cache_var.reset(tok4)
     _last_notice_var.reset(tok3)
     _conversation_start_times_var.reset(tok1)
     _shown_milestones_var.reset(tok2)
@@ -421,6 +424,25 @@ class TestClockConsistency:
         fake_clock.utc = created + timedelta(minutes=2)
         (notice,) = _call_with_log(workspace, log)
         assert "Time elapsed: 1d since session start at 2026-09-27 11:00 CEST" in (
+            notice.content
+        )
+
+    def test_truncated_log_updates_session_start(
+        self, workspace: Path, fake_clock: FakeClock
+    ) -> None:
+        """If the log shrinks (e.g. /backtrack) the cached start is recomputed."""
+        created = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)
+        history = datetime(2026, 9, 27, 9, 0, tzinfo=UTC)
+        prompt = Message("system", "fresh prompt", timestamp=created)
+        log = Log([prompt, Message("user", "old question", timestamp=history)])
+        fake_clock.utc = created + timedelta(minutes=2)
+        (notice,) = _call_with_log(workspace, log)
+        assert "since session start at 2026-09-27 11:00 CEST" in notice.content
+
+        # The old history is removed; the remaining log starts at `created`.
+        fake_clock.utc = created + timedelta(minutes=6)
+        (notice,) = _call_with_log(workspace, Log([prompt]))
+        assert "Time elapsed: 6min since session start at 2026-09-28 11:00" in (
             notice.content
         )
 

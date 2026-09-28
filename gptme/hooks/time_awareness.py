@@ -65,6 +65,11 @@ _shown_milestones_var: ContextVar[dict[str, set[int]] | None] = ContextVar(
 _last_notice_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "time_awareness_last_notice", default=None
 )
+# workspace -> (id of the log's first message, log length) the cached start
+# was computed for; used to detect a rewritten or truncated log.
+_start_cache_var: ContextVar[dict[str, tuple[int, int]] | None] = ContextVar(
+    "time_awareness_start_cache", default=None
+)
 
 
 @dataclass
@@ -124,6 +129,8 @@ def _ensure_locals():
         _shown_milestones_var.set({})
     if _last_notice_var.get() is None:
         _last_notice_var.set({})
+    if _start_cache_var.get() is None:
+        _start_cache_var.set({})
 
 
 def _elapsed_milestone(start: datetime, at: datetime) -> int | None:
@@ -154,20 +161,30 @@ def add_time_message(
         conversation_start_times = _conversation_start_times_var.get()
         shown_milestones = _shown_milestones_var.get()
         last_notices = _last_notice_var.get()
+        start_cache = _start_cache_var.get()
+        assert start_cache is not None
         assert conversation_start_times is not None
         assert shown_milestones is not None
         assert last_notices is not None
 
         current = clock.now()
 
+        # Real session start from the log survives resume. It's O(n), so it
+        # is cached and only recomputed when the log was rewritten (first
+        # message replaced) or shrank (e.g. /backtrack, /edit).
+        messages = getattr(data.log, "messages", None)
+        if messages:
+            key = id(messages[0])
+            cached = start_cache.get(workspace_str)
+            if cached is None or cached[0] != key or len(messages) < cached[1]:
+                log_start = _session_start(data.log)
+                if log_start is not None and log_start <= current:
+                    conversation_start_times[workspace_str] = log_start
+            start_cache[workspace_str] = (key, len(messages))
         if workspace_str not in conversation_start_times:
-            # Real session start from the log survives resume; without a log,
-            # fall back to the first hook call in this context.
-            log_start = _session_start(data.log)
-            conversation_start_times[workspace_str] = (
-                log_start if log_start and log_start <= current else current
-            )
-            shown_milestones[workspace_str] = set()
+            # Without a log, fall back to the first hook call in this context.
+            conversation_start_times[workspace_str] = current
+        shown_milestones.setdefault(workspace_str, set())
 
         start = to_local(conversation_start_times[workspace_str])
         elapsed = current - start
