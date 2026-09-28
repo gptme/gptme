@@ -3240,6 +3240,7 @@ def test_invalid_color_types_are_ignored(caplog):
         (123, None),
         (True, None),
         ("", None),
+        ("notacolor", None),
     ],
 )
 def test_color_to_hex(value, expected):

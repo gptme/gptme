@@ -46,7 +46,7 @@ def valid_color(value: object, where: str) -> str | None:
         try:
             Color.parse(value)
             return value
-        except (ColorParseError, ValueError):
+        except (ColorParseError, ValueError, KeyError):
             pass
     import logging
 
@@ -63,7 +63,7 @@ def color_to_hex(value: object) -> str | None:
 
     try:
         return Color.parse(value).get_truecolor().hex
-    except (ColorParseError, ValueError, AttributeError, TypeError):
+    except (ColorParseError, ValueError, KeyError, AttributeError, TypeError):
         return None
 
 
