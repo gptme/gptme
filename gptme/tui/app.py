@@ -1005,6 +1005,16 @@ class ChatInput(TextArea):
         # GptmeApp._watch_app_focus), so hide the cursor then instead
         return super()._draw_cursor and self.app.app_focus
 
+    def redraw_cursor(self) -> None:
+        """Re-render after the terminal gains/loses focus.
+
+        TextArea caches rendered lines, and with blinking off the cache key
+        doesn't depend on focus, so a plain refresh would redraw the cursor
+        from cache.
+        """
+        self._line_cache.clear()
+        self.refresh()
+
     def _push_history(self, text: str) -> None:
         """Record a submitted entry and persist it to the shared history file."""
         if text and (not self._history or self._history[-1] != text):
@@ -2679,7 +2689,7 @@ class GptmeApp(App):
         chat_input = self.query_one("#input", ChatInput)
         if focus and self.screen.focused is None and not self._is_modal_open():
             self.screen.set_focus(chat_input, scroll_visible=False)
-        chat_input.refresh()  # show/hide its cursor
+        chat_input.redraw_cursor()
 
     def _is_modal_open(self) -> bool:
         return isinstance(self.screen, ModalScreen)

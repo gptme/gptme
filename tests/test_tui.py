@@ -2263,18 +2263,21 @@ async def test_terminal_focus_changes_keep_input_focused(tmp_path):
         await pilot.pause()
         inp = app.query_one("#input", ChatInput)
         assert not inp.cursor_blink, "steady cursor, like shells"
-        assert inp._draw_cursor
+        focused_line = inp.render_line(0)
         app.post_message(events.AppBlur())
         await pilot.pause()
         assert app.focused is inp
-        # still focused, but no cursor shown while the terminal is unfocused
+        # still focused, but the rendered cursor is gone while the terminal
+        # is unfocused (checks the actual render: TextArea caches lines)
         assert not inp._draw_cursor
+        assert inp.render_line(0) != focused_line
         # focus lost some other way: focus-in puts it back on the input
         app.screen.set_focus(None)
         app.post_message(events.AppFocus())
         await pilot.pause()
         assert app.focused is inp
         assert inp._draw_cursor
+        assert inp.render_line(0) == focused_line
 
 
 def test_current_dir_recovers_from_stale_cwd(tmp_path, monkeypatch):
