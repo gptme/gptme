@@ -311,6 +311,10 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
         if watch.cancelled:
             break
         if watch.deadline is not None and time.time() > watch.deadline:
+            # Mark cancelled so the reader thread's sentinel loop exits instead
+            # of spinning on a queue this consumer will never drain again.
+            with watch.lock:
+                watch.cancelled = True
             _kill_proc(proc)
             _fire(watch, f"expired without event ({watch.description})")
             return
@@ -512,23 +516,36 @@ def _parse_opts(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
     return opts, rest
 
 
-_SHELL_OPERATORS = frozenset(
-    {"|", "||", "&&", "&", ";", ";;", ">", ">>", "<", "<<", "|&", "(", ")", "{", "}"}
-)
+_UNQUOTED_OPERATOR_CHARS = frozenset("|&;><(){}")
+
+
+def _reject_unquoted_operators(raw: str) -> None:
+    """Reject shell operators that are not inside quotes.
+
+    The check runs on the raw text, not on ``shlex.split`` output: splitting
+    strips quotes, so a legitimate quoted argument like ``grep '|' file``
+    must not be rejected, while an unquoted ``>`` in the raw text still is
+    (after splitting, ``shlex.join`` would quote it as a literal argument and
+    the watch would report a result for a different command than requested).
+    """
+    quote = ""
+    for ch in raw:
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch in _UNQUOTED_OPERATOR_CHARS:
+            raise ValueError(
+                "watch commands do not support unquoted shell operators "
+                "(pipes, redirections); watch a single command, or wrap the "
+                "pipeline in a script"
+            )
 
 
 def _join_command(positional: list[str]) -> str:
-    """Join command tokens, rejecting shell operators.
-
-    ``shlex.join`` would quote an operator token as a literal argument, so
-    ``watch run echo ok > status.txt`` would silently not write the file and
-    report a result for a different command than requested. Reject instead.
-    """
-    if any(tok in _SHELL_OPERATORS for tok in positional):
-        raise ValueError(
-            "watch commands do not support shell operators (pipes, redirections); "
-            "watch a single command, or wrap the pipeline in a script"
-        )
+    """Join command tokens into the command string run by the worker."""
     return shlex.join(positional)
 
 
@@ -549,6 +566,7 @@ def _command_from_watch_content(content: str) -> str | None:
         return None
     _, positional = _parse_opts(tokens[1:])
     try:
+        _reject_unquoted_operators(content or "")
         command = _join_command(positional)
     except ValueError:
         # Falls through to the normal confirmation path; `_watch` raises the
@@ -722,6 +740,7 @@ def _watch(
         if not rest:
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
         opts, positional = _parse_opts(rest)
+        _reject_unquoted_operators(code or "")
         command = _join_command(positional)
         if not command:
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
@@ -795,7 +814,11 @@ tool = ToolSpec(
     name="watch",
     desc="Arm event sources (run/until/stream/timer/tmux) and get woken when they fire",
     instructions=(
-        "Arm a watch to be woken by an event instead of polling or blocking.\n"
+        "Use watch whenever you would otherwise poll (`sleep N; check`) or "
+        "block on a slow command: arm it, keep working, and get woken by a "
+        "system message when the event fires. Prefer keep-working; never "
+        "poll with `sleep N; check`.\n"
+        "Arming a source:\n"
         "- `watch until <cmd> --every 30s`: fire once when cmd exits 0 (e.g. `gh pr checks`)\n"
         "- `watch run <cmd>`: fire when the process exits, with rc + output tail\n"
         "- `watch stream <cmd>`: each stdout line is an event (Monitor)\n"
@@ -807,8 +830,8 @@ tool = ToolSpec(
         "have no long-lived child to kill.\n"
         "- `watch wait <id> [timeout]`: blocking observation-only wait; never kills.\n"
         "All options: --every, --timeout, --pattern, --stable (other `--flags` "
-        "belong to the watched command). Prefer keep-working and let the event "
-        "wake you. Never poll with `sleep N; check` — arm a watch instead. "
+        "belong to the watched command; set `--timeout` on `until` so a "
+        "never-met condition still wakes you). "
         "Runaway sources are auto-cancelled by storm guards. `run`/`until`/"
         "`stream` use the same confirmation and denylist as the shell tool "
         "(allowlisted probes auto-confirm; others prompt). `list`/`cancel`/"

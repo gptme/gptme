@@ -466,3 +466,21 @@ def test_tmux_requires_pattern_or_stable(tmp_path: Path):
     # pattern-only passes validation and arms (capture failure fires as event).
     out = _watch_cli("tmux mysession --pattern foo", tmp_path)
     assert "Armed watch" in out.content
+
+
+def test_quoted_operator_argument_is_allowed():
+    """A quoted `|` is a literal argument, not a shell operator.
+
+    The operator check runs on the raw text (quote-aware), not on
+    ``shlex.split`` output which strips the quotes.
+    """
+    from gptme.tools.watch import _reject_unquoted_operators
+
+    _reject_unquoted_operators("grep '|' file")  # must not raise
+    _reject_unquoted_operators('echo "a > b"')  # must not raise
+    import pytest
+
+    with pytest.raises(ValueError, match="shell operators"):
+        _reject_unquoted_operators("echo ok > status.txt")
+    with pytest.raises(ValueError, match="shell operators"):
+        _reject_unquoted_operators("echo a | grep b")
