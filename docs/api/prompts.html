@@ -886,7 +886,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f91ea32ef20&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f5e73e8ef20&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2265,9 +2265,10 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 Use <span class="sb">`background: true`</span> for work you already know will run long — dev servers,
 builds, test suites. A foreground command that outruns the soft timeout is
-promoted for you: keep doing other useful work, and the result arrives
-automatically before the next model step. Use <span class="sb">`wait`</span> only when later steps
-need that result.
+promoted to background job N; its exit code and output arrive automatically.
+A leading <span class="sb">`timeout DURATION`</span> keeps a command in the foreground that long.
+Manage jobs with <span class="sb">`output N`</span>, <span class="sb">`wait N [timeout]`</span>, <span class="sb">`kill N`</span>, <span class="sb">`jobs`</span>: not bash,
+so send each as the entire command, never piped or inside a script.
 
 <span class="gu">### Examples</span>
 
@@ -2313,34 +2314,35 @@ Scaffolding project in ./fancy-project...
 <span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;Content with `backticks` and $variables that should not be interpreted&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>example.txt
 <span class="sb">```</span>
 
-<span class="gu">#### Background jobs for long-running commands</span>
+<span class="gu">#### Long-running commands become background jobs</span>
 
-<span class="k">&gt; </span><span class="ge">User: start a dev server</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll start the dev server as a background job so it doesn&#39;t block:</span>
+<span class="k">&gt; </span><span class="ge">User: run the training script</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me start the training run:</span>
 <span class="sb">```shell</span>
-<span class="nb">bg</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>dev
+python<span class="w"> </span>train.py
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">User: check the server output</span>
+<span class="k">&gt; </span><span class="ge">User: how is it going?</span>
 <span class="k">&gt; </span><span class="ge">Assistant: Let me check the output from the background job:</span>
 <span class="sb">```shell</span>
 output<span class="w"> </span><span class="m">1</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">Command: `npm run dev`</span>
+<span class="k">&gt; </span><span class="ge">Command: `python train.py`</span>
 <span class="k">&gt;</span>
 <span class="ge">&gt; ```stdout</span>
-<span class="k">&gt; </span><span class="ge">&gt; project@1.0.0 dev</span>
-<span class="k">&gt; </span><span class="ge">&gt; vite</span>
-<span class="k">&gt;</span>
-<span class="ge">&gt; VITE v5.0.0  ready in 300 ms</span>
-<span class="k">&gt;</span>
-<span class="ge">&gt; ➜  Local:   http://localhost:5173/</span>
+<span class="k">&gt; </span><span class="ge">epoch 3/10 loss=0.412</span>
 <span class="k">&gt; </span><span class="ge">```</span>
 
-<span class="k">&gt; </span><span class="ge">User: stop the server</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll terminate the background job:</span>
+<span class="k">&gt; </span><span class="ge">User: wait for it to finish</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll block on the job for up to 20 minutes:</span>
 <span class="sb">```shell</span>
-<span class="nb">kill</span><span class="w"> </span><span class="m">1</span>
+<span class="nb">wait</span><span class="w"> </span><span class="m">1</span><span class="w"> </span>20m
 <span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Command: `python train.py`</span>
+<span class="k">&gt;</span>
+<span class="ge">&gt; ```stdout</span>
+<span class="k">&gt; </span><span class="ge">epoch 10/10 loss=0.107</span>
+<span class="k">&gt; </span><span class="ge">saved model.pt</span>
+<span class="k">&gt; </span><span class="ge">```</span>
 
 <span class="gu">## subagent</span>
 
@@ -2966,7 +2968,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 19423</p>
+<p>Tokens: 19458</p>
 </dd></dl>
 
 <dl class="py function">

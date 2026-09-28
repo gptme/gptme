@@ -608,6 +608,10 @@ document.write(`
 <dl class="simple">
 <dt>GPTME_SHELL_FOREGROUND_TIMEOUT: Soft timeout before a foreground command is</dt><dd><p>promoted to a conversation-owned background job. Defaults to 120 seconds.
 Set to 0 to disable promotion. GPTME_SHELL_TIMEOUT remains the hard limit.
+A command that starts with <code class="docutils literal notranslate"><span class="pre">timeout</span> <span class="pre">DURATION</span></code> is not promoted before
+that duration (plus a short grace) has passed. Promoted jobs are managed
+with the <code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">N</span></code>, <code class="docutils literal notranslate"><span class="pre">wait</span> <span class="pre">N</span> <span class="pre">[timeout]</span></code>, <code class="docutils literal notranslate"><span class="pre">kill</span> <span class="pre">N</span></code> and <code class="docutils literal notranslate"><span class="pre">jobs</span></code>
+control commands, each given as the entire shell command.
 POSIX only — Windows has no process-group promotion path, so this setting
 is ignored there and long commands wait for GPTME_SHELL_TIMEOUT.</p>
 </dd>
@@ -655,9 +659,10 @@ existing commands and tests. Prefer the repo over answering from memory.
 
 Use <span class="sb">`background: true`</span> for work you already know will run long — dev servers,
 builds, test suites. A foreground command that outruns the soft timeout is
-promoted for you: keep doing other useful work, and the result arrives
-automatically before the next model step. Use <span class="sb">`wait`</span> only when later steps
-need that result.
+promoted to background job N; its exit code and output arrive automatically.
+A leading <span class="sb">`timeout DURATION`</span> keeps a command in the foreground that long.
+Manage jobs with <span class="sb">`output N`</span>, <span class="sb">`wait N [timeout]`</span>, <span class="sb">`kill N`</span>, <span class="sb">`jobs`</span>: not bash,
+so send each as the entire command, never piped or inside a script.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -797,33 +802,35 @@ Scaffolding project in ./fancy-project...
 </pre></div></pre>
   </td>
 </tr>
-</table><p>Background jobs for long-running commands</p>
+</table><p>Long-running commands become background jobs</p>
 <table style="width: 100%; margin-bottom: 1em">
   
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">start a dev server</pre>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">run the training script</pre>
   </td>
 </tr>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll start the dev server as a background job so it doesn't block:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">shell</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">bg npm run dev
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Let me start the training run:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">shell</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">python train.py
 </pre></div></pre>
   </td>
 </tr>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Started background job **#1**: `npm run dev`
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Promoted to background shell job #1 after 120s: `python train.py`
 >
-> Use these commands to manage it:
-> - `jobs` - List all background jobs
-> - `output 1` - Show output from job #1
-> - `wait 1 60s` - Wait up to 60 seconds for job #1
-> - `kill 1` - Terminate job #1</pre>
+> The command is still running. Its exit code and output will be reported automatically when it finishes.
+>
+> Manage it with these gptme job-control commands. Each must be the *entire* shell command (they are not bash commands, so they cannot be piped, chained, or used inside a script):
+> - `output 1` - show recent output (`output 1 --new` for output since the last check)
+> - `wait 1 [timeout]` - block until it finishes, e.g. `wait 1 10m`, then show its output
+> - `kill 1` - terminate it
+> - `jobs` - list background jobs</pre>
   </td>
 </tr>
 </table><table style="width: 100%; margin-bottom: 1em">
@@ -831,7 +838,7 @@ Scaffolding project in ./fancy-project...
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">check the server output</pre>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">how is it going?</pre>
   </td>
 </tr>
 <tr>
@@ -845,16 +852,11 @@ Scaffolding project in ./fancy-project...
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">**Job #1** - Running (45.2s)
-Command: `npm run dev`
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">**Job #1** - Running (185.2s)
+Command: `python train.py`
 >
 > ```stdout
-> > project@1.0.0 dev
-> > vite
->
-> VITE v5.0.0  ready in 300 ms
->
-> ➜  Local:   http://localhost:5173/
+> epoch 3/10 loss=0.412
 > ```</pre>
   </td>
 </tr>
@@ -863,21 +865,27 @@ Command: `npm run dev`
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">stop the server</pre>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">wait for it to finish</pre>
   </td>
 </tr>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll terminate the background job:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">shell</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">kill 1
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll block on the job for up to 20 minutes:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">shell</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">wait 1 20m
 </pre></div></pre>
   </td>
 </tr>
 <tr>
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
-    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Terminated job #1: `npm run dev`</pre>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">**Job #1** - Finished (exit code: 0) (912.4s)
+Command: `python train.py`
+>
+> ```stdout
+> epoch 10/10 loss=0.107
+> saved model.pt
+> ```</pre>
   </td>
 </tr>
 </table><dl class="py class">
