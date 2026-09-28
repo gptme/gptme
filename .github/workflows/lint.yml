@@ -66,10 +66,12 @@ jobs:
         openapi_pid=$!
         status=0
         make typecheck-coverage || status=$?
+        openapi_status=0
+        wait "$openapi_pid" || openapi_status=$?
         echo "::group::OpenAPI check"
         cat openapi.log
         echo "::endgroup::"
-        if ! wait "$openapi_pid"; then
+        if [ "$openapi_status" -ne 0 ]; then
           echo "::error::OpenAPI spec check failed (see the OpenAPI check group above)"
           status=1
         fi

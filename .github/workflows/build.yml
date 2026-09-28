@@ -11,9 +11,12 @@ on:
       - 'gptme/**'
       - 'webui/**'
       - 'scripts/**'
+      - 'media/**'
       - 'pyproject.toml'
       - 'poetry.lock'
+      - 'README.md'
       - 'Makefile'
+      - '.dockerignore'
       - '*.spec'
       - '.github/workflows/build.yml'
   workflow_dispatch:
