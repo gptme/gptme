@@ -37,6 +37,11 @@ _CANCEL_COUNT = 200
 _CANCEL_WINDOW = 5 * 60.0
 _MAX_EVENTS = 1000
 _POLL_INTERVAL = 1.0
+# Bound in-flight stream lines so a firehose cannot grow the reader queue
+# without limit while the consumer is applying storm guards.
+_STREAM_LINE_QUEUE = 256
+# `run` only reports a tail; never retain the child's full stdout.
+_RUN_TAIL_CHARS = 1000
 
 # Option names the watch parser consumes. Anything else starting with `--`
 # belongs to the command being watched (e.g. `gh pr checks 42 --repo x`).
@@ -261,18 +266,33 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     """Each stdout line is an event; process exit ends the watch.
 
     A reader thread decouples the blocking ``readline`` from the loop so the
-    watch deadline is still enforced when the source goes quiet.
+    watch deadline is still enforced when the source goes quiet. The queue is
+    bounded: if the consumer cannot keep up, the watch auto-cancels instead of
+    buffering an unbounded firehose.
     """
     assert proc.stdout is not None
     stdout = proc.stdout
-    lines: queue.Queue[str | None] = queue.Queue()
+    lines: queue.Queue[str | None] = queue.Queue(maxsize=_STREAM_LINE_QUEUE)
 
     def _reader() -> None:
         try:
             for line in iter(stdout.readline, ""):
-                lines.put(line)
+                if watch.cancelled:
+                    return
+                try:
+                    lines.put(line, timeout=0.5)
+                except queue.Full:
+                    with watch.lock:
+                        watch.cancelled = True
+                    logger.warning(
+                        "watch %s stream queue full; auto-cancelled", watch.id
+                    )
+                    return
         finally:
-            lines.put(None)
+            try:
+                lines.put(None, timeout=0.5)
+            except queue.Full:
+                pass
 
     threading.Thread(target=_reader, daemon=True).start()
     while True:
@@ -299,20 +319,49 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
 
 
 def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
-    """Wait for a process to exit, reading output concurrently (no deadlock)."""
-    timeout = None
-    if watch.deadline is not None:
-        timeout = max(0.1, watch.deadline - time.time())
-    try:
-        out, _ = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill_proc(proc)
-        _fire(watch, f"expired without exit ({watch.description})")
-        return
+    """Wait for a process to exit, keeping only a bounded output tail.
+
+    Reading concurrently avoids the stdout-pipe deadlock; dropping older
+    chunks keeps a verbose child's full output out of memory.
+    """
+    assert proc.stdout is not None
+    stdout = proc.stdout
+    tail = ""
+    buf_lock = threading.Lock()
+    reader_done = threading.Event()
+
+    def _reader() -> None:
+        nonlocal tail
+        try:
+            while True:
+                piece = stdout.read(4096)
+                if not piece:
+                    return
+                with buf_lock:
+                    tail = (tail + piece)[-_RUN_TAIL_CHARS:]
+        finally:
+            reader_done.set()
+
+    threading.Thread(target=_reader, daemon=True).start()
+    while not reader_done.wait(timeout=0.2):
+        if watch.cancelled:
+            _kill_proc(proc)
+            reader_done.wait(timeout=2)
+            return
+        if watch.deadline is not None and time.time() > watch.deadline:
+            _kill_proc(proc)
+            reader_done.wait(timeout=2)
+            _fire(watch, f"expired without exit ({watch.description})")
+            return
     if watch.cancelled:
         return
-    tail = (out or "")[-1000:]
-    _fire(watch, f"process exited rc={proc.returncode} {tail}".strip())
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        _kill_proc(proc)
+    with buf_lock:
+        out = tail
+    _fire(watch, f"process exited rc={proc.returncode} {out}".strip())
 
 
 def _poll_timer(watch: Watch, seconds: float) -> None:
@@ -623,13 +672,17 @@ tool = ToolSpec(
         "- `watch stream <cmd>`: each stdout line is an event (Monitor)\n"
         "- `watch timer 10m [desc]`: fire once after a duration (ScheduleWakeup)\n"
         "- `watch tmux <session> --pattern <re> --stable 5s`: fire on pane match/stability\n"
-        "- `watch list` / `watch cancel <id>` / `watch wait <id> [timeout]`\n"
+        "- `watch list`\n"
+        "- `watch cancel <id>`: disarm. For `run`/`stream`, also stop the child "
+        "we spawned (otherwise the worker and pipes leak). `until`/`timer`/`tmux` "
+        "have no long-lived child to kill.\n"
+        "- `watch wait <id> [timeout]`: blocking observation-only wait; never kills.\n"
         "All options: --every, --timeout, --pattern, --stable (other `--flags` "
-        "belong to the watched command). `wait` is a blocking observation-only "
-        "wait — normally prefer keep-working and let the event wake you. Never "
-        "poll with `sleep N; check` — arm a watch instead. Runaway sources are "
-        "auto-cancelled by storm guards. Commands run in the background without "
-        "interactive confirmation, so the shell denylist is enforced."
+        "belong to the watched command). Prefer keep-working and let the event "
+        "wake you. Never poll with `sleep N; check` — arm a watch instead. "
+        "Runaway sources are auto-cancelled by storm guards. Commands run in "
+        "the background without interactive confirmation, so the shell denylist "
+        "is enforced."
     ),
     examples=(
         "> User: Wait for CI on PR 42 without blocking\n"

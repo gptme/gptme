@@ -11,6 +11,7 @@ from gptme.message import Message
 from gptme.tools.watch import (
     Watch,
     _deliver,
+    _kill_proc,
     _new_id,
     _parse_duration,
     _parse_opts,
@@ -18,6 +19,8 @@ from gptme.tools.watch import (
     _pending_lock,
     _record_event,
     _watch_drain_hook,
+    requeue_watch_event,
+    take_queued_watch_events,
 )
 
 
@@ -50,13 +53,17 @@ _watch_tool = _watch_mod._watch
 def _clear_watch_state():
     from gptme.tools.watch import _watches
 
-    with _pending_lock:
-        _pending_deliveries.clear()
-    _watches.clear()
+    def _reset() -> None:
+        with _pending_lock:
+            _pending_deliveries.clear()
+        for w in list(_watches.values()):
+            w.cancelled = True
+            _kill_proc(w.proc)
+        _watches.clear()
+
+    _reset()
     yield
-    with _pending_lock:
-        _pending_deliveries.clear()
-    _watches.clear()
+    _reset()
 
 
 def test_parse_duration():
@@ -94,9 +101,9 @@ def test_record_event_storm_auto_cancel():
 
 
 def test_until_fires_once(tmp_path: Path):
+    # Arming returns immediately; `true` can fire before the next line, so do
+    # not assert on the pending queue here — that race failed in CI.
     _watch_cli("until true --every 0.1s --timeout 5s", tmp_path)
-    with _pending_lock:
-        assert not _pending_deliveries
     w = next(w for w in _record_all() if w.kind == "until")
     deadline = time.time() + 5
     while not w.fired and time.time() < deadline:
@@ -221,9 +228,14 @@ def test_parse_opts_preserves_command_flags():
 
 
 def test_command_flags_survive_arming(tmp_path: Path):
-    _watch_cli("until gh pr checks 42 --repo gptme/gptme --every 0.1s", tmp_path)
+    out = _watch_cli(
+        "until gh pr checks 42 --repo gptme/gptme --every 0.1s --timeout 0.5s",
+        tmp_path,
+    )
     w = next(w for w in _record_all() if w.kind == "until")
     assert w.description == "gh pr checks 42 --repo gptme/gptme"
+    wid = out.content.split()[2]
+    _watch_cli(f"cancel {wid}", tmp_path)
 
 
 def test_stream_records_each_line_once(tmp_path: Path):
@@ -279,3 +291,37 @@ def test_watches_are_scoped_to_conversation(tmp_path: Path):
 def test_denylisted_command_rejected(tmp_path: Path):
     with pytest.raises(ValueError, match="Command denied"):
         _watch_cli("run rm -rf / --no-preserve-root", tmp_path)
+
+
+def test_requeue_preserves_remaining_events(tmp_path: Path):
+    logdir = tmp_path / "conv"
+    with _pending_lock:
+        _pending_deliveries.extend(
+            [
+                (logdir, "w1", "a"),
+                (logdir, "w2", "b"),
+                (logdir, "w3", "c"),
+            ]
+        )
+    batch = take_queued_watch_events(logdir)
+    assert batch == [("w1", "a"), ("w2", "b"), ("w3", "c")]
+    # Mid-loop failure on the second event: put that one and every later
+    # event back, preserving order (the previous-review P1).
+    for wid, txt in reversed(batch[1:]):
+        requeue_watch_event(logdir, wid, txt)
+    assert take_queued_watch_events(logdir) == [("w2", "b"), ("w3", "c")]
+
+
+def test_run_keeps_only_output_tail(tmp_path: Path):
+    big = tmp_path / "big.txt"
+    big.write_text("x" * 20000)
+    _watch_cli(f"run cat {big}", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "run")
+    deadline = time.time() + 5
+    while not w.fired and time.time() < deadline:
+        time.sleep(0.05)
+    assert w.fired
+    assert "rc=0" in w.events[-1]
+    # Tail only — the 20k payload must not all land in the event.
+    assert len(w.events[-1]) < 2000
+    assert "xxx" in w.events[-1]
