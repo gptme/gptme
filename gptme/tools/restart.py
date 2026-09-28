@@ -5,10 +5,14 @@ This tool allows restarting gptme from within a conversation, which can be usefu
 for applying configuration changes, reloading tools, or recovering from state issues.
 """
 
+import importlib.util
 import logging
 import os
 import sys
 from collections.abc import Generator
+from pathlib import Path
+from typing import Literal
+from urllib.parse import quote
 
 from ..hooks.confirm import confirm
 from ..message import Message
@@ -38,30 +42,317 @@ _FLAGS_WITH_VALUES = {
 }
 
 
-def _do_restart(conversation_name: str | None = None):
-    """Restart gptme by manually triggering cleanup and then execing.
+# ── Interface switching (/restart cli|tui|web) ───────────────────────────
 
-    This approach:
-    1. Manually triggers all atexit handlers
-    2. Performs additional cleanup (close files, etc.)
-    3. Directly replaces the current process with a new gptme instance
-    4. Preserves stdin/stdout/stderr so terminal connection is maintained
+Interface = Literal["cli", "tui"]
+Target = Literal["cli", "tui", "web"]
 
-    Args:
-        conversation_name: The name of the current conversation to resume
+#: Targets accepted by ``/restart <target>``, with completion descriptions.
+RESTART_TARGETS: dict[str, str] = {
+    "cli": "Restart this conversation in the plain CLI (gptme)",
+    "tui": "Restart this conversation in the TUI (gptme-tui)",
+    "web": "Close this session and open the conversation in the web UI",
+}
+
+DEFAULT_SERVER_PORT = 5700
+
+# Launch-time flags that aren't persisted in the conversation's config.toml
+# and mean the same in both interfaces, so they carry over when switching (as
+# their long form). Everything else is either persisted (model, tools, tool
+# format, agent path, allow-hosts; the workspace is the inherited cwd) or
+# specific to one interface (--inline, --show-hidden, ...) and dropped.
+_CARRY_OVER: dict[str, str] = {
+    "-y": "--no-confirm",
+    "--no-confirm": "--no-confirm",
+    "-v": "--verbose",
+    "--verbose": "--verbose",
+}
+
+# Per-interface flags that consume the next argument, needed to walk the
+# *source* argv without mistaking a value for a flag. Note the `-n` ambiguity:
+# `gptme -n` is --non-interactive (boolean), `gptme-tui -n` is --name.
+_VALUE_FLAGS: dict[Interface, frozenset[str]] = {
+    "cli": frozenset(
+        {
+            "--name",
+            "-m",
+            "--model",
+            "-w",
+            "--workspace",
+            "--agent-path",
+            "--output-format",
+            "--system",
+            "-t",
+            "--tools",
+            "--agent-profile",
+            "--tool-format",
+            "--context",
+            "--context-include",
+            "--output-schema",
+            "--allow-hosts",
+        }
+    ),
+    "tui": frozenset(
+        {
+            "-n",
+            "--name",
+            "-m",
+            "--model",
+            "-w",
+            "--workspace",
+            "-t",
+            "--tools",
+            "--tool-format",
+        }
+    ),
+}
+# Options with an optional value (`gptme-tui -r [NAME]`): a following
+# non-flag argument is their value.
+_OPTIONAL_VALUE_FLAGS: dict[Interface, frozenset[str]] = {
+    "cli": frozenset(),
+    "tui": frozenset({"-r", "--resume"}),
+}
+
+# interface: (console script, module for `python -m`)
+_PROGRAMS: dict[Interface, tuple[str, str]] = {
+    "cli": ("gptme", "gptme"),
+    "tui": ("gptme-tui", "gptme.tui.main"),
+}
+
+
+class RestartError(Exception):
+    """A requested restart/switch can't be performed; nothing was changed."""
+
+
+def parse_restart_target(args: list[str]) -> Target | None:
+    """Parse ``/restart`` arguments into a target (None: same interface)."""
+    if not args:
+        return None
+    if len(args) > 1 or args[0] not in RESTART_TARGETS:
+        raise RestartError(
+            f"Unknown restart target: {' '.join(args)!r}. "
+            f"Usage: /restart [{'|'.join(RESTART_TARGETS)}]"
+        )
+    target: Target = args[0]  # type: ignore[assignment]
+    return target
+
+
+def complete_restart(partial: str, prev_args: list[str]) -> list[tuple[str, str]]:
+    """Completer for ``/restart`` arguments."""
+    if prev_args:
+        return []
+    return [(t, d) for t, d in RESTART_TARGETS.items() if t.startswith(partial)]
+
+
+def check_interface_available(target: Interface) -> None:
+    """Raise RestartError if ``target`` can't run in this installation."""
+    if target == "tui" and importlib.util.find_spec("textual") is None:
+        raise RestartError(
+            "The TUI requires the 'textual' package. "
+            "Install with: pipx install 'gptme[tui]'"
+        )
+
+
+def _program_argv(target: Interface) -> list[str]:
+    """Command prefix that launches ``target`` from this same installation.
+
+    Prefers the console script next to the running interpreter (same venv),
+    else ``python -m``. PATH isn't consulted: it may resolve to a different
+    gptme install than the one running now.
     """
+    script, module = _PROGRAMS[target]
+    bindir = Path(sys.executable).parent
+    for name in (script, f"{script}.exe"):
+        candidate = bindir / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return [str(candidate)]
+    return [sys.executable, "-m", module]
+
+
+def _carried_flags(argv: list[str], source: Interface) -> list[str]:
+    """Flags in the source interface's argv that carry over to the other."""
+    value_flags = _VALUE_FLAGS[source]
+    optional_value_flags = _OPTIONAL_VALUE_FLAGS[source]
+    carried: list[str] = []
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        i += 1
+        if arg == "--":
+            break  # the rest are prompts
+        if not arg.startswith("-") or arg == "-" or "=" in arg:
+            continue  # prompt, or --flag=value (none of those carry over)
+        if arg in value_flags:
+            i += 1  # skip its value
+            continue
+        if arg in optional_value_flags:
+            if i < len(argv) and not argv[i].startswith("-"):
+                i += 1
+            continue
+        # combined short boolean flags, e.g. `-yv`
+        flags = [arg] if arg.startswith("--") else [f"-{c}" for c in arg[1:]]
+        for flag in flags:
+            mapped = _CARRY_OVER.get(flag)
+            if mapped and mapped not in carried:
+                carried.append(mapped)
+    return carried
+
+
+def build_restart_argv(
+    target: Interface,
+    source: Interface,
+    conversation_name: str,
+    argv: list[str] | None = None,
+) -> list[str]:
+    """Build the argv that reopens ``conversation_name`` in another interface.
+
+    Model, tools, tool format etc. are persisted in the conversation's
+    config.toml and the workspace is the cwd the new process inherits, so
+    only non-persisted, interface-neutral flags are carried over.
+    """
+    check_interface_available(target)
+    argv = sys.argv if argv is None else argv
+    return [
+        *_program_argv(target),
+        *_carried_flags(argv, source),
+        "--name",
+        conversation_name,
+    ]
+
+
+def get_server_url() -> str:
+    """Base URL of the local gptme-server.
+
+    ``GPTME_SERVER_URL`` if set, else built from the environment the server
+    itself reads (``GPTME_SERVER_HOST``/``GPTME_SERVER_PORT``, default
+    127.0.0.1:5700).
+    """
+    if url := os.environ.get("GPTME_SERVER_URL"):
+        return url.rstrip("/")
+    host = os.environ.get("GPTME_SERVER_HOST") or "127.0.0.1"
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"  # a wildcard bind is reachable on loopback
+    elif ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = os.environ.get("GPTME_SERVER_PORT") or str(DEFAULT_SERVER_PORT)
+    return f"http://{host}:{port}"
+
+
+def _http_status(
+    url: str, token: str | None = None, timeout: float = 2.0
+) -> int | None:
+    """GET ``url`` and return the HTTP status, or None if unreachable."""
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(url)
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return int(response.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+    except (OSError, ValueError):  # URLError, timeouts, bad URL
+        return None
+
+
+def prepare_web_switch(conversation_name: str, logdir: Path) -> str:
+    """Check the web UI can open this conversation and return its URL.
+
+    Raises RestartError (changing nothing) if no gptme-server is reachable,
+    it doesn't serve the web UI, or it won't find this conversation.
+    """
+    base = get_server_url()
+    if _http_status(f"{base}/api/v2/version") != 200:
+        raise RestartError(
+            f"No gptme-server reachable at {base}. Start one with `gptme-server` "
+            "(or set GPTME_SERVER_URL), then retry."
+        )
+    if _http_status(f"{base}/") != 200:
+        raise RestartError(
+            f"The gptme-server at {base} doesn't serve the web UI "
+            "(see https://gptme.org/docs/webui.html)."
+        )
+
+    conv = quote(conversation_name, safe="")
+    token = os.environ.get("GPTME_SERVER_TOKEN") or None
+    status = (
+        _http_status(f"{base}/api/v2/conversations/{conv}?limit=1", token=token)
+        if token
+        else None
+    )
+    if status == 404:
+        raise RestartError(
+            f"The gptme-server at {base} can't find conversation "
+            f"{conversation_name!r} (is it using a different logs directory?)."
+        )
+    if status != 200:
+        # Without the server's token we can't ask it; it finds the
+        # conversation if it lives in the logs directory we share with it.
+        from ..dirs import get_logs_dir
+
+        if logdir.resolve().parent != get_logs_dir().resolve():
+            raise RestartError(
+                f"Conversation {conversation_name!r} isn't in the logs directory "
+                f"({get_logs_dir()}), so gptme-server won't find it."
+            )
+
+    url = f"{base}/chat/{conv}"
+    if token:
+        # In the fragment, like `gptme-server` prints it: never sent to the
+        # server; the web UI stores it and strips it from the address bar.
+        url += f"#userToken={quote(token, safe='')}"
+    return url
+
+
+def open_web(url: str) -> None:
+    """Release this session (conversation lock) and open ``url`` in a browser.
+
+    The caller must exit right after: once the web UI has the conversation,
+    this process must not write to it.
+    """
+    import webbrowser
+
+    _cleanup_before_handover()
+    display_url = url.split("#", 1)[0]  # don't print the token
+    if webbrowser.open(url):
+        print(f"Opened in the web UI: {display_url}")
+    else:
+        print(f"Couldn't open a browser. Open {display_url} in the web UI.")
+
+
+def _cleanup_before_handover() -> None:
+    """Run atexit handlers (releasing the LogManager lock) and flush output."""
     import atexit
 
-    # Build restart command, filtering out positional arguments (prompts)
-    # since they are already in the conversation log (Issue #1011)
-    # Use sys.argv[0] (gptme script) not sys.executable (python interpreter)
-    filtered_args = [sys.argv[0]]  # Keep script name
+    try:
+        atexit._run_exitfuncs()
+    except Exception as e:
+        logger.warning(f"Error during atexit cleanup: {e}")
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
+def _filter_same_interface_args(argv: list[str]) -> list[str]:
+    """Rebuild the current command line for a same-interface restart.
+
+    Drops prompts and flags whose values are persisted in the conversation's
+    config.toml; keeps everything else.
+    """
+    # Filter out positional arguments (prompts) since they are already in the
+    # conversation log (Issue #1011).
+    # Use argv[0] (gptme script) not sys.executable (python interpreter)
+    filtered_args = [argv[0]]  # Keep script name
     skip_next = False
     i = 1
 
     skip_value = False  # True when we need to skip the next value (for --name)
-    while i < len(sys.argv):
-        arg = sys.argv[i]
+    while i < len(argv):
+        arg = argv[i]
 
         if skip_next:
             # This arg is a value for the previous flag, keep it
@@ -121,32 +412,45 @@ def _do_restart(conversation_name: str | None = None):
 
         i += 1
 
-    restart_args = filtered_args
+    return filtered_args
 
-    # Ensure we have the conversation name in the args
-    if conversation_name:
-        # Add explicit --name to resume this conversation
-        restart_args.extend(["--name", conversation_name])
+
+def _do_restart(
+    conversation_name: str | None = None,
+    target: Interface | None = None,
+    source: Interface = "cli",
+) -> None:
+    """Restart gptme by manually triggering cleanup and then execing.
+
+    This approach:
+    1. Builds the new command line (raising RestartError before any cleanup)
+    2. Manually triggers all atexit handlers, releasing the LogManager lock
+    3. Directly replaces the current process with a new gptme instance
+    4. Preserves stdin/stdout/stderr so terminal connection is maintained
+
+    Args:
+        conversation_name: The name of the current conversation to resume
+        target: Interface to restart into; None (or ``source``) restarts the
+            current one with its original command line
+        source: The interface running now
+    """
+    if target is None or target == source:
+        restart_args = _filter_same_interface_args(sys.argv)
+        if conversation_name:
+            # Add explicit --name to resume this conversation
+            restart_args.extend(["--name", conversation_name])
+    else:
+        if not conversation_name:
+            raise RestartError("No conversation to reopen in another interface.")
+        restart_args = build_restart_argv(target, source, conversation_name)
 
     logger.info(f"Restarting with: {' '.join(restart_args)}")
 
-    # Manually trigger all atexit handlers to ensure proper cleanup
-    # This includes releasing the LogManager lock via its registered handler
-    try:
-        atexit._run_exitfuncs()
-    except Exception as e:
-        logger.warning(f"Error during atexit cleanup: {e}")
-
-    # Additional cleanup: flush and close output streams
-    try:
-        sys.stdout.flush()
-        sys.stderr.flush()
-    except Exception:
-        pass
+    _cleanup_before_handover()
 
     # Replace current process with new gptme instance
     # stdin/stdout/stderr are preserved, so terminal connection is maintained
-    os.execv(sys.argv[0], restart_args)
+    os.execv(restart_args[0], restart_args)
 
 
 def execute_restart(

@@ -73,6 +73,12 @@ from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
 from ..tools.base import get_tool_format
 from ..tools.complete import SessionCompleteException
+from ..tools.restart import (
+    Interface,
+    RestartError,
+    parse_restart_target,
+    prepare_web_switch,
+)
 from ..util.content import is_message_command
 from ..util.context import extract_urls, include_paths
 from ..util.cost_display import inline_cost_text
@@ -1345,8 +1351,11 @@ class GptmeApp(App):
         # lives in a ContextVar inside _chat_ctx, which the UI thread
         # cannot enter while a worker is running
         self._model: ModelMeta | None = None
-        # set by /restart; main() re-execs gptme-tui after the app exits
+        # set by /restart [cli|web]; main() re-execs (gptme-tui, or gptme for
+        # "cli") or opens restart_web_url after the app has exited
         self.restart_requested = False
+        self.restart_target: Interface | None = None
+        self.restart_web_url: str | None = None
         # True while our SIGWINCH handler is installed (inline mode only)
         self._inline_sigwinch_installed = False
 
@@ -1809,7 +1818,7 @@ class GptmeApp(App):
         if cmd in self.UNSUPPORTED_COMMANDS:
             self._show_info(
                 f"/{cmd} takes over the terminal and is not supported in the "
-                "TUI; resume this conversation in the CLI to use it."
+                "TUI; switch to the CLI with /restart cli to use it."
             )
             return
         if self.generating:
@@ -1819,9 +1828,23 @@ class GptmeApp(App):
             return
         if cmd == "restart":
             # The shared command prompts on stdin and execs in place, which
-            # can't work under Textual: exit cleanly, main() re-execs.
+            # can't work under Textual: exit cleanly, main() re-execs (or
+            # opens the web UI). Check the target first so a failure keeps
+            # the session open.
+            try:
+                target = parse_restart_target(text.split()[1:])
+                web_url = (
+                    prepare_web_switch(self.manager.logdir.name, self.manager.logdir)
+                    if target == "web"
+                    else None
+                )
+            except RestartError as e:
+                self._show_info(str(e))
+                return
             self.manager.write(sync=True)
             self.restart_requested = True
+            self.restart_target = "cli" if target == "cli" else None
+            self.restart_web_url = web_url
             self._request_exit()
             return
 

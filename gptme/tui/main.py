@@ -81,18 +81,26 @@ def _print_history(manager: LogManager, limit: int = 50) -> None:
 
 
 def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
-    """Run SESSION_END hooks, then re-exec if /restart was requested.
+    """Run SESSION_END hooks, then act on a requested /restart.
 
     ``_do_restart`` replaces the process and never returns, so session-end
     cleanup (persistent shell, orphaned subagents, cost summary) has to run
-    first.
+    first. ``/restart web`` doesn't exec: it releases the conversation, opens
+    the browser and returns so main() exits normally.
     """
     app.end_session()
     if app.restart_requested:
-        from ..tools.restart import _do_restart
+        from ..tools.restart import RestartError, _do_restart, open_web
 
-        print(f"Restarting gptme-tui with conversation: {conversation_name}")
-        _do_restart(conversation_name)
+        if app.restart_web_url:
+            open_web(app.restart_web_url)
+            return
+        program = "gptme" if app.restart_target == "cli" else "gptme-tui"
+        print(f"Restarting {program} with conversation: {conversation_name}")
+        try:
+            _do_restart(conversation_name, target=app.restart_target, source="tui")
+        except RestartError as e:
+            print(f"Not restarting: {e}")
 
 
 @click.command(

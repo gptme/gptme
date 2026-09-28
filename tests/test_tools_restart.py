@@ -16,8 +16,15 @@ import pytest
 from gptme.message import Message
 from gptme.tools.restart import (
     _FLAGS_WITH_VALUES,
+    RestartError,
     _do_restart,
+    _http_status,
+    build_restart_argv,
     execute_restart,
+    get_server_url,
+    open_web,
+    parse_restart_target,
+    prepare_web_switch,
     restart_hook,
     tool,
 )
@@ -393,3 +400,390 @@ class TestToolSpec:
     def test_has_examples(self):
         examples = tool.get_examples()
         assert examples and "restart" in examples
+
+
+# ── Interface switching (/restart cli|tui|web) ───────────────────────────
+
+
+@pytest.fixture
+def fake_bin(tmp_path, monkeypatch):
+    """A venv-like bin dir holding the interpreter and both console scripts."""
+    import gptme.tools.restart as mod
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name in ("python", "gptme", "gptme-tui"):
+        script = bindir / name
+        script.write_text("#!/bin/sh\n")
+        script.chmod(0o755)
+    monkeypatch.setattr(sys, "executable", str(bindir / "python"))
+    # pretend textual is installed regardless of the test environment
+    monkeypatch.setattr(mod, "check_interface_available", lambda target: None)
+    return bindir
+
+
+class TestParseRestartTarget:
+    def test_no_args_is_same_interface(self):
+        assert parse_restart_target([]) is None
+
+    @pytest.mark.parametrize("target", ["cli", "tui", "web"])
+    def test_known_targets(self, target):
+        assert parse_restart_target([target]) == target
+
+    @pytest.mark.parametrize("args", [["gui"], ["tui", "extra"]])
+    def test_invalid(self, args):
+        with pytest.raises(RestartError, match="Usage: /restart"):
+            parse_restart_target(args)
+
+    def test_completer(self):
+        from gptme.commands import get_command_completer
+
+        completer = get_command_completer("restart")
+        assert completer is not None
+        assert [c for c, _ in completer("", [])] == ["cli", "tui", "web"]
+        assert [c for c, _ in completer("t", [])] == ["tui"]
+        assert completer("", ["tui"]) == []
+
+
+class TestBuildRestartArgv:
+    def test_cli_to_tui(self, fake_bin):
+        argv = [
+            "/x/gptme",
+            "-m",
+            "anthropic/claude",
+            "--show-hidden",
+            "-y",
+            "--tools",
+            "shell",
+            "--allow-hosts",
+            "github.com",
+            "fix the bug",
+        ]
+        assert build_restart_argv("tui", "cli", "conv", argv) == [
+            str(fake_bin / "gptme-tui"),
+            "--no-confirm",
+            "--name",
+            "conv",
+        ]
+
+    def test_tui_to_cli(self, fake_bin):
+        argv = ["/x/gptme-tui", "--inline", "--no-confirm", "-v", "-m", "x/y"]
+        assert build_restart_argv("cli", "tui", "conv", argv) == [
+            str(fake_bin / "gptme"),
+            "--no-confirm",
+            "--verbose",
+            "--name",
+            "conv",
+        ]
+
+    def test_n_is_name_in_tui(self, fake_bin):
+        """`gptme-tui -n NAME`: the value is skipped, not read as a flag."""
+        # "-v" here is the *value* of -n (a conversation named "-v")
+        argv = ["gptme-tui", "-n", "-v", "--experimental-jelly-errors"]
+        assert build_restart_argv("cli", "tui", "conv", argv)[1:] == [
+            "--name",
+            "conv",
+        ]
+
+    def test_n_is_non_interactive_in_cli(self, fake_bin):
+        """`gptme -n` is a boolean: the following flag is still parsed."""
+        argv = ["gptme", "-n", "-v"]
+        assert build_restart_argv("tui", "cli", "conv", argv)[1:] == [
+            "--verbose",
+            "--name",
+            "conv",
+        ]
+
+    def test_tui_resume_optional_value(self, fake_bin):
+        argv = ["gptme-tui", "-r", "old-conv", "-v"]
+        assert build_restart_argv("cli", "tui", "c", argv)[1:] == [
+            "--verbose",
+            "--name",
+            "c",
+        ]
+        argv = ["gptme-tui", "-r", "--no-confirm"]
+        assert build_restart_argv("cli", "tui", "c", argv)[1:] == [
+            "--no-confirm",
+            "--name",
+            "c",
+        ]
+
+    def test_combined_short_flags_and_prompts(self, fake_bin):
+        argv = ["gptme", "-yv", "--", "-y is a prompt"]
+        assert build_restart_argv("tui", "cli", "c", argv)[1:] == [
+            "--no-confirm",
+            "--verbose",
+            "--name",
+            "c",
+        ]
+
+    def test_falls_back_to_python_m(self, tmp_path, monkeypatch):
+        """Without a console script next to the interpreter, use `python -m`."""
+        import gptme.tools.restart as mod
+
+        monkeypatch.setattr(sys, "executable", str(tmp_path / "python"))
+        monkeypatch.setattr(mod, "check_interface_available", lambda t: None)
+        assert build_restart_argv("tui", "cli", "c", ["gptme"]) == [
+            str(tmp_path / "python"),
+            "-m",
+            "gptme.tui.main",
+            "--name",
+            "c",
+        ]
+        assert build_restart_argv("cli", "tui", "c", ["gptme-tui"])[:3] == [
+            str(tmp_path / "python"),
+            "-m",
+            "gptme",
+        ]
+
+    def test_tui_not_installed(self, monkeypatch):
+        import importlib.util
+
+        real_find_spec = importlib.util.find_spec
+        monkeypatch.setattr(
+            importlib.util,
+            "find_spec",
+            lambda name, *a: None if name == "textual" else real_find_spec(name, *a),
+        )
+        with pytest.raises(RestartError, match=r"gptme\[tui\]"):
+            build_restart_argv("tui", "cli", "c", ["gptme"])
+
+
+class TestDoRestartSwitch:
+    @patch("os.execv")
+    @patch("atexit._run_exitfuncs")
+    def test_switch_execs_target_after_cleanup(self, mock_atexit, mock_execv, fake_bin):
+        order: list[str] = []
+        mock_atexit.side_effect = lambda: order.append("atexit")
+        mock_execv.side_effect = lambda *a: order.append("execv")
+        with patch.object(sys, "argv", ["gptme", "-y", "hello"]):
+            _do_restart("conv", target="tui", source="cli")
+        assert order == ["atexit", "execv"]
+        exe, args = mock_execv.call_args[0]
+        assert exe == str(fake_bin / "gptme-tui")
+        assert args == [exe, "--no-confirm", "--name", "conv"]
+
+    @patch("os.execv")
+    @patch("atexit._run_exitfuncs")
+    def test_same_target_keeps_command_line(self, mock_atexit, mock_execv):
+        with patch.object(sys, "argv", ["gptme-tui", "--inline"]):
+            _do_restart("conv", target="tui", source="tui")
+        assert mock_execv.call_args[0][1] == [
+            "gptme-tui",
+            "--inline",
+            "--name",
+            "conv",
+        ]
+
+    @patch("os.execv")
+    @patch("atexit._run_exitfuncs")
+    def test_unavailable_target_changes_nothing(self, mock_atexit, mock_execv):
+        """A failing switch raises before cleanup: the lock stays held."""
+
+        def unavailable(target):
+            raise RestartError("no textual")
+
+        with (
+            patch("gptme.tools.restart.check_interface_available", unavailable),
+            pytest.raises(RestartError),
+        ):
+            _do_restart("conv", target="tui", source="cli")
+        mock_atexit.assert_not_called()
+        mock_execv.assert_not_called()
+
+
+class TestWebSwitch:
+    @pytest.fixture(autouse=True)
+    def _env(self, monkeypatch, tmp_path):
+        for var in (
+            "GPTME_SERVER_URL",
+            "GPTME_SERVER_HOST",
+            "GPTME_SERVER_PORT",
+            "GPTME_SERVER_TOKEN",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+        self.logdir = tmp_path / "logs" / "my-conv"
+        self.logdir.mkdir(parents=True)
+
+    @staticmethod
+    def _mock_http(monkeypatch, overrides: dict[str, int | None] | None = None):
+        """Mock HTTP: status by URL substring (default 200); records requests."""
+        requests: list[tuple[str, str | None]] = []
+
+        def fake(url, token=None, timeout=2.0):
+            requests.append((url, token))
+            for part, status in (overrides or {}).items():
+                if part in url:
+                    return status
+            return 200
+
+        monkeypatch.setattr("gptme.tools.restart._http_status", fake)
+        return requests
+
+    def test_server_url_defaults(self, monkeypatch):
+        assert get_server_url() == "http://127.0.0.1:5700"
+        monkeypatch.setenv("GPTME_SERVER_PORT", "8080")
+        monkeypatch.setenv("GPTME_SERVER_HOST", "0.0.0.0")
+        assert get_server_url() == "http://127.0.0.1:8080"
+        monkeypatch.setenv("GPTME_SERVER_HOST", "::1")
+        assert get_server_url() == "http://[::1]:8080"
+        monkeypatch.setenv("GPTME_SERVER_URL", "https://example.test/")
+        assert get_server_url() == "https://example.test"
+
+    def test_unreachable(self, monkeypatch):
+        self._mock_http(monkeypatch, {"/api/v2/version": None})
+        with pytest.raises(RestartError, match="No gptme-server reachable"):
+            prepare_web_switch("my-conv", self.logdir)
+
+    def test_http_status_unreachable_returns_none(self):
+        # nothing listens on port 9 (discard) on loopback: connection refused
+        assert _http_status("http://127.0.0.1:9/", timeout=0.5) is None
+
+    def test_no_webui(self, monkeypatch):
+        self._mock_http(monkeypatch, {"/api/v2/version": 200, ":5700/": 503})
+        with pytest.raises(RestartError, match="doesn't serve the web UI"):
+            prepare_web_switch("my-conv", self.logdir)
+
+    def test_reachable_without_token(self, monkeypatch):
+        requests = self._mock_http(monkeypatch)
+        url = prepare_web_switch("my-conv", self.logdir)
+        assert url == "http://127.0.0.1:5700/chat/my-conv"
+        # without a token the conversation endpoint isn't queried
+        assert not any("/conversations/" in u for u, _ in requests)
+
+    def test_without_token_outside_logs_dir(self, monkeypatch, tmp_path):
+        self._mock_http(monkeypatch)
+        elsewhere = tmp_path / "elsewhere" / "my-conv"
+        elsewhere.mkdir(parents=True)
+        with pytest.raises(RestartError, match="logs directory"):
+            prepare_web_switch("my-conv", elsewhere)
+
+    def test_with_token_verifies_conversation(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_SERVER_TOKEN", "s3cret")
+        requests = self._mock_http(monkeypatch)
+        # verified by the server, so the local logs-dir check isn't needed
+        elsewhere = tmp_path / "elsewhere" / "my-conv"
+        url = prepare_web_switch("my-conv", elsewhere)
+        assert url == "http://127.0.0.1:5700/chat/my-conv#userToken=s3cret"
+        assert (
+            "http://127.0.0.1:5700/api/v2/conversations/my-conv?limit=1",
+            "s3cret",
+        ) in requests
+
+    def test_with_token_conversation_missing(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SERVER_TOKEN", "s3cret")
+        self._mock_http(monkeypatch, {"/conversations/my-conv": 404})
+        with pytest.raises(RestartError, match="can't find conversation"):
+            prepare_web_switch("my-conv", self.logdir)
+
+    def test_open_web_releases_lock_before_browser(self, monkeypatch, capsys):
+        order: list[str] = []
+        monkeypatch.setattr("atexit._run_exitfuncs", lambda: order.append("atexit"))
+
+        def fake_open(url: str) -> bool:
+            order.append(f"open {url}")
+            return True
+
+        monkeypatch.setattr("webbrowser.open", fake_open)
+        open_web("http://127.0.0.1:5700/chat/c#userToken=s3cret")
+        assert order == [
+            "atexit",
+            "open http://127.0.0.1:5700/chat/c#userToken=s3cret",
+        ]
+        out = capsys.readouterr().out
+        assert "http://127.0.0.1:5700/chat/c" in out
+        assert "s3cret" not in out
+
+
+class TestCmdRestart:
+    """The CLI /restart command with targets."""
+
+    @staticmethod
+    def _ctx(tmp_path, args):
+        from gptme.commands.base import CommandContext
+
+        manager = MagicMock()
+        manager.logdir = tmp_path / "my-conv"
+        return CommandContext(args=args, full_args=" ".join(args), manager=manager)
+
+    def test_invalid_target_does_not_prompt(self, tmp_path, capsys):
+        from gptme.commands.session import cmd_restart
+
+        with patch("gptme.util.prompt.prompt_alert") as prompt:
+            cmd_restart(self._ctx(tmp_path, ["gui"]))
+        prompt.assert_not_called()
+        assert "Unknown restart target" in capsys.readouterr().out
+
+    def test_web_without_server_does_not_prompt_or_exit(self, tmp_path, capsys):
+        from gptme.commands.session import cmd_restart
+
+        with (
+            patch("gptme.tools.restart._http_status", return_value=None),
+            patch("gptme.util.prompt.prompt_alert") as prompt,
+            patch("gptme.tools.restart.open_web") as mock_open_web,
+        ):
+            cmd_restart(self._ctx(tmp_path, ["web"]))
+        prompt.assert_not_called()
+        mock_open_web.assert_not_called()
+        assert "No gptme-server reachable" in capsys.readouterr().out
+
+    def test_tui_switch(self, tmp_path):
+        from gptme.commands.session import cmd_restart
+
+        ctx = self._ctx(tmp_path, ["tui"])
+        with (
+            patch("gptme.tools.restart.check_interface_available"),
+            patch("gptme.util.prompt.prompt_alert", return_value="y"),
+            patch("gptme.tools.restart._do_restart") as do_restart,
+        ):
+            cmd_restart(ctx)
+        ctx.manager.write.assert_called_with(sync=True)
+        do_restart.assert_called_once_with("my-conv", target="tui", source="cli")
+
+    def test_tui_not_installed_does_not_prompt(self, tmp_path, capsys):
+        from gptme.commands.session import cmd_restart
+
+        def unavailable(target):
+            raise RestartError("The TUI requires the 'textual' package.")
+
+        with (
+            patch("gptme.tools.restart.check_interface_available", unavailable),
+            patch("gptme.util.prompt.prompt_alert") as prompt,
+            patch("gptme.tools.restart._do_restart") as do_restart,
+        ):
+            cmd_restart(self._ctx(tmp_path, ["tui"]))
+        prompt.assert_not_called()
+        do_restart.assert_not_called()
+        assert "textual" in capsys.readouterr().out
+
+    def test_cancel(self, tmp_path):
+        from gptme.commands.session import cmd_restart
+
+        with (
+            patch("gptme.util.prompt.prompt_alert", return_value="n"),
+            patch("gptme.tools.restart._do_restart") as do_restart,
+        ):
+            cmd_restart(self._ctx(tmp_path, []))
+        do_restart.assert_not_called()
+
+    def test_web_switch_opens_and_exits(self, tmp_path):
+        from gptme.commands.session import cmd_restart
+
+        ctx = self._ctx(tmp_path, ["web"])
+        with (
+            patch(
+                "gptme.tools.restart.prepare_web_switch",
+                return_value="http://s/chat/my-conv",
+            ),
+            patch("gptme.util.prompt.prompt_alert", return_value="y"),
+            patch("gptme.hooks.trigger_hook", return_value=iter([])),
+            patch("gptme.tools.restart.open_web") as mock_open_web,
+            patch("gptme.tools.restart._do_restart") as do_restart,
+            pytest.raises(SystemExit) as exc,
+        ):
+            cmd_restart(ctx)
+        assert exc.value.code == 0
+        mock_open_web.assert_called_once_with("http://s/chat/my-conv")
+        do_restart.assert_not_called()
+        ctx.manager.write.assert_called_with(sync=True)

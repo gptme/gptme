@@ -1568,7 +1568,7 @@ def test_restart_runs_session_end_before_reexec(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "end_session", lambda: order.append("end"))
     monkeypatch.setattr(
         "gptme.tools.restart._do_restart",
-        lambda name: order.append(("restart", name)),
+        lambda name, **kw: order.append(("restart", name)),
     )
     _finish_session(app, "conv")
     assert order == ["end", ("restart", "conv")]
@@ -1582,10 +1582,94 @@ def test_normal_exit_runs_session_end_without_reexec(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "end_session", lambda: called.append("end"))
     monkeypatch.setattr(
         "gptme.tools.restart._do_restart",
-        lambda name: called.append("restart"),
+        lambda name, **kw: called.append("restart"),
     )
     _finish_session(app, "conv")
     assert called == ["end"]
+
+
+@pytest.mark.asyncio
+async def test_restart_cli_requests_switch(tmp_path):
+    """/restart cli exits the TUI with the CLI as re-exec target."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/restart cli"
+        await pilot.press("enter")
+        await pilot.pause()
+    assert app.restart_requested
+    assert app.restart_target == "cli"
+    assert app.restart_web_url is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arg", ["bogus", "web"])
+async def test_restart_bad_target_keeps_session(tmp_path, monkeypatch, arg):
+    """An unknown target, or /restart web without a server, doesn't exit."""
+    monkeypatch.setattr("gptme.tools.restart._http_status", lambda *a, **kw: None)
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = f"/restart {arg}"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.is_running
+    assert not app.restart_requested
+
+
+@pytest.mark.asyncio
+async def test_restart_web_requests_browser(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tui.app.prepare_web_switch",
+        lambda name, logdir: f"http://127.0.0.1:5700/chat/{name}",
+    )
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/restart web"
+        await pilot.press("enter")
+        await pilot.pause()
+    assert app.restart_requested
+    name = app.manager.logdir.name
+    assert app.restart_web_url == f"http://127.0.0.1:5700/chat/{name}"
+
+
+def test_finish_session_switches_to_cli(tmp_path, monkeypatch):
+    from gptme.tui.main import _finish_session
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    app.restart_requested = True
+    app.restart_target = "cli"
+    calls: list[object] = []
+    monkeypatch.setattr(app, "end_session", lambda: calls.append("end"))
+    monkeypatch.setattr(
+        "gptme.tools.restart._do_restart",
+        lambda name, **kw: calls.append((name, kw)),
+    )
+    _finish_session(app, "conv")
+    assert calls == ["end", ("conv", {"target": "cli", "source": "tui"})]
+
+
+def test_finish_session_opens_web_without_reexec(tmp_path, monkeypatch):
+    from gptme.tui.main import _finish_session
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    app.restart_requested = True
+    app.restart_web_url = "http://127.0.0.1:5700/chat/conv"
+    calls: list[object] = []
+    monkeypatch.setattr(app, "end_session", lambda: calls.append("end"))
+    monkeypatch.setattr(
+        "gptme.tools.restart._do_restart",
+        lambda name, **kw: calls.append("restart"),
+    )
+    monkeypatch.setattr(
+        "gptme.tools.restart.open_web", lambda url: calls.append(("web", url))
+    )
+    _finish_session(app, "conv")
+    assert calls == ["end", ("web", "http://127.0.0.1:5700/chat/conv")]
 
 
 def test_end_session_prints_cost_summary(tmp_path, capsys):

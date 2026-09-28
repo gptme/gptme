@@ -323,9 +323,9 @@ Exit gptme, saving the conversation.
 /restart
 ^^^^^^^^
 
-Restart the gptme process.
+Restart the gptme process, or reopen the conversation in another interface.
 
-Useful for:
+Without an argument, restarts the current interface. Useful for:
 
 - Applying configuration changes
 - Reloading tools after code modifications
@@ -334,6 +334,19 @@ Useful for:
 .. code-block:: text
 
    /restart
+   /restart tui    # continue this conversation in the TUI (gptme-tui)
+   /restart cli    # continue this conversation in the plain CLI
+   /restart web    # continue this conversation in the web UI
+
+The conversation keeps its model, tools and workspace when switching. For
+``/restart tui``, the :doc:`TUI <tui>` needs to be installed (``gptme[tui]``).
+
+``/restart web`` needs a running :doc:`gptme-server <server>` that serves
+the :doc:`web UI <webui>`. gptme looks for it at ``http://127.0.0.1:5700``,
+or at the address in ``GPTME_SERVER_URL`` (or ``GPTME_SERVER_HOST`` and
+``GPTME_SERVER_PORT``). If the server is found, gptme exits and opens the
+conversation in your browser. If ``GPTME_SERVER_TOKEN`` is set, the browser
+is signed in with it. If no server is found, gptme tells you and stays open.
 
 /clear
 ^^^^^^

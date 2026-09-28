@@ -53,6 +53,11 @@ Conversations are stored in the same format and location as CLI conversations,
 so they can be opened interchangeably: start in the TUI, resume in the CLI
 (``gptme --resume``), or vice versa (``gptme-tui -n <name>``).
 
+To switch without leaving the conversation, use ``/restart cli`` in the TUI or
+``/restart tui`` in the CLI. ``/restart web`` opens the conversation in the
+:doc:`web UI <webui>` of a running ``gptme-server``
+(see :doc:`commands`).
+
 Inline mode (experimental)
 --------------------------
 
@@ -126,6 +131,6 @@ Limitations
 -----------
 
 The TUI is young and intentionally minimal. Commands that need an external
-terminal program (e.g. ``/edit`` spawning ``$EDITOR``) don't work yet; resume
-the conversation in the CLI for those. Non-interactive/scripted use should
+terminal program (e.g. ``/edit`` spawning ``$EDITOR``) don't work yet; switch
+the conversation to the CLI for those with ``/restart cli``. Non-interactive/scripted use should
 keep using ``gptme`` directly.

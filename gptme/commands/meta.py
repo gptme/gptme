@@ -64,7 +64,7 @@ action_descriptions: dict[Actions, str] = {
     "clear": "Clear the terminal screen",
     "setup": "Setup gptme with completions and configuration",
     "doctor": "Run system diagnostics",
-    "restart": "Restart gptme process",
+    "restart": "Restart gptme, or switch interface: /restart [cli|tui|web]",
     "help": "Show this help message",
     "exit": "Exit the program",
 }

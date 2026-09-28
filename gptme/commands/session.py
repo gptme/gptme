@@ -191,34 +191,86 @@ def cmd_exit(ctx: CommandContext) -> None:
     sys.exit(0)
 
 
-@command("restart")
-def cmd_restart(ctx: CommandContext) -> None:
-    """Restart the gptme process.
+def _complete_restart(partial: str, prev_args: list[str]) -> list[tuple[str, str]]:
+    from ..tools.restart import complete_restart
 
-    Useful for:
+    return complete_restart(partial, prev_args)
+
+
+@command("restart", completer=_complete_restart)
+def cmd_restart(ctx: CommandContext) -> None:
+    """Restart gptme, or reopen this conversation in another interface.
+
+    Usage: /restart [cli|tui|web]
+
+    Without an argument, restarts the current process. Useful for:
     - Applying configuration changes that require a restart
     - Reloading tools after code modifications
     - Recovering from state issues
+
+    `/restart tui` reopens the conversation in gptme-tui, `/restart cli` in
+    the plain CLI, and `/restart web` closes this session and opens the
+    conversation in the web UI of a running gptme-server.
     """
-    from ..tools.restart import _do_restart
+    from ..tools.restart import (
+        RestartError,
+        _do_restart,
+        check_interface_available,
+        open_web,
+        parse_restart_target,
+        prepare_web_switch,
+    )
     from ..util.prompt import prompt_alert
 
-    response = prompt_alert(
-        "Restart gptme? This will exit and restart the process. [y/N]"
-    )
+    conversation_name = ctx.manager.logdir.name
+    # check the target is usable before asking, so a failure changes nothing
+    try:
+        target = parse_restart_target(ctx.args)
+        web_url = None
+        if target == "web":
+            web_url = prepare_web_switch(conversation_name, ctx.manager.logdir)
+        elif target == "tui":
+            check_interface_available(target)
+    except RestartError as e:
+        print(e)
+        return
+
+    question = {
+        None: "Restart gptme? This will exit and restart the process.",
+        "cli": "Restart this conversation in the CLI?",
+        "tui": "Restart this conversation in the TUI (gptme-tui)?",
+        "web": "Exit and open this conversation in the web UI?",
+    }[target]
+    response = prompt_alert(f"{question} [y/N]")
     confirmed = response in ("y", "yes")
     if not confirmed:
         print("Restart cancelled.")
         return
 
+    if target == "web":
+        assert web_url is not None
+        from ..hooks import HookType, trigger_hook
+
+        # this session ends here (as with /exit)
+        for msg in trigger_hook(
+            HookType.SESSION_END, logdir=ctx.manager.logdir, manager=ctx.manager
+        ):
+            ctx.manager.append(msg)
+        ctx.manager.write(sync=True)
+        open_web(web_url)  # releases the conversation lock first
+        sys.exit(0)
+
     # Ensure everything is synced to disk
     ctx.manager.write(sync=True)
 
-    conversation_name = ctx.manager.logdir.name
-    print(f"Restarting gptme with conversation: {conversation_name}")
+    program = "gptme-tui" if target == "tui" else "gptme"
+    print(f"Restarting {program} with conversation: {conversation_name}")
 
     # Perform the restart
-    _do_restart(conversation_name)
+    try:
+        _do_restart(conversation_name, target=target, source="cli")
+    except RestartError as e:
+        print(e)
 
 
 def _edit(
