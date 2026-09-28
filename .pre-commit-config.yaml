@@ -33,6 +33,11 @@ repos:
     exclude: docs/_build/
     pass_filenames: false
     args: [docs/]
+  - id: no-tooluse-python
+    name: Use ToolUse("ipython"), not ToolUse("python")
+    entry: 'ToolUse\("python"'
+    language: pygrep
+    types: [python]
   - id: check-poetry-lock-sync
     name: Check poetry.lock is in sync
     description: Ensures poetry.lock is in sync with pyproject.toml

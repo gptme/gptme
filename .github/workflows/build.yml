@@ -5,6 +5,17 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+    # Docker images and PyInstaller binaries (which bundle the web UI) only
+    # depend on these; workflow-, docs- and test-only PRs skip the build.
+    paths:
+      - 'gptme/**'
+      - 'webui/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'poetry.lock'
+      - 'Makefile'
+      - '*.spec'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       tag:

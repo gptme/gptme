@@ -14,25 +14,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install poetry
-      run: pipx install poetry
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.10'
-        cache: 'poetry'
-    - name: Install dependencies
-      run: |
-        make build
-        poetry install
-    - name: Check for lint
-      run: |
-        make lint
-
   # Hook-install/config failures were silent when CI only ran `make lint`
   # (gptme/gptme-contrib#1481). Run the configured .pre-commit-config.yaml
   # hooks so that class of breakage cannot stay green.
@@ -77,9 +58,22 @@ jobs:
         make build
         poetry install -E server -E browser -E telemetry -E dspy -E tui
         poetry run pip install tomli tomli_w lxml
-    - name: Typecheck
+    # The OpenAPI check needs the same install (server extra), so it runs here,
+    # in parallel with mypy, instead of in its own job.
+    - name: Typecheck and check OpenAPI spec
       run: |
-        make typecheck-coverage
+        make check-openapi > openapi.log 2>&1 &
+        openapi_pid=$!
+        status=0
+        make typecheck-coverage || status=$?
+        echo "::group::OpenAPI check"
+        cat openapi.log
+        echo "::endgroup::"
+        if ! wait "$openapi_pid"; then
+          echo "::error::OpenAPI spec check failed (see the OpenAPI check group above)"
+          status=1
+        fi
+        exit $status
 
     - name: Upload type coverage to Codecov
       if: ${{ !cancelled() }}
@@ -88,22 +82,3 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         flags: type-coverage
         files: .mypy_coverage_report/cobertura.xml
-
-  openapi:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Install poetry
-      run: pipx install poetry
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.10'
-        cache: 'poetry'
-    - name: Install dependencies
-      run: |
-        make build
-        poetry install -E server
-    - name: Check OpenAPI specification
-      run: |
-        make check-openapi
