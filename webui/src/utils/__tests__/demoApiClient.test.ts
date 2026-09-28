@@ -41,8 +41,10 @@ describe('createDemoApiClient', () => {
     const client = createDemoApiClient();
     const user = await client.getUserInfo();
     expect(user.name).toBe('Demo User');
+    expect(user.color).toBe('#c01c28');
     // userInfo$ observable is pre-seeded
     expect(client.userInfo$.get()?.name).toBe('Demo User');
+    expect(client.userInfo$.get()?.color).toBe('#c01c28');
   });
 
   it('includes the fixture demo conversation in list calls', async () => {
@@ -63,6 +65,7 @@ describe('createDemoApiClient', () => {
     const conv = await client.getConversation('demo/gptme-intro');
     expect(conv.id).toBe('demo/gptme-intro');
     expect(conv.log.length).toBeGreaterThan(0);
+    expect(conv.agent).toEqual({ name: 'gptme', color: '#e5a50a' });
     // Should include both user and assistant messages
     const roles = conv.log.map((m) => m.role);
     expect(roles).toContain('user');
@@ -264,6 +267,7 @@ describe('createDemoApiClient — page reload / session recovery', () => {
     const conv = await client2.getConversation(forkId);
     expect(conv.id).toBe(forkId);
     expect(conv.log.length).toBeGreaterThan(0);
+    expect(conv.agent).toEqual({ name: 'gptme', color: '#e5a50a' });
   });
 
   it('persists a recovered missing generated demo conversation', async () => {

@@ -1,7 +1,7 @@
 import { batch, mergeIntoObservable, observable } from '@legendapp/state';
 import type { ChatConfig, ConversationResponse } from '@/types/api';
 import type { Message, StreamingMessage, ToolUse } from '@/types/conversation';
-import { demoConversations, getDemoMessages } from '@/democonversations';
+import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 
 export interface PendingTool {
   id: string;
@@ -452,6 +452,7 @@ export async function initializeConversations(
           logfile: id,
           branches: {},
           workspace: demoConv.workspace || '/demo/workspace',
+          agent: DEMO_AGENT,
         });
         return;
       }

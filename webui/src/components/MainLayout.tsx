@@ -25,7 +25,7 @@ import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQ
 import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
 import { useApi } from '@/contexts/ApiContext';
 import { serverRegistry$ } from '@/stores/servers';
-import { demoConversations, getDemoMessages } from '@/democonversations';
+import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { shouldShowDemoContent } from '@/utils/connectionConfig';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
@@ -116,6 +116,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
           logfile: conv.name,
           branches: {},
           workspace: conv.workspace || '/demo/workspace',
+          agent: DEMO_AGENT,
         });
       });
     }

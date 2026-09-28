@@ -23,6 +23,7 @@ import type {
 } from '@/types/api';
 import type { Message, ConversationSummary, ToolUse } from '@/types/conversation';
 import { ToolFormat } from '@/types/api';
+import { DEMO_AGENT, DEMO_USER_COLOR } from '@/democonversations';
 import { initConversation, setMaxTokens, setTemperature, setTopP } from '@/stores/conversations';
 
 /** Thrown by demo-client paths that have no recorded fixture yet. */
@@ -156,10 +157,12 @@ const DEMO_CONV_RESPONSE: ConversationResponse = {
   logfile: DEMO_CONV_ID,
   branches: { main: DEMO_MESSAGES },
   workspace: '/demo',
+  agent: DEMO_AGENT,
 };
 
 const DEMO_USER_INFO: UserInfo = {
   name: 'Demo User',
+  color: DEMO_USER_COLOR,
 };
 
 const DEMO_CHAT_CONFIG: ChatConfig = {
@@ -405,6 +408,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
         logfile: forkId,
         branches: { main: clone(forkLog) },
         workspace: source.workspace,
+        agent: source.agent,
       };
       localConversations.set(forkId, forked);
       saveDemoSessionStorage(localConversations);

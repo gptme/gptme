@@ -3,7 +3,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { useToast } from '@/components/ui/use-toast';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import type { ChatOptions } from '@/components/ChatInput';
-import { demoConversations, getDemoMessages } from '@/democonversations';
+import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { isDemoMode } from '@/utils/connectionConfig';
 import { use$, useObservable } from '@legendapp/state/react';
 import {
@@ -136,6 +136,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               logfile: conversationId,
               branches: {},
               workspace: demoConv.workspace || '/demo/workspace',
+              agent: DEMO_AGENT,
             },
           });
           return;
