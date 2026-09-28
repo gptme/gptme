@@ -8857,6 +8857,48 @@ The bot operates in two modes:
 
 The bot uses an LLM to determine which mode based on your prompt.
 
+## Issue resolver (label-triggered)
+
+The action also has a `resolve` mode: add a label (by default `bot:resolve`) to
+an issue, and the bot reads the issue, implements a fix, and opens a draft PR.
+Only users on the `allowlist` can trigger it (the label-adder is checked).
+
+```yaml
+name: gptme-bot
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  resolve:
+    if: github.event.label.name == 'bot:resolve'
+    # one resolver run per issue; job-level so other labels can't replace it
+    concurrency:
+      group: gptme-bot-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gptme/gptme/.github/actions/bot@master
+        with:
+          mode: resolve
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowlist: "your-username"
+```
+
+A label trigger is cheaper than a comment trigger: GitHub can't filter
+`issue_comment` events by their text, so a workflow that triggers on comments
+starts (and skips) a run for every comment in the repository. The gptme
+repository itself uses only the label trigger.
+
 ## Configuration Options
 
 | Input | Description | Required | Default |
