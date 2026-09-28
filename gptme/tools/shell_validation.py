@@ -729,6 +729,24 @@ def is_allowlisted(cmd: str, cwd: Path | None = None) -> bool:
     return flags_permitted(cmd_without_inert_data)
 
 
+# Appended to every shell-command denial. A denied pattern rejects the whole
+# invocation before anything runs, but in an ``a && b && c`` chain the model
+# would otherwise assume (normal shell semantics) that earlier steps ran.
+NOT_EXECUTED_NOTE = "Nothing was executed: the whole command was rejected."
+
+
+def format_denial(message: str) -> str:
+    """Format a shell-command denial so it states that nothing ran."""
+    return f"{message}\n\n{NOT_EXECUTED_NOTE}"
+
+
+def format_denylist_denial(
+    matched_cmd: str | None, reason: str | None, label: str = "Command denied"
+) -> str:
+    """Format the message for a command rejected by :func:`is_denylisted`."""
+    return format_denial(f"{label}: `{matched_cmd}`\n\n{reason}")
+
+
 def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:
     """Check if a command contains dangerous patterns that should be denied.
 

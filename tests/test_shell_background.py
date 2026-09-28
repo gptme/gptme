@@ -578,6 +578,7 @@ class TestExecuteBgCommand:
         msgs = list(execute_bg_command("rm -rf /"))
         assert len(msgs) == 1
         assert "denied" in msgs[0].content.lower()
+        assert "Nothing was executed" in msgs[0].content
 
 
 # ---------------------------------------------------------------------------

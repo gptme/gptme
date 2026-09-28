@@ -110,6 +110,8 @@ from .shell_background import (
 from .shell_validation import (
     _find_first_unquoted_pipe,
     check_with_shellcheck,
+    format_denial,
+    format_denylist_denial,
     is_allowlisted,
     is_denylisted,
     shell_allowlist_hook,
@@ -3149,12 +3151,24 @@ def execute_shell_impl(
 _hinted_workspaces: set[str] = set()
 
 
+def _subagent_available() -> bool:
+    """Whether ``subagent()`` is callable from the ipython tool this session.
+
+    The subagent tool registers ``subagent`` as an ipython function, so both
+    tools must be loaded; otherwise suggesting the call yields a NameError.
+    """
+    from . import has_tool  # fmt: skip
+
+    return has_tool("subagent") and has_tool("ipython")
+
+
 def _check_workspace_config() -> Message | None:
     """Return a hint message if the current directory has a gptme.toml config.
 
     Called after a successful ``cd`` to let the agent know it can spawn a
     workspace-aware subagent instead of running in a generic context.
-    Returns None if no gptme.toml is found (or CWD lookup fails), or if this
+    Returns None if no gptme.toml is found (or CWD lookup fails), if the
+    subagent tool is not loaded (the suggested call would fail), or if this
     workspace has already been hinted this session.
 
     Uses the persistent shell's cwd, not ``Path.cwd()``. In server contexts
@@ -3176,20 +3190,26 @@ def _check_workspace_config() -> Message | None:
     if not config_file.exists():
         return None
 
+    # The hint suggests calling subagent(); only show it when that works.
+    # Checked before recording the workspace, so the hint can still appear
+    # if the tool is loaded later in the session.
+    if not _subagent_available():
+        return None
+
     # Only hint once per workspace per session.
-    workspace_key = str(cwd.resolve())
+    workspace_key = str(cwd)
     if workspace_key in _hinted_workspaces:
         return None
     _hinted_workspaces.add(workspace_key)
 
-    workspace_name = cwd.name
     return Message(
         "system",
         f"📂 Workspace detected: `{cwd}` has a `gptme.toml` config.\n"
         f"To work within this workspace context (custom tools, files, prompt), "
-        f"spawn a subagent here:\n"
+        f"spawn a subagent here (the first argument is any short ID you choose "
+        f"for the subagent):\n"
         f"```ipython\n"
-        f'subagent("{workspace_name}", "Your task here", workdir="{cwd}", use_subprocess=True)\n'
+        f'subagent("workspace-task", "Your task here", workdir="{cwd}", use_subprocess=True)\n'
         f"```\n"
         f"The subagent will load the workspace config from `{config_file}`.",
     )
@@ -3482,13 +3502,14 @@ def execute_shell(
     # Check with shellcheck if available
     has_issues, should_block, shellcheck_msg = check_with_shellcheck(cmd)
     if has_issues:
-        yield Message("system", shellcheck_msg)
         if should_block:
+            yield Message("system", format_denial(shellcheck_msg))
             return
+        yield Message("system", shellcheck_msg)
 
     is_denied, deny_reason, matched_cmd = is_denylisted(cmd)
     if is_denied:
-        yield Message("system", f"Command denied: `{matched_cmd}`\n\n{deny_reason}")
+        yield Message("system", format_denylist_denial(matched_cmd, deny_reason))
         return
 
     logger.debug("Routing shell command through hook chain: %s", cmd[:80])
@@ -3500,7 +3521,7 @@ def execute_shell(
         if is_edited_denied:
             yield Message(
                 "system",
-                f"Command denied: `{edited_matched_cmd}`\n\n{edited_deny_reason}",
+                format_denylist_denial(edited_matched_cmd, edited_deny_reason),
             )
             return
         if background:

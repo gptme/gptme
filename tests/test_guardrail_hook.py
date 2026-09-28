@@ -515,7 +515,11 @@ class TestAllowEdit:
             messages = list(tool_use.execute())
 
         mock_execute.assert_not_called()
-        assert any("Command denied" in message.content for message in messages)
+        assert any(
+            "Command denied" in message.content
+            and "Nothing was executed" in message.content
+            for message in messages
+        )
 
     def test_background_shell_denylist_rechecks_edited_command(self):
         """A confirmed background edit must pass the denylist before execution."""
@@ -543,4 +547,8 @@ class TestAllowEdit:
             messages = list(tool_use.execute())
 
         mock_execute.assert_not_called()
-        assert any("Command denied" in message.content for message in messages)
+        assert any(
+            "Command denied" in message.content
+            and "Nothing was executed" in message.content
+            for message in messages
+        )

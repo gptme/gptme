@@ -9,6 +9,8 @@ Covers:
 - Allowlisted commands pass through in all modes
 """
 
+import pytest
+
 from ..confirm import ConfirmAction, ConfirmationResult
 from ..guardrails import (
     _find_secret_path_in_cmd,
@@ -233,6 +235,24 @@ class TestGuardrailHookEnforceMode:
         result = guardrail_hook(tool_use, preview=cmd)
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "echo start && git reflog expire --all",
+            "ls && cat ~/.ssh/id_rsa",
+        ],
+    )
+    def test_shell_block_says_nothing_executed(self, monkeypatch, cmd):
+        """A blocked compound command must say none of its steps ran."""
+        from ...tools.shell_validation import NOT_EXECUTED_NOTE
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        tool_use = _make_tool_use("shell", cmd)
+        result = guardrail_hook(tool_use, preview=cmd)
+        assert isinstance(result, ConfirmationResult)
+        assert result.message is not None
+        assert NOT_EXECUTED_NOTE in result.message
 
     def test_read_tool_secret_path_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")

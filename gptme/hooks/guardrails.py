@@ -302,7 +302,12 @@ def guardrail_hook(
 
     # Enforce mode
     logger.info("Guardrail (enforce): blocking — %s", block_reason)
-    return ConfirmationResult.skip(f"Blocked by guardrail: {block_reason}")
+    message = f"Blocked by guardrail: {block_reason}"
+    if tool_use.tool == "shell":
+        from ..tools.shell_validation import format_denial  # fmt: skip
+
+        message = format_denial(message)
+    return ConfirmationResult.skip(message)
 
 
 # ---------------------------------------------------------------------------
