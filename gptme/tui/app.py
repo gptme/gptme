@@ -1418,13 +1418,39 @@ class GptmeApp(App):
         if self._initial_prompts:
             self.call_after_refresh(self._submit_initial_prompts)
 
+    def _enqueue_prompt(self, prompt: str | Message) -> None:
+        """Queue a prompt and, in full-screen mode, show it as a queued widget."""
+        self.prompt_queue.append(prompt)
+        if not self.inline:
+            widget = UserMessage(_queued_prompt_text(prompt), queued=True)
+            self._queued_widgets.append(widget)
+            self._mount_in_chat(widget)
+        self._update_status()
+
+    def _pop_queued_prompt(self) -> str | Message:
+        prompt = self.prompt_queue.pop(0)
+        if self._queued_widgets:
+            self._queued_widgets.pop(0).remove()
+        return prompt
+
+    async def _submit_user_input(self, prompt: str | Message) -> None:
+        """Submit a prompt, or run it as a slash-command like typed input."""
+        if not isinstance(prompt, Message) and is_message_command(prompt):
+            self._handle_command(prompt)
+            if self.generating or self._quitting or not self.prompt_queue:
+                return
+            await self._submit_user_input(self._pop_queued_prompt())
+            return
+        await self._submit(prompt)
+
     async def _submit_initial_prompts(self) -> None:
         """Submit command-line prompts like the CLI: the first now, the rest
         queued, each sent when the previous turn finishes."""
         first, *rest = self._initial_prompts
         self._initial_prompts = []
-        self.prompt_queue.extend(rest)
-        await self._submit(first)
+        for prompt in rest:
+            self._enqueue_prompt(prompt)
+        await self._submit_user_input(first)
 
     def on_unmount(self) -> None:
         self._quitting = True
@@ -1744,12 +1770,7 @@ class GptmeApp(App):
             self._handle_command(text)
             return
         if self.generating:
-            self.prompt_queue.append(text)
-            if not self.inline:
-                widget = UserMessage(text, queued=True)
-                self._queued_widgets.append(widget)
-                self._mount_in_chat(widget)
-            self._update_status()
+            self._enqueue_prompt(text)
         else:
             await self._submit(text)
 
@@ -2216,11 +2237,9 @@ class GptmeApp(App):
             self._queued_widgets.clear()
             self.query_one("#input", ChatInput)._set_text(text)
         elif self.prompt_queue:
-            prompt = self.prompt_queue.pop(0)
-            if self._queued_widgets:
-                self._queued_widgets.pop(0).remove()
+            prompt = self._pop_queued_prompt()
             self._set_state("idle")
-            await self._submit(prompt)
+            await self._submit_user_input(prompt)
             return
         self._set_state("idle")
 

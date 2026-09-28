@@ -95,7 +95,10 @@ def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
         _do_restart(conversation_name)
 
 
-@click.command("gptme-tui")
+@click.command(
+    "gptme-tui",
+    context_settings={"ignore_unknown_options": True},
+)
 @click.argument("prompts", nargs=-1)
 @click.option(
     "-n", "--name", default="random", help="Conversation name to open or create."
