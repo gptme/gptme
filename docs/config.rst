@@ -407,6 +407,48 @@ The merging behavior is the same as for the :ref:`global local config <global-co
 
     Add ``gptme.local.toml`` to your ``.gitignore`` to keep secrets out of version control.
 
+.. _agent-instruction-files:
+
+Agent instruction files (``AGENTS.md``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+At startup, gptme loads agent instruction files (``AGENTS.md``, ``CLAUDE.md``,
+``COPILOT.md``, ``GEMINI.md``, ``.github/copilot-instructions.md``,
+``.cursorrules``, ``.windsurfrules``) from ``~/.config/gptme/`` and from every
+directory between your home directory and the workspace, most general first.
+
+During a session, instructions follow you: when the working directory changes
+(for example after a ``cd`` in the shell tool), or a file tool reads or writes a
+path in another directory, gptme loads any instruction files for that directory
+that are not in context yet. This way a subdirectory or another project's own
+rules apply when the assistant works there. Each load adds a short visible line
+naming the file, such as ``Loaded agent instructions from ~/proj/AGENTS.md``.
+
+There is one exception. Instruction files inside a different
+:doc:`agent <agents>` workspace are never loaded mid-session. An agent workspace
+is a directory whose ``gptme.toml`` has an ``[agent]`` section, and its
+``AGENTS.md`` usually defines that agent's identity. Loading it because of a
+``cd`` would hand the session another agent's persona and rules. Instead, gptme
+adds a short notice, once per workspace:
+
+.. code-block:: text
+
+    Entered ~/alice, which is agent workspace 'Alice'; its instructions were not
+    loaded (it defines a different agent identity than this session's 'Bob'). ...
+
+The rule:
+
+- A workspace belongs to the session when it is the session workspace, the
+  session's agent workspace, a parent directory of either, or declares the
+  same agent name (for example a worktree or clone of the same agent).
+- Any other agent workspace is foreign, including every agent workspace when
+  the session itself is not an agent. Files anywhere inside a foreign workspace,
+  including nested projects, are skipped.
+- Directories without an agent ``gptme.toml`` keep loading as usual.
+
+To work with another agent's rules deliberately, read its ``AGENTS.md``
+explicitly, or start a session in that workspace.
+
 
 .. _chat-config:
 

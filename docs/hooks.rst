@@ -368,7 +368,8 @@ gptme ships with several built-in hooks that provide core functionality:
 **Session & Context**
 
 - ``active_context``: Selects relevant files to include before generation
-- ``agents_md_inject``: Loads AGENTS.md/CLAUDE.md when the working directory changes
+- ``agents_md_inject``: Loads AGENTS.md/CLAUDE.md when the working directory changes,
+  skipping files inside other agents' workspaces (see :ref:`agent-instruction-files`)
 - ``cwd_tracking``: Tracks the current working directory across tool calls
 - ``time_awareness``: Injects current time into context
 - ``token_awareness``: Monitors token budget and warns when approaching limits

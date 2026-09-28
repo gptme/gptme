@@ -196,7 +196,11 @@ class TestOnToolExecutePost:
                 )
             )
         )
-        injected1 = [m for m in msgs1 if isinstance(m, Message)]
+        injected1 = [
+            m
+            for m in msgs1
+            if isinstance(m, Message) and "<agent-instructions source=" in m.content
+        ]
         injected2 = [m for m in msgs2 if isinstance(m, Message)]
         assert len(injected1) == 1, "original repo should inject AGENTS.md once"
         assert injected2 == [], "worktree copy with identical content must dedup"
@@ -232,7 +236,11 @@ class TestOnToolExecutePost:
                 )
             )
         )
-        injected1 = [m for m in first if isinstance(m, Message)]
+        injected1 = [
+            m
+            for m in first
+            if isinstance(m, Message) and "<agent-instructions source=" in m.content
+        ]
         injected2 = [m for m in second if isinstance(m, Message)]
         assert len(injected1) == 1
         assert injected2 == []
@@ -424,3 +432,30 @@ class TestOnToolExecutePost:
         )
         # At least one skip-note should have been emitted (for the dropped files)
         assert skipped, "expected skip-notes for files beyond the cap"
+
+
+def test_read_in_other_agent_workspace_not_injected(tmp_path: Path, empty_log: Log):
+    """Reading a file inside another agent's workspace must not load its identity."""
+    bob = tmp_path / "bob"
+    bob.mkdir()
+    (bob / "gptme.toml").write_text('[agent]\nname = "Bob"\n')
+    alice = tmp_path / "alice"
+    alice.mkdir()
+    (alice / "gptme.toml").write_text('[agent]\nname = "Alice"\n')
+    (alice / "AGENTS.md").write_text("**You ARE Alice.**")
+    (alice / "notes.md").write_text("notes")
+
+    msgs = [
+        m
+        for m in on_tool_execute_post(
+            ToolExecutePostData(
+                log=empty_log,
+                workspace=bob,
+                tool_use=_make_use("read", kwargs={"path": str(alice / "notes.md")}),
+            )
+        )
+        if isinstance(m, Message)
+    ]
+    assert not any("You ARE Alice" in m.content for m in msgs)
+    assert len(msgs) == 1
+    assert "agent workspace 'Alice'" in msgs[0].content

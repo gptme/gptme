@@ -198,6 +198,7 @@ def on_tool_execute_post(
         yield from inject_agent_instruction_files(
             log,
             reversed(candidate_files),
+            workspace=data.workspace,
             max_files=_MAX_INJECT_PER_EVENT,
             max_bytes=_MAX_BYTES_PER_EVENT,
         )

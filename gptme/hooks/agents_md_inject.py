@@ -19,6 +19,16 @@ _loaded_agent_files_var starts as None on each request. To avoid re-injecting
 already-loaded files, _get_loaded_files() falls back to scanning the conversation log
 for <agent-instructions> system messages when the ContextVar is empty.
 
+Agent-identity guard: instruction files inside a *different gptme agent workspace*
+(a directory whose ``gptme.toml`` declares an ``[agent]`` name other than the
+current session's agent) are never injected. In a multi-agent setup each agent's
+workspace ``AGENTS.md`` typically defines that agent's identity, git identity and
+operational rules, so loading it because of a ``cd`` would silently hand the
+session another agent's persona. A short visible notice is emitted instead, once
+per foreign workspace. Instruction files elsewhere (other projects, subdirectories
+of the current workspace) still load as before, and each load is announced with a
+short visible message naming the file.
+
 See: https://github.com/gptme/gptme/issues/1513
 See: https://github.com/gptme/gptme/issues/1521
 See: https://github.com/gptme/gptme/issues/1958
@@ -30,6 +40,7 @@ from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Any
 
+from ..config import get_config, get_project_config
 from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
@@ -39,6 +50,12 @@ from ..util.context_dedup import _content_hash
 # Prefix used to store content hashes (vs file paths) in _loaded_agent_files_var.
 # Prevents path-identical-content re-injection when cwd changes to a git worktree.
 _HASH_PREFIX = "ch:"
+
+# Prefix used to record foreign agent workspaces already reported in
+# _loaded_agent_files_var, so the "not loaded" notice is emitted only once.
+_FOREIGN_PREFIX = "foreign-agent:"
+
+_FOREIGN_TAG = "agent-workspace-skipped"
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +92,15 @@ def _derive_loaded_files_from_log(log: Log) -> set[str]:
                 re.DOTALL,
             ):
                 loaded.add(f"{_HASH_PREFIX}{_content_hash(block_match.group(1))}")
+            # Foreign agent workspaces already reported (notice emitted once).
+            for skip_match in re.finditer(
+                rf'<{_FOREIGN_TAG} path="([^"]+)"', msg.content
+            ):
+                try:
+                    root = str(Path(skip_match.group(1)).expanduser().resolve())
+                except (OSError, ValueError):
+                    root = skip_match.group(1)
+                loaded.add(f"{_FOREIGN_PREFIX}{root}")
     return loaded
 
 
@@ -103,19 +129,143 @@ def _format_display_path(agent_file: Path) -> str:
         return str(agent_file.resolve())
 
 
+def _agent_name_of(directory: Path) -> str | None:
+    """Return the ``[agent]`` name declared by ``directory``'s gptme.toml, if any.
+
+    Only consults the project config when a ``gptme.toml`` actually exists, so
+    walking many plain directories doesn't churn the project-config cache.
+    """
+    if not (
+        (directory / "gptme.toml").is_file()
+        or (directory / ".github" / "gptme.toml").is_file()
+    ):
+        return None
+    try:
+        config = get_project_config(directory, quiet=True)
+    except Exception as e:  # a malformed config shouldn't break the hook
+        logger.debug(f"Could not load project config in {directory}: {e}")
+        return None
+    if config and config.agent and config.agent.name:
+        return config.agent.name
+    return None
+
+
+def _session_identity(workspace: Path | None) -> tuple[str | None, set[Path]]:
+    """Return the session's agent name and its own workspace roots.
+
+    The agent name comes from the chat config's agent workspace when available,
+    falling back to the session workspace's ``gptme.toml``. Own roots are the
+    session workspace and agent path (resolved); an agent workspace at or above
+    one of them is part of the session's own context, never foreign.
+    """
+    roots: set[Path] = set()
+    name: str | None = None
+    try:
+        chat = get_config().chat
+        if chat is not None and chat.agent is not None:
+            roots.add(chat.agent.resolve())
+            agent_config = chat.agent_config
+            if agent_config and agent_config.name:
+                name = agent_config.name
+    except Exception as e:  # config problems shouldn't break the hook
+        logger.debug(f"Could not determine session agent from chat config: {e}")
+    if workspace is not None:
+        ws = workspace.resolve()
+        roots.add(ws)
+        if name is None:
+            name = _agent_name_of(ws)
+    return name, roots
+
+
+def _find_foreign_agent_root(
+    agent_file: Path, session_name: str | None, own_roots: set[Path]
+) -> tuple[Path, str] | None:
+    """Find the foreign agent workspace that ``agent_file`` belongs to, if any.
+
+    Walks up from the file's directory (stopping at home or the filesystem root)
+    to the nearest directory whose gptme.toml declares an ``[agent]`` name. That
+    workspace is *foreign* when it is not one of the session's own roots (or an
+    ancestor of one) and its agent name differs from the session's. A session
+    without an agent name treats every other agent workspace as foreign.
+    """
+    home = Path.home().resolve()
+    current = agent_file.resolve().parent
+    while True:
+        name = _agent_name_of(current)
+        if name is not None:
+            if any(root.is_relative_to(current) for root in own_roots):
+                return None
+            if session_name is not None and name == session_name:
+                return None
+            return current, name
+        if current == home or current == current.parent:
+            return None
+        current = current.parent
+
+
+def _format_foreign_notice(
+    root: Path, name: str, files: list[Path], session_name: str | None
+) -> Message:
+    """Build the visible notice for instructions skipped in a foreign workspace."""
+    display_root = _format_display_path(root)
+    display_files = ", ".join(_format_display_path(f) for f in files)
+    if session_name:
+        reason = (
+            "it defines a different agent identity than this session's "
+            f"'{session_name}'"
+        )
+    else:
+        reason = "it defines a different agent identity"
+    return Message(
+        "system",
+        f'<{_FOREIGN_TAG} path="{display_root}" agent="{name}">\n'
+        f"Entered {display_root}, which is agent workspace '{name}'; "
+        f"its instructions were not loaded ({reason}). "
+        f"Skipped: {display_files}. "
+        "Do not adopt that agent's identity; read the files explicitly only "
+        "if the task requires it.\n"
+        f"</{_FOREIGN_TAG}>",
+    )
+
+
+def _partition_foreign(
+    agent_files: list[Path], workspace: Path | None
+) -> tuple[list[Path], dict[Path, tuple[str, list[Path]]], str | None]:
+    """Split candidates into allowed files and files in foreign agent workspaces."""
+    session_name, own_roots = _session_identity(workspace)
+    allowed: list[Path] = []
+    foreign: dict[Path, tuple[str, list[Path]]] = {}
+    for agent_file in agent_files:
+        found = _find_foreign_agent_root(agent_file, session_name, own_roots)
+        if found is None:
+            allowed.append(agent_file)
+        else:
+            root, name = found
+            foreign.setdefault(root, (name, []))[1].append(agent_file)
+    return allowed, foreign, session_name
+
+
 def inject_agent_instruction_files(
     log: Log | None,
     agent_files: Iterable[Path],
     *,
+    workspace: Path | None = None,
     max_files: int | None = None,
     max_bytes: int | None = None,
     skip_tag: str = "agent-instructions-skipped",
 ) -> Generator[Message, None, None]:
     """Inject discovered agent instruction files with shared dedup semantics.
 
+    Files inside a different gptme agent workspace are never injected; a short
+    visible notice is emitted instead (once per foreign workspace). Each
+    injected file is followed by a short visible message naming it, since the
+    injected content itself is display-hidden.
+
     Args:
         log: Conversation log used for server-mode dedup fallback.
         agent_files: Candidate AGENTS/CLAUDE/GEMINI files to inject.
+        workspace: Session workspace, used to determine the session's own
+            agent identity and roots.
         max_files: Optional per-call cap on injected files.
         max_bytes: Optional per-call cap on combined injected content size.
         skip_tag: XML-ish tag used for skip-note system messages.
@@ -125,7 +275,25 @@ def inject_agent_instruction_files(
     injected = 0
     bytes_injected = 0
 
-    for agent_file in agent_files:
+    candidates = [f for f in agent_files if str(f.resolve()) not in loaded]
+    if not candidates:
+        return
+
+    allowed, foreign, session_name = _partition_foreign(candidates, workspace)
+    for root, (name, files) in foreign.items():
+        logger.info(
+            "Not loading instructions from agent workspace '%s' (%s): %s",
+            name,
+            root,
+            ", ".join(str(f) for f in files),
+        )
+        key = f"{_FOREIGN_PREFIX}{root}"
+        if key in loaded:
+            continue
+        loaded.add(key)
+        yield _format_foreign_notice(root, name, files, session_name)
+
+    for agent_file in allowed:
         resolved = str(agent_file.resolve())
         if resolved in loaded or resolved in seen_candidates:
             continue
@@ -195,6 +363,13 @@ def inject_agent_instruction_files(
             # via the message_added stream event and vanished on reload).
             hide=True,
         )
+        # The instructions are hidden from the conversation view, so announce
+        # the load visibly: the user should see which file entered the context,
+        # not only the model.
+        yield Message(
+            "system",
+            f"Loaded agent instructions from {display_path} ({content_bytes} bytes).",
+        )
 
 
 def on_cwd_changed(
@@ -219,7 +394,7 @@ def on_cwd_changed(
         )
         if not new_files:
             return
-        yield from inject_agent_instruction_files(log, new_files)
+        yield from inject_agent_instruction_files(log, new_files, workspace=workspace)
 
     except Exception as e:
         logger.exception(f"Error in agents_md on CWD change: {e}")
