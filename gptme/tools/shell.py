@@ -3385,10 +3385,10 @@ def _find_output_command(cmd: str) -> int | None:
                 and args[0].text.isdigit()
             ):
                 return int(args[0].text)
-        # A function body only runs if the function is called.
-        stack.extend(
-            reversed([c for c in node.children if c.type != "function_definition"])
-        )
+        # Deliberately includes function bodies and every branch: whether they
+        # run is not statically known, and `output N` can never succeed in bash,
+        # so explaining up front beats a partial run ending in "not found".
+        stack.extend(reversed(node.children))
     return None
 
 

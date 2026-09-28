@@ -387,6 +387,7 @@ def test_output_of_promoted_job_is_a_whole_tool_call(
         "touch ran; if true; then output 1; fi",
         "touch ran; { output 1; }",
         "touch ran; echo $(output 1)",
+        "touch ran; f() { output 1; }; f",
     ],
 )
 def test_output_inside_script_is_explained_not_run(
@@ -414,7 +415,6 @@ def test_output_inside_script_is_explained_not_run(
         "echo hi # output 1",
         "echo do output 1",
         "echo then { output 1",
-        "f() { output 1; }; echo defined",
     ],
 )
 def test_output_as_data_still_runs(
