@@ -1658,7 +1658,7 @@ async def test_input_during_web_check_cancels_switch(tmp_path, monkeypatch):
         inp.text = "/restart web"
         await pilot.press("enter")
         await pilot.pause()
-        assert app._web_restart_pending
+        assert app._web_restart_pending is not None
         # stand-in for a prompt submission (e.g. one awaiting URL confirmation)
         monkeypatch.setattr(app, "_submit", lambda text: _noop())
         inp.text = "look at https://example.com"
@@ -1673,6 +1673,21 @@ async def test_input_during_web_check_cancels_switch(tmp_path, monkeypatch):
 
 async def _noop() -> None:
     return None
+
+
+def test_stale_web_check_is_ignored(tmp_path, monkeypatch):
+    """Only the most recent /restart web check may act."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    requested: list[object] = []
+    monkeypatch.setattr(app, "_request_restart", lambda *a: requested.append(a))
+    monkeypatch.setattr(app, "_show_info", lambda *a: requested.append(a))
+    app._web_restart_pending = 2  # a newer check (#2) superseded #1
+    app._finish_web_check(1, None, "http://old/chat/c")
+    app._finish_web_check(1, "old error")
+    assert requested == []
+    app._finish_web_check(2, None, "http://new/chat/c")
+    assert requested == [(None, "http://new/chat/c")]
+    assert app._web_restart_pending is None
 
 
 def test_restart_request_refused_while_generating(tmp_path, monkeypatch):

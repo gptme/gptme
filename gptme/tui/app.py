@@ -9,6 +9,7 @@ output is rendered in collapsible sections for a compact view.
 import asyncio
 import contextlib
 import contextvars
+import functools
 import io
 import logging
 import os.path
@@ -1356,8 +1357,10 @@ class GptmeApp(App):
         self.restart_requested = False
         self.restart_target: Interface | None = None
         self.restart_web_url: str | None = None
-        # a /restart web check is running in a worker; cleared by new input
-        self._web_restart_pending = False
+        # id of the /restart web check running in a worker, if any; only the
+        # current one may act, and new input cancels it
+        self._web_restart_seq = 0
+        self._web_restart_pending: int | None = None
         # True while our SIGWINCH handler is installed (inline mode only)
         self._inline_sigwinch_installed = False
 
@@ -1766,9 +1769,9 @@ class GptmeApp(App):
         chat_input.text = ""
         if text:
             chat_input._push_history(text)
-            if self._web_restart_pending:
+            if self._web_restart_pending is not None:
                 # new input wins over a /restart web still being checked
-                self._web_restart_pending = False
+                self._web_restart_pending = None
                 self._show_info("Cancelled /restart web: new input was submitted.")
         logger.debug(
             "input submitted: %r (generating=%s, queue=%d)",
@@ -1845,11 +1848,11 @@ class GptmeApp(App):
             if target == "web":
                 # network checks: off the event loop so the UI stays responsive
                 self._show_info("Looking for a gptme-server…")
-                self._web_restart_pending = True
+                self._web_restart_seq += 1
+                self._web_restart_pending = self._web_restart_seq
                 self.run_worker(
-                    self._web_restart_worker,
+                    functools.partial(self._web_restart_worker, self._web_restart_seq),
                     thread=True,
-                    exclusive=True,
                     group="restart",
                 )
                 return
@@ -2037,20 +2040,22 @@ class GptmeApp(App):
             self._generation_worker, thread=True, exclusive=True, group="generation"
         )
 
-    def _web_restart_worker(self) -> None:
+    def _web_restart_worker(self, request: int) -> None:
         """Thread worker: check the web UI can take over, then exit to it."""
         try:
             url = prepare_web_switch(self.manager.logdir.name)
         except RestartError as e:
-            self.call_from_thread(self._finish_web_check, str(e))
+            self.call_from_thread(self._finish_web_check, request, str(e))
             return
-        self.call_from_thread(self._finish_web_check, None, url)
+        self.call_from_thread(self._finish_web_check, request, None, url)
 
-    def _finish_web_check(self, error: str | None, url: str | None = None) -> None:
-        """Back on the UI thread: act on the web check unless it was cancelled."""
-        if not self._web_restart_pending:
-            return  # cancelled by input submitted meanwhile
-        self._web_restart_pending = False
+    def _finish_web_check(
+        self, request: int, error: str | None, url: str | None = None
+    ) -> None:
+        """Back on the UI thread: act on the web check if it's still current."""
+        if self._web_restart_pending != request:
+            return  # cancelled by new input, or superseded by a newer check
+        self._web_restart_pending = None
         if error is not None:
             self._show_info(error)
         else:
