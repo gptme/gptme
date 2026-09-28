@@ -440,6 +440,7 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
 - ``GPTME_TUI_DISPLAY_THINKING`` - Show model thinking in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/display thinking``). Display only; does not affect reasoning.
+- ``GPTME_TUI_DISPLAY_HIDDEN`` - Show hidden messages (sent to the model but normally not displayed, e.g. token/time notices) in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/display hidden``)
 
 .. rubric:: API Configuration
 

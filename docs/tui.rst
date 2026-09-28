@@ -77,6 +77,9 @@ current settings.
   only the response. Set ``GPTME_TUI_DISPLAY_THINKING=1`` to show it from
   startup.
 - ``/display outputs [on|off]``: expand or collapse tool output.
+- ``/display hidden [on|off]``: messages sent to the model but normally not
+  shown, such as token-usage and time notices. Off by default; set
+  ``GPTME_TUI_DISPLAY_HIDDEN=1`` to show them from startup.
 
 :kbd:`Ctrl+O` is the shorthand for both: it expands tool output and thinking,
 or collapses both when both are already expanded.

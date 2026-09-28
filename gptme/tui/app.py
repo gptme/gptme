@@ -179,6 +179,15 @@ def _show_thinking_default() -> bool:
     return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_THINKING", default=False))
 
 
+def _show_hidden_default() -> bool:
+    """Whether hidden messages are displayed at startup (``GPTME_TUI_DISPLAY_HIDDEN``).
+
+    Hidden messages (e.g. token/time notices) are sent to the model but not
+    normally shown.
+    """
+    return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_HIDDEN", default=False))
+
+
 def _split_tool_calls(text: str) -> list[tuple[bool, str]]:
     """Split a text block into (is_toolcall, segment) pairs.
 
@@ -655,7 +664,7 @@ def renderables_for_message(
 
 
 # display-only settings toggled by /display (they never affect the model)
-DISPLAY_SETTINGS = ("thinking", "outputs")
+DISPLAY_SETTINGS = ("thinking", "outputs", "hidden")
 _ON = ("on", "show", "expanded", "true", "1")
 _OFF = ("off", "hide", "collapsed", "false", "0")
 
@@ -1211,6 +1220,7 @@ class GptmeApp(App):
         self._tool_placeholder: ToolPlaceholder | None = None
         self._outputs_expanded = False
         self.show_thinking = _show_thinking_default()
+        self.show_hidden = _show_hidden_default()
         self._stdio_sink: IO[str] | None = None
         self._real_stdout: IO[str] | None = None
         self._real_stderr: IO[str] | None = None
@@ -1404,7 +1414,7 @@ class GptmeApp(App):
 
     def _render_history(self) -> None:
         chat = self.query_one("#chat", VerticalScroll)
-        msgs = [m for m in self.manager.log if not m.hide]
+        msgs = [m for m in self.manager.log if self.show_hidden or not m.hide]
         if len(msgs) > MAX_INITIAL_MESSAGES:
             chat.mount(
                 InfoMessage(
@@ -1465,7 +1475,7 @@ class GptmeApp(App):
         self.refresh()
 
     def _show_message(self, msg: Message) -> None:
-        if msg.hide:  # e.g. token/time notices meant only for the model
+        if msg.hide and not self.show_hidden:  # e.g. token/time notices
             return
         cost_text = inline_cost_text(msg) if msg.role == "assistant" else None
         if self.inline:
@@ -1719,24 +1729,38 @@ class GptmeApp(App):
         self._update_status()
 
     def _display_command(self, args: list[str]) -> None:
-        """``/display [thinking|outputs] [on|off]``: display-only settings.
+        """``/display [thinking|outputs|hidden] [on|off]``: display-only settings.
 
         No setting lists the current state; no value toggles.
         """
-        usage = "Usage: /display [thinking|outputs] [on|off]"
+        usage = "Usage: /display [thinking|outputs|hidden] [on|off]"
+        # name -> (current value, setter, on/off wording)
+        settings = {
+            "thinking": (self.show_thinking, self._set_thinking, ("shown", "hidden")),
+            "outputs": (
+                self._outputs_expanded,
+                self._set_outputs,
+                ("expanded", "collapsed"),
+            ),
+            "hidden": (
+                self.show_hidden,
+                self._set_hidden,
+                ("messages shown", "messages hidden"),
+            ),
+        }
         if not args:
-            self._show_info(
-                f"thinking: {'on' if self.show_thinking else 'off'}, "
-                f"outputs: {'expanded' if self._outputs_expanded else 'collapsed'}"
-                f"\n{usage}"
+            state = ", ".join(
+                f"{name}: {words[0] if value else words[1]}"
+                for name, (value, _, words) in settings.items()
             )
+            self._show_info(f"{state}\n{usage}")
             return
         name = args[0].lower()
         value = args[1].lower() if len(args) > 1 else None
-        if name not in DISPLAY_SETTINGS or len(args) > 2:
+        if name not in settings or len(args) > 2:
             self._show_info(usage, error=True)
             return
-        current = self.show_thinking if name == "thinking" else self._outputs_expanded
+        current, setter, words = settings[name]
         if value is None:
             on = not current
         elif value in _ON:
@@ -1746,14 +1770,13 @@ class GptmeApp(App):
         else:
             self._show_info(usage, error=True)
             return
-        if name == "thinking":
-            self._set_thinking(on)
-            state = "shown" if on else "hidden"
-        else:
-            self._set_outputs(on)
-            state = "expanded" if on else "collapsed"
+        setter(on)
         note = " (applies to new output)" if self.inline else ""
-        self._show_info(f"{name.capitalize()} {state}{note}.")
+        self._show_info(f"{name.capitalize()} {words[0 if on else 1]}{note}.")
+
+    def _set_hidden(self, on: bool) -> None:
+        self.show_hidden = on
+        self._rebuild_chat()
 
     def _set_thinking(self, on: bool) -> None:
         self.show_thinking = on

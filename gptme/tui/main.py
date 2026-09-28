@@ -49,10 +49,15 @@ def _print_history(manager: LogManager, limit: int = 50) -> None:
     """Print past messages to the terminal before an inline session starts."""
     from rich.console import Console
 
-    from .app import _show_thinking_default, renderables_for_message
+    from .app import (
+        _show_hidden_default,
+        _show_thinking_default,
+        renderables_for_message,
+    )
 
     console = Console()
-    msgs = [m for m in manager.log if not m.hide]
+    show_hidden = _show_hidden_default()
+    msgs = [m for m in manager.log if show_hidden or not m.hide]
     if len(msgs) > limit:
         console.print(f"[dim]… {len(msgs) - limit} earlier messages not shown[/dim]")
         msgs = msgs[-limit:]

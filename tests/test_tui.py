@@ -1411,7 +1411,11 @@ def test_thinking_hidden_by_default(tmp_path, monkeypatch):
 
 def test_complete_input_tui_commands():
     assert "/display" in complete_input("/disp")
-    assert complete_input("/display ") == ["/display thinking", "/display outputs"]
+    assert complete_input("/display ") == [
+        "/display thinking",
+        "/display outputs",
+        "/display hidden",
+    ]
     assert complete_input("/display thinking o") == [
         "/display thinking on",
         "/display thinking off",
@@ -1720,5 +1724,39 @@ async def test_hidden_step_messages_not_shown(tmp_path):
         app._on_step_message(
             Message("system", "<system_warning>Token usage</system_warning>", hide=True)
         )
+        await pilot.pause()
+        assert not app.query(SystemMessage)
+
+
+@pytest.mark.asyncio
+async def test_display_hidden_toggles_hidden_messages(tmp_path, monkeypatch):
+    monkeypatch.delenv("GPTME_TUI_DISPLAY_HIDDEN", raising=False)
+    manager = make_manager(
+        tmp_path,
+        [
+            Message("user", "hi"),
+            Message("system", "<system_info>secret notice</system_info>", hide=True),
+        ],
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert not app.query(SystemMessage)
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/display hidden on"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.show_hidden
+        assert any(
+            "secret notice" in str(s.render())
+            for w in app.query(SystemMessage)
+            for s in w.query(Static)
+        )
+        # live hidden messages follow the setting
+        app._on_step_message(Message("system", "another notice", hide=True))
+        await pilot.pause()
+        assert len(app.query(SystemMessage)) >= 2
+        inp.text = "/display hidden off"
+        await pilot.press("enter")
         await pilot.pause()
         assert not app.query(SystemMessage)
