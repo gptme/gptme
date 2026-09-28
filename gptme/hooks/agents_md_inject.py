@@ -34,6 +34,7 @@ See: https://github.com/gptme/gptme/issues/1521
 See: https://github.com/gptme/gptme/issues/1958
 """
 
+import hashlib
 import logging
 import os
 import re
@@ -104,8 +105,14 @@ def _derive_loaded_files_from_log(log: Log) -> set[str]:
 
 
 def _foreign_root_id(root: Path) -> str:
-    """Stable id for a foreign agent workspace root (dedup key for its notice)."""
-    return _content_hash(str(root))
+    """Stable id for a foreign agent workspace root (dedup key for its notice).
+
+    Hashed from the raw resolved path. ``_content_hash`` is the wrong tool
+    here: it is for instruction text and collapses whitespace first, so two
+    directories that differ only in whitespace (legal on POSIX) would share
+    a notice id and the second workspace would never be announced.
+    """
+    return hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:32]
 
 
 def _get_loaded_files(log: Log | None = None) -> set[str]:

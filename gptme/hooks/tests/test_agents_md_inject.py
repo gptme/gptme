@@ -13,6 +13,7 @@ import pytest
 from gptme.hooks.agents_md_inject import (
     _HASH_PREFIX,
     _derive_loaded_files_from_log,
+    _foreign_root_id,
     _get_loaded_files,
     on_cwd_changed,
 )
@@ -518,7 +519,7 @@ class TestForeignAgentWorkspace:
 
         bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
         alice = _make_agent_workspace(
-            tmp_path / "o'neil <alice>", "Alice", "# Being Alice"
+            tmp_path / "o'neil alice", "Alice", "# Being Alice"
         )
         first = _cd_messages(Log(), bob, alice)
         assert len(first) == 1
@@ -526,6 +527,27 @@ class TestForeignAgentWorkspace:
         _loaded_agent_files_var.set(None)  # fresh request context
         second = _cd_messages(Log(messages=first), bob, alice)
         assert second == []
+
+    def test_whitespace_distinct_roots_get_distinct_notice_ids(
+        self, tmp_path: Path, empty_log
+    ):
+        """Paths that differ only in whitespace must not share a notice id."""
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        alice_one = _make_agent_workspace(
+            tmp_path / "alice workspace", "Alice", "# Being Alice"
+        )
+        alice_two = _make_agent_workspace(
+            tmp_path / "alice  workspace", "Alice", "# Being Alice too"
+        )
+        assert _foreign_root_id(alice_one) != _foreign_root_id(alice_two)
+
+        first = _cd_messages(empty_log, bob, alice_one)
+        second = _cd_messages(empty_log, bob, alice_two)
+        assert len(first) == 1
+        assert len(second) == 1
+        id1 = first[0].content.split('id="', 1)[1].split('"', 1)[0]
+        id2 = second[0].content.split('id="', 1)[1].split('"', 1)[0]
+        assert id1 != id2
 
     def test_nested_project_in_other_agent_workspace_not_injected(
         self, tmp_path: Path, empty_log
