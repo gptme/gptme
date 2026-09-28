@@ -115,7 +115,8 @@ export interface SendMessageRequest extends Message {
 
 // Agent info returned with conversation
 export interface AgentInfo {
-  name: string;
+  // Absent when GPTME_AGENT_COLOR is set but the conversation has no agent project.
+  name?: string;
   avatar?: string;
   color?: string | null;
 }

@@ -2511,6 +2511,7 @@ def test_v2_conversation_get_exposes_env_color_without_agent(
 
     data = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
     assert data["agent"]["color"] == "#ff0000"
+    assert "name" not in data["agent"]
 
 
 def test_v2_conversation_get_returns_404_for_missing_conversation(
