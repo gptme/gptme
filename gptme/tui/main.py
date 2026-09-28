@@ -1,5 +1,6 @@
 """Entry point for the gptme TUI (``gptme-tui``)."""
 
+import contextlib
 import logging
 import os
 import sys
@@ -63,6 +64,7 @@ def _print_history(manager: LogManager, limit: int = 50) -> None:
     from rich.console import Console
 
     from .app import (
+        _highlight_default,
         _show_hidden_default,
         _show_thinking_default,
         renderables_for_message,
@@ -75,8 +77,11 @@ def _print_history(manager: LogManager, limit: int = 50) -> None:
         console.print(f"[dim]… {len(msgs) - limit} earlier messages not shown[/dim]")
         msgs = msgs[-limit:]
     show_thinking = _show_thinking_default()
+    highlight = _highlight_default()
     for msg in msgs:
-        for renderable in renderables_for_message(msg, show_thinking=show_thinking):
+        for renderable in renderables_for_message(
+            msg, show_thinking=show_thinking, highlight=highlight
+        ):
             console.print(renderable)
 
 
@@ -95,12 +100,36 @@ def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
         if app.restart_web_url:
             open_web(app.restart_web_url)
             return
+        # The new process starts in our cwd. If the workspace directory was
+        # moved or replaced during the session, that cwd is stale (getcwd()
+        # fails); re-enter it by path first.
+        with contextlib.suppress(OSError):
+            os.chdir(app.workspace)
         program = "gptme" if app.restart_target == "cli" else "gptme-tui"
         print(f"Restarting {program} with conversation: {conversation_name}")
         try:
             _do_restart(conversation_name, target=app.restart_target, source="tui")
         except RestartError as e:
             print(f"Not restarting: {e}")
+
+
+def _current_dir() -> Path:
+    """The working directory, re-resolved by path if it went stale.
+
+    ``getcwd()`` fails when the directory was deleted or replaced (e.g. moved
+    and recreated) under the process, even if the same path exists again.
+    """
+    try:
+        return Path.cwd()
+    except FileNotFoundError:
+        pwd = os.environ.get("PWD")
+        if pwd and Path(pwd).is_dir():
+            os.chdir(pwd)
+            return Path(pwd)
+        raise click.ClickException(
+            "The current directory no longer exists; cd to the workspace "
+            "(or pass --workspace) and try again."
+        ) from None
 
 
 @click.command(
@@ -194,7 +223,9 @@ def main(
     set_output_format("quiet")
 
     logdir = _select_logdir(name, resume)
-    workspace_path = Path(workspace).expanduser().resolve() if workspace else Path.cwd()
+    workspace_path = (
+        Path(workspace).expanduser().resolve() if workspace else _current_dir()
+    )
 
     config = setup_config_from_cli(
         workspace=workspace_path,

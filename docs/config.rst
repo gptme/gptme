@@ -487,6 +487,7 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_SUGGEST_LLM`` - Enable LLM-powered prompt completion (default: false)
 - ``GPTME_TUI_DISPLAY_THINKING`` - Show model thinking in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/display thinking``). Display only; does not affect reasoning.
 - ``GPTME_TUI_DISPLAY_HIDDEN`` - Show hidden messages (sent to the model but normally not displayed, e.g. token/time notices) in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/display hidden``)
+- ``GPTME_TUI_DISPLAY_HIGHLIGHT`` - Syntax-highlight commands in tool-call titles and output summaries in the :doc:`TUI <tui>` (default: true; toggle at runtime with ``/display highlight``)
 
 .. rubric:: API Configuration
 

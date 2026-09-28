@@ -151,6 +151,32 @@ async def test_e2e_tool_skip(mock_app, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_e2e_ctrl_c_cancels_tool_confirm(mock_app, tmp_path):
+    """Ctrl+C at the confirm dialog declines the tool and interrupts the turn."""
+    app = mock_app
+    marker = f"marker_{uuid.uuid4().hex[:8]}"
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = f"run this:\n```shell\ntouch {tmp_path / marker}\n```"
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], ConfirmScreen),
+            what="confirmation dialog",
+        )
+        await pilot.press("ctrl+c")
+        await wait_for(
+            pilot,
+            lambda: not app.generating and app.state == "idle",
+            what="generation to finish",
+        )
+        assert not isinstance(app.screen_stack[-1], ConfirmScreen)
+        assert not (tmp_path / marker).exists(), "cancelled tool must not execute"
+        assert app.is_running, "Ctrl+C at a dialog must not quit the app"
+
+
+@pytest.mark.asyncio
 async def test_e2e_queue_dispatches_after_turn(mock_app, monkeypatch):
     """Prompts queued while generating are submitted when the turn ends."""
     import threading

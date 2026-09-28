@@ -100,6 +100,18 @@ def _queued_prompt_text(item: str | Message) -> str:
     return item.content if isinstance(item, Message) else item
 
 
+def _drop_summary_line(content: str) -> str:
+    """Body for an expanded section whose title is ``_summarize(content)``.
+
+    The title already shows the first line, unless that line is a code fence
+    (the title then just says "output"), so don't repeat it.
+    """
+    lines = content.strip().splitlines()
+    if not lines or lines[0].strip().startswith("```"):
+        return content
+    return "\n".join(lines[1:]).strip("\n") or content
+
+
 def _summarize(content: str, maxlen: int = 80) -> str:
     """One-line summary of message content, for collapsed sections."""
     lines = content.strip().splitlines() or [""]
@@ -203,6 +215,11 @@ def _show_thinking_default() -> bool:
     return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_THINKING", default=False))
 
 
+def _highlight_default() -> bool:
+    """Whether titles are syntax-highlighted at startup (``GPTME_TUI_DISPLAY_HIGHLIGHT``)."""
+    return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_HIGHLIGHT", default=True))
+
+
 def _show_hidden_default() -> bool:
     """Whether hidden messages are displayed at startup (``GPTME_TUI_DISPLAY_HIDDEN``).
 
@@ -243,7 +260,9 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
     json_body = m.group(3)
     try:
         args = json.loads(json_body)
-        code: str = args.get("code") or args.get("command") or json_body
+        code: str = (
+            args.get("code") or args.get("command") or args.get("path") or json_body
+        )
     except Exception:
         code = json_body
     first_line = code.split("\n")[0].strip()
@@ -444,18 +463,58 @@ class UserMessage(Vertical):
         _apply_role_color(self, "user")
 
 
-def _collapsible_title(title: str) -> str:
-    """Tool-call titles start with ▶ for inline panels; Collapsible draws its own."""
-    return title.removeprefix("▶ ")
+def _highlight(code: str, lang: str) -> Text:
+    """Syntax-highlight a snippet into one line of styled text."""
+    text = Syntax(code, lang, theme="ansi_dark").highlight(code)
+    text.rstrip()
+    return text
+
+
+_TITLE_RE = re.compile(r"([\w.-]+): (.*)", re.DOTALL)
+
+
+def _tool_title(title: str, lang: str, highlight: bool, marker: bool = True) -> Text:
+    """Tool-call title ``▶ tool: first line`` with the code highlighted.
+
+    Collapsible draws its own ▶, so ``marker=False`` drops ours.
+    """
+    bare = title.removeprefix("▶ ")
+    prefix = "▶ " if marker and bare != title else ""
+    m = _TITLE_RE.fullmatch(bare)
+    if not highlight or not m:
+        return Text(prefix + bare)
+    text = Text(prefix)
+    text.append(f"{m.group(1)}:", style="bold")
+    text.append(" ")
+    text.append_text(_highlight(m.group(2), lang))
+    return text
+
+
+def _summary_title(summary: str, highlight: bool) -> Text:
+    """Output summary with `inline code` spans highlighted as shell."""
+    parts = summary.split("`")
+    if not highlight or len(parts) < 3:
+        return Text(summary)
+    text = Text()
+    for i, part in enumerate(parts):
+        # odd parts sit between backticks; an unmatched last one stays plain
+        if i % 2 and i < len(parts) - 1:
+            text.append_text(_highlight(part, "bash"))
+        else:
+            text.append(part)
+    return text
 
 
 class AssistantMessage(Vertical):
     """A completed assistant message, rendered as markdown."""
 
-    def __init__(self, content: str, show_thinking: bool = False):
+    def __init__(
+        self, content: str, show_thinking: bool = False, highlight: bool = True
+    ):
         super().__init__(classes="message assistant")
         self.content = content.strip()
         self.show_thinking = show_thinking
+        self.highlight = highlight
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
@@ -488,7 +547,9 @@ class AssistantMessage(Vertical):
                         title, code, lang = _tool_call_renderable(seg)
                         yield Collapsible(
                             Static(Syntax(code, lang, theme="ansi_dark")),
-                            title=_collapsible_title(title),
+                            title=_tool_title(
+                                title, lang, self.highlight, marker=False
+                            ),  # type: ignore[arg-type]
                             collapsed=True,
                             classes="tool-call-block",
                         )
@@ -496,7 +557,9 @@ class AssistantMessage(Vertical):
                         for title, code, lang in _xml_tool_renderables(seg):
                             yield Collapsible(
                                 Static(Syntax(code, lang, theme="ansi_dark")),
-                                title=_collapsible_title(title),
+                                title=_tool_title(
+                                    title, lang, self.highlight, marker=False
+                                ),  # type: ignore[arg-type]
                                 collapsed=True,
                                 classes="tool-call-block",
                             )
@@ -504,7 +567,9 @@ class AssistantMessage(Vertical):
                         title, code, lang = _markdown_tool_renderable(seg)
                         yield Collapsible(
                             Static(Syntax(code, lang, theme="ansi_dark")),
-                            title=_collapsible_title(title),
+                            title=_tool_title(
+                                title, lang, self.highlight, marker=False
+                            ),  # type: ignore[arg-type]
                             collapsed=True,
                             classes="tool-call-block",
                         )
@@ -530,17 +595,20 @@ class SystemMessage(Vertical):
     One-line messages are shown as-is: there is nothing to expand.
     """
 
-    def __init__(self, content: str):
+    def __init__(self, content: str, highlight: bool = True):
         super().__init__(classes="message system")
         self.content = _system_display_text(content)
+        self.highlight = highlight
 
     def compose(self) -> ComposeResult:
         if "\n" not in self.content:
-            yield Static(Text(self.content), classes="system-line")
+            yield Static(
+                _summary_title(self.content, self.highlight), classes="system-line"
+            )
             return
         yield Collapsible(
-            Markdown(self.content),
-            title=_summarize(self.content),
+            Markdown(_drop_summary_line(self.content)),
+            title=_summary_title(_summarize(self.content), self.highlight),  # type: ignore[arg-type]
             collapsed=True,
         )
 
@@ -645,7 +713,10 @@ class BouncingError(Static):
 
 
 def renderables_for_message(
-    msg: Message, expanded: bool = False, show_thinking: bool = True
+    msg: Message,
+    expanded: bool = False,
+    show_thinking: bool = True,
+    highlight: bool = True,
 ) -> list:
     """Rich renderables for a message, for native-scrollback (inline) mode."""
 
@@ -687,7 +758,7 @@ def renderables_for_message(
                             items.append(
                                 Panel(
                                     Syntax(code, lang, theme="ansi_dark"),
-                                    title=title,
+                                    title=_tool_title(title, lang, highlight),
                                     expand=False,
                                 )
                             )
@@ -696,7 +767,7 @@ def renderables_for_message(
                                 items.append(
                                     Panel(
                                         Syntax(code, lang, theme="ansi_dark"),
-                                        title=title,
+                                        title=_tool_title(title, lang, highlight),
                                         expand=False,
                                     )
                                 )
@@ -705,7 +776,7 @@ def renderables_for_message(
                             items.append(
                                 Panel(
                                     Syntax(code, lang, theme="ansi_dark"),
-                                    title=title,
+                                    title=_tool_title(title, lang, highlight),
                                     expand=False,
                                 )
                             )
@@ -714,8 +785,13 @@ def renderables_for_message(
     # system/tool output: compact summary line, optionally expanded
     content = _system_display_text(content)
     if "\n" not in content:
-        return [Text(content, style="dim"), Text()]
-    renderables: list = [Text(f"▶ {_summarize(content)}", style="dim")]
+        line = _summary_title(content, highlight)
+        line.stylize("dim")
+        return [line, Text()]
+    summary = Text("▶ ")
+    summary.append_text(_summary_title(_summarize(content), highlight))
+    summary.stylize("dim")
+    renderables: list = [summary]
     if expanded:
         renderables.append(Padding(RichMarkdown(content), (0, 0, 0, 2)))
     renderables.append(Text())
@@ -723,7 +799,7 @@ def renderables_for_message(
 
 
 # display-only settings toggled by /display (they never affect the model)
-DISPLAY_SETTINGS = ("thinking", "outputs", "hidden")
+DISPLAY_SETTINGS = ("thinking", "outputs", "hidden", "highlight")
 _ON = ("on", "show", "expanded", "true", "1")
 _OFF = ("off", "hide", "collapsed", "false", "0")
 
@@ -1222,6 +1298,14 @@ class GptmeApp(App):
     .message MarkdownFence {
         margin: 0;
     }
+    /* expanded sections: body directly under the title */
+    .message Collapsible > Contents {
+        padding: 0 0 0 3;
+    }
+    /* the fence's inner label pads a blank line above and below */
+    .message MarkdownFence > Label {
+        padding: 0 1;
+    }
     .message MarkdownBlock:last-child {
         margin-bottom: 0;
     }
@@ -1377,6 +1461,7 @@ class GptmeApp(App):
         self._outputs_expanded = False
         self.show_thinking = _show_thinking_default()
         self.show_hidden = _show_hidden_default()
+        self.highlight = _highlight_default()
         self._stdio_sink: IO[str] | None = None
         self._real_stdout: IO[str] | None = None
         self._real_stderr: IO[str] | None = None
@@ -1631,9 +1716,11 @@ class GptmeApp(App):
         if msg.role == "user":
             return UserMessage(msg.content)
         if msg.role == "assistant":
-            return AssistantMessage(msg.content, show_thinking=self.show_thinking)
+            return AssistantMessage(
+                msg.content, show_thinking=self.show_thinking, highlight=self.highlight
+            )
         if msg.role == "system":
-            return SystemMessage(msg.content)
+            return SystemMessage(msg.content, highlight=self.highlight)
         return None
 
     def _print_above(self, *renderables) -> None:
@@ -1679,7 +1766,10 @@ class GptmeApp(App):
         cost_text = inline_cost_text(msg) if msg.role == "assistant" else None
         if self.inline:
             renderables = renderables_for_message(
-                msg, self._outputs_expanded, show_thinking=self.show_thinking
+                msg,
+                self._outputs_expanded,
+                show_thinking=self.show_thinking,
+                highlight=self.highlight,
             )
             if cost_text:
                 renderables.insert(-1, Text(cost_text, style="dim"))
@@ -1954,11 +2044,11 @@ class GptmeApp(App):
         self._update_status()
 
     def _display_command(self, args: list[str]) -> None:
-        """``/display [thinking|outputs|hidden] [on|off]``: display-only settings.
+        """``/display [thinking|outputs|hidden|highlight] [on|off]``: display-only settings.
 
         No setting lists the current state; no value toggles.
         """
-        usage = "Usage: /display [thinking|outputs|hidden] [on|off]"
+        usage = "Usage: /display [thinking|outputs|hidden|highlight] [on|off]"
         # name -> (current value, setter, on/off wording)
         settings = {
             "thinking": (self.show_thinking, self._set_thinking, ("shown", "hidden")),
@@ -1972,6 +2062,7 @@ class GptmeApp(App):
                 self._set_hidden,
                 ("messages shown", "messages hidden"),
             ),
+            "highlight": (self.highlight, self._set_highlight, ("on", "off")),
         }
         if not args:
             state = ", ".join(
@@ -2002,6 +2093,23 @@ class GptmeApp(App):
     def _set_hidden(self, on: bool) -> None:
         self.show_hidden = on
         self._rebuild_chat()
+
+    def _set_highlight(self, on: bool) -> None:
+        self.highlight = on
+        self._rebuild_chat()
+
+    def _refocus_input_after_toggle(self) -> None:
+        # Clicking a title focuses it (drawn bold) and takes keyboard focus
+        # from the input; hand it back so typing keeps working.
+        if not isinstance(self.screen, ModalScreen):
+            self.query_one("#input").focus()
+
+    # Textual posts the Toggled subclasses, whose handler names differ
+    def on_collapsible_expanded(self, event: Collapsible.Expanded) -> None:
+        self._refocus_input_after_toggle()
+
+    def on_collapsible_collapsed(self, event: Collapsible.Collapsed) -> None:
+        self._refocus_input_after_toggle()
 
     def _set_thinking(self, on: bool) -> None:
         self.show_thinking = on
@@ -2397,7 +2505,23 @@ class GptmeApp(App):
 
     # ------------------------------------------------------------ actions
 
+    def _dismiss_dialog(self) -> bool:
+        """Cancel an open confirmation dialog; True if there was one.
+
+        The generation thread blocks on the tool-confirm dialog, so an
+        interrupt has to answer it (as declined) to take effect.
+        """
+        screen = self.screen
+        if isinstance(screen, ConfirmScreen):
+            screen.dismiss(ConfirmationResult.skip(INTERRUPT_CONTENT))
+        elif isinstance(screen, UrlConfirmScreen):
+            screen.dismiss([])
+        else:
+            return False
+        return True
+
     def action_interrupt(self) -> None:
+        self._dismiss_dialog()
         if self.generating:
             self._interrupt_event.set()
             self._set_state("interrupting…")
@@ -2405,7 +2529,7 @@ class GptmeApp(App):
     def action_interrupt_or_quit(self) -> None:
         if self.generating:
             self.action_interrupt()
-        else:
+        elif not self._dismiss_dialog():  # e.g. the URL dialog before a turn
             self._request_exit()
 
     def action_toggle_details(self) -> None:
@@ -2426,6 +2550,32 @@ class GptmeApp(App):
         for collapsible in self.query(Collapsible):
             if not collapsible.has_class("thinking-block"):
                 collapsible.collapsed = not expanded
+
+    # ---------------------------------------------------- terminal focus
+
+    async def _on_app_focus(self, event: events.AppFocus) -> None:
+        event.prevent_default()  # skip App's refresh_bindings(): no footer
+        self.app_focus = True
+
+    async def _on_app_blur(self, event: events.AppBlur) -> None:
+        event.prevent_default()
+        self.app_focus = False
+
+    def _watch_app_focus(self, focus: bool) -> None:
+        """Replace Textual's handling of terminal focus changes (FocusIn/Out).
+
+        Textual restyles every widget on the screen and drops keyboard focus
+        on blur, restoring it on the next focus-in. With a long conversation
+        that is thousands of widgets, freezing the UI for seconds on every
+        tmux pane switch, and focus stays lost if the focus-in is missed or
+        a dialog opened meanwhile. The TUI's CSS has no app :focus/:blur
+        rules, and the input should simply keep focus.
+        """
+        if focus and self.screen.focused is None and not self._is_modal_open():
+            self.screen.set_focus(self.query_one("#input"), scroll_visible=False)
+
+    def _is_modal_open(self) -> bool:
+        return isinstance(self.screen, ModalScreen)
 
     async def action_quit(self) -> None:
         self._request_exit()

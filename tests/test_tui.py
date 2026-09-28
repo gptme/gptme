@@ -1416,6 +1416,7 @@ def test_complete_input_tui_commands():
         "/display thinking",
         "/display outputs",
         "/display hidden",
+        "/display highlight",
     ]
     assert complete_input("/display thinking o") == [
         "/display thinking on",
@@ -1827,7 +1828,7 @@ async def test_tool_call_collapsible_has_single_marker(tmp_path):
         await app.mount(widget)
         await pilot.pause()
         block = widget.query(".tool-call-block").results(Collapsible).__next__()
-        assert block.title == "shell: ls"
+        assert str(block.title) == "shell: ls"
 
 
 def test_system_display_text_strips_wrapper_tags():
@@ -2248,6 +2249,102 @@ async def test_paste_placeholder_undo_redo(tmp_path):
         inp.undo()
         await pilot.pause()
         assert inp._expand_pastes(inp.text) == "x 1\n2\n3"
+
+
+
+
+@pytest.mark.asyncio
+async def test_terminal_focus_changes_keep_input_focused(tmp_path):
+    """Blur must not drop focus (Textual's default), and focus-in restores it."""
+    from textual import events
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        app.post_message(events.AppBlur())
+        await pilot.pause()
+        assert app.focused is inp
+        # focus lost some other way: focus-in puts it back on the input
+        app.screen.set_focus(None)
+        app.post_message(events.AppFocus())
+        await pilot.pause()
+        assert app.focused is inp
+
+
+def test_current_dir_recovers_from_stale_cwd(tmp_path, monkeypatch):
+    import click
+
+    from gptme.tui import main as tui_main
+
+    def stale():
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(tui_main.Path, "cwd", staticmethod(stale))
+    monkeypatch.setattr(tui_main.os, "chdir", lambda p: None)
+    monkeypatch.setenv("PWD", str(tmp_path))
+    assert tui_main._current_dir() == tmp_path
+    monkeypatch.setenv("PWD", str(tmp_path / "gone"))
+    with pytest.raises(click.ClickException, match="no longer exists"):
+        tui_main._current_dir()
+
+
+def test_drop_summary_line():
+    from gptme.tui.app import _drop_summary_line
+
+    content = "Shellcheck found potential issues:\n\n```\nSC2044 warning\n```\n"
+    assert _drop_summary_line(content) == "```\nSC2044 warning\n```"
+    # a leading fence is not the title, keep it
+    fenced = "```stdout\nhello\n```"
+    assert _drop_summary_line(fenced) == fenced
+    # nothing but the summary line: keep the content
+    assert _drop_summary_line("just one line") == "just one line"
+
+
+def test_tool_title_highlighting():
+    from gptme.tui.app import _summary_title, _tool_title
+
+    title = _tool_title("▶ shell: ls -la", "bash", highlight=True)
+    assert title.plain == "▶ shell: ls -la"
+    assert title.spans, "expected highlight styles"
+    # Collapsible draws its own marker
+    assert _tool_title("▶ shell: ls", "bash", True, marker=False).plain == "shell: ls"
+    plain = _tool_title("▶ shell: ls", "bash", highlight=False)
+    assert plain.plain == "▶ shell: ls" and not plain.spans
+
+    summary = _summary_title("Ran command: `ls -la` (3 lines)", highlight=True)
+    assert summary.plain == "Ran command: ls -la (3 lines)"
+    assert summary.spans
+    # unmatched backtick stays literal
+    assert _summary_title("a `b", highlight=True).plain == "a `b"
+
+
+def test_tool_format_title_shows_path_not_json():
+    title, _code, _lang = _tool_call_renderable(
+        '@save(call_1): {"path": "/tmp/x.py", "content": "print(1)"}'
+    )
+    assert title == "▶ save: /tmp/x.py"
+
+
+@pytest.mark.asyncio
+async def test_display_highlight_and_toggle_refocus(tmp_path):
+    manager = make_manager(
+        tmp_path, [Message("system", "Ran command: `ls`\n```stdout\na\n```")]
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/display highlight off"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not app.highlight
+        # clicking a section title toggles it; focus goes back to the input
+        title = app.query_one(SystemMessage).query_one(Collapsible)
+        await pilot.click(title)
+        await pilot.pause()
+        assert not title.collapsed
+        assert app.focused is inp
 
 
 def test_configured_role_color_precedence(monkeypatch):
