@@ -242,6 +242,14 @@ def test_parse_opts_preserves_command_flags():
     assert rest == ["gh", "pr", "checks", "42", "--repo", "gptme/gptme"]
 
 
+def test_quoted_args_survive_arming(tmp_path: Path):
+    # shlex.split + " ".join would turn grep 'foo bar' into grep foo bar.
+    out = _watch_cli("run grep 'foo bar' file --timeout 0.5s", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "run")
+    assert w.description == "grep 'foo bar' file"
+    _watch_cli(f"cancel {out.content.split()[2]}", tmp_path)
+
+
 def test_command_flags_survive_arming(tmp_path: Path):
     out = _watch_cli(
         "until gh pr checks 42 --repo gptme/gptme --every 0.1s --timeout 0.5s",
@@ -335,6 +343,9 @@ def test_command_from_watch_content():
             "until gh pr checks 42 --repo gptme/gptme --every 60s"
         )
         == "gh pr checks 42 --repo gptme/gptme"
+    )
+    assert (
+        _command_from_watch_content("run grep 'foo bar' file") == "grep 'foo bar' file"
     )
     assert _command_from_watch_content("run echo hello") == "echo hello"
     assert _command_from_watch_content("timer 10m coffee") is None

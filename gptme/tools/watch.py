@@ -516,7 +516,7 @@ def _command_from_watch_content(content: str) -> str | None:
     if not tokens or tokens[0] not in ("run", "until", "stream"):
         return None
     _, positional = _parse_opts(tokens[1:])
-    command = " ".join(positional)
+    command = shlex.join(positional)
     return command or None
 
 
@@ -680,7 +680,7 @@ def _watch(
         if not rest:
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
         opts, positional = _parse_opts(rest)
-        command = " ".join(positional)
+        command = shlex.join(positional)
         if not command:
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
         _require_safe_command(command)
