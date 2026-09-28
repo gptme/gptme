@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -245,47 +246,62 @@ def _build_parent_context_message(parent_messages: list[Message]) -> Message:
 # finishes; restoring earlier would pull a still-running sibling out of its
 # workspace, and capturing per subagent could "restore" a sibling's workspace.
 _cwd_lock = threading.Lock()
-_active_cwd_subagents = 0
 _parent_cwd: str | None = None
-_subagent_workspaces: set[Path] = set()
+# Workspaces of running thread subagents (a workspace may be shared).
+_active_workspaces: Counter[Path] = Counter()
+# Workspaces of finished subagents that left the process cwd in them while a
+# sibling was still running; the last one to finish undoes that too.
+_left_behind_workspaces: set[Path] = set()
 
 
 def _enter_subagent_cwd(workspace: Path) -> None:
     """Register a starting thread-mode subagent before its chat() chdirs."""
-    global _active_cwd_subagents, _parent_cwd
+    global _parent_cwd
     with _cwd_lock:
-        if _active_cwd_subagents == 0:
+        if not _active_workspaces:
             try:
                 _parent_cwd = os.getcwd()
             except FileNotFoundError:
                 _parent_cwd = None
-            _subagent_workspaces.clear()
-        _active_cwd_subagents += 1
-        _subagent_workspaces.add(workspace.resolve())
+            _left_behind_workspaces.clear()
+        _active_workspaces[workspace.resolve()] += 1
 
 
-def _exit_subagent_cwd() -> None:
+def _current_cwd() -> Path | None:
+    try:
+        return Path.cwd().resolve()
+    except FileNotFoundError:  # e.g. the worktree was already removed
+        return None
+
+
+def _exit_subagent_cwd(workspace: Path) -> None:
     """Undo subagents' process-wide chdir once the last one has finished.
 
-    Only restores when the cwd is still one of the subagents' workspaces, so
-    a cwd change made by the parent in the meantime is not clobbered.
+    Only restores when the cwd is still a subagent's workspace, so a cwd
+    change made by the parent in the meantime is not clobbered.
     """
-    global _active_cwd_subagents, _parent_cwd
+    global _parent_cwd
+    ws = workspace.resolve()
     with _cwd_lock:
-        _active_cwd_subagents -= 1
-        if _active_cwd_subagents > 0:
+        _active_workspaces[ws] -= 1
+        if _active_workspaces[ws] <= 0:
+            del _active_workspaces[ws]
+        current = _current_cwd()
+        if _active_workspaces:
+            # A sibling is still running; don't move the cwd under it. Remember
+            # if this subagent left the cwd in its workspace, so the last one
+            # to finish restores it. Otherwise forget this workspace: a later
+            # move into it is the parent's own.
+            if current == ws:
+                _left_behind_workspaces.add(ws)
             return
         parent_cwd, _parent_cwd = _parent_cwd, None
-        workspaces = set(_subagent_workspaces)
-        _subagent_workspaces.clear()
+        left_behind = set(_left_behind_workspaces)
+        _left_behind_workspaces.clear()
         if parent_cwd is None:
             return
-        try:
-            current: Path | None = Path.cwd().resolve()
-        except FileNotFoundError:  # e.g. the worktree was already removed
-            current = None
         if current is not None and (
-            current not in workspaces or current == Path(parent_cwd).resolve()
+            current not in left_behind | {ws} or current == Path(parent_cwd).resolve()
         ):
             return
         try:
@@ -587,7 +603,7 @@ def _create_subagent_thread(
         # sub-microsecond race that requires modifying chat() itself to close.
         if prompt_queue_closed is not None:
             prompt_queue_closed.set()
-        _exit_subagent_cwd()
+        _exit_subagent_cwd(workspace)
         # Drain any steer messages that arrived after the last STEP_PRE fired but
         # before chat() returned. These were not deliverable mid-turn; warn so
         # the orchestrator knows the guidance was not seen.

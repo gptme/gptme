@@ -128,10 +128,55 @@ def test_overlapping_subagents_restore_parent_cwd_after_last(tmp_path, monkeypat
     _enter_subagent_cwd(ws_b)  # B starts while cwd is A's workspace
     os.chdir(ws_b)
 
-    _exit_subagent_cwd()  # A finishes; B is still running in its workspace
+    _exit_subagent_cwd(ws_a)  # A finishes; B is still running in its workspace
     assert Path.cwd().resolve() == ws_b.resolve()
-    _exit_subagent_cwd()  # B finishes
+    _exit_subagent_cwd(ws_b)  # B finishes
     assert Path.cwd().resolve() == parent.resolve()
+
+
+def test_overlapping_subagents_first_started_finishes_last(tmp_path, monkeypatch):
+    """B finishes first and leaves the cwd in its workspace; A finishing last
+    still restores the parent's cwd."""
+    from gptme.tools.subagent.execution import (
+        _enter_subagent_cwd,
+        _exit_subagent_cwd,
+    )
+
+    parent, ws_a, ws_b = (tmp_path / n for n in ("parent", "a", "b"))
+    for d in (parent, ws_a, ws_b):
+        d.mkdir()
+    monkeypatch.chdir(parent)
+
+    _enter_subagent_cwd(ws_a)
+    os.chdir(ws_a)
+    _enter_subagent_cwd(ws_b)
+    os.chdir(ws_b)
+    _exit_subagent_cwd(ws_b)  # B done; A still running
+    _exit_subagent_cwd(ws_a)
+    assert Path.cwd().resolve() == parent.resolve()
+
+
+def test_parent_cd_into_finished_subagent_workspace_is_kept(tmp_path, monkeypatch):
+    """The parent moving into a finished subagent's workspace while a sibling
+    runs is the parent's own cd and survives the last subagent finishing."""
+    from gptme.tools.subagent.execution import (
+        _enter_subagent_cwd,
+        _exit_subagent_cwd,
+    )
+
+    parent, ws_a, ws_b = (tmp_path / n for n in ("parent", "a", "b"))
+    for d in (parent, ws_a, ws_b):
+        d.mkdir()
+    monkeypatch.chdir(parent)
+
+    _enter_subagent_cwd(ws_a)
+    os.chdir(ws_a)
+    _enter_subagent_cwd(ws_b)
+    os.chdir(ws_b)
+    _exit_subagent_cwd(ws_a)  # A done while cwd is B's workspace
+    os.chdir(ws_a)  # the parent deliberately cd's into A's workspace
+    _exit_subagent_cwd(ws_b)
+    assert Path.cwd().resolve() == ws_a.resolve()
 
 
 def test_subagent_cwd_restore_keeps_parent_cd(tmp_path, monkeypatch):
@@ -149,7 +194,7 @@ def test_subagent_cwd_restore_keeps_parent_cd(tmp_path, monkeypatch):
     _enter_subagent_cwd(ws)
     os.chdir(ws)
     os.chdir(elsewhere)  # the parent cd'd somewhere else
-    _exit_subagent_cwd()
+    _exit_subagent_cwd(ws)
     assert Path.cwd().resolve() == elsewhere.resolve()
 
 
