@@ -1900,13 +1900,19 @@ async def test_initial_prompts_submit_first_and_queue_rest(tmp_path, monkeypatch
         make_manager(tmp_path), workspace=tmp_path, initial_prompts=["one", "two"]
     )
     started: list[bool] = []
-    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+
+    def fake_start() -> None:
+        started.append(True)
+        app.generating = True
+
+    monkeypatch.setattr(app, "_start_generation", fake_start)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.pause()
         assert [m.content for m in app.manager.log if m.role == "user"] == ["one"]
         assert app.prompt_queue == ["two"]
         assert started
+        assert app.generating is True
         widgets = app._queued_widgets
         assert len(widgets) == 1
         assert isinstance(widgets[0], UserMessage)
@@ -1975,6 +1981,27 @@ async def test_initial_quit_command_does_not_drain_queue(tmp_path, monkeypatch):
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.pause()
+    assert app._quitting is True
+    assert app.prompt_queue == ["hello"]
+    assert [m.content for m in app.manager.log if m.role == "user"] == []
+    assert started == []
+
+
+@pytest.mark.asyncio
+async def test_initial_quit_command_exits_without_submitting_queue(
+    tmp_path, monkeypatch
+):
+    """The real exit path must unmount without submitting a queued prompt."""
+    app = GptmeApp(
+        make_manager(tmp_path),
+        workspace=tmp_path,
+        initial_prompts=["/quit", "hello"],
+    )
+    started: list[str] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append("gen"))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert not app.is_running
     assert app._quitting is True
     assert app.prompt_queue == ["hello"]
     assert [m.content for m in app.manager.log if m.role == "user"] == []
