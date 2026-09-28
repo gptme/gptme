@@ -64,7 +64,9 @@ def init(
     if _init_done:
         logger.warning("init() called twice, ignoring")
         # Always update tool_format even on re-entry, as it may differ
-        # between conversations in the same process (e.g. test suite)
+        # between conversations in the same process (e.g. test suite, nested
+        # subagent chats). Context-local: a subagent thread's format must not
+        # change the parent session's tool-call parsing.
         set_tool_format(tool_format)
         return
 
@@ -119,7 +121,7 @@ def init(
     # commands so bare aliases see the full registry). Never raises.
     register_skill_commands()
 
-    set_tool_format(tool_format)
+    set_tool_format(tool_format, process_default=True)
     # Mark initialization done at the end so callers can retry init()
     # after a failure earlier in this function.
     _init_done = True

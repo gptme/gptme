@@ -63,7 +63,8 @@ def shell_loop(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     reset_background_jobs()
     chat_module = sys.modules["gptme.chat"]
     monkeypatch.setattr(chat_module, "_start_auto_naming_thread", lambda *a: None)
-    monkeypatch.setattr(base, "tool_format", "tool")
+    # context-local; the autouse init_ fixture resets it for the next test
+    base.set_tool_format("tool")
     monkeypatch.setenv("GPTME_WATCH_IDLE_MAX", "3")
     monkeypatch.setenv("GPTME_TRACK_TOKENS", "false")
     monkeypatch.setenv("GPTME_COSTS", "false")

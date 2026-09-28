@@ -58,7 +58,18 @@ InitFunc: TypeAlias = Callable[[], "ToolSpec"]
 ToolFormat: TypeAlias = Literal["markdown", "xml", "tool"]
 
 # tooluse format
+# Process-wide default tool format, set once by the first init() call.
+# Threads that start with an empty context (e.g. server request threads) fall
+# back to it.
 tool_format: ToolFormat = "markdown"
+
+# Context-local tool format. Nested chat() sessions (thread-mode subagents)
+# call init()/set_tool_format() with their own format; keeping it in a
+# ContextVar prevents that from switching the parent session's parser, which
+# would make the parent's later tool calls silently unparseable.
+_tool_format_var: ContextVar[ToolFormat | None] = ContextVar(
+    "tool_format", default=None
+)
 
 # Match tool name and start of JSON
 toolcall_re = re.compile(
@@ -167,13 +178,21 @@ def using_current_tool_use(tool_use: ToolUse) -> Generator[ToolUse, None, None]:
         _current_tool_use.reset(token)
 
 
-def set_tool_format(new_format: ToolFormat):
+def set_tool_format(new_format: ToolFormat, *, process_default: bool = False) -> None:
+    """Set the tool format for the current context.
+
+    With ``process_default=True`` the format also becomes the fallback for
+    contexts that never set one (only the first ``init()`` should do this).
+    """
     global tool_format
-    tool_format = new_format
+    _tool_format_var.set(new_format)
+    if process_default:
+        tool_format = new_format
 
 
-def get_tool_format():
-    return tool_format
+def get_tool_format() -> ToolFormat:
+    fmt = _tool_format_var.get()
+    return tool_format if fmt is None else fmt
 
 
 class ExecuteFuncGen(Protocol):
@@ -1171,8 +1190,8 @@ class ToolUse:
             tool_format_override: Optional tool format override
             streaming: If True, requires blank line after code blocks for completion
         """
-        # Use override if provided, otherwise use global tool_format
-        active_format = tool_format_override or tool_format
+        # Use override if provided, otherwise the current context's format
+        active_format = tool_format_override or get_tool_format()
 
         # collect all tool uses
         tool_uses: list[ToolUse] = []

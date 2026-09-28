@@ -420,7 +420,13 @@ def session_end_cost_summary(
     Yields:
         Nothing - just prints to console
     """
+    from ..message import is_output_json, is_output_quiet
     from ..util import console
+
+    # Quiet/JSON sessions (e.g. thread-mode subagents) must not write to the
+    # shared process stdout, which the parent may be capturing.
+    if is_output_json() or is_output_quiet():
+        return
 
     costs = CostTracker.get_session_costs()
     if not costs or not costs.entries:

@@ -1938,7 +1938,7 @@ class GptmeApp(App):
 
         self._model = self._chat_ctx.run(get_default_model)
         # Sync tool format — /model may have called set_tool_format()
-        self.tool_format = get_tool_format()
+        self.tool_format = self._chat_ctx.run(get_tool_format)
         if self.manager.log.messages != before:
             # command changed the log (undo, appended messages, …): re-render
             self._rebuild_chat()
@@ -2306,8 +2306,12 @@ class GptmeApp(App):
             # arrive. The next model step or worker completion ends the batch.
             self._clear_tool_placeholder()
         self._show_message(msg)
+        # UI thread: the tool format lives in the chat context, so pass it
         if msg.role == "assistant" and any(
-            tool_use.is_runnable for tool_use in ToolUse.iter_from_content(msg.content)
+            tool_use.is_runnable
+            for tool_use in ToolUse.iter_from_content(
+                msg.content, tool_format_override=self.tool_format
+            )
         ):
             self._set_state("executing tools")
             self._show_tool_placeholder()

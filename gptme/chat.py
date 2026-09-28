@@ -475,7 +475,7 @@ def _run_chat_loop(
                         )
                         break
                     prompt_queue.append(msg)
-                    if not is_output_json():
+                    if not is_output_json() and not is_output_quiet():
                         console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
 

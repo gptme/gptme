@@ -94,7 +94,7 @@ class TestInit:
             interactive=True, no_confirm=False, server=False
         )
         mock_init_commands.assert_called_once()
-        mock_set_fmt.assert_called_once_with("markdown")
+        mock_set_fmt.assert_called_once_with("markdown", process_default=True)
 
     @patch("gptme.init.init_commands")
     @patch("gptme.init.init_hooks")
@@ -208,7 +208,7 @@ class TestInit:
         from gptme.init import init
 
         init(model="m", interactive=False, tool_allowlist=None, tool_format="xml")
-        mock_set_fmt.assert_called_once_with("xml")
+        mock_set_fmt.assert_called_once_with("xml", process_default=True)
 
     @patch("gptme.init.init_commands")
     @patch("gptme.init.init_hooks")
@@ -296,7 +296,7 @@ class TestInit:
         mock_init_tools.assert_called_once()
         mock_init_hooks.assert_called_once()
         mock_init_commands.assert_called_once()
-        mock_set_fmt.assert_called_once_with("markdown")
+        mock_set_fmt.assert_called_once_with("markdown", process_default=True)
         assert any(
             "Continuing without a default model" in rec.message
             for rec in caplog.records
@@ -1973,7 +1973,7 @@ class TestInitEdgeCases:
             mod._init_done = False
             mock_set_fmt.reset_mock()
             init(model="m", interactive=False, tool_allowlist=None, tool_format=fmt)
-            mock_set_fmt.assert_called_once_with(fmt)
+            mock_set_fmt.assert_called_once_with(fmt, process_default=True)
 
     @patch("gptme.init.init_commands")
     @patch("gptme.init.init_hooks")

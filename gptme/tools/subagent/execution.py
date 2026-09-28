@@ -239,6 +239,28 @@ def _build_parent_context_message(parent_messages: list[Message]) -> Message:
     return Message("system", "\n".join(lines))
 
 
+def _restore_parent_cwd(parent_cwd: str | None, workspace: Path) -> None:
+    """Undo the subagent chat()'s process-wide chdir into its workspace.
+
+    Only restores when the cwd is still the subagent's workspace, so a cwd
+    change made by the parent in the meantime is not clobbered.
+    """
+    if parent_cwd is None:
+        return
+    try:
+        current: Path | None = Path.cwd().resolve()
+    except FileNotFoundError:  # e.g. the worktree was already removed
+        current = None
+    if current is not None and (
+        current != workspace.resolve() or current == Path(parent_cwd).resolve()
+    ):
+        return
+    try:
+        os.chdir(parent_cwd)
+    except OSError as e:
+        logger.warning("Could not restore cwd to %s after subagent: %s", parent_cwd, e)
+
+
 def _create_subagent_thread(
     prompt: str,
     logdir: Path,
@@ -504,6 +526,13 @@ def _create_subagent_thread(
     # calling set_output_format() before the call) is required — chat() itself
     # calls set_output_format(output_format) at its start, which would otherwise
     # immediately override quiet mode back to the default "text".
+    # chat() calls os.chdir(workspace), which is process-wide. Remember the
+    # parent's cwd so it can be restored when the subagent ran elsewhere
+    # (e.g. isolation="worktree" or an explicit workdir).
+    try:
+        parent_cwd: str | None = os.getcwd()
+    except FileNotFoundError:
+        parent_cwd = None
     try:
         chat(
             prompt_msgs,
@@ -526,6 +555,7 @@ def _create_subagent_thread(
         # sub-microsecond race that requires modifying chat() itself to close.
         if prompt_queue_closed is not None:
             prompt_queue_closed.set()
+        _restore_parent_cwd(parent_cwd, workspace)
         # Drain any steer messages that arrived after the last STEP_PRE fired but
         # before chat() returned. These were not deliverable mid-turn; warn so
         # the orchestrator knows the guidance was not seen.

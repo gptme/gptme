@@ -429,7 +429,10 @@ def test_reply_stream_ipython_terminal_projection(
     from gptme.tools import init_tools
 
     init_tools(["ipython"], include_mcp=False)
-    monkeypatch.setattr("gptme.tools.base.tool_format", "tool")
+    from gptme.tools.base import set_tool_format
+
+    # context-local; the autouse init_ fixture resets it for the next test
+    set_tool_format("tool")
     source = 'values = [1, 2]\nprint("} \\" [/tmp/source] ```")'
     call = "@ipython(call-1): " + json.dumps(
         {"code": source, "kernel": "python3"}, indent=2

@@ -217,6 +217,71 @@ async def test_e2e_queue_dispatches_after_turn(mock_app, monkeypatch):
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.timeout(180)
+async def test_e2e_tools_still_run_after_subagent(tmp_path, monkeypatch):
+    """Regression: after the assistant spawns a thread-mode subagent from
+    ipython, later tool calls in the session must still execute.
+
+    The subagent's nested chat() used to reset the process-global tool format
+    to "markdown", so the parent's native ``@tool(id): {...}`` calls were no
+    longer parsed and silently never ran.
+    """
+    pytest.importorskip("IPython")
+    import json
+
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    from gptme.tools import clear_tools
+
+    tools = ["shell", "ipython", "subagent"]
+    init("mock/echo", interactive=True, tool_allowlist=tools, tool_format="tool")
+    set_default_model("mock/echo")
+    # fresh load so ipython registers the subagent functions
+    clear_tools()
+    init_tools(tools)
+    set_output_format("quiet")
+    manager = LogManager([], logdir=tmp_path / "conv", lock=False)
+    app = GptmeApp(manager, tool_format="tool", workspace=tmp_path, auto_confirm=True)
+
+    code = (
+        'subagent("t1", "hi\\n```complete\\nSUB-DONE\\n```")\n'
+        'print("STATUS", subagent_wait("t1", timeout=60)["status"])'
+    )
+    calls = [
+        "@ipython(c1): " + json.dumps({"code": code}),
+        "@shell(c2): " + json.dumps({"command": "echo after-subagent"}),
+        "@ipython(c3): " + json.dumps({"code": "print(40 + 2)"}),
+    ]
+
+    def tool_results() -> list[str]:
+        return [
+            m.content
+            for m in manager.log
+            if m.role == "system"
+            and ("Executed code block" in m.content or "echo" in m.content)
+        ]
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        for i, call in enumerate(calls):
+            inp = app.query_one("#input", ChatInput)
+            # leading line keeps the call at line-start after the "Echo: " prefix
+            inp.text = f"step {i}\n{call}"
+            await pilot.press("enter")
+            await wait_for(
+                pilot,
+                lambda n=i + 1: not app.generating and len(tool_results()) >= n,
+                timeout=90,
+                what=f"tool result for step {i}",
+            )
+
+    results = tool_results()
+    assert "STATUS success" in results[0]
+    assert "after-subagent" in results[1]
+    assert "42" in results[2]
+
+
 # ---------------------------------------------------------------------------
 # Real-TTY tests via tmux
 # ---------------------------------------------------------------------------

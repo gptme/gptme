@@ -441,7 +441,13 @@ def session_end_lessons_hook(
     if stats is None or stats.total_matched == 0:
         return
 
-    # Print summary to console
+    # Print summary to console (not in quiet/JSON sessions, e.g. thread-mode
+    # subagents, whose stdout is shared with a possibly-capturing parent)
+    from ..message import is_output_json, is_output_quiet
+
+    if is_output_json() or is_output_quiet():
+        _reset_session_stats()
+        return
     console.print(
         f"[dim]Lessons: {len(stats.unique_lessons)} unique lessons included "
         f"({stats.total_matched} total matches)[/dim]"
