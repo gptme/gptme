@@ -18,14 +18,15 @@ permissions:
   issues: write
   pull-requests: write
 
-# one resolver run per issue at a time
-concurrency:
-  group: gptme-bot-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
 jobs:
   resolve:
     if: github.event.label.name == 'bot:resolve'
+    # One resolver run per issue at a time. Job-level, so events for other
+    # labels (whose job is skipped) never enter the group and can't replace a
+    # pending resolver run.
+    concurrency:
+      group: gptme-bot-${{ github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
