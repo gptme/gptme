@@ -48,6 +48,7 @@ from textual.widgets import (
     Static,
     TextArea,
 )
+from textual.widgets.text_area import Edit, EditResult, Selection
 from textual.worker import Worker, WorkerState
 
 from ..chat import step
@@ -739,6 +740,17 @@ def _append_pt_history(path: Path, text: str) -> None:
     append_history(path, text)
 
 
+# Pastes at least this long collapse into a placeholder token in the input
+PASTE_COLLAPSE_LINES = 3
+PASTE_COLLAPSE_CHARS = 800
+
+
+def _paste_label(n: int, text: str) -> str:
+    lines = len(text.splitlines())
+    size = f"+{lines} lines" if lines > 1 else f"{len(text)} chars"
+    return f"[Pasted text #{n} {size}]"
+
+
 class ChatInput(TextArea):
     """Multi-line input: Enter submits, Alt+Enter/Ctrl+J inserts a newline,
     Tab completes slash-commands, Up/Down navigates history."""
@@ -758,6 +770,9 @@ class ChatInput(TextArea):
             self.selected = selected
 
     def __init__(self, **kwargs) -> None:
+        # placeholder token -> pasted text, expanded on submit; set before
+        # TextArea's init, which already fires the selection watcher
+        self._pastes: dict[str, str] = {}
         super().__init__(**kwargs)
         self._tab_candidates: list[str] = []
         self._tab_index = -1
@@ -791,12 +806,89 @@ class ChatInput(TextArea):
             self._tab_index = -1
             self.post_message(self.CompletionsChanged([], -1))
 
+    async def _on_paste(self, event: events.Paste) -> None:
+        """Collapse long or multi-line pastes into a placeholder token."""
+        text = event.text
+        if (
+            len(text.splitlines()) < PASTE_COLLAPSE_LINES
+            and len(text) < PASTE_COLLAPSE_CHARS
+        ):
+            return  # Textual also dispatches TextArea's handler: plain insert
+        event.stop()
+        event.prevent_default()  # skip TextArea's insert
+        label = _paste_label(len(self._pastes) + 1, text)
+        self._pastes[label] = text
+        result = self.replace(label, *self.selection)
+        self.move_cursor(result.end_location)
+
+    def _expand_pastes(self, text: str) -> str:
+        """Replace placeholder tokens still in *text* with the pasted text.
+
+        One pass, so pasted text that happens to contain a label is not
+        itself expanded.
+        """
+        if not self._pastes:
+            return text
+        pattern = "|".join(re.escape(label) for label in self._pastes)
+        return re.sub(pattern, lambda m: self._pastes[m.group()], text)
+
+    def _paste_spans(self, row: int) -> list[tuple[int, int]]:
+        """Column spans of placeholder tokens on *row*."""
+        line = self.document.get_line(row)
+        spans = []
+        for label in self._pastes:
+            start = line.find(label)
+            while start != -1:
+                spans.append((start, start + len(label)))
+                start = line.find(label, start + len(label))
+        return spans
+
+    def watch_selection(self, previous: Selection, selection: Selection) -> None:
+        """Keep the cursor out of placeholder tokens, so each acts as one unit.
+
+        A cursor that lands inside a token snaps to its far edge in the
+        direction of travel (nearest edge when the move came from elsewhere).
+        """
+        row, col = selection.end
+        for start, end in self._paste_spans(row):
+            if start < col < end:
+                prev_row, prev_col = previous.end
+                if prev_row == row and prev_col <= start:
+                    col = end
+                elif prev_row == row and prev_col >= end:
+                    col = start
+                else:
+                    col = start if col - start <= end - col else end
+                # a plain cursor move stays collapsed; a selection keeps its anchor
+                anchor = (row, col) if selection.is_empty else selection.start
+                self.selection = Selection(anchor, (row, col))
+                return
+
+    def edit(self, edit: Edit) -> EditResult:
+        """Widen deletions and replacements to cover whole placeholder tokens.
+
+        Every edit path (Backspace/Delete, word and line deletes, cutting a
+        selection) goes through here, so no edit can leave half a token,
+        which could no longer be expanded.
+        """
+        top, bottom = sorted((edit.from_location, edit.to_location))
+        if top != bottom:
+            for start, end in self._paste_spans(top[0]):
+                if start < top[1] < end:
+                    top = (top[0], start)
+            for start, end in self._paste_spans(bottom[0]):
+                if start < bottom[1] < end:
+                    bottom = (bottom[0], end)
+            edit = Edit(edit.text, top, bottom, edit.maintain_selection_offset)
+        return super().edit(edit)
+
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":
             event.stop()
             event.prevent_default()
             self._clear_completions()
-            self.post_message(self.Submitted(self.text))
+            self.post_message(self.Submitted(self._expand_pastes(self.text)))
+            self._pastes.clear()
             return
         if event.key == "ctrl+d" and not self.text:
             # like a shell: Ctrl+D quits on empty input, else deletes forward

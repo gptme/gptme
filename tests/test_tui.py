@@ -1780,3 +1780,97 @@ def test_role_labels_use_configured_names(monkeypatch):
 
     config.chat = None
     assert tui_app._role_label("assistant") == "Assistant"
+
+
+@pytest.mark.asyncio
+async def test_long_paste_collapses_to_placeholder(tmp_path):
+    from textual import events
+
+    manager = make_manager(tmp_path, [Message("user", "hello")])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.generating = True  # submissions queue, so we can inspect them
+        inp = app.query_one("#input", ChatInput)
+        pasted = "line 1\nline 2\nline 3"
+        app.post_message(events.Paste(pasted))
+        await pilot.pause()
+        assert inp.text == "[Pasted text #1 +3 lines]"
+        await pilot.press("space", "o", "k")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.prompt_queue == [f"{pasted} ok"]
+
+        # short pastes are inserted as-is
+        app.post_message(events.Paste("short"))
+        await pilot.pause()
+        assert inp.text == "short"
+
+        # backspace at the end of a placeholder removes the whole token
+        inp.text = ""
+        app.post_message(events.Paste("x" * 900))
+        await pilot.pause()
+        assert inp.text == "[Pasted text #1 900 chars]"
+        await pilot.press("backspace")
+        await pilot.pause()
+        assert inp.text == ""
+
+
+@pytest.mark.asyncio
+async def test_paste_placeholder_is_atomic(tmp_path):
+    """The cursor can't enter a placeholder; Delete/Backspace remove it whole."""
+    from textual import events
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        await pilot.press("a")
+        app.post_message(events.Paste("1\n2\n3"))
+        await pilot.pause()
+        await pilot.press("b")
+        label = "[Pasted text #1 +3 lines]"
+        assert inp.text == f"a{label}b"
+        end = 1 + len(label)
+        # moving left from after the token jumps over it
+        await pilot.press("left")  # before "b"
+        await pilot.press("left")
+        assert inp.cursor_location == (0, 1)
+        # moving right from before the token jumps over it
+        await pilot.press("right")
+        assert inp.cursor_location == (0, end)
+        # placing the cursor inside snaps to the nearest edge
+        inp.move_cursor((0, 3))
+        await pilot.pause()
+        assert inp.cursor_location == (0, 1)
+        # Delete at the start removes the whole token
+        await pilot.press("delete")
+        await pilot.pause()
+        assert inp.text == "ab"
+
+
+@pytest.mark.asyncio
+async def test_paste_placeholder_survives_other_edits(tmp_path):
+    """Word/line deletes remove whole tokens; expansion is a single pass."""
+    from textual import events
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        await pilot.press("x", "space")
+        app.post_message(events.Paste("1\n2\n3"))
+        await pilot.pause()
+        # a word-delete at the end of the token takes the whole token
+        inp.action_delete_word_left()
+        await pilot.pause()
+        assert inp.text == "x "
+
+        # pasted text containing a later label is not re-expanded
+        app.post_message(events.Paste("see [Pasted text #2 +3 lines]\n2\n3"))
+        await pilot.pause()
+        app.post_message(events.Paste("a\nb\nc"))
+        await pilot.pause()
+        assert inp._expand_pastes(inp.text) == (
+            "x see [Pasted text #2 +3 lines]\n2\n3a\nb\nc"
+        )
