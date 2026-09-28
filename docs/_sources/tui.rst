@@ -58,9 +58,35 @@ region (streaming preview, input, status bar) stays at the bottom::
     gptme-tui --inline
 
 Terminal/tmux scrolling then works normally, and the transcript stays in your
-scrollback after exit. Trade-offs: past tool output can't be expanded in
-place (:kbd:`Ctrl+O` instead toggles whether *future* tool output prints
-expanded), and mouse interaction is left entirely to the terminal.
+scrollback after exit. Prompts submitted while the agent works are listed
+above the input until they are sent. Trade-offs: past tool output can't be
+expanded in place (:kbd:`Ctrl+O` instead toggles whether *future* tool output
+and thinking print expanded), mouse interaction is left entirely to the terminal, and
+dragging the terminal narrower can leave fragments of the input area in the
+scrollback.
+
+Display settings
+----------------
+
+``/display`` changes what the TUI shows; it never changes what the model does
+(for reasoning effort, see :ref:`reasoning-effort`). Run it alone to list the
+current settings.
+
+- ``/display thinking [on|off]``: model thinking. Hidden by default: a
+  finished message shows a one-line placeholder, and the live preview shows
+  only the response. Set ``GPTME_TUI_DISPLAY_THINKING=1`` to show it from
+  startup.
+- ``/display outputs [on|off]``: expand or collapse tool output.
+- ``/display hidden [on|off]``: messages sent to the model but normally not
+  shown, such as token-usage and time notices. Off by default; set
+  ``GPTME_TUI_DISPLAY_HIDDEN=1`` to show them from startup.
+
+:kbd:`Ctrl+O` is the shorthand for both: it expands tool output and thinking,
+or collapses both when both are already expanded.
+
+Without ``on``/``off`` the setting toggles. In the default view the change
+applies to existing messages; in inline mode it applies to messages printed
+afterwards.
 
 Keys
 ----
@@ -74,7 +100,7 @@ Key                Action
 :kbd:`Escape`      Interrupt generation
 :kbd:`Ctrl+C`      Interrupt generation, or quit when idle
 :kbd:`Ctrl+D`      Quit
-:kbd:`Ctrl+O`      Expand/collapse all tool outputs
+:kbd:`Ctrl+O`      Expand/collapse all tool outputs and thinking
 =================  ==========================================================
 
 When a tool is about to execute, a confirmation dialog shows a preview;
@@ -88,7 +114,7 @@ The TUI supports the same :doc:`slash-commands <commands>` as the CLI
 (``/model``, ``/undo``, ``/tokens``, …), with the same Tab completion,
 by routing them through the shared command registry. Command output is
 shown inline in the conversation. ``/quit`` is a TUI-local alias for
-``/exit``.
+``/exit``, and ``/display`` (see `Display settings`_) is TUI-only.
 
 Limitations
 -----------

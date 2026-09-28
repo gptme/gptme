@@ -582,6 +582,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#display-settings">Display settings</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys">Keys</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
@@ -646,9 +647,33 @@ region (streaming preview, input, status bar) stays at the bottom:</p>
 </pre></div>
 </div>
 <p>Terminal/tmux scrolling then works normally, and the transcript stays in your
-scrollback after exit. Trade-offs: past tool output can’t be expanded in
-place (<kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></kbd> instead toggles whether <em>future</em> tool output prints
-expanded), and mouse interaction is left entirely to the terminal.</p>
+scrollback after exit. Prompts submitted while the agent works are listed
+above the input until they are sent. Trade-offs: past tool output can’t be
+expanded in place (<kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></kbd> instead toggles whether <em>future</em> tool output
+and thinking print expanded), mouse interaction is left entirely to the terminal, and
+dragging the terminal narrower can leave fragments of the input area in the
+scrollback.</p>
+</section>
+<section id="display-settings">
+<h2>Display settings<a class="headerlink" href="#display-settings" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">/display</span></code> changes what the TUI shows; it never changes what the model does
+(for reasoning effort, see <a class="reference internal" href="providers.html#reasoning-effort"><span class="std std-ref">Reasoning effort</span></a>). Run it alone to list the
+current settings.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">thinking</span> <span class="pre">[on|off]</span></code>: model thinking. Hidden by default: a
+finished message shows a one-line placeholder, and the live preview shows
+only the response. Set <code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_THINKING=1</span></code> to show it from
+startup.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">outputs</span> <span class="pre">[on|off]</span></code>: expand or collapse tool output.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">hidden</span> <span class="pre">[on|off]</span></code>: messages sent to the model but normally not
+shown, such as token-usage and time notices. Off by default; set
+<code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_HIDDEN=1</span></code> to show them from startup.</p></li>
+</ul>
+<p><kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></kbd> is the shorthand for both: it expands tool output and thinking,
+or collapses both when both are already expanded.</p>
+<p>Without <code class="docutils literal notranslate"><span class="pre">on</span></code>/<code class="docutils literal notranslate"><span class="pre">off</span></code> the setting toggles. In the default view the change
+applies to existing messages; in inline mode it applies to messages printed
+afterwards.</p>
 </section>
 <section id="keys">
 <h2>Keys<a class="headerlink" href="#keys" title="Link to this heading">#</a></h2>
@@ -678,7 +703,7 @@ expanded), and mouse interaction is left entirely to the terminal.</p>
 <td><p>Quit</p></td>
 </tr>
 <tr class="row-even"><td><p><kbd class="kbd compound docutils literal notranslate"><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></kbd></p></td>
-<td><p>Expand/collapse all tool outputs</p></td>
+<td><p>Expand/collapse all tool outputs and thinking</p></td>
 </tr>
 </tbody>
 </table>
@@ -693,7 +718,7 @@ the rest of the session.</p>
 (<code class="docutils literal notranslate"><span class="pre">/model</span></code>, <code class="docutils literal notranslate"><span class="pre">/undo</span></code>, <code class="docutils literal notranslate"><span class="pre">/tokens</span></code>, …), with the same Tab completion,
 by routing them through the shared command registry. Command output is
 shown inline in the conversation. <code class="docutils literal notranslate"><span class="pre">/quit</span></code> is a TUI-local alias for
-<code class="docutils literal notranslate"><span class="pre">/exit</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">/exit</span></code>, and <code class="docutils literal notranslate"><span class="pre">/display</span></code> (see <a class="reference internal" href="#display-settings">Display settings</a>) is TUI-only.</p>
 </section>
 <section id="limitations">
 <h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
@@ -752,6 +777,7 @@ keep using <code class="docutils literal notranslate"><span class="pre">gptme</s
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#display-settings">Display settings</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys">Keys</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
