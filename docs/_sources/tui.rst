@@ -39,9 +39,11 @@ Start a new conversation in the current directory::
 
     gptme-tui
 
-Resume the most recent conversation::
+Pick a conversation to resume from a list (or start a new one), or resume
+a specific one by name::
 
     gptme-tui --resume
+    gptme-tui --resume <name>
 
 Conversations are stored in the same format and location as CLI conversations,
 so they can be opened interchangeably: start in the TUI, resume in the CLI
