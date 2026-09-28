@@ -1,7 +1,6 @@
 import logging
 import platform
 from collections.abc import Generator
-from datetime import datetime, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
@@ -10,6 +9,7 @@ from ..dirs import get_project_git_dir
 from ..llm.models import get_model
 from ..message import Message
 from ..tools import ToolFormat, ToolSpec
+from ..util import clock
 from . import _xml_section
 from .skills import prompt_skills_summary
 
@@ -507,10 +507,14 @@ def prompt_timeinfo(
     tool_format: ToolFormat = "markdown",
 ) -> Generator[Message, None, None]:
     """Generate the current time prompt."""
-    # we only set the date in order for prompt caching and such to work
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # We only set the date (not the time) so prompt caching keeps working.
+    # Use the same local, timezone-aware clock as the per-step time notices
+    # (gptme.hooks.time_awareness) so the two never disagree on the date.
+    current = clock.now()
+    date_str = f"{current.strftime('%Y-%m-%d')} {clock.format_tz(current)}"
+    note = "Date at session start; per-step time notices give the current time."
     if tool_format == "xml":
-        prompt = _xml_section("current-date", date_str)
+        prompt = _xml_section("current-date", f"{date_str}. {note}")
     else:
-        prompt = f"## Current Date\n\n**UTC:** {date_str}"
+        prompt = f"## Current Date\n\n**Local date:** {date_str}\n\n{note}"
     yield Message("system", prompt)
