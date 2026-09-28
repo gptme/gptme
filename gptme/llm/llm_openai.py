@@ -1617,7 +1617,12 @@ def _guarded_stream_iter(
     gptme's own processing stay visible. Shared by the Chat Completions and
     Responses API streams so a malformed SSE event is retryable and classifiable
     on both paths.
+
+    ``iter(source)`` is unguarded on purpose: ``openai.Stream.__iter__`` only
+    constructs a generator. Chunk parsing runs in ``Stream.__next__`` /
+    ``__stream__``, which is the ``next(iterator)`` call below.
     """
+    # Parsing crashes on next(), not on constructing the iterator.
     iterator = iter(source)
     while True:
         try:
