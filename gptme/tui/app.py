@@ -1190,6 +1190,8 @@ class GptmeApp(App):
         self._model: ModelMeta | None = None
         # set by /restart; main() re-execs gptme-tui after the app exits
         self.restart_requested = False
+        # True while our SIGWINCH handler is installed (inline mode only)
+        self._inline_sigwinch_installed = False
 
     # ------------------------------------------------------------------ UI
 
@@ -1262,6 +1264,7 @@ class GptmeApp(App):
 
     def on_unmount(self) -> None:
         self._quitting = True
+        self._restore_inline_resize_handler()
         self._interrupt_event.set()
         abandon_skill_invocations(self.manager.logdir, self._skill_session_id)
         record_skill_phase(
@@ -1293,11 +1296,34 @@ class GptmeApp(App):
         loop = asyncio.get_running_loop()
 
         def on_resize(signum, frame) -> None:
-            loop.call_soon_threadsafe(self._on_inline_resize)
+            if self._quitting:
+                return
+            try:
+                loop.call_soon_threadsafe(self._on_inline_resize)
+            except RuntimeError:
+                # loop closed between unmount and SIG_DFL restore
+                return
 
         signal.signal(signal.SIGWINCH, on_resize)
+        self._inline_sigwinch_installed = True
+
+    def _restore_inline_resize_handler(self) -> None:
+        """Drop our SIGWINCH handler so post-exit resizes don't hit a dead app.
+
+        Textual's Linux inline driver already resets SIGWINCH to SIG_DFL in
+        ``disable_input()``, which runs before Unmount. Restoring the previous
+        handler here would reinstall Textual's dead callback. Tests use the
+        headless driver, whose ``disable_input`` is a no-op, so we must reset
+        ourselves. SIG_DFL is the right post-exit default in both cases.
+        """
+        if not self._inline_sigwinch_installed or not hasattr(signal, "SIGWINCH"):
+            return
+        signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+        self._inline_sigwinch_installed = False
 
     def _on_inline_resize(self) -> None:
+        if self._quitting:
+            return
         driver = self._driver
         if driver is None:
             return

@@ -1,5 +1,7 @@
 """Tests for the Textual TUI (requires the `tui` extra)."""
 
+import signal
+
 import pytest
 
 pytest.importorskip("textual")
@@ -1475,9 +1477,33 @@ async def test_inline_resize_without_textual_caret_attr(tmp_path):
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
     async with app.run_test() as pilot:
         await pilot.pause()
+        driver = app._driver
+        assert driver is not None
+        writes: list[str] = []
+        original_write = driver.write
+
+        def capture(data: str) -> None:
+            writes.append(data)
+            original_write(data)
+
+        driver.write = capture  # type: ignore[method-assign]
         if hasattr(app, "_previous_cursor_position"):
             delattr(app, "_previous_cursor_position")
         app._on_inline_resize()
+        assert any("\x1b[J" in chunk for chunk in writes)
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGWINCH"), reason="no SIGWINCH")
+@pytest.mark.asyncio
+async def test_inline_resize_handler_reset_on_unmount(tmp_path):
+    """Unmount must drop the custom SIGWINCH handler (headless driver won't)."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app._inline_sigwinch_installed
+        assert signal.getsignal(signal.SIGWINCH) is not signal.SIG_DFL
+    assert not app._inline_sigwinch_installed
+    assert signal.getsignal(signal.SIGWINCH) is signal.SIG_DFL
 
 
 @pytest.mark.asyncio
