@@ -91,6 +91,20 @@ def test_record_event_storm_coalesce():
     assert any("coalesced" in e for e in w.events)
 
 
+def test_coalesce_resets_window_so_trickle_resumes():
+    # After a burst coalesces, the burst's timestamps must not keep the window
+    # above the threshold — otherwise every later event re-coalesces for the
+    # rest of the window, losing individual event text.
+    w = Watch(id="w3", kind="stream", description="test", created=time.time())
+    for i in range(25):
+        _record_event(w, f"burst {i}")
+    assert any("coalesced" in e for e in w.events)
+    assert _record_event(w, "after burst") is True
+    assert w.events[-1] == "after burst"
+    # event_times was reset, not left to grow unbounded behind the marker.
+    assert len(w.event_times) < 20
+
+
 def test_record_event_storm_auto_cancel():
     w = Watch(id="w2", kind="stream", description="test", created=time.time())
     for i in range(300):

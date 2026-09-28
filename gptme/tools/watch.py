@@ -175,6 +175,12 @@ def _record_event(watch: Watch, text: str) -> bool:
                 else text.splitlines()[0][:200]
             )
             watch.events.clear()
+            # Reset the window too, not just the pending log: otherwise the
+            # burst's timestamps keep `recent_window` above the threshold for
+            # the whole coalesce window, so a trickle after a burst keeps
+            # coalescing (and `event_times` never trims, since `events` stays
+            # small). Clearing keeps both deques in sync.
+            watch.event_times.clear()
             watch.events.append(
                 f"[{_COALESCE_COUNT}+ events in {_COALESCE_WINDOW:.0f}s "
                 f"coalesced; first was: {first}]"
