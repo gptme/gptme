@@ -138,14 +138,15 @@ def test_tool_format_set_in_other_thread_does_not_leak():
     seen: list[str] = []
 
     def child() -> None:
-        seen.append(get_tool_format())  # inherits the process default
+        # A fresh thread gets its own context; its set_tool_format() must not
+        # leak back to the parent, and it reads back its own value.
         set_tool_format("markdown")
         seen.append(get_tool_format())
 
     t = threading.Thread(target=child)
     t.start()
     t.join()
-    assert seen[1] == "markdown"
+    assert seen == ["markdown"]
     assert get_tool_format() == "tool"
     set_tool_format("markdown")
 
