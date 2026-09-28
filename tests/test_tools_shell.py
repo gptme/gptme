@@ -1088,7 +1088,7 @@ def test_is_denylisted_pattern_matches():
         assert matched_cmd is not None, f"Should have matched command for: {cmd}"
 
 
-def test_denied_compound_command_says_nothing_executed(tmp_path):
+def test_denied_compound_command_says_nothing_executed(tmp_path, monkeypatch):
     """A denied pattern rejects the whole chain; the message must say so.
 
     With ``touch marker && git reflog expire``, normal shell semantics would
@@ -1097,6 +1097,11 @@ def test_denied_compound_command_says_nothing_executed(tmp_path):
     from gptme.tools.shell import execute_shell
     from gptme.tools.shell_validation import NOT_EXECUTED_NOTE
 
+    # Hermetic: the denylist check must not depend on whether shellcheck
+    # is installed on the test machine.
+    monkeypatch.setattr(
+        shell_module, "check_with_shellcheck", lambda cmd: (False, False, "")
+    )
     marker = tmp_path / "marker"
     cmd = f"touch {marker} && git reflog expire --all"
     messages = list(execute_shell(None, None, {"command": cmd}))
