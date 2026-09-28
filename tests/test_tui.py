@@ -1760,3 +1760,23 @@ async def test_display_hidden_toggles_hidden_messages(tmp_path, monkeypatch):
         await pilot.press("enter")
         await pilot.pause()
         assert not app.query(SystemMessage)
+
+
+def test_role_labels_use_configured_names(monkeypatch):
+    from types import SimpleNamespace
+
+    from gptme.tui import app as tui_app
+
+    config = SimpleNamespace(
+        user=SimpleNamespace(user=SimpleNamespace(name="Erik")),
+        chat=SimpleNamespace(agent_config=SimpleNamespace(name="Bob")),
+    )
+    monkeypatch.setattr(tui_app, "get_config", lambda: config)
+    assert tui_app._role_label("user") == "Erik"
+    assert tui_app._role_label("assistant") == "Bob"
+    assert tui_app._role_label("system") == "System"
+    rendered = renderables_for_message(Message("assistant", "hi"))
+    assert str(rendered[0]) == "Bob"
+
+    config.chat = None
+    assert tui_app._role_label("assistant") == "Assistant"

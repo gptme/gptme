@@ -174,6 +174,22 @@ def _thinking_stub(text: str) -> str:
     return f"▸ Thinking ({lines} hidden, /display thinking to show)"
 
 
+def _role_label(role: str) -> str:
+    """Display name for a message role, matching the CLI.
+
+    Uses the configured user name and the agent name from ``[agent].name``
+    in gptme.toml, falling back to the capitalized role.
+    """
+    config = get_config()
+    if role == "user":
+        return config.user.user.name
+    if role == "assistant":
+        agent_config = config.chat and config.chat.agent_config
+        if agent_config and agent_config.name:
+            return agent_config.name
+    return role.capitalize()
+
+
 def _show_thinking_default() -> bool:
     """Whether thinking is displayed at startup (``GPTME_TUI_DISPLAY_THINKING``)."""
     return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_THINKING", default=False))
@@ -390,7 +406,9 @@ class UserMessage(Vertical):
         self.content = content.strip()
 
     def compose(self) -> ComposeResult:
-        label = "User (queued)" if "queued" in self.classes else "User"
+        label = _role_label("user")
+        if "queued" in self.classes:
+            label += " (queued)"
         yield Static(Text(label), classes="role")
         yield Markdown(self.content)
 
@@ -409,7 +427,7 @@ class AssistantMessage(Vertical):
         self.show_thinking = show_thinking
 
     def compose(self) -> ComposeResult:
-        yield Static(Text("Assistant"), classes="role")
+        yield Static(Text(_role_label("assistant")), classes="role")
         think_segs = _split_thinking(self.content)
         has_thinking = any(is_think for is_think, _ in think_segs)
         has_tool_calls = any(
@@ -503,7 +521,7 @@ class StreamingMessage(Vertical):
         self._body = Static(Text("Generating…"), classes="progress-placeholder")
 
     def compose(self) -> ComposeResult:
-        yield Static(Text("Assistant"), classes="role")
+        yield Static(Text(_role_label("assistant")), classes="role")
         yield self._body
 
     def _visible(self) -> str:
@@ -597,12 +615,12 @@ def renderables_for_message(
     content = msg.content.strip()
     if msg.role == "user":
         return [
-            Text("User", style="bold green"),
+            Text(_role_label("user"), style="bold green"),
             Padding(RichMarkdown(content), (0, 0, 0, 2)),
             Text(),
         ]
     if msg.role == "assistant":
-        items: list = [Text("Assistant", style="bold blue")]
+        items: list = [Text(_role_label("assistant"), style="bold blue")]
         think_segs = _split_thinking(content)
         has_tool_calls = any(
             not is_think and _has_tool_calls(t) for is_think, t in think_segs
