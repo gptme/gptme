@@ -987,6 +987,8 @@ class ChatInput(TextArea):
         # TextArea's init, which already fires the selection watcher
         self._pastes: dict[str, str] = {}
         super().__init__(**kwargs)
+        # steady cursor, like shells; hidden while the terminal is unfocused
+        self.cursor_blink = False
         self._tab_candidates: list[str] = []
         self._tab_index = -1
         self._tab_last = ""
@@ -996,6 +998,12 @@ class ChatInput(TextArea):
         self._history_saved = ""  # text buffered when browsing started
         self._history_edits: dict[str, str] = {}
         self._history_filter: list[str] = []  # prefix-filtered view; empty = unfiltered
+
+    @property
+    def _draw_cursor(self) -> bool:
+        # the input keeps focus when the terminal loses it (see
+        # GptmeApp._watch_app_focus), so hide the cursor then instead
+        return super()._draw_cursor and self.app.app_focus
 
     def _push_history(self, text: str) -> None:
         """Record a submitted entry and persist it to the shared history file."""
@@ -2668,8 +2676,10 @@ class GptmeApp(App):
         a dialog opened meanwhile. The TUI's CSS has no app :focus/:blur
         rules, and the input should simply keep focus.
         """
+        chat_input = self.query_one("#input", ChatInput)
         if focus and self.screen.focused is None and not self._is_modal_open():
-            self.screen.set_focus(self.query_one("#input"), scroll_visible=False)
+            self.screen.set_focus(chat_input, scroll_visible=False)
+        chat_input.refresh()  # show/hide its cursor
 
     def _is_modal_open(self) -> bool:
         return isinstance(self.screen, ModalScreen)
