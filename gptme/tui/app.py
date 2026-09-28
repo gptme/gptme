@@ -265,27 +265,98 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
         return call_text, call_text, "text"
     tool_name = m.group(2)
     json_body = m.group(3)
-    lang = "python" if tool_name in ("ipython", "python") else "bash"
     try:
         args = json.loads(json_body)
     except Exception:
         args = None
-    if isinstance(args, dict) and (args.get("code") or args.get("command")):
-        code: str = str(args.get("code") or args.get("command"))
-        summary = code
-    elif isinstance(args, dict):
-        # e.g. save/patch: title by path, but expand to all the arguments
-        code = json.dumps(args, indent=2)
-        summary = str(args.get("path") or json_body)
-        lang = "json"
-    else:
-        code = summary = json_body
+    if not isinstance(args, dict):
+        return _tool_renderable(tool_name, None, json_body)
+    if text := args.get("code") or args.get("command"):
+        return _tool_renderable(tool_name, None, str(text))
+    if tool_name == "patch_many":
+        return _patch_many_renderable(args.get("patches"))
+    path = args.get("path")
+    text = args.get("content") or args.get("patch") or args.get("edit")
+    if isinstance(text, str) and path:
+        return _tool_renderable(tool_name, str(path), text)
+    # unknown shape: title by path if any, expand to all arguments
+    title, _, _ = _tool_renderable(tool_name, None, str(path or json_body))
+    return title, json.dumps(args, indent=2), "json"
+
+
+_PATCH_BLOCK_RE = re.compile(
+    r"<<<<<<< ORIGINAL\n(.*?)\n?=======\n(.*?)\n?>>>>>>> UPDATED", re.DOTALL
+)
+# tools whose content is a file's text, highlighted by the file's type
+_FILE_CONTENT_TOOLS = ("save", "append", "morph")
+
+
+def _patch_as_diff(patch: str) -> str | None:
+    """Conflict-marker patch (ORIGINAL/UPDATED blocks) as -/+ diff lines."""
+    blocks = _PATCH_BLOCK_RE.findall(patch)
+    if not blocks:
+        return None
+    lines: list[str] = []
+    for original, updated in blocks:
+        lines.append("@@")
+        lines += [f"-{line}" for line in original.splitlines()]
+        lines += [f"+{line}" for line in updated.splitlines()]
+    return "\n".join(lines)
+
+
+def _tool_renderable(
+    tool_name: str, path: str | None, text: str
+) -> tuple[str, str, str]:
+    """(title, body, lang) for a tool call, shared by all tool formats.
+
+    File tools are titled by path and show the file content (highlighted by
+    file type) or, for patches, a -/+ diff; other tools show their code.
+    """
+    body, lang = (
+        text.strip("\n"),
+        ("python" if tool_name in ("ipython", "python") else "bash"),
+    )
+    summary = body
+    if path and tool_name in _FILE_CONTENT_TOOLS:
+        lang = Syntax.guess_lexer(path, body)
+        summary = path
+    elif path and tool_name == "patch":
+        if diff := _patch_as_diff(text):
+            body, lang = diff, "diff"
+        else:
+            lang = Syntax.guess_lexer(path, body)
+        summary = path
     first_line = summary.split("\n")[0].strip()
     if len(first_line) > 55:
         first_line = first_line[:54] + "…"
-    suffix = "…" if ("\n" in summary or len(summary) > 60) else ""
-    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
-    return title, code, lang
+    elif "\n" in summary.strip():
+        first_line += " …"  # more lines follow
+    title = f"▶ {tool_name}: {first_line}" if first_line else f"▶ {tool_name}"
+    return title, body, lang
+
+
+def _patch_many_renderable(patches: object) -> tuple[str, str, str]:
+    """patch_many: one diff section per file."""
+    import json
+
+    items = patches
+    if isinstance(items, str):
+        try:
+            items = json.loads(items)
+        except Exception:
+            return _tool_renderable("patch_many", None, items)
+    if not isinstance(items, list):
+        return _tool_renderable("patch_many", None, str(patches))
+    sections, paths = [], []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        path, patch = str(item.get("path", "?")), str(item.get("patch", ""))
+        paths.append(path)
+        sections.append(f"--- {path}\n{_patch_as_diff(patch) or patch}")
+    n = len(paths)
+    title = f"▶ patch_many: {paths[0]}" + (f" (+{n - 1} more)" if n > 1 else "")
+    return title, "\n".join(sections), "diff"
 
 
 def _split_markdown_tool_calls(content: str) -> list[tuple[bool, str]]:
@@ -372,15 +443,8 @@ def _markdown_tool_renderable(segment: str) -> tuple[str, str, str]:
     from ..codeblock import Codeblock
 
     cb = Codeblock.from_markdown(segment)
-    code = cb.content.strip()
-    tool_name = cb.lang.split()[0] if cb.lang else "tool"
-    first_line = code.split("\n")[0].strip()
-    if len(first_line) > 55:
-        first_line = first_line[:54] + "…"
-    suffix = "…" if ("\n" in code or len(code) > 60) else ""
-    title = f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
-    lang = "python" if tool_name in ("ipython", "python") else "bash"
-    return title, code, lang
+    tool_name, _, path = (cb.lang or "tool").partition(" ")
+    return _tool_renderable(tool_name, path.strip() or None, cb.content)
 
 
 def _xml_tool_renderables(segment: str) -> list[tuple[str, str, str]]:
@@ -390,20 +454,10 @@ def _xml_tool_renderables(segment: str) -> list[tuple[str, str, str]]:
     tool_uses = list(_ToolUse._iter_from_xml(segment))
     if not tool_uses:
         return [("▶ tool", segment, "xml")]
-    result = []
-    for tu in tool_uses:
-        tool_name = tu.tool
-        code = (tu.content or "").strip()
-        first_line = code.split("\n")[0].strip()
-        if len(first_line) > 55:
-            first_line = first_line[:54] + "…"
-        suffix = "…" if ("\n" in code or len(code) > 60) else ""
-        title = (
-            f"▶ {tool_name}: {first_line}{suffix}" if first_line else f"▶ {tool_name}"
-        )
-        lang = "python" if tool_name in ("ipython", "python") else "bash"
-        result.append((title, code, lang))
-    return result
+    return [
+        _tool_renderable(tu.tool, tu.args[0] if tu.args else None, tu.content or "")
+        for tu in tool_uses
+    ]
 
 
 def _split_all_tool_calls(text: str) -> list[tuple[bool, str, str]]:
@@ -479,7 +533,7 @@ class UserMessage(Vertical):
 
 def _highlight(code: str, lang: str) -> Text:
     """Syntax-highlight a snippet into one line of styled text."""
-    text = Syntax(code, lang, theme="ansi_dark").highlight(code)
+    text = Syntax(code, lang, theme="ansi_dark", word_wrap=True).highlight(code)
     text.rstrip()
     return text
 
@@ -560,7 +614,9 @@ class AssistantMessage(Vertical):
                     elif fmt == "tool":
                         title, code, lang = _tool_call_renderable(seg)
                         yield Collapsible(
-                            Static(Syntax(code, lang, theme="ansi_dark")),
+                            Static(
+                                Syntax(code, lang, theme="ansi_dark", word_wrap=True)
+                            ),
                             title=_tool_title(
                                 title, lang, self.highlight, marker=False
                             ),  # type: ignore[arg-type]
@@ -570,7 +626,11 @@ class AssistantMessage(Vertical):
                     elif fmt == "xml":
                         for title, code, lang in _xml_tool_renderables(seg):
                             yield Collapsible(
-                                Static(Syntax(code, lang, theme="ansi_dark")),
+                                Static(
+                                    Syntax(
+                                        code, lang, theme="ansi_dark", word_wrap=True
+                                    )
+                                ),
                                 title=_tool_title(
                                     title, lang, self.highlight, marker=False
                                 ),  # type: ignore[arg-type]
@@ -580,7 +640,9 @@ class AssistantMessage(Vertical):
                     else:  # markdown
                         title, code, lang = _markdown_tool_renderable(seg)
                         yield Collapsible(
-                            Static(Syntax(code, lang, theme="ansi_dark")),
+                            Static(
+                                Syntax(code, lang, theme="ansi_dark", word_wrap=True)
+                            ),
                             title=_tool_title(
                                 title, lang, self.highlight, marker=False
                             ),  # type: ignore[arg-type]
@@ -771,7 +833,9 @@ def renderables_for_message(
                             title, code, lang = _tool_call_renderable(seg)
                             items.append(
                                 Panel(
-                                    Syntax(code, lang, theme="ansi_dark"),
+                                    Syntax(
+                                        code, lang, theme="ansi_dark", word_wrap=True
+                                    ),
                                     title=_tool_title(title, lang, highlight),
                                     expand=False,
                                 )
@@ -780,7 +844,12 @@ def renderables_for_message(
                             for title, code, lang in _xml_tool_renderables(seg):
                                 items.append(
                                     Panel(
-                                        Syntax(code, lang, theme="ansi_dark"),
+                                        Syntax(
+                                            code,
+                                            lang,
+                                            theme="ansi_dark",
+                                            word_wrap=True,
+                                        ),
                                         title=_tool_title(title, lang, highlight),
                                         expand=False,
                                     )
@@ -789,7 +858,9 @@ def renderables_for_message(
                             title, code, lang = _markdown_tool_renderable(seg)
                             items.append(
                                 Panel(
-                                    Syntax(code, lang, theme="ansi_dark"),
+                                    Syntax(
+                                        code, lang, theme="ansi_dark", word_wrap=True
+                                    ),
                                     title=_tool_title(title, lang, highlight),
                                     expand=False,
                                 )

@@ -2324,19 +2324,51 @@ def test_tool_format_title_shows_path_not_json():
         '@save(call_1): {"path": "/tmp/x.py", "content": "print(1)"}'
     )
     assert title == "▶ save: /tmp/x.py"
-    # the expanded body still shows the content to be saved
-    assert '"content": "print(1)"' in code
-    assert lang == "json"
+    # the expanded body is the content to be saved, highlighted as its file type
+    assert code == "print(1)"
+    assert lang == "python"
+
+
+def test_patch_renders_as_diff_in_all_formats():
+    patch = "<<<<<<< ORIGINAL\nold line\n=======\nnew line\n>>>>>>> UPDATED"
+    import json
+
+    tool_call = "@patch(c1): " + json.dumps({"path": "a.py", "patch": patch})
+    title, code, lang = _tool_call_renderable(tool_call)
+    assert title == "▶ patch: a.py"
+    assert lang == "diff"
+    assert "-old line" in code and "+new line" in code
+
+    title, code, lang = _markdown_tool_renderable(f"```patch a.py\n{patch}\n```")
+    assert (title, lang) == ("▶ patch: a.py", "diff")
+    assert "-old line" in code and "+new line" in code
+
+    title, code, lang = _markdown_tool_renderable("```save b.md\n# Hi\n```")
+    assert (title, code) == ("▶ save: b.md", "# Hi")
+    assert lang == "markdown"
+
+
+def test_patch_many_renders_per_file_diffs():
+    import json
+
+    patch = "<<<<<<< ORIGINAL\na\n=======\nb\n>>>>>>> UPDATED"
+    patches = json.dumps(
+        [{"path": "x.py", "patch": patch}, {"path": "y.py", "patch": patch}]
+    )
+    tool_call = "@patch_many(c1): " + json.dumps({"patches": patches})
+    title, code, lang = _tool_call_renderable(tool_call)
+    assert title == "▶ patch_many: x.py (+1 more)"
+    assert lang == "diff"
+    assert "--- x.py" in code and "--- y.py" in code and "+b" in code
 
 
 def test_tool_format_title_non_string_path():
     """A numeric path must still render instead of crashing the TUI."""
-    title, code, lang = _tool_call_renderable(
+    title, code, _lang = _tool_call_renderable(
         '@save(call_1): {"path": 123, "content": "print(1)"}'
     )
     assert title == "▶ save: 123"
-    assert '"content": "print(1)"' in code
-    assert lang == "json"
+    assert code == "print(1)"
 
 
 @pytest.mark.asyncio
