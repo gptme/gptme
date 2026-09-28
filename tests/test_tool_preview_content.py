@@ -28,3 +28,16 @@ def test_guardrail_sees_tool_format_shell_command(monkeypatch):
     tool_use = ToolUse("shell", None, None, kwargs={"command": "rm -rf /"})
     result = guardrails.guardrail_hook(tool_use)
     assert result is not None and result.action == ConfirmAction.SKIP
+
+
+def test_preview_content_shows_what_runs():
+    """tmux runs ``command``: preview it even if ``code`` is also given."""
+    both = ToolUse("tmux", None, None, kwargs={"code": "x", "command": "list-sessions"})
+    assert both.preview_content == "list-sessions"
+
+
+def test_preview_content_ignores_non_string_values():
+    tu = ToolUse("tmux", None, None, kwargs={"code": 1, "command": "list-sessions"})  # type: ignore[dict-item]
+    assert tu.preview_content == "list-sessions"
+    only_ints = ToolUse("x", None, None, kwargs={"code": 1})  # type: ignore[dict-item]
+    assert only_ints.preview_content == '{\n  "code": 1\n}'

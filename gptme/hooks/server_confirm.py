@@ -173,7 +173,8 @@ def server_confirm_hook(
                 tooluse={
                     "tool": tool_use.tool,
                     "args": tool_use.args or [],
-                    "content": tool_use.preview_content or "",
+                    # the tool's resolved preview (e.g. shell's command) first
+                    "content": preview or tool_use.preview_content or "",
                 },
                 auto_confirm=False,
             ),

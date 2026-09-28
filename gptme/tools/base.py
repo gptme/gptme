@@ -1110,17 +1110,19 @@ class ToolUse:
         """What to show when asking to confirm this call.
 
         Tool-format calls (``@ipython(id): {...}``) carry their arguments in
-        ``kwargs`` and have no ``content``: show the code/command if there is
-        one, else all arguments.
+        ``kwargs`` and have no ``content``: show what the tool will run
+        (``command`` before ``code``, as shell/tmux run ``command``), else
+        all arguments. Non-string values fall through to the full dump.
         """
         if self.content:
             return self.content
         if not self.kwargs:
             return None
-        for key in ("code", "command", "content"):
-            if value := self.kwargs.get(key):
+        for key in ("command", "code", "content"):
+            value = self.kwargs.get(key)
+            if isinstance(value, str) and value:
                 return value
-        return json.dumps(self.kwargs, indent=2)
+        return json.dumps(self.kwargs, indent=2, default=str)
 
     @classmethod
     def _from_codeblock(cls, codeblock: Codeblock) -> ToolUse | None:
