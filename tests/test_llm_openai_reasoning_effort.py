@@ -160,9 +160,17 @@ def test_openrouter_non_reasoning_model_ignores_effort(monkeypatch):
     assert body["provider"]["require_parameters"] is True
 
 
-def test_openrouter_rejects_unknown_effort(monkeypatch):
+def test_openrouter_sends_max_effort(monkeypatch):
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "max")
-    with pytest.raises(ValueError, match="Invalid OpenRouter reasoning effort"):
+    body = extra_body("openrouter", _meta("openai/o3", "openrouter", True))
+    assert body["reasoning"] == {"effort": "max"}
+
+
+def test_openrouter_rejects_unknown_effort(monkeypatch):
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "extreme")
+    with pytest.raises(
+        ValueError, match="Invalid OpenRouter reasoning effort.*'extreme'"
+    ):
         extra_body("openrouter", _meta("openai/o3", "openrouter", True))
 
 

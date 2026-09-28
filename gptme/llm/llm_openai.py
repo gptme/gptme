@@ -1298,7 +1298,15 @@ _OPENAI_REASONING_EFFORTS = {
 }
 # OpenRouter unified ``reasoning.effort`` levels, translated per upstream.
 # See: https://openrouter.ai/docs/use-cases/reasoning-tokens
-_OPENROUTER_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+_OPENROUTER_REASONING_EFFORTS = {
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+}
 
 
 def _resolve_reasoning_effort(provider: Provider, model_meta: ModelMeta) -> str | None:
