@@ -7,7 +7,7 @@ import os
 import re
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import requests
 
@@ -1582,6 +1582,29 @@ def _stream_responses(
     return captured_metadata
 
 
+def _reraise_openai_stream_iteration_error(
+    exc: BaseException, *, model: str, provider: Provider
+) -> NoReturn:
+    """Re-raise a chat-stream iterator crash so retry and recovery can see it.
+
+    The openai SDK raises ``IndexError`` (and similar) inside ``Stream.__next__``
+    when a provider sends a malformed SSE chunk. That is not an
+    ``openai.APIError``, so wrapping it as ``ValueError`` would skip
+    ``_handle_openai_transient_error`` and ``is_provider_error()`` — the
+    session still dies opaque. Preserve real SDK and httpx errors; convert
+    the rest to ``httpx.RemoteProtocolError``.
+    """
+    from openai import OpenAIError  # fmt: skip
+
+    httpx = importlib.import_module("httpx")
+    if isinstance(exc, OpenAIError | httpx.HTTPError):
+        raise exc
+    raise httpx.RemoteProtocolError(
+        f"OpenAI stream iteration failed while parsing a chunk from "
+        f"{model} (provider={provider}): {exc!r}"
+    ) from exc
+
+
 @retry_generator_on_openai_error()
 def stream(
     messages: list[Message],
@@ -1707,18 +1730,7 @@ def stream(
         except StopIteration:
             break
         except Exception as _e:
-            from openai import (  # fmt: skip
-                APIConnectionError,
-                APIStatusError,
-                RateLimitError,
-            )
-
-            if isinstance(_e, (APIStatusError, APIConnectionError, RateLimitError)):
-                raise
-            raise ValueError(
-                f"OpenAI stream iteration failed while parsing a chunk from "
-                f"{model} (provider={provider}): {_e!r}"
-            ) from _e
+            _reraise_openai_stream_iteration_error(_e, model=model, provider=provider)
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
             ChoiceDeltaToolCall,
