@@ -2248,3 +2248,44 @@ async def test_paste_placeholder_undo_redo(tmp_path):
         inp.undo()
         await pilot.pause()
         assert inp._expand_pastes(inp.text) == "x 1\n2\n3"
+
+
+def test_configured_role_color_precedence(monkeypatch):
+    from types import SimpleNamespace
+
+    from gptme import constants
+
+    config = SimpleNamespace(
+        user=SimpleNamespace(user=SimpleNamespace(color="magenta")),
+        chat=SimpleNamespace(agent_config=SimpleNamespace(color="#e5a50a")),
+    )
+    monkeypatch.setattr("gptme.config.get_config", lambda: config)
+    monkeypatch.delenv("GPTME_AGENT_COLOR", raising=False)
+    assert constants.configured_role_color("user") == "magenta"
+    assert constants.configured_role_color("assistant") == "#e5a50a"
+    assert constants.configured_role_color("system") is None
+    monkeypatch.setenv("GPTME_AGENT_COLOR", "red")
+    assert constants.configured_role_color("assistant") == "red"
+    config.chat = None
+    monkeypatch.delenv("GPTME_AGENT_COLOR")
+    assert constants.role_color("assistant") == "green"
+
+
+@pytest.mark.asyncio
+async def test_messages_use_configured_role_color(tmp_path, monkeypatch):
+    colors = {"assistant": "#e5a50a"}
+    monkeypatch.setattr(
+        "gptme.tui.app.configured_role_color", lambda role: colors.get(role)
+    )
+    manager = make_manager(
+        tmp_path, [Message("user", "hi"), Message("assistant", "hello")]
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assistant = app.query_one(AssistantMessage)
+        assert assistant.styles.border_left[1].hex == "#E5A50A"
+        assert assistant.query_one(".role").styles.color.hex == "#E5A50A"
+        # no color configured for the user: theme default kept
+        user = app.query_one(UserMessage)
+        assert user.styles.border_left[1].hex != "#E5A50A"

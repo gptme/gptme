@@ -22,7 +22,7 @@ from tomlkit._utils import escape_string
 from typing_extensions import Self
 
 from .codeblock import Codeblock
-from .constants import ROLE_COLOR
+from .constants import role_color
 from .util import console
 from .util.prompt import rich_to_str
 from .util.tokens import len_tokens
@@ -599,7 +599,7 @@ def format_msgs(
         else:
             userprefix = msg.role.capitalize()
         if highlight:
-            color = ROLE_COLOR[msg.role]
+            color = role_color(msg.role)
             userprefix = f"[bold {color}]{userprefix}[/bold {color}]"
 
         # get terminal width

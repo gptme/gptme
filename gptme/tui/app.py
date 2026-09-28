@@ -55,7 +55,7 @@ from textual.worker import Worker, WorkerState
 from ..chat import step
 from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..config import get_config
-from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT
+from ..constants import DECLINED_CONTENT, INTERRUPT_CONTENT, configured_role_color
 from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, trigger_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
@@ -406,6 +406,26 @@ def _has_tool_calls(text: str) -> bool:
     return any(is_tool for is_tool, _ in _split_markdown_tool_calls(text))
 
 
+def _role_color_hex(role: str) -> str | None:
+    """Configured ``[agent]``/``[user]`` color as hex, or None for the theme's."""
+    from rich.color import Color, ColorParseError
+
+    color = configured_role_color(role)
+    if not color:
+        return None
+    try:
+        return Color.parse(color).get_truecolor().hex
+    except ColorParseError:
+        return None
+
+
+def _apply_role_color(widget: Widget, role: str) -> None:
+    """Color a message's role label and left border with the configured color."""
+    if color := _role_color_hex(role):
+        widget.styles.border_left = ("thick", color)
+        widget.query_one(".role").styles.color = color
+
+
 class UserMessage(Vertical):
     """A user message, rendered with a distinct border."""
 
@@ -420,6 +440,9 @@ class UserMessage(Vertical):
         yield Static(Text(label), classes="role")
         yield Markdown(self.content)
 
+    def on_mount(self) -> None:
+        _apply_role_color(self, "user")
+
 
 def _collapsible_title(title: str) -> str:
     """Tool-call titles start with ▶ for inline panels; Collapsible draws its own."""
@@ -433,6 +456,9 @@ class AssistantMessage(Vertical):
         super().__init__(classes="message assistant")
         self.content = content.strip()
         self.show_thinking = show_thinking
+
+    def on_mount(self) -> None:
+        _apply_role_color(self, "assistant")
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
@@ -527,6 +553,9 @@ class StreamingMessage(Vertical):
         self._buffer = ""
         self.show_thinking = show_thinking
         self._body = Static(Text("Generating…"), classes="progress-placeholder")
+
+    def on_mount(self) -> None:
+        _apply_role_color(self, "assistant")
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
@@ -623,12 +652,16 @@ def renderables_for_message(
     content = msg.content.strip()
     if msg.role == "user":
         return [
-            Text(_role_label("user"), style="bold green"),
+            Text(
+                _role_label("user"),
+                style=f"bold {configured_role_color('user') or 'green'}",
+            ),
             Padding(RichMarkdown(content), (0, 0, 0, 2)),
             Text(),
         ]
     if msg.role == "assistant":
-        items: list = [Text(_role_label("assistant"), style="bold blue")]
+        color = configured_role_color("assistant") or "blue"
+        items: list = [Text(_role_label("assistant"), style=f"bold {color}")]
         think_segs = _split_thinking(content)
         has_tool_calls = any(
             not is_think and _has_tool_calls(t) for is_think, t in think_segs

@@ -3193,3 +3193,26 @@ def test_project_config_ignores_legacy_gear_setting():
     config = ProjectConfig.from_dict({"settings": {"gear": 2}})
 
     assert not hasattr(config.settings, "gear")
+
+
+def test_agent_and_user_color_config(tmp_path, caplog):
+    """[agent].color / [user].color are accepted; invalid colors warn, not fail."""
+    config = ProjectConfig.from_dict({"agent": {"name": "Bob", "color": "#e5a50a"}})
+    assert config.agent is not None
+    assert config.agent.color == "#e5a50a"
+
+    config = ProjectConfig.from_dict({"agent": {"name": "Bob", "color": "notacolor"}})
+    assert config.agent is not None
+    assert config.agent.color is None
+    assert "notacolor" in caplog.text
+
+    user_toml = tmp_path / "config.toml"
+    user_toml.write_text(
+        '[user]\nname = "Erik"\ncolor = "magenta"\n\n[prompt]\nabout_user = "hi"\n'
+    )
+    from gptme.config.user import load_user_config
+
+    user_config = load_user_config(str(user_toml))
+    # the [prompt] fallback rebuilds the identity; color must survive it
+    assert user_config.user.color == "magenta"
+    assert user_config.user.about == "hi"

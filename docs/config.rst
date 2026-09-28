@@ -29,6 +29,7 @@ Here is an example:
     about = "I am a curious human programmer."
     response_preference = "Basic concepts don't need to be explained."
     avatar = "~/Pictures/avatar.jpg"  # Path to avatar image (or URL)
+    color = "magenta"  # Color for your name in the CLI and TUI
 
     [prompt]
     # Additional files to always include in context
@@ -80,6 +81,7 @@ The ``user`` section configures user identity:
 - ``about``: A description of yourself, included in the system prompt so the assistant knows who it's talking to (default: ``"I am a curious human programmer."``).
 - ``response_preference``: Preferences for how the assistant should respond (e.g. level of detail, default: ``"Basic concepts don't need to be explained."``).
 - ``avatar``: Path to your avatar image (supports ``~`` expansion) or URL. Displayed in the web UI next to your messages.
+- ``color``: Color for your name in the CLI and TUI: hex (``"#e5a50a"``), ``"rgb(229,165,10)"``, or a color name. An invalid value is ignored with a warning (default: green).
 
 .. note::
 
@@ -383,11 +385,13 @@ This file currently supports a few options:
       [agent]
       name = "Bob"
       avatar = "assets/avatar.png"  # Path to avatar image (relative to workspace)
+      color = "#e5a50a"  # Color for the agent's name in the CLI and TUI
 
   Options:
 
   - ``name``: The agent's name, used in system prompts and identification.
   - ``avatar``: Path to an avatar image (relative to workspace) or URL. Used by gptme-webui, gptme-server, and multi-agent UIs to display the agent's profile picture.
+  - ``color``: Color for the agent's name (and message border in the TUI): hex, ``"rgb(r,g,b)"``, or a color name. ``GPTME_AGENT_COLOR`` overrides it. An invalid value is ignored with a warning.
 
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.

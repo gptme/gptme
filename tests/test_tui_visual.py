@@ -166,6 +166,7 @@ def no_default_model(monkeypatch):
     """Keep snapshots independent of the local model and name config."""
     monkeypatch.setattr("gptme.tui.app.get_default_model", lambda: None)
     monkeypatch.setattr("gptme.tui.app._role_label", lambda role: role.capitalize())
+    monkeypatch.setattr("gptme.tui.app.configured_role_color", lambda role: None)
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
