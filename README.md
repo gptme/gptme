@@ -64,7 +64,7 @@ A great coding agent, but general-purpose enough to assist in all kinds of knowl
 </p>
 
 <p align="center">
-Free and open-source. Works with Anthropic, OpenAI, Google, SpaceXAI, DeepSeek, OpenRouter,
+Free and open-source. Works with Anthropic, OpenAI, Google, SpaceXAI, DeepSeek, OpenRouter, Requesty,
 your existing ChatGPT/SuperGrok subscription, or fully local via Ollama and any
 OpenAI-compatible server — your data, your models, your terminal.<br/>
 A capable <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code,
@@ -225,7 +225,7 @@ For more history, see the [Timeline](https://gptme.org/docs/timeline.html) and [
   - Claude Code hook and Codex AGENTS.md integration included.
 - 🤖 **Support for many LLM [providers][docs-providers]**
   - Anthropic (Claude), OpenAI (GPT), Google (Gemini), SpaceXAI (Grok), DeepSeek, and more.
-  - Use OpenRouter for access to 100+ models, or serve locally with Ollama, LM Studio, vLLM, or `llama.cpp`.
+  - Use OpenRouter or Requesty for access to 100+ models, or serve locally with Ollama, LM Studio, vLLM, or `llama.cpp`.
   - Bring your own subscription: use your existing ChatGPT Plus/Pro or SuperGrok plan instead of API keys (see [providers][docs-providers]).
   - [Pick the right model per task][docs-model-routing] — fast/cheap for triage, powerful for coding.
 - 🌐 **Web UI and REST API**
