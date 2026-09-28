@@ -406,8 +406,14 @@ def format_job_output(job: BackgroundJob, stdout: str, stderr: str) -> str:
         blocks.append(md_codeblock(name, text))
     if truncated:
         log_path = _write_job_log(job, *job.get_output(), final=False)
-        if log_path is not None:
+        dropped = job._stdout_buffer_start + job._stderr_buffer_start
+        if log_path is not None and (job._final_log_written or not dropped):
             blocks.append(f"Full output: `{log_path}`")
+        elif log_path is not None:
+            # The in-memory buffer already discarded the earliest output.
+            blocks.append(
+                f"Output log (earliest {dropped} chars were not retained): `{log_path}`"
+            )
     return "\n\n".join(blocks)
 
 

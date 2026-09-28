@@ -405,7 +405,13 @@ def test_output_inside_script_is_explained_not_run(
 
 @pytest.mark.parametrize(
     "script",
-    ["echo 'output 1'", "cat <<EOF\noutput 1\nEOF", "echo hi # output 1"],
+    [
+        "echo 'output 1'",
+        "cat <<EOF\noutput 1\nEOF",
+        "echo hi # output 1",
+        "echo do output 1",
+        "echo then { output 1",
+    ],
 )
 def test_output_as_data_still_runs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, script: str
@@ -455,12 +461,21 @@ def test_explicit_timeout_prefix_defers_promotion(
         ("timeout -s KILL 30 sleep 60", 30.0),
         ("timeout --signal=INT -k 10 30s sleep 60", 40.0),
         ("timeout --kill-after=1m --preserve-status 2m cmd", 180.0),
-        ("/usr/bin/timeout 7 cmd arg\nsecond line", 7.0),
+        ("/usr/bin/timeout 7 cmd arg", 7.0),
         ("timeout 0 sleep 60", None),
         ("timeout 30", None),
         ("sleep 400", None),
         ("echo timeout 400 cmd", None),
         ("timeout 'unbalanced", None),
+        ("timeout 10m make test 2>&1", 600.0),
+        ("timeout 5 cmd > log", 5.0),
+        ("timeout 5 cmd \\\n  --flag", 5.0),
+        # Anything outside the timeout's scope keeps normal promotion.
+        ("timeout 10m sleep 1; sleep 500", None),
+        ("timeout 10m a && b", None),
+        ("timeout 10m a | tee log", None),
+        ("timeout 10m a &", None),
+        ("timeout 10m a\nb", None),
     ],
 )
 def test_explicit_timeout_seconds(command: str, expected: float | None) -> None:
@@ -499,3 +514,43 @@ def test_completion_report_includes_output_tail_and_full_log(
     assert f"Full output: `{log_files[0]}`" in content
     full = log_files[0].read_text()
     assert "FIRST" in full and "LAST" in full and "oops" in full
+
+
+def test_explicit_timeout_beyond_hard_limit_still_promotes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A timeout the hard limit would cut short must not pin the foreground."""
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+
+    messages = list(execute_shell_impl("timeout 60 sleep 1", logdir=None, timeout=3))
+
+    assert "Promoted to background shell job #1" in messages[-1].content
+
+
+def test_log_of_trimmed_background_job_is_not_called_full(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import sys
+
+    from gptme.tools.shell_background import (
+        _MAX_BUFFER_SIZE,
+        format_job_output,
+        start_background_job,
+    )
+
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path
+    )
+    job = start_background_job(
+        f"{sys.executable} -c \"print('A' * {_MAX_BUFFER_SIZE + 100000})\""
+    )
+    job.process.wait(timeout=10)
+    assert job._reader_thread is not None
+    job._reader_thread.join(timeout=5)
+
+    content = format_job_output(job, *job.get_output())
+
+    assert "Full output" not in content
+    assert "chars were not retained" in content
+    assert job.log_path is not None and job.log_path.exists()

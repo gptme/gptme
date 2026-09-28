@@ -2907,11 +2907,13 @@ def execute_shell_impl(
     foreground_timeout = _get_foreground_timeout()
     explicit_timeout = _explicit_timeout_seconds(cmd)
     if foreground_timeout is not None and explicit_timeout is not None:
-        # A leading `timeout N` states how long the caller is prepared to
-        # wait; don't promote before the command's own limit (+ grace) is up.
-        foreground_timeout = max(
-            foreground_timeout, explicit_timeout + _EXPLICIT_TIMEOUT_GRACE
-        )
+        # A `timeout N` wrapping the whole call states how long the caller is
+        # prepared to wait; don't promote before that limit (+ grace) is up.
+        # If the hard limit would kill it first, keep normal promotion rather
+        # than blocking the foreground until the hard kill.
+        budget = explicit_timeout + _EXPLICIT_TIMEOUT_GRACE
+        if timeout is None or budget < timeout:
+            foreground_timeout = max(foreground_timeout, budget)
     # Promotion is POSIX-only: Windows has no start_new_session / killpg path.
     promoted = (
         not _is_windows
@@ -3301,17 +3303,29 @@ def _parse_timeout_duration(value: str) -> float | None:
 
 
 def _explicit_timeout_seconds(cmd: str) -> float | None:
-    """Return the limit of a leading coreutils ``timeout DURATION cmd``, if any.
+    """Return the limit of ``timeout DURATION cmd`` when it bounds the whole call.
 
-    Includes ``-k/--kill-after``. Returns None when the command does not start
-    with ``timeout`` or the invocation cannot be parsed, and for a zero
-    duration (which disables timeout's limit).
+    Includes ``-k/--kill-after``. Returns None unless the tool call is a single
+    simple command starting with ``timeout`` (redirections allowed; no ``;``,
+    ``&&``, ``||``, pipes, ``&``, subshells or further lines, which would run
+    outside the timeout), when it cannot be parsed, and for a zero duration
+    (which disables timeout's limit).
     """
-    first_line = cmd.strip().split("\n", 1)[0]
+    text = cmd.strip().replace("\\\n", " ")
+    if "\n" in text:
+        return None
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
     try:
-        tokens = shlex.split(first_line)
+        tokens = list(lexer)
     except ValueError:
         return None
+    for token in tokens:
+        # Redirection operators (`>`, `2>&1`, `&>`) are fine; control
+        # operators end the timeout's scope.
+        if token in ("&", "&&") or any(c in token for c in ";|()"):
+            if not re.fullmatch(r"[<>&]*[<>][<>&]*", token):
+                return None
     if not tokens or os.path.basename(tokens[0]) not in ("timeout", "gtimeout"):
         return None
     kill_after = 0.0
@@ -3350,9 +3364,7 @@ def _explicit_timeout_seconds(cmd: str) -> float | None:
 
 # `output` is a gptme job-control command, not a bash command. Find it where
 # bash would try to execute it: at a command position of a script/pipeline.
-_OUTPUT_COMMAND_RE = re.compile(
-    r"(?:^|[;&|({\n]|\b(?:then|do|else)[ \t])[ \t]*output[ \t]+#?(\d+)\b"
-)
+_OUTPUT_COMMAND_RE = re.compile(r"(?:^|[;&|(\n])[ \t]*output[ \t]+#?(\d+)\b")
 
 
 def _find_output_command(cmd: str) -> int | None:
