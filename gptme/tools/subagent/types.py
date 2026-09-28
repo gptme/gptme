@@ -506,11 +506,22 @@ class Subagent:
                 output_tokens=out_tok,
             )
 
-        last_msg = log[-1]
+        # Completion hooks may append bookkeeping messages after the terminal
+        # assistant signal (for example, "Task complete" and a token warning).
+        # Inspect the last non-system message so those postamble records cannot
+        # mask a useful complete/clarify result.
+        terminal_msg = log[-1]
+        task_completed = False
+        for message in reversed(log):
+            if message.role != "system":
+                terminal_msg = message
+                break
+            if "Task complete" in message.content:
+                task_completed = True
 
         # Check for clarify code block — subagent is asking the parent for more info.
         # Must be checked before the complete block so a "clarify" isn't misread as failure.
-        clarification_result = clarification_result_from_content(last_msg.content)
+        clarification_result = clarification_result_from_content(terminal_msg.content)
         if clarification_result:
             # Attach token stats to clarification result too
             return ReturnType(
@@ -520,9 +531,9 @@ class Subagent:
                 output_tokens=out_tok,
             )
 
-        # Check for complete tool call in last message
+        # Check for a complete tool call in the terminal assistant message.
         # Try parsing as ToolUse first
-        tool_uses = list(ToolUse.iter_from_content(last_msg.content))
+        tool_uses = list(ToolUse.iter_from_content(terminal_msg.content))
         complete_tool = next((tu for tu in tool_uses if tu.tool == "complete"), None)
 
         if complete_tool:
@@ -541,10 +552,10 @@ class Subagent:
             )
 
         # Fallback: Check for complete code block directly
-        if "```complete" in last_msg.content:
+        if "```complete" in terminal_msg.content:
             # Extract content between ```complete and ```
             match = re.search(
-                r"```complete\s*\n(.*?)\n```", last_msg.content, re.DOTALL
+                r"```complete\s*\n(.*?)\n```", terminal_msg.content, re.DOTALL
             )
             if match:
                 content = match.group(1).strip()
@@ -561,7 +572,7 @@ class Subagent:
                 )
 
         # Check if session ended with system completion message
-        if last_msg.role == "system" and "Task complete" in last_msg.content:
+        if task_completed:
             return ReturnType(
                 "success",
                 f"Task completed successfully. Full log: {self.logdir}",

@@ -828,6 +828,46 @@ class TestSubagentIsRunning:
         assert result.status == "success"
         assert "task done" in (result.result or "")
 
+    def test_read_log_ignores_system_postamble_after_complete(self, tmp_path):
+        """A trailing token warning must not mask the child's complete result."""
+        logdir = tmp_path / "subagent-log"
+        logdir.mkdir()
+        messages = [
+            {
+                "role": "assistant",
+                "content": "```complete\nuseful child report\n```",
+                "timestamp": "2025-01-01T00:00:00+00:00",
+            },
+            {
+                "role": "system",
+                "content": "Task complete. Autonomous session finished.",
+                "timestamp": "2025-01-01T00:00:01+00:00",
+            },
+            {
+                "role": "system",
+                "content": (
+                    "<system_warning>Token usage: 100/1000; "
+                    "900 remaining</system_warning>"
+                ),
+                "timestamp": "2025-01-01T00:00:02+00:00",
+            },
+        ]
+        (logdir / "conversation.jsonl").write_text(
+            "".join(json.dumps(message) + "\n" for message in messages)
+        )
+        sa = Subagent(
+            agent_id="postamble-test",
+            prompt="do thing",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+
+        result = sa._read_log()
+
+        assert result.status == "success"
+        assert "useful child report" in (result.result or "")
+
 
 # ---------------------------------------------------------------------------
 # BatchJob tests
