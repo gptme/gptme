@@ -1527,6 +1527,36 @@ async def test_restart_command_exits_for_reexec(tmp_path):
     assert app.restart_requested
 
 
+def test_restart_runs_session_end_before_reexec(tmp_path, monkeypatch):
+    """/restart must fire SESSION_END before os.execv (shell + subagent cleanup)."""
+    from gptme.tui.main import _finish_session
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    app.restart_requested = True
+    order: list[object] = []
+    monkeypatch.setattr(app, "end_session", lambda: order.append("end"))
+    monkeypatch.setattr(
+        "gptme.tools.restart._do_restart",
+        lambda name: order.append(("restart", name)),
+    )
+    _finish_session(app, "conv")
+    assert order == ["end", ("restart", "conv")]
+
+
+def test_normal_exit_runs_session_end_without_reexec(tmp_path, monkeypatch):
+    from gptme.tui.main import _finish_session
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    called: list[object] = []
+    monkeypatch.setattr(app, "end_session", lambda: called.append("end"))
+    monkeypatch.setattr(
+        "gptme.tools.restart._do_restart",
+        lambda name: called.append("restart"),
+    )
+    _finish_session(app, "conv")
+    assert called == ["end"]
+
+
 def test_end_session_prints_cost_summary(tmp_path, capsys):
     """Exiting the TUI fires SESSION_END in the chat context (cost summary)."""
     from gptme.hooks import HookType, register_hook, unregister_hook

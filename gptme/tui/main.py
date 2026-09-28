@@ -4,8 +4,12 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from .app import GptmeApp
 
 from ..config import setup_config_from_cli
 from ..dirs import get_logs_dir
@@ -56,6 +60,21 @@ def _print_history(manager: LogManager, limit: int = 50) -> None:
     for msg in msgs:
         for renderable in renderables_for_message(msg, show_thinking=show_thinking):
             console.print(renderable)
+
+
+def _finish_session(app: "GptmeApp", conversation_name: str) -> None:
+    """Run SESSION_END hooks, then re-exec if /restart was requested.
+
+    ``_do_restart`` replaces the process and never returns, so session-end
+    cleanup (persistent shell, orphaned subagents, cost summary) has to run
+    first.
+    """
+    app.end_session()
+    if app.restart_requested:
+        from ..tools.restart import _do_restart
+
+        print(f"Restarting gptme-tui with conversation: {conversation_name}")
+        _do_restart(conversation_name)
 
 
 @click.command("gptme-tui")
@@ -195,14 +214,8 @@ def main(
         app.run(inline=True, inline_no_clear=True, mouse=False)
     else:
         app.run()
-    if app.restart_requested:
-        from ..tools.restart import _do_restart
-
-        # the app has exited and restored the terminal; re-exec in place,
-        # resuming this conversation with the same flags
-        print(f"Restarting gptme-tui with conversation: {logdir.name}")
-        _do_restart(logdir.name)
-    app.end_session()
+    # SESSION_END before re-exec: _do_restart never returns
+    _finish_session(app, logdir.name)
     print(f"Conversation saved: {logdir.name}")
     print(f"Resume with: gptme-tui -n {logdir.name}  (or gptme -r in the CLI)")
     sys.exit(0)
