@@ -186,6 +186,13 @@ def test_invalid_ref_raises(git_repo: Path):
         get_git_diff_context("does-not-exist-ref")
 
 
+def test_dash_prefixed_ref_is_rejected(git_repo: Path, tmp_path: Path):
+    sink = tmp_path / "should-not-be-written"
+    with pytest.raises(RuntimeError, match="invalid git ref"):
+        get_git_diff_context(f"--output={sink}")
+    assert not sink.exists()
+
+
 def test_non_git_dir_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(RuntimeError):

@@ -575,18 +575,21 @@ def get_git_diff_context(
     invalid or the directory is not inside a git repository, so callers
     can surface a clear error instead of injecting empty context.
     """
+    # A leading dash would be parsed as a git option (`--output=...`), not a ref.
+    if not ref or ref.startswith("-"):
+        raise RuntimeError(f"invalid git ref {ref!r}")
     # --no-ext-diff / --no-textconv: git_inspect_cmd() blanks diff.external to
     # block repo-local execution sinks, but an empty value still makes git try
     # to *run* an external program when producing diff text. These flags tell
     # git to ignore external diff drivers and textconv filters entirely.
     try:
         names = _run_git_inspect(
-            ["diff", "--no-ext-diff", "-z", "--name-only", ref],
+            ["diff", "--no-ext-diff", "-z", "--name-only", ref, "--"],
             cwd=cwd,
             timeout=10,
         )
         diff = _run_git_inspect(
-            ["diff", "--no-ext-diff", "--no-textconv", ref],
+            ["diff", "--no-ext-diff", "--no-textconv", ref, "--"],
             cwd=cwd,
             timeout=30,
         )
