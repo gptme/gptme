@@ -675,20 +675,27 @@ document.write(`
 <li><p><strong>Automatic Compaction</strong> - Triggered after each turn when the log approaches the budget; also retried once on provider context-length overflow</p></li>
 <li><p><strong>Plugin Interface</strong> - Allows third-party packages to provide custom compression strategies</p></li>
 </ol>
-<p>The budget defaults to <code class="docutils literal notranslate"><span class="pre">min(0.9</span> <span class="pre">×</span> <span class="pre">window,</span> <span class="pre">window</span> <span class="pre">−</span> <span class="pre">max_output</span> <span class="pre">−</span> <span class="pre">headroom)</span></code>.
-For a 200k-window model with 64k maximum output this is 135k; for a 1M-window
-model with an 8k maximum output it is 900k. Explicit budgets are clamped to the
-same output/headroom ceiling so they cannot make provider requests overflow.</p>
+<p>The budget defaults to
+<code class="docutils literal notranslate"><span class="pre">min(0.9</span> <span class="pre">×</span> <span class="pre">window,</span> <span class="pre">window</span> <span class="pre">−</span> <span class="pre">max_output</span> <span class="pre">−</span> <span class="pre">headroom,</span> <span class="pre">256k)</span></code>. For a
+200k-window model with 64k maximum output this is 135k; an unvalidated
+1M-window model defaults to 256k. Models proven reliable near their full window
+can opt out through model metadata (Anthropic’s native 1M models currently use
+<code class="docutils literal notranslate"><span class="pre">context_budget</span> <span class="pre">=</span> <span class="pre">0.9</span></code>). Explicit budgets remain clamped to the output/headroom
+ceiling so they cannot make provider requests overflow.</p>
 </section>
 <section id="configuring-the-context-budget">
 <h2>Configuring the Context Budget<a class="headerlink" href="#configuring-the-context-budget" title="Link to this heading">#</a></h2>
 <p>The budget can be set at multiple levels (first match wins):</p>
 <ul class="simple">
-<li><p><strong>Environment variable</strong>: <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET=0.85</span></code> (fraction) or <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET=300000</span></code> (absolute tokens)</p></li>
-<li><p><strong>Project config</strong>: <code class="docutils literal notranslate"><span class="pre">[context]</span> <span class="pre">budget</span> <span class="pre">=</span> <span class="pre">0.85</span></code> or <code class="docutils literal notranslate"><span class="pre">budget</span> <span class="pre">=</span> <span class="pre">300000</span></code> in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
-<li><p><strong>User config</strong>: the same <code class="docutils literal notranslate"><span class="pre">[context]</span></code> section in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>
-(project config overrides user config)</p></li>
-<li><p><strong>Default</strong>: <code class="docutils literal notranslate"><span class="pre">min(0.9</span> <span class="pre">×</span> <span class="pre">window,</span> <span class="pre">window</span> <span class="pre">−</span> <span class="pre">max_output</span> <span class="pre">−</span> <span class="pre">headroom)</span></code></p></li>
+<li><p><strong>CLI</strong>: <code class="docutils literal notranslate"><span class="pre">--context-budget</span> <span class="pre">0.85</span></code> (fraction) or
+<code class="docutils literal notranslate"><span class="pre">--context-budget</span> <span class="pre">300000</span></code> (absolute tokens), persisted for that conversation</p></li>
+<li><p><strong>Environment variable</strong>: <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET=0.85</span></code> or
+<code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET=300000</span></code></p></li>
+<li><p><strong>Per-model user config</strong>: <code class="docutils literal notranslate"><span class="pre">[models.&quot;deepseek/deepseek-v4&quot;]</span></code> followed by
+<code class="docutils literal notranslate"><span class="pre">context_budget</span> <span class="pre">=</span> <span class="pre">300000</span></code> in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code></p></li>
+<li><p><strong>Project/user config</strong>: the existing broad <code class="docutils literal notranslate"><span class="pre">[context]</span> <span class="pre">budget</span></code> override</p></li>
+<li><p><strong>Model metadata</strong>: built-in evidence-backed override for validated models</p></li>
+<li><p><strong>Default</strong>: <code class="docutils literal notranslate"><span class="pre">min(0.9</span> <span class="pre">×</span> <span class="pre">window,</span> <span class="pre">window</span> <span class="pre">−</span> <span class="pre">max_output</span> <span class="pre">−</span> <span class="pre">headroom,</span> <span class="pre">256k)</span></code></p></li>
 </ul>
 <p>Note: <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_LENGTH</span></code> overrides the <em>provider window</em> for local models; <code class="docutils literal notranslate"><span class="pre">GPTME_CONTEXT_BUDGET</span></code> controls when compaction fires.</p>
 </section>
