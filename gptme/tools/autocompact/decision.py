@@ -73,6 +73,10 @@ def estimate_compaction_savings(
         work_log, estimated_phase0_savings = prune_stale_tool_outputs(
             log, model.model, keep_head=keep_head
         )
+        # Engine rechecks the budget after Phase 0 and skips Phase 2/3 when
+        # stubbing already brought the log under limit. Match that here so we
+        # don't count Phase 2 savings the engine would never take.
+        would_remove_tool_results = len_tokens(work_log, model.model) >= limit
 
     log_length = len(work_log)
     estimated_tool_result_savings = 0
