@@ -214,19 +214,55 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
     return findings
 
 
-def _entry_point_source_candidates(
-    source_dir: Path, relative_paths: frozenset[str]
-) -> list[Path]:
-    """Map distribution-relative module paths under an editable source dir.
+def _iter_scannable_sources(directory: Path) -> list[Path]:
+    """Return scannable source files under ``directory``, recursively.
 
-    Also probes a ``src/`` layout, since pip/uv editable installs of src-layout
-    projects put the importable package one level below the project root.
+    Mirrors the skip rules applied to distribution metadata so an editable
+    install is scanned to the same depth as a wheel install.
     """
-    candidates: list[Path] = []
+    sources: list[Path] = []
+    try:
+        paths = sorted(directory.rglob("*"))
+    except OSError:
+        return sources
+    for path in paths:
+        if not path.is_file() or path.suffix.lower() not in _SCANNABLE_SUFFIXES:
+            continue
+        if any(
+            part.lower() in _SKIP_PARTS or part.endswith(".dist-info")
+            for part in path.relative_to(directory).parts[:-1]
+        ):
+            continue
+        sources.append(path)
+    return sources
+
+
+def _editable_scan_targets(
+    source_dir: Path, relative_paths: frozenset[str]
+) -> tuple[Path | None, list[Path]]:
+    """Resolve an editable install's entry point and every file it can import.
+
+    Returns the entry-point module path (``None`` when unresolved) and the source
+    files importing it may execute: the module itself, plus — when it is a
+    package (``__init__.py``) — its recursive submodules, matching the imports
+    ``doctor`` subsequently performs. Also probes a ``src/`` layout, since pip/uv
+    editable installs of src-layout projects put the importable package one level
+    below the project root.
+    """
     for relative in sorted(relative_paths):
-        candidates.append(source_dir / relative)
-        candidates.append(source_dir / "src" / relative)
-    return candidates
+        for root in (source_dir, source_dir / "src"):
+            candidate = root / relative
+            if not candidate.is_file():
+                continue
+            targets = [candidate]
+            if candidate.name == "__init__.py":
+                targets.extend(
+                    path
+                    for path in _iter_scannable_sources(candidate.parent)
+                    if path != candidate
+                )
+            return candidate, targets
+    return None, []
 
 
 def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
@@ -282,20 +318,21 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
         findings.extend(file_findings)
 
     # Editable installs list only their editable shim in ``files``, so the
-    # entry-point module never appears there. Scan it from the install's source
-    # directory instead of failing closed on the documented plugin workflow.
+    # entry-point module never appears there. Scan it and the sibling modules it
+    # can import from the install's source directory instead of failing closed on
+    # the documented plugin workflow. A sibling holding a blocked pattern must be
+    # caught here: the entry point imports it before any runtime check applies.
     if not entry_point_scanned:
         source_dir = _editable_source_dir(distribution)
         if source_dir is not None:
-            for candidate in _entry_point_source_candidates(
-                source_dir, entry_candidates
-            ):
+            module_path, targets = _editable_scan_targets(source_dir, entry_candidates)
+            for candidate in targets:
                 file_findings = _scan_source(candidate, candidate.as_posix())
                 if file_findings is None:
                     continue
                 scanned_files += 1
-                entry_point_scanned = True
                 findings.extend(file_findings)
-                break
+                if candidate == module_path:
+                    entry_point_scanned = True
 
     return PluginSecurityScan(scanned_files, tuple(findings), entry_point_scanned)
