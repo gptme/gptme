@@ -202,10 +202,23 @@ def read_phase0_shadow_events(logdir: Path) -> list[dict[str, Any]]:
 
     Rotation moves older records to ``phase0-shadow.jsonl.1``; evaluation must
     still see them, so the retained generation is read first (append order).
+    Both generations are read under the rotation lock: a rotation between the
+    two reads can otherwise move the current records into ``.1`` after it was
+    read, silently dropping them from evaluation.
     """
-    return _read_jsonl_events(logdir / f"{SHADOW_LOG_NAME}.1") + _read_jsonl_events(
-        logdir / SHADOW_LOG_NAME
-    )
+    logdir = Path(logdir)
+    if not logdir.exists():
+        return []
+    try:
+        with _event_lock(logdir, SHADOW_LOG_NAME):
+            return _read_jsonl_events(
+                logdir / f"{SHADOW_LOG_NAME}.1"
+            ) + _read_jsonl_events(logdir / SHADOW_LOG_NAME)
+    except OSError as exc:
+        logger.warning("Failed to lock Phase-0 shadow ledger for reading: %s", exc)
+        return _read_jsonl_events(logdir / f"{SHADOW_LOG_NAME}.1") + _read_jsonl_events(
+            logdir / SHADOW_LOG_NAME
+        )
 
 
 def _read_jsonl_events(path: Path) -> list[dict[str, Any]]:

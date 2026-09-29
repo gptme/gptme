@@ -765,3 +765,37 @@ def test_shadow_reader_includes_rotated_records(tmp_path, monkeypatch):
     assert [e.get("generation") for e in events if "generation" in e] == [0]
     assert len(events) == 2
     assert events[-1]["trigger"] == "phase0-shadow"
+
+
+def test_shadow_reader_reads_under_rotation_lock(tmp_path, monkeypatch):
+    """The reader holds the rotation lock across both ledger generations.
+
+    Rotation runs under ``_event_lock``. The reader must too, or a rotation
+    between the ``.1`` and current reads can move the current records into
+    ``.1`` after it was read, silently dropping them from evaluation.
+    """
+    import contextlib
+
+    from gptme.tools.autocompact import events as shadow_events
+
+    (tmp_path / "phase0-shadow.jsonl").write_text('{"generation": 0}\n')
+
+    acquisitions: list[str] = []
+    real_lock = shadow_events._event_lock
+
+    @contextlib.contextmanager
+    def tracking_lock(logdir, log_name=shadow_events.EVENT_LOG_NAME):
+        acquisitions.append(log_name)
+        with real_lock(logdir, log_name):
+            yield
+
+    monkeypatch.setattr(shadow_events, "_event_lock", tracking_lock)
+    events = read_phase0_shadow_events(tmp_path)
+
+    assert acquisitions == [shadow_events.SHADOW_LOG_NAME]
+    assert [e["generation"] for e in events] == [0]
+
+
+def test_shadow_reader_missing_logdir_returns_empty(tmp_path):
+    """A missing logdir yields no records instead of raising."""
+    assert read_phase0_shadow_events(tmp_path / "does-not-exist") == []
