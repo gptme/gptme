@@ -22,6 +22,7 @@ as a line prefix.
 """
 
 import logging
+import re
 import subprocess
 import threading
 from collections.abc import Generator
@@ -90,64 +91,32 @@ def _messages_from_context(
     return list(initial_msgs or [])
 
 
-def _git_capture(workspace: Path, *args: str) -> str | None:
-    """Run a git inspection command, returning stdout or None on failure."""
-    try:
-        result = subprocess.run(
-            [*git_inspect_cmd(), "-C", str(workspace), *args],
-            capture_output=True,
-            text=True,
-            timeout=_DIFF_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        logger.debug("dirty diff: git %s failed for %s: %s", args, workspace, e)
-        return None
-    if result.returncode != 0:
-        # Not a git repo, or HEAD doesn't exist yet (empty repo) — skip quietly.
-        return None
-    return result.stdout
+# A changed diff line is prefixed by one or more ``+``/``-`` markers. Strip the
+# whole run before redacting so content that itself starts with a marker (an
+# added line ``+++GITHUB_TOKEN=...`` renders as ``++++GITHUB_TOKEN=...``) is
+# still matched by the line-anchored secret patterns.
+_DIFF_MARKER_RE = re.compile(r"^[+\-]+")
 
 
-def _redact_diff(diff: str) -> str:
-    """Redact secret assignments in a unified diff.
+def _git_capture_bounded(
+    workspace: Path,
+    *args: str,
+    max_chars: int | None = None,
+    max_lines: int | None = None,
+) -> tuple[str, bool] | None:
+    """Run a git inspection command with a bounded read and a watchdog.
 
-    ``redact_secrets_from_text`` anchors on the line start, but diff hunks
-    prefix changed lines with ``+``/``-``. Strip the marker, redact, restore so
-    an edited credential (``+GITHUB_TOKEN=...``) is still caught.
+    Returns ``(text, truncated)`` — at most ``max_chars`` characters or
+    ``max_lines`` lines of stdout — or ``None`` when the command cannot run
+    (not a repo, empty repo), times out, or fails without producing output.
+
+    Reading stops at the cap and the child is killed, so an unbounded command
+    (``git diff``, ``git ls-files``) cannot materialise an arbitrarily large
+    result before the display cap applies. A hung git is killed after
+    ``_DIFF_TIMEOUT_SECONDS`` so it cannot block session start.
     """
-    out: list[str] = []
-    for line in diff.splitlines(keepends=True):
-        prefix = ""
-        if line[:1] in ("+", "-") and not line.startswith(("+++", "---")):
-            prefix, line = line[0], line[1:]
-        out.append(prefix + redact_secrets_from_text(line))
-    return "".join(out)
-
-
-def _get_dirty_diff(workspace: Path) -> str | None:
-    """Return `git diff HEAD` for `workspace`, or None if clean/not a repo."""
-    # git_inspect_cmd() sets diff.external="" to suppress a configured external
-    # diff tool, but an *empty* diff.external is not equivalent to unset: git
-    # still tries to exec it and fails ("cannot run : No such file or
-    # directory"). --no-ext-diff is the flag that actually disables it for
-    # content diffs, and --no-textconv blocks the textconv driver, which a
-    # malicious .gitattributes + .git/config pair could otherwise use to run a
-    # command at session start.
-    diff = _git_capture(workspace, "diff", "--no-ext-diff", "--no-textconv", "HEAD")
-    if diff is None:
-        return None
-    return diff if diff.strip() else None
-
-
-def _git_capture_lines(workspace: Path, max_lines: int, *args: str) -> list[str] | None:
-    """Run a git command, returning at most ``max_lines`` stdout lines.
-
-    Enumeration is bounded: reading stops at the cap and the child is
-    terminated, so an unbounded command like ``git ls-files`` never
-    materialises every path just to display 50. A watchdog kills the child
-    after ``_DIFF_TIMEOUT_SECONDS`` so a hung git cannot block session start.
-    """
+    if (max_chars is None) == (max_lines is None):
+        raise ValueError("exactly one of max_chars/max_lines is required")
     try:
         proc = subprocess.Popen(
             [*git_inspect_cmd(), "-C", str(workspace), *args],
@@ -159,14 +128,32 @@ def _git_capture_lines(workspace: Path, max_lines: int, *args: str) -> list[str]
         logger.debug("dirty diff: git %s failed for %s: %s", args, workspace, e)
         return None
 
-    lines: list[str] = []
+    text = ""
+    truncated = False
 
     def _read() -> None:
+        nonlocal text, truncated
         assert proc.stdout is not None
-        for raw in proc.stdout:
-            lines.append(raw.rstrip("\n"))
-            if len(lines) >= max_lines:
-                break
+        if max_lines is not None:
+            lines: list[str] = []
+            for raw in proc.stdout:
+                lines.append(raw)
+                if len(lines) >= max_lines:
+                    break
+            text = "".join(lines)
+            truncated = len(lines) >= max_lines
+        else:
+            assert max_chars is not None
+            chunks: list[str] = []
+            count = 0
+            while count < max_chars:
+                chunk = proc.stdout.read(8192)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                count += len(chunk)
+            text = "".join(chunks)[:max_chars]
+            truncated = count >= max_chars
 
     reader = threading.Thread(target=_read, daemon=True)
     reader.start()
@@ -177,38 +164,91 @@ def _git_capture_lines(workspace: Path, max_lines: int, *args: str) -> list[str]
         reader.join(_DIFF_TIMEOUT_SECONDS)
         return None
     if proc.poll() is None:
-        # Reader stopped at the line cap with the child still writing; it would
+        # Reader stopped at the cap with the child still writing; it would
         # otherwise block on a full pipe, so stop it explicitly.
         proc.kill()
-    proc.wait()
+    reader.join(_DIFF_TIMEOUT_SECONDS)
+    try:
+        proc.wait(timeout=_DIFF_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
     if proc.stdout is not None:
         proc.stdout.close()
-    if not lines and proc.returncode not in (0, None):
+    if not text and proc.returncode not in (0, None):
         # Not a git repo, or HEAD doesn't exist yet (empty repo) — skip quietly.
         return None
-    return lines
+    return text, truncated
+
+
+def _redact_diff(diff: str) -> str:
+    """Redact secret assignments in a unified diff.
+
+    ``redact_secrets_from_text`` anchors on the line start, but diff hunks
+    prefix changed lines with ``+``/``-``. Strip the leading marker run, redact
+    the remainder, and restore the markers so an edited credential
+    (``+GITHUB_TOKEN=...``) is still caught. ``+++``/``---`` header paths are
+    redacted after their ``a/``/``b/`` prefix as well.
+    """
+    out: list[str] = []
+    for line in diff.splitlines(keepends=True):
+        match = _DIFF_MARKER_RE.match(line)
+        marker = match.group(0) if match else ""
+        rest = line[len(marker) :]
+        if marker in ("+++", "---") and rest[:1] == " " and rest[1:3] in ("a/", "b/"):
+            rest = f" {rest[1:3]}{redact_secrets_from_text(rest[3:])}"
+        else:
+            rest = redact_secrets_from_text(rest)
+        out.append(marker + rest)
+    return "".join(out)
+
+
+def _get_dirty_diff(workspace: Path) -> tuple[str, bool] | None:
+    """Return ``(git diff HEAD, truncated)``, or None if clean/not a repo."""
+    # git_inspect_cmd() sets diff.external="" to suppress a configured external
+    # diff tool, but an *empty* diff.external is not equivalent to unset: git
+    # still tries to exec it and fails ("cannot run : No such file or
+    # directory"). --no-ext-diff is the flag that actually disables it for
+    # content diffs, and --no-textconv blocks the textconv driver, which a
+    # malicious .gitattributes + .git/config pair could otherwise use to run a
+    # command at session start.
+    result = _git_capture_bounded(
+        workspace,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+        max_chars=_MAX_DIFF_CHARS,
+    )
+    if result is None:
+        return None
+    diff, truncated = result
+    return (diff, truncated) if diff.strip() else None
 
 
 def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
     """Return untracked file paths (names only) for `workspace`.
 
     Returns ``(paths, more)``: at most ``_MAX_UNTRACKED_PATHS`` entries, and
-    ``more`` when the tree had additional entries beyond the cap. Paths are
-    redacted with the same guard as the tracked diff — a crafted filename such
-    as ``GITHUB_TOKEN=ghp_...`` is otherwise copied verbatim into the message.
+    ``more`` when the tree had additional entries beyond the cap. Enumeration
+    is bounded (only ``cap + 1`` lines are ever read). Paths are redacted with
+    the same guard as the tracked diff — a crafted filename such as
+    ``GITHUB_TOKEN=ghp_...`` is otherwise copied verbatim into the message.
     """
-    raw = _git_capture_lines(
+    result = _git_capture_bounded(
         workspace,
-        _MAX_UNTRACKED_PATHS + 1,
         "ls-files",
         "--others",
         "--exclude-standard",
+        max_lines=_MAX_UNTRACKED_PATHS + 1,
     )
-    if raw is None:
+    if result is None:
         return [], False
+    text, _ = result
+    raw = [line for line in text.splitlines() if line.strip()]
     more = len(raw) > _MAX_UNTRACKED_PATHS
     paths = [redact_secrets_from_text(line) for line in raw[:_MAX_UNTRACKED_PATHS]]
-    return [path for path in paths if path.strip()], more
+    return paths, more
 
 
 def inject_dirty_diff(
@@ -233,15 +273,13 @@ def inject_dirty_diff(
         if _already_injected(msgs):
             return
         workspace = Path(workspace)
-        diff = _get_dirty_diff(workspace)
+        diff_result = _get_dirty_diff(workspace)
         untracked, untracked_more = _get_untracked(workspace)
-        if not diff and not untracked:
+        if diff_result is None and not untracked:
             return
         sections: list[str] = []
-        if diff:
-            truncated = len(diff) > _MAX_DIFF_CHARS
-            if truncated:
-                diff = diff[:_MAX_DIFF_CHARS]
+        if diff_result is not None:
+            diff, truncated = diff_result
             note = " (truncated)" if truncated else ""
             # Redact known secret assignments before the diff enters the
             # conversation log and the model request.

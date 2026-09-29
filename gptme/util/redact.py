@@ -41,7 +41,7 @@ _COLON_ASSIGN_RE = re.compile(
     (["']?)                                   # group 4: optional opening quote
     (.+?)                                     # group 5: the value
     (["']?)                                   # group 6: optional closing quote
-    (\s*)$                                    # group 7: trailing whitespace
+    ([ \t]*)$                                    # group 7: trailing whitespace (horizontal only)
     """,
     re.MULTILINE,
 )
@@ -68,7 +68,7 @@ _ENV_ASSIGN_RE = re.compile(
     (["']?)                                  # group 4: opening quote
     (.+?)                                    # group 5: the value
     (["']?)                                  # group 6: closing quote
-    (\s*)$                                   # group 7: trailing whitespace
+    ([ \t]*)$                                   # group 7: trailing whitespace (horizontal only)
     """,
     re.MULTILINE,
 )

@@ -193,7 +193,7 @@ def test_hook_bounds_untracked_enumeration(git_repo):
     assert "list truncated" in content
 
 
-def test_git_capture_lines_times_out(git_repo, monkeypatch):
+def test_git_capture_bounded_times_out(git_repo, monkeypatch):
     import threading
 
     from gptme.hooks import dirty_diff
@@ -230,26 +230,54 @@ def test_git_capture_lines_times_out(git_repo, monkeypatch):
     monkeypatch.setattr(dirty_diff.subprocess, "Popen", lambda *a, **k: _FakeProc())
     monkeypatch.setattr(dirty_diff, "_DIFF_TIMEOUT_SECONDS", 0.05)
 
-    assert dirty_diff._git_capture_lines(git_repo, 50, "ls-files") is None
+    assert dirty_diff._git_capture_bounded(git_repo, "ls-files", max_lines=50) is None
+
+
+def test_redact_diff_handles_content_starting_with_marker():
+    from gptme.hooks.dirty_diff import _redact_diff
+
+    # An added line whose own content begins with `+++` renders as `++++...`.
+    assert (
+        _redact_diff("++++GITHUB_TOKEN=ghp_leak\n") == "++++GITHUB_TOKEN=[REDACTED]\n"
+    )
+    # A deleted line whose content begins with `---`.
+    assert _redact_diff("----PASSWORD=hunter2\n") == "----PASSWORD=[REDACTED]\n"
+    # Header paths are redacted after their `a/`/`b/` prefix.
+    assert (
+        _redact_diff("+++ b/GITHUB_TOKEN=ghp_leak\n")
+        == "+++ b/GITHUB_TOKEN=[REDACTED]\n"
+    )
 
 
 def test_get_dirty_diff_disables_ext_and_textconv(git_repo, monkeypatch):
+    import io
+
     from gptme.hooks import dirty_diff
 
     captured: dict = {}
 
-    class _Result:
-        returncode = 0
-        stdout = "diff --git a/f b/f\n"
+    class _FakeProc:
+        def __init__(self):
+            self.stdout = io.StringIO("diff --git a/f b/f\n")
+            self.returncode = 0
 
-    def fake_run(argv, **kwargs):
+        def poll(self):
+            return 0
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(argv, **kwargs):
         captured["argv"] = argv
-        return _Result()
+        return _FakeProc()
 
-    monkeypatch.setattr(dirty_diff.subprocess, "run", fake_run)
+    monkeypatch.setattr(dirty_diff.subprocess, "Popen", fake_popen)
 
-    diff = dirty_diff._get_dirty_diff(git_repo)
+    result = dirty_diff._get_dirty_diff(git_repo)
 
-    assert diff is not None
+    assert result is not None
     assert "--no-ext-diff" in captured["argv"]
     assert "--no-textconv" in captured["argv"]
