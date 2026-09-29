@@ -1451,3 +1451,29 @@ class TestInitSingleTool:
         tool = ToolSpec(name="plain", desc="no init")
         result = _init_single_tool(tool)
         assert result is tool
+
+    def test_skip_unregisters_partial_hooks(self):
+        """on_error='skip' must unregister hooks registered before the failure."""
+        from typing import Any, cast
+
+        from gptme.hooks import clear_hooks, get_hooks
+        from gptme.tools import _init_single_tool
+
+        def good_hook(**kwargs: Any) -> None:
+            return None
+
+        clear_hooks()
+        tool = ToolSpec(
+            name="leaky",
+            desc="partial hooks",
+            hooks=cast(
+                Any,
+                {
+                    "good": ("session.start", good_hook, 0),
+                    "bad": None,
+                },
+            ),
+        )
+        result = _init_single_tool(tool, on_error="skip")
+        assert result is None
+        assert not any(h.name.startswith("leaky.") for h in get_hooks())

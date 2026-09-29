@@ -263,6 +263,81 @@ def test_plugin_init_failure_is_skipped(tmp_path):
     assert "bad_tool" not in tool_names, "broken plugin tool must be skipped"
 
 
+def test_plugin_init_failure_unregisters_partial_hooks(tmp_path):
+    """A skipped plugin must not leave hooks registered from a partial init."""
+    from gptme.hooks import clear_hooks, get_hooks
+
+    leaky_plugin = tmp_path / "leaky_plugin.py"
+    leaky_plugin.write_text(
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _good_hook(**kwargs):\n"
+        "    return None\n"
+        "\n"
+        "tool = ToolSpec(\n"
+        "    name='leaky_tool',\n"
+        "    desc='partial hooks',\n"
+        "    hooks={\n"
+        "        'good': ('session.start', _good_hook, 0),\n"
+        "        'bad': None,\n"
+        "    },\n"
+        ")\n"
+    )
+    good_plugin = tmp_path / "good_hook_plugin.py"
+    good_plugin.write_text(
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _ok_hook(**kwargs):\n"
+        "    return None\n"
+        "\n"
+        "tool = ToolSpec(\n"
+        "    name='ok_tool',\n"
+        "    desc='healthy hooks',\n"
+        "    hooks={'ok': ('session.start', _ok_hook, 0)},\n"
+        ")\n"
+    )
+
+    clear_tools()
+    clear_hooks()
+    tools = init_tools(allowlist=[str(leaky_plugin), str(good_plugin)])
+    tool_names = [t.name for t in tools]
+    hook_names = [h.name for h in get_hooks()]
+
+    assert "leaky_tool" not in tool_names
+    assert "ok_tool" in tool_names
+    assert not any(name.startswith("leaky_tool.") for name in hook_names)
+    assert "ok_tool.ok" in hook_names
+
+
+def test_plugin_skipped_when_required_companion_init_fails(tmp_path):
+    """A plugin whose required companion fails init() must not stay loaded."""
+    plugin = tmp_path / "dependent_plugin.py"
+    plugin.write_text(
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _init():\n"
+        "    raise RuntimeError('companion broken')\n"
+        "\n"
+        "primary = ToolSpec(\n"
+        "    name='dependent_tool',\n"
+        "    desc='needs companion',\n"
+        "    requires_tools=['needed_tool'],\n"
+        ")\n"
+        "companion = ToolSpec(\n"
+        "    name='needed_tool',\n"
+        "    desc='fails',\n"
+        "    init=_init,\n"
+        ")\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(plugin)])
+    tool_names = [t.name for t in tools]
+
+    assert "needed_tool" not in tool_names
+    assert "dependent_tool" not in tool_names
+
+
 def test_tool_loading_with_package():
     found = _discover_tools(["gptme.tools"])
 
