@@ -83,6 +83,40 @@ def _is_placeholder_api_key(api_key: str) -> bool:
     return api_key.strip().lower() in _PLACEHOLDER_API_KEYS
 
 
+def _provider_has_placeholder_key(provider: str, source: str, config: Config) -> bool:
+    """Return True when the credential making `provider` available is a placeholder.
+
+    Mirrors `_check_api_keys`'s key retrieval so the "available provider" view used
+    by the default-model and repair checks matches what the API-key check reports.
+    """
+    env_var = (
+        "AZURE_OPENAI_API_KEY" if provider == "azure" else f"{provider.upper()}_API_KEY"
+    )
+    api_key = os.environ.get(env_var) or config.get_env(env_var)
+    if not api_key and source not in ("oauth", STORED_CREDENTIALS_SOURCE):
+        # Plugin/custom providers expose their env var name as the source.
+        api_key = os.environ.get(source) or config.get_env(source)
+    if not api_key and source == STORED_CREDENTIALS_SOURCE:
+        api_key = get_stored_api_key(provider)
+    return isinstance(api_key, str) and _is_placeholder_api_key(api_key)
+
+
+def _usable_providers(config: Config | None = None) -> list[tuple[str, str]]:
+    """Available providers, excluding any configured only with a placeholder key.
+
+    `list_available_providers` marks a provider available whenever its key env var
+    is set, even for scaffolding literals like "test". The default-model and repair
+    checks must not treat such a provider as usable, or doctor can report
+    "All systems operational" for a model that cannot authenticate.
+    """
+    cfg = config or _doctor_config()
+    return [
+        (str(provider), source)
+        for provider, source in list_available_providers(cfg)
+        if not _provider_has_placeholder_key(str(provider), source, cfg)
+    ]
+
+
 class CheckStatus(Enum):
     """Status of a diagnostic check."""
 
@@ -261,7 +295,9 @@ def _model_source_label(source: str) -> str:
 def _check_default_model(verbose: bool = False) -> list[CheckResult]:
     """Check that the selected model routes through an available provider."""
     config = _doctor_config()
-    available = [str(provider) for provider, _ in list_available_providers(config)]
+    # A provider configured with only a placeholder key is not usable: it must not
+    # let the selected default model report OK (see _usable_providers).
+    available = [str(provider) for provider, _ in _usable_providers(config)]
     resolution = resolve_model_source(config)
 
     if resolution is None:
@@ -409,7 +445,7 @@ def _subscription_default_candidate(
     ):
         return None
 
-    available = {str(provider) for provider, _ in list_available_providers()}
+    available = {provider for provider, _ in _usable_providers()}
     if "openai-subscription" in available:
         return "openai-subscription"
     if "grok-subscription" in available:

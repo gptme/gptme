@@ -1397,6 +1397,48 @@ class TestCheckDefaultModel:
         assert result.status == CheckStatus.ERROR
         assert "Unknown provider 'openaix'" in result.message
 
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("anthropic/claude-sonnet-4-6", "models.default"),
+    )
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("anthropic", "ANTHROPIC_API_KEY")],
+    )
+    @patch("gptme.cli.doctor.get_config")
+    def test_placeholder_only_provider_is_not_usable(
+        self, mock_config, mock_providers, mock_resolve, monkeypatch
+    ):
+        """A provider whose only key is a placeholder must not report the default as OK."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        mock_config.return_value.get_env.return_value = "test"
+
+        result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.ERROR
+        assert "anthropic" in result.message
+
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("anthropic/claude-sonnet-4-6", "models.default"),
+    )
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("anthropic", "ANTHROPIC_API_KEY")],
+    )
+    @patch("gptme.cli.doctor.get_config")
+    def test_real_key_provider_is_still_usable(
+        self, mock_config, mock_providers, mock_resolve, monkeypatch
+    ):
+        """A non-placeholder key keeps the provider usable (no over-classification)."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        mock_config.return_value.get_env.return_value = "sk-ant-real-key-123"
+
+        result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.OK
+        assert result.provider == "anthropic"
+
 
 class TestOAuthRepairValidation:
     """Test OAuth health validation used by interactive repair."""
@@ -1515,6 +1557,23 @@ class TestProviderRepairNeeded:
         results = [
             CheckResult("API Key: openai", CheckStatus.ERROR, "Invalid key"),
             CheckResult("Model: Default", CheckStatus.OK, "openai/gpt-5.4"),
+        ]
+        assert _provider_repair_needed(results)
+
+    def test_placeholder_only_default_needs_repair(self):
+        """A placeholder key must leave repair offered, not just the API-key check skipped."""
+        results = [
+            CheckResult(
+                "API Key: anthropic",
+                CheckStatus.SKIPPED,
+                "Not configured (placeholder key)",
+            ),
+            CheckResult(
+                "Model: Default",
+                CheckStatus.ERROR,
+                "Provider 'anthropic' is not configured",
+                provider="anthropic",
+            ),
         ]
         assert _provider_repair_needed(results)
 
