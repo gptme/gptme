@@ -417,6 +417,7 @@ def test_deferred_watch_wakes_deliver_batch_in_one_wake(tmp_path, monkeypatch):
     `request_watch_wake` sets `generating=True` before it returns, so a
     per-event loop would deliver only the first event and requeue the rest.
     """
+    pytest.importorskip("flask")
     from gptme.server.session_models import SessionManager
 
     logdir = (tmp_path / "conv").resolve()
@@ -441,6 +442,7 @@ def test_deferred_watch_wakes_deliver_batch_in_one_wake(tmp_path, monkeypatch):
 
 def test_deferred_watch_wakes_requeue_whole_batch_when_busy(tmp_path, monkeypatch):
     """A busy conversation keeps the whole batch, in order."""
+    pytest.importorskip("flask")
     from gptme.server.session_models import SessionManager
 
     logdir = (tmp_path / "conv").resolve()
