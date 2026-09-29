@@ -464,20 +464,22 @@ class SessionManager:
         # Watch events that fired while the conversation was generating or
         # executing a tool were queued for STEP_PRE; retry a live wake now
         # that it is idle, else they wait for a turn that may never start.
+        #
+        # Deliver the whole batch in a single wake: `request_watch_wake` sets
+        # `generating=True` before returning, so a second call in the same
+        # drain would see the conversation busy and requeue — delivering one
+        # event per idle turn and stranding the rest until the next command.
         pending_watch = take_queued_watch_events(logdir)
-        for idx, (watch_id, text) in enumerate(pending_watch):
-            delivered = cls.request_watch_wake(
-                conversation_id,
-                Message("system", f"Watch {watch_id} fired: {text}"),
+        if pending_watch:
+            body = "\n".join(
+                f"Watch {watch_id} fired: {text}" for watch_id, text in pending_watch
             )
-            if not delivered:
-                # Still busy (or wake disabled): put this one back and every
-                # later event with it, preserving order. `take_*` already
-                # removed the whole batch, so dropping them here would lose
-                # events outright.
-                for wid, txt in reversed(pending_watch[idx:]):
-                    requeue_watch_event(logdir, wid, txt)
-                break
+            if not cls.request_watch_wake(conversation_id, Message("system", body)):
+                # Still busy (or wake disabled): put the whole batch back,
+                # preserving order. `take_*` already removed it, so dropping it
+                # here would lose events outright.
+                for watch_id, text in reversed(pending_watch):
+                    requeue_watch_event(logdir, watch_id, text)
         queued = take_queued_completions(logdir)
         if not queued:
             return

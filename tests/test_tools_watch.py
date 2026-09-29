@@ -411,6 +411,53 @@ def test_requeue_preserves_remaining_events(tmp_path: Path):
     assert take_queued_watch_events(logdir) == [("w2", "b"), ("w3", "c")]
 
 
+def test_deferred_watch_wakes_deliver_batch_in_one_wake(tmp_path, monkeypatch):
+    """A queued batch wakes once with every event, not one event per turn.
+
+    `request_watch_wake` sets `generating=True` before it returns, so a
+    per-event loop would deliver only the first event and requeue the rest.
+    """
+    from gptme.server.session_models import SessionManager
+
+    logdir = (tmp_path / "conv").resolve()
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    with _pending_lock:
+        _pending_deliveries.extend([(logdir, "w1", "a"), (logdir, "w2", "b")])
+
+    calls: list[str] = []
+
+    def _fake_wake(cls, conversation_id, message, *, branch="main"):
+        calls.append(message.content)
+        return True
+
+    monkeypatch.setattr(SessionManager, "request_watch_wake", classmethod(_fake_wake))
+    SessionManager.retry_deferred_watch_wakes("conv")
+
+    assert len(calls) == 1
+    assert "Watch w1 fired: a" in calls[0]
+    assert "Watch w2 fired: b" in calls[0]
+    assert take_queued_watch_events(logdir) == []
+
+
+def test_deferred_watch_wakes_requeue_whole_batch_when_busy(tmp_path, monkeypatch):
+    """A busy conversation keeps the whole batch, in order."""
+    from gptme.server.session_models import SessionManager
+
+    logdir = (tmp_path / "conv").resolve()
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    with _pending_lock:
+        _pending_deliveries.extend([(logdir, "w1", "a"), (logdir, "w2", "b")])
+
+    monkeypatch.setattr(
+        SessionManager,
+        "request_watch_wake",
+        classmethod(lambda cls, cid, msg, *, branch="main": False),
+    )
+    SessionManager.retry_deferred_watch_wakes("conv")
+
+    assert take_queued_watch_events(logdir) == [("w1", "a"), ("w2", "b")]
+
+
 def test_command_from_watch_content():
     from gptme.tools.watch import _command_from_watch_content
 
