@@ -176,6 +176,22 @@ def _unregister_tool_hooks(tool: ToolSpec) -> None:
             )
 
 
+def _unregister_tool_commands(tool: ToolSpec) -> None:
+    """Best-effort unregister of a tool's slash commands.
+
+    Used by the file-plugin dependency cascade so a tool that initialized
+    successfully, then lost a required companion, cannot leave commands
+    registered after it is removed from the session.
+    """
+    from ..commands.base import unregister_command
+
+    for cmd_name in tool.commands:
+        try:
+            unregister_command(cmd_name)
+        except Exception:
+            logger.exception("Failed to unregister command '%s'", cmd_name)
+
+
 def _copy_hook_registry() -> dict:
     """Return a shallow copy of the current hook registry contents."""
     from ..hooks.registry import get_registry
@@ -377,6 +393,7 @@ def _init_file_plugin_tools(
             loaded_names.discard(tool.name)
             added_names.discard(tool.name)
             _unregister_tool_hooks(tool)
+            _unregister_tool_commands(tool)
             logger.warning(
                 "Skipping plugin tool %r: required tool(s) %s failed to load",
                 tool.name,

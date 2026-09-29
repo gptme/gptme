@@ -338,6 +338,46 @@ def test_plugin_skipped_when_required_companion_init_fails(tmp_path):
     assert "dependent_tool" not in tool_names
 
 
+def test_cascade_unload_unregisters_commands(tmp_path):
+    """A cycle member unloaded after its companion fails must drop its commands."""
+    from gptme.commands.base import get_registered_commands
+
+    plugin = tmp_path / "cycle_cmd_plugin.py"
+    plugin.write_text(
+        "from collections.abc import Generator\n"
+        "from gptme.commands.base import CommandContext\n"
+        "from gptme.message import Message\n"
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _cmd(_ctx: CommandContext) -> Generator[Message, None, None]:\n"
+        "    yield from ()\n"
+        "\n"
+        "def _boom():\n"
+        "    raise RuntimeError('companion broken')\n"
+        "\n"
+        "primary = ToolSpec(\n"
+        "    name='cycle_cmd_tool',\n"
+        "    desc='loads then unloads',\n"
+        "    requires_tools=['cycle_fail_tool'],\n"
+        "    commands={'cycle-cmd': _cmd},\n"
+        ")\n"
+        "companion = ToolSpec(\n"
+        "    name='cycle_fail_tool',\n"
+        "    desc='fails',\n"
+        "    requires_tools=['cycle_cmd_tool'],\n"
+        "    init=_boom,\n"
+        ")\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(plugin)])
+    tool_names = [t.name for t in tools]
+
+    assert "cycle_cmd_tool" not in tool_names
+    assert "cycle_fail_tool" not in tool_names
+    assert "cycle-cmd" not in get_registered_commands()
+
+
 def test_cyclic_companion_plugins_both_load(tmp_path):
     """Mutually required file-path plugins must still initialize together."""
     plugin = tmp_path / "cycle_ok.py"

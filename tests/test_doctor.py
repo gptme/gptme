@@ -2582,7 +2582,8 @@ class TestCheckPlugins:
         plugin_file.parent.mkdir()
         plugin_file.write_text(
             "EXAMPLE = \"open('.env.example')\"\n"
-            "# open('~/.ssh/id_rsa')  # illustrative comment\n",
+            "# open('~/.ssh/id_rsa')  # illustrative comment\n"
+            "VALUE = 1  # open('~/.ssh/id_rsa')\n",
             encoding="utf-8",
         )
         load = Mock(return_value=GptmePlugin(name="benign_plugin"))
@@ -2945,3 +2946,20 @@ class TestCheckPlugins:
         )
         assert plugin_result.status == CheckStatus.ERROR
         assert "credential-harvest" in _details_blob(plugin_result.details)
+
+    def test_missing_distribution_is_unverified_not_imported(self):
+        """An entry point with no dist metadata must fail closed, not import."""
+        load = Mock(side_effect=AssertionError("unscanned plugin imported"))
+        ep = SimpleNamespace(
+            name="no_dist_plugin",
+            module="no_dist_plugin",
+            dist=None,
+            load=load,
+        )
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: no_dist_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "could not verify entry point" in plugin_result.message

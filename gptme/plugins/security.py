@@ -78,6 +78,38 @@ def _is_comment_only(line: str, suffix: str) -> bool:
     )
 
 
+def _code_portion(line: str, suffix: str) -> str:
+    """Return the executable portion of ``line``, stripping trailing comments.
+
+    Comment-only lines become empty. A trailing comment on a code line
+    (``x = 1  # open('~/.ssh/id_rsa')``) is dropped so it cannot trip a
+    pattern. Quotes are tracked so a ``#`` inside a string is kept.
+    """
+    prefixes = _COMMENT_PREFIXES.get(suffix, ("#",))
+    if not prefixes:
+        return line
+    in_str: str | None = None
+    i = 0
+    while i < len(line):
+        char = line[i]
+        if in_str:
+            if char == "\\" and in_str == '"':
+                i += 2
+                continue
+            if char == in_str:
+                in_str = None
+            i += 1
+            continue
+        if char in {'"', "'"}:
+            in_str = char
+            i += 1
+            continue
+        if any(line.startswith(prefix, i) for prefix in prefixes):
+            return line[:i]
+        i += 1
+    return line
+
+
 # High-severity subset of Bob's idea #524 MCP/skill malware scanner. Doctor
 # blocks import only for these narrow patterns; broader suspicious-code signals
 # remain better suited to an audit command with human review.
@@ -206,7 +238,8 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
     # whole file (not each line independently) so a split expression such as
     # ``open(\n    "~/.ssh/id_rsa"\n)`` cannot evade the patterns.
     haystack = "\n".join(
-        "" if _is_comment_only(line, suffix) else line for line in content.splitlines()
+        "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
+        for line in content.splitlines()
     )
     findings: list[PluginSecurityFinding] = []
     for pattern in _PATTERNS:
@@ -283,9 +316,10 @@ def _editable_scan_targets(
 def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     """Scan an entry point's third-party distribution without importing it.
 
-    Returns ``None`` only when the entry point has no distribution metadata or
-    belongs to gptme itself. The latter is trusted project code already covered by
-    gptme's own review and test pipeline.
+    Returns ``None`` only when the entry point belongs to gptme itself. That
+    code is already covered by gptme's own review and test pipeline. A
+    third-party entry point with no distribution metadata is returned as an
+    unverified scan so callers fail closed instead of importing it.
 
     The returned scan records ``entry_point_scanned`` so callers can fail closed:
     a clean result only means something when the code that will be imported was
@@ -296,7 +330,7 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     """
     distribution = getattr(entry_point, "dist", None)
     if distribution is None:
-        return None
+        return PluginSecurityScan(0, (), entry_point_scanned=False)
 
     name = str(getattr(distribution, "name", ""))
     if name.lower().replace("_", "-") == "gptme":
