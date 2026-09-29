@@ -25,7 +25,11 @@ on:
 jobs:
   run-evals:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Scheduled basic suite is ~2m. workflow_dispatch accepts an arbitrary
+    # suite × models × per-eval timeout; 60m cancelled those runs before
+    # results were committed. Step timeout on "Run evals" leaves headroom
+    # for the commit/push steps below.
+    timeout-minutes: 180
     permissions:
       contents: write
       packages: read
@@ -81,6 +85,8 @@ jobs:
         chmod -R o=rwx ~/.config/gptme
 
     - name: Run evals
+      id: run-evals
+      timeout-minutes: 165
       run: |
         MODEL_ARGS=""
         if [ -n "$MODELS" ]; then
@@ -109,11 +115,13 @@ jobs:
           $MODEL_ARGS
 
     - name: Configure Git
+      if: always() && steps.run-evals.outcome != 'skipped'
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
     - name: Update eval results
+      if: always() && steps.run-evals.outcome != 'skipped'
       run: |
         git pull origin eval-results
         git add -f eval_results

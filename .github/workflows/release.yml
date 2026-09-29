@@ -270,7 +270,11 @@ jobs:
       !cancelled() &&
       (needs.prepare.result == 'success' || github.event_name == 'release')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Observed publish job ~2m; 40m covers a cold webui build plus PyPI,
+    # GH upload, and artifact-dispatch verify. PyPI is intentionally before
+    # upload (#2644: fail-fast on a bad token). Timeout after publish is
+    # not rerunnable (duplicate-version rejection), so do not lower this.
+    timeout-minutes: 40
     permissions:
       contents: write
       actions: write

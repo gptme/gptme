@@ -112,7 +112,9 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Setup + gating dev pass + a capped stable pass. Observed ~6-7m;
+    # 35m leaves room without letting a hung stable pass cancel the job.
+    timeout-minutes: 35
     needs: build
     steps:
     - uses: actions/checkout@v7
@@ -136,65 +138,7 @@ jobs:
     - name: Install Playwright browsers
       run: npx playwright install --with-deps chromium
 
-    # ── stable pass (latest PyPI release) ────────────────────────────────────
-    # The stable pass is non-blocking (see "Require both passes to succeed"
-    # below): it exercises the latest released gptme, not this branch. Every
-    # step in it must therefore tolerate failure so a transient PyPI/registry
-    # blip cannot abort the job before the dev pass — the actual gate — runs.
-    - name: Install stable gptme (PyPI)
-      id: install-stable
-      continue-on-error: true
-      working-directory: .
-      run: pip install 'gptme[server]'
-
-    - name: Start server (stable)
-      if: steps.install-stable.outcome == 'success'
-      continue-on-error: true
-      env:
-        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
-        MODEL: anthropic/claude-3-5-haiku-latest
-      run: |
-        # Playwright serves the webui at http://127.0.0.1:5701 — the CORS origin
-        # must match that exact origin (localhost != 127.0.0.1 for CORS); with a
-        # mismatched origin the webui silently runs offline against demo data
-        # and no e2e test exercises the server at all.
-        gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &
-        echo $! > /tmp/gptme-server.pid
-        sleep 3
-
-    - name: Health-check server (stable)
-      id: health-stable
-      if: steps.install-stable.outcome == 'success'
-      continue-on-error: true
-      run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api/v2
-
-    - name: Run e2e tests (stable)
-      id: e2e-stable
-      if: steps.install-stable.outcome == 'success' && steps.health-stable.outcome == 'success'
-      continue-on-error: true
-      env:
-        # Latest PyPI release still has the workspace-containment create
-        # regression (#2943, fixed by #3319). Remove after the next release.
-        E2E_SKIP_CREATE_CONVERSATION: '1'
-      run: npm run test:e2e
-
-    - name: Upload stable test results
-      if: always()
-      continue-on-error: true
-      uses: actions/upload-artifact@v7
-      with:
-        name: playwright-report-stable
-        path: webui/playwright-report/
-        retention-days: 30
-
-    - name: Stop server (stable)
-      if: always()
-      working-directory: .
-      run: |
-        kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
-        sleep 2
-
-    # ── dev pass (this checkout) ──────────────────────────────────────────────
+    # ── dev pass (this checkout) — the actual gate, runs first ───────────────
     # Install from the PR/branch checkout, NOT git master: the e2e run must
     # exercise the server code under review, otherwise server-side regressions
     # (like the #2943 create breakage) can never be caught pre-merge.
@@ -236,6 +180,69 @@ jobs:
       if: always()
       working-directory: .
       run: kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
+
+    # ── stable pass (latest PyPI release) ────────────────────────────────────
+    # Informational only (see "Require both passes to succeed" below). Runs
+    # after the gating dev pass, and every step is continue-on-error with a
+    # step timeout so a hang cannot cancel the job after the gate has run.
+    - name: Install stable gptme (PyPI)
+      id: install-stable
+      continue-on-error: true
+      timeout-minutes: 5
+      working-directory: .
+      run: |
+        pip uninstall -y gptme || true
+        pip install 'gptme[server]'
+
+    - name: Start server (stable)
+      if: steps.install-stable.outcome == 'success'
+      continue-on-error: true
+      timeout-minutes: 2
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
+        MODEL: anthropic/claude-3-5-haiku-latest
+      run: |
+        # Playwright serves the webui at http://127.0.0.1:5701 — the CORS origin
+        # must match that exact origin (localhost != 127.0.0.1 for CORS); with a
+        # mismatched origin the webui silently runs offline against demo data
+        # and no e2e test exercises the server at all.
+        gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &
+        echo $! > /tmp/gptme-server.pid
+        sleep 3
+
+    - name: Health-check server (stable)
+      id: health-stable
+      if: steps.install-stable.outcome == 'success'
+      continue-on-error: true
+      timeout-minutes: 2
+      run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api/v2
+
+    - name: Run e2e tests (stable)
+      id: e2e-stable
+      if: steps.install-stable.outcome == 'success' && steps.health-stable.outcome == 'success'
+      continue-on-error: true
+      timeout-minutes: 10
+      env:
+        # Latest PyPI release still has the workspace-containment create
+        # regression (#2943, fixed by #3319). Remove after the next release.
+        E2E_SKIP_CREATE_CONVERSATION: '1'
+      run: npm run test:e2e
+
+    - name: Upload stable test results
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v7
+      with:
+        name: playwright-report-stable
+        path: webui/playwright-report/
+        retention-days: 30
+
+    - name: Stop server (stable)
+      if: always()
+      working-directory: .
+      run: |
+        kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
+        sleep 2
 
     - name: Require both passes to succeed
       if: always()
