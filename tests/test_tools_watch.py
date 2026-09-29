@@ -256,6 +256,16 @@ def test_parse_opts_preserves_command_flags():
     assert rest == ["gh", "pr", "checks", "42", "--repo", "gptme/gptme"]
 
 
+def test_parse_opts_run_keeps_pattern_flag():
+    # --pattern is a tmux option; run/stream must leave it on the command.
+    opts, rest = _parse_opts(
+        ["pytest", "--pattern", "smoke", "--timeout", "5s"],
+        names=frozenset({"timeout"}),
+    )
+    assert opts == {"timeout": "5s"}
+    assert rest == ["pytest", "--pattern", "smoke"]
+
+
 def test_quoted_args_survive_arming(tmp_path: Path):
     # shlex.split + " ".join would turn grep 'foo bar' into grep foo bar.
     out = _watch_cli("run grep 'foo bar' file --timeout 0.5s", tmp_path)
@@ -273,6 +283,13 @@ def test_command_flags_survive_arming(tmp_path: Path):
     assert w.description == "gh pr checks 42 --repo gptme/gptme"
     wid = out.content.split()[2]
     _watch_cli(f"cancel {wid}", tmp_path)
+
+
+def test_run_keeps_pattern_flag_on_command(tmp_path: Path):
+    out = _watch_cli("run echo --pattern smoke --timeout 0.5s", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "run")
+    assert w.description == "echo --pattern smoke"
+    _watch_cli(f"cancel {out.content.split()[2]}", tmp_path)
 
 
 def test_stream_records_each_line_once(tmp_path: Path):
@@ -473,6 +490,14 @@ def test_command_from_watch_content():
         _command_from_watch_content("run grep 'foo bar' file") == "grep 'foo bar' file"
     )
     assert _command_from_watch_content("run echo hello") == "echo hello"
+    assert (
+        _command_from_watch_content("run pytest --pattern smoke --timeout 5s")
+        == "pytest --pattern smoke"
+    )
+    assert (
+        _command_from_watch_content("stream tail -f app.log --pattern ERROR")
+        == "tail -f app.log --pattern ERROR"
+    )
     assert _command_from_watch_content("timer 10m coffee") is None
     assert _command_from_watch_content("list") is None
 
@@ -669,6 +694,51 @@ def test_run_timeout_closes_stdout_when_grandchild_holds_pipe(tmp_path: Path):
         assert w.fired
         assert "expired" in w.events[-1]
         assert proc.stdout is None or proc.stdout.closed
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        _kill_proc(proc)
+
+
+def test_stream_ends_when_parent_exits_even_if_grandchild_holds_pipe(
+    tmp_path: Path,
+):
+    """Parent exit ends the stream even if a grandchild inherited stdout."""
+    import os
+    import signal
+    import subprocess as sp
+
+    proc = sp.Popen(
+        [
+            "python3",
+            "-c",
+            "import os, sys, time; os.fork() or time.sleep(60); "
+            "print('hi', flush=True)",
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.DEVNULL,
+        text=True,
+        start_new_session=True,
+        bufsize=1,
+    )
+    w = Watch(
+        id="w-stream-pipe",
+        kind="stream",
+        description="grandchild-pipe-stream",
+        created=time.time(),
+        proc=proc,
+        logdir=tmp_path,
+    )
+    t = threading.Thread(target=_watch_mod._poll_stream, args=(w, proc), daemon=True)
+    t.start()
+    try:
+        t.join(timeout=5)
+        assert not t.is_alive()
+        assert w.fired
+        assert any("stream ended" in e for e in w.events)
+        assert any(e.strip() == "hi" for e in w.events)
     finally:
         try:
             os.killpg(proc.pid, signal.SIGKILL)

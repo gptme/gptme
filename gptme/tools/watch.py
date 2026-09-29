@@ -42,9 +42,21 @@ _STREAM_LINE_QUEUE = 256
 # `run` only reports a tail; never retain the child's full stdout.
 _RUN_TAIL_CHARS = 1000
 
-# Option names the watch parser consumes. Anything else starting with `--`
-# belongs to the command being watched (e.g. `gh pr checks 42 --repo x`).
+# Union of watch option names. Production parsing is verb-specific via
+# `_watch_opt_names_for`: a flag the verb does not use stays on the command
+# (`watch run pytest --pattern smoke` must run pytest, not strip --pattern).
 _WATCH_OPT_NAMES = frozenset({"every", "timeout", "pattern", "stable"})
+
+
+def _watch_opt_names_for(verb: str) -> frozenset[str]:
+    """Watch-option names consumed for this verb; others stay on the command."""
+    if verb == "until":
+        return frozenset({"every", "timeout"})
+    if verb == "tmux":
+        return frozenset({"pattern", "stable", "timeout"})
+    if verb in ("run", "stream", "timer"):
+        return frozenset({"timeout"})
+    return _WATCH_OPT_NAMES
 
 
 @dataclass
@@ -119,6 +131,10 @@ def _kill_proc(proc: subprocess.Popen | None) -> None:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
     except Exception:
         logger.debug("failed to kill watched process", exc_info=True)
 
@@ -321,10 +337,11 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
 def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     """Each stdout line is an event; process exit ends the watch.
 
-    A reader thread decouples the blocking ``readline`` from the loop so the
-    watch deadline is still enforced when the source goes quiet. The queue is
-    bounded: if the consumer cannot keep up, the watch auto-cancels instead of
-    buffering an unbounded firehose.
+    The reader uses ``select`` + ``os.read`` (same as ``_poll_run``) so a
+    grandchild that inherited the pipe cannot pin us on blocking
+    ``readline``. Parent exit ends the stream even if EOF never arrives.
+    The queue is bounded: if the consumer cannot keep up, the watch
+    auto-cancels instead of buffering an unbounded firehose.
     """
     assert proc.stdout is not None
     stdout = proc.stdout
@@ -334,14 +351,40 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     # consumer will never drain) but must NOT mark the watch cancelled, or
     # `_fire` below would drop the expiration wake.
     stop = threading.Event()
+    reader_done = threading.Event()
 
     def _reader() -> None:
+        buf = ""
         try:
-            for line in iter(stdout.readline, ""):
-                if watch.cancelled or stop.is_set():
-                    return
+            fd = stdout.fileno()
+            while not stop.is_set() and not watch.cancelled:
+                ready, _, _ = select.select([fd], [], [], 0.2)
+                if stop.is_set() or watch.cancelled:
+                    break
+                if not ready:
+                    # Parent exited: remaining buf is the last partial line.
+                    # A grandchild may still hold the pipe, so EOF never comes.
+                    if proc.poll() is not None:
+                        break
+                    continue
+                piece = os.read(fd, 4096)
+                if not piece:
+                    break
+                buf += piece.decode("utf-8", errors="replace")
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    try:
+                        lines.put(line, timeout=0.5)
+                    except queue.Full:
+                        with watch.lock:
+                            watch.cancelled = True
+                        logger.warning(
+                            "watch %s stream queue full; auto-cancelled", watch.id
+                        )
+                        return
+            if buf and not stop.is_set() and not watch.cancelled:
                 try:
-                    lines.put(line, timeout=0.5)
+                    lines.put(buf, timeout=0.5)
                 except queue.Full:
                     with watch.lock:
                         watch.cancelled = True
@@ -349,6 +392,8 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                         "watch %s stream queue full; auto-cancelled", watch.id
                     )
                     return
+        except Exception:
+            logger.debug("watch %s stream reader failed", watch.id, exc_info=True)
         finally:
             # The end-of-stream sentinel must reach the consumer or the watch
             # hangs on lines.get() forever. Retry while the queue is full; the
@@ -360,32 +405,52 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                     break
                 except queue.Full:
                     pass
+            reader_done.set()
+
+    def _stop_reader() -> None:
+        stop.set()
+        reader_done.wait(timeout=2)
+        _close_stdout(proc)
 
     threading.Thread(target=_reader, daemon=True).start()
     while True:
         if watch.cancelled:
-            break
+            _kill_proc(proc)
+            _stop_reader()
+            return
         if watch.deadline is not None and time.time() > watch.deadline:
             # Signal the reader that this consumer is done, then deliver the
             # expiration wake while the watch is still live.
-            stop.set()
             _kill_proc(proc)
+            _stop_reader()
             _fire(watch, f"expired without event ({watch.description})")
             return
+        parent_dead = proc.poll() is not None
         try:
             line = lines.get(timeout=0.5)
         except queue.Empty:
+            if parent_dead:
+                # Parent exited; a grandchild may still hold the write end,
+                # so EOF never arrives. End the stream after a quiet interval.
+                _stop_reader()
+                _fire(watch, f"stream ended (rc={proc.poll()})")
+                return
             continue
         if line is None:
             break
-        line = line.rstrip("\n")
+        line = line.rstrip("\r")
         if line:
             _fire(watch, line, once=False)
     if watch.cancelled:
         _kill_proc(proc)
+        _stop_reader()
         return
-    rc = proc.wait()
-    _fire(watch, f"stream ended (rc={rc})")
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        _kill_proc(proc)
+    _stop_reader()
+    _fire(watch, f"stream ended (rc={proc.returncode})")
 
 
 def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
@@ -561,12 +626,16 @@ def _parse_duration(text: str) -> float:
     return value * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}.get(m.group(2) or "s", 1)
 
 
-def _parse_opts(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
+def _parse_opts(
+    tokens: list[str], names: frozenset[str] | None = None
+) -> tuple[dict[str, str], list[str]]:
     """Split watch options from the command being watched.
 
-    Only the known watch option names are consumed; any other ``--flag``
-    (e.g. ``--repo`` on a ``gh pr checks`` probe) stays with the command.
+    Only ``names`` (default: all watch option names) are consumed; any other
+    ``--flag`` stays with the command. Callers pass a verb-specific set so
+    ``watch run pytest --pattern smoke`` does not strip pytest's flag.
     """
+    allowed = _WATCH_OPT_NAMES if names is None else names
     opts: dict[str, str] = {}
     rest: list[str] = []
     i = 0
@@ -576,12 +645,12 @@ def _parse_opts(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
             name = tok[2:]
             if "=" in name:
                 key, val = name.split("=", 1)
-                if key in _WATCH_OPT_NAMES:
+                if key in allowed:
                     opts[key] = val
                     i += 1
                     continue
             elif (
-                name in _WATCH_OPT_NAMES
+                name in allowed
                 and i + 1 < len(tokens)
                 and not tokens[i + 1].startswith("--")
             ):
@@ -641,7 +710,7 @@ def _command_from_watch_content(content: str) -> str | None:
         return None
     if not tokens or tokens[0] not in ("run", "until", "stream"):
         return None
-    _, positional = _parse_opts(tokens[1:])
+    _, positional = _parse_opts(tokens[1:], _watch_opt_names_for(tokens[0]))
     try:
         _reject_unquoted_operators(content or "")
         command = _join_command(positional)
@@ -798,7 +867,7 @@ def _watch(
             )
 
     if verb == "timer":
-        opts, positional = _parse_opts(rest)
+        opts, positional = _parse_opts(rest, _watch_opt_names_for(verb))
         if not positional:
             raise ValueError("usage: watch timer <duration> [description]")
         seconds = _parse_duration(positional[0])
@@ -816,7 +885,7 @@ def _watch(
     if verb in ("run", "until", "stream"):
         if not rest:
             raise ValueError(f"usage: watch {verb} <command> [--every 30s] ...")
-        opts, positional = _parse_opts(rest)
+        opts, positional = _parse_opts(rest, _watch_opt_names_for(verb))
         _reject_unquoted_operators(code or "")
         command = _join_command(positional)
         if not command:
@@ -858,7 +927,7 @@ def _watch(
         return _spawn(w, _poll_stream, proc)
 
     if verb == "tmux":
-        opts, positional = _parse_opts(rest)
+        opts, positional = _parse_opts(rest, _watch_opt_names_for(verb))
         if not positional:
             raise ValueError("usage: watch tmux <session> [--pattern re] [--stable 5s]")
         session = positional[0]
@@ -912,9 +981,11 @@ tool = ToolSpec(
         "we spawned (otherwise the worker and pipes leak). `until`/`timer`/`tmux` "
         "have no long-lived child to kill.\n"
         "- `watch wait <id> [timeout]`: blocking observation-only wait; never kills.\n"
-        "All options: --every, --timeout, --pattern, --stable (other `--flags` "
-        "belong to the watched command; set `--timeout` on `until` so a "
-        "never-met condition still wakes you). "
+        "Verb options: --timeout on run/until/stream/timer/tmux; --every on "
+        "until; --pattern/--stable on tmux. Other `--flags` belong to the "
+        "watched command (so `watch run pytest --pattern smoke` keeps "
+        "--pattern). Set `--timeout` on `until` so a never-met condition "
+        "still wakes you. "
         "Runaway sources are auto-cancelled by storm guards. `run`/`until`/"
         "`stream` use the same confirmation and denylist as the shell tool "
         "(allowlisted probes auto-confirm; others prompt). `list`/`cancel`/"
