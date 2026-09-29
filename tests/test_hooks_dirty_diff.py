@@ -133,3 +133,56 @@ def test_register_adds_session_start_and_turn_pre_hooks():
     turn_names = [hook.name for hook in get_hooks(HookType.TURN_PRE)]
     assert "dirty_diff.session_start" in start_names
     assert "dirty_diff.turn_pre" in turn_names
+
+
+def test_hook_redacts_secret_assignments(git_repo):
+    (git_repo / "file.txt").write_text("GITHUB_TOKEN=ghp_supersecretvalue\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    assert "GITHUB_TOKEN=[REDACTED]" in out[0].content
+    assert "ghp_supersecretvalue" not in out[0].content
+
+
+def test_hook_lists_untracked_files(git_repo):
+    (git_repo / "brand_new.py").write_text("print('hi')\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    assert "brand_new.py" in out[0].content
+    assert "Untracked files" in out[0].content
+    # Untracked contents are not diffed, so no diff fence is emitted.
+    assert "```diff" not in out[0].content
+
+
+def test_hook_marks_content_untrusted(git_repo):
+    (git_repo / "file.txt").write_text("changed\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    assert "untrusted repository data" in out[0].content
+
+
+def test_get_dirty_diff_disables_ext_and_textconv(git_repo, monkeypatch):
+    from gptme.hooks import dirty_diff
+
+    captured: dict = {}
+
+    class _Result:
+        returncode = 0
+        stdout = "diff --git a/f b/f\n"
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return _Result()
+
+    monkeypatch.setattr(dirty_diff.subprocess, "run", fake_run)
+
+    diff = dirty_diff._get_dirty_diff(git_repo)
+
+    assert diff is not None
+    assert "--no-ext-diff" in captured["argv"]
+    assert "--no-textconv" in captured["argv"]
