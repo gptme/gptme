@@ -234,6 +234,35 @@ def test_init_tools_fails():
         init_tools(allowlist=["save", "missing_tool"])
 
 
+def test_plugin_init_failure_is_skipped(tmp_path):
+    """A plugin tool whose init() raises should be skipped, not abort init_tools()."""
+    bad_plugin = tmp_path / "bad_plugin.py"
+    bad_plugin.write_text(
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _init():\n"
+        "    raise RuntimeError('broken plugin')\n"
+        "\n"
+        "tool = ToolSpec(name='bad_tool', desc='broken', init=_init)\n"
+    )
+    good_plugin = tmp_path / "good_plugin.py"
+    good_plugin.write_text(
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _init():\n"
+        "    return ToolSpec(name='good_tool', desc='works')\n"
+        "\n"
+        "tool = ToolSpec(name='good_tool', desc='works', init=_init)\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(bad_plugin), str(good_plugin)])
+    tool_names = [t.name for t in tools]
+
+    assert "good_tool" in tool_names, "working plugin tool must be loaded"
+    assert "bad_tool" not in tool_names, "broken plugin tool must be skipped"
+
+
 def test_tool_loading_with_package():
     found = _discover_tools(["gptme.tools"])
 

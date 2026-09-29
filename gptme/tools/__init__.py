@@ -7,7 +7,7 @@ import threading
 import time
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, overload
 
 from ..constants import INTERRUPT_CONTENT
 from ..message import Message
@@ -156,22 +156,47 @@ _warned_mcp_allowlists: set[tuple[str, ...]] = set()
 _warned_mcp_allowlists_lock = threading.Lock()
 
 
-def _init_single_tool(tool: ToolSpec) -> ToolSpec:
+@overload
+def _init_single_tool(
+    tool: ToolSpec, *, on_error: Literal["raise"] = ...
+) -> ToolSpec: ...
+
+
+@overload
+def _init_single_tool(
+    tool: ToolSpec, *, on_error: Literal["skip"]
+) -> ToolSpec | None: ...
+
+
+def _init_single_tool(
+    tool: ToolSpec, *, on_error: Literal["raise", "skip"] = "raise"
+) -> ToolSpec | None:
     """Initialize a single tool: run its init(), register hooks and commands.
 
     Caller is responsible for acquiring _tools_init_lock if needed.
+
+    on_error="raise": re-raise any exception from init() (default, for built-ins)
+    on_error="skip": log a warning and return None on failure (for plugins)
     """
-    if tool.init:
-        initialized = tool.init()
-        if not isinstance(initialized, ToolSpec):
-            raise ValueError(
-                f"Tool {tool.name!r} init() returned {type(initialized).__name__}; "
-                "it must return a ToolSpec"
-            )
-        tool = initialized
-    tool.register_hooks()
-    tool.register_commands()
-    return tool
+    try:
+        if tool.init:
+            initialized = tool.init()
+            if not isinstance(initialized, ToolSpec):
+                raise ValueError(
+                    f"Tool {tool.name!r} init() returned {type(initialized).__name__}; "
+                    "it must return a ToolSpec"
+                )
+            tool = initialized
+        tool.register_hooks()
+        tool.register_commands()
+        return tool
+    except Exception:
+        if on_error == "raise":
+            raise
+        logger.warning(
+            "Skipping plugin tool %r: init() failed", tool.name, exc_info=True
+        )
+        return None
 
 
 def init_tools(
@@ -233,8 +258,9 @@ def init_tools(
             file_tools = _add_required_tools(file_tools, available, allowlist=permitted)
             for tool in file_tools:
                 if not has_tool(tool.name):
-                    tool = _init_single_tool(tool)
-                    loaded_tools.append(tool)
+                    initialized = _init_single_tool(tool, on_error="skip")
+                    if initialized is not None:
+                        loaded_tools.append(initialized)
 
         # Load built-in tools by name
         # When file paths are present, only load explicitly named built-in tools
