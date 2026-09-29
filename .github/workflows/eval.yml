@@ -106,13 +106,26 @@ jobs:
         mkdir -p $RESULTS_DIR
         chmod -R o=rwx $RESULTS_DIR  # make sure docker can read/write the dir
 
-        docker run \
+        IMAGE="ghcr.io/${OWNER_LC}/gptme-eval${IMAGE_SUFFIX}:latest"
+        cleanup() {
+          docker ps -aq --filter "ancestor=$IMAGE" | xargs -r docker rm -f
+        }
+        trap cleanup EXIT INT TERM
+
+        docker run --rm \
           -v ~/.config/gptme:/home/appuser/.config/gptme \
           -v $RESULTS_DIR:/app/eval_results \
-          ghcr.io/${OWNER_LC}/gptme-eval${IMAGE_SUFFIX}:latest \
+          "$IMAGE" \
           ${SUITE:+"$SUITE"} \
           --timeout "$TIMEOUT" \
           $MODEL_ARGS
+
+    # Step timeout kills `docker run` but can leave the container writing to
+    # the mounted eval_results dir. Stop leftovers before git add.
+    - name: Stop leftover eval containers
+      if: always() && steps.run-evals.outcome != 'skipped'
+      run: |
+        docker ps -aq --filter "ancestor=ghcr.io/${OWNER_LC}/gptme-eval${IMAGE_SUFFIX}:latest" | xargs -r docker rm -f
 
     - name: Configure Git
       if: always() && steps.run-evals.outcome != 'skipped'

@@ -157,7 +157,7 @@ jobs:
         GPTME_DISABLE_AUTH: "1"
       run: |
         gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &
-        echo $! > /tmp/gptme-server.pid
+        echo $! > /tmp/gptme-server-dev.pid
         sleep 3
 
     - name: Health-check server (dev)
@@ -179,7 +179,9 @@ jobs:
     - name: Stop server (dev)
       if: always()
       working-directory: .
-      run: kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
+      run: |
+        kill "$(cat /tmp/gptme-server-dev.pid)" 2>/dev/null || true
+        rm -f /tmp/gptme-server-dev.pid
 
     # ── stable pass (latest PyPI release) ────────────────────────────────────
     # Informational only (see "Require both passes to succeed" below). Runs
@@ -207,7 +209,7 @@ jobs:
         # mismatched origin the webui silently runs offline against demo data
         # and no e2e test exercises the server at all.
         gptme-server --cors-origin="http://127.0.0.1:5701,http://localhost:5701" &
-        echo $! > /tmp/gptme-server.pid
+        echo $! > /tmp/gptme-server-stable.pid
         sleep 3
 
     - name: Health-check server (stable)
@@ -241,7 +243,8 @@ jobs:
       if: always()
       working-directory: .
       run: |
-        kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
+        kill "$(cat /tmp/gptme-server-stable.pid)" 2>/dev/null || true
+        rm -f /tmp/gptme-server-stable.pid
         sleep 2
 
     - name: Require both passes to succeed
