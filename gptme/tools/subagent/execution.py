@@ -362,11 +362,13 @@ def _create_subagent_thread(
     # Inherit the parent's --diff ledger, if any. A plain Thread starts with an
     # empty contextvars context, so without this restore, delegated edits are
     # dropped. The parent snapshots before spawn; we never fall back to a
-    # process-global tracker (that would mix unrelated sessions).
+    # process-global tracker (that would mix unrelated sessions). Reset when
+    # the thread finishes so a reused worker cannot write to a stale ledger.
+    diff_tracker_token = None
     if diff_tracker is not None:
         from ...util.diff_suggestions import restore_diff_tracker
 
-        restore_diff_tracker(diff_tracker)
+        diff_tracker_token = restore_diff_tracker(diff_tracker)
 
     # Start this subagent thread with a known-empty tool list.
     #
@@ -613,6 +615,10 @@ def _create_subagent_thread(
         # sub-microsecond race that requires modifying chat() itself to close.
         if prompt_queue_closed is not None:
             prompt_queue_closed.set()
+        if diff_tracker_token is not None:
+            from ...util.diff_suggestions import reset_diff_tracker
+
+            reset_diff_tracker(diff_tracker_token)
         _exit_subagent_cwd(workspace)
         # Drain any steer messages that arrived after the last STEP_PRE fired but
         # before chat() returned. These were not deliverable mid-turn; warn so

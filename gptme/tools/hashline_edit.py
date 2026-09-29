@@ -909,6 +909,8 @@ def execute_hashline_edit(
     from ..hooks import ConfirmAction, get_confirmation
     from ..util.diff_suggestions import (
         confirmation_is_automatic,
+        is_diff_tracking_active,
+        line_ranges_from_contents,
         record_diff_suggestion,
     )
 
@@ -917,6 +919,12 @@ def execute_hashline_edit(
         default_confirm=True,
     )
     confirmation_automatic = confirmation_is_automatic()
+
+    def _line_ranges_override() -> list[dict[str, int | str]] | None:
+        if not is_diff_tracking_active():
+            return None
+        return line_ranges_from_contents(str(resolved), live_content, updated)
+
     if confirm_result.action == ConfirmAction.SKIP:
         record_diff_suggestion(
             get_current_tool_use(),
@@ -924,6 +932,7 @@ def execute_hashline_edit(
             updated,
             confirmation_automatic=confirmation_automatic,
             execution_status="not_run",
+            line_ranges_override=_line_ranges_override(),
         )
         yield Message(
             "system",
@@ -938,6 +947,8 @@ def execute_hashline_edit(
     ):
         updated = confirm_result.edited_content
 
+    line_ranges = _line_ranges_override()
+
     def record_execution(status: str, error: str | None = None) -> None:
         record_diff_suggestion(
             get_current_tool_use(),
@@ -947,6 +958,7 @@ def execute_hashline_edit(
             confirmation_automatic=confirmation_automatic,
             execution_status=status,
             execution_error=error,
+            line_ranges_override=line_ranges,
         )
 
     # For merge-recovered edits, re-read the file right before writing to guard

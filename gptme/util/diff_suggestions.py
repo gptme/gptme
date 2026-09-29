@@ -9,7 +9,7 @@ import re
 import threading
 import uuid
 from contextlib import contextmanager
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,10 +62,23 @@ def snapshot_diff_tracker() -> _DiffSuggestionTracker | None:
     return _resolve_tracker()
 
 
-def restore_diff_tracker(tracker: _DiffSuggestionTracker | None) -> None:
-    """Bind a parent --diff tracker in this thread's context."""
-    if tracker is not None:
-        _tracker.set(tracker)
+def restore_diff_tracker(
+    tracker: _DiffSuggestionTracker | None,
+) -> Token[_DiffSuggestionTracker | None] | None:
+    """Bind a parent --diff tracker in this thread's context.
+
+    Returns the ContextVar token so the caller can reset when the thread
+    finishes. Thread-mode subagents are one-shot today; still reset so a
+    reused thread cannot write to a stale ledger.
+    """
+    if tracker is None:
+        return None
+    return _tracker.set(tracker)
+
+
+def reset_diff_tracker(token: Token[_DiffSuggestionTracker | None]) -> None:
+    """Unbind a tracker restored into this thread."""
+    _tracker.reset(token)
 
 
 @contextmanager
@@ -239,6 +252,32 @@ def diff_suggestion_line_ranges(
         _targets(tool_use),
         tool_use.tool,
     )
+
+
+def line_ranges_from_contents(
+    path: str, old: str, new: str
+) -> list[dict[str, int | str]]:
+    """Resolve line ranges for a whole-file rewrite from before/after contents.
+
+    hashline_edit confirms the new file body, not a unified diff. Synthesize
+    hunk headers from the pre-write contents so applied events still record
+    where the rewrite landed.
+    """
+    import difflib
+
+    diff = "\n".join(
+        difflib.unified_diff(
+            old.splitlines(),
+            new.splitlines(),
+            fromfile=path,
+            tofile=path,
+            lineterm="",
+            n=0,
+        )
+    )
+    if not diff:
+        return []
+    return _line_ranges(diff, [path], "hashline_edit")
 
 
 def record_diff_suggestion(

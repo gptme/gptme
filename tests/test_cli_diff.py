@@ -22,7 +22,9 @@ from gptme.tools.patch import DIVIDER, ORIGINAL, UPDATED, preview_patch
 from gptme.util.ask_execute import execute_with_confirmation
 from gptme.util.context import _read_untracked_bytes, get_git_diff_context
 from gptme.util.diff_suggestions import (
+    line_ranges_from_contents,
     record_diff_suggestion,
+    reset_diff_tracker,
     restore_diff_tracker,
     snapshot_diff_tracker,
     track_diff_suggestions,
@@ -901,3 +903,69 @@ def test_line_ranges_skipped_without_diff_tracking(
         )
 
     assert calls == []
+
+
+def test_line_ranges_from_contents_maps_a_single_replacement():
+    ranges = line_ranges_from_contents(
+        "example.py",
+        "before\nold value\nafter\n",
+        "before\nnew value\nafter\n",
+    )
+    assert ranges[0]["old_start"] == 2
+    assert ranges[0]["new_start"] == 2
+    assert ranges[0]["old_count"] == 1
+    assert ranges[0]["new_count"] == 1
+
+
+def test_hashline_edit_records_ranges_from_pre_write_contents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """hashline_edit writes first; ranges must still come from the old file."""
+    from gptme.tools._hashline_snapshot import store_snapshot
+    from gptme.tools.hashline_edit import execute_hashline_edit
+
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("before\nold value\nafter\n")
+    tag = store_snapshot(str(target.resolve()), target.read_text())
+    block = f"[{target.resolve()}#{tag}]\nPUT 2.=2:\n+new value\n"
+    tool_use = ToolUse("hashline_edit", [str(target)], block)
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    with (
+        track_diff_suggestions(logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        list(execute_hashline_edit(block, [str(target)], None))
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert target.read_text() == "before\nnew value\nafter\n"
+    assert event["execution_status"] == "applied"
+    assert event["tool"] == "hashline_edit"
+    assert event["line_ranges"][0]["old_start"] == 2
+    assert event["line_ranges"][0]["new_start"] == 2
+
+
+def test_reset_diff_tracker_stops_further_records(tmp_path: Path):
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("patch", ["example.py"], "patch")
+
+    def _worker() -> None:
+        token = restore_diff_tracker(tracker)
+        assert token is not None
+        reset_diff_tracker(token)
+        record_diff_suggestion(
+            tool_use,
+            ConfirmationResult.confirm(),
+            "@@ -1 +1 @@\n-old\n+new",
+        )
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        tracker = snapshot_diff_tracker()
+        thread = threading.Thread(target=_worker)
+        thread.start()
+        thread.join()
+
+    assert not (logdir / "diff-suggestions.jsonl").exists()
