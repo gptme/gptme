@@ -13,6 +13,22 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def large_output_path(
+    logdir: Path,
+    content: str,
+    output_type: str = "tool",
+    now: datetime | None = None,
+) -> Path:
+    """Path :func:`save_large_output` would use, without writing a file.
+
+    Single source of truth for the ``<logdir>/tool-outputs/<type>/<ts>-<hash>.txt``
+    layout, shared with callers that only need the path for accounting.
+    """
+    timestamp = (now or datetime.now(tz=timezone.utc)).strftime("%Y%m%d_%H%M%S")
+    content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
+    return logdir / "tool-outputs" / output_type / f"{timestamp}-{content_hash}.txt"
+
+
 def save_large_output(
     content: str,
     logdir: Path,
@@ -33,15 +49,9 @@ def save_large_output(
     Returns:
         Tuple of (summary_text, saved_path)
     """
-    # Create output directory
-    output_dir = logdir / "tool-outputs" / output_type
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Generate filename with timestamp and content hash
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
-    filename = f"{timestamp}-{content_hash}.txt"
-    saved_path = output_dir / filename
+    # Path is derived by the shared helper so callers can predict the filename.
+    saved_path = large_output_path(logdir, content, output_type)
+    saved_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Save content to file
     saved_path.write_text(content)

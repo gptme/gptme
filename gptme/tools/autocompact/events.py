@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 EVENT_LOG_NAME = "compaction.jsonl"
 SHADOW_LOG_NAME = "phase0-shadow.jsonl"
+# The shadow ledger records per-message decisions on every compaction. Cap its
+# on-disk growth and rotate one generation; readers use the current file.
+SHADOW_LOG_MAX_BYTES = 5 * 1024 * 1024
 _event_locks_guard = threading.Lock()
 _event_locks: weakref.WeakValueDictionary[Path, threading.Lock] = (
     weakref.WeakValueDictionary()
@@ -169,16 +172,29 @@ def append_phase0_shadow_event(
     if logdir is None or not isinstance(logdir, (str, PathLike)):
         return event
     logdir = Path(logdir)
+    log_path = logdir / SHADOW_LOG_NAME
     try:
         logdir.mkdir(parents=True, exist_ok=True)
-        with (
-            _event_lock(logdir, SHADOW_LOG_NAME),
-            (logdir / SHADOW_LOG_NAME).open("a", encoding="utf-8") as file,
-        ):
-            file.write(json.dumps(event, separators=(",", ":")) + "\n")
+        with _event_lock(logdir, SHADOW_LOG_NAME):
+            _rotate_if_oversized(log_path, SHADOW_LOG_MAX_BYTES)
+            with log_path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(event, separators=(",", ":")) + "\n")
     except OSError as exc:
         logger.warning("Failed to append Phase-0 shadow event: %s", exc)
     return event
+
+
+def _rotate_if_oversized(path: Path, max_bytes: int) -> None:
+    """Move ``path`` to ``<path>.1`` once it exceeds ``max_bytes``.
+
+    Best-effort: a rotation failure must not stop the append, which still
+    needs to record the evaluation sample.
+    """
+    try:
+        if path.exists() and path.stat().st_size > max_bytes:
+            path.replace(path.with_name(path.name + ".1"))
+    except OSError as exc:
+        logger.warning("Failed to rotate %s: %s", path, exc)
 
 
 def read_phase0_shadow_events(logdir: Path) -> list[dict[str, Any]]:

@@ -687,8 +687,10 @@ def test_digest_does_not_collide_on_unnumbered_payloads():
 def test_shadow_tokens_saved_matches_live_with_logdir(tmp_path, monkeypatch):
     """With a logdir, shadow tokens_saved must match the live persisted stub.
 
-    Freeze time so the estimated recovery path uses the same timestamp as
-    save_large_output; the content hash is already shared.
+    Freeze time at the single source of the path format
+    (:func:`gptme.util.output_storage.large_output_path`) so the estimated
+    recovery path uses the same timestamp as ``save_large_output``; the
+    content hash is already shared by construction.
     """
     frozen = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 
@@ -698,7 +700,6 @@ def test_shadow_tokens_saved_matches_live_with_logdir(tmp_path, monkeypatch):
             return frozen
 
     monkeypatch.setattr("gptme.util.output_storage.datetime", FrozenDateTime)
-    monkeypatch.setattr("gptme.tools.autocompact.engine.datetime", FrozenDateTime)
 
     stale_content = "word " * 400
     padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
@@ -714,3 +715,28 @@ def test_shadow_tokens_saved_matches_live_with_logdir(tmp_path, monkeypatch):
     assert sum(d.tokens_saved for d in decisions) == live_saved
     assert any(d.decision == "drop" for d in decisions)
     assert list((tmp_path / "tool-outputs" / "autocompact").glob("*.txt"))
+
+
+def test_shadow_ledger_rotates_when_oversized(tmp_path, monkeypatch):
+    """An oversized shadow ledger rotates to ``phase0-shadow.jsonl.1`` on append.
+
+    Growth is bounded: the ledger records per-message decisions on every
+    compaction, so the append path must not grow it without limit.
+    """
+    from gptme.tools.autocompact import events as shadow_events
+
+    monkeypatch.setattr(shadow_events, "SHADOW_LOG_MAX_BYTES", 10)
+    log_path = tmp_path / "phase0-shadow.jsonl"
+    log_path.write_text("x" * 100)
+
+    large_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(large_content)] + padding
+
+    shadow_prune_stale_tool_outputs(log, _model_name(), logdir=tmp_path)
+
+    rotated = tmp_path / "phase0-shadow.jsonl.1"
+    assert rotated.exists(), "oversized ledger must rotate to .1"
+    assert rotated.read_text() == "x" * 100
+    # The current file holds only the fresh record after rotation.
+    assert len(read_phase0_shadow_events(tmp_path)) == 1

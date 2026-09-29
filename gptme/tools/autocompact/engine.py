@@ -10,10 +10,8 @@ Phase 0 replaces messages rather than deleting them so tool-call/result pairs
 stay provider-valid and later phases can still index into conversation.jsonl.
 """
 
-import hashlib
 import logging
 from collections.abc import Generator
-from datetime import datetime, timezone
 from pathlib import Path
 
 from ...context import strip_reasoning
@@ -24,7 +22,11 @@ from ...util.master_context import (
     build_master_context_index,
     create_master_context_reference,
 )
-from ...util.output_storage import create_tool_result_summary, save_large_output
+from ...util.output_storage import (
+    create_tool_result_summary,
+    large_output_path,
+    save_large_output,
+)
 from ...util.reduce import message_contains_tool_use, reduce_log
 from .events import append_phase0_shadow_event
 from .scoring import (
@@ -60,20 +62,13 @@ _STUB_PATH_PLACEHOLDER = (
 def _estimate_recovery_path(logdir: Path | None, content: str = "") -> str:
     """Path used in the recovery stub. Does not write a file.
 
-    When ``logdir`` is set, match :func:`save_large_output`'s layout and
-    filename length so shadow ``tokens_saved`` tracks the live pass. Without
-    a logdir, use the representative placeholder.
+    When ``logdir`` is set, reuse :func:`large_output_path` so the shadow path
+    shape (and therefore token accounting) tracks the live pass. Without a
+    logdir, use the representative placeholder.
     """
     if logdir is None:
         return _STUB_PATH_PLACEHOLDER
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
-    return str(
-        Path(logdir)
-        / "tool-outputs"
-        / "autocompact"
-        / f"{timestamp}-{content_hash}.txt"
-    )
+    return str(large_output_path(logdir, content, output_type="autocompact"))
 
 
 def _is_tool_output(msg: Message, prev: Message | None) -> bool:
