@@ -57,7 +57,9 @@
     will-change: transform;
   }
 
-  .prompt-scroller:hover .prompt-scroller-track {
+  .prompt-scroller:hover .prompt-scroller-track,
+  .prompt-scroller:focus-within .prompt-scroller-track,
+  .prompt-scroller:active .prompt-scroller-track {
     animation-play-state: paused;
   }
 

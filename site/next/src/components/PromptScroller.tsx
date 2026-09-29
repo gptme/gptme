@@ -8,9 +8,10 @@
  *
  * Adapted to gptme.org, which is prerendered with no React hydration
  * (`src/client.ts`), so the scroll is a pure-CSS animation over a duplicated
- * list — no hooks, no JS, no shadcn/lucide dependencies. It pauses on hover and
- * stops entirely under `prefers-reduced-motion: reduce`. Colours use the site's
- * terminal tokens; the category tag reuses the terminal tag styling.
+ * list — no hooks, no JS, no shadcn/lucide dependencies. It pauses on hover,
+ * focus and press, and stops entirely under `prefers-reduced-motion: reduce`.
+ * Colours use the site's terminal tokens; the category tag reuses the terminal
+ * tag styling.
  */
 
 type PromptKind =
@@ -60,8 +61,26 @@ const prompts: Array<{ prompt: string; kind: PromptKind }> = [
 ];
 
 const QUOTED = /"([^"]*?)"/g;
-const URL =
+const FILENAME =
   /(?<!")((https?:\/\/[^\s"]+)|(\S+\.(png|jpg|jpeg|gif|svg|zip|pdf|html|css|js|csv|xlsx|json|xml|md)))(?!")/g;
+
+type Span = { start: number; end: number; text: string };
+
+/**
+ * Non-overlapping spans to highlight, earliest first. A quoted string and a
+ * filename nested inside it both match, so the quoted span (longer, and
+ * starting at or before the nested one) must win — otherwise the filename would
+ * be emitted twice.
+ */
+function highlightSpans(text: string): Span[] {
+  const spans: Span[] = [];
+  for (const re of [QUOTED, FILENAME]) {
+    for (const match of text.matchAll(re)) {
+      if (match.index !== undefined) spans.push({ start: match.index, end: match.index + match[0].length, text: match[0] });
+    }
+  }
+  return spans.sort((a, b) => a.start - b.start || b.end - a.end);
+}
 
 /** Terminal-style syntax highlighting for one `$ …` prompt line. */
 function formatPrompt(prompt: string) {
@@ -97,31 +116,25 @@ function formatPrompt(prompt: string) {
         </span>,
       );
 
+      // Everything after the command, whitespace preserved.
       const rest = trimmed.slice(command.length);
-      if (rest) out.push(<span key={`sp-${pipeIndex}`}> </span>);
-
-      const body = rest.trim();
-      const matches = [
-        ...[...body.matchAll(QUOTED)].map((m) => ({ kind: "quoted" as const, match: m })),
-        ...[...body.matchAll(URL)].map((m) => ({ kind: "url" as const, match: m })),
-      ].sort((a, b) => (a.match.index ?? 0) - (b.match.index ?? 0));
-
       let pos = 0;
-      for (const { kind, match } of matches) {
-        const at = match.index ?? 0;
-        if (at > pos) out.push(<span key={`t-${pipeIndex}-${pos}`}>{body.slice(pos, at)}</span>);
-
+      let span = 0;
+      for (const { start, end, text } of highlightSpans(rest)) {
+        if (start < pos) continue; // already covered by an earlier span
+        if (start > pos) {
+          out.push(<span key={`t-${pipeIndex}-${span++}`}>{rest.slice(pos, start)}</span>);
+        }
         out.push(
-          <span key={`${kind}-${pipeIndex}-${at}`} className="text-term-tool">
-            {match[0]}
+          <span key={`hl-${pipeIndex}-${span++}`} className="text-term-tool">
+            {text}
           </span>,
         );
-
-        pos = at + match[0].length;
-        if (body[pos] === " ") pos += 1;
+        pos = end;
       }
-
-      if (pos < body.length) out.push(<span key={`t-${pipeIndex}-end`}>{body.slice(pos)}</span>);
+      if (pos < rest.length) {
+        out.push(<span key={`t-${pipeIndex}-${span++}`}>{rest.slice(pos)}</span>);
+      }
     });
 
   return <>{out}</>;
@@ -140,7 +153,12 @@ function Row({ prompt, kind }: { prompt: string; kind: PromptKind }) {
 
 export function PromptScroller() {
   return (
-    <div className="prompt-scroller relative h-[190px] overflow-hidden rounded-lg border border-term-border bg-term-bg font-mono text-term-text shadow-term max-sm:h-[150px] max-sm:rounded-[10px]">
+    <div
+      className="prompt-scroller relative h-[190px] overflow-hidden rounded-lg border border-term-border bg-term-bg font-mono text-term-text shadow-term max-sm:h-[150px] max-sm:rounded-[10px]"
+      role="group"
+      aria-label="Examples of what you can ask gptme to do. Focus, hover or press to pause."
+      tabIndex={0}
+    >
       <div
         className="pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-term-bg to-transparent"
         aria-hidden="true"
