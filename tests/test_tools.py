@@ -382,6 +382,37 @@ def test_cyclic_companion_init_failure_unloads_pair(tmp_path):
     assert "cycle_b" not in tool_names
 
 
+def test_cycle_dependent_waits_for_cycle_members(tmp_path):
+    """A tool that depends on a cycle must not be initialized to break it."""
+    plugin = tmp_path / "cycle_plus_dependent.py"
+    plugin.write_text(
+        "from gptme.tools import has_tool\n"
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _init_c():\n"
+        "    if not has_tool('cycle_a'):\n"
+        "        raise RuntimeError('cycle_a not loaded yet')\n"
+        "    return ToolSpec(name='cycle_c', desc='c', requires_tools=['cycle_a'])\n"
+        "\n"
+        "c = ToolSpec(\n"
+        "    name='cycle_c',\n"
+        "    desc='c',\n"
+        "    requires_tools=['cycle_a'],\n"
+        "    init=_init_c,\n"
+        ")\n"
+        "a = ToolSpec(name='cycle_a', desc='a', requires_tools=['cycle_b'])\n"
+        "b = ToolSpec(name='cycle_b', desc='b', requires_tools=['cycle_a'])\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(plugin)])
+    tool_names = [t.name for t in tools]
+
+    assert "cycle_a" in tool_names
+    assert "cycle_b" in tool_names
+    assert "cycle_c" in tool_names
+
+
 def test_tool_loading_with_package():
     found = _discover_tools(["gptme.tools"])
 

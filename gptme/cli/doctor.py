@@ -1356,7 +1356,17 @@ def _iter_plugin_tools(plugin: object) -> tuple[list, list[str]]:
                 f"{mod_name}:error(import {type(exc).__name__}: {exc})"
             )
             continue
-        for tool in _discover_tools([mod_name]):
+        try:
+            discovered = _discover_tools([mod_name])
+        except Exception as exc:
+            # Submodule import errors inside the package (non-ModuleNotFoundError)
+            # escape _discover_tools. Report them as a plugin verdict instead of
+            # aborting the whole doctor run.
+            import_errors.append(
+                f"{mod_name}:error(discover {type(exc).__name__}: {exc})"
+            )
+            continue
+        for tool in discovered:
             _add(tool)
 
     return tools, import_errors

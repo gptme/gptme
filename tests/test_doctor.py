@@ -2288,6 +2288,31 @@ class TestCheckPlugins:
         assert "mod_tool:error" in _details_blob(plugin_result.details)
         assert "no tools" not in plugin_result.message
 
+    def test_tool_module_discover_exception_does_not_abort_doctor(self):
+        """A submodule import error during discovery is a plugin verdict, not a crash."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        plugin = GptmePlugin(
+            name="discover_boom_plugin",
+            tool_modules=["gptme.tools.save"],
+        )
+        ep = SimpleNamespace(name="discover_boom_plugin", load=lambda: plugin)
+        with (
+            patch("importlib.metadata.entry_points", return_value=[ep]),
+            patch(
+                "gptme.tools._discover_tools",
+                side_effect=ImportError("submodule exploded"),
+            ),
+        ):
+            results = _check_plugins()
+
+        plugin_result = next(
+            r for r in results if r.name == "Plugin: discover_boom_plugin"
+        )
+        assert plugin_result.status == CheckStatus.ERROR
+        blob = _details_blob(plugin_result.details)
+        assert "discover ImportError: submodule exploded" in blob
+
     def test_tool_module_import_failure_is_error(self):
         """A missing tool_modules entry is an error, not a healthy empty plugin."""
         from gptme.plugins.plugin import GptmePlugin

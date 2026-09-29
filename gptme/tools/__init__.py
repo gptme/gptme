@@ -222,6 +222,24 @@ def _init_single_tool(
         return None
 
 
+def _in_pending_cycle(tool: ToolSpec, pending_by_name: dict[str, ToolSpec]) -> bool:
+    """True if ``tool`` can reach itself through pending requires (a real cycle)."""
+    pending_names = set(pending_by_name)
+    seen: set[str] = set()
+    stack = [req for req in tool.requires_tools if req in pending_names]
+    while stack:
+        name = stack.pop()
+        if name == tool.name:
+            return True
+        if name in seen or name not in pending_by_name:
+            continue
+        seen.add(name)
+        stack.extend(
+            req for req in pending_by_name[name].requires_tools if req in pending_names
+        )
+    return False
+
+
 def _init_file_plugin_tools(
     file_tools: list[ToolSpec], loaded_tools: list[ToolSpec]
 ) -> None:
@@ -266,12 +284,11 @@ def _init_file_plugin_tools(
                     for req in t.requires_tools
                 )
             ]
-            cycle_names = {t.name for t in cycle_ready}
-            ready = [
-                t
-                for t in cycle_ready
-                if any(req in cycle_names for req in t.requires_tools)
-            ]
+            pending_by_name = {t.name: t for t in pending}
+            # Only break a real cycle. A dependent that merely requires a
+            # cycle member is cycle-ready (its unmet reqs are pending) but
+            # must wait until those members load.
+            ready = [t for t in cycle_ready if _in_pending_cycle(t, pending_by_name)]
             if not ready:
                 break
             ready = [ready[0]]
