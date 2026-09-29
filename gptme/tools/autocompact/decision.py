@@ -65,6 +65,9 @@ def estimate_compaction_savings(
     # Phase 0 runs first in auto_compact_log; estimate it on the original log
     # and run later-phase estimates on the stubbed log so we don't double-count
     # a 200–2000 token stale output as both a Phase 0 stub and a Phase 2 cut.
+    # Do not pass logdir: estimation must not write tool-output files. The
+    # stub template still includes a placeholder recovery path so savings
+    # match the persisted form the engine emits (short stubs overestimate).
     estimated_phase0_savings = 0
     work_log = log
     if would_remove_tool_results:

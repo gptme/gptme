@@ -22,7 +22,7 @@ from ...util.master_context import (
     build_master_context_index,
     create_master_context_reference,
 )
-from ...util.output_storage import create_tool_result_summary
+from ...util.output_storage import create_tool_result_summary, save_large_output
 from ...util.reduce import message_contains_tool_use, reduce_log
 from .scoring import compress_content, score_tool_output_relevance
 
@@ -39,6 +39,16 @@ _PRUNE_SCORE_THRESHOLD = 1.0
 # budget.
 _PRUNE_MIN_TOKENS = 200
 
+# Representative recovery path used when estimating (no logdir). The estimate
+# must use a stub as long as the persisted form auto_compact_log emits;
+# a one-line stub overestimates savings and can select rule-based trim when
+# the real recovery text would miss MIN_SAVINGS_RATIO.
+_STUB_PATH_PLACEHOLDER = (
+    "/home/user/.local/share/gptme/logs/"
+    "workspace-name/conversation-XXXXXXXX/"
+    "tool-outputs/autocompact/20260101_000000-deadbeef.txt"
+)
+
 
 def _is_tool_output(msg: Message, prev: Message | None) -> bool:
     """True when ``msg`` is a tool result, not instructions or knowledge.
@@ -54,33 +64,46 @@ def _is_tool_output(msg: Message, prev: Message | None) -> bool:
     return prev is not None and message_contains_tool_use(prev)
 
 
+def _format_stale_output_stub(msg_tokens: int, saved_path: str) -> str:
+    """Canonical Phase 0 stub text — shared by the engine and the estimator."""
+    return (
+        f"[Stale tool output pruned - {msg_tokens} tokens]. "
+        f"Full output saved to: {saved_path}\n"
+        "You can read or grep this file if needed."
+    )
+
+
 def _stale_output_stub(
     msg: Message,
     msg_tokens: int,
-    idx: int,
-    master_logfile: Path | None,
-    master_context_index: list[MessageByteRange],
+    logdir: Path | None,
 ) -> str:
-    """Short in-place replacement for a pruned tool result."""
-    stub = f"[Stale tool output pruned - {msg_tokens} tokens]"
-    if master_logfile and idx < len(master_context_index):
-        byte_range = master_context_index[idx]
-        preview = msg.content.split("\n")[0] if msg.content else None
-        stub += "\n\n" + create_master_context_reference(
-            logfile=master_logfile,
-            byte_range=byte_range,
+    """In-place replacement for a pruned tool result.
+
+    Persists the original content under ``logdir/tool-outputs/`` so recovery
+    survives ``/compact trim`` rewriting conversation.jsonl. Byte-range
+    references into that file are intentionally not used: trim overwrites it,
+    and a dangling range would return the stub (or garbage) instead of the
+    original result.
+    """
+    if logdir is not None:
+        _, saved_path = save_large_output(
+            content=msg.content,
+            logdir=logdir,
+            output_type="autocompact",
             original_tokens=msg_tokens,
-            preview=preview,
         )
-    return stub
+        path_str = str(saved_path)
+    else:
+        path_str = _STUB_PATH_PLACEHOLDER
+    return _format_stale_output_stub(msg_tokens, path_str)
 
 
 def prune_stale_tool_outputs(
     log: list[Message],
     model_name: str,
     keep_head: int = 0,
-    master_logfile: Path | None = None,
-    master_context_index: list[MessageByteRange] | None = None,
+    logdir: Path | None = None,
 ) -> tuple[list[Message], int]:
     """Phase 0 pre-pass: stub stale tool outputs that are unlikely to be needed.
 
@@ -101,14 +124,18 @@ def prune_stale_tool_outputs(
 
     In-place replacement (not deletion) keeps tool-call/result pairs
     provider-valid and preserves 1:1 index mapping into conversation.jsonl
-    for Phase 2/3 master-context references.
+    for Phase 2/3 master-context references. Original content is saved under
+    ``logdir/tool-outputs/`` when ``logdir`` is set, so recovery does not
+    depend on conversation.jsonl surviving a later rewrite.
+
+    When ``logdir`` is omitted (the estimator), the stub still uses the same
+    template with a placeholder path so savings are not overstated.
 
     Returns:
         (pruned_log, tokens_saved) — same length as ``log``, and tokens saved.
     """
     pruned: list[Message] = []
     tokens_saved = 0
-    index = master_context_index or []
 
     for idx, msg in enumerate(log):
         if msg.pinned or idx < keep_head:
@@ -127,7 +154,7 @@ def prune_stale_tool_outputs(
 
         relevance = score_tool_output_relevance(msg, idx, log)
         if relevance < _PRUNE_SCORE_THRESHOLD:
-            stub = _stale_output_stub(msg, msg_tokens, idx, master_logfile, index)
+            stub = _stale_output_stub(msg, msg_tokens, logdir)
             stub_tokens = len_tokens(stub, model_name)
             tokens_saved += max(0, msg_tokens - stub_tokens)
             logger.debug(
@@ -211,8 +238,7 @@ def auto_compact_log(
             log,
             model.model,
             keep_head=keep_head,
-            master_logfile=master_logfile,
-            master_context_index=master_context_index,
+            logdir=logdir,
         )
         if phase0_tokens_saved > 0:
             logger.info(

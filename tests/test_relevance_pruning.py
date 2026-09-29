@@ -366,3 +366,69 @@ def test_phase0_preserves_master_context_indices(tmp_path):
     assert int(match.group(2)) == expected_range.byte_end
     # The stale message was stubbed, not deleted, so indices still line up.
     assert "Stale tool output pruned" in compacted[0].content
+    # Phase 0 recovery is file-based, not a conversation.jsonl byte range.
+    assert "Master context:" not in compacted[0].content
+
+
+def test_phase0_recovery_survives_jsonl_rewrite(tmp_path):
+    """Manual /compact trim rewrites conversation.jsonl; stubs must still recover.
+
+    Byte-range references into that file would point at the stub (or garbage)
+    after the rewrite. Phase 0 persists the original under tool-outputs/.
+    """
+    import json
+
+    stale_content = "UNIQUE_STALE_PAYLOAD " * 400
+    stale = _tool_out(stale_content)
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [stale] + padding
+
+    logfile = tmp_path / "conversation.jsonl"
+    with logfile.open("w") as f:
+        for msg in log:
+            f.write(json.dumps(msg.to_dict()) + "\n")
+
+    pruned, saved = prune_stale_tool_outputs(log, _model_name(), logdir=tmp_path)
+    assert saved > 0
+    assert stale_content not in pruned[0].content
+    assert "Full output saved to:" in pruned[0].content
+    assert "Master context:" not in pruned[0].content
+
+    # Simulate /compact trim replacing the working log with the compacted view.
+    with logfile.open("w") as f:
+        for msg in pruned:
+            f.write(json.dumps(msg.to_dict()) + "\n")
+
+    saved_files = list((tmp_path / "tool-outputs" / "autocompact").glob("*.txt"))
+    assert saved_files, "Phase 0 must persist original content off conversation.jsonl"
+    assert stale_content in saved_files[0].read_text()
+    # Rewritten jsonl must not be the only copy of the original payload.
+    assert stale_content not in logfile.read_text()
+
+
+def test_phase0_estimate_uses_recovery_stub_template():
+    """Estimator must not use a one-line stub that overstates savings.
+
+    ``estimate_compaction_savings`` calls prune without a logdir. The stub
+    still has to include the recovery-path text the engine persists, or a
+    conversation near the 10% bar can be sent to rule-based trim by mistake.
+    """
+    from gptme.message import len_tokens
+
+    stale_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(stale_content, call_id="call-est")] + padding
+
+    pruned, saved = prune_stale_tool_outputs(log, _model_name())
+    assert saved > 0
+    assert "Full output saved to:" in pruned[0].content
+    assert "Master context:" not in pruned[0].content
+
+    model = _model_name()
+    msg_tokens = len_tokens(stale_content, model)
+    one_liner = f"[Stale tool output pruned - {msg_tokens} tokens]"
+    one_liner_savings = msg_tokens - len_tokens(one_liner, model)
+    assert saved < one_liner_savings, (
+        f"recovery stub saved {saved} tokens; one-liner would save "
+        f"{one_liner_savings} and overestimate the trim decision"
+    )
