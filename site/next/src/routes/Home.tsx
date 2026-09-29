@@ -1,4 +1,5 @@
 import { CheckIcon, CopyIcon } from "../components/icons";
+import { PromptScroller } from "../components/PromptScroller";
 import { cn, eyebrow, wrap } from "../lib/cn";
 import { links } from "../lib/links";
 import type { SiteStats } from "../lib/stats";
@@ -198,6 +199,24 @@ function Hero() {
         />
       </div>
     </div>
+  );
+}
+
+/** Ported from the gptme.ai landing hero — see PromptScroller. */
+function PromptSamples() {
+  return (
+    <section className={cn(wrap, "pb-22 max-md:pb-16 max-sm:pb-12")} aria-labelledby="prompts-title">
+      <div className="mb-7 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 max-sm:mb-5 max-sm:flex-col max-sm:items-start max-sm:gap-3">
+        <h2
+          id="prompts-title"
+          className="m-0 text-[26px] font-semibold leading-[1.25] tracking-heading text-heading max-sm:text-[21px]"
+        >
+          Anything a terminal can do, in one line.
+        </h2>
+        <p className="m-0 text-base text-muted-text max-sm:text-[15px]">Illustrative prompts, not a fixed menu</p>
+      </div>
+      <PromptScroller />
+    </section>
   );
 }
 
@@ -691,6 +710,7 @@ export function Home({ stats }: { stats: SiteStats }) {
   return (
     <>
       <Hero />
+      <PromptSamples />
       <SeeItWork />
       <Agents />
       <Surfaces />

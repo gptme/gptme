@@ -44,3 +44,35 @@
     display: none !important;
   }
 }
+
+/*
+ * Prompt scroller (ported from the gptme.ai landing hero, gptme-cloud#1059).
+ * The site is prerendered with no React hydration, so this is a pure-CSS
+ * animation: the track holds the prompt list twice and loops by one full copy
+ * (translateY(-50%)). Pauses on hover and stops under reduced-motion.
+ */
+@layer components {
+  .prompt-scroller-track {
+    animation: prompt-scroll 26s linear infinite;
+    will-change: transform;
+  }
+
+  .prompt-scroller:hover .prompt-scroller-track {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .prompt-scroller-track {
+      animation: none;
+    }
+  }
+}
+
+@keyframes prompt-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
