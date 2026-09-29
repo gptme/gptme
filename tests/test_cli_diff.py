@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -19,7 +20,7 @@ from gptme.message import Message
 from gptme.tools.base import ToolUse, using_current_tool_use
 from gptme.tools.patch import DIVIDER, ORIGINAL, UPDATED, preview_patch
 from gptme.util.ask_execute import execute_with_confirmation
-from gptme.util.context import get_git_diff_context
+from gptme.util.context import _read_untracked_bytes, get_git_diff_context
 from gptme.util.diff_suggestions import (
     record_diff_suggestion,
     restore_diff_tracker,
@@ -103,6 +104,13 @@ def test_does_not_read_whole_large_untracked_file(git_repo: Path):
     assert "huge.txt" in result
     assert "SHOULD_NOT_APPEAR" not in result
     assert len(result) < 4000
+
+
+def test_non_regular_untracked_file_does_not_block(git_repo: Path):
+    fifo = git_repo / "events.fifo"
+    os.mkfifo(fifo)
+    with pytest.raises(OSError, match="not a regular file"):
+        _read_untracked_bytes(fifo, 100)
 
 
 def test_skips_untracked_read_when_budget_exhausted(git_repo: Path):

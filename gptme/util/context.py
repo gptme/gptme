@@ -5,6 +5,7 @@ import mimetypes
 import os
 import re
 import shutil
+import stat as stat_module
 import subprocess
 import tempfile
 import time
@@ -511,9 +512,11 @@ def _symlink_diff_notice(rel: str, path: Path, header: str) -> str:
 
 def _read_untracked_bytes(path: Path, max_bytes: int) -> bytes:
     """Read at most *max_bytes* without following a symlink."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     fd = os.open(path, flags)
     try:
+        if not stat_module.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", path)
         return os.read(fd, max_bytes)
     finally:
         os.close(fd)
