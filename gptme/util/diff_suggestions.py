@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -23,6 +24,7 @@ _EDIT_TOOLS = frozenset(
     {"append", "hashline_edit", "morph", "patch", "patch_many", "save"}
 )
 _MAX_PREVIEW_CHARS = 50_000
+_HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$")
 logger = logging.getLogger(__name__)
 
 
@@ -59,6 +61,63 @@ def _targets(tool_use: ToolUse) -> list[str]:
     if tool_use.args:
         targets.extend(arg for arg in tool_use.args if arg)
     return list(dict.fromkeys(targets))
+
+
+def _range_end(start: int, count: int) -> int:
+    """Return an inclusive range end, preserving empty diff ranges."""
+    return start + count - 1
+
+
+def _diff_header_path(line: str) -> str | None:
+    """Extract the path from a unified-diff file header."""
+    path = line[4:].split("\t", 1)[0]
+    return None if path == "/dev/null" else path
+
+
+def _line_ranges(preview: str, targets: list[str]) -> list[dict[str, int | str]]:
+    """Parse file and line ranges from unified-diff hunk headers.
+
+    Minimal previews omit ``---``/``+++`` headers, so a sole tool target is a
+    safe fallback. Multi-target previews without file headers are ambiguous and
+    deliberately remain unmapped; the raw preview in the event stays available.
+    """
+    fallback_file = targets[0] if len(targets) == 1 else None
+    old_file: str | None = None
+    new_file: str | None = None
+    ranges: list[dict[str, int | str]] = []
+
+    for line in preview.splitlines():
+        if line.startswith("--- "):
+            old_file = _diff_header_path(line)
+            continue
+        if line.startswith("+++ "):
+            new_file = _diff_header_path(line)
+            continue
+
+        match = _HUNK_HEADER_RE.match(line)
+        if match is None:
+            continue
+
+        file = new_file or old_file or fallback_file
+        if file is None:
+            continue
+
+        old_start, old_count, new_start, new_count = match.groups()
+        old_start_int = int(old_start)
+        old_count_int = int(old_count or 1)
+        new_start_int = int(new_start)
+        new_count_int = int(new_count or 1)
+        ranges.append(
+            {
+                "file": file,
+                "old_start": old_start_int,
+                "old_end": _range_end(old_start_int, old_count_int),
+                "new_start": new_start_int,
+                "new_end": _range_end(new_start_int, new_count_int),
+            }
+        )
+
+    return ranges
 
 
 def record_diff_suggestion(
@@ -137,6 +196,7 @@ def _write_diff_suggestion(
         "confirmation_hooks": [
             hook.name for hook in get_hooks(HookType.TOOL_CONFIRM) if hook.enabled
         ],
+        "line_ranges": _line_ranges(preview_text, _targets(tool_use)),
         "preview": preview_text[:_MAX_PREVIEW_CHARS],
         "preview_truncated": len(preview_text) > _MAX_PREVIEW_CHARS,
     }

@@ -140,7 +140,69 @@ def test_tracks_edit_suggestion_decisions(
     assert event["confirmation_mode"] == "automatic"
     assert event["diff_ref"] == "main"
     assert event["targets"] == [str(target)]
+    assert event["line_ranges"] == [
+        {
+            "file": str(target),
+            "old_start": 1,
+            "old_end": 1,
+            "new_start": 1,
+            "new_end": 1,
+        }
+    ]
     assert event["preview"] == "@@ -1 +1 @@\n-old\n+new"
+
+
+def test_tracks_multiple_line_ranges_and_diff_header_paths(tmp_path: Path):
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("morph", ["fallback.py"], "edit")
+    preview = """--- a/example.py
++++ b/example.py
+@@ -2,3 +2,4 @@
+ unchanged
+@@ -10,0 +12,2 @@ function
++inserted
+"""
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        record_diff_suggestion(
+            tool_use,
+            ConfirmationResult.confirm(),
+            preview,
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["line_ranges"] == [
+        {
+            "file": "b/example.py",
+            "old_start": 2,
+            "old_end": 4,
+            "new_start": 2,
+            "new_end": 5,
+        },
+        {
+            "file": "b/example.py",
+            "old_start": 10,
+            "old_end": 9,
+            "new_start": 12,
+            "new_end": 13,
+        },
+    ]
+
+
+def test_unmappable_preview_keeps_raw_fallback(tmp_path: Path):
+    logdir = tmp_path / "log"
+    preview = "replacement content without a unified diff header"
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        record_diff_suggestion(
+            ToolUse("save", None, preview),
+            ConfirmationResult.confirm(),
+            preview,
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["line_ranges"] == []
+    assert event["preview"] == preview
 
 
 def test_tracking_failure_does_not_block_edit(
