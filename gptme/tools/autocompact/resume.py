@@ -297,6 +297,12 @@ def _clip_checkpoint_input(
     the log overshoots the budget. Typically a no-op: auto-compact fires near
     the budget, so the input already fits; this guards against a burst of huge
     tool results pushing the request past the window.
+
+    The first message is always preserved as a system message (truncated if it
+    does not fit): strict providers such as Anthropic reject a request whose
+    first message is not ``system``, so dropping the head entirely would make
+    the checkpoint call fail on exactly the oversized conversations it exists
+    to handle.
     """
     if budget <= 0 or len_tokens(llm_msgs, model=model_str) <= budget:
         return llm_msgs
@@ -315,6 +321,24 @@ def _clip_checkpoint_input(
             break
         head.append(msg)
         head_room -= msg_tokens
+
+    # Never drop the leading system message entirely: Anthropic's
+    # ``_transform_system_messages`` raises ``ValueError`` when the first
+    # message is not a system message. When the system block is too large to
+    # fit alongside the instruction, keep a truncated copy of the first system
+    # message so the request stays well-formed.
+    if not head and llm_msgs and llm_msgs[0].role == "system":
+        first = llm_msgs[0]
+        if head_room > 0:
+            clipped_first = _truncate_to_tokens(
+                first.content, head_room, model=model_str
+            )
+        else:
+            # Degenerate: the instruction alone fills the budget. Keep a short
+            # placeholder so the request still leads with a system message.
+            clipped_first = "No system prompt fit the remaining context budget."
+        head = [first.replace(content=clipped_first)]
+        head_room = 0
 
     # Fill the remaining room with the most recent history. Reuse
     # ``_get_recent_tail`` so tool-call/result pairs stay valid (a dangling

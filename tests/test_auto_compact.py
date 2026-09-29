@@ -3574,3 +3574,25 @@ def test_clip_checkpoint_input_drops_orphan_tool_result():
     assert clipped[-1].content == "instruction"
     assert all(m.call_id is None for m in clipped), "orphan tool result kept"
     assert all("tool output" not in m.content for m in clipped)
+
+
+def test_clip_checkpoint_input_truncates_oversized_leading_system_message():
+    """An oversized leading system message is truncated, never dropped, so the
+    clipped request still leads with a system message (Anthropic rejects a
+    request whose first message is not ``system``)."""
+    from gptme.message import len_tokens
+    from gptme.tools.autocompact.resume import _clip_checkpoint_input
+
+    msgs = [
+        Message("system", "core " * 500),  # alone too large to fit
+        Message("user", "old " * 200),
+        Message("user", "instruction"),
+    ]
+
+    budget = 120
+    clipped = _clip_checkpoint_input(msgs, model_str="gpt-4", budget=budget)
+
+    assert clipped[0].role == "system", "leading system message was dropped"
+    assert clipped[0].content, "leading system message was emptied"
+    assert clipped[-1].content == "instruction"
+    assert len_tokens(clipped, model="gpt-4") <= budget
