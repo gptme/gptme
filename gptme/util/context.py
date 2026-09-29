@@ -473,6 +473,64 @@ def get_changed_files() -> list[Path]:
         return []
 
 
+def get_git_diff_context(ref: str = "HEAD", max_chars: int = 50000) -> str | None:
+    """Build a context block describing the working-tree diff against *ref*.
+
+    Returns the list of affected filenames plus the diff text inside a markdown
+    block, or ``None`` when there is nothing to show (clean worktree, or no
+    changes relative to *ref*).
+
+    Raises ``RuntimeError`` with a human-readable message when the ref is
+    invalid or the current directory is not inside a git repository, so callers
+    can surface a clear error instead of injecting empty context.
+    """
+    # --no-ext-diff / --no-textconv: git_inspect_cmd() blanks diff.external to
+    # block repo-local execution sinks, but an empty value still makes git try
+    # to *run* an external program when producing diff text. These flags tell
+    # git to ignore external diff drivers and textconv filters entirely.
+    try:
+        names = subprocess.run(
+            [*git_inspect_cmd(), "diff", "--no-ext-diff", "--name-only", ref],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        diff = subprocess.run(
+            [*git_inspect_cmd(), "diff", "--no-ext-diff", "--no-textconv", ref],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError("git executable not found") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"`git diff {ref}` timed out") from e
+    except subprocess.CalledProcessError as e:
+        detail = (e.stderr or "").strip() or f"`git diff {ref}` failed"
+        raise RuntimeError(detail) from e
+
+    changed = [f for f in names.stdout.splitlines() if f.strip()]
+    if not changed and not diff.stdout.strip():
+        return None
+
+    diff_text = diff.stdout
+    truncated = len(diff_text) > max_chars
+    if truncated:
+        diff_text = diff_text[:max_chars]
+
+    files_block = "\n".join(f"- {f}" for f in changed) if changed else "- (none)"
+    body = md_codeblock(f"git diff {ref}", diff_text)
+    if truncated:
+        body += f"\n\n... (diff truncated at {max_chars} characters)"
+
+    return (
+        f"## Working tree diff (against {ref})\n\n"
+        f"Changed files:\n\n{files_block}\n\n{body}"
+    )
+
+
 def enrich_messages_with_context(
     msgs: list[Message], workspace: Path | None = None
 ) -> list[Message]:

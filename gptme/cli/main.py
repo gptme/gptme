@@ -730,6 +730,21 @@ Run 'gptme-util --help' for all utility commands."""
     help="Skip all workspace context (prompt files and context_cmd). Tools and agent config are still included.",
 )
 @click.option(
+    "--diff",
+    "diff_enabled",
+    is_flag=True,
+    help="Inject the working-tree diff against HEAD (plus affected filenames) "
+    "into context before the first turn. Use --diff-ref for another revision. "
+    "Useful for pair-programming/review sessions.",
+)
+@click.option(
+    "--diff-ref",
+    "diff_ref",
+    default=None,
+    metavar="REF",
+    help="Revision to diff against for --diff (default: HEAD). Implies --diff.",
+)
+@click.option(
     "--output-schema",
     "output_schema",
     default=None,
@@ -768,6 +783,8 @@ def main(
     profile: bool,
     context_include: tuple[str, ...],
     no_workspace: bool,
+    diff_enabled: bool,
+    diff_ref: str | None,
     output_schema: str | None,
     allow_hosts: str | None,
 ):
@@ -1444,6 +1461,24 @@ def main(
             initial_prompt=prompt_msgs[0].content if prompt_msgs else None,
             profile=selected_profile,
         )
+
+    # --diff: inject the working-tree diff into context before the first turn.
+    if diff_enabled or diff_ref is not None:
+        effective_diff_ref = diff_ref or "HEAD"
+        from ..util.context import get_git_diff_context
+
+        try:
+            diff_context = get_git_diff_context(effective_diff_ref)
+        except RuntimeError as e:
+            _cleanup_aborted_new_logdir(logdir, preexisting=logdir_preexisting)
+            raise click.UsageError(f"--diff: {e}") from e
+        if diff_context is None:
+            logger.warning(
+                "--diff: no changes against %s; skipping diff context",
+                effective_diff_ref,
+            )
+        else:
+            initial_msgs.append(Message("system", diff_context, hide=True))
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
