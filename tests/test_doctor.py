@@ -1,6 +1,8 @@
 """Tests for the gptme doctor command."""
 
 import json
+import sys
+import types
 from collections import UserDict
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -34,6 +36,15 @@ from gptme.cli.doctor import (
     run_diagnostics,
 )
 from gptme.config import Config, MCPConfig, MCPServerConfig, ModelsConfig, UserConfig
+
+
+def _details_blob(details: str | list[str] | None) -> str:
+    """Join structured doctor details for substring assertions."""
+    if details is None:
+        return ""
+    if isinstance(details, list):
+        return "\n".join(details)
+    return details
 
 
 class TestCheckStatus:
@@ -2104,7 +2115,7 @@ class TestCheckPlugins:
         assert "1 tool(s) ok" in plugin_result.message
         # details always has per-tool verdicts for JSON consumers
         assert plugin_result.details is not None
-        assert "good_tool:ok" in plugin_result.details
+        assert "good_tool:ok" in _details_blob(plugin_result.details)
 
     def test_broken_tool_init_reports_error(self):
         """A plugin with a tool whose init() raises is reported as ERROR."""
@@ -2127,7 +2138,7 @@ class TestCheckPlugins:
         assert plugin_result.status == CheckStatus.ERROR
         assert "failed" in plugin_result.message
         assert plugin_result.details is not None
-        assert "bad_tool:error" in plugin_result.details
+        assert "bad_tool:error" in _details_blob(plugin_result.details)
 
     def test_wrong_return_type_reports_error(self):
         """init() returning a non-ToolSpec is flagged as a contract violation."""
@@ -2149,7 +2160,7 @@ class TestCheckPlugins:
         plugin_result = next(r for r in results if r.name == "Plugin: wrong_plugin")
         assert plugin_result.status == CheckStatus.ERROR
         assert plugin_result.details is not None
-        assert "NoneType" in plugin_result.details
+        assert "NoneType" in _details_blob(plugin_result.details)
 
     def test_import_failure_reports_error(self):
         """A plugin whose entry point raises on load() produces an ERROR."""
@@ -2180,7 +2191,173 @@ class TestCheckPlugins:
         plugin_result = next(r for r in results if r.name == "Plugin: static_plugin")
         assert plugin_result.status == CheckStatus.OK
         assert plugin_result.details is not None
-        assert "no-init" in plugin_result.details
+        assert "no-init" in _details_blob(plugin_result.details)
+
+    def test_hook_and_command_registrars_report_ok_without_leaking(self):
+        """Valid registrar callbacks are checked in isolated registries."""
+        from collections.abc import Generator
+
+        from gptme.commands.base import CommandContext, register_command
+        from gptme.hooks import HookType, get_hooks, register_hook
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.plugins.plugin import GptmePlugin
+
+        def _hook(_manager: LogManager) -> Generator[Message, None, None]:
+            yield from ()
+
+        def _cmd(_ctx: CommandContext) -> Generator[Message, None, None]:
+            yield from ()
+
+        def register_hooks() -> None:
+            register_hook(
+                "doctor-test-hook",
+                HookType.STEP_PRE,
+                _hook,  # type: ignore[call-overload]
+            )
+
+        def register_commands() -> None:
+            register_command("doctor-test-command", _cmd)
+
+        plugin = GptmePlugin(
+            name="registrar_plugin",
+            register_hooks=register_hooks,
+            register_commands=register_commands,
+        )
+        ep = SimpleNamespace(name="registrar_plugin", load=lambda: plugin)
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: registrar_plugin")
+        assert plugin_result.status == CheckStatus.OK
+        assert plugin_result.details is not None
+        blob = _details_blob(plugin_result.details)
+        assert "hooks:ok(1 registered)" in blob
+        assert "commands:ok(1 registered)" in blob
+        assert all(hook.name != "doctor-test-hook" for hook in get_hooks())
+
+        from gptme.commands.base import get_registered_commands
+
+        assert "doctor-test-command" not in get_registered_commands()
+
+    def test_hook_registrar_wrong_return_type_is_attributed(self):
+        """A hook registrar returning a value violates its None contract."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        plugin = GptmePlugin(
+            name="bad_hook_plugin",
+            register_hooks=lambda: "unexpected",  # type: ignore[arg-type]
+        )
+        ep = SimpleNamespace(name="bad_hook_plugin", load=lambda: plugin)
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: bad_hook_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert plugin_result.details is not None
+        assert "hooks:error(register_hooks() returned str, expected None)" in (
+            _details_blob(plugin_result.details)
+        )
+
+    def test_command_registrar_exception_is_attributed(self):
+        """A command registrar exception names the failing capability."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        def register_commands() -> None:
+            raise RuntimeError("broken command wiring")
+
+        plugin = GptmePlugin(
+            name="bad_command_plugin", register_commands=register_commands
+        )
+        ep = SimpleNamespace(name="bad_command_plugin", load=lambda: plugin)
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(
+            r for r in results if r.name == "Plugin: bad_command_plugin"
+        )
+        assert plugin_result.status == CheckStatus.ERROR
+        assert plugin_result.details is not None
+        assert "commands:error(RuntimeError: broken command wiring)" in (
+            _details_blob(plugin_result.details)
+        )
+
+    def test_tool_modules_broken_init_is_checked(self, monkeypatch):
+        """Tools supplied via tool_modules must be validated, not reported as no-tools."""
+        from gptme.plugins.plugin import GptmePlugin
+        from gptme.tools.base import ToolSpec
+
+        def _broken_init():
+            raise RuntimeError("module tool broken")
+
+        fake = types.ModuleType("fake_doctor_plugin_tools")
+        fake.__dict__["tool"] = ToolSpec(
+            name="mod_tool", desc="from module", init=_broken_init
+        )
+        monkeypatch.setitem(sys.modules, fake.__name__, fake)
+
+        plugin = GptmePlugin(
+            name="mod_plugin", tool_modules=["fake_doctor_plugin_tools"]
+        )
+        ep = SimpleNamespace(name="mod_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: mod_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "mod_tool:error" in _details_blob(plugin_result.details)
+        assert "no tools" not in plugin_result.message
+
+    def test_tool_module_import_failure_is_error(self):
+        """A missing tool_modules entry is an error, not a healthy empty plugin."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        plugin = GptmePlugin(
+            name="missing_mod_plugin",
+            tool_modules=["gptme_doctor_no_such_module"],
+        )
+        ep = SimpleNamespace(name="missing_mod_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(
+            r for r in results if r.name == "Plugin: missing_mod_plugin"
+        )
+        assert plugin_result.status == CheckStatus.ERROR
+        blob = _details_blob(plugin_result.details)
+        assert "gptme_doctor_no_such_module:error(import" in blob
+
+    def test_verdict_details_stay_structured_when_error_contains_delimiter(self):
+        """Per-item verdicts must not be joined with a delimiter that error text can contain."""
+        from gptme.plugins.plugin import GptmePlugin
+        from gptme.tools.base import ToolSpec
+
+        def _broken_init():
+            raise RuntimeError("left | right")
+
+        plugin = GptmePlugin(
+            name="pipe_plugin",
+            tools=[
+                ToolSpec(name="pipe_tool", desc="broken", init=_broken_init),
+                ToolSpec(name="ok_tool", desc="fine"),
+            ],
+        )
+        ep = SimpleNamespace(name="pipe_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: pipe_plugin")
+        details = plugin_result.details
+        assert isinstance(details, list)
+        assert len(details) == 2
+        assert any(
+            item.startswith("pipe_tool:error") and "left | right" in item
+            for item in details
+        )
+        assert "ok_tool:ok(no-init)" in details
 
     def test_json_output_includes_plugin_details(self):
         """gptme-doctor --json includes per-plugin details in the output."""

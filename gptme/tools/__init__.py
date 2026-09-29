@@ -222,6 +222,93 @@ def _init_single_tool(
         return None
 
 
+def _init_file_plugin_tools(
+    file_tools: list[ToolSpec], loaded_tools: list[ToolSpec]
+) -> None:
+    """Initialize file-path plugin tools, skipping failures and unsatisfied deps.
+
+    File plugins initialize in dependency order so a skipped companion cannot
+    leave a dependent loaded. Mutually-required companions have no valid order:
+    one member is initialized to break the cycle, then the rest follow.
+    Afterward, any file plugin whose required tools still failed to load is
+    unregistered. Must not call ``unload_tool`` — the caller holds
+    ``_tools_init_lock``.
+    """
+    pending: list[ToolSpec] = []
+    seen: set[str] = set()
+    for tool in file_tools:
+        if tool.name in seen or has_tool(tool.name):
+            continue
+        seen.add(tool.name)
+        pending.append(tool)
+
+    loaded_names = {t.name for t in loaded_tools}
+    added_names: set[str] = set()
+
+    def _try_init(tool: ToolSpec) -> None:
+        initialized = _init_single_tool(tool, on_error="skip")
+        if initialized is not None:
+            loaded_tools.append(initialized)
+            loaded_names.add(initialized.name)
+            added_names.add(initialized.name)
+
+    while pending:
+        ready = [
+            t for t in pending if all(req in loaded_names for req in t.requires_tools)
+        ]
+        if not ready:
+            pending_names = {t.name for t in pending}
+            cycle_ready = [
+                t
+                for t in pending
+                if all(
+                    req in loaded_names or req in pending_names
+                    for req in t.requires_tools
+                )
+            ]
+            cycle_names = {t.name for t in cycle_ready}
+            ready = [
+                t
+                for t in cycle_ready
+                if any(req in cycle_names for req in t.requires_tools)
+            ]
+            if not ready:
+                break
+            ready = [ready[0]]
+        for tool in ready:
+            pending.remove(tool)
+            _try_init(tool)
+
+    for tool in pending:
+        missing = [req for req in tool.requires_tools if req not in loaded_names]
+        logger.warning(
+            "Skipping plugin tool %r: required tool(s) %s failed to load",
+            tool.name,
+            ", ".join(missing),
+        )
+
+    # A cycle member may have initialized before its companion failed.
+    changed = True
+    while changed:
+        changed = False
+        for tool in list(loaded_tools):
+            if tool.name not in added_names:
+                continue
+            missing = [req for req in tool.requires_tools if req not in loaded_names]
+            if not missing:
+                continue
+            loaded_tools.remove(tool)
+            loaded_names.discard(tool.name)
+            added_names.discard(tool.name)
+            _unregister_tool_hooks(tool)
+            logger.warning(
+                "Skipping plugin tool %r: required tool(s) %s failed to load",
+                tool.name,
+                ", ".join(missing),
+            )
+            changed = True
+
+
 def init_tools(
     allowlist: list[str] | None = None,
     *,
@@ -279,42 +366,10 @@ def init_tools(
             available = [*file_tools, *get_available_tools(include_mcp=include_mcp)]
             permitted = [*(tool.name for tool in file_tools), *tool_names]
             file_tools = _add_required_tools(file_tools, available, allowlist=permitted)
-            # Init in dependency order so a skipped companion cannot leave a
-            # dependent plugin loaded. ``_add_required_tools`` appends
-            # companions after dependants, and file order is arbitrary.
-            pending: list[ToolSpec] = []
-            seen_file_tools: set[str] = set()
-            for tool in file_tools:
-                if tool.name in seen_file_tools or has_tool(tool.name):
-                    continue
-                seen_file_tools.add(tool.name)
-                pending.append(tool)
-
-            loaded_names = {t.name for t in loaded_tools}
-            while pending:
-                ready = [
-                    t
-                    for t in pending
-                    if all(req in loaded_names for req in t.requires_tools)
-                ]
-                if not ready:
-                    break
-                for tool in ready:
-                    pending.remove(tool)
-                    initialized = _init_single_tool(tool, on_error="skip")
-                    if initialized is not None:
-                        loaded_tools.append(initialized)
-                        loaded_names.add(initialized.name)
-
-            for tool in pending:
-                missing = [
-                    req for req in tool.requires_tools if req not in loaded_names
-                ]
-                logger.warning(
-                    "Skipping plugin tool %r: required tool(s) %s failed to load",
-                    tool.name,
-                    ", ".join(missing),
-                )
+            # ``_add_required_tools`` appends companions after dependants, and
+            # file order is arbitrary — init in dependency order (with cycle
+            # breaking) so a skipped companion cannot leave a dependent loaded.
+            _init_file_plugin_tools(file_tools, loaded_tools)
 
         # Load built-in tools by name
         # When file paths are present, only load explicitly named built-in tools
