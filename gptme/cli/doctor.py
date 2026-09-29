@@ -43,6 +43,45 @@ from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 logger = logging.getLogger(__name__)
 console = Console()
 
+# Placeholder API keys that are commonly left in config as scaffolding. A
+# provider is marked "available" whenever its key env var is set, so the doctor
+# would otherwise validate these against the live API and report a critical
+# ERROR for a key the user never intended to use. Treat them as not-configured
+# instead. Exact-match only, so a real key that merely contains a token like
+# "test" is never misclassified.
+_PLACEHOLDER_API_KEYS = frozenset(
+    {
+        "test",
+        "testing",
+        "dummy",
+        "dummy-key",
+        "placeholder",
+        "changeme",
+        "your-api-key",
+        "your-key-here",
+        "sk-xxx",
+        "sk-placeholder",
+        "sk-your-key",
+        "sk-test",
+        "sk-dummy",
+        "sk-1234567890",
+        "sk-ant-test",
+        "sk-ant-dummy",
+    }
+)
+
+
+def _is_placeholder_api_key(api_key: str) -> bool:
+    """Return True if an API key is a known placeholder literal.
+
+    Placeholder keys (e.g. "test", "dummy-key") are scaffolding left in config,
+    not real credentials. The doctor must not fire a critical ERROR for them —
+    the provider is only "available" because the env var is set, and validating
+    a placeholder against the live API always fails. Report them as not-configured
+    instead.
+    """
+    return api_key.strip().lower() in _PLACEHOLDER_API_KEYS
+
 
 class CheckStatus(Enum):
     """Status of a diagnostic check."""
@@ -124,6 +163,22 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
                 api_key = get_stored_api_key(provider)
 
             if api_key:
+                # A placeholder key (e.g. "test", "dummy-key") is scaffolding, not
+                # a real credential. The provider is only "available" because the
+                # env var is set; validating a placeholder against the live API
+                # always fails and would fire a critical ERROR for a key the user
+                # never intended to use. Report it as not-configured instead.
+                if _is_placeholder_api_key(api_key):
+                    results.append(
+                        CheckResult(
+                            name=f"API Key: {provider}",
+                            status=CheckStatus.SKIPPED,
+                            message="Not configured (placeholder key)",
+                            fix_hint=f"Set a real key at: {PROVIDER_DOCS.get(provider, 'provider docs')}",
+                        )
+                    )
+                    continue
+
                 # Validate the key
                 is_valid, error_msg = validate_api_key(api_key, provider)
                 if is_valid and not error_msg:

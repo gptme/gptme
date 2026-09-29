@@ -1058,6 +1058,33 @@ class TestCheckApiKeys:
     @patch("gptme.cli.doctor.get_config")
     @patch("gptme.cli.doctor.validate_api_key")
     @patch.dict("os.environ", {}, clear=True)
+    def test_placeholder_api_key_is_skipped(
+        self, mock_validate, mock_config, mock_providers
+    ):
+        """Placeholder keys (e.g. "test", "dummy-key") are not-configured, not ERROR.
+
+        A provider is marked "available" whenever its key env var is set, so a
+        placeholder left in config would otherwise be validated against the live
+        API and fire a critical ERROR. It must be reported as SKIPPED instead.
+        """
+        mock_providers.return_value = [("anthropic", None)]
+        mock_config_obj = mock_config.return_value
+        mock_config_obj.get_env.return_value = "dummy-key"
+
+        results = _check_api_keys()
+
+        anthropic_results = [r for r in results if "anthropic" in r.name.lower()]
+        assert len(anthropic_results) >= 1
+        result = anthropic_results[0]
+        assert result.status == CheckStatus.SKIPPED
+        assert "placeholder" in result.message.lower()
+        # The placeholder must not be validated against the live API.
+        mock_validate.assert_not_called()
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor.validate_api_key")
+    @patch.dict("os.environ", {}, clear=True)
     def test_quota_exhausted_api_key(self, mock_validate, mock_config, mock_providers):
         """Test that quota-exhausted API keys are reported as WARNING, not OK."""
 
