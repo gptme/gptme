@@ -26,6 +26,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -84,6 +85,7 @@ jobs:
   deploy:
     name: deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build]
     if: github.ref == 'refs/heads/master'
     concurrency:

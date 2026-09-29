@@ -34,6 +34,7 @@ jobs:
   benchmark:
     name: Startup Benchmark
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v7
 

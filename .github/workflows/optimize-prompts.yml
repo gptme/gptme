@@ -186,6 +186,7 @@ jobs:
   notify-success:
     needs: optimize
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: success()
 
     steps:

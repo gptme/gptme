@@ -36,6 +36,7 @@ jobs:
   build-docker:
     name: Docker
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       SHOULD_PUSH: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.tag != '' || github.ref == 'refs/heads/master' }}
     permissions:
@@ -200,6 +201,7 @@ jobs:
   build-pyinstaller:
     name: PyInstaller binaries on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     permissions:
       contents: write
     strategy:

@@ -19,6 +19,7 @@ jobs:
   # hooks so that class of breakage cannot stay green.
   pre-commit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
     - uses: actions/checkout@v7
     - name: Install poetry
@@ -44,6 +45,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v7
     - name: Install poetry

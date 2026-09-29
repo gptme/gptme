@@ -24,6 +24,7 @@ jobs:
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       pull-requests: write
       contents: write  # CML needs write access to create draft release assets for image hosting

@@ -53,6 +53,7 @@ jobs:
     name: Pre-flight checks
     if: github.event_name != 'release'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
@@ -156,6 +157,7 @@ jobs:
     needs: check
     if: needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: release
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -268,6 +270,7 @@ jobs:
       !cancelled() &&
       (needs.prepare.result == 'success' || github.event_name == 'release')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
       actions: write

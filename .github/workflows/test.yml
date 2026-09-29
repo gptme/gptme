@@ -24,6 +24,7 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       pull-requests: read
     outputs:
@@ -153,6 +154,7 @@ jobs:
     if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     name: Test without API keys or extras
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       RELEASE: false
       OPENAI_API_KEY: ''
@@ -280,6 +282,7 @@ jobs:
        (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'))
     name: API tests with ${{ matrix.model }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       RELEASE: false
       # OpenRouter can treat omitted max_tokens as the model's full output ceiling,

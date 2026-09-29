@@ -28,6 +28,7 @@ defaults:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         node-version: [20.x]
@@ -81,6 +82,7 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     environment:
       name: chat-gptme-org
@@ -110,6 +112,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: build
     steps:
     - uses: actions/checkout@v7
@@ -255,6 +258,7 @@ jobs:
   screenshots:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v7
