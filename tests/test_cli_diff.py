@@ -17,6 +17,7 @@ import gptme.cli.main as cli
 from gptme.hooks import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.base import ToolUse, using_current_tool_use
+from gptme.tools.patch import DIVIDER, ORIGINAL, UPDATED, preview_patch
 from gptme.util.ask_execute import execute_with_confirmation
 from gptme.util.context import get_git_diff_context
 from gptme.util.diff_suggestions import (
@@ -239,6 +240,9 @@ def test_tracks_edit_suggestion_decisions(
 
     event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
     assert event["decision"] == decision
+    assert event["execution_status"] == (
+        "not_run" if decision == "skipped" else "applied"
+    )
     assert event["confirmation_mode"] == "automatic"
     assert event["diff_ref"] == "main"
     assert event["targets"] == [str(target)]
@@ -254,6 +258,113 @@ def test_tracks_edit_suggestion_decisions(
         }
     ]
     assert event["preview"] == "@@ -1 +1 @@\n-old\n+new"
+
+
+def test_failed_edit_execution_is_distinct_from_acceptance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("old\n")
+    tool_use = ToolUse("patch", [str(target)], "patch")
+
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    def _execute(content: str, path: Path | None):
+        raise ValueError("original chunk not found")
+        yield  # pragma: no cover
+
+    with (
+        track_diff_suggestions(logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        messages = list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: target,
+            )
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["decision"] == "accepted"
+    assert event["execution_status"] == "failed"
+    assert event["execution_error"] == "original chunk not found"
+    assert "Error during execution" in messages[-1].content
+
+
+def test_failed_edit_message_is_not_recorded_as_applied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("patch_many", ["example.py"], "patch")
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    def _execute(content: str, path: Path | None):
+        yield Message("system", "Atomic patch aborted: original chunk not found")
+
+    with (
+        track_diff_suggestions(logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: None,
+            )
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["decision"] == "accepted"
+    assert event["execution_status"] == "failed"
+    assert event["execution_error"].startswith("Atomic patch aborted:")
+
+
+def test_patch_ranges_are_resolved_before_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("before\nold value\nafter\n")
+    tool_use = ToolUse("patch", [str(target)], "patch")
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    def _execute(content: str, path: Path | None):
+        assert path is not None
+        path.write_text("before\nnew value\nafter\n")
+        yield Message("system", "Patch successfully applied")
+
+    with (
+        track_diff_suggestions(logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: target,
+                preview_fn=lambda *_: "-old value\n+new value",
+            )
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert target.read_text() == "before\nnew value\nafter\n"
+    assert event["execution_status"] == "applied"
+    assert event["line_ranges"][0]["old_start"] == 2
+    assert event["line_ranges"][0]["new_start"] == 2
 
 
 def test_aborted_edit_is_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -312,6 +423,28 @@ def test_records_from_inherited_worker_thread(tmp_path: Path):
     event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
     assert event["decision"] == "accepted"
     assert event["tool"] == "patch"
+
+
+def test_identical_suggestions_get_unique_event_ids_and_stable_content_id(
+    tmp_path: Path,
+):
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("patch", ["example.py"], "patch")
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        for _ in range(2):
+            record_diff_suggestion(
+                tool_use,
+                ConfirmationResult.confirm(),
+                "@@ -1 +1 @@\n-old\n+new",
+            )
+
+    events = [
+        json.loads(line)
+        for line in (logdir / "diff-suggestions.jsonl").read_text().splitlines()
+    ]
+    assert events[0]["suggestion_id"] != events[1]["suggestion_id"]
+    assert events[0]["content_id"] == events[1]["content_id"]
 
 
 def test_unrelated_worker_does_not_use_active_tracker(tmp_path: Path):
@@ -374,6 +507,63 @@ def test_tracks_multiple_line_ranges_and_diff_header_paths(tmp_path: Path):
             "new_end": 13,
             "new_count": 2,
         },
+    ]
+
+
+def test_tracks_native_patch_preview_ranges_without_hunk_headers(tmp_path: Path):
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("before\nold value\nafter\n")
+    tool_use = ToolUse("patch", [str(target)], "unused")
+    preview = preview_patch(
+        "<<<<<<< ORIGINAL\nold value\n=======\nnew value\n>>>>>>> UPDATED",
+        target,
+    )
+    assert preview is not None
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        record_diff_suggestion(
+            tool_use,
+            ConfirmationResult.confirm(),
+            preview,
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["line_ranges"] == [
+        {
+            "file": str(target),
+            "old_start": 2,
+            "old_end": 2,
+            "old_count": 1,
+            "new_start": 2,
+            "new_end": 2,
+            "new_count": 1,
+        }
+    ]
+
+
+def test_native_patch_ranges_account_for_prior_hunk_line_delta(tmp_path: Path):
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("before\nfirst\nmiddle\nsecond\nafter\n")
+    patch = (
+        f"{ORIGINAL}first{DIVIDER}first a\nfirst b{UPDATED}\n"
+        f"{ORIGINAL}second{DIVIDER}replacement{UPDATED}"
+    )
+    preview = preview_patch(patch, target)
+    assert preview is not None
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        record_diff_suggestion(
+            ToolUse("patch", [str(target)], patch),
+            ConfirmationResult.confirm(),
+            preview,
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert [(r["old_start"], r["new_start"]) for r in event["line_ranges"]] == [
+        (2, 2),
+        (4, 5),
     ]
 
 

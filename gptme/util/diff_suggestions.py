@@ -7,15 +7,16 @@ import json
 import logging
 import re
 import threading
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
     from ..hooks import ConfirmationResult
     from ..tools.base import ToolUse
@@ -102,7 +103,67 @@ def _diff_header_path(line: str) -> str | None:
     return None if path == "/dev/null" else path
 
 
-def _line_ranges(preview: str, targets: list[str]) -> list[dict[str, int | str]]:
+def _native_patch_line_ranges(preview: str, target: str) -> list[dict[str, int | str]]:
+    """Map headerless ``patch`` previews back to their target file.
+
+    ``patch.preview_patch()`` deliberately removes synthetic unified-diff hunk
+    headers. Its old-side lines still identify the changed span, provided that
+    span occurs exactly once in the current file. Ambiguous previews stay
+    unmapped instead of inventing a location.
+    """
+    try:
+        path = Path(target).expanduser()
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return []
+
+    ranges: list[dict[str, int | str]] = []
+    line_delta = 0
+    for hunk in preview.split("\n@@@\n"):
+        diff_lines = hunk.splitlines()
+        if not diff_lines or any(
+            line and line[0] not in {" ", "+", "-", "\\"} for line in diff_lines
+        ):
+            return []
+
+        old_lines = [line[1:] for line in diff_lines if line.startswith((" ", "-"))]
+        new_lines = [line[1:] for line in diff_lines if line.startswith((" ", "+"))]
+        if not old_lines:
+            return []
+
+        matches = [
+            index
+            for index in range(len(lines) - len(old_lines) + 1)
+            if lines[index : index + len(old_lines)] == old_lines
+        ]
+        if len(matches) != 1:
+            return []
+
+        index = matches[0]
+        new_start = index + 1
+        old_start = new_start - line_delta
+        old_count = len(old_lines)
+        new_count = len(new_lines)
+        ranges.append(
+            {
+                "file": target,
+                "old_start": old_start,
+                "old_end": _range_end(old_start, old_count),
+                "old_count": old_count,
+                "new_start": new_start,
+                "new_end": _range_end(new_start, new_count),
+                "new_count": new_count,
+            }
+        )
+        lines[index : index + old_count] = new_lines
+        line_delta += new_count - old_count
+
+    return ranges
+
+
+def _line_ranges(
+    preview: str, targets: list[str], tool: str
+) -> list[dict[str, int | str]]:
     """Parse file and line ranges from unified-diff hunk headers.
 
     Minimal previews omit ``---``/``+++`` headers, so a sole tool target is a
@@ -147,7 +208,22 @@ def _line_ranges(preview: str, targets: list[str]) -> list[dict[str, int | str]]
             }
         )
 
-    return ranges
+    if ranges or tool != "patch" or fallback_file is None:
+        return ranges
+    return _native_patch_line_ranges(preview, fallback_file)
+
+
+def diff_suggestion_line_ranges(
+    tool_use: ToolUse | None, preview: str | None
+) -> list[dict[str, int | str]]:
+    """Resolve a suggestion's ranges against the pre-execution workspace."""
+    if tool_use is None:
+        return []
+    return _line_ranges(
+        preview or tool_use.preview_content or "",
+        _targets(tool_use),
+        tool_use.tool,
+    )
 
 
 def record_diff_suggestion(
@@ -158,6 +234,9 @@ def record_diff_suggestion(
     edited_by_user: bool = False,
     confirmation_automatic: bool = False,
     decision_override: str | None = None,
+    execution_status: str | None = None,
+    execution_error: str | None = None,
+    line_ranges_override: list[dict[str, int | str]] | None = None,
 ) -> None:
     """Append one accepted/skipped edit suggestion to the active session ledger.
 
@@ -178,6 +257,9 @@ def record_diff_suggestion(
             edited_by_user=edited_by_user,
             confirmation_automatic=confirmation_automatic,
             decision_override=decision_override,
+            execution_status=execution_status,
+            execution_error=execution_error,
+            line_ranges_override=line_ranges_override,
         )
     except Exception as e:
         # Measurement must never prevent the edit the user just accepted.
@@ -193,6 +275,9 @@ def _write_diff_suggestion(
     edited_by_user: bool,
     confirmation_automatic: bool,
     decision_override: str | None,
+    execution_status: str | None,
+    execution_error: str | None,
+    line_ranges_override: list[dict[str, int | str]] | None,
 ) -> None:
     """Serialize one decision; caller owns fail-open error handling."""
 
@@ -201,6 +286,8 @@ def _write_diff_suggestion(
     decision = decision_override or (
         "skipped" if result.action == ConfirmAction.SKIP else "accepted"
     )
+    if execution_status is None:
+        execution_status = "not_run" if decision == "skipped" else "unknown"
     preview_text = preview or tool_use.preview_content or ""
     payload = json.dumps(
         {
@@ -215,18 +302,25 @@ def _write_diff_suggestion(
     event = {
         "schema": "gptme.diff-suggestion.v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "suggestion_id": hashlib.sha256(payload.encode()).hexdigest()[:16],
+        "suggestion_id": uuid.uuid4().hex[:16],
+        "content_id": hashlib.sha256(payload.encode()).hexdigest()[:16],
         "diff_ref": tracker.ref,
         "tool": tool_use.tool,
         "call_id": tool_use.call_id,
         "targets": _targets(tool_use),
         "decision": decision,
+        "execution_status": execution_status,
+        "execution_error": execution_error,
         "edited_by_user": edited_by_user,
         "confirmation_mode": "automatic" if confirmation_automatic else "user",
         "confirmation_hooks": [
             hook.name for hook in get_hooks(HookType.TOOL_CONFIRM) if hook.enabled
         ],
-        "line_ranges": _line_ranges(preview_text, _targets(tool_use)),
+        "line_ranges": (
+            line_ranges_override
+            if line_ranges_override is not None
+            else diff_suggestion_line_ranges(tool_use, preview_text)
+        ),
         "preview": preview_text[:_MAX_PREVIEW_CHARS],
         "preview_truncated": len(preview_text) > _MAX_PREVIEW_CHARS,
     }

@@ -19,6 +19,23 @@ from .clipboard import set_copytext
 
 console = Console(log_path=False)
 
+_FAILED_EDIT_PREFIXES = (
+    "append aborted:",
+    "atomic patch aborted:",
+    "error:",
+    "failed ",
+    "save aborted:",
+    "warning: morph edit resulted in no changes",
+)
+
+
+def _failed_edit_message(message: Message | None) -> str | None:
+    """Return the failure text from an edit executor's terminal message."""
+    if message is None:
+        return None
+    text = message.content.strip()
+    return text if text.lower().startswith(_FAILED_EDIT_PREFIXES) else None
+
 
 def print_confirmation_help(copiable: bool, editable: bool, default: bool = True):
     """Print help text for confirmation options.
@@ -105,6 +122,7 @@ def execute_with_confirmation(
     from ..tools.base import get_current_tool_use
     from .diff_suggestions import (
         confirmation_is_automatic,
+        diff_suggestion_line_ranges,
         record_diff_suggestion,
     )
 
@@ -134,6 +152,7 @@ def execute_with_confirmation(
                 result,
                 preview_content or content,
                 confirmation_automatic=confirmation_automatic,
+                execution_status="not_run",
             )
             msg = result.message or "Operation aborted: user chose not to run."
             yield Message("system", msg)
@@ -154,6 +173,7 @@ def execute_with_confirmation(
                     preview_content or content,
                     confirmation_automatic=confirmation_automatic,
                     decision_override="skipped",
+                    execution_status="not_run",
                 )
                 # Editing is not supported for this command type (e.g. bg with surrounding
                 # commands). Abort rather than execute unedited content the user tried to modify.
@@ -169,6 +189,7 @@ def execute_with_confirmation(
                     preview_content or content,
                     confirmation_automatic=confirmation_automatic,
                     decision_override="skipped",
+                    execution_status="not_run",
                 )
                 yield Message(
                     "system", "Editing returned no content; execution aborted."
@@ -194,6 +215,7 @@ def execute_with_confirmation(
                         edited_by_user=True,
                         confirmation_automatic=edited_confirmation_automatic,
                         decision_override="skipped",
+                        execution_status="not_run",
                     )
                     msg = (
                         edited_result.message
@@ -202,28 +224,70 @@ def execute_with_confirmation(
                     yield Message("system", msg)
                     return
 
+        tool_use = get_current_tool_use()
+        line_ranges = diff_suggestion_line_ranges(tool_use, final_preview)
+
+        # Execute
+        try:
+            ex_result = execute_fn(content, path)
+            last_message: Message | None = None
+            if isinstance(ex_result, Generator):
+                for message in ex_result:
+                    if isinstance(message, Message):
+                        last_message = message
+                    yield message
+            else:
+                if isinstance(ex_result, Message):
+                    last_message = ex_result
+                yield ex_result
+        except Exception as e:
+            record_diff_suggestion(
+                tool_use,
+                edited_result if was_edited else result,
+                final_preview,
+                edited_by_user=was_edited,
+                confirmation_automatic=(
+                    edited_confirmation_automatic
+                    if was_edited
+                    else confirmation_automatic
+                ),
+                execution_status="failed",
+                execution_error=str(e),
+                line_ranges_override=line_ranges,
+            )
+            if os.getenv("PYTEST_CURRENT_TEST") and not isinstance(e, ValueError):
+                raise
+            yield Message("system", f"Error during execution: {e}")
+            return
+
+        if execution_error := _failed_edit_message(last_message):
+            record_diff_suggestion(
+                tool_use,
+                edited_result if was_edited else result,
+                final_preview,
+                edited_by_user=was_edited,
+                confirmation_automatic=(
+                    edited_confirmation_automatic
+                    if was_edited
+                    else confirmation_automatic
+                ),
+                execution_status="failed",
+                execution_error=execution_error,
+                line_ranges_override=line_ranges,
+            )
+            return
+
         record_diff_suggestion(
-            get_current_tool_use(),
+            tool_use,
             edited_result if was_edited else result,
             final_preview,
             edited_by_user=was_edited,
             confirmation_automatic=(
                 edited_confirmation_automatic if was_edited else confirmation_automatic
             ),
+            execution_status="applied",
+            line_ranges_override=line_ranges,
         )
-
-        # Execute
-        try:
-            ex_result = execute_fn(content, path)
-            if isinstance(ex_result, Generator):
-                yield from ex_result
-            else:
-                yield ex_result
-        except Exception as e:
-            if os.getenv("PYTEST_CURRENT_TEST") and not isinstance(e, ValueError):
-                raise
-            yield Message("system", f"Error during execution: {e}")
-            return
 
         # Add edit notification if content was edited
         if was_edited:

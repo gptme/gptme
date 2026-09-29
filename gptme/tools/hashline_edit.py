@@ -917,14 +917,14 @@ def execute_hashline_edit(
         default_confirm=True,
     )
     confirmation_automatic = confirmation_is_automatic()
-    record_diff_suggestion(
-        get_current_tool_use(),
-        confirm_result,
-        updated,
-        edited_by_user=confirm_result.action == ConfirmAction.EDIT,
-        confirmation_automatic=confirmation_automatic,
-    )
     if confirm_result.action == ConfirmAction.SKIP:
+        record_diff_suggestion(
+            get_current_tool_use(),
+            confirm_result,
+            updated,
+            confirmation_automatic=confirmation_automatic,
+            execution_status="not_run",
+        )
         yield Message(
             "system",
             confirm_result.message or "hashline_edit: operation cancelled by user",
@@ -938,6 +938,17 @@ def execute_hashline_edit(
     ):
         updated = confirm_result.edited_content
 
+    def record_execution(status: str, error: str | None = None) -> None:
+        record_diff_suggestion(
+            get_current_tool_use(),
+            confirm_result,
+            updated,
+            edited_by_user=confirm_result.action == ConfirmAction.EDIT,
+            confirmation_automatic=confirmation_automatic,
+            execution_status=status,
+            execution_error=error,
+        )
+
     # For merge-recovered edits, re-read the file right before writing to guard
     # against concurrent changes that arrived during the confirmation dialog.
     # This applies regardless of whether the user edited the proposed content —
@@ -946,11 +957,14 @@ def execute_hashline_edit(
         try:
             post_confirm_content = resolved.read_text(encoding="utf-8")
         except (UnicodeDecodeError, PermissionError, OSError) as e:
+            record_execution("failed", str(e))
             yield Message(
                 "system", f"hashline_edit: cannot re-read file before write: {e}"
             )
             return
         if post_confirm_content != live_content:
+            error = "file changed again during confirmation"
+            record_execution("failed", error)
             yield Message(
                 "system",
                 f"hashline_edit: file changed again during confirmation for {resolved}. "
@@ -976,11 +990,13 @@ def execute_hashline_edit(
             raise
         os.replace(tmp_name, resolved)
     except (PermissionError, OSError) as e:
+        record_execution("failed", str(e))
         yield Message("system", f"hashline_edit: write failed: {e}")
         return
 
     # Update snapshot for the new content
     store_snapshot(str(resolved), updated)
+    record_execution("applied")
 
     n = len(ops)
     suffix = " (recovered via 3-way merge)" if merge_recovered else ""
