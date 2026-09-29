@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import importlib
+import json
 import subprocess
-from pathlib import Path  # noqa: TC003
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,7 +13,15 @@ import pytest
 from click.testing import CliRunner
 
 import gptme.cli.main as cli
+from gptme.hooks import ConfirmationResult
+from gptme.message import Message
+from gptme.tools.base import ToolUse, using_current_tool_use
+from gptme.util.ask_execute import execute_with_confirmation
 from gptme.util.context import get_git_diff_context
+from gptme.util.diff_suggestions import (
+    record_diff_suggestion,
+    track_diff_suggestions,
+)
 
 _chat_module = importlib.import_module("gptme.chat")
 
@@ -88,6 +97,84 @@ def test_non_git_dir_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         get_git_diff_context("HEAD")
 
 
+@pytest.mark.parametrize(
+    ("confirmation", "decision"),
+    [
+        (ConfirmationResult.confirm(), "accepted"),
+        (ConfirmationResult.skip("Declined by user"), "skipped"),
+    ],
+)
+def test_tracks_edit_suggestion_decisions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    confirmation: ConfirmationResult,
+    decision: str,
+):
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("old\n")
+    tool_use = ToolUse("patch", [str(target)], "old\n<<<<<<<\nnew\n>>>>>>>")
+
+    monkeypatch.setattr("gptme.hooks.get_confirmation", lambda **_: confirmation)
+
+    def _execute(content: str, path: Path | None):
+        yield Message("system", f"applied to {path}")
+
+    with (
+        track_diff_suggestions(logdir, "main"),
+        using_current_tool_use(tool_use),
+    ):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: target,
+                preview_fn=lambda *_: "@@ -1 +1 @@\n-old\n+new",
+            )
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["decision"] == decision
+    assert event["confirmation_mode"] == "automatic"
+    assert event["diff_ref"] == "main"
+    assert event["targets"] == [str(target)]
+    assert event["preview"] == "@@ -1 +1 @@\n-old\n+new"
+
+
+def test_tracking_failure_does_not_block_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    invalid_logdir = tmp_path / "not-a-directory"
+    invalid_logdir.write_text("occupied")
+    tool_use = ToolUse("patch", ["example.py"], "patch")
+    executed: list[str] = []
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    def _execute(content: str, path: Path | None):
+        executed.append(content)
+        yield Message("system", "applied")
+
+    with (
+        track_diff_suggestions(invalid_logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: Path("example.py"),
+            )
+        )
+
+    assert executed == ["patch"]
+
+
 # ── CLI wiring ──────────────────────────────────────────────────────────
 
 
@@ -128,8 +215,14 @@ def test_diff_flag_injects_system_message(
 
     seen: dict[str, Any] = {}
 
-    def _fake_chat(prompt_msgs, initial_msgs, *args, **kwargs):
+    def _fake_chat(prompt_msgs, initial_msgs, logdir, *args, **kwargs):
         seen["initial_msgs"] = initial_msgs
+        seen["logdir"] = logdir
+        record_diff_suggestion(
+            ToolUse("patch", ["example.py"], "old\n<<<<<<<\nnew\n>>>>>>>"),
+            ConfirmationResult.confirm(),
+            "@@ -1 +1 @@\n-old\n+new",
+        )
 
     monkeypatch.setattr(_chat_module, "chat", _fake_chat)
 
@@ -139,6 +232,8 @@ def test_diff_flag_injects_system_message(
 
     system_msgs = [m for m in seen["initial_msgs"] if m.role == "system"]
     assert any("DIFF-CONTEXT:main" in m.content for m in system_msgs)
+    event = json.loads((seen["logdir"] / "diff-suggestions.jsonl").read_text())
+    assert event["diff_ref"] == "main"
 
 
 def test_diff_flag_bare_uses_head(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

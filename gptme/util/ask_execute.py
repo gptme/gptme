@@ -102,6 +102,11 @@ def execute_with_confirmation(
         confirmation_workspace: Effective cwd passed to confirmation hooks
     """
     from ..hooks import ConfirmAction, get_confirmation
+    from ..tools.base import get_current_tool_use
+    from .diff_suggestions import (
+        confirmation_is_automatic,
+        record_diff_suggestion,
+    )
 
     try:
         # Get the path and content
@@ -116,6 +121,7 @@ def execute_with_confirmation(
             preview_content = preview_fn(content, path)
 
         # Get confirmation via hook system.
+        confirmation_automatic = confirmation_is_automatic()
         result = get_confirmation(
             preview=preview_content or content,
             workspace=confirmation_workspace,
@@ -123,6 +129,12 @@ def execute_with_confirmation(
         )
 
         if result.action == ConfirmAction.SKIP:
+            record_diff_suggestion(
+                get_current_tool_use(),
+                result,
+                preview_content or content,
+                confirmation_automatic=confirmation_automatic,
+            )
             msg = result.message or "Operation aborted: user chose not to run."
             yield Message("system", msg)
             return
@@ -131,8 +143,16 @@ def execute_with_confirmation(
         # execution request: route it through the hook chain again so guardrails
         # inspect the exact content that will execute, not only the original.
         was_edited = False
+        final_preview = preview_content or content
         if result.action == ConfirmAction.EDIT:
             if not allow_edit:
+                record_diff_suggestion(
+                    get_current_tool_use(),
+                    result,
+                    preview_content or content,
+                    confirmation_automatic=confirmation_automatic,
+                    decision_override="skipped",
+                )
                 # Editing is not supported for this command type (e.g. bg with surrounding
                 # commands). Abort rather than execute unedited content the user tried to modify.
                 yield Message(
@@ -141,6 +161,13 @@ def execute_with_confirmation(
                 )
                 return
             if not result.edited_content:
+                record_diff_suggestion(
+                    get_current_tool_use(),
+                    result,
+                    preview_content or content,
+                    confirmation_automatic=confirmation_automatic,
+                    decision_override="skipped",
+                )
                 yield Message(
                     "system", "Editing returned no content; execution aborted."
                 )
@@ -150,18 +177,37 @@ def execute_with_confirmation(
             content = result.edited_content
             if was_edited:
                 edited_preview = preview_fn(content, path) if preview_fn else None
+                final_preview = edited_preview or content
+                edited_confirmation_automatic = confirmation_is_automatic()
                 edited_result = get_confirmation(
                     preview=edited_preview or content,
                     workspace=confirmation_workspace,
                     default_confirm=True,
                 )
                 if edited_result.action != ConfirmAction.CONFIRM:
+                    record_diff_suggestion(
+                        get_current_tool_use(),
+                        edited_result,
+                        edited_preview or content,
+                        edited_by_user=True,
+                        confirmation_automatic=edited_confirmation_automatic,
+                    )
                     msg = (
                         edited_result.message
                         or "Edited content was not confirmed; execution aborted."
                     )
                     yield Message("system", msg)
                     return
+
+        record_diff_suggestion(
+            get_current_tool_use(),
+            result,
+            final_preview,
+            edited_by_user=was_edited,
+            confirmation_automatic=(
+                edited_confirmation_automatic if was_edited else confirmation_automatic
+            ),
+        )
 
         # Execute
         try:

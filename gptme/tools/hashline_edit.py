@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING, Literal
 from ..message import Message
 from ..util.git_cmd import GIT_CMD
 from ._hashline_snapshot import lookup_snapshot, store_snapshot
-from .base import Parameter, ToolSpec, ToolUse
+from .base import Parameter, ToolSpec, ToolUse, get_current_tool_use
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -907,10 +907,22 @@ def execute_hashline_edit(
 
     # Ask for confirmation before writing (matches sibling tools' safety model)
     from ..hooks import ConfirmAction, get_confirmation
+    from ..util.diff_suggestions import (
+        confirmation_is_automatic,
+        record_diff_suggestion,
+    )
 
+    confirmation_automatic = confirmation_is_automatic()
     confirm_result = get_confirmation(
         preview=updated,
         default_confirm=True,
+    )
+    record_diff_suggestion(
+        get_current_tool_use(),
+        confirm_result,
+        updated,
+        edited_by_user=confirm_result.action == ConfirmAction.EDIT,
+        confirmation_automatic=confirmation_automatic,
     )
     if confirm_result.action == ConfirmAction.SKIP:
         yield Message(

@@ -1,0 +1,167 @@
+"""Local suggestion-decision tracking for ``gptme --diff`` sessions."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
+    from ..hooks import ConfirmationResult
+    from ..tools.base import ToolUse
+
+_EDIT_TOOLS = frozenset(
+    {"append", "hashline_edit", "morph", "patch", "patch_many", "save"}
+)
+_MAX_PREVIEW_CHARS = 50_000
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _DiffSuggestionTracker:
+    path: Path
+    ref: str
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_tracker: ContextVar[_DiffSuggestionTracker | None] = ContextVar(
+    "diff_suggestion_tracker", default=None
+)
+
+
+@contextmanager
+def track_diff_suggestions(logdir: Path, ref: str) -> Generator[Path, None, None]:
+    """Record edit-tool confirmation decisions for one ``--diff`` session."""
+    path = logdir / "diff-suggestions.jsonl"
+    token = _tracker.set(_DiffSuggestionTracker(path=path, ref=ref))
+    try:
+        yield path
+    finally:
+        _tracker.reset(token)
+
+
+def _targets(tool_use: ToolUse) -> list[str]:
+    targets: list[str] = []
+    if tool_use.kwargs:
+        for key in ("path", "paths"):
+            value = tool_use.kwargs.get(key)
+            if value:
+                targets.append(value)
+    if tool_use.args:
+        targets.extend(arg for arg in tool_use.args if arg)
+    return list(dict.fromkeys(targets))
+
+
+def record_diff_suggestion(
+    tool_use: ToolUse | None,
+    result: ConfirmationResult,
+    preview: str | None,
+    *,
+    edited_by_user: bool = False,
+    confirmation_automatic: bool = False,
+    decision_override: str | None = None,
+) -> None:
+    """Append one accepted/skipped edit suggestion to the active session ledger.
+
+    The full preview is retained locally so later measurement can identify the
+    proposed hunk. The tool payload remains in the ordinary conversation log;
+    ``suggestion_id`` provides a stable correlation key without duplicating it.
+    """
+    tracker = _tracker.get()
+    if tracker is None or tool_use is None or tool_use.tool not in _EDIT_TOOLS:
+        return
+
+    try:
+        _write_diff_suggestion(
+            tracker,
+            tool_use,
+            result,
+            preview,
+            edited_by_user=edited_by_user,
+            confirmation_automatic=confirmation_automatic,
+            decision_override=decision_override,
+        )
+    except Exception as e:
+        # Measurement must never prevent the edit the user just accepted.
+        logger.warning("Failed to record --diff suggestion decision: %s", e)
+
+
+def _write_diff_suggestion(
+    tracker: _DiffSuggestionTracker,
+    tool_use: ToolUse,
+    result: ConfirmationResult,
+    preview: str | None,
+    *,
+    edited_by_user: bool,
+    confirmation_automatic: bool,
+    decision_override: str | None,
+) -> None:
+    """Serialize one decision; caller owns fail-open error handling."""
+
+    from ..hooks import ConfirmAction, HookType, get_hooks
+
+    decision = decision_override or (
+        "skipped" if result.action == ConfirmAction.SKIP else "accepted"
+    )
+    preview_text = preview or tool_use.preview_content or ""
+    payload = json.dumps(
+        {
+            "tool": tool_use.tool,
+            "args": tool_use.args,
+            "kwargs": tool_use.kwargs,
+            "content": tool_use.content,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    event = {
+        "schema": "gptme.diff-suggestion.v1",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "suggestion_id": hashlib.sha256(payload.encode()).hexdigest()[:16],
+        "diff_ref": tracker.ref,
+        "tool": tool_use.tool,
+        "call_id": tool_use.call_id,
+        "targets": _targets(tool_use),
+        "decision": decision,
+        "edited_by_user": edited_by_user,
+        "confirmation_mode": "automatic" if confirmation_automatic else "user",
+        "confirmation_hooks": [
+            hook.name for hook in get_hooks(HookType.TOOL_CONFIRM) if hook.enabled
+        ],
+        "preview": preview_text[:_MAX_PREVIEW_CHARS],
+        "preview_truncated": len(preview_text) > _MAX_PREVIEW_CHARS,
+    }
+
+    tracker.path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(event, sort_keys=True) + "\n"
+    with tracker.lock, tracker.path.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def confirmation_is_automatic() -> bool:
+    """Return whether the next confirmation lacks an explicit user decision."""
+    if _tracker.get() is None:
+        return False
+
+    try:
+        from ..hooks import HookType, get_hooks
+        from ..hooks.confirm import is_auto_confirm_active
+
+        if is_auto_confirm_active():
+            return True
+        hook_names = {
+            hook.name for hook in get_hooks(HookType.TOOL_CONFIRM) if hook.enabled
+        }
+        return not hook_names.intersection({"cli_confirm", "server_confirm"})
+    except Exception as e:
+        logger.warning("Failed to inspect --diff confirmation mode: %s", e)
+        return False

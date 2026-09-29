@@ -735,7 +735,8 @@ Run 'gptme-util --help' for all utility commands."""
     is_flag=True,
     help="Inject the working-tree diff against HEAD (plus affected filenames) "
     "into context before the first turn. Use --diff-ref for another revision. "
-    "Useful for pair-programming/review sessions.",
+    "Accepted/skipped edit suggestions are recorded in the conversation's "
+    "diff-suggestions.jsonl file.",
 )
 @click.option(
     "--diff-ref",
@@ -1463,8 +1464,9 @@ def main(
         )
 
     # --diff: inject the working-tree diff into context before the first turn.
-    if diff_enabled or diff_ref is not None:
-        effective_diff_ref = diff_ref or "HEAD"
+    diff_requested = diff_enabled or diff_ref is not None
+    effective_diff_ref = diff_ref or "HEAD"
+    if diff_requested:
         from ..util.context import get_git_diff_context
 
         try:
@@ -1494,23 +1496,33 @@ def main(
         signal.signal(signal.SIGTERM, handle_sigterm)
 
     try:
-        chat(
-            prompt_msgs,
-            initial_msgs,
-            logdir,
-            config.chat.workspace,
-            config.chat.model,
-            config.chat.stream,
-            config.chat.no_confirm
-            if config.chat.no_confirm is not None
-            else no_confirm,
-            config.chat.interactive,
-            show_hidden,
-            config.chat.tools,
-            config.chat.tool_format,
-            output_schema_type,
-            output_format,
+        from contextlib import nullcontext
+
+        from ..util.diff_suggestions import track_diff_suggestions
+
+        tracking = (
+            track_diff_suggestions(logdir, effective_diff_ref)
+            if diff_requested
+            else nullcontext()
         )
+        with tracking:
+            chat(
+                prompt_msgs,
+                initial_msgs,
+                logdir,
+                config.chat.workspace,
+                config.chat.model,
+                config.chat.stream,
+                config.chat.no_confirm
+                if config.chat.no_confirm is not None
+                else no_confirm,
+                config.chat.interactive,
+                show_hidden,
+                config.chat.tools,
+                config.chat.tool_format,
+                output_schema_type,
+                output_format,
+            )
         show_resume_hint_on_exit = True
     except click.ClickException:
         raise  # let Click handle proper exit code (2 for UsageError)
