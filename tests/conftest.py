@@ -610,7 +610,17 @@ def init_(monkeypatch):
     # leak into subsequent tests that use a non-local provider.
     if model and model.startswith("local/") and not os.environ.get("OPENAI_BASE_URL"):
         monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:666")
-    init(model, interactive=False, tool_allowlist=None, tool_format="markdown")
+    # init() registers /skill commands from a fresh LessonIndex, whose default
+    # dirs are the developer's real ~/.config/gptme/lessons, ~/.agents/lessons
+    # and ~/.claude/skills. Scanning those per test made every test read the
+    # host's lessons (not hermetic) and cost ~200ms of setup per test on a
+    # machine with ~1k lessons -- 3x the whole suite's runtime. Scope the
+    # override to init() so tests that exercise lesson discovery are unaffected.
+    from gptme.lessons.index import LessonIndex
+
+    with monkeypatch.context() as m:
+        m.setattr(LessonIndex, "_default_dirs", staticmethod(lambda: []))
+        init(model, interactive=False, tool_allowlist=None, tool_format="markdown")
 
 
 @pytest.fixture
