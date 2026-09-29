@@ -156,6 +156,26 @@ _warned_mcp_allowlists: set[tuple[str, ...]] = set()
 _warned_mcp_allowlists_lock = threading.Lock()
 
 
+def _unregister_tool_hooks(tool: ToolSpec) -> None:
+    """Best-effort unregister of a tool's session-local hooks.
+
+    Safe if some or none of the hooks were actually registered. Used by the
+    plugin skip path so a partial ``register_hooks()`` cannot leave a skipped
+    plugin's hooks running, and by ``unload_tool``.
+    """
+    from ..hooks import unregister_hook
+
+    for hook_name in tool.hooks:
+        try:
+            unregister_hook(f"{tool.name}.{hook_name}")
+        except Exception:
+            logger.exception(
+                "Failed to unregister hook '%s.%s'",
+                tool.name,
+                hook_name,
+            )
+
+
 @overload
 def _init_single_tool(
     tool: ToolSpec, *, on_error: Literal["raise"] = ...
@@ -178,6 +198,7 @@ def _init_single_tool(
     on_error="raise": re-raise any exception from init() (default, for built-ins)
     on_error="skip": log a warning and return None on failure (for plugins)
     """
+    active = tool
     try:
         if tool.init:
             initialized = tool.init()
@@ -187,14 +208,16 @@ def _init_single_tool(
                     "it must return a ToolSpec"
                 )
             tool = initialized
+            active = tool
         tool.register_hooks()
         tool.register_commands()
         return tool
     except Exception:
         if on_error == "raise":
             raise
+        _unregister_tool_hooks(active)
         logger.warning(
-            "Skipping plugin tool %r: init() failed", tool.name, exc_info=True
+            "Skipping plugin tool %r: init() failed", active.name, exc_info=True
         )
         return None
 
@@ -256,11 +279,42 @@ def init_tools(
             available = [*file_tools, *get_available_tools(include_mcp=include_mcp)]
             permitted = [*(tool.name for tool in file_tools), *tool_names]
             file_tools = _add_required_tools(file_tools, available, allowlist=permitted)
+            # Init in dependency order so a skipped companion cannot leave a
+            # dependent plugin loaded. ``_add_required_tools`` appends
+            # companions after dependants, and file order is arbitrary.
+            pending: list[ToolSpec] = []
+            seen_file_tools: set[str] = set()
             for tool in file_tools:
-                if not has_tool(tool.name):
+                if tool.name in seen_file_tools or has_tool(tool.name):
+                    continue
+                seen_file_tools.add(tool.name)
+                pending.append(tool)
+
+            loaded_names = {t.name for t in loaded_tools}
+            while pending:
+                ready = [
+                    t
+                    for t in pending
+                    if all(req in loaded_names for req in t.requires_tools)
+                ]
+                if not ready:
+                    break
+                for tool in ready:
+                    pending.remove(tool)
                     initialized = _init_single_tool(tool, on_error="skip")
                     if initialized is not None:
                         loaded_tools.append(initialized)
+                        loaded_names.add(initialized.name)
+
+            for tool in pending:
+                missing = [
+                    req for req in tool.requires_tools if req not in loaded_names
+                ]
+                logger.warning(
+                    "Skipping plugin tool %r: required tool(s) %s failed to load",
+                    tool.name,
+                    ", ".join(missing),
+                )
 
         # Load built-in tools by name
         # When file paths are present, only load explicitly named built-in tools
@@ -707,21 +761,11 @@ def unload_tool(tool_name: str) -> ToolSpec:
         if tool is None:
             raise ValueError(f"Tool '{tool_name}' is not loaded")
 
-        from ..hooks import unregister_hook
-
         # Filter by identity: get_tool() matches name *or* block_types, so a
         # block-type argument would miss a name-only filter and leave a zombie
         # tool loaded after its hooks were unregistered.
         set_tools([loaded for loaded in get_tools() if loaded is not tool])
-        for hook_name in tool.hooks:
-            try:
-                unregister_hook(f"{tool.name}.{hook_name}")
-            except Exception:
-                logger.exception(
-                    "Failed to unregister hook '%s.%s' while unloading tool",
-                    tool.name,
-                    hook_name,
-                )
+        _unregister_tool_hooks(tool)
 
         logger.info("Unloaded tool '%s' mid-conversation", tool_name)
         return tool
