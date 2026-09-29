@@ -56,10 +56,16 @@ def _clear_watch_state():
     def _reset() -> None:
         with _pending_lock:
             _pending_deliveries.clear()
+        threads = []
         for w in list(_watches.values()):
             w.cancelled = True
+            w.cancel_event.set()
             _kill_proc(w.proc)
+            if w.thread is not None:
+                threads.append(w.thread)
         _watches.clear()
+        for t in threads:
+            t.join(timeout=2.0)
 
     _reset()
     yield

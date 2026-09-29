@@ -78,6 +78,8 @@ class Watch:
     logdir: Path | None = None  # routing key: conversation logdir at arm time
     proc: subprocess.Popen | None = None  # set for run/stream; killed on cancel
     lock: threading.Lock = field(default_factory=threading.Lock)
+    cancel_event: threading.Event = field(default_factory=threading.Event)
+    thread: threading.Thread | None = None
 
 
 _watches: dict[str, Watch] = {}
@@ -179,6 +181,7 @@ def _record_event(watch: Watch, text: str) -> bool:
         recent_cancel = len(watch.cancel_times)
         if recent_cancel > _CANCEL_COUNT or watch.seen > _MAX_EVENTS:
             watch.cancelled = True
+            watch.cancel_event.set()
             logger.warning("watch %s auto-cancelled by storm guard", watch.id)
             return False
         # Coalesce: too many events inside the window collapse to one
@@ -331,7 +334,7 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
         if watch.deadline is not None:
             delay = min(delay, max(0.0, watch.deadline - time.time()))
         if delay:
-            time.sleep(delay)
+            watch.cancel_event.wait(timeout=delay)
 
 
 def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
@@ -378,6 +381,7 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                     except queue.Full:
                         with watch.lock:
                             watch.cancelled = True
+                            watch.cancel_event.set()
                         logger.warning(
                             "watch %s stream queue full; auto-cancelled", watch.id
                         )
@@ -388,6 +392,7 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                 except queue.Full:
                     with watch.lock:
                         watch.cancelled = True
+                        watch.cancel_event.set()
                     logger.warning(
                         "watch %s stream queue full; auto-cancelled", watch.id
                     )
@@ -533,7 +538,9 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
 def _poll_timer(watch: Watch, seconds: float) -> None:
     end = time.time() + seconds
     while not watch.cancelled and time.time() < end:
-        time.sleep(min(_POLL_INTERVAL, max(0.1, end - time.time())))
+        watch.cancel_event.wait(
+            timeout=min(_POLL_INTERVAL, max(0.1, end - time.time()))
+        )
     if not watch.cancelled:
         _fire(watch, f"timer elapsed ({watch.description})")
 
@@ -572,12 +579,13 @@ def _poll_tmux(
         elif stable > 0 and time.time() - last_change >= stable:
             _fire(watch, f"pane output stable for {stable:.0f}s")
             return
-        time.sleep(0.5)
+        watch.cancel_event.wait(timeout=0.5)
 
 
 def _spawn(watch: Watch, target, *args) -> "Message":
     _register(watch)
     t = threading.Thread(target=_watch_thread, args=(watch, target, *args), daemon=True)
+    watch.thread = t
     t.start()
     return Message(
         "system",
@@ -861,6 +869,7 @@ def _watch(
         w = _get(rest[0], logdir)
         with w.lock:
             w.cancelled = True
+            w.cancel_event.set()
             proc = w.proc
         # A cancelled run/stream worker is blocked in communicate/readline;
         # kill the child so the daemon thread and its pipes are released.
