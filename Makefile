@@ -54,11 +54,17 @@ bundle-webui: ## Bundle the modern webui dist into the package (run after `cd we
 validate-release-package: ## Verify built packages contain the modern webui
 	python3 scripts/validate_release_package.py dist/*.whl dist/*.tar.gz
 
+# pytest-xdist workers. Every worker re-collects the whole suite (~90s of CPU on
+# a GitHub runner), so more workers than cores mostly buys duplicated collection:
+# `-n 16` on the 4-vCPU ubuntu-latest runner spent ~10 min collecting before the
+# first test ran. `auto` = one worker per CPU. Override: make test PYTEST_WORKERS=16
+PYTEST_WORKERS ?= auto
+
 test: ## Run tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
 	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \
-		-n 16 \
+		-n $(PYTEST_WORKERS) \
 		$(if $(EVAL), , -m "not eval") \
 		$(if $(SLOW), , -m "not slow and not eval") \
 		--timeout 60 --retries 2 --retry-delay 5 \
