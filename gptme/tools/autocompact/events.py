@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EVENT_LOG_NAME = "compaction.jsonl"
+SHADOW_LOG_NAME = "phase0-shadow.jsonl"
 _event_locks_guard = threading.Lock()
 _event_locks: weakref.WeakValueDictionary[Path, threading.Lock] = (
     weakref.WeakValueDictionary()
@@ -47,10 +48,10 @@ def _event_thread_lock(path: Path) -> threading.Lock:
 
 
 @contextmanager
-def _event_lock(logdir: Path) -> Iterator[None]:
+def _event_lock(logdir: Path, log_name: str = EVENT_LOG_NAME) -> Iterator[None]:
     """Serialize event appends across threads and processes."""
-    path = logdir / EVENT_LOG_NAME
-    lock_path = logdir / f".{EVENT_LOG_NAME}.lock"
+    path = logdir / log_name
+    lock_path = logdir / f".{log_name}.lock"
     thread_lock = _event_thread_lock(path)
     with thread_lock, lock_path.open("a+b") as lock:
         if fcntl is not None:
@@ -138,7 +139,54 @@ def append_compaction_event(
 
 def read_compaction_events(logdir: Path) -> list[dict[str, Any]]:
     """Read valid events from ``compaction.jsonl`` in append order."""
-    path = logdir / EVENT_LOG_NAME
+    return _read_jsonl_events(logdir / EVENT_LOG_NAME)
+
+
+def append_phase0_shadow_event(
+    logdir: str | PathLike[str] | None,
+    decisions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Append one Phase-0 shadow ledger record and return it.
+
+    Stored in ``phase0-shadow.jsonl`` (not ``compaction.jsonl``) so existing
+    compaction-event consumers keep seeing only actual compact operations.
+
+    Logging is best-effort: evaluation must never block compaction.
+    """
+    n_drop = sum(1 for d in decisions if d.get("decision") == "drop")
+    tokens_saved = sum(int(d.get("tokens_saved") or 0) for d in decisions)
+    event: dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "trigger": "phase0-shadow",
+        "method": "heuristic",
+        "n_candidates": len(decisions),
+        "n_drop": n_drop,
+        "n_keep": len(decisions) - n_drop,
+        "tokens_saved": tokens_saved,
+        "decisions": decisions,
+    }
+
+    if logdir is None or not isinstance(logdir, (str, PathLike)):
+        return event
+    logdir = Path(logdir)
+    try:
+        logdir.mkdir(parents=True, exist_ok=True)
+        with (
+            _event_lock(logdir, SHADOW_LOG_NAME),
+            (logdir / SHADOW_LOG_NAME).open("a", encoding="utf-8") as file,
+        ):
+            file.write(json.dumps(event, separators=(",", ":")) + "\n")
+    except OSError as exc:
+        logger.warning("Failed to append Phase-0 shadow event: %s", exc)
+    return event
+
+
+def read_phase0_shadow_events(logdir: Path) -> list[dict[str, Any]]:
+    """Read valid Phase-0 shadow records from ``phase0-shadow.jsonl``."""
+    return _read_jsonl_events(logdir / SHADOW_LOG_NAME)
+
+
+def _read_jsonl_events(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     events: list[dict[str, Any]] = []
@@ -147,5 +195,5 @@ def read_compaction_events(logdir: Path) -> list[dict[str, Any]]:
             try:
                 events.append(json.loads(line))
             except json.JSONDecodeError:
-                logger.warning("Skipping malformed compaction event in %s", path)
+                logger.warning("Skipping malformed event in %s", path)
     return events

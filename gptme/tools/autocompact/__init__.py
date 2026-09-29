@@ -16,7 +16,12 @@ from .engine import (
     prune_stale_tool_outputs,
     shadow_prune_stale_tool_outputs,
 )
-from .events import append_compaction_event, read_compaction_events
+from .events import (
+    append_compaction_event,
+    append_phase0_shadow_event,
+    read_compaction_events,
+    read_phase0_shadow_events,
+)
 from .handlers import (
     _compact_resume,
     _compact_summarize,
@@ -59,6 +64,8 @@ __all__ = [
     # Observability
     "append_compaction_event",
     "read_compaction_events",
+    "append_phase0_shadow_event",
+    "read_phase0_shadow_events",
     # Resume
     "_parse_context_files",
     "_load_context_files",

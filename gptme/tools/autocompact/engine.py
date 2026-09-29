@@ -24,6 +24,7 @@ from ...util.master_context import (
 )
 from ...util.output_storage import create_tool_result_summary, save_large_output
 from ...util.reduce import message_contains_tool_use, reduce_log
+from .events import append_phase0_shadow_event
 from .scoring import (
     PruneDecision,
     compress_content,
@@ -188,6 +189,7 @@ def shadow_prune_stale_tool_outputs(
     log: list[Message],
     model_name: str,
     keep_head: int = 0,
+    logdir: Path | None = None,
 ) -> list[PruneDecision]:
     """Shadow / dry-run pass: return per-message keep/drop decisions without modifying the log.
 
@@ -199,12 +201,18 @@ def shadow_prune_stale_tool_outputs(
 
     This is the evaluation harness called for in issue #3997:
 
-    - **Tokens saved** = ``sum(d.tokens_saved for d in decisions)``
+    - **Tokens saved** = ``sum(d.tokens_saved for d in decisions)``. Savings
+      use the persisted recovery-path stub (``for_estimate=True``), matching
+      production ``auto_compact_log`` with a logdir — not the short no-logdir
+      stub, which overstates savings.
     - **False-drop candidates** = decisions where ``decision == "drop"`` and a
-      later message re-reads the same content (compare ``content_digest`` to
-      digests of later read-tool outputs).
+      later message re-reads the same *payload* (compare ``content_digest``
+      after :func:`~.scoring.normalize_for_digest`).
     - **Coverage** = fraction of conversation token budget that would have been
       freed, enabling measurement before the LLM compaction trigger fires.
+
+    When ``logdir`` is set, the decisions are appended to
+    ``phase0-shadow.jsonl`` so recorded runs keep a pre-mutation ledger.
 
     Only tool-output messages (``_is_tool_output`` returns ``True``) produce a
     decision record; all other messages are silently skipped.
@@ -214,6 +222,8 @@ def shadow_prune_stale_tool_outputs(
         model_name: Model name used for token counting.
         keep_head: Number of messages at the start of the log to protect;
             messages in this range are always kept and produce no decision.
+        logdir: Conversation directory. When set, persist the ledger; the log
+            is still not mutated.
 
     Returns:
         List of :class:`~.scoring.PruneDecision` objects, one per eligible
@@ -249,6 +259,9 @@ def shadow_prune_stale_tool_outputs(
         relevance = score_tool_output_relevance(msg, idx, log)
 
         if relevance < _PRUNE_SCORE_THRESHOLD:
+            # Match the persisted / estimate stub, not the no-logdir one-liner.
+            # Production auto_compact_log always has a logdir; the short stub
+            # overstates savings (see test_phase0_estimate_uses_recovery_stub_template).
             stub = _stale_output_stub(msg, msg_tokens, logdir=None, for_estimate=True)
             stub_tokens = len_tokens(stub, model_name)
             saved = max(0, msg_tokens - stub_tokens)
@@ -275,6 +288,9 @@ def shadow_prune_stale_tool_outputs(
                     content_digest=PruneDecision._digest(msg.content),
                 )
             )
+
+    if logdir is not None:
+        append_phase0_shadow_event(logdir, [d.to_dict() for d in decisions])
 
     return decisions
 
@@ -345,6 +361,14 @@ def auto_compact_log(
     # master-context indices stay valid. Surviving content is kept verbatim.
     phase0_tokens_saved = 0
     if tokens >= limit:
+        # Record keep/drop decisions before the live pass mutates the log.
+        if logdir is not None:
+            shadow_prune_stale_tool_outputs(
+                log,
+                model.model,
+                keep_head=keep_head,
+                logdir=logdir,
+            )
         log, phase0_tokens_saved = prune_stale_tool_outputs(
             log,
             model.model,

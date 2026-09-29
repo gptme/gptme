@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from ...message import Message
@@ -48,9 +48,14 @@ class PruneDecision:
     tokens_saved:
         ``tokens - stub_tokens`` when dropped, else 0.
     content_digest:
-        First 8 hex characters of the SHA-256 of the original content.
-        Can be compared against later re-reads to measure false-drop rate:
-        if a later message re-reads the same content, the drop was a mistake.
+        First 8 hex characters of the SHA-256 of *normalized* original
+        content (see :func:`normalize_for_digest`). Compare against later
+        tool outputs after the same normalization to measure false-drop
+        rate. A later ``read`` of the same payload matches even though the
+        raw message includes a path label, line numbers, and code fences.
+        Shell-formatted output (prompts, pytest, ``ls``) still will not
+        match a later ``read`` of an underlying file — that is a remaining
+        limit of this metric, not a content match.
     """
 
     idx: int
@@ -61,9 +66,56 @@ class PruneDecision:
     tokens_saved: int
     content_digest: str
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "idx": self.idx,
+            "decision": self.decision,
+            "score": self.score,
+            "tokens": self.tokens,
+            "stub_tokens": self.stub_tokens,
+            "tokens_saved": self.tokens_saved,
+            "content_digest": self.content_digest,
+        }
+
     @staticmethod
     def _digest(content: str) -> str:
-        return hashlib.sha256(content.encode()).hexdigest()[:8]
+        return hashlib.sha256(normalize_for_digest(content).encode()).hexdigest()[:8]
+
+
+_FENCE_OPEN = re.compile(r"^(`{3,4})[^\n]*\n")
+_LINE_NUMBER_PREFIX = re.compile(r"(?m)^[ \t]*\d+[ \t|]")
+
+
+def normalize_for_digest(content: str) -> str:
+    """Strip read-tool framing so a reread hashes like the original payload.
+
+    gptme's ``read`` tool wraps file contents in a markdown fence (3 or 4
+    backticks) with a path label and cat -n line numbers. Hashing the raw
+    wrapper would miss that reread and understate false drops.
+
+    Remaining limit: shell-formatted output (prompts, pytest, ``ls`` columns)
+    still will not match a later ``read`` of an underlying file. This digest
+    is a same-payload check, not a path-identity check.
+    """
+    text = content.strip("\n")
+    match = _FENCE_OPEN.match(text)
+    if match:
+        fence = match.group(1)
+        rest = text[match.end() :]
+        closing = f"\n{fence}"
+        if rest.endswith(fence):
+            text = rest.removesuffix(fence).removesuffix("\n")
+        elif closing in rest:
+            text = rest[: rest.rfind(closing)]
+    first_line, sep, remainder = text.partition("\n")
+    if (
+        sep
+        and first_line.startswith("[")
+        and first_line.endswith("]")
+        and "#" in first_line
+    ):
+        text = remainder
+    return _LINE_NUMBER_PREFIX.sub("", text)
 
 
 # --- Enhanced Scoring Patterns (Issue #149) ---

@@ -12,10 +12,11 @@ from gptme.tools.autocompact import (
     PruneDecision,
     auto_compact_log,
     prune_stale_tool_outputs,
+    read_phase0_shadow_events,
     score_tool_output_relevance,
     shadow_prune_stale_tool_outputs,
 )
-from gptme.tools.autocompact.scoring import _PRUNE_MIN_AGE
+from gptme.tools.autocompact.scoring import _PRUNE_MIN_AGE, normalize_for_digest
 
 
 def _ts():
@@ -578,3 +579,88 @@ def test_shadow_non_tool_system_messages_excluded():
 
     # Non-tool system messages should produce no decision
     assert all(d.idx != 0 for d in decisions)
+
+
+def test_shadow_tokens_saved_matches_estimate_stub_not_short_stub():
+    """Shadow savings must match the persisted recovery stub, not the no-logdir one-liner.
+
+    Direct ``prune_stale_tool_outputs`` without a logdir emits a short stub that
+    overstates savings. Evaluation is about production (logdir present), so
+    shadow uses ``for_estimate=True``.
+    """
+    stale_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(stale_content, call_id="call-est-shadow")] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name())
+    _, estimate_saved = prune_stale_tool_outputs(log, _model_name(), for_estimate=True)
+    _, short_saved = prune_stale_tool_outputs(log, _model_name())
+
+    assert sum(d.tokens_saved for d in decisions) == estimate_saved
+    assert estimate_saved < short_saved
+
+
+def test_shadow_persists_ledger_when_logdir_set(tmp_path):
+    """Shadow pass with logdir must append a phase0-shadow.jsonl record."""
+    large_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(large_content)] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name(), logdir=tmp_path)
+    events = read_phase0_shadow_events(tmp_path)
+
+    assert len(events) == 1
+    event = events[0]
+    assert event["trigger"] == "phase0-shadow"
+    assert event["n_candidates"] == len(decisions)
+    assert event["n_drop"] == sum(1 for d in decisions if d.decision == "drop")
+    assert event["tokens_saved"] == sum(d.tokens_saved for d in decisions)
+    assert len(event["decisions"]) == len(decisions)
+
+
+def test_shadow_does_not_write_without_logdir(tmp_path, monkeypatch):
+    """Calling shadow without logdir must not create a ledger file."""
+    monkeypatch.chdir(tmp_path)
+    large_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(large_content)] + padding
+
+    shadow_prune_stale_tool_outputs(log, _model_name())
+
+    assert not (tmp_path / "phase0-shadow.jsonl").exists()
+
+
+def test_auto_compact_log_writes_phase0_shadow_ledger(tmp_path):
+    """Live compaction with a logdir records the pre-mutation shadow ledger."""
+    stale_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(stale_content)] + padding
+
+    list(auto_compact_log(log, keep_head=0, limit=100, logdir=tmp_path))
+
+    events = read_phase0_shadow_events(tmp_path)
+    assert len(events) == 1
+    assert events[0]["n_drop"] >= 1
+    assert events[0]["tokens_saved"] > 0
+    # Live pass mutates the working log, but the ledger is the original payload.
+    dropped = [d for d in events[0]["decisions"] if d["decision"] == "drop"]
+    assert dropped
+    assert dropped[0]["content_digest"] == PruneDecision._digest(stale_content)
+
+
+def test_digest_matches_formatted_reread():
+    """A later read-tool wrapper of the same payload must share the digest."""
+    payload = "def greet():\n    return 'hi'"
+    fenced = "````src/greet.py\n1\tdef greet():\n2\t    return 'hi'\n````"
+    triple = "```src/greet.py\n1\tdef greet():\n2\t    return 'hi'\n```"
+    padded = "````src/greet.py\n  1\tdef greet():\n  2\t    return 'hi'\n````"
+    tagged = "````src/greet.py\n[src/greet.py#abc]\n1\tdef greet():\n2\t    return 'hi'\n````"
+
+    expected = PruneDecision._digest(payload)
+    assert PruneDecision._digest(fenced) == expected
+    assert PruneDecision._digest(triple) == expected
+    assert PruneDecision._digest(padded) == expected
+    assert PruneDecision._digest(tagged) == expected
+    # Unrelated framing must not collide with a different payload.
+    assert PruneDecision._digest("other") != expected
+    assert "def greet():" in normalize_for_digest(fenced)
