@@ -886,7 +886,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f865bd447c0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4d726e4860&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2931,6 +2931,29 @@ The following Python functions are available:
 <span class="s">view_image(image_path: Path | str | Image.Image) -&gt; Message: View an image. Large images (&gt;1MB) will be automatically scaled down.</span>
 <span class="sb">```</span>
 
+<span class="gu">## watch</span>
+
+<span class="gs">**Description:**</span> Arm event sources (run/until/stream/timer/tmux) and get woken when they fire
+
+<span class="gs">**Instructions:**</span> Use watch whenever you would otherwise poll (<span class="sb">`sleep N; check`</span>) or block on a slow command: arm it, keep working, and get woken by a system message when the event fires. Prefer keep-working; never poll with <span class="sb">`sleep N; check`</span>.
+Arming a source:
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch until &lt;cmd&gt; --every 30s`</span>: fire once when cmd exits 0 (e.g. <span class="sb">`gh pr checks`</span>)
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch run &lt;cmd&gt;`</span>: fire when the process exits, with rc + output tail
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch stream &lt;cmd&gt;`</span>: each stdout line is an event (Monitor)
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch timer 10m [desc]`</span>: fire once after a duration (ScheduleWakeup)
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch tmux &lt;session&gt; --pattern &lt;re&gt; --stable 5s`</span>: fire on pane match/stability
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch list`</span>
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch cancel &lt;id&gt;`</span>: disarm. For <span class="sb">`run`</span>/<span class="sb">`stream`</span>, also stop the child we spawned (otherwise the worker and pipes leak). <span class="sb">`until`</span>/<span class="sb">`timer`</span>/<span class="sb">`tmux`</span> have no long-lived child to kill.
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch wait &lt;id&gt; [timeout]`</span>: blocking observation-only wait; never kills.
+Verb options: --timeout on run/until/stream/timer/tmux (unit required: 30s, 5m — a bare <span class="sb">`--timeout 30`</span> stays on the command, so <span class="sb">`watch run pytest --timeout 30`</span> runs pytest&#39;s flag); --every on until; --pattern/--stable on tmux. Other <span class="sb">`--flags`</span> belong to the watched command (so <span class="sb">`watch run pytest --pattern smoke`</span> keeps --pattern). Set <span class="sb">`--timeout`</span> on <span class="sb">`until`</span> so a never-met condition still wakes you. Runaway sources are auto-cancelled by storm guards. <span class="sb">`run`</span>/<span class="sb">`until`</span>/<span class="sb">`stream`</span> use the same confirmation and denylist as the shell tool (allowlisted probes auto-confirm; others prompt). <span class="sb">`list`</span>/<span class="sb">`cancel`</span>/<span class="sb">`wait`</span>/<span class="sb">`timer`</span>/<span class="sb">`tmux`</span> do not execute a user command, so they skip it.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: Wait for CI on PR 42 without blocking</span>
+<span class="sb">```watch</span>
+<span class="s">until gh pr checks 42 --repo gptme/gptme --every 60s --timeout 30m</span>
+<span class="sb">```</span>
+
 <span class="gu">## ipython</span>
 
 <span class="gs">**Description:**</span> Execute Python code
@@ -2968,7 +2991,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 19458</p>
+<p>Tokens: 19983</p>
 </dd></dl>
 
 <dl class="py function">
