@@ -7,9 +7,11 @@ it defeats the point of the check.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,10 @@ def _is_comment_only(line: str, suffix: str) -> bool:
 # remain better suited to an audit command with human review.
 _PATTERNS = (
     _pattern(
-        r"(?:readFileSync|open|read_text)\s*\(\s*[\"'][^\"']*"
+        # Allow any expression before the path so f-strings and concatenation
+        # (``open(f'{home}/.ssh/id_rsa')``, ``open('/home/' + u + '/.ssh/x')``)
+        # are caught, not just a bare quoted literal right after the call.
+        r"(?:readFileSync|open|read_text)\s*\([^)\n]*"
         r"(?:\.ssh|\.gnupg|\.env(?!\.(?:example|sample|template|dist|default))|"
         r"credentials(?:\.(?:json|ya?ml|txt|ini))?)",
         "credential-harvest",
@@ -149,6 +154,81 @@ def _entry_point_module_paths(entry_point: object) -> frozenset[str]:
     return frozenset({f"{base}.py", f"{base}/__init__.py"})
 
 
+def _editable_source_dir(distribution: object) -> Path | None:
+    """Return the source directory of an editable install, or ``None``.
+
+    ``pip install -e`` / ``uv pip install -e`` distributions list only their
+    editable shim in ``files`` metadata, so the entry-point module is not
+    discoverable from that list. ``direct_url.json`` records the source
+    directory the install points at.
+    """
+    read_text = getattr(distribution, "read_text", None)
+    if read_text is None:
+        return None
+    try:
+        raw = read_text("direct_url.json")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not data.get("dir_info", {}).get("editable"):
+        return None
+    url = str(data.get("url", ""))
+    if not url.startswith("file://"):
+        return None
+    path = unquote(urlparse(url).path)
+    # Windows file URLs look like file:///C:/... — strip the leading slash.
+    if re.match(r"^/[A-Za-z]:", path):
+        path = path[1:]
+    source = Path(path)
+    return source if source.is_dir() else None
+
+
+def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None:
+    """Scan one source file; ``None`` when it cannot be inspected."""
+    try:
+        if not path.is_file() or path.stat().st_size > _MAX_FILE_BYTES:
+            return None
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    suffix = path.suffix.lower()
+    findings: list[PluginSecurityFinding] = []
+    for line_number, line in enumerate(content.splitlines(), 1):
+        if _is_comment_only(line, suffix):
+            continue
+        findings.extend(
+            PluginSecurityFinding(
+                path=display,
+                line=line_number,
+                category=pattern.category,
+                message=pattern.message,
+            )
+            for pattern in _PATTERNS
+            if suffix in pattern.suffixes and pattern.regex.search(line)
+        )
+    return findings
+
+
+def _entry_point_source_candidates(
+    source_dir: Path, relative_paths: frozenset[str]
+) -> list[Path]:
+    """Map distribution-relative module paths under an editable source dir.
+
+    Also probes a ``src/`` layout, since pip/uv editable installs of src-layout
+    projects put the importable package one level below the project root.
+    """
+    candidates: list[Path] = []
+    for relative in sorted(relative_paths):
+        candidates.append(source_dir / relative)
+        candidates.append(source_dir / "src" / relative)
+    return candidates
+
+
 def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     """Scan an entry point's third-party distribution without importing it.
 
@@ -191,30 +271,31 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
         ):
             continue
 
-        path = Path(distribution.locate_file(package_path))
-        try:
-            if not path.is_file() or path.stat().st_size > _MAX_FILE_BYTES:
-                continue
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        file_findings = _scan_source(
+            Path(distribution.locate_file(package_path)), relative.as_posix()
+        )
+        if file_findings is None:
             continue
-
         scanned_files += 1
         if relative.as_posix() in entry_candidates:
             entry_point_scanned = True
-        suffix = relative.suffix.lower()
-        for line_number, line in enumerate(content.splitlines(), 1):
-            if _is_comment_only(line, suffix):
-                continue
-            findings.extend(
-                PluginSecurityFinding(
-                    path=str(relative),
-                    line=line_number,
-                    category=pattern.category,
-                    message=pattern.message,
-                )
-                for pattern in _PATTERNS
-                if suffix in pattern.suffixes and pattern.regex.search(line)
-            )
+        findings.extend(file_findings)
+
+    # Editable installs list only their editable shim in ``files``, so the
+    # entry-point module never appears there. Scan it from the install's source
+    # directory instead of failing closed on the documented plugin workflow.
+    if not entry_point_scanned:
+        source_dir = _editable_source_dir(distribution)
+        if source_dir is not None:
+            for candidate in _entry_point_source_candidates(
+                source_dir, entry_candidates
+            ):
+                file_findings = _scan_source(candidate, candidate.as_posix())
+                if file_findings is None:
+                    continue
+                scanned_files += 1
+                entry_point_scanned = True
+                findings.extend(file_findings)
+                break
 
     return PluginSecurityScan(scanned_files, tuple(findings), entry_point_scanned)

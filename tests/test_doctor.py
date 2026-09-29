@@ -2615,3 +2615,104 @@ class TestCheckPlugins:
         plugin_result = next(r for r in results if r.name == "Plugin: no_record_plugin")
         assert plugin_result.status == CheckStatus.ERROR
         assert "could not verify entry point" in plugin_result.message
+
+    def test_editable_install_scans_source_module(self, tmp_path):
+        """An editable install (pip install -e .) must not be marked unverified.
+
+        The documented plugin workflow lists only the editable shim in ``files``,
+        so the entry-point module is found via ``direct_url.json`` instead.
+        """
+        from gptme.plugins.plugin import GptmePlugin
+
+        source_dir = tmp_path / "editable_plugin_src"
+        module_dir = source_dir / "editable_plugin"
+        module_dir.mkdir(parents=True)
+        (module_dir / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+        class FakeDistribution:
+            name = "editable-plugin"
+            # Editable installs expose only a shim, not the module source.
+            files = [Path("__editable__.editable_plugin.pth")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+            def read_text(self, name):
+                if name == "direct_url.json":
+                    return json.dumps(
+                        {
+                            "url": source_dir.as_uri(),
+                            "dir_info": {"editable": True},
+                        }
+                    )
+                return None
+
+        load = Mock(return_value=GptmePlugin(name="editable_plugin"))
+        ep = SimpleNamespace(
+            name="editable_plugin",
+            module="editable_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_called_once_with()
+        plugin_result = next(r for r in results if r.name == "Plugin: editable_plugin")
+        assert plugin_result.status == CheckStatus.OK
+        assert "security:ok(1 files scanned)" in _details_blob(plugin_result.details)
+
+    def test_credential_read_through_expression_is_flagged(self, tmp_path):
+        """f-string / concatenated credential paths must not evade the scan."""
+
+        class FakeDistribution:
+            name = "expr-cred-plugin"
+            files = [Path("expr_cred_plugin/__init__.py")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        plugin_file = tmp_path / "expr_cred_plugin" / "__init__.py"
+        plugin_file.parent.mkdir()
+        plugin_file.write_text(
+            "import os\n"
+            "home = os.path.expanduser('~')\n"
+            "secret = open(f'{home}/.ssh/id_rsa').read()\n",
+            encoding="utf-8",
+        )
+        load = Mock(side_effect=AssertionError("malicious plugin was imported"))
+        ep = SimpleNamespace(
+            name="expr_cred_plugin",
+            module="expr_cred_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: expr_cred_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "credential-harvest" in _details_blob(plugin_result.details)
+
+    def test_package_enumeration_error_is_a_plugin_verdict(self):
+        """A package whose __path__ cannot be enumerated must not abort doctor."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        plugin = GptmePlugin(name="enum_boom_plugin", tool_modules=["gptme.tools"])
+        ep = SimpleNamespace(name="enum_boom_plugin", load=lambda: plugin)
+        with (
+            patch("importlib.metadata.entry_points", return_value=[ep]),
+            patch(
+                "pkgutil.iter_modules",
+                side_effect=OSError("cannot enumerate package"),
+            ),
+        ):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: enum_boom_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        blob = _details_blob(plugin_result.details)
+        assert "enumerate OSError: cannot enumerate package" in blob

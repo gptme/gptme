@@ -1349,7 +1349,14 @@ def _discover_plugin_tools(mod_name: str) -> tuple[list, list[str]]:
         path = getattr(module, "__path__", None)
         if path is None:
             return
-        for _, submodule_name, _ in pkgutil.iter_modules(path):
+        try:
+            submodules = sorted(pkgutil.iter_modules(path))
+        except Exception as exc:
+            # Enumeration itself can raise for an unreadable package path; that
+            # must be this module's verdict, not an aborted doctor run.
+            errors.append(f"{module_name}:error(enumerate {type(exc).__name__}: {exc})")
+            return
+        for _, submodule_name, _ in submodules:
             if submodule_name.startswith("_"):
                 continue
             full_name = f"{module_name}.{submodule_name}"
