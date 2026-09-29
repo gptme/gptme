@@ -1320,16 +1320,57 @@ def _check_mcp_stdio_server(
     ]
 
 
+def _discover_plugin_tools(mod_name: str) -> tuple[list, list[str]]:
+    """Discover a plugin module's tools, retaining siblings when one fails.
+
+    Unlike :func:`gptme.tools._discover_tools`, a submodule that raises during
+    import or spec collection is reported as a per-module verdict instead of
+    discarding every tool already found in healthy sibling submodules.
+    """
+    import importlib
+    import pkgutil
+    from types import ModuleType
+
+    from ..tools import _iter_tool_specs
+
+    errors: list[str] = []
+    tools: list[object] = []
+
+    try:
+        root = importlib.import_module(mod_name)
+    except Exception as exc:
+        return [], [f"{mod_name}:error(import {type(exc).__name__}: {exc})"]
+
+    def _collect(module_name: str, module: ModuleType) -> None:
+        try:
+            tools.extend(_iter_tool_specs(module))
+        except Exception as exc:
+            errors.append(f"{module_name}:error(discover {type(exc).__name__}: {exc})")
+        path = getattr(module, "__path__", None)
+        if path is None:
+            return
+        for _, submodule_name, _ in pkgutil.iter_modules(path):
+            if submodule_name.startswith("_"):
+                continue
+            full_name = f"{module_name}.{submodule_name}"
+            try:
+                submodule = importlib.import_module(full_name)
+            except Exception as exc:
+                errors.append(f"{full_name}:error(import {type(exc).__name__}: {exc})")
+                continue
+            _collect(full_name, submodule)
+
+    _collect(mod_name, root)
+    return tools, errors
+
+
 def _iter_plugin_tools(plugin: object) -> tuple[list, list[str]]:
     """Collect direct tools and tools discovered from ``tool_modules``.
 
     Returns ``(tools, import_errors)``. Import errors are already formatted as
     per-item verdict strings (``module:error(import ...)``).
     """
-    import importlib
-
     from ..plugins.plugin import GptmePlugin
-    from ..tools import _discover_tools
     from ..tools.base import ToolSpec
 
     if not isinstance(plugin, GptmePlugin):
@@ -1349,23 +1390,8 @@ def _iter_plugin_tools(plugin: object) -> tuple[list, list[str]]:
         _add(tool)
 
     for mod_name in plugin.tool_modules:
-        try:
-            importlib.import_module(mod_name)
-        except Exception as exc:
-            import_errors.append(
-                f"{mod_name}:error(import {type(exc).__name__}: {exc})"
-            )
-            continue
-        try:
-            discovered = _discover_tools([mod_name])
-        except Exception as exc:
-            # Submodule import errors inside the package (non-ModuleNotFoundError)
-            # escape _discover_tools. Report them as a plugin verdict instead of
-            # aborting the whole doctor run.
-            import_errors.append(
-                f"{mod_name}:error(discover {type(exc).__name__}: {exc})"
-            )
-            continue
+        discovered, errors = _discover_plugin_tools(mod_name)
+        import_errors.extend(errors)
         for tool in discovered:
             _add(tool)
 
@@ -1480,8 +1506,25 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
 
         # 1 — scan third-party distribution source before importing it. Importing
         # first would execute exactly the payload this check is meant to catch.
-        security_scan = scan_plugin_entry_point(ep)
+        # A scan that itself raises must not abort the whole doctor run: report a
+        # verdict for this plugin and move on.
         security_verdicts: list[str] = []
+        try:
+            security_scan = scan_plugin_entry_point(ep)
+        except Exception as exc:
+            results.append(
+                CheckResult(
+                    name=f"Plugin: {ep_name}",
+                    status=CheckStatus.ERROR,
+                    message=f"Security scan failed: {type(exc).__name__}",
+                    details=str(exc),
+                    fix_hint=(
+                        f"Check the distribution metadata for {ep_name!r}; "
+                        "a malformed install cannot be scanned before import"
+                    ),
+                )
+            )
+            continue
         if security_scan is not None:
             if security_scan.findings:
                 results.append(
@@ -1495,6 +1538,29 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                         fix_hint=(
                             f"Remove or audit the package providing {ep_name!r} "
                             "before loading it"
+                        ),
+                    )
+                )
+                continue
+            # Fail closed: a clean result only means something when the module
+            # that would be imported was actually scanned. Otherwise a plugin can
+            # place its executable source where the scanner skips it (build/,
+            # dist/, oversize file) and still be reported as verified.
+            if not security_scan.entry_point_scanned:
+                results.append(
+                    CheckResult(
+                        name=f"Plugin: {ep_name}",
+                        status=CheckStatus.ERROR,
+                        message="Security scan could not verify entry point",
+                        details=[
+                            (
+                                "security:error(unverified: entry-point module not "
+                                f"scanned; {security_scan.scanned_files} file(s) scanned)"
+                            )
+                        ],
+                        fix_hint=(
+                            f"Ensure {ep_name!r} ships its entry-point module as "
+                            "scannable source (not under build/dist, under 1 MB)"
                         ),
                     )
                 )

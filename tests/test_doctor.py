@@ -2376,7 +2376,7 @@ class TestCheckPlugins:
         assert "no tools" not in plugin_result.message
 
     def test_tool_module_discover_exception_does_not_abort_doctor(self):
-        """A submodule import error during discovery is a plugin verdict, not a crash."""
+        """A spec-collection error is a plugin verdict, not a doctor crash."""
         from gptme.plugins.plugin import GptmePlugin
 
         plugin = GptmePlugin(
@@ -2387,7 +2387,7 @@ class TestCheckPlugins:
         with (
             patch("importlib.metadata.entry_points", return_value=[ep]),
             patch(
-                "gptme.tools._discover_tools",
+                "gptme.tools._iter_tool_specs",
                 side_effect=ImportError("submodule exploded"),
             ),
         ):
@@ -2399,6 +2399,36 @@ class TestCheckPlugins:
         assert plugin_result.status == CheckStatus.ERROR
         blob = _details_blob(plugin_result.details)
         assert "discover ImportError: submodule exploded" in blob
+
+    def test_tool_module_sibling_verdicts_survive_submodule_error(
+        self, tmp_path, monkeypatch
+    ):
+        """A broken submodule must not discard healthy siblings' verdicts."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        pkg = tmp_path / "sibling_broken_pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "good.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            "GOOD_TOOL = ToolSpec(name='sibling_good', desc='ok')\n"
+        )
+        (pkg / "bad.py").write_text("raise ImportError('sibling exploded')\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        monkeypatch.delitem(sys.modules, "sibling_broken_pkg", raising=False)
+
+        plugin = GptmePlugin(name="sibling_plugin", tool_modules=["sibling_broken_pkg"])
+        ep = SimpleNamespace(name="sibling_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: sibling_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        blob = _details_blob(plugin_result.details)
+        # Healthy sibling is still reported...
+        assert "sibling_good:ok(no-init)" in blob
+        # ...and the failing one is attributed to its own submodule.
+        assert "sibling_broken_pkg.bad:error(import ImportError" in blob
 
     def test_tool_module_import_failure_is_error(self):
         """A missing tool_modules entry is an error, not a healthy empty plugin."""
@@ -2464,3 +2494,98 @@ class TestCheckPlugins:
         data = json.loads(result.output)
         plugin_results = [r for r in data["results"] if r["name"].startswith("Plugin:")]
         assert any(r["name"] == "Plugin: empty_plugin" for r in plugin_results)
+
+    def test_security_scan_error_is_a_plugin_verdict(self):
+        """A distribution whose metadata raises must not abort the doctor run."""
+
+        class ExplodingDistribution:
+            name = "boom-metadata"
+
+            @property
+            def files(self):
+                raise RuntimeError("bad metadata")
+
+        load = Mock(side_effect=AssertionError("unverified plugin imported"))
+        ep = SimpleNamespace(
+            name="boom_metadata",
+            module="boom_metadata",
+            dist=ExplodingDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: boom_metadata")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "Security scan failed" in plugin_result.message
+
+    def test_unscanned_entry_point_blocks_import(self, tmp_path):
+        """A module skipped by the scan must not be reported as verified."""
+        plugin_root = tmp_path / "unscanned_plugin"
+        plugin_root.mkdir()
+        (plugin_root / "other.py").write_text("VALUE = 1\n", encoding="utf-8")
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        (build_dir / "sneaky.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+        class FakeDistribution:
+            name = "sneaky-plugin"
+            files = [
+                Path("build/sneaky.py"),
+                Path("unscanned_plugin/other.py"),
+            ]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        load = Mock(side_effect=AssertionError("unverified plugin imported"))
+        ep = SimpleNamespace(
+            name="sneaky_plugin",
+            module="build.sneaky",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: sneaky_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "could not verify entry point" in plugin_result.message
+        assert "security:ok" not in _details_blob(plugin_result.details)
+
+    def test_benign_env_example_is_not_flagged(self, tmp_path):
+        """Template reads and comment text must not trip the credential pattern."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        class FakeDistribution:
+            name = "benign-plugin"
+            files = [Path("benign_plugin/__init__.py")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        plugin_file = tmp_path / "benign_plugin" / "__init__.py"
+        plugin_file.parent.mkdir()
+        plugin_file.write_text(
+            "EXAMPLE = \"open('.env.example')\"\n"
+            "# open('~/.ssh/id_rsa')  # illustrative comment\n",
+            encoding="utf-8",
+        )
+        load = Mock(return_value=GptmePlugin(name="benign_plugin"))
+        ep = SimpleNamespace(
+            name="benign_plugin",
+            module="benign_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_called_once_with()
+        plugin_result = next(r for r in results if r.name == "Plugin: benign_plugin")
+        assert plugin_result.status == CheckStatus.OK

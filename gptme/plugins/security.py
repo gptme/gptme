@@ -34,6 +34,7 @@ class PluginSecurityScan:
 
     scanned_files: int
     findings: tuple[PluginSecurityFinding, ...]
+    entry_point_scanned: bool = False
 
 
 @dataclass(frozen=True)
@@ -50,12 +51,36 @@ def _pattern(regex: str, category: str, message: str, suffixes: set[str]) -> _Pa
     )
 
 
+# Comment markers per suffix. The scan searches raw source lines, so a comment
+# like ``# open('.env.example')`` would otherwise read as a credential harvest.
+_COMMENT_PREFIXES: dict[str, tuple[str, ...]] = {
+    ".py": ("#",),
+    ".sh": ("#",),
+    ".bash": ("#",),
+    ".js": ("//",),
+    ".ts": ("//",),
+    ".json": (),
+}
+
+
+def _is_comment_only(line: str, suffix: str) -> bool:
+    """Return True for blank or comment-only lines (not executable code)."""
+    stripped = line.lstrip()
+    if not stripped:
+        return True
+    return any(
+        stripped.startswith(prefix) for prefix in _COMMENT_PREFIXES.get(suffix, ("#",))
+    )
+
+
 # High-severity subset of Bob's idea #524 MCP/skill malware scanner. Doctor
 # blocks import only for these narrow patterns; broader suspicious-code signals
 # remain better suited to an audit command with human review.
 _PATTERNS = (
     _pattern(
-        r"(?:readFileSync|open|read_text)\s*\(\s*[\"'](?:.*\.ssh.*|.*\.env.*|.*credentials.*|.*\.gnupg.*)",
+        r"(?:readFileSync|open|read_text)\s*\(\s*[\"'][^\"']*"
+        r"(?:\.ssh|\.gnupg|\.env(?!\.(?:example|sample|template|dist|default))|"
+        r"credentials(?:\.(?:json|ya?ml|txt|ini))?)",
         "credential-harvest",
         "reads SSH or credential files",
         {".js", ".ts", ".py"},
@@ -113,12 +138,29 @@ _SKIP_PARTS = frozenset(
 _MAX_FILE_BYTES = 1_000_000
 
 
+def _entry_point_module_paths(entry_point: object) -> frozenset[str]:
+    """Distribution-relative paths that would hold the entry point's module."""
+    value = getattr(entry_point, "value", None)
+    module = getattr(entry_point, "module", None)
+    dotted = module or (str(value).split(":")[0].strip() if value else "")
+    if not dotted:
+        return frozenset()
+    base = dotted.replace(".", "/")
+    return frozenset({f"{base}.py", f"{base}/__init__.py"})
+
+
 def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     """Scan an entry point's third-party distribution without importing it.
 
     Returns ``None`` when distribution metadata is unavailable or the entry point
     belongs to gptme itself. The latter is trusted project code already covered by
     gptme's own review and test pipeline.
+
+    The returned scan records ``entry_point_scanned`` so callers can fail closed:
+    a clean result only means something when the code that will be imported was
+    actually inspected. A plugin whose executable module was skipped (for example
+    under ``build``/``dist``, over the size limit, or unreadable) must not be
+    reported as verified.
     """
     distribution = getattr(entry_point, "dist", None)
     if distribution is None:
@@ -132,8 +174,10 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     if files is None:
         return None
 
+    entry_candidates = _entry_point_module_paths(entry_point)
     findings: list[PluginSecurityFinding] = []
     scanned_files = 0
+    entry_point_scanned = False
     for package_path in files:
         relative = Path(str(package_path))
         if relative.suffix.lower() not in _SCANNABLE_SUFFIXES:
@@ -153,8 +197,12 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
             continue
 
         scanned_files += 1
+        if relative.as_posix() in entry_candidates:
+            entry_point_scanned = True
         suffix = relative.suffix.lower()
         for line_number, line in enumerate(content.splitlines(), 1):
+            if _is_comment_only(line, suffix):
+                continue
             findings.extend(
                 PluginSecurityFinding(
                     path=str(relative),
@@ -166,4 +214,4 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
                 if suffix in pattern.suffixes and pattern.regex.search(line)
             )
 
-    return PluginSecurityScan(scanned_files, tuple(findings))
+    return PluginSecurityScan(scanned_files, tuple(findings), entry_point_scanned)
