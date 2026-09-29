@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -59,7 +60,7 @@ class CheckResult:
     name: str
     status: CheckStatus
     message: str
-    details: str | None = None
+    details: str | list[str] | None = None
     fix_hint: str | None = None
     provider: str | None = None
 
@@ -1319,13 +1320,110 @@ def _check_mcp_stdio_server(
     ]
 
 
+def _iter_plugin_tools(plugin: object) -> tuple[list, list[str]]:
+    """Collect direct tools and tools discovered from ``tool_modules``.
+
+    Returns ``(tools, import_errors)``. Import errors are already formatted as
+    per-item verdict strings (``module:error(import ...)``).
+    """
+    import importlib
+
+    from ..plugins.plugin import GptmePlugin
+    from ..tools import _discover_tools
+    from ..tools.base import ToolSpec
+
+    if not isinstance(plugin, GptmePlugin):
+        raise TypeError(f"expected GptmePlugin, got {type(plugin).__name__}")
+
+    tools: list[ToolSpec] = []
+    seen_names: set[str] = set()
+    import_errors: list[str] = []
+
+    def _add(tool: ToolSpec) -> None:
+        if tool.name in seen_names:
+            return
+        seen_names.add(tool.name)
+        tools.append(tool)
+
+    for tool in plugin.tools:
+        _add(tool)
+
+    for mod_name in plugin.tool_modules:
+        try:
+            importlib.import_module(mod_name)
+        except Exception as exc:
+            import_errors.append(
+                f"{mod_name}:error(import {type(exc).__name__}: {exc})"
+            )
+            continue
+        for tool in _discover_tools([mod_name]):
+            _add(tool)
+
+    return tools, import_errors
+
+
+def _check_plugin_registrar(
+    kind: Literal["hooks", "commands"], registrar: Callable[[], object]
+) -> tuple[str, bool]:
+    """Run a plugin registrar in isolation and validate its return contract."""
+    if kind == "hooks":
+        from ..hooks.registry import HookRegistry, get_registry, set_registry
+
+        original_registry = get_registry()
+        isolated_registry = HookRegistry()
+        set_registry(isolated_registry)
+        try:
+            returned = registrar()
+            registered = len(isolated_registry.get_hooks())
+        except Exception as exc:
+            return f"hooks:error({type(exc).__name__}: {exc})", True
+        finally:
+            set_registry(original_registry)
+    else:
+        from ..commands.base import (
+            _command_completers,
+            _command_owners,
+            _command_registry,
+        )
+
+        registry_before = dict(_command_registry)
+        completers_before = dict(_command_completers)
+        owners_before = dict(_command_owners)
+        try:
+            returned = registrar()
+            registered = sum(
+                registry_before.get(name) is not handler
+                for name, handler in _command_registry.items()
+            )
+        except Exception as exc:
+            return f"commands:error({type(exc).__name__}: {exc})", True
+        finally:
+            _command_registry.clear()
+            _command_registry.update(registry_before)
+            _command_completers.clear()
+            _command_completers.update(completers_before)
+            _command_owners.clear()
+            _command_owners.update(owners_before)
+
+    if returned is not None:
+        return (
+            (
+                f"{kind}:error(register_{kind}() returned "
+                f"{type(returned).__name__}, expected None)"
+            ),
+            True,
+        )
+    return f"{kind}:ok({registered} registered)", False
+
+
 def _check_plugins(verbose: bool = False) -> list[CheckResult]:
     """Check installed gptme plugins via entry points.
 
     Discovers plugins registered under the ``gptme.plugins`` entry-point group,
-    tries to import each one, and validates each tool's ``init()`` contract.
+    tries to import each one, and validates its tool and registrar contracts.
+    Tools come from both ``plugin.tools`` and ``plugin.tool_modules``.
     Returns one :class:`CheckResult` per plugin with a machine-readable
-    per-tool verdict in the ``details`` field.
+    per-item verdict list in the ``details`` field.
     """
     from importlib.metadata import entry_points as _entry_points
 
@@ -1399,34 +1497,48 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             )
             continue
 
-        # 3 — validate each tool's init() contract
-        tool_verdicts: list[str] = []
-        any_failed = False
-        for tool in plugin.tools:
+        # 3 — validate each tool's init() contract (direct + module-provided)
+        tools, import_errors = _iter_plugin_tools(plugin)
+        contract_verdicts: list[str] = list(import_errors)
+        any_failed = bool(import_errors)
+        for tool in tools:
             if tool.init is None:
-                tool_verdicts.append(f"{tool.name}:ok(no-init)")
+                contract_verdicts.append(f"{tool.name}:ok(no-init)")
                 continue
             try:
                 initialized = tool.init()
                 if not isinstance(initialized, ToolSpec):
-                    tool_verdicts.append(
+                    contract_verdicts.append(
                         f"{tool.name}:error(init() returned {type(initialized).__name__}, expected ToolSpec)"
                     )
                     any_failed = True
                 else:
-                    tool_verdicts.append(f"{tool.name}:ok")
+                    contract_verdicts.append(f"{tool.name}:ok")
             except Exception as exc:
-                tool_verdicts.append(f"{tool.name}:error({type(exc).__name__}: {exc})")
+                contract_verdicts.append(
+                    f"{tool.name}:error({type(exc).__name__}: {exc})"
+                )
                 any_failed = True
 
-        n_tools = len(plugin.tools)
-        n_failed = sum(1 for v in tool_verdicts if ":error(" in v)
+        # 4 — validate hook and command registration contracts. Each callback
+        # runs against a temporary registry so doctor never mutates runtime state.
+        if plugin.register_hooks is not None:
+            verdict, failed = _check_plugin_registrar("hooks", plugin.register_hooks)
+            contract_verdicts.append(verdict)
+            any_failed |= failed
+        if plugin.register_commands is not None:
+            verdict, failed = _check_plugin_registrar(
+                "commands", plugin.register_commands
+            )
+            contract_verdicts.append(verdict)
+            any_failed |= failed
+
+        n_tools = len(tools)
+        n_failed = sum(1 for verdict in contract_verdicts if ":error(" in verdict)
         if any_failed:
             status = CheckStatus.ERROR
             message = (
-                f"{n_failed}/{n_tools} tool(s) failed init() contract"
-                if n_tools > 0
-                else "init() contract failed"
+                f"{n_failed}/{len(contract_verdicts)} plugin contract check(s) failed"
             )
         elif n_tools == 0:
             status = CheckStatus.OK
@@ -1435,8 +1547,9 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             status = CheckStatus.OK
             message = f"{plugin.name}: {n_tools} tool(s) ok"
 
-        # details is always set so --json consumers get per-tool breakdowns
-        details = " | ".join(tool_verdicts) if tool_verdicts else None
+        # details is a list so --json consumers can parse per-item verdicts
+        # even when an error message contains the old " | " delimiter.
+        details = contract_verdicts or None
 
         results.append(
             CheckResult(
@@ -1445,8 +1558,8 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                 message=message,
                 details=details,
                 fix_hint=(
-                    "Check the plugin's init() implementation; "
-                    "run with --verbose to see per-tool verdicts"
+                    "Check the plugin's tool init or registration implementation; "
+                    "run with --verbose to see per-capability verdicts"
                 )
                 if any_failed
                 else None,
@@ -1528,7 +1641,12 @@ def print_results(
             # Build message with optional details
             msg = result.message
             if verbose and result.details:
-                msg += f"\n  [dim]{result.details}[/dim]"
+                detail_text = (
+                    result.details
+                    if isinstance(result.details, str)
+                    else "\n  ".join(result.details)
+                )
+                msg += f"\n  [dim]{detail_text}[/dim]"
 
             table.add_row(emoji, name, msg)
 

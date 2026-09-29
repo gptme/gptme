@@ -338,6 +338,50 @@ def test_plugin_skipped_when_required_companion_init_fails(tmp_path):
     assert "dependent_tool" not in tool_names
 
 
+def test_cyclic_companion_plugins_both_load(tmp_path):
+    """Mutually required file-path plugins must still initialize together."""
+    plugin = tmp_path / "cycle_ok.py"
+    plugin.write_text(
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "a = ToolSpec(name='cycle_a', desc='a', requires_tools=['cycle_b'])\n"
+        "b = ToolSpec(name='cycle_b', desc='b', requires_tools=['cycle_a'])\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(plugin)])
+    tool_names = [t.name for t in tools]
+
+    assert "cycle_a" in tool_names
+    assert "cycle_b" in tool_names
+
+
+def test_cyclic_companion_init_failure_unloads_pair(tmp_path):
+    """If one side of a companion cycle fails init(), neither stays loaded."""
+    plugin = tmp_path / "cycle_fail.py"
+    plugin.write_text(
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _init_b():\n"
+        "    raise RuntimeError('cycle b broken')\n"
+        "\n"
+        "a = ToolSpec(name='cycle_a', desc='a', requires_tools=['cycle_b'])\n"
+        "b = ToolSpec(\n"
+        "    name='cycle_b',\n"
+        "    desc='b',\n"
+        "    requires_tools=['cycle_a'],\n"
+        "    init=_init_b,\n"
+        ")\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(plugin)])
+    tool_names = [t.name for t in tools]
+
+    assert "cycle_a" not in tool_names
+    assert "cycle_b" not in tool_names
+
+
 def test_tool_loading_with_package():
     found = _discover_tools(["gptme.tools"])
 
