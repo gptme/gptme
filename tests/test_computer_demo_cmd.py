@@ -660,17 +660,20 @@ class TestDemoMutualExclusivity:
 
     def test_milestone_alone_is_valid(self):
         """--milestone without --all should not error on the flag check itself."""
-        # We just verify the mutual-exclusivity guard is not triggered.
-        # (Playwright is not mocked here, so the demo will fail, but NOT due to the flag check.)
-        runner = CliRunner()
-        result = runner.invoke(demo_cmd, ["--milestone", "tweet"])
-        # Exit code may be non-zero (playwright absent) but NOT from UsageError
+        # Must mock Playwright. CI installs chromium, so an unmocked invoke
+        # actually launches headless Chrome. pytest-timeout's SIGALRM cannot
+        # interrupt Playwright, so the xdist worker hangs until the job cap
+        # (gptme/gptme#4012).
+        with _make_playwright_patcher(_make_page_mock()):
+            runner = CliRunner()
+            result = runner.invoke(demo_cmd, ["--milestone", "tweet"])
         assert "mutually exclusive" not in result.output
 
     def test_all_alone_is_valid(self):
         """--all without --milestone should not error on the flag check."""
-        runner = CliRunner()
-        result = runner.invoke(demo_cmd, ["--all"])
+        with _make_playwright_patcher(_make_page_mock()):
+            runner = CliRunner()
+            result = runner.invoke(demo_cmd, ["--all"])
         assert "mutually exclusive" not in result.output
 
 
