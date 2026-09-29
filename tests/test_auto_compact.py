@@ -1940,7 +1940,7 @@ def test_manual_trim_writes_compaction_event(tmp_path, monkeypatch):
     compacted = manager.log.messages[:2]
     monkeypatch.setattr(
         "gptme.tools.autocompact.handlers.should_auto_compact",
-        lambda _msgs: "rule_based",
+        lambda _msgs, **_kw: "rule_based",
     )
     provider = MagicMock()
     provider.compress.return_value.messages = compacted

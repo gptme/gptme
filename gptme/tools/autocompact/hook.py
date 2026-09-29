@@ -150,7 +150,7 @@ def autocompact_hook(
         else None
     )
 
-    action = should_auto_compact(messages, limit=budget)
+    action = should_auto_compact(messages, limit=budget, keep_head=_get_keep_head())
     if action == "none":
         return
 

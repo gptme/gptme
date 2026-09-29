@@ -64,7 +64,7 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
 def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     """Rule-based compaction: strips reasoning, truncates massive tool results, compresses old assistant messages."""
 
-    decision = should_auto_compact(msgs)
+    decision = should_auto_compact(msgs, keep_head=_get_keep_head())
     if decision != "rule_based":
         if decision == "summarize":
             yield Message(

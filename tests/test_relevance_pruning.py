@@ -137,7 +137,7 @@ def test_prune_keeps_recent_messages():
     """Messages within _PRUNE_MIN_AGE of the end are never pruned."""
     # Build a log where the last few messages are large tool outputs
     large_content = "x " * 300  # > 200 tokens
-    recent_tool = _system(large_content)
+    recent_tool = _tool_out(large_content)
     log = [_user("q"), _assistant("a"), recent_tool]
 
     pruned, saved = prune_stale_tool_outputs(log, _model_name())
@@ -147,7 +147,7 @@ def test_prune_keeps_recent_messages():
 
 def test_prune_keeps_small_messages():
     """Small tool outputs (< _PRUNE_MIN_TOKENS) are always kept."""
-    small_output = _system("ok")
+    small_output = _tool_out("ok")
     padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
     log = [small_output] + padding
 
@@ -249,12 +249,24 @@ def test_auto_compact_prunes_stale_before_phases():
     recent_messages = [_user(f"new message {i}") for i in range(_PRUNE_MIN_AGE + 1)]
     log = [stale_output] + recent_messages
 
-    compacted = list(auto_compact_log(log, keep_head=0))
+    compacted = list(auto_compact_log(log, keep_head=0, limit=100))
 
     assert len(compacted) == len(log)
     compacted_contents = [m.content for m in compacted]
     assert stale_content not in compacted_contents
     assert "Stale tool output pruned" in compacted[0].content
+
+
+def test_auto_compact_skips_phase0_when_under_budget():
+    """Under-budget logs must not lose tool output (Phase 0 is over-budget only)."""
+    stale_content = "stale file listing " * 200
+    stale_output = _tool_out(stale_content)
+    recent_messages = [_user(f"new message {i}") for i in range(_PRUNE_MIN_AGE + 1)]
+    log = [stale_output] + recent_messages
+
+    compacted = list(auto_compact_log(log, keep_head=0, limit=10_000_000))
+
+    assert [m.content for m in compacted] == [m.content for m in log]
 
 
 def test_prune_keeps_system_instructions():

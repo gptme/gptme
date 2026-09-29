@@ -27,6 +27,7 @@ def estimate_compaction_savings(
     reasoning_strip_age_threshold: int = 5,
     assistant_compression_age_threshold: int = 3,
     assistant_compression_min_tokens: int = 1000,
+    keep_head: int = 0,
 ) -> tuple[int, int, int]:
     """
     Estimate potential savings from auto-compaction without actually compacting.
@@ -69,7 +70,9 @@ def estimate_compaction_savings(
     if would_remove_tool_results:
         from .engine import prune_stale_tool_outputs
 
-        work_log, estimated_phase0_savings = prune_stale_tool_outputs(log, model.model)
+        work_log, estimated_phase0_savings = prune_stale_tool_outputs(
+            log, model.model, keep_head=keep_head
+        )
 
     log_length = len(work_log)
     estimated_tool_result_savings = 0
@@ -119,7 +122,11 @@ def estimate_compaction_savings(
     return total_tokens, total_estimated_savings, estimated_reasoning_savings
 
 
-def should_auto_compact(log: list[Message], limit: int | None = None) -> CompactAction:
+def should_auto_compact(
+    log: list[Message],
+    limit: int | None = None,
+    keep_head: int = 0,
+) -> CompactAction:
     """
     Check if a log should be auto-compacted.
 
@@ -148,7 +155,7 @@ def should_auto_compact(log: list[Message], limit: int | None = None) -> Compact
 
     # Second check: estimate if savings would be worth it
     total, estimated_savings, reasoning_savings = estimate_compaction_savings(
-        log, limit
+        log, limit, keep_head=keep_head
     )
     savings_ratio = estimated_savings / total if total > 0 else 0
 

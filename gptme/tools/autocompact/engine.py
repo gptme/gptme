@@ -201,23 +201,25 @@ def auto_compact_log(
     initial_tokens = tokens  # preserved for final reduction_pct even after Phase 0
 
     # Phase 0: Relevance-scored pruning of stale tool outputs.
-    # Runs before the compaction-trigger check so it can delay or prevent
-    # Phase 2/3. Stubs (does not delete) old, large, unreferenced tool
-    # outputs in place so tool-call pairing and master-context indices stay
-    # valid. Surviving content is kept verbatim (no summary drift).
-    log, phase0_tokens_saved = prune_stale_tool_outputs(
-        log,
-        model.model,
-        keep_head=keep_head,
-        master_logfile=master_logfile,
-        master_context_index=master_context_index,
-    )
-    if phase0_tokens_saved > 0:
-        logger.info(
-            f"Phase 0 pruned {phase0_tokens_saved:,} tokens of stale tool outputs "
-            f"({len(log)} messages remaining)"
+    # Only when already over budget — same gate as estimate_compaction_savings —
+    # so under-limit logs are returned unchanged. Stubs (does not delete) old,
+    # large, unreferenced tool outputs in place so tool-call pairing and
+    # master-context indices stay valid. Surviving content is kept verbatim.
+    phase0_tokens_saved = 0
+    if tokens >= limit:
+        log, phase0_tokens_saved = prune_stale_tool_outputs(
+            log,
+            model.model,
+            keep_head=keep_head,
+            master_logfile=master_logfile,
+            master_context_index=master_context_index,
         )
-        tokens = len_tokens(log, model=model.model)
+        if phase0_tokens_saved > 0:
+            logger.info(
+                f"Phase 0 pruned {phase0_tokens_saved:,} tokens of stale tool outputs "
+                f"({len(log)} messages remaining)"
+            )
+            tokens = len_tokens(log, model=model.model)
 
     # Calculate message positions from end (for age-based reasoning stripping)
     log_length = len(log)
