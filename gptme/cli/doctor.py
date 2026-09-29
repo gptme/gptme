@@ -1434,9 +1434,11 @@ def _check_plugin_registrar(
         owners_before = dict(_command_owners)
         try:
             returned = registrar()
+            # Count commands the registrar newly added. Overriding an existing
+            # command with a different handler object is not a new registration,
+            # so comparing handler identity would overstate the count.
             registered = sum(
-                registry_before.get(name) is not handler
-                for name, handler in _command_registry.items()
+                1 for name in _command_registry if name not in registry_before
             )
         except Exception as exc:
             return f"commands:error({type(exc).__name__}: {exc})", True
