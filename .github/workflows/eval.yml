@@ -121,20 +121,28 @@ jobs:
           $MODEL_ARGS
 
     # Step timeout kills `docker run` but can leave the container writing to
-    # the mounted eval_results dir. Stop leftovers before git add.
+    # the mounted eval_results dir. Stop leftovers even on failure; do not
+    # git-add until we know the run finished (see Update eval results).
     - name: Stop leftover eval containers
       if: always() && steps.run-evals.outcome != 'skipped'
       run: |
         docker ps -aq --filter "ancestor=ghcr.io/${OWNER_LC}/gptme-eval${IMAGE_SUFFIX}:latest" | xargs -r docker rm -f
 
     - name: Configure Git
-      if: always() && steps.run-evals.outcome != 'skipped'
+      if: steps.run-evals.outcome == 'success'
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
+    # write_results() runs once at the end of the eval process and flushes
+    # eval_results.csv row-by-row. A 165m step timeout can kill that write,
+    # leaving a truncated CSV. Leaderboard/trend readers treat whatever
+    # rows parsed as a recorded run (min_tests=4), so an incomplete file
+    # is worse than no commit. The 180m job / 165m step split already
+    # leaves 15m to commit after a *successful* run — that is the original
+    # "long evaluations lose results" fix. always() was the wrong extra.
     - name: Update eval results
-      if: always() && steps.run-evals.outcome != 'skipped'
+      if: steps.run-evals.outcome == 'success'
       run: |
         git pull origin eval-results
         git add -f eval_results
