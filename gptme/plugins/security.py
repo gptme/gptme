@@ -152,15 +152,16 @@ def _entry_point_module_paths(entry_point: object) -> frozenset[str]:
 def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     """Scan an entry point's third-party distribution without importing it.
 
-    Returns ``None`` when distribution metadata is unavailable or the entry point
+    Returns ``None`` only when the entry point has no distribution metadata or
     belongs to gptme itself. The latter is trusted project code already covered by
     gptme's own review and test pipeline.
 
     The returned scan records ``entry_point_scanned`` so callers can fail closed:
     a clean result only means something when the code that will be imported was
-    actually inspected. A plugin whose executable module was skipped (for example
-    under ``build``/``dist``, over the size limit, or unreadable) must not be
-    reported as verified.
+    actually inspected. A third-party distribution whose file list is unavailable
+    (``files is None``, e.g. installers that omit ``RECORD``) or whose executable
+    module was skipped (``build``/``dist``, over the size limit, unreadable) must
+    not be reported as verified.
     """
     distribution = getattr(entry_point, "dist", None)
     if distribution is None:
@@ -172,7 +173,9 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
 
     files = getattr(distribution, "files", None)
     if files is None:
-        return None
+        # No file list to scan: return an unverified (not clean) result so the
+        # caller fails closed rather than importing unscanned third-party code.
+        return PluginSecurityScan(0, (), entry_point_scanned=False)
 
     entry_candidates = _entry_point_module_paths(entry_point)
     findings: list[PluginSecurityFinding] = []

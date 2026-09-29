@@ -2589,3 +2589,29 @@ class TestCheckPlugins:
         load.assert_called_once_with()
         plugin_result = next(r for r in results if r.name == "Plugin: benign_plugin")
         assert plugin_result.status == CheckStatus.OK
+
+    def test_missing_file_list_is_unverified_not_imported(self):
+        """A third-party dist without a file list must fail closed, not import."""
+
+        class FakeDistribution:
+            name = "no-record-plugin"
+            files = None
+
+            def locate_file(self, path):
+                return path
+
+        load = Mock(side_effect=AssertionError("unscanned plugin imported"))
+        ep = SimpleNamespace(
+            name="no_record_plugin",
+            module="no_record_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: no_record_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "could not verify entry point" in plugin_result.message
