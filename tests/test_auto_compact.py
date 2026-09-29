@@ -3294,7 +3294,7 @@ def test_autocompact_hook_cooldown_not_set_on_early_exit(monkeypatch):
 
     monkeypatch.setattr(
         "gptme.tools.autocompact.hook.should_auto_compact",
-        lambda msgs, limit=None: "none",
+        lambda msgs, limit=None, keep_head=0: "none",
     )
     monkeypatch.setattr(
         "gptme.tools.autocompact.hook.get_default_model",
