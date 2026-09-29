@@ -25,8 +25,10 @@ from gptme.cli.doctor import (
     _check_tools,
     _check_version,
     _model_override_blocking_repair,
+    _provider_has_placeholder_key,
     _provider_repair_needed,
     _subscription_default_candidate,
+    _usable_providers,
     _validate_oauth_for_repair,
     main,
     print_results,
@@ -1034,14 +1036,14 @@ class TestCheckApiKeys:
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
     @patch("gptme.cli.doctor.validate_api_key")
-    @patch.dict("os.environ", {"OPENAI_API_KEY": "sk-invalid"}, clear=True)
+    @patch.dict("os.environ", {}, clear=True)
     def test_invalid_api_key(self, mock_validate, mock_config, mock_providers):
         """Test that invalid API keys are reported as ERROR."""
 
         # Setup mocks
         mock_providers.return_value = [("openai", None)]
         mock_config_obj = mock_config.return_value
-        mock_config_obj.get_env.return_value = None
+        mock_config_obj.get_env.return_value = "sk-invalid"
         mock_validate.return_value = (False, "Invalid key format")
 
         results = _check_api_keys()
@@ -1080,6 +1082,24 @@ class TestCheckApiKeys:
         assert "placeholder" in result.message.lower()
         # The placeholder must not be validated against the live API.
         mock_validate.assert_not_called()
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.validate_api_key", return_value=(True, None))
+    def test_prefixed_real_key_is_not_skipped_as_placeholder(
+        self, mock_validate, mock_providers, monkeypatch
+    ):
+        """A GPTME_ prefixed real key is the runtime credential, not the bare placeholder."""
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("GPTME_OPENAI_API_KEY", "sk-real-key-123")
+        mock_providers.return_value = [("openai", "OPENAI_API_KEY")]
+        with patch(
+            "gptme.cli.doctor.get_config", return_value=Config(user=UserConfig())
+        ):
+            results = _check_api_keys()
+
+        openai_result = next(r for r in results if r.name == "API Key: openai")
+        assert openai_result.status == CheckStatus.OK
+        mock_validate.assert_called_once_with("sk-real-key-123", "openai")
 
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
@@ -1150,14 +1170,18 @@ class TestCheckApiKeys:
 
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
-    @patch.dict("os.environ", {"AZURE_OPENAI_API_KEY": "test-key"}, clear=True)
+    @patch.dict("os.environ", {}, clear=True)
     def test_azure_uses_special_env_var(self, mock_config, mock_providers):
         """Test that Azure uses AZURE_OPENAI_API_KEY (special case)."""
 
         # Setup: azure provider available
         mock_providers.return_value = [("azure", None)]
         mock_config_obj = mock_config.return_value
-        mock_config_obj.get_env.return_value = None
+
+        def get_env(key, default=None):
+            return "test-key" if key == "AZURE_OPENAI_API_KEY" else default
+
+        mock_config_obj.get_env.side_effect = get_env
 
         with patch("gptme.cli.doctor.validate_api_key") as mock_validate:
             mock_validate.return_value = (True, None)
@@ -1207,7 +1231,7 @@ class TestCheckApiKeys:
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
     @patch("gptme.cli.doctor.validate_api_key")
-    @patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"}, clear=True)
+    @patch.dict("os.environ", {}, clear=True)
     def test_mixed_api_and_oauth_providers(
         self, mock_validate, mock_config, mock_providers
     ):
@@ -1216,7 +1240,7 @@ class TestCheckApiKeys:
             ("openai", "OPENAI_API_KEY"),
             ("openai-subscription", "oauth"),
         ]
-        mock_config.return_value.get_env.return_value = None
+        mock_config.return_value.get_env.return_value = "sk-test123"
         mock_validate.return_value = (True, "")
 
         results = _check_api_keys()
@@ -1438,6 +1462,80 @@ class TestCheckDefaultModel:
 
         assert result.status == CheckStatus.OK
         assert result.provider == "anthropic"
+
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("openai/gpt-4o", "models.default"),
+    )
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("openai", "OPENAI_API_KEY")],
+    )
+    def test_prefixed_real_key_wins_over_bare_placeholder(
+        self, mock_providers, mock_resolve, monkeypatch
+    ):
+        """GPTME_OPENAI_API_KEY is the runtime key; a bare placeholder must not hide it."""
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("GPTME_OPENAI_API_KEY", "sk-real-key-123")
+        config = Config(user=UserConfig())
+        with patch("gptme.cli.doctor.get_config", return_value=config):
+            result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.OK
+        assert result.provider == "openai"
+
+    @patch(
+        "gptme.cli.doctor.resolve_model_source",
+        return_value=("openai-subscription/gpt-5.4", "models.default"),
+    )
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    def test_oauth_provider_not_filtered_by_placeholder_api_key(
+        self, mock_providers, mock_resolve, monkeypatch
+    ):
+        """OAuth login stays usable even if a derived API-key name holds a placeholder."""
+        monkeypatch.setenv("OPENAI-SUBSCRIPTION_API_KEY", "test")
+        config = Config(user=UserConfig())
+        with patch("gptme.cli.doctor.get_config", return_value=config):
+            result = _check_default_model()[0]
+
+        assert result.status == CheckStatus.OK
+        assert result.provider == "openai-subscription"
+
+
+class TestProviderPlaceholderFilter:
+    """Unit tests for credential-source-aware placeholder filtering."""
+
+    def test_plugin_source_env_var_is_used_not_derived_name(self, monkeypatch):
+        """A plugin's actual key source wins over a placeholder under the derived name."""
+        monkeypatch.setenv("ACME_API_KEY", "test")
+        monkeypatch.setenv("ACME_CUSTOM_KEY", "sk-real-plugin-key")
+        config = Config(user=UserConfig())
+        assert not _provider_has_placeholder_key("acme", "ACME_CUSTOM_KEY", config)
+
+    def test_plugin_placeholder_source_is_unusable(self, monkeypatch):
+        monkeypatch.delenv("ACME_CUSTOM_KEY", raising=False)
+        monkeypatch.delenv("GPTME_ACME_CUSTOM_KEY", raising=False)
+        config = Config(user=UserConfig(env={"ACME_CUSTOM_KEY": "dummy-key"}))
+        assert _provider_has_placeholder_key("acme", "ACME_CUSTOM_KEY", config)
+
+    def test_oauth_source_is_never_a_placeholder(self, monkeypatch):
+        monkeypatch.setenv("OPENAI-SUBSCRIPTION_API_KEY", "test")
+        config = Config(user=UserConfig())
+        assert not _provider_has_placeholder_key("openai-subscription", "oauth", config)
+
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("openai-subscription", "oauth")],
+    )
+    def test_usable_providers_keeps_oauth_with_stale_placeholder(
+        self, mock_providers, monkeypatch
+    ):
+        monkeypatch.setenv("OPENAI-SUBSCRIPTION_API_KEY", "test")
+        config = Config(user=UserConfig())
+        assert ("openai-subscription", "oauth") in _usable_providers(config)
 
 
 class TestOAuthRepairValidation:

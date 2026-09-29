@@ -83,21 +83,38 @@ def _is_placeholder_api_key(api_key: str) -> bool:
     return api_key.strip().lower() in _PLACEHOLDER_API_KEYS
 
 
+def _resolve_provider_api_key(
+    provider: str, source: str | None, config: Config
+) -> str | None:
+    """Return the API key that made `provider` available, following runtime precedence.
+
+    Matches `list_available_providers` / runtime auth:
+
+    - OAuth-authenticated providers use a token file, not an API key.
+    - Stored credentials are read from the credential store.
+    - Otherwise `source` is the env var that made the provider available
+      (``PROVIDER_API_KEYS`` entry or a plugin's ``api_key_env``).
+      ``config.get_env`` prefers ``GPTME_<KEY>`` over ``<KEY>``.
+    """
+    if source == "oauth":
+        return None
+    if source == STORED_CREDENTIALS_SOURCE:
+        return get_stored_api_key(provider)
+    env_var = source or (
+        "AZURE_OPENAI_API_KEY" if provider == "azure" else f"{provider.upper()}_API_KEY"
+    )
+    return config.get_env(env_var)
+
+
 def _provider_has_placeholder_key(provider: str, source: str, config: Config) -> bool:
     """Return True when the credential making `provider` available is a placeholder.
 
-    Mirrors `_check_api_keys`'s key retrieval so the "available provider" view used
-    by the default-model and repair checks matches what the API-key check reports.
+    OAuth providers are never API-key gated: a stale placeholder under the
+    derived ``{PROVIDER}_API_KEY`` name must not hide a working login.
     """
-    env_var = (
-        "AZURE_OPENAI_API_KEY" if provider == "azure" else f"{provider.upper()}_API_KEY"
-    )
-    api_key = os.environ.get(env_var) or config.get_env(env_var)
-    if not api_key and source not in ("oauth", STORED_CREDENTIALS_SOURCE):
-        # Plugin/custom providers expose their env var name as the source.
-        api_key = os.environ.get(source) or config.get_env(source)
-    if not api_key and source == STORED_CREDENTIALS_SOURCE:
-        api_key = get_stored_api_key(provider)
+    if source == "oauth":
+        return False
+    api_key = _resolve_provider_api_key(provider, source, config)
     return isinstance(api_key, str) and _is_placeholder_api_key(api_key)
 
 
@@ -190,11 +207,9 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
             # Key is configured, validate it
             env_var = special_env_vars.get(provider, f"{provider.upper()}_API_KEY")
 
-            # Retrieve the key from the same source that made the provider available.
+            # Same source and GPTME_ precedence as list_available_providers / runtime.
             source = available_provider_map[provider]
-            api_key = os.environ.get(env_var) or config.get_env(env_var)
-            if not api_key and source == STORED_CREDENTIALS_SOURCE:
-                api_key = get_stored_api_key(provider)
+            api_key = _resolve_provider_api_key(provider, source, config)
 
             if api_key:
                 # A placeholder key (e.g. "test", "dummy-key") is scaffolding, not
