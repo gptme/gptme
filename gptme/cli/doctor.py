@@ -1319,6 +1319,143 @@ def _check_mcp_stdio_server(
     ]
 
 
+def _check_plugins(verbose: bool = False) -> list[CheckResult]:
+    """Check installed gptme plugins via entry points.
+
+    Discovers plugins registered under the ``gptme.plugins`` entry-point group,
+    tries to import each one, and validates each tool's ``init()`` contract.
+    Returns one :class:`CheckResult` per plugin with a machine-readable
+    per-tool verdict in the ``details`` field.
+    """
+    from importlib.metadata import entry_points as _entry_points
+
+    from ..plugins.entrypoints import ENTRYPOINT_GROUP, _coerce_to_plugin
+    from ..tools.base import ToolSpec
+
+    results: list[CheckResult] = []
+
+    try:
+        eps = list(_entry_points(group=ENTRYPOINT_GROUP))
+    except Exception as exc:
+        results.append(
+            CheckResult(
+                name="Plugin: discovery",
+                status=CheckStatus.ERROR,
+                message=f"Entry-point discovery failed: {exc}",
+            )
+        )
+        return results
+
+    if not eps:
+        results.append(
+            CheckResult(
+                name="Plugin: installed",
+                status=CheckStatus.OK,
+                message="No plugins registered (gptme.plugins entry-point group is empty)",
+            )
+        )
+        return results
+
+    results.append(
+        CheckResult(
+            name="Plugin: installed",
+            status=CheckStatus.OK,
+            message=f"{len(eps)} plugin(s) registered",
+            details=", ".join(ep.name for ep in eps) if verbose else None,
+        )
+    )
+
+    for ep in eps:
+        ep_name = ep.name
+
+        # 1 — try to import the entry point
+        try:
+            obj = ep.load()
+        except Exception as exc:
+            results.append(
+                CheckResult(
+                    name=f"Plugin: {ep_name}",
+                    status=CheckStatus.ERROR,
+                    message=f"Import failed: {type(exc).__name__}",
+                    details=str(exc),
+                    fix_hint=f"Check that the package providing {ep_name!r} is installed correctly",
+                )
+            )
+            continue
+
+        # 2 — coerce to GptmePlugin
+        plugin = _coerce_to_plugin(ep_name, obj)
+        if plugin is None:
+            results.append(
+                CheckResult(
+                    name=f"Plugin: {ep_name}",
+                    status=CheckStatus.ERROR,
+                    message="Entry point did not export a GptmePlugin or ToolSpec",
+                    details=f"Got {type(obj).__name__!r}",
+                    fix_hint=(
+                        "Register a GptmePlugin instance or a ToolSpec at the entry point"
+                    ),
+                )
+            )
+            continue
+
+        # 3 — validate each tool's init() contract
+        tool_verdicts: list[str] = []
+        any_failed = False
+        for tool in plugin.tools:
+            if tool.init is None:
+                tool_verdicts.append(f"{tool.name}:ok(no-init)")
+                continue
+            try:
+                initialized = tool.init()
+                if not isinstance(initialized, ToolSpec):
+                    tool_verdicts.append(
+                        f"{tool.name}:error(init() returned {type(initialized).__name__}, expected ToolSpec)"
+                    )
+                    any_failed = True
+                else:
+                    tool_verdicts.append(f"{tool.name}:ok")
+            except Exception as exc:
+                tool_verdicts.append(f"{tool.name}:error({type(exc).__name__}: {exc})")
+                any_failed = True
+
+        n_tools = len(plugin.tools)
+        n_failed = sum(1 for v in tool_verdicts if ":error(" in v)
+        if any_failed:
+            status = CheckStatus.ERROR
+            message = (
+                f"{n_failed}/{n_tools} tool(s) failed init() contract"
+                if n_tools > 0
+                else "init() contract failed"
+            )
+        elif n_tools == 0:
+            status = CheckStatus.OK
+            message = f"{plugin.name}: loaded (no tools)"
+        else:
+            status = CheckStatus.OK
+            message = f"{plugin.name}: {n_tools} tool(s) ok"
+
+        # details is always set so --json consumers get per-tool breakdowns
+        details = " | ".join(tool_verdicts) if tool_verdicts else None
+
+        results.append(
+            CheckResult(
+                name=f"Plugin: {ep_name}",
+                status=status,
+                message=message,
+                details=details,
+                fix_hint=(
+                    "Check the plugin's init() implementation; "
+                    "run with --verbose to see per-tool verdicts"
+                )
+                if any_failed
+                else None,
+            )
+        )
+
+    return results
+
+
 def _summarize_results(results: list[CheckResult]) -> dict[str, int]:
     """Count diagnostic results by status."""
     return {
@@ -1351,6 +1488,7 @@ def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict[str,
     all_results.extend(_check_browser(verbose))
     all_results.extend(_check_mcp(verbose))
     all_results.extend(_check_permissions(verbose))
+    all_results.extend(_check_plugins(verbose))
 
     return all_results, _summarize_results(all_results)
 

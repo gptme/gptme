@@ -19,6 +19,7 @@ from gptme.cli.doctor import (
     _check_default_model,
     _check_mcp,
     _check_permissions,
+    _check_plugins,
     _check_proxy,
     _check_python_deps,
     _check_python_version,
@@ -2033,3 +2034,144 @@ class TestCheckComputer:
         assert names["Computer: ffmpeg"].status == CheckStatus.WARNING
         hint = names["Computer: ffmpeg"].fix_hint or ""
         assert "brew install ffmpeg" in hint
+
+
+class TestCheckPlugins:
+    """Test _check_plugins function — structured JSON verdict per plugin."""
+
+    def test_no_plugins_returns_ok(self):
+        """When no plugins are registered, return a single OK result."""
+        with patch("importlib.metadata.entry_points", return_value=[]):
+            results = _check_plugins()
+        assert len(results) == 1
+        assert results[0].name == "Plugin: installed"
+        assert results[0].status == CheckStatus.OK
+        assert "No plugins" in results[0].message
+
+    def test_discovery_error_returns_error(self):
+        """An exception from entry_points() produces an ERROR result."""
+        with patch(
+            "importlib.metadata.entry_points", side_effect=Exception("import boom")
+        ):
+            results = _check_plugins()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.ERROR
+        assert "discovery" in results[0].name.lower()
+
+    def test_healthy_plugin_reports_ok(self):
+        """A plugin whose tools all pass init() is reported as OK."""
+        from gptme.tools.base import ToolSpec
+
+        good_tool = ToolSpec(
+            name="good_tool",
+            desc="works",
+            init=lambda: ToolSpec(name="good_tool", desc="works"),
+        )
+
+        from gptme.plugins.plugin import GptmePlugin
+
+        good_plugin = GptmePlugin(name="test_plugin", tools=[good_tool])
+
+        ep = SimpleNamespace(name="test_plugin", load=lambda: good_plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: test_plugin")
+        assert plugin_result.status == CheckStatus.OK
+        assert "1 tool(s) ok" in plugin_result.message
+        # details always has per-tool verdicts for JSON consumers
+        assert plugin_result.details is not None
+        assert "good_tool:ok" in plugin_result.details
+
+    def test_broken_tool_init_reports_error(self):
+        """A plugin with a tool whose init() raises is reported as ERROR."""
+        from gptme.tools.base import ToolSpec
+
+        def _broken_init():
+            raise RuntimeError("plugin wiring failed")
+
+        bad_tool = ToolSpec(name="bad_tool", desc="broken", init=_broken_init)
+
+        from gptme.plugins.plugin import GptmePlugin
+
+        bad_plugin = GptmePlugin(name="broken_plugin", tools=[bad_tool])
+
+        ep = SimpleNamespace(name="broken_plugin", load=lambda: bad_plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: broken_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "failed" in plugin_result.message
+        assert plugin_result.details is not None
+        assert "bad_tool:error" in plugin_result.details
+
+    def test_wrong_return_type_reports_error(self):
+        """init() returning a non-ToolSpec is flagged as a contract violation."""
+        from gptme.tools.base import ToolSpec
+
+        bad_tool = ToolSpec(
+            name="wrong_return",
+            desc="returns None",
+            init=lambda: None,  # type: ignore[arg-type,return-value]
+        )
+
+        from gptme.plugins.plugin import GptmePlugin
+
+        plugin = GptmePlugin(name="wrong_plugin", tools=[bad_tool])
+        ep = SimpleNamespace(name="wrong_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: wrong_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert plugin_result.details is not None
+        assert "NoneType" in plugin_result.details
+
+    def test_import_failure_reports_error(self):
+        """A plugin whose entry point raises on load() produces an ERROR."""
+        ep = SimpleNamespace(
+            name="boom_plugin",
+            load=lambda: (_ for _ in ()).throw(ImportError("missing dep")),
+        )
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: boom_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "Import failed" in plugin_result.message
+
+    def test_tool_without_init_reports_ok(self):
+        """A tool with no init() callable is OK — no contract to violate."""
+        from gptme.tools.base import ToolSpec
+
+        no_init_tool = ToolSpec(name="static_tool", desc="no init needed")
+
+        from gptme.plugins.plugin import GptmePlugin
+
+        plugin = GptmePlugin(name="static_plugin", tools=[no_init_tool])
+        ep = SimpleNamespace(name="static_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: static_plugin")
+        assert plugin_result.status == CheckStatus.OK
+        assert plugin_result.details is not None
+        assert "no-init" in plugin_result.details
+
+    def test_json_output_includes_plugin_details(self):
+        """gptme-doctor --json includes per-plugin details in the output."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        empty_plugin = GptmePlugin(name="empty_plugin", tools=[])
+        ep = SimpleNamespace(name="empty_plugin", load=lambda: empty_plugin)
+
+        runner = CliRunner()
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            result = runner.invoke(main, ["--json"])
+
+        # exit code reflects overall health; we only care that JSON is valid
+        assert result.output, "expected JSON output"
+        data = json.loads(result.output)
+        plugin_results = [r for r in data["results"] if r["name"].startswith("Plugin:")]
+        assert any(r["name"] == "Plugin: empty_plugin" for r in plugin_results)
