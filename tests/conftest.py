@@ -338,8 +338,9 @@ def restore_cwd():
     os.chdir(original_cwd)
 
 
-def _reset_session_allow_hosts() -> Iterator[None]:
-    """Clear the web-tool host allowlist around a test.
+@pytest.fixture(autouse=True)
+def reset_session_allow_hosts() -> Iterator[None]:
+    """Clear the web-tool host allowlist around every test.
 
     ``set_session_allow_hosts`` writes a module-level ``ContextVar`` that
     outlives the test that set it on the same xdist worker. A test that installs
@@ -350,21 +351,14 @@ def _reset_session_allow_hosts() -> Iterator[None]:
     allowed-hosts list ()``. Reset to ``None`` (unrestricted, the default)
     before and after each test so no test can observe or leave a stale list.
 
-    Kept as a plain generator (wrapped by the autouse fixture below) so the
-    isolation test can drive it directly without depending on two tests sharing
-    an xdist worker.
+    ``tests/test_session_allowlist_isolation.py`` drives this fixture's own
+    generator directly, so the guard fails if the reset wiring is ever removed.
     """
     from gptme.tools._url_safety import set_session_allow_hosts
 
     set_session_allow_hosts(None)
     yield
     set_session_allow_hosts(None)
-
-
-@pytest.fixture(autouse=True)
-def reset_session_allow_hosts() -> Iterator[None]:
-    """Clear the web-tool host allowlist around every test."""
-    yield from _reset_session_allow_hosts()
 
 
 #: nodeid -> leaked thread names, collected across the session for the summary.

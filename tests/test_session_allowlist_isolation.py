@@ -13,15 +13,16 @@ across two tests that rely on running on the same xdist worker. CI runs
 ``pytest -n auto`` with the default ``--dist load`` scheduler, which does *not*
 honour ``xdist_group``; two sibling tests can land on different workers, so a
 "second test sees ``None``" assertion would pass vacuously (against a fresh
-worker default) even if the reset fixture were removed. Driving the fixture's
-reset generator directly, and asserting the fixture is autouse, keeps the guard
-meaningful regardless of worker distribution.
+worker default) even if the reset fixture were removed. Instead we drive the
+autouse fixture's own generator directly, so the guard fails if the fixture is
+removed, loses its ``autouse=True``, or stops resetting.
 """
 
 import contextlib
+import inspect
 
 import pytest
-from conftest import _reset_session_allow_hosts
+from conftest import reset_session_allow_hosts
 
 from gptme.tools._url_safety import _get_allow_hosts, set_session_allow_hosts
 
@@ -36,8 +37,15 @@ def test_reset_fixture_is_autouse(request: pytest.FixtureRequest) -> None:
 
 
 def test_reset_fixture_clears_a_leaked_allowlist() -> None:
-    """The reset fixture must clear a leaked allowlist before and after a test."""
-    reset_gen = _reset_session_allow_hosts()
+    """The reset fixture itself must clear a leaked allowlist before and after.
+
+    Drives the fixture's own generator (not a helper it delegates to), so this
+    fails if the fixture ever stops performing the reset.
+    """
+    # ``@pytest.fixture`` wraps the function in a ``FixtureFunctionDefinition``
+    # whose ``__call__`` raises pytest 9's direct-fixture-call guard;
+    # ``inspect.unwrap`` follows ``__wrapped__`` to the original generator.
+    reset_gen = inspect.unwrap(reset_session_allow_hosts)()
 
     # Simulate the leak that motivates the fixture: a prior test installed [].
     set_session_allow_hosts([])
