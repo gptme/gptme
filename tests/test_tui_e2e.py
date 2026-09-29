@@ -357,6 +357,7 @@ class TmuxTUI:
                 cmd,
             ],
             check=True,
+            timeout=15,
         )
 
     def send(self, keys: str, literal: bool = True) -> None:
@@ -364,29 +365,41 @@ class TmuxTUI:
         if literal:
             args.append("-l")
         args.append(keys)
-        subprocess.run(args, check=True)
+        subprocess.run(args, check=True, timeout=10)
 
     def send_key(self, key: str) -> None:
         """Send a named key (Enter, Escape, Tab, …)."""
-        subprocess.run(["tmux", "send-keys", "-t", self.session, key], check=True)
+        subprocess.run(
+            ["tmux", "send-keys", "-t", self.session, key], check=True, timeout=10
+        )
 
     def capture(self) -> str:
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", self.session, "-p"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        # pytest-timeout cannot interrupt a blocked tmux subprocess
+        # (gptme/gptme#4009 hung TestTmuxRealTerminal until the 6h job cap).
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", self.session, "-p"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            return ""
         return result.stdout
 
     def capture_scrollback(self, lines: int = 1000) -> str:
         """Capture pane content including scrollback history."""
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", self.session, "-p", "-S", f"-{lines}"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", self.session, "-p", "-S", f"-{lines}"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            return ""
         return result.stdout
 
     def wait_for(self, needle: str, timeout: float = 30.0) -> str:
@@ -426,17 +439,45 @@ class TmuxTUI:
         )
 
     def alive(self) -> bool:
-        return (
-            subprocess.run(
-                ["tmux", "has-session", "-t", self.session],
-                capture_output=True,
-                check=False,
-            ).returncode
-            == 0
-        )
+        try:
+            return (
+                subprocess.run(
+                    ["tmux", "has-session", "-t", self.session],
+                    capture_output=True,
+                    check=False,
+                    timeout=5,
+                ).returncode
+                == 0
+            )
+        except subprocess.TimeoutExpired:
+            return False
 
     def kill(self) -> None:
-        subprocess.run(["tmux", "kill-session", "-t", self.session], check=False)
+        # timeout_func_only leaves teardown unguarded; a wedged kill-session
+        # previously held the xdist worker until GitHub cancelled the job.
+        try:
+            subprocess.run(
+                ["tmux", "kill-session", "-t", self.session],
+                check=False,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def test_tmux_kill_returns_when_tmux_blocks(monkeypatch):
+    """Regression: unbounded kill-session hung an xdist worker for 6h (#4009)."""
+
+    def fake_run(*args, **kwargs):
+        timeout = kwargs.get("timeout")
+        if timeout is None:
+            raise AssertionError("tmux kill-session must pass timeout=")
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=timeout)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    tui = TmuxTUI.__new__(TmuxTUI)
+    tui.session = "tuie2e_fake"
+    tui.kill()
 
 
 @pytest.fixture
