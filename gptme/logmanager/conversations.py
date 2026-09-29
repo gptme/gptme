@@ -56,9 +56,14 @@ def _conversation_files() -> list[Path]:
     # NOTE: only returns the main conversation, not branches (to avoid duplicates)
     # returns the conversation files sorted by modified time (newest first)
     logsdir = get_logs_dir()
-    return sorted(
-        logsdir.glob("*/conversation.jsonl"), key=lambda f: -f.stat().st_mtime
-    )
+
+    def _mtime(f: Path) -> float:
+        try:
+            return f.stat().st_mtime
+        except FileNotFoundError:
+            return 0.0
+
+    return sorted(logsdir.glob("*/conversation.jsonl"), key=lambda f: -_mtime(f))
 
 
 def _is_test_conversation_id(conv_id: str) -> bool:
