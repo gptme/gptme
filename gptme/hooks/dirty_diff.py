@@ -139,12 +139,61 @@ def _get_dirty_diff(workspace: Path) -> str | None:
     return diff if diff.strip() else None
 
 
-def _get_untracked(workspace: Path) -> list[str]:
-    """Return untracked file paths (names only) for `workspace`."""
-    out = _git_capture(workspace, "ls-files", "--others", "--exclude-standard")
-    if not out:
-        return []
-    return [line for line in out.splitlines() if line.strip()]
+def _git_capture_lines(workspace: Path, max_lines: int, *args: str) -> list[str] | None:
+    """Run a git command, returning at most ``max_lines`` stdout lines.
+
+    For commands with unbounded output (``git ls-files`` on a large untracked
+    tree) reading stops at the cap and the child is terminated, so the hook
+    never materialises every path just to display 50 of them.
+    """
+    try:
+        proc = subprocess.Popen(
+            [*git_inspect_cmd(), "-C", str(workspace), *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError as e:
+        logger.debug("dirty diff: git %s failed for %s: %s", args, workspace, e)
+        return None
+    lines: list[str] = []
+    try:
+        assert proc.stdout is not None
+        with proc.stdout:
+            for raw in proc.stdout:
+                lines.append(raw.rstrip("\n"))
+                if len(lines) >= max_lines:
+                    break
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    if not lines and proc.returncode not in (0, None):
+        # Not a git repo, or HEAD doesn't exist yet (empty repo) — skip quietly.
+        return None
+    return lines
+
+
+def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
+    """Return untracked file paths (names only) for `workspace`.
+
+    Returns ``(paths, more)``: at most ``_MAX_UNTRACKED_PATHS`` entries, and
+    ``more`` when the tree had additional entries beyond the cap. Paths are
+    redacted with the same guard as the tracked diff — a crafted filename such
+    as ``GITHUB_TOKEN=ghp_...`` is otherwise copied verbatim into the message.
+    """
+    raw = _git_capture_lines(
+        workspace,
+        _MAX_UNTRACKED_PATHS + 1,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    )
+    if raw is None:
+        return [], False
+    more = len(raw) > _MAX_UNTRACKED_PATHS
+    paths = [redact_secrets_from_text(line) for line in raw[:_MAX_UNTRACKED_PATHS]]
+    return [path for path in paths if path.strip()], more
 
 
 def inject_dirty_diff(
@@ -170,7 +219,7 @@ def inject_dirty_diff(
             return
         workspace = Path(workspace)
         diff = _get_dirty_diff(workspace)
-        untracked = _get_untracked(workspace)
+        untracked, untracked_more = _get_untracked(workspace)
         if not diff and not untracked:
             return
         sections: list[str] = []
@@ -184,12 +233,8 @@ def inject_dirty_diff(
             diff = _redact_diff(diff)
             sections.append(f"`git diff HEAD`{note}:\n\n```diff\n{diff}\n```")
         if untracked:
-            listed = "\n".join(f"- {path}" for path in untracked[:_MAX_UNTRACKED_PATHS])
-            extra = (
-                f"\n- ... and {len(untracked) - _MAX_UNTRACKED_PATHS} more"
-                if len(untracked) > _MAX_UNTRACKED_PATHS
-                else ""
-            )
+            listed = "\n".join(f"- {path}" for path in untracked)
+            extra = "\n- ... and more (list truncated)" if untracked_more else ""
             sections.append(f"Untracked files (contents not shown):\n{listed}{extra}")
         body = (
             "The working tree has uncommitted changes.\n\n"

@@ -166,6 +166,33 @@ def test_hook_marks_content_untrusted(git_repo):
     assert "untrusted repository data" in out[0].content
 
 
+def test_hook_redacts_secrets_in_untracked_filenames(git_repo):
+    (git_repo / "GITHUB_TOKEN=ghp_supersecretvalue").write_text("x\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    assert "GITHUB_TOKEN=[REDACTED]" in out[0].content
+    assert "ghp_supersecretvalue" not in out[0].content
+
+
+def test_hook_bounds_untracked_enumeration(git_repo):
+    from gptme.hooks.dirty_diff import _MAX_UNTRACKED_PATHS
+
+    for i in range(_MAX_UNTRACKED_PATHS + 5):
+        (git_repo / f"new_{i:03d}.py").write_text("x\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    content = out[0].content
+    assert "new_000.py" in content
+    # Only the cap is listed; the overflow is summarized rather than counted.
+    assert f"new_{_MAX_UNTRACKED_PATHS - 1:03d}.py" in content
+    assert f"new_{_MAX_UNTRACKED_PATHS:03d}.py" not in content
+    assert "list truncated" in content
+
+
 def test_get_dirty_diff_disables_ext_and_textconv(git_repo, monkeypatch):
     from gptme.hooks import dirty_diff
 
