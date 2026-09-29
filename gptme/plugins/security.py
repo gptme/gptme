@@ -49,7 +49,10 @@ class _Pattern:
 
 def _pattern(regex: str, category: str, message: str, suffixes: set[str]) -> _Pattern:
     return _Pattern(
-        re.compile(regex, re.IGNORECASE), category, message, frozenset(suffixes)
+        re.compile(regex, re.IGNORECASE | re.DOTALL),
+        category,
+        message,
+        frozenset(suffixes),
     )
 
 
@@ -83,7 +86,7 @@ _PATTERNS = (
         # Allow any expression before the path so f-strings and concatenation
         # (``open(f'{home}/.ssh/id_rsa')``, ``open('/home/' + u + '/.ssh/x')``)
         # are caught, not just a bare quoted literal right after the call.
-        r"(?:readFileSync|open|read_text)\s*\([^)\n]*"
+        r"(?:readFileSync|open|read_text)\s*\([^)]*"
         r"(?:\.ssh|\.gnupg|\.env(?!\.(?:example|sample|template|dist|default))|"
         r"credentials(?:\.(?:json|ya?ml|txt|ini))?)",
         "credential-harvest",
@@ -137,9 +140,10 @@ _PATTERNS = (
 _SCANNABLE_SUFFIXES = frozenset(
     suffix for pattern in _PATTERNS for suffix in pattern.suffixes
 )
-_SKIP_PARTS = frozenset(
-    {".git", "__pycache__", "dist", "build", "docs", "examples", "test", "tests"}
-)
+# Only skip directories that are never importable. `tests`/`docs`/`build` inside
+# an installed package remain importable (`package.tests.payload`) and must be
+# scanned with the rest of the entry point's package.
+_SKIP_PARTS = frozenset({".git", "__pycache__"})
 _MAX_FILE_BYTES = 1_000_000
 
 
@@ -197,19 +201,25 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
     except OSError:
         return None
     suffix = path.suffix.lower()
+    # Blank comment-only lines so they cannot match, but keep them in the
+    # haystack so match offsets still map to original line numbers. Scan the
+    # whole file (not each line independently) so a split expression such as
+    # ``open(\n    "~/.ssh/id_rsa"\n)`` cannot evade the patterns.
+    haystack = "\n".join(
+        "" if _is_comment_only(line, suffix) else line for line in content.splitlines()
+    )
     findings: list[PluginSecurityFinding] = []
-    for line_number, line in enumerate(content.splitlines(), 1):
-        if _is_comment_only(line, suffix):
+    for pattern in _PATTERNS:
+        if suffix not in pattern.suffixes:
             continue
         findings.extend(
             PluginSecurityFinding(
                 path=display,
-                line=line_number,
+                line=haystack[: match.start()].count("\n") + 1,
                 category=pattern.category,
                 message=pattern.message,
             )
-            for pattern in _PATTERNS
-            if suffix in pattern.suffixes and pattern.regex.search(line)
+            for match in pattern.regex.finditer(haystack)
         )
     return findings
 
@@ -281,8 +291,8 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     a clean result only means something when the code that will be imported was
     actually inspected. A third-party distribution whose file list is unavailable
     (``files is None``, e.g. installers that omit ``RECORD``) or whose executable
-    module was skipped (``build``/``dist``, over the size limit, unreadable) must
-    not be reported as verified.
+    module was skipped (over the size limit, unreadable) must not be reported as
+    verified.
     """
     distribution = getattr(entry_point, "dist", None)
     if distribution is None:

@@ -2074,6 +2074,15 @@ class TestCheckComputer:
 class TestCheckPlugins:
     """Test _check_plugins function — structured JSON verdict per plugin."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_plugin_allowlist(self, monkeypatch):
+        """Doctor consults plugins.enabled; tests default to 'all enabled'."""
+        monkeypatch.setattr(
+            Config,
+            "get_plugin_config",
+            lambda self: ([], None),
+        )
+
     def test_no_plugins_returns_ok(self):
         """When no plugins are registered, return a single OK result."""
         with patch("importlib.metadata.entry_points", return_value=[]):
@@ -2523,17 +2532,18 @@ class TestCheckPlugins:
 
     def test_unscanned_entry_point_blocks_import(self, tmp_path):
         """A module skipped by the scan must not be reported as verified."""
+        from gptme.plugins.security import _MAX_FILE_BYTES
+
         plugin_root = tmp_path / "unscanned_plugin"
         plugin_root.mkdir()
         (plugin_root / "other.py").write_text("VALUE = 1\n", encoding="utf-8")
-        build_dir = tmp_path / "build"
-        build_dir.mkdir()
-        (build_dir / "sneaky.py").write_text("VALUE = 2\n", encoding="utf-8")
+        oversized = plugin_root / "entry.py"
+        oversized.write_bytes(b"VALUE = 2\n" + b"x" * (_MAX_FILE_BYTES + 1))
 
         class FakeDistribution:
             name = "sneaky-plugin"
             files = [
-                Path("build/sneaky.py"),
+                Path("unscanned_plugin/entry.py"),
                 Path("unscanned_plugin/other.py"),
             ]
 
@@ -2543,7 +2553,7 @@ class TestCheckPlugins:
         load = Mock(side_effect=AssertionError("unverified plugin imported"))
         ep = SimpleNamespace(
             name="sneaky_plugin",
-            module="build.sneaky",
+            module="unscanned_plugin.entry",
             dist=FakeDistribution(),
             load=load,
         )
@@ -2770,3 +2780,168 @@ class TestCheckPlugins:
         assert plugin_result.status == CheckStatus.ERROR
         blob = _details_blob(plugin_result.details)
         assert "enumerate OSError: cannot enumerate package" in blob
+
+    def test_disabled_entry_point_is_not_loaded(self):
+        """plugins.enabled must skip disabled entry points without importing them."""
+        load = Mock(side_effect=AssertionError("disabled plugin imported"))
+        ep = SimpleNamespace(
+            name="disabled_plugin",
+            module="disabled_plugin",
+            load=load,
+        )
+        config = SimpleNamespace(get_plugin_config=lambda: ([], ["only-this-plugin"]))
+        with (
+            patch("importlib.metadata.entry_points", return_value=[ep]),
+            patch("gptme.cli.doctor.get_config", return_value=config),
+        ):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: disabled_plugin")
+        assert plugin_result.status == CheckStatus.SKIPPED
+        assert "plugins.enabled" in plugin_result.message
+
+    def test_non_toolspec_entry_is_a_plugin_verdict(self):
+        """A malformed tools list must not abort the doctor run."""
+        from gptme.plugins.plugin import GptmePlugin
+        from gptme.tools.base import ToolSpec
+
+        plugin = GptmePlugin(
+            name="malformed_plugin",
+            tools=[None, ToolSpec(name="ok_tool", desc="ok")],  # type: ignore[list-item]
+        )
+        ep = SimpleNamespace(name="malformed_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: malformed_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        blob = _details_blob(plugin_result.details)
+        assert "NoneType:error(not a ToolSpec)" in blob
+        assert "ok_tool:ok(no-init)" in blob
+
+    def test_plugin_init_runs_before_tool_init(self):
+        """Doctor must call GptmePlugin.init(config) before tool initializers."""
+        from gptme.plugins.plugin import GptmePlugin
+        from gptme.tools.base import ToolSpec
+
+        order: list[str] = []
+
+        def plugin_init(_config):
+            order.append("plugin")
+
+        def tool_init():
+            order.append("tool")
+            return ToolSpec(name="ordered_tool", desc="ok")
+
+        plugin = GptmePlugin(
+            name="ordered_plugin",
+            init=plugin_init,
+            tools=[ToolSpec(name="ordered_tool", desc="ok", init=tool_init)],
+        )
+        ep = SimpleNamespace(name="ordered_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        assert order == ["plugin", "tool"]
+        plugin_result = next(r for r in results if r.name == "Plugin: ordered_plugin")
+        assert plugin_result.status == CheckStatus.OK
+        blob = _details_blob(plugin_result.details)
+        assert "init:ok" in blob
+        assert "ordered_tool:ok" in blob
+
+    def test_plugin_init_failure_is_attributed(self):
+        """A failing plugin initializer is a plugin verdict, not a doctor crash."""
+        from gptme.plugins.plugin import GptmePlugin
+        from gptme.tools.base import ToolSpec
+
+        def plugin_init(_config):
+            raise RuntimeError("init boom")
+
+        plugin = GptmePlugin(
+            name="init_boom_plugin",
+            init=plugin_init,
+            tools=[ToolSpec(name="still_checked", desc="ok")],
+        )
+        ep = SimpleNamespace(name="init_boom_plugin", load=lambda: plugin)
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        plugin_result = next(r for r in results if r.name == "Plugin: init_boom_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        blob = _details_blob(plugin_result.details)
+        assert "init:error(RuntimeError: init boom)" in blob
+        assert "still_checked:ok(no-init)" in blob
+
+    def test_importable_tests_payload_is_scanned(self, tmp_path):
+        """Files under package/tests/ are importable and must not be skipped."""
+        pkg = tmp_path / "payload_plugin"
+        tests_dir = pkg / "tests"
+        tests_dir.mkdir(parents=True)
+        (pkg / "__init__.py").write_text(
+            "from .tests import payload\n", encoding="utf-8"
+        )
+        (tests_dir / "__init__.py").write_text("", encoding="utf-8")
+        (tests_dir / "payload.py").write_text(
+            "secret = open('~/.ssh/id_rsa').read()\n",
+            encoding="utf-8",
+        )
+
+        class FakeDistribution:
+            name = "payload-plugin"
+            files = [
+                Path("payload_plugin/__init__.py"),
+                Path("payload_plugin/tests/__init__.py"),
+                Path("payload_plugin/tests/payload.py"),
+            ]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        load = Mock(side_effect=AssertionError("payload plugin was imported"))
+        ep = SimpleNamespace(
+            name="payload_plugin",
+            module="payload_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: payload_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "credential-harvest" in _details_blob(plugin_result.details)
+
+    def test_multiline_credential_read_is_flagged(self, tmp_path):
+        """A split open() call must not evade the line-oriented scan."""
+
+        class FakeDistribution:
+            name = "multiline-cred-plugin"
+            files = [Path("multiline_cred_plugin/__init__.py")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        plugin_file = tmp_path / "multiline_cred_plugin" / "__init__.py"
+        plugin_file.parent.mkdir()
+        plugin_file.write_text(
+            "secret = open(\n    '~/.ssh/id_rsa'\n).read()\n",
+            encoding="utf-8",
+        )
+        load = Mock(side_effect=AssertionError("malicious plugin was imported"))
+        ep = SimpleNamespace(
+            name="multiline_cred_plugin",
+            module="multiline_cred_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(
+            r for r in results if r.name == "Plugin: multiline_cred_plugin"
+        )
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "credential-harvest" in _details_blob(plugin_result.details)

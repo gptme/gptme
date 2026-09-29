@@ -159,9 +159,9 @@ _warned_mcp_allowlists_lock = threading.Lock()
 def _unregister_tool_hooks(tool: ToolSpec) -> None:
     """Best-effort unregister of a tool's session-local hooks.
 
-    Safe if some or none of the hooks were actually registered. Used by the
-    plugin skip path so a partial ``register_hooks()`` cannot leave a skipped
-    plugin's hooks running, and by ``unload_tool``.
+    Safe if some or none of the hooks were actually registered. Used by
+    ``unload_tool`` and by the file-plugin dependency cascade (a tool that
+    initialized successfully, then lost a required companion).
     """
     from ..hooks import unregister_hook
 
@@ -174,6 +174,54 @@ def _unregister_tool_hooks(tool: ToolSpec) -> None:
                 tool.name,
                 hook_name,
             )
+
+
+def _copy_hook_registry() -> dict:
+    """Return a shallow copy of the current hook registry contents."""
+    from ..hooks.registry import get_registry
+
+    registry = get_registry()
+    return {hook_type: list(hooks) for hook_type, hooks in registry.hooks.items()}
+
+
+def _restore_hook_registry(snapshot: dict) -> None:
+    """Replace the hook registry contents with a previous snapshot."""
+    from ..hooks.registry import get_registry
+
+    registry = get_registry()
+    with registry._lock:
+        registry.hooks.clear()
+        registry.hooks.update(
+            {hook_type: list(hooks) for hook_type, hooks in snapshot.items()}
+        )
+
+
+def _copy_command_registry() -> tuple[dict, dict, dict]:
+    """Return copies of the command registries."""
+    from ..commands.base import (
+        _command_completers,
+        _command_owners,
+        _command_registry,
+    )
+
+    return dict(_command_registry), dict(_command_completers), dict(_command_owners)
+
+
+def _restore_command_registry(snapshot: tuple[dict, dict, dict]) -> None:
+    """Replace command registries with a previous snapshot."""
+    from ..commands.base import (
+        _command_completers,
+        _command_owners,
+        _command_registry,
+    )
+
+    registry, completers, owners = snapshot
+    _command_registry.clear()
+    _command_registry.update(registry)
+    _command_completers.clear()
+    _command_completers.update(completers)
+    _command_owners.clear()
+    _command_owners.update(owners)
 
 
 @overload
@@ -199,6 +247,8 @@ def _init_single_tool(
     on_error="skip": log a warning and return None on failure (for plugins)
     """
     active = tool
+    hook_snapshot = None
+    command_snapshot = None
     try:
         if tool.init:
             initialized = tool.init()
@@ -209,13 +259,22 @@ def _init_single_tool(
                 )
             tool = initialized
             active = tool
+        # Snapshot after init() so a failure there cannot delete pre-existing
+        # hooks/commands that share this tool's names. Restore on any later
+        # failure so a partial register_hooks() neither leaks new entries nor
+        # drops replacements of hooks this tool overwrote.
+        hook_snapshot = _copy_hook_registry()
+        command_snapshot = _copy_command_registry()
         tool.register_hooks()
         tool.register_commands()
         return tool
     except Exception:
         if on_error == "raise":
             raise
-        _unregister_tool_hooks(active)
+        if hook_snapshot is not None:
+            _restore_hook_registry(hook_snapshot)
+        if command_snapshot is not None:
+            _restore_command_registry(command_snapshot)
         logger.warning(
             "Skipping plugin tool %r: init() failed", active.name, exc_info=True
         )

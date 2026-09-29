@@ -1387,7 +1387,10 @@ def _iter_plugin_tools(plugin: object) -> tuple[list, list[str]]:
     seen_names: set[str] = set()
     import_errors: list[str] = []
 
-    def _add(tool: ToolSpec) -> None:
+    def _add(tool: object) -> None:
+        if not isinstance(tool, ToolSpec):
+            import_errors.append(f"{type(tool).__name__}:error(not a ToolSpec)")
+            return
         if tool.name in seen_names:
             return
         seen_names.add(tool.name)
@@ -1465,19 +1468,24 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
     """Check installed gptme plugins via entry points.
 
     Discovers plugins registered under the ``gptme.plugins`` entry-point group,
+    skips entry points disabled by ``plugins.enabled`` without importing them,
     scans third-party distribution source before import, then validates each
-    plugin's tool and registrar contracts. Tools come from both ``plugin.tools``
-    and ``plugin.tool_modules``.
+    plugin's init, tool, and registrar contracts. Tools come from both
+    ``plugin.tools`` and ``plugin.tool_modules``.
     Returns one :class:`CheckResult` per plugin with a machine-readable
     per-item verdict list in the ``details`` field.
     """
     from importlib.metadata import entry_points as _entry_points
 
-    from ..plugins.entrypoints import ENTRYPOINT_GROUP, _coerce_to_plugin
+    from ..plugins.entrypoints import ENTRYPOINT_GROUP, _coerce_to_plugin, _normalize
     from ..plugins.security import scan_plugin_entry_point
     from ..tools.base import ToolSpec
 
     results: list[CheckResult] = []
+    _, enabled = get_config().get_plugin_config()
+    enabled_normalized = (
+        {_normalize(name) for name in enabled} if enabled is not None else None
+    )
 
     try:
         eps = list(_entry_points(group=ENTRYPOINT_GROUP))
@@ -1512,6 +1520,25 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
 
     for ep in eps:
         ep_name = ep.name
+
+        # Match discover_entrypoint_plugins(): skip disabled entry points
+        # without importing them. Import executes package code.
+        module = (
+            getattr(ep, "module", None)
+            or str(getattr(ep, "value", "")).split(":")[0].strip()
+        )
+        ep_names = {_normalize(ep_name)}
+        if module:
+            ep_names.add(_normalize(module.split(".")[0]))
+        if enabled_normalized is not None and not (ep_names & enabled_normalized):
+            results.append(
+                CheckResult(
+                    name=f"Plugin: {ep_name}",
+                    status=CheckStatus.SKIPPED,
+                    message="disabled by plugins.enabled; not loaded",
+                )
+            )
+            continue
 
         # 1 — scan third-party distribution source before importing it. Importing
         # first would execute exactly the payload this check is meant to catch.
@@ -1553,8 +1580,8 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                 continue
             # Fail closed: a clean result only means something when the module
             # that would be imported was actually scanned. Otherwise a plugin can
-            # place its executable source where the scanner skips it (build/,
-            # dist/, oversize file) and still be reported as verified.
+            # place its executable source in an unreadable or oversized file and
+            # still be reported as verified.
             if not security_scan.entry_point_scanned:
                 results.append(
                     CheckResult(
@@ -1569,7 +1596,7 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                         ],
                         fix_hint=(
                             f"Ensure {ep_name!r} ships its entry-point module as "
-                            "scannable source (not under build/dist, under 1 MB)"
+                            "readable source under 1 MB"
                         ),
                     )
                 )
@@ -1609,10 +1636,36 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             )
             continue
 
-        # 4 — validate each tool's init() contract (direct + module-provided)
-        tools, import_errors = _iter_plugin_tools(plugin)
-        contract_verdicts: list[str] = security_verdicts + import_errors
-        any_failed = bool(import_errors)
+        # 4 — plugin-level init() runs before subsystem init at runtime.
+        contract_verdicts: list[str] = list(security_verdicts)
+        any_failed = False
+        if plugin.init is not None:
+            try:
+                plugin.init(get_config())
+                contract_verdicts.append("init:ok")
+            except Exception as exc:
+                contract_verdicts.append(f"init:error({type(exc).__name__}: {exc})")
+                any_failed = True
+
+        # 5 — validate each tool's init() contract (direct + module-provided)
+        try:
+            tools, import_errors = _iter_plugin_tools(plugin)
+        except Exception as exc:
+            results.append(
+                CheckResult(
+                    name=f"Plugin: {ep_name}",
+                    status=CheckStatus.ERROR,
+                    message=f"Tool discovery failed: {type(exc).__name__}",
+                    details=str(exc),
+                    fix_hint=(
+                        "Check the plugin's tools/tool_modules entries; "
+                        "a malformed manifest must not abort doctor"
+                    ),
+                )
+            )
+            continue
+        contract_verdicts.extend(import_errors)
+        any_failed = any_failed or bool(import_errors)
         for tool in tools:
             if tool.init is None:
                 contract_verdicts.append(f"{tool.name}:ok(no-init)")
@@ -1632,7 +1685,7 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                 )
                 any_failed = True
 
-        # 5 — validate hook and command registration contracts. Each callback
+        # 6 — validate hook and command registration contracts. Each callback
         # runs against a temporary registry so doctor never mutates runtime state.
         if plugin.register_hooks is not None:
             verdict, failed = _check_plugin_registrar("hooks", plugin.register_hooks)
@@ -1677,6 +1730,7 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
         )
 
     return results
+
 
 def _summarize_results(results: list[CheckResult]) -> dict[str, int]:
     """Count diagnostic results by status."""
