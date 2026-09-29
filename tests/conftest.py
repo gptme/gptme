@@ -463,6 +463,24 @@ def cleanup_shell_after():
 
 
 @pytest.fixture(autouse=True)
+def reset_allow_hosts_after():
+    """Reset the URL host allowlist ContextVar after each test.
+
+    ``set_session_allow_hosts()`` stores policy in a ContextVar.  pytest runs
+    tests synchronously in one thread/context, so a bare ``ContextVar.set()``
+    with no matching ``.reset()`` persists past the test that made it.  Without
+    this fixture, ``test_url_safety.py::test_empty_allowlist_blocks_all_hosts``
+    leaves ``_allow_hosts_var`` set to ``[]`` for every subsequent test on the
+    same xdist worker, causing ``TestPlaywrightMarkdownResponse`` (and others)
+    to fail with "Host 'x' is not in the session's allowed-hosts list ()".
+    """
+    yield
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    set_session_allow_hosts(None)
+
+
+@pytest.fixture(autouse=True)
 def cleanup_acp_health_monitor():
     """Stop the ACP health monitor and clear SessionManager state after each test.
 
