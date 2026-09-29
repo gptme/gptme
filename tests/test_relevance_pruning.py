@@ -740,3 +740,28 @@ def test_shadow_ledger_rotates_when_oversized(tmp_path, monkeypatch):
     assert rotated.read_text() == "x" * 100
     # The current file holds only the fresh record after rotation.
     assert len(read_phase0_shadow_events(tmp_path)) == 1
+
+
+def test_shadow_reader_includes_rotated_records(tmp_path, monkeypatch):
+    """Rotated records stay readable: the reader spans ``.1`` then the current file.
+
+    Rotation bounds on-disk growth, but evaluation must still see decisions
+    retained in the previous generation rather than only the post-rotation file.
+    """
+    from gptme.tools.autocompact import events as shadow_events
+
+    monkeypatch.setattr(shadow_events, "SHADOW_LOG_MAX_BYTES", 10)
+    log_path = tmp_path / "phase0-shadow.jsonl"
+    log_path.write_text('{"generation": 0}\n')
+
+    large_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(large_content)] + padding
+    shadow_prune_stale_tool_outputs(log, _model_name(), logdir=tmp_path)
+
+    assert (tmp_path / "phase0-shadow.jsonl.1").exists()
+    events = read_phase0_shadow_events(tmp_path)
+    # Retained record first, then the fresh record appended this pass.
+    assert [e.get("generation") for e in events if "generation" in e] == [0]
+    assert len(events) == 2
+    assert events[-1]["trigger"] == "phase0-shadow"

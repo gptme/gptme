@@ -198,8 +198,14 @@ def _rotate_if_oversized(path: Path, max_bytes: int) -> None:
 
 
 def read_phase0_shadow_events(logdir: Path) -> list[dict[str, Any]]:
-    """Read valid Phase-0 shadow records from ``phase0-shadow.jsonl``."""
-    return _read_jsonl_events(logdir / SHADOW_LOG_NAME)
+    """Read valid Phase-0 shadow records from the retained and current ledgers.
+
+    Rotation moves older records to ``phase0-shadow.jsonl.1``; evaluation must
+    still see them, so the retained generation is read first (append order).
+    """
+    return _read_jsonl_events(logdir / f"{SHADOW_LOG_NAME}.1") + _read_jsonl_events(
+        logdir / SHADOW_LOG_NAME
+    )
 
 
 def _read_jsonl_events(path: Path) -> list[dict[str, Any]]:
