@@ -60,7 +60,8 @@ test: ## Run tests
 		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \
 		-n 16 \
 		$(if $(EVAL), , -m "not eval") \
-		$(if $(SLOW), --timeout 60 --retries 2 --retry-delay 5, --timeout 10 -m "not slow and not eval") \
+		$(if $(SLOW), , -m "not slow and not eval") \
+		--timeout 60 --retries 2 --retry-delay 5 \
 		$(if $(PROFILE), --profile-svg)
 
 test-api: ## Run only API-dependent tests (requires_api marker)
