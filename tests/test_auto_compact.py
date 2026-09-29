@@ -645,6 +645,34 @@ def test_estimate_compaction_savings_includes_phase3():
     )
 
 
+def test_estimate_compaction_savings_includes_phase0():
+    """Phase 0 savings must count so 200–2000 token stale outputs pick rule-based.
+
+    Without this, an over-budget log of mid-size tool results is sent to LLM
+    summarization because Phase 2 only counts outputs above 2000 tokens.
+    """
+    from gptme.tools.autocompact import (
+        estimate_compaction_savings,
+        should_auto_compact,
+    )
+
+    stale = "word " * 400  # ~400 tokens, below Phase 2's 2000-token cutoff
+    messages: list[Message] = [Message("user", "start")]
+    for i in range(12):
+        messages.append(
+            Message("system", stale, datetime.now(tz=timezone.utc), call_id=f"call-{i}")
+        )
+        messages.append(Message("user", f"next {i}"))
+    messages.extend(Message("user", f"recent {i}") for i in range(5))
+
+    total, savings, _ = estimate_compaction_savings(messages, limit=100)
+    assert savings > 0, "Phase 0 must contribute savings for mid-size stale outputs"
+    # Savings should be a meaningful fraction, not a rounding crumb.
+    assert savings / total > 0.10
+
+    assert should_auto_compact(messages, limit=100) == "rule_based"
+
+
 def test_should_auto_compact_respects_minimum_savings():
     """Test that should_auto_compact skips when estimated savings are too low.
 

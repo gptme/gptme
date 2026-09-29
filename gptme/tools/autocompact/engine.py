@@ -1,9 +1,13 @@
-"""Rule-based compaction engine — the 3-phase compaction algorithm.
+"""Rule-based compaction engine — the 4-phase compaction algorithm.
 
 Implements strategic removal of content from conversations:
+0. Replace stale tool outputs in place with a short stub (relevance-scored)
 1. Strip reasoning tags from older messages (age-based)
 2. Truncate largest tool results first (oh-my-opencode strategy)
 3. Extractive compression for long assistant messages
+
+Phase 0 replaces messages rather than deleting them so tool-call/result pairs
+stay provider-valid and later phases can still index into conversation.jsonl.
 """
 
 import logging
@@ -24,47 +28,95 @@ from .scoring import compress_content, score_tool_output_relevance
 
 logger = logging.getLogger(__name__)
 
-# Score threshold below which a tool output is eligible for pre-pass removal.
-# Messages that score below this AND exceed the minimum size are dropped.
+# Score threshold below which a tool output is eligible for pre-pass stubbing.
+# Messages that score below this AND exceed the minimum size are replaced in
+# place (never deleted — that would break tool-call pairing and master-context
+# index mapping used by Phases 2–3).
 _PRUNE_SCORE_THRESHOLD = 1.0
 
 # Minimum token size before a tool output is eligible for pre-pass pruning.
-# Small results are cheap; only drop results that actually reclaim meaningful
+# Small results are cheap; only stub results that actually reclaim meaningful
 # budget.
 _PRUNE_MIN_TOKENS = 200
+
+
+def _is_tool_output(msg: Message, prev: Message | None) -> bool:
+    """True when ``msg`` is a tool result, not instructions or knowledge.
+
+    Structured tool results carry ``call_id``. Markdown/XML tool format emits a
+    system message immediately after an assistant tool-call. Other ``system``
+    messages (agent instructions, knowledge files) must not be pruned.
+    """
+    if msg.role != "system":
+        return False
+    if msg.call_id:
+        return True
+    return prev is not None and message_contains_tool_use(prev)
+
+
+def _stale_output_stub(
+    msg: Message,
+    msg_tokens: int,
+    idx: int,
+    master_logfile: Path | None,
+    master_context_index: list[MessageByteRange],
+) -> str:
+    """Short in-place replacement for a pruned tool result."""
+    stub = f"[Stale tool output pruned - {msg_tokens} tokens]"
+    if master_logfile and idx < len(master_context_index):
+        byte_range = master_context_index[idx]
+        preview = msg.content.split("\n")[0] if msg.content else None
+        stub += "\n\n" + create_master_context_reference(
+            logfile=master_logfile,
+            byte_range=byte_range,
+            original_tokens=msg_tokens,
+            preview=preview,
+        )
+    return stub
 
 
 def prune_stale_tool_outputs(
     log: list[Message],
     model_name: str,
     keep_head: int = 0,
+    master_logfile: Path | None = None,
+    master_context_index: list[MessageByteRange] | None = None,
 ) -> tuple[list[Message], int]:
-    """Phase 0 pre-pass: drop stale tool outputs that are unlikely to be needed.
+    """Phase 0 pre-pass: stub stale tool outputs that are unlikely to be needed.
 
-    Drops tool-output messages (role='system') that:
-    1. Are not pinned and not in the protected head.
-    2. Score below ``_PRUNE_SCORE_THRESHOLD`` from ``score_tool_output_relevance``.
-    3. Are at least ``_PRUNE_MIN_TOKENS`` tokens (small results are kept for free).
+    Replaces tool-output messages in place (same list length, same indices)
+    when they:
+    1. Are actual tool results (``call_id`` or immediately after a tool-call).
+    2. Are not pinned and not in the protected head.
+    3. Score below ``_PRUNE_SCORE_THRESHOLD`` from ``score_tool_output_relevance``.
+    4. Are at least ``_PRUNE_MIN_TOKENS`` tokens (small results are kept for free).
 
-    The function never drops:
+    The function never stubs:
+    - Non-tool ``system`` messages (instructions, knowledge).
     - Pinned messages.
     - Messages within the protected ``keep_head`` prefix.
     - Messages within the last ``_PRUNE_MIN_AGE`` positions (very recent).
-    - Tool results that contain error/failure content (score boost keeps them above threshold).
+    - Tool results that contain error/failure content.
     - Tool results whose paths are still referenced by later messages.
 
+    In-place replacement (not deletion) keeps tool-call/result pairs
+    provider-valid and preserves 1:1 index mapping into conversation.jsonl
+    for Phase 2/3 master-context references.
+
     Returns:
-        (pruned_log, tokens_saved) — the pruned list and estimated tokens saved.
+        (pruned_log, tokens_saved) — same length as ``log``, and tokens saved.
     """
     pruned: list[Message] = []
     tokens_saved = 0
+    index = master_context_index or []
 
     for idx, msg in enumerate(log):
         if msg.pinned or idx < keep_head:
             pruned.append(msg)
             continue
 
-        if msg.role != "system":
+        prev = log[idx - 1] if idx > 0 else None
+        if not _is_tool_output(msg, prev):
             pruned.append(msg)
             continue
 
@@ -75,11 +127,14 @@ def prune_stale_tool_outputs(
 
         relevance = score_tool_output_relevance(msg, idx, log)
         if relevance < _PRUNE_SCORE_THRESHOLD:
-            tokens_saved += msg_tokens
+            stub = _stale_output_stub(msg, msg_tokens, idx, master_logfile, index)
+            stub_tokens = len_tokens(stub, model_name)
+            tokens_saved += max(0, msg_tokens - stub_tokens)
             logger.debug(
-                f"Phase 0: dropping stale tool output at idx {idx} "
-                f"(score={relevance:.2f}, tokens={msg_tokens})"
+                f"Phase 0: stubbing stale tool output at idx {idx} "
+                f"(score={relevance:.2f}, tokens={msg_tokens} -> {stub_tokens})"
             )
+            pruned.append(msg.replace(content=stub))
         else:
             pruned.append(msg)
 
@@ -146,12 +201,16 @@ def auto_compact_log(
     initial_tokens = tokens  # preserved for final reduction_pct even after Phase 0
 
     # Phase 0: Relevance-scored pruning of stale tool outputs.
-    # Runs proactively — before the compaction-trigger check — so it can delay
-    # or prevent Phase 2/3 from being needed at all.  Drops tool outputs that are
-    # old, large, and not referenced by later messages, keeping surviving content
-    # verbatim (no summary drift).
+    # Runs before the compaction-trigger check so it can delay or prevent
+    # Phase 2/3. Stubs (does not delete) old, large, unreferenced tool
+    # outputs in place so tool-call pairing and master-context indices stay
+    # valid. Surviving content is kept verbatim (no summary drift).
     log, phase0_tokens_saved = prune_stale_tool_outputs(
-        log, model.model, keep_head=keep_head
+        log,
+        model.model,
+        keep_head=keep_head,
+        master_logfile=master_logfile,
+        master_context_index=master_context_index,
     )
     if phase0_tokens_saved > 0:
         logger.info(
@@ -270,7 +329,7 @@ def auto_compact_log(
 
             # Add master context reference for exact recovery
             # Note: idx must match the message position in conversation.jsonl
-            # This is safe because Phase 1-2 preserve message positions (1:1 mapping)
+            # This is safe because Phases 0-2 preserve message positions (1:1 mapping)
             if master_logfile and idx < len(master_context_index):
                 byte_range = master_context_index[idx]
                 # Get first line as preview
@@ -321,7 +380,7 @@ def auto_compact_log(
             if compressed_tokens < msg_tokens:
                 # Add master context reference for exact recovery
                 # Note: idx must match the message position in conversation.jsonl
-                # This is safe because Phases 1-3 preserve message positions (1:1 mapping)
+                # This is safe because Phases 0-3 preserve message positions (1:1 mapping)
                 if master_logfile and idx < len(master_context_index):
                     byte_range = master_context_index[idx]
                     # Get first line as preview

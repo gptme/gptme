@@ -46,6 +46,7 @@ def estimate_compaction_savings(
     before actually triggering it.
 
     Note: Estimation matches actual compaction logic:
+    - Phase 0: Stale tool-output stubbing (only when over/close to limit)
     - Phase 1: Reasoning stripping (always applied to old messages)
     - Phase 2: Tool result removal (only when over/close to limit)
     - Phase 3: Assistant message compression (only when over/close to limit)
@@ -53,7 +54,6 @@ def estimate_compaction_savings(
 
     model = get_default_model() or get_model("gpt-4")
     total_tokens = len_tokens(log, model.model)
-    log_length = len(log)
 
     if limit is None:
         limit = get_context_budget(model.context, max_output=model.max_output or 8192)
@@ -61,11 +61,22 @@ def estimate_compaction_savings(
     # The configured budget is the sole compaction trigger.
     would_remove_tool_results = total_tokens >= limit
 
+    # Phase 0 runs first in auto_compact_log; estimate it on the original log
+    # and run later-phase estimates on the stubbed log so we don't double-count
+    # a 200–2000 token stale output as both a Phase 0 stub and a Phase 2 cut.
+    estimated_phase0_savings = 0
+    work_log = log
+    if would_remove_tool_results:
+        from .engine import prune_stale_tool_outputs
+
+        work_log, estimated_phase0_savings = prune_stale_tool_outputs(log, model.model)
+
+    log_length = len(work_log)
     estimated_tool_result_savings = 0
     estimated_reasoning_savings = 0
     estimated_compression_savings = 0
 
-    for idx, msg in enumerate(log):
+    for idx, msg in enumerate(work_log):
         if msg.pinned:
             continue
 
@@ -100,7 +111,8 @@ def estimate_compaction_savings(
             estimated_compression_savings += int(msg_tokens * 0.3)
 
     total_estimated_savings = (
-        estimated_tool_result_savings
+        estimated_phase0_savings
+        + estimated_tool_result_savings
         + estimated_reasoning_savings
         + estimated_compression_savings
     )

@@ -78,6 +78,12 @@ _ACTION_RESULT_PATTERNS = [
 _FILE_PATH_PATTERN = re.compile(
     r"(?:[/~][a-zA-Z0-9_\-./]+(?:\.[a-zA-Z0-9]+)?|[A-Za-z]:[/\\][a-zA-Z0-9_\-./\\]+(?:\.[a-zA-Z0-9]+)?)"
 )
+# Relative paths the absolute/home/drive pattern misses, e.g. src/config.py.
+# Requires at least one slash and a file extension so "and/or" does not match.
+# Negative lookbehind avoids matching inside URLs (https://host/path/file.py).
+_RELATIVE_FILE_PATH_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_./-])(?:\./)?(?:[A-Za-z0-9_.-]+/)+\.?[A-Za-z0-9_.-]+\.[A-Za-z0-9]+"
+)
 _URL_PATTERN = re.compile(r'https?://[^\s<>"\')]+')
 _ERROR_INDICATOR_PATTERNS = [
     re.compile(r"\b(error|exception|traceback)\b", re.IGNORECASE),
@@ -316,8 +322,15 @@ _PRUNE_MIN_AGE = 3
 
 
 def _extract_file_paths(content: str) -> set[str]:
-    """Return all file-path-like tokens found in content."""
-    return set(_FILE_PATH_PATTERN.findall(content))
+    """Return all file-path-like tokens found in content.
+
+    Includes absolute Unix/Windows paths and relative paths such as
+    ``src/config.py`` so a later mention of that file still counts as a
+    reference.
+    """
+    return set(_FILE_PATH_PATTERN.findall(content)) | set(
+        _RELATIVE_FILE_PATH_PATTERN.findall(content)
+    )
 
 
 def score_tool_output_relevance(
@@ -333,11 +346,12 @@ def score_tool_output_relevance(
     Eligibility guards (hard-coded):
     - Pinned messages always score max.
     - Messages within the last ``_PRUNE_MIN_AGE`` positions always score max.
-    - Only ``role=="system"`` messages are scored (tool outputs live there).
+    - Only ``role=="system"`` messages are scored (callers still must filter
+      to actual tool outputs so instructions/knowledge are not pruned).
+    - Error/failure content always scores max (age must not override this).
+    - File paths still referenced by a later message always score max.
 
-    Heuristics (additive):
-    - Error/failure content: +2.0  (silent drops of errors are costly)
-    - Content referenced by a later message (same file path): +3.0
+    Heuristics (additive, for outputs that are not a hard keep):
     - Age penalty: -0.15 per position from the end (capped at -2.0)
     """
     if msg.role != "system":
@@ -352,24 +366,18 @@ def score_tool_output_relevance(
     if distance_from_end < _PRUNE_MIN_AGE:
         return 5.0  # too recent — always keep
 
-    score = 0.0
-
-    # Error content is expensive to re-derive; keep it
+    # Fail-safe: errors and still-referenced paths are always kept. An additive
+    # boost is not enough — the age cap of -2.0 would otherwise drop an
+    # unreferenced error (2.0 - 2.0 = 0.0) below the prune threshold.
     for pattern in _ERROR_INDICATOR_PATTERNS:
         if pattern.search(msg.content):
-            score += 2.0
-            break
+            return 5.0
 
-    # If any file path from this output appears in a later message, it's
-    # probably still active context.
     own_paths = _extract_file_paths(msg.content)
     if own_paths:
-        later_msgs = log[idx + 1 :]
-        later_content = "\n".join(m.content for m in later_msgs)
+        later_content = "\n".join(m.content for m in log[idx + 1 :])
         if any(p in later_content for p in own_paths):
-            score += 3.0
+            return 5.0
 
     # Age penalty: older = less relevant (capped)
-    score -= min(distance_from_end * 0.15, 2.0)
-
-    return score
+    return 0.0 - min(distance_from_end * 0.15, 2.0)
