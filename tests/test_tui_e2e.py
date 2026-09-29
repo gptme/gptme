@@ -507,7 +507,12 @@ def test_tmux_capture_timeout_is_not_empty_pane(monkeypatch):
 
 
 def test_tmux_init_kills_session_if_startup_times_out(tmp_path, monkeypatch):
-    """If new-session times out after creating the session, kill it."""
+    """If new-session times out after creating the session, kill it.
+
+    Distinguishes the cleanup-success path from kill() itself timing out
+    (covered by test_tmux_kill_returns_when_tmux_blocks). A fake that times
+    out on every tmux call would only prove we *attempted* kill-session.
+    """
     calls: list[list[str]] = []
 
     def fake_run(args, **kwargs):
@@ -515,14 +520,18 @@ def test_tmux_init_kills_session_if_startup_times_out(tmp_path, monkeypatch):
         timeout = kwargs.get("timeout")
         if timeout is None:
             raise AssertionError("tmux calls must pass timeout=")
-        raise subprocess.TimeoutExpired(cmd=args, timeout=timeout)
+        if list(args)[:2] == ["tmux", "new-session"]:
+            raise subprocess.TimeoutExpired(cmd=args, timeout=timeout)
+        return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    with (
-        pytest.raises(subprocess.TimeoutExpired),
-        pytest.warns(RuntimeWarning, match="kill-session timed out"),
-    ):
-        TmuxTUI(tmp_path)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(subprocess.TimeoutExpired):
+            TmuxTUI(tmp_path)
+    assert not [w for w in caught if issubclass(w.category, RuntimeWarning)], (
+        "kill-session succeeded; kill() must not warn"
+    )
     assert any(c[:2] == ["tmux", "new-session"] for c in calls)
     assert any(c[:2] == ["tmux", "kill-session"] for c in calls)
 
