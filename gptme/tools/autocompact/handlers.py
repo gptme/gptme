@@ -174,13 +174,15 @@ def _compact_summarize(
     m = get_default_model()
     original_tokens = len_tokens(msgs, m.model) if m else 0
     try:
-        yield from _resume_via_llm(
+        applied = yield from _resume_via_llm(
             ctx.manager,
             msgs,
             use_view_branch=False,
             compact_instructions=merged_instructions,
             keep_recent_tokens=proj_keep_recent,
         )
+        if not applied:
+            return
         compacted_messages = ctx.manager.log.messages
         if not isinstance(compacted_messages, list):
             return

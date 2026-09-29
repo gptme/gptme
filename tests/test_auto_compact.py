@@ -2089,6 +2089,7 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
         assert use_view_branch is False
         active_manager.log = Log([Message("system", "summary")])
         yield Message("system", "done")
+        return True
 
     monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
 
@@ -2099,6 +2100,37 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     assert events[0]["trigger"] == "manual"
     assert events[0]["method"] == "summarize"
     assert events[0]["messages"] == {"before": 2, "after": 1}
+
+
+def test_manual_summarize_skips_event_when_resume_not_applied(tmp_path, monkeypatch):
+    """A False return from _resume_via_llm must not write a summarize event.
+
+    Too-few-messages / no-model early exits yield a status message and return
+    False without replacing the log. Recording a compaction event in that case
+    claims a summarize that never happened.
+    """
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.events import read_compaction_events
+    from gptme.tools.autocompact.handlers import _compact_summarize
+
+    messages = [Message("system", "system prompt"), Message("user", "task")]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    ctx = MagicMock()
+    ctx.manager = manager
+
+    def fake_resume(*args, **kwargs):
+        yield Message(
+            "system", "Not enough conversation history to create a meaningful resume."
+        )
+        return False
+
+    monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
+
+    list(_compact_summarize(ctx, messages))
+
+    assert read_compaction_events(manager.logdir) == []
 
 
 def test_compact_trim_handler_honors_env_keep_head(monkeypatch):
