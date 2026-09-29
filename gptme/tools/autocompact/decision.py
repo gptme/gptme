@@ -65,16 +65,16 @@ def estimate_compaction_savings(
     # Phase 0 runs first in auto_compact_log; estimate it on the original log
     # and run later-phase estimates on the stubbed log so we don't double-count
     # a 200–2000 token stale output as both a Phase 0 stub and a Phase 2 cut.
-    # Do not pass logdir: estimation must not write tool-output files. The
-    # stub template still includes a placeholder recovery path so savings
-    # match the persisted form the engine emits (short stubs overestimate).
+    # Do not pass logdir: estimation must not write tool-output files.
+    # for_estimate=True uses the recovery-path template with a placeholder
+    # so savings match the persisted form (short stubs overestimate).
     estimated_phase0_savings = 0
     work_log = log
     if would_remove_tool_results:
         from .engine import prune_stale_tool_outputs
 
         work_log, estimated_phase0_savings = prune_stale_tool_outputs(
-            log, model.model, keep_head=keep_head
+            log, model.model, keep_head=keep_head, for_estimate=True
         )
         # Engine rechecks the budget after Phase 0 and skips Phase 2/3 when
         # stubbing already brought the log under limit. Match that here so we

@@ -77,6 +77,8 @@ def _stale_output_stub(
     msg: Message,
     msg_tokens: int,
     logdir: Path | None,
+    *,
+    for_estimate: bool = False,
 ) -> str:
     """In-place replacement for a pruned tool result.
 
@@ -85,6 +87,10 @@ def _stale_output_stub(
     references into that file are intentionally not used: trim overwrites it,
     and a dangling range would return the stub (or garbage) instead of the
     original result.
+
+    ``for_estimate=True`` uses the recovery-path template with a placeholder
+    so savings accounting matches the persisted form, without writing a file
+    or showing a fake path to a user-facing caller.
     """
     if logdir is not None:
         _, saved_path = save_large_output(
@@ -93,10 +99,10 @@ def _stale_output_stub(
             output_type="autocompact",
             original_tokens=msg_tokens,
         )
-        path_str = str(saved_path)
-    else:
-        path_str = _STUB_PATH_PLACEHOLDER
-    return _format_stale_output_stub(msg_tokens, path_str)
+        return _format_stale_output_stub(msg_tokens, str(saved_path))
+    if for_estimate:
+        return _format_stale_output_stub(msg_tokens, _STUB_PATH_PLACEHOLDER)
+    return f"[Stale tool output pruned - {msg_tokens} tokens]"
 
 
 def prune_stale_tool_outputs(
@@ -104,6 +110,8 @@ def prune_stale_tool_outputs(
     model_name: str,
     keep_head: int = 0,
     logdir: Path | None = None,
+    *,
+    for_estimate: bool = False,
 ) -> tuple[list[Message], int]:
     """Phase 0 pre-pass: stub stale tool outputs that are unlikely to be needed.
 
@@ -128,8 +136,10 @@ def prune_stale_tool_outputs(
     ``logdir/tool-outputs/`` when ``logdir`` is set, so recovery does not
     depend on conversation.jsonl surviving a later rewrite.
 
-    When ``logdir`` is omitted (the estimator), the stub still uses the same
-    template with a placeholder path so savings are not overstated.
+    When ``for_estimate`` is set, the stub uses the same recovery-path
+    template with a placeholder so savings are not overstated — but no file
+    is written and the stub is not user-facing. Direct engine calls without
+    ``logdir`` emit a short stub that does not advertise a path.
 
     Returns:
         (pruned_log, tokens_saved) — same length as ``log``, and tokens saved.
@@ -154,7 +164,9 @@ def prune_stale_tool_outputs(
 
         relevance = score_tool_output_relevance(msg, idx, log)
         if relevance < _PRUNE_SCORE_THRESHOLD:
-            stub = _stale_output_stub(msg, msg_tokens, logdir)
+            stub = _stale_output_stub(
+                msg, msg_tokens, logdir, for_estimate=for_estimate
+            )
             stub_tokens = len_tokens(stub, model_name)
             tokens_saved += max(0, msg_tokens - stub_tokens)
             logger.debug(

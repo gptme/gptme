@@ -409,9 +409,9 @@ def test_phase0_recovery_survives_jsonl_rewrite(tmp_path):
 def test_phase0_estimate_uses_recovery_stub_template():
     """Estimator must not use a one-line stub that overstates savings.
 
-    ``estimate_compaction_savings`` calls prune without a logdir. The stub
-    still has to include the recovery-path text the engine persists, or a
-    conversation near the 10% bar can be sent to rule-based trim by mistake.
+    ``estimate_compaction_savings`` calls prune with ``for_estimate=True``.
+    That stub still has to include the recovery-path text the engine persists,
+    or a conversation near the 10% bar can be sent to rule-based trim by mistake.
     """
     from gptme.message import len_tokens
 
@@ -419,7 +419,7 @@ def test_phase0_estimate_uses_recovery_stub_template():
     padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
     log = [_tool_out(stale_content, call_id="call-est")] + padding
 
-    pruned, saved = prune_stale_tool_outputs(log, _model_name())
+    pruned, saved = prune_stale_tool_outputs(log, _model_name(), for_estimate=True)
     assert saved > 0
     assert "Full output saved to:" in pruned[0].content
     assert "Master context:" not in pruned[0].content
@@ -432,3 +432,20 @@ def test_phase0_estimate_uses_recovery_stub_template():
         f"recovery stub saved {saved} tokens; one-liner would save "
         f"{one_liner_savings} and overestimate the trim decision"
     )
+
+
+def test_phase0_without_logdir_does_not_advertise_a_path():
+    """Direct engine calls with no logdir must not point at a file that was never written."""
+    stale_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(stale_content)] + padding
+
+    pruned, saved = prune_stale_tool_outputs(log, _model_name())
+    assert saved > 0
+    assert "Stale tool output pruned" in pruned[0].content
+    assert "Full output saved to:" not in pruned[0].content
+    assert "/tool-outputs/" not in pruned[0].content
+
+    compacted = list(auto_compact_log(log, keep_head=0, limit=100))
+    assert "Full output saved to:" not in compacted[0].content
+    assert "/tool-outputs/" not in compacted[0].content
