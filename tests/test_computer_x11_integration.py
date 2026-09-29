@@ -38,10 +38,13 @@ if TYPE_CHECKING:
 _REQUIRED_X11_TOOLS = ("Xvfb", "xdotool", "scrot", "xterm", "fluxbox", "convert")
 _MISSING_X11_TOOLS = [c for c in _REQUIRED_X11_TOOLS if not shutil.which(c)]
 
-pytestmark = pytest.mark.skipif(
-    bool(_MISSING_X11_TOOLS),
-    reason=f"x11 tools missing: {', '.join(_MISSING_X11_TOOLS)}",
-)
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        bool(_MISSING_X11_TOOLS),
+        reason=f"x11 tools missing: {', '.join(_MISSING_X11_TOOLS)}",
+    ),
+]
 
 
 def _cmd_ok(*cmds: str) -> bool:

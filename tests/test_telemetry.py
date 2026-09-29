@@ -36,6 +36,7 @@ def test_telemetry_imports_lazy():
     subprocess.check_call([sys.executable, "-c", code])
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     not _has_telemetry_deps(),
     reason="Requires telemetry dependencies (opentelemetry, prometheus_client)",
@@ -96,6 +97,7 @@ with (
     assert "Using OTLP" in result.stderr
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     not _has_telemetry_deps(),
     reason="Requires telemetry dependencies (opentelemetry, prometheus_client)",
