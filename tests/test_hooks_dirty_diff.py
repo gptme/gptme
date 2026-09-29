@@ -193,6 +193,46 @@ def test_hook_bounds_untracked_enumeration(git_repo):
     assert "list truncated" in content
 
 
+def test_git_capture_lines_times_out(git_repo, monkeypatch):
+    import threading
+
+    from gptme.hooks import dirty_diff
+
+    class _BlockingStdout:
+        def __init__(self, stop: threading.Event):
+            self._stop = stop
+
+        def __iter__(self):
+            # Block like a hung git until the fake process is killed.
+            self._stop.wait()
+            return
+            yield  # pragma: no cover
+
+        def close(self):
+            pass
+
+    class _FakeProc:
+        def __init__(self):
+            self._stop = threading.Event()
+            self.stdout = _BlockingStdout(self._stop)
+            self.returncode: int | None = None
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.returncode = -9
+            self._stop.set()
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr(dirty_diff.subprocess, "Popen", lambda *a, **k: _FakeProc())
+    monkeypatch.setattr(dirty_diff, "_DIFF_TIMEOUT_SECONDS", 0.05)
+
+    assert dirty_diff._git_capture_lines(git_repo, 50, "ls-files") is None
+
+
 def test_get_dirty_diff_disables_ext_and_textconv(git_repo, monkeypatch):
     from gptme.hooks import dirty_diff
 

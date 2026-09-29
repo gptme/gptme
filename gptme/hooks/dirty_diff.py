@@ -23,6 +23,7 @@ as a line prefix.
 
 import logging
 import subprocess
+import threading
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -142,9 +143,10 @@ def _get_dirty_diff(workspace: Path) -> str | None:
 def _git_capture_lines(workspace: Path, max_lines: int, *args: str) -> list[str] | None:
     """Run a git command, returning at most ``max_lines`` stdout lines.
 
-    For commands with unbounded output (``git ls-files`` on a large untracked
-    tree) reading stops at the cap and the child is terminated, so the hook
-    never materialises every path just to display 50 of them.
+    Enumeration is bounded: reading stops at the cap and the child is
+    terminated, so an unbounded command like ``git ls-files`` never
+    materialises every path just to display 50. A watchdog kills the child
+    after ``_DIFF_TIMEOUT_SECONDS`` so a hung git cannot block session start.
     """
     try:
         proc = subprocess.Popen(
@@ -156,18 +158,31 @@ def _git_capture_lines(workspace: Path, max_lines: int, *args: str) -> list[str]
     except OSError as e:
         logger.debug("dirty diff: git %s failed for %s: %s", args, workspace, e)
         return None
+
     lines: list[str] = []
-    try:
+
+    def _read() -> None:
         assert proc.stdout is not None
-        with proc.stdout:
-            for raw in proc.stdout:
-                lines.append(raw.rstrip("\n"))
-                if len(lines) >= max_lines:
-                    break
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
+        for raw in proc.stdout:
+            lines.append(raw.rstrip("\n"))
+            if len(lines) >= max_lines:
+                break
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+    reader.join(_DIFF_TIMEOUT_SECONDS)
+    if reader.is_alive():
+        logger.debug("dirty diff: git %s timed out for %s", args, workspace)
+        proc.kill()
+        reader.join(_DIFF_TIMEOUT_SECONDS)
+        return None
+    if proc.poll() is None:
+        # Reader stopped at the line cap with the child still writing; it would
+        # otherwise block on a full pipe, so stop it explicitly.
+        proc.kill()
+    proc.wait()
+    if proc.stdout is not None:
+        proc.stdout.close()
     if not lines and proc.returncode not in (0, None):
         # Not a git repo, or HEAD doesn't exist yet (empty repo) — skip quietly.
         return None
