@@ -52,10 +52,11 @@ class PruneDecision:
         content (see :func:`normalize_for_digest`). Compare against later
         tool outputs after the same normalization to measure false-drop
         rate. A later ``read`` of the same payload matches even though the
-        raw message includes a path label, line numbers, and code fences.
-        Shell-formatted output (prompts, pytest, ``ls``) still will not
-        match a later ``read`` of an underlying file — that is a remaining
-        limit of this metric, not a content match.
+        raw message includes a path label, cat -n line numbers, and code
+        fences. Unnumbered output is left intact, so ``42 value`` does not
+        collide with ``value``. Shell-formatted output (prompts, pytest,
+        ``ls``) still will not match a later ``read`` of an underlying file
+        — that is a remaining limit of this metric, not a content match.
     """
 
     idx: int
@@ -83,7 +84,26 @@ class PruneDecision:
 
 
 _FENCE_OPEN = re.compile(r"^(`{3,4})[^\n]*\n")
-_LINE_NUMBER_PREFIX = re.compile(r"(?m)^[ \t]*\d+[ \t|]")
+# gptme's read tool emits ``{line_no:>width}\t{line}`` (cat -n). Require a tab
+# after the number — a space would hash ``42 value`` the same as ``value``.
+_LINE_NUMBER_PREFIX = re.compile(r"(?m)^[ \t]*\d+\t")
+
+
+def _strip_cat_n_prefixes(text: str) -> str:
+    """Strip cat -n / read-tool line numbers only when the payload looks numbered.
+
+    The pattern runs on read-tool output, not every tool result. A majority of
+    non-empty lines must use a tab after the number; otherwise the text is
+    returned unchanged so unnumbered payloads keep their leading digits.
+    """
+    lines = text.split("\n")
+    nonempty = [line for line in lines if line]
+    if not nonempty:
+        return text
+    numbered = sum(1 for line in nonempty if _LINE_NUMBER_PREFIX.match(line))
+    if numbered * 2 < len(nonempty):
+        return text
+    return _LINE_NUMBER_PREFIX.sub("", text)
 
 
 def normalize_for_digest(content: str) -> str:
@@ -92,6 +112,10 @@ def normalize_for_digest(content: str) -> str:
     gptme's ``read`` tool wraps file contents in a markdown fence (3 or 4
     backticks) with a path label and cat -n line numbers. Hashing the raw
     wrapper would miss that reread and understate false drops.
+
+    Line numbers are stripped only when they look like cat -n (tab after the
+    number, majority of lines). Unnumbered output such as ``42 value`` is
+    left intact so it does not collide with ``value``.
 
     Remaining limit: shell-formatted output (prompts, pytest, ``ls`` columns)
     still will not match a later ``read`` of an underlying file. This digest
@@ -115,7 +139,7 @@ def normalize_for_digest(content: str) -> str:
         and "#" in first_line
     ):
         text = remainder
-    return _LINE_NUMBER_PREFIX.sub("", text)
+    return _strip_cat_n_prefixes(text)
 
 
 # --- Enhanced Scoring Patterns (Issue #149) ---

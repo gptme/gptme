@@ -572,13 +572,16 @@ def test_shadow_non_tool_system_messages_excluded():
     large_content = "word " * 400
     # A system message with no call_id and not after a tool call — not a tool result
     system_instructions = Message("system", large_content, _ts())
+    tool_output = _tool_out(large_content, call_id="call-other")
     padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
-    log = [system_instructions] + padding
+    log = [system_instructions, tool_output] + padding
 
     decisions = shadow_prune_stale_tool_outputs(log, _model_name())
 
-    # Non-tool system messages should produce no decision
+    # Non-tool system messages should produce no decision; the tool output must.
+    assert decisions, "Shadow must record the tool-output candidate"
     assert all(d.idx != 0 for d in decisions)
+    assert any(d.idx == 1 for d in decisions)
 
 
 def test_shadow_tokens_saved_matches_estimate_stub_not_short_stub():
@@ -664,3 +667,50 @@ def test_digest_matches_formatted_reread():
     # Unrelated framing must not collide with a different payload.
     assert PruneDecision._digest("other") != expected
     assert "def greet():" in normalize_for_digest(fenced)
+
+
+def test_digest_does_not_collide_on_unnumbered_payloads():
+    """Line-number stripping must not hash distinct unnumbered outputs as equal.
+
+    A space after digits is not cat -n (read uses a tab). ``42 value`` must
+    stay distinct from ``value``.
+    """
+    numberedish = "42 value\n43 items"
+    unnumbered = "value\nitems"
+    assert normalize_for_digest(numberedish) == numberedish
+    assert PruneDecision._digest(numberedish) != PruneDecision._digest(unnumbered)
+    # A single numbered-looking line in otherwise raw output must not strip.
+    mixed = "header\n42 value\nfooter"
+    assert normalize_for_digest(mixed) == mixed
+
+
+def test_shadow_tokens_saved_matches_live_with_logdir(tmp_path, monkeypatch):
+    """With a logdir, shadow tokens_saved must match the live persisted stub.
+
+    Freeze time so the estimated recovery path uses the same timestamp as
+    save_large_output; the content hash is already shared.
+    """
+    frozen = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr("gptme.util.output_storage.datetime", FrozenDateTime)
+    monkeypatch.setattr("gptme.tools.autocompact.engine.datetime", FrozenDateTime)
+
+    stale_content = "word " * 400
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [_tool_out(stale_content, call_id="call-logdir-shadow")] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name(), logdir=tmp_path)
+    assert not list((tmp_path / "tool-outputs").rglob("*.txt")), (
+        "shadow pass must not write recovery files"
+    )
+
+    _, live_saved = prune_stale_tool_outputs(log, _model_name(), logdir=tmp_path)
+
+    assert sum(d.tokens_saved for d in decisions) == live_saved
+    assert any(d.decision == "drop" for d in decisions)
+    assert list((tmp_path / "tool-outputs" / "autocompact").glob("*.txt"))

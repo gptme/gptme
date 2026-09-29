@@ -10,8 +10,10 @@ Phase 0 replaces messages rather than deleting them so tool-call/result pairs
 stay provider-valid and later phases can still index into conversation.jsonl.
 """
 
+import hashlib
 import logging
 from collections.abc import Generator
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ...context import strip_reasoning
@@ -55,6 +57,25 @@ _STUB_PATH_PLACEHOLDER = (
 )
 
 
+def _estimate_recovery_path(logdir: Path | None, content: str = "") -> str:
+    """Path used in the recovery stub. Does not write a file.
+
+    When ``logdir`` is set, match :func:`save_large_output`'s layout and
+    filename length so shadow ``tokens_saved`` tracks the live pass. Without
+    a logdir, use the representative placeholder.
+    """
+    if logdir is None:
+        return _STUB_PATH_PLACEHOLDER
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
+    return str(
+        Path(logdir)
+        / "tool-outputs"
+        / "autocompact"
+        / f"{timestamp}-{content_hash}.txt"
+    )
+
+
 def _is_tool_output(msg: Message, prev: Message | None) -> bool:
     """True when ``msg`` is a tool result, not instructions or knowledge.
 
@@ -93,10 +114,15 @@ def _stale_output_stub(
     and a dangling range would return the stub (or garbage) instead of the
     original result.
 
-    ``for_estimate=True`` uses the recovery-path template with a placeholder
-    so savings accounting matches the persisted form, without writing a file
-    or showing a fake path to a user-facing caller.
+    ``for_estimate=True`` uses the recovery-path template without writing a
+    file. When ``logdir`` is set the path matches :func:`save_large_output`;
+    otherwise a representative placeholder is used so savings are not
+    overstated relative to production ``auto_compact_log``.
     """
+    if for_estimate:
+        return _format_stale_output_stub(
+            msg_tokens, _estimate_recovery_path(logdir, msg.content)
+        )
     if logdir is not None:
         _, saved_path = save_large_output(
             content=msg.content,
@@ -105,8 +131,6 @@ def _stale_output_stub(
             original_tokens=msg_tokens,
         )
         return _format_stale_output_stub(msg_tokens, str(saved_path))
-    if for_estimate:
-        return _format_stale_output_stub(msg_tokens, _STUB_PATH_PLACEHOLDER)
     return f"[Stale tool output pruned - {msg_tokens} tokens]"
 
 
@@ -141,10 +165,10 @@ def prune_stale_tool_outputs(
     ``logdir/tool-outputs/`` when ``logdir`` is set, so recovery does not
     depend on conversation.jsonl surviving a later rewrite.
 
-    When ``for_estimate`` is set, the stub uses the same recovery-path
-    template with a placeholder so savings are not overstated — but no file
-    is written and the stub is not user-facing. Direct engine calls without
-    ``logdir`` emit a short stub that does not advertise a path.
+    When ``for_estimate`` is set, the stub uses the recovery-path template
+    without writing a file (logdir-shaped path when ``logdir`` is set,
+    placeholder otherwise) so savings are not overstated. Direct engine
+    calls without ``logdir`` emit a short stub that does not advertise a path.
 
     Returns:
         (pruned_log, tokens_saved) — same length as ``log``, and tokens saved.
@@ -202,9 +226,10 @@ def shadow_prune_stale_tool_outputs(
     This is the evaluation harness called for in issue #3997:
 
     - **Tokens saved** = ``sum(d.tokens_saved for d in decisions)``. Savings
-      use the persisted recovery-path stub (``for_estimate=True``), matching
-      production ``auto_compact_log`` with a logdir — not the short no-logdir
-      stub, which overstates savings.
+      use the persisted recovery-path stub (``for_estimate=True``). When
+      ``logdir`` is set the stub path matches the live pass without writing
+      files; without a logdir it uses the representative placeholder — not
+      the short no-logdir stub, which overstates savings.
     - **False-drop candidates** = decisions where ``decision == "drop"`` and a
       later message re-reads the same *payload* (compare ``content_digest``
       after :func:`~.scoring.normalize_for_digest`).
@@ -260,9 +285,10 @@ def shadow_prune_stale_tool_outputs(
 
         if relevance < _PRUNE_SCORE_THRESHOLD:
             # Match the persisted / estimate stub, not the no-logdir one-liner.
-            # Production auto_compact_log always has a logdir; the short stub
-            # overstates savings (see test_phase0_estimate_uses_recovery_stub_template).
-            stub = _stale_output_stub(msg, msg_tokens, logdir=None, for_estimate=True)
+            # Pass logdir through so the path shape matches the live save
+            # without writing a file. The short stub overstates savings
+            # (see test_phase0_estimate_uses_recovery_stub_template).
+            stub = _stale_output_stub(msg, msg_tokens, logdir, for_estimate=True)
             stub_tokens = len_tokens(stub, model_name)
             saved = max(0, msg_tokens - stub_tokens)
             decisions.append(
