@@ -337,6 +337,40 @@ def test_failed_edit_message_is_not_recorded_as_applied(
     assert event["execution_error"].startswith("Atomic patch aborted:")
 
 
+def test_failure_in_non_terminal_message_is_not_recorded_as_applied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A multi-file edit can yield a failure then a success message."""
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("patch_many", ["example.py"], "patch")
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    def _execute(content: str, path: Path | None):
+        yield Message("system", "Failed: could not patch `a.py`")
+        yield Message("system", "Patch successfully applied to `b.py`")
+
+    with (
+        track_diff_suggestions(logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: None,
+            )
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["decision"] == "accepted"
+    assert event["execution_status"] == "failed"
+    assert event["execution_error"].startswith("Failed:")
+
+
 def test_patch_ranges_are_resolved_before_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

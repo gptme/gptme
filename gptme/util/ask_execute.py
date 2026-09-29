@@ -25,13 +25,14 @@ _FAILED_EDIT_PREFIXES = (
     "atomic patch failed:",
     "error:",
     "failed ",
+    "failed:",
     "save aborted:",
     "warning: morph edit resulted in no changes",
 )
 
 
 def _failed_edit_message(message: Message | None) -> str | None:
-    """Return the failure text from an edit executor's terminal message."""
+    """Return the failure text from an edit executor's message, if it indicates failure."""
     if message is None:
         return None
     text = message.content.strip()
@@ -238,15 +239,19 @@ def execute_with_confirmation(
         # Execute
         try:
             ex_result = execute_fn(content, path)
-            last_message: Message | None = None
+            # An edit tool may yield several messages (e.g. one per file in a
+            # multi-file patch); a failure can be signalled by any of them, not
+            # just the last. Record the first failure indicator we see so a
+            # partially-failed edit is never logged as "applied".
+            execution_error: str | None = None
             if isinstance(ex_result, Generator):
                 for message in ex_result:
-                    if isinstance(message, Message):
-                        last_message = message
+                    if isinstance(message, Message) and execution_error is None:
+                        execution_error = _failed_edit_message(message)
                     yield message
             else:
                 if isinstance(ex_result, Message):
-                    last_message = ex_result
+                    execution_error = _failed_edit_message(ex_result)
                 yield ex_result
         except Exception as e:
             record_diff_suggestion(
@@ -268,7 +273,7 @@ def execute_with_confirmation(
             yield Message("system", f"Error during execution: {e}")
             return
 
-        if execution_error := _failed_edit_message(last_message):
+        if execution_error:
             record_diff_suggestion(
                 tool_use,
                 edited_result if was_edited else result,
