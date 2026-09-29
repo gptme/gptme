@@ -19,7 +19,7 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
@@ -329,6 +329,7 @@ def _create_subagent_thread(
     prompt_queue_closed: threading.Event | None = None,
     *,
     resume: bool = False,
+    diff_tracker: Any = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -357,6 +358,15 @@ def _create_subagent_thread(
     # Store agent_id in thread-local so the progress tool can identify this subagent
     if agent_id is not None:
         _thread_local.agent_id = agent_id
+
+    # Inherit the parent's --diff ledger, if any. A plain Thread starts with an
+    # empty contextvars context, so without this restore, delegated edits are
+    # dropped. The parent snapshots before spawn; we never fall back to a
+    # process-global tracker (that would mix unrelated sessions).
+    if diff_tracker is not None:
+        from ...util.diff_suggestions import restore_diff_tracker
+
+        restore_diff_tracker(diff_tracker)
 
     # Start this subagent thread with a known-empty tool list.
     #
@@ -1324,6 +1334,10 @@ def _run_planner(
                 parent_branch=parent_branch,
             )
 
+            from ...util.diff_suggestions import snapshot_diff_tracker
+
+            parent_diff_tracker = snapshot_diff_tracker()
+
             def run_executor(
                 executor_agent_id=executor_id,
                 prompt=executor_prompt,
@@ -1331,6 +1345,7 @@ def _run_planner(
                 ws=workspace,
                 subtask_profile=resolved_profile,
                 cleanup_subagent=cleanup_sa,
+                diff_tracker=parent_diff_tracker,
             ):
                 # Bind retry generation at thread birth so test-teardown
                 # interrupts abort backoffs even post-teardown (see retry_abort).
@@ -1357,6 +1372,7 @@ def _run_planner(
                         agent_id=executor_agent_id,
                         redact_secrets=redact_secrets,
                         context_window=context_window,
+                        diff_tracker=diff_tracker,
                     )
                 finally:
                     release_thread()

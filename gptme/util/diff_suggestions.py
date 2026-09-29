@@ -38,21 +38,28 @@ class _DiffSuggestionTracker:
 _tracker: ContextVar[_DiffSuggestionTracker | None] = ContextVar(
     "diff_suggestion_tracker", default=None
 )
-# Thread-mode subagents start with a fresh contextvars context, so they cannot
-# see the ContextVar set around the parent chat(). Keep a process-level list as
-# a fallback when exactly one --diff session is active.
-_active_trackers: list[_DiffSuggestionTracker] = []
-_active_trackers_lock = threading.Lock()
 
 
 def _resolve_tracker() -> _DiffSuggestionTracker | None:
-    tracker = _tracker.get()
+    return _tracker.get()
+
+
+def snapshot_diff_tracker() -> _DiffSuggestionTracker | None:
+    """Capture this thread's --diff tracker for a child thread to inherit.
+
+    Thread-mode subagents start with a fresh contextvars context, so they
+    cannot see the ContextVar set around the parent chat(). The parent
+    snapshots before spawn; the child restores at thread start. There is no
+    process-global fallback: an unrelated worker without a restored tracker
+    must not write to another session's ledger.
+    """
+    return _resolve_tracker()
+
+
+def restore_diff_tracker(tracker: _DiffSuggestionTracker | None) -> None:
+    """Bind a parent --diff tracker in this thread's context."""
     if tracker is not None:
-        return tracker
-    with _active_trackers_lock:
-        if len(_active_trackers) == 1:
-            return _active_trackers[0]
-    return None
+        _tracker.set(tracker)
 
 
 @contextmanager
@@ -61,17 +68,10 @@ def track_diff_suggestions(logdir: Path, ref: str) -> Generator[Path, None, None
     path = logdir / "diff-suggestions.jsonl"
     tracker = _DiffSuggestionTracker(path=path, ref=ref)
     token = _tracker.set(tracker)
-    with _active_trackers_lock:
-        _active_trackers.append(tracker)
     try:
         yield path
     finally:
         _tracker.reset(token)
-        with _active_trackers_lock:
-            try:
-                _active_trackers.remove(tracker)
-            except ValueError:
-                pass
 
 
 def _targets(tool_use: ToolUse) -> list[str]:

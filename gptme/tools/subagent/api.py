@@ -977,6 +977,10 @@ def subagent(
         # window between _create_subagent_thread returning and finding sa to set it).
         _pqc = threading.Event()
 
+        from ...util.diff_suggestions import snapshot_diff_tracker
+
+        parent_diff_tracker = snapshot_diff_tracker()
+
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -1012,6 +1016,7 @@ def subagent(
                         context_window=context_window,
                         parent_messages=parent_messages,
                         prompt_queue_closed=_pqc,
+                        diff_tracker=parent_diff_tracker,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -1488,6 +1493,10 @@ def subagent_continue(agent_id: str, message: str) -> None:
     prompt_queue_closed = threading.Event()
     start_gate = threading.Event()
 
+    from ...util.diff_suggestions import snapshot_diff_tracker
+
+    parent_diff_tracker = snapshot_diff_tracker()
+
     def run_continuation() -> None:
         bind_thread_generation()
         # The registry entry is published before cached terminal state is cleared.
@@ -1515,6 +1524,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                         context_window=sa.context_window,
                         prompt_queue_closed=prompt_queue_closed,
                         resume=True,
+                        diff_tracker=parent_diff_tracker,
                     )
                 elif sa.execution_mode == "subprocess":
                     process = _exec._run_subagent_subprocess(

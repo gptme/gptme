@@ -496,19 +496,55 @@ def _run_git_inspect(
     )
 
 
+def _nul_split_paths(output: str) -> list[str]:
+    """Split ``git -z`` path lists, dropping the trailing empty field."""
+    return [p for p in output.split("\0") if p]
+
+
+def _symlink_diff_notice(rel: str, path: Path, header: str) -> str:
+    try:
+        target = os.readlink(path)
+    except OSError as e:
+        target = f"(unreadable: {e})"
+    return f"{header}--- /dev/null\n+++ b/{rel}\nsymlink: {rel} -> {target}\n"
+
+
+def _read_untracked_bytes(path: Path, max_bytes: int) -> bytes:
+    """Read at most *max_bytes* without following a symlink."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        return os.read(fd, max_bytes)
+    finally:
+        os.close(fd)
+
+
 def _untracked_file_diff(rel: str, path: Path, max_chars: int) -> str:
     """Render an untracked file as a new-file unified diff without touching the index."""
     header = f"diff --git a/{rel} b/{rel}\nnew file mode 100644\n"
+    if max_chars <= 0:
+        return (
+            f"{header}--- /dev/null\n+++ b/{rel}\n"
+            "... (omitted: context budget exhausted)\n"
+        )
+    if path.is_symlink():
+        return _symlink_diff_notice(rel, path, header)
     try:
-        data = path.read_bytes()
+        # +1 so a file exactly max_chars long is not marked truncated.
+        data = _read_untracked_bytes(path, max_chars + 1)
     except OSError as e:
+        if path.is_symlink():
+            return _symlink_diff_notice(rel, path, header)
         return f"{header}--- /dev/null\n+++ b/{rel}\n(unreadable: {e})\n"
     if b"\0" in data[:8192]:
         return f"{header}Binary file {rel} differs\n"
-    text = data.decode("utf-8", errors="replace")
-    truncated = len(text) > max_chars
+    truncated = len(data) > max_chars
     if truncated:
+        data = data[:max_chars]
+    text = data.decode("utf-8", errors="replace")
+    if len(text) > max_chars:
         text = text[:max_chars]
+        truncated = True
     lines = text.splitlines()
     n = len(lines)
     hunk = f"@@ -0,0 +1,{n} @@\n" if n else "@@ -0,0 +0,0 @@\n"
@@ -545,7 +581,7 @@ def get_git_diff_context(
     # git to ignore external diff drivers and textconv filters entirely.
     try:
         names = _run_git_inspect(
-            ["diff", "--no-ext-diff", "--name-only", ref],
+            ["diff", "--no-ext-diff", "-z", "--name-only", ref],
             cwd=cwd,
             timeout=10,
         )
@@ -565,11 +601,11 @@ def get_git_diff_context(
     untracked: list[str] = []
     try:
         untracked_proc = _run_git_inspect(
-            ["ls-files", "--others", "--exclude-standard"],
+            ["ls-files", "-z", "--others", "--exclude-standard"],
             cwd=cwd,
             timeout=10,
         )
-        untracked = [f for f in untracked_proc.stdout.splitlines() if f.strip()]
+        untracked = _nul_split_paths(untracked_proc.stdout)
     except (
         FileNotFoundError,
         subprocess.TimeoutExpired,
@@ -578,7 +614,7 @@ def get_git_diff_context(
         # Tracked diff already succeeded; missing untracked names is non-fatal.
         untracked = []
 
-    changed = [f for f in names.stdout.splitlines() if f.strip()]
+    changed = _nul_split_paths(names.stdout)
     seen = set(changed)
     for rel in untracked:
         if rel not in seen:
@@ -607,18 +643,24 @@ def get_git_diff_context(
         f"## Working tree diff (against {ref})\n\n"
         f"Changed files:\n\n{files_block}\n\n"
     )
-    # Cap the assembled message (filenames + diff), not only the diff body.
+    # Cap the assembled message (filenames + fences + diff), not only the body.
+    lang = f"git diff {ref}"
+    fence_overhead = len(md_codeblock(lang, ""))
     note = f"\n\n... (diff truncated at {max_chars} characters)"
-    body_budget = max(0, max_chars - len(header) - len(note))
+    body_budget = max(0, max_chars - len(header) - fence_overhead - len(note))
     truncated = len(diff_text) > body_budget
     if truncated:
         diff_text = diff_text[:body_budget]
-    body = md_codeblock(f"git diff {ref}", diff_text)
+    body = md_codeblock(lang, diff_text)
     assembled = header + body
     if truncated:
         assembled += note
     if len(assembled) > max_chars:
-        return assembled[:max_chars] + note
+        # Filename list overflowed the budget. Keep the markdown fence closed
+        # so truncated diff text cannot leak out of the code block.
+        close = "\n````"
+        room = max(0, max_chars - len(note) - len(close))
+        return assembled[:room].rstrip() + close + note
     return assembled
 
 

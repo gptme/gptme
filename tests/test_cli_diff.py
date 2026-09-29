@@ -21,6 +21,8 @@ from gptme.util.ask_execute import execute_with_confirmation
 from gptme.util.context import get_git_diff_context
 from gptme.util.diff_suggestions import (
     record_diff_suggestion,
+    restore_diff_tracker,
+    snapshot_diff_tracker,
     track_diff_suggestions,
 )
 
@@ -78,6 +80,53 @@ def test_includes_untracked_files(git_repo: Path):
     assert result is not None
     assert "new.txt" in result
     assert "+fresh" in result
+
+
+def test_skips_untracked_symlinks(git_repo: Path):
+    (git_repo / ".gitignore").write_text(".env\n")
+    _git(git_repo, "add", ".gitignore")
+    _git(git_repo, "commit", "-m", "ignore env")
+    (git_repo / ".env").write_text("SECRET=do-not-leak\n")
+    (git_repo / "link.txt").symlink_to(".env")
+    result = get_git_diff_context("HEAD")
+    assert result is not None
+    assert "link.txt" in result
+    assert "symlink:" in result
+    assert "SECRET=do-not-leak" not in result
+
+
+def test_does_not_read_whole_large_untracked_file(git_repo: Path):
+    (git_repo / "huge.txt").write_text("x" * 200_000 + "\nSHOULD_NOT_APPEAR\n")
+    result = get_git_diff_context("HEAD", max_chars=2000)
+    assert result is not None
+    assert "huge.txt" in result
+    assert "SHOULD_NOT_APPEAR" not in result
+    assert len(result) < 4000
+
+
+def test_skips_untracked_read_when_budget_exhausted(git_repo: Path):
+    (git_repo / "first.txt").write_text("a" * 400 + "\n")
+    (git_repo / "second.txt").write_text("SHOULD_NOT_APPEAR\n")
+    result = get_git_diff_context("HEAD", max_chars=80)
+    assert result is not None
+    assert "SHOULD_NOT_APPEAR" not in result
+
+
+def test_includes_untracked_non_ascii_filename(git_repo: Path):
+    (git_repo / "café.txt").write_text("latte\n")
+    result = get_git_diff_context("HEAD")
+    assert result is not None
+    assert "+latte" in result
+    assert "café.txt" in result
+
+
+def test_truncated_diff_keeps_closed_fence(git_repo: Path):
+    (git_repo / "a.txt").write_text("one\n" + "x" * 5000 + "\n")
+    result = get_git_diff_context("HEAD", max_chars=800)
+    assert result is not None
+    assert "truncated" in result
+    assert result.count("````") >= 2
+    assert result.count("````") % 2 == 0
 
 
 def test_uses_workspace_not_launch_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -217,11 +266,12 @@ def test_aborted_edit_is_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert event["edited_by_user"] is True
 
 
-def test_records_from_worker_thread(tmp_path: Path):
+def test_records_from_inherited_worker_thread(tmp_path: Path):
     logdir = tmp_path / "log"
     tool_use = ToolUse("patch", ["example.py"], "patch")
 
     def _worker() -> None:
+        restore_diff_tracker(tracker)
         record_diff_suggestion(
             tool_use,
             ConfirmationResult.confirm(),
@@ -229,6 +279,7 @@ def test_records_from_worker_thread(tmp_path: Path):
         )
 
     with track_diff_suggestions(logdir, "HEAD"):
+        tracker = snapshot_diff_tracker()
         thread = threading.Thread(target=_worker)
         thread.start()
         thread.join()
@@ -236,6 +287,28 @@ def test_records_from_worker_thread(tmp_path: Path):
     event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
     assert event["decision"] == "accepted"
     assert event["tool"] == "patch"
+
+
+def test_unrelated_worker_does_not_use_active_tracker(tmp_path: Path):
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("patch", ["example.py"], "patch")
+    saw_ledger = []
+
+    def _worker() -> None:
+        record_diff_suggestion(
+            tool_use,
+            ConfirmationResult.confirm(),
+            "@@ -1 +1 @@\n-old\n+new",
+        )
+        saw_ledger.append((logdir / "diff-suggestions.jsonl").exists())
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        thread = threading.Thread(target=_worker)
+        thread.start()
+        thread.join()
+
+    assert saw_ledger == [False]
+    assert not (logdir / "diff-suggestions.jsonl").exists()
 
 
 def test_tracks_multiple_line_ranges_and_diff_header_paths(tmp_path: Path):
