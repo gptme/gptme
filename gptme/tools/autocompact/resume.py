@@ -301,27 +301,27 @@ def _clip_checkpoint_input(
     if budget <= 0 or len_tokens(llm_msgs, model=model_str) <= budget:
         return llm_msgs
 
-    head_end = 0
-    for msg in llm_msgs:
-        if msg.role == "system":
-            head_end += 1
-        else:
-            break
-
     instruction = llm_msgs[-1]
-    middle = llm_msgs[head_end:-1]
-    fixed = llm_msgs[:head_end] + [instruction]
-    remaining = budget - len_tokens(fixed, model=model_str)
-    kept: list[Message] = []
-    used = 0
-    for msg in reversed(middle):
-        msg_tokens = len_tokens([msg], model=model_str)
-        if used + msg_tokens > remaining:
+    # Reserve the instruction, then keep the leading system messages while they
+    # fit. Trimming the head too (not just the middle) keeps the result inside
+    # the budget even when the system block alone is oversized.
+    head: list[Message] = []
+    head_room = budget - len_tokens([instruction], model=model_str)
+    for msg in llm_msgs[:-1]:
+        if msg.role != "system":
             break
-        kept.append(msg)
-        used += msg_tokens
-    kept.reverse()
-    return llm_msgs[:head_end] + kept + [instruction]
+        msg_tokens = len_tokens([msg], model=model_str)
+        if msg_tokens > head_room:
+            break
+        head.append(msg)
+        head_room -= msg_tokens
+
+    # Fill the remaining room with the most recent history. Reuse
+    # ``_get_recent_tail`` so tool-call/result pairs stay valid (a dangling
+    # tool result or trailing tool call breaks strict providers).
+    middle = llm_msgs[len(head) : -1]
+    kept = _get_recent_tail(middle, max(0, head_room), model=model_str)
+    return head + kept + [instruction]
 
 
 def _resume_via_llm(
@@ -566,6 +566,12 @@ only mentioned in passing.
             model_meta.context, max_output=model_meta.max_output or 8192
         )
         model_str = model_meta.model
+
+        # keep_head is positional, not budget-aware; if the extended prefix
+        # alone would exceed the budget, fall back to the essential system
+        # block so the view is never over budget by construction.
+        if len_tokens(preserved_head, model=model_str) > budget:
+            preserved_head = original_system_msgs
 
         # If the fixed content alone exceeds the budget, shrink it: drop
         # loaded context files (least essential) newest-last first. The

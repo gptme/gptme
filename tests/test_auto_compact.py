@@ -3554,3 +3554,23 @@ def test_resume_via_llm_keep_head_preserves_prefix(tmp_path, monkeypatch):
     assert any("EARLY_USER_MARKER" in c for c in contents), (
         "keep_head prefix not preserved in new view"
     )
+
+
+def test_clip_checkpoint_input_drops_orphan_tool_result():
+    """A tool result whose matching tool call did not survive the clip is
+    dropped, so the summarizer request is not sent a dangling tool_result."""
+    from gptme.tools.autocompact.resume import _clip_checkpoint_input
+
+    msgs = [
+        Message("system", "core prompt"),
+        Message("assistant", "call " * 200),  # too large to keep
+        Message("system", "tool output", call_id="call-1"),  # small; would be kept
+        Message("user", "instruction"),
+    ]
+
+    clipped = _clip_checkpoint_input(msgs, model_str="gpt-4", budget=20)
+
+    assert clipped[0].content == "core prompt"
+    assert clipped[-1].content == "instruction"
+    assert all(m.call_id is None for m in clipped), "orphan tool result kept"
+    assert all("tool output" not in m.content for m in clipped)
