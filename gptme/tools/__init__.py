@@ -322,10 +322,11 @@ def _init_file_plugin_tools(
 
     File plugins initialize in dependency order so a skipped companion cannot
     leave a dependent loaded. Mutually-required companions have no valid order:
-    one member is initialized to break the cycle, then the rest follow.
-    Afterward, any file plugin whose required tools still failed to load is
-    unregistered. Must not call ``unload_tool`` — the caller holds
-    ``_tools_init_lock``.
+    try each cycle member until one initializes, then the rest follow. A
+    member whose ``init()`` needs its companion stays pending so it can retry
+    after a sibling loads. Afterward, any file plugin whose required tools
+    still failed to load is unregistered. Must not call ``unload_tool`` — the
+    caller holds ``_tools_init_lock``.
     """
     pending: list[ToolSpec] = []
     seen: set[str] = set()
@@ -338,38 +339,51 @@ def _init_file_plugin_tools(
     loaded_names = {t.name for t in loaded_tools}
     added_names: set[str] = set()
 
-    def _try_init(tool: ToolSpec) -> None:
+    def _try_init(tool: ToolSpec) -> bool:
         initialized = _init_single_tool(tool, on_error="skip")
-        if initialized is not None:
-            loaded_tools.append(initialized)
-            loaded_names.add(initialized.name)
-            added_names.add(initialized.name)
+        if initialized is None:
+            return False
+        loaded_tools.append(initialized)
+        loaded_names.add(initialized.name)
+        added_names.add(initialized.name)
+        return True
 
     while pending:
         ready = [
             t for t in pending if all(req in loaded_names for req in t.requires_tools)
         ]
-        if not ready:
-            pending_names = {t.name for t in pending}
-            cycle_ready = [
-                t
-                for t in pending
-                if all(
-                    req in loaded_names or req in pending_names
-                    for req in t.requires_tools
-                )
-            ]
-            pending_by_name = {t.name: t for t in pending}
-            # Only break a real cycle. A dependent that merely requires a
-            # cycle member is cycle-ready (its unmet reqs are pending) but
-            # must wait until those members load.
-            ready = [t for t in cycle_ready if _in_pending_cycle(t, pending_by_name)]
-            if not ready:
+        if ready:
+            for tool in ready:
+                pending.remove(tool)
+                _try_init(tool)
+            continue
+
+        pending_by_name = {t.name: t for t in pending}
+        pending_names = set(pending_by_name)
+        # Only break a real cycle. A dependent that merely requires a
+        # cycle member is cycle-ready (its unmet reqs are pending) but
+        # must wait until those members load.
+        cycle_ready = [
+            t
+            for t in pending
+            if all(
+                req in loaded_names or req in pending_names for req in t.requires_tools
+            )
+            and _in_pending_cycle(t, pending_by_name)
+        ]
+        if not cycle_ready:
+            break
+        # Try each cycle member until one initializes. Leave failures
+        # pending so a later sibling can satisfy init()-time has_tool()
+        # checks. If every member fails, stop — retrying would loop.
+        initialized_any = False
+        for tool in cycle_ready:
+            if _try_init(tool):
+                pending.remove(tool)
+                initialized_any = True
                 break
-            ready = [ready[0]]
-        for tool in ready:
-            pending.remove(tool)
-            _try_init(tool)
+        if not initialized_any:
+            break
 
     for tool in pending:
         missing = [req for req in tool.requires_tools if req not in loaded_names]

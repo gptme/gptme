@@ -422,6 +422,39 @@ def test_cyclic_companion_init_failure_unloads_pair(tmp_path):
     assert "cycle_b" not in tool_names
 
 
+def test_cycle_member_init_retries_after_companion_loads(tmp_path):
+    """A cycle member whose init() needs its companion must still load.
+
+    File order puts the needy member first so picking pending[0] to break the
+    cycle would skip the whole pair.
+    """
+    plugin = tmp_path / "cycle_init_order.py"
+    plugin.write_text(
+        "from gptme.tools import has_tool\n"
+        "from gptme.tools.base import ToolSpec\n"
+        "\n"
+        "def _init_a():\n"
+        "    if not has_tool('cycle_b'):\n"
+        "        raise RuntimeError('cycle_b not loaded yet')\n"
+        "    return ToolSpec(name='cycle_a', desc='a', requires_tools=['cycle_b'])\n"
+        "\n"
+        "a = ToolSpec(\n"
+        "    name='cycle_a',\n"
+        "    desc='a',\n"
+        "    requires_tools=['cycle_b'],\n"
+        "    init=_init_a,\n"
+        ")\n"
+        "b = ToolSpec(name='cycle_b', desc='b', requires_tools=['cycle_a'])\n"
+    )
+
+    clear_tools()
+    tools = init_tools(allowlist=[str(plugin)])
+    tool_names = [t.name for t in tools]
+
+    assert "cycle_a" in tool_names
+    assert "cycle_b" in tool_names
+
+
 def test_cycle_dependent_waits_for_cycle_members(tmp_path):
     """A tool that depends on a cycle must not be initialized to break it."""
     plugin = tmp_path / "cycle_plus_dependent.py"
