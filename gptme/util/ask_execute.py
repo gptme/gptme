@@ -121,12 +121,12 @@ def execute_with_confirmation(
             preview_content = preview_fn(content, path)
 
         # Get confirmation via hook system.
-        confirmation_automatic = confirmation_is_automatic()
         result = get_confirmation(
             preview=preview_content or content,
             workspace=confirmation_workspace,
             default_confirm=True,
         )
+        confirmation_automatic = confirmation_is_automatic()
 
         if result.action == ConfirmAction.SKIP:
             record_diff_suggestion(
@@ -143,6 +143,8 @@ def execute_with_confirmation(
         # execution request: route it through the hook chain again so guardrails
         # inspect the exact content that will execute, not only the original.
         was_edited = False
+        edited_result = result
+        edited_confirmation_automatic = confirmation_automatic
         final_preview = preview_content or content
         if result.action == ConfirmAction.EDIT:
             if not allow_edit:
@@ -178,12 +180,12 @@ def execute_with_confirmation(
             if was_edited:
                 edited_preview = preview_fn(content, path) if preview_fn else None
                 final_preview = edited_preview or content
-                edited_confirmation_automatic = confirmation_is_automatic()
                 edited_result = get_confirmation(
                     preview=edited_preview or content,
                     workspace=confirmation_workspace,
                     default_confirm=True,
                 )
+                edited_confirmation_automatic = confirmation_is_automatic()
                 if edited_result.action != ConfirmAction.CONFIRM:
                     record_diff_suggestion(
                         get_current_tool_use(),
@@ -191,6 +193,7 @@ def execute_with_confirmation(
                         edited_preview or content,
                         edited_by_user=True,
                         confirmation_automatic=edited_confirmation_automatic,
+                        decision_override="skipped",
                     )
                     msg = (
                         edited_result.message
@@ -201,7 +204,7 @@ def execute_with_confirmation(
 
         record_diff_suggestion(
             get_current_tool_use(),
-            result,
+            edited_result if was_edited else result,
             final_preview,
             edited_by_user=was_edited,
             confirmation_automatic=(

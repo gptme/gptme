@@ -39,6 +39,15 @@ _auto_count: ContextVar[int] = ContextVar("auto_count", default=0)
 _preconfirmed_tool_use: ContextVar["ToolUse | None"] = ContextVar(
     "preconfirmed_tool_use", default=None
 )
+# Name of the TOOL_CONFIRM hook that produced the most recent decision, or None
+# when no hook decided (auto-confirm / default). Read after get_confirmation().
+_last_confirm_hook: ContextVar[str | None] = ContextVar(
+    "last_confirm_hook", default=None
+)
+# Whether auto-confirm was already active when the last get_confirmation()
+# started. Captured up front because check_auto_confirm() may decrement the
+# remaining count during the hook call.
+_last_confirm_auto: ContextVar[bool] = ContextVar("last_confirm_auto", default=False)
 
 
 @contextmanager
@@ -92,6 +101,16 @@ def check_auto_confirm() -> tuple[bool, str | None]:
 def is_auto_confirm_active() -> bool:
     """Check if auto-confirm mode is active (without decrementing)."""
     return _auto_override.get() or _auto_count.get() > 0
+
+
+def last_confirm_hook_name() -> str | None:
+    """Return the TOOL_CONFIRM hook that produced the last decision, if any."""
+    return _last_confirm_hook.get()
+
+
+def last_confirm_was_auto() -> bool:
+    """Return whether auto-confirm was active at the last get_confirmation()."""
+    return _last_confirm_auto.get()
 
 
 class ConfirmAction(str, Enum):
@@ -206,6 +225,9 @@ def get_confirmation(
     from ..tools.base import get_current_tool_use
     from . import HookType, get_hooks
 
+    _last_confirm_hook.set(None)
+    _last_confirm_auto.set(is_auto_confirm_active())
+
     # Get tool_use from context if not provided
     if tool_use is None:
         tool_use = get_current_tool_use()
@@ -249,9 +271,11 @@ def get_confirmation(
                 continue
 
             if isinstance(result, ConfirmationResult):
+                _last_confirm_hook.set(hook.name)
                 return result
             if isinstance(result, bool):
                 # Backward compatibility: simple boolean return
+                _last_confirm_hook.set(hook.name)
                 return (
                     ConfirmationResult.confirm()
                     if result
@@ -266,6 +290,7 @@ def get_confirmation(
         except Exception as e:
             logger.exception(f"Error in confirmation hook '{hook.name}'")
             # On error, skip to be safe
+            _last_confirm_hook.set(hook.name)
             return ConfirmationResult.skip(f"Error: {e}")
 
     # No hook handled the confirmation - apply default behavior

@@ -10,7 +10,7 @@ import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -38,17 +38,40 @@ class _DiffSuggestionTracker:
 _tracker: ContextVar[_DiffSuggestionTracker | None] = ContextVar(
     "diff_suggestion_tracker", default=None
 )
+# Thread-mode subagents start with a fresh contextvars context, so they cannot
+# see the ContextVar set around the parent chat(). Keep a process-level list as
+# a fallback when exactly one --diff session is active.
+_active_trackers: list[_DiffSuggestionTracker] = []
+_active_trackers_lock = threading.Lock()
+
+
+def _resolve_tracker() -> _DiffSuggestionTracker | None:
+    tracker = _tracker.get()
+    if tracker is not None:
+        return tracker
+    with _active_trackers_lock:
+        if len(_active_trackers) == 1:
+            return _active_trackers[0]
+    return None
 
 
 @contextmanager
 def track_diff_suggestions(logdir: Path, ref: str) -> Generator[Path, None, None]:
     """Record edit-tool confirmation decisions for one ``--diff`` session."""
     path = logdir / "diff-suggestions.jsonl"
-    token = _tracker.set(_DiffSuggestionTracker(path=path, ref=ref))
+    tracker = _DiffSuggestionTracker(path=path, ref=ref)
+    token = _tracker.set(tracker)
+    with _active_trackers_lock:
+        _active_trackers.append(tracker)
     try:
         yield path
     finally:
         _tracker.reset(token)
+        with _active_trackers_lock:
+            try:
+                _active_trackers.remove(tracker)
+            except ValueError:
+                pass
 
 
 def _targets(tool_use: ToolUse) -> list[str]:
@@ -64,8 +87,13 @@ def _targets(tool_use: ToolUse) -> list[str]:
 
 
 def _range_end(start: int, count: int) -> int:
-    """Return an inclusive range end, preserving empty diff ranges."""
-    return start + count - 1
+    """Return an inclusive range end.
+
+    Empty hunks (count=0, e.g. ``@@ -10,0 +12,2 @@``) use ``end == start`` so
+    consumers never see an inverted ``end < start`` range. Pair with ``*_count``
+    to distinguish an empty range from a one-line change at the same start.
+    """
+    return start if count <= 0 else start + count - 1
 
 
 def _diff_header_path(line: str) -> str | None:
@@ -112,8 +140,10 @@ def _line_ranges(preview: str, targets: list[str]) -> list[dict[str, int | str]]
                 "file": file,
                 "old_start": old_start_int,
                 "old_end": _range_end(old_start_int, old_count_int),
+                "old_count": old_count_int,
                 "new_start": new_start_int,
                 "new_end": _range_end(new_start_int, new_count_int),
+                "new_count": new_count_int,
             }
         )
 
@@ -135,7 +165,7 @@ def record_diff_suggestion(
     proposed hunk. The tool payload remains in the ordinary conversation log;
     ``suggestion_id`` provides a stable correlation key without duplicating it.
     """
-    tracker = _tracker.get()
+    tracker = _resolve_tracker()
     if tracker is None or tool_use is None or tool_use.tool not in _EDIT_TOOLS:
         return
 
@@ -184,7 +214,7 @@ def _write_diff_suggestion(
     )
     event = {
         "schema": "gptme.diff-suggestion.v1",
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "suggestion_id": hashlib.sha256(payload.encode()).hexdigest()[:16],
         "diff_ref": tracker.ref,
         "tool": tool_use.tool,
@@ -207,21 +237,27 @@ def _write_diff_suggestion(
         f.write(line)
 
 
+_USER_CONFIRM_HOOKS = frozenset({"cli_confirm", "server_confirm"})
+
+
 def confirmation_is_automatic() -> bool:
-    """Return whether the next confirmation lacks an explicit user decision."""
-    if _tracker.get() is None:
+    """Return whether the last confirmation lacked an explicit user decision.
+
+    Call after ``get_confirmation()``. Interactive CLI/server prompts count as
+    user decisions; guardrail skips, auto-confirm, and no-hook defaults do not.
+    """
+    if _resolve_tracker() is None:
         return False
 
     try:
-        from ..hooks import HookType, get_hooks
-        from ..hooks.confirm import is_auto_confirm_active
+        from ..hooks.confirm import (
+            last_confirm_hook_name,
+            last_confirm_was_auto,
+        )
 
-        if is_auto_confirm_active():
+        if last_confirm_was_auto():
             return True
-        hook_names = {
-            hook.name for hook in get_hooks(HookType.TOOL_CONFIRM) if hook.enabled
-        }
-        return not hook_names.intersection({"cli_confirm", "server_confirm"})
+        return last_confirm_hook_name() not in _USER_CONFIRM_HOOKS
     except Exception as e:
         logger.warning("Failed to inspect --diff confirmation mode: %s", e)
         return False

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -65,9 +66,36 @@ def test_includes_filenames_and_diff(git_repo: Path):
     (git_repo / "a.txt").write_text("one\ntwo\n")
     result = get_git_diff_context("HEAD")
     assert result is not None
+    assert "untrusted repository data" in result
     assert "Changed files:" in result
     assert "a.txt" in result
     assert "+two" in result
+
+
+def test_includes_untracked_files(git_repo: Path):
+    (git_repo / "new.txt").write_text("fresh\n")
+    result = get_git_diff_context("HEAD")
+    assert result is not None
+    assert "new.txt" in result
+    assert "+fresh" in result
+
+
+def test_uses_workspace_not_launch_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    launch = tmp_path / "launch"
+    workspace = tmp_path / "workspace"
+    launch.mkdir()
+    workspace.mkdir()
+    _git(workspace, "init")
+    (workspace / "a.txt").write_text("one\n")
+    _git(workspace, "add", "a.txt")
+    _git(workspace, "commit", "-m", "init")
+    (workspace / "a.txt").write_text("one\ntwo\n")
+    monkeypatch.chdir(launch)
+    result = get_git_diff_context("HEAD", cwd=workspace)
+    assert result is not None
+    assert "+two" in result
+    with pytest.raises(RuntimeError):
+        get_git_diff_context("HEAD")
 
 
 def test_named_ref(git_repo: Path):
@@ -145,11 +173,69 @@ def test_tracks_edit_suggestion_decisions(
             "file": str(target),
             "old_start": 1,
             "old_end": 1,
+            "old_count": 1,
             "new_start": 1,
             "new_end": 1,
+            "new_count": 1,
         }
     ]
     assert event["preview"] == "@@ -1 +1 @@\n-old\n+new"
+
+
+def test_aborted_edit_is_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("old\n")
+    tool_use = ToolUse("patch", [str(target)], "old\n<<<<<<<\nnew\n>>>>>>>")
+    responses = [
+        ConfirmationResult.edit("edited-once"),
+        ConfirmationResult.edit("edited-again"),
+    ]
+
+    monkeypatch.setattr("gptme.hooks.get_confirmation", lambda **_: responses.pop(0))
+
+    def _execute(content: str, path: Path | None):
+        raise AssertionError("aborted edit must not execute")
+
+    with (
+        track_diff_suggestions(logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: target,
+                preview_fn=lambda *_: "@@ -1 +1 @@\n-old\n+new",
+            )
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["decision"] == "skipped"
+    assert event["edited_by_user"] is True
+
+
+def test_records_from_worker_thread(tmp_path: Path):
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("patch", ["example.py"], "patch")
+
+    def _worker() -> None:
+        record_diff_suggestion(
+            tool_use,
+            ConfirmationResult.confirm(),
+            "@@ -1 +1 @@\n-old\n+new",
+        )
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        thread = threading.Thread(target=_worker)
+        thread.start()
+        thread.join()
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["decision"] == "accepted"
+    assert event["tool"] == "patch"
 
 
 def test_tracks_multiple_line_ranges_and_diff_header_paths(tmp_path: Path):
@@ -176,15 +262,19 @@ def test_tracks_multiple_line_ranges_and_diff_header_paths(tmp_path: Path):
             "file": "b/example.py",
             "old_start": 2,
             "old_end": 4,
+            "old_count": 3,
             "new_start": 2,
             "new_end": 5,
+            "new_count": 4,
         },
         {
             "file": "b/example.py",
             "old_start": 10,
-            "old_end": 9,
+            "old_end": 10,
+            "old_count": 0,
             "new_start": 12,
             "new_end": 13,
+            "new_count": 2,
         },
     ]
 
@@ -258,7 +348,7 @@ def _fake_config(workspace: Path) -> SimpleNamespace:
     )
 
 
-def test_diff_flag_injects_system_message(
+def test_diff_flag_injects_untrusted_user_message(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -271,7 +361,8 @@ def test_diff_flag_injects_system_message(
     monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **kwargs: [])
     monkeypatch.setattr(
-        "gptme.util.context.get_git_diff_context", lambda ref: f"DIFF-CONTEXT:{ref}"
+        "gptme.util.context.get_git_diff_context",
+        lambda ref, **kwargs: f"DIFF-CONTEXT:{ref}",
     )
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
 
@@ -293,7 +384,10 @@ def test_diff_flag_injects_system_message(
     assert result.exit_code == 0, result.output
 
     system_msgs = [m for m in seen["initial_msgs"] if m.role == "system"]
-    assert any("DIFF-CONTEXT:main" in m.content for m in system_msgs)
+    user_msgs = [m for m in seen["initial_msgs"] if m.role == "user"]
+    assert any("untrusted repository data" in m.content for m in system_msgs)
+    assert any("DIFF-CONTEXT:main" in m.content for m in user_msgs)
+    assert not any("DIFF-CONTEXT:main" in m.content for m in system_msgs)
     event = json.loads((seen["logdir"] / "diff-suggestions.jsonl").read_text())
     assert event["diff_ref"] == "main"
 
@@ -311,7 +405,7 @@ def test_diff_flag_bare_uses_head(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 
     refs: list[str] = []
 
-    def _record_ref(ref: str) -> None:
+    def _record_ref(ref: str, **kwargs: Any) -> None:
         refs.append(ref)
 
     monkeypatch.setattr("gptme.util.context.get_git_diff_context", _record_ref)
@@ -336,7 +430,9 @@ def test_diff_error_is_usage_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **kwargs: [])
     monkeypatch.setattr(
         "gptme.util.context.get_git_diff_context",
-        lambda ref: (_ for _ in ()).throw(RuntimeError("not a git repository")),
+        lambda ref, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("not a git repository")
+        ),
     )
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
     monkeypatch.setattr(

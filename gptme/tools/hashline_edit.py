@@ -912,11 +912,11 @@ def execute_hashline_edit(
         record_diff_suggestion,
     )
 
-    confirmation_automatic = confirmation_is_automatic()
     confirm_result = get_confirmation(
         preview=updated,
         default_confirm=True,
     )
+    confirmation_automatic = confirmation_is_automatic()
     record_diff_suggestion(
         get_current_tool_use(),
         confirm_result,
