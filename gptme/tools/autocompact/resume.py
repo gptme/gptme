@@ -284,8 +284,12 @@ def _resume_via_llm(
     llm_unlocked: AbstractContextManager[object] | None = None,
     compact_instructions: str | None = None,
     keep_recent_tokens: int = _DEFAULT_KEEP_RECENT_TOKENS,
-) -> Generator[Message, None, None]:
+) -> Generator[Message, None, bool]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
+
+    Returns True iff the compacted view/log was applied. Early exits (too few
+    messages, no model, stale discard) return False so callers can skip
+    cooldown and side effects that assume a successful compaction.
 
     Args:
         manager: LogManager that owns the conversation.
@@ -309,7 +313,7 @@ def _resume_via_llm(
             hide=use_view_branch,
             ui_only=True,
         )
-        return
+        return False
 
     # Generate conversation summary using LLM
     yield Message(
@@ -361,7 +365,7 @@ only mentioned in passing.
             hide=use_view_branch,
             ui_only=True,
         )
-        return
+        return False
     snapshot = None
     file_snapshot = None
     conv_snapshot = None
@@ -408,7 +412,7 @@ only mentioned in passing.
                 hide=use_view_branch,
                 ui_only=True,
             )
-            return
+            return False
     resume_content = resume_response.content
 
     # Save RESUME.md to logdir (not workspace) for reference/debugging
@@ -577,3 +581,4 @@ only mentioned in passing.
         hide=use_view_branch,
         ui_only=True,
     )
+    return True

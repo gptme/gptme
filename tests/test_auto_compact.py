@@ -1282,18 +1282,26 @@ def test_resume_via_llm_discards_stale_result_after_unlock():
         mock_m = MagicMock()
         mock_m.full = "test-model"
         mock_model.return_value = mock_m
-        results = list(
-            _resume_via_llm(
-                mock_manager,
-                messages,
-                use_view_branch=True,
-                llm_unlocked=released(),
-            )
+        gen = _resume_via_llm(
+            mock_manager,
+            messages,
+            use_view_branch=True,
+            llm_unlocked=released(),
         )
+        results = []
+        applied: bool | None = None
+        try:
+            while True:
+                results.append(next(gen))
+        except StopIteration as e:
+            applied = e.value
 
     mock_manager.create_view.assert_not_called()
     mock_manager.switch_view.assert_not_called()
     assert any("stale" in msg.content.lower() for msg in results)
+    assert applied is False, (
+        "Stale discard must return False so the hook does not record cooldown"
+    )
     lock.release()
 
 
@@ -1689,6 +1697,78 @@ def test_autocompact_throttle_allows_retry_after_failed_compaction(monkeypatch):
 
     assert should_compact.called, (
         "should_auto_compact must be called on retry after a failed compaction "
+        "with unchanged message count — no premature throttle should apply"
+    )
+
+
+def test_autocompact_summarize_stale_does_not_throttle(monkeypatch):
+    """A discarded stale summarize must not populate the cooldown.
+
+    Regression: the summarize branch recorded _last_autocompact_attempt after
+    `yield from _resume_via_llm`, including the stale-discard early return.
+    The next unchanged-length attempt was then throttled for 60s even though
+    no compaction applied.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    hook_module._last_autocompact_attempt.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [Message("user", f"m{i}") for i in range(3)]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-stale-summarize"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.workspace = None
+
+    def fake_resume(*args, **kwargs):
+        yield Message(
+            "system",
+            "Skipped stale auto-summarize: the conversation changed while "
+            "the summary was generating.",
+            hide=True,
+        )
+        return False
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ) as should_compact,
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=fake_resume,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model") as mock_model,
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook.append_compaction_event",
+        ) as mock_event,
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        mock_m = MagicMock()
+        mock_m.model = "gpt-4"
+        mock_m.context = 200_000
+        mock_m.max_output = 8192
+        mock_model.return_value = mock_m
+
+        list(autocompact_hook(manager))
+
+        conv_key = (str(manager.logdir), manager.current_branch)
+        assert conv_key not in hook_module._last_autocompact_attempt, (
+            "A discarded summarize must not populate _last_autocompact_attempt; "
+            "the retry window should remain open"
+        )
+        mock_event.assert_not_called()
+
+        should_compact.reset_mock()
+        list(autocompact_hook(manager))
+
+    assert should_compact.called, (
+        "should_auto_compact must be called on retry after a stale summarize "
         "with unchanged message count — no premature throttle should apply"
     )
 

@@ -394,7 +394,7 @@ def autocompact_hook(
             except Exception:
                 pass  # Config read is best-effort; use defaults if it fails
 
-            yield from _resume_via_llm(
+            applied = yield from _resume_via_llm(
                 manager,
                 messages,
                 use_view_branch=True,
@@ -416,6 +416,13 @@ def autocompact_hook(
             )
             _failed_summarize[conv_key] = n_messages
             _prune_attempts(current_time)
+            return
+
+        # Stale discard: a view was created but the resume did not apply, so
+        # recording cooldown here would throttle the next unchanged-length
+        # attempt for 60s after a no-op — the same premature-throttle bug the
+        # rule-based exception path already guards against.
+        if not applied:
             return
 
         _last_autocompact_attempt[conv_key] = (
