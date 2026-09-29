@@ -11,7 +11,7 @@ from .decision import (
     estimate_compaction_savings,
     should_auto_compact,
 )
-from .engine import auto_compact_log
+from .engine import auto_compact_log, prune_stale_tool_outputs
 from .events import append_compaction_event, read_compaction_events
 from .handlers import (
     _compact_resume,
@@ -27,6 +27,7 @@ from .scoring import (
     compress_content,
     extract_code_blocks,
     score_sentence,
+    score_tool_output_relevance,
 )
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "compress_content",
     "extract_code_blocks",
     "score_sentence",
+    "score_tool_output_relevance",
     "_score_semantic_importance",
     "_score_reference_potential",
     # Decision logic
@@ -45,6 +47,7 @@ __all__ = [
     "should_auto_compact",
     # Engine
     "auto_compact_log",
+    "prune_stale_tool_outputs",
     # Observability
     "append_compaction_event",
     "read_compaction_events",

@@ -20,9 +20,70 @@ from ...util.master_context import (
 )
 from ...util.output_storage import create_tool_result_summary
 from ...util.reduce import message_contains_tool_use, reduce_log
-from .scoring import compress_content
+from .scoring import compress_content, score_tool_output_relevance
 
 logger = logging.getLogger(__name__)
+
+# Score threshold below which a tool output is eligible for pre-pass removal.
+# Messages that score below this AND exceed the minimum size are dropped.
+_PRUNE_SCORE_THRESHOLD = 1.0
+
+# Minimum token size before a tool output is eligible for pre-pass pruning.
+# Small results are cheap; only drop results that actually reclaim meaningful
+# budget.
+_PRUNE_MIN_TOKENS = 200
+
+
+def prune_stale_tool_outputs(
+    log: list[Message],
+    model_name: str,
+    keep_head: int = 0,
+) -> tuple[list[Message], int]:
+    """Phase 0 pre-pass: drop stale tool outputs that are unlikely to be needed.
+
+    Drops tool-output messages (role='system') that:
+    1. Are not pinned and not in the protected head.
+    2. Score below ``_PRUNE_SCORE_THRESHOLD`` from ``score_tool_output_relevance``.
+    3. Are at least ``_PRUNE_MIN_TOKENS`` tokens (small results are kept for free).
+
+    The function never drops:
+    - Pinned messages.
+    - Messages within the protected ``keep_head`` prefix.
+    - Messages within the last ``_PRUNE_MIN_AGE`` positions (very recent).
+    - Tool results that contain error/failure content (score boost keeps them above threshold).
+    - Tool results whose paths are still referenced by later messages.
+
+    Returns:
+        (pruned_log, tokens_saved) — the pruned list and estimated tokens saved.
+    """
+    pruned: list[Message] = []
+    tokens_saved = 0
+
+    for idx, msg in enumerate(log):
+        if msg.pinned or idx < keep_head:
+            pruned.append(msg)
+            continue
+
+        if msg.role != "system":
+            pruned.append(msg)
+            continue
+
+        msg_tokens = len_tokens(msg.content, model_name)
+        if msg_tokens < _PRUNE_MIN_TOKENS:
+            pruned.append(msg)
+            continue
+
+        relevance = score_tool_output_relevance(msg, idx, log)
+        if relevance < _PRUNE_SCORE_THRESHOLD:
+            tokens_saved += msg_tokens
+            logger.debug(
+                f"Phase 0: dropping stale tool output at idx {idx} "
+                f"(score={relevance:.2f}, tokens={msg_tokens})"
+            )
+        else:
+            pruned.append(msg)
+
+    return pruned, tokens_saved
 
 
 def auto_compact_log(
@@ -82,6 +143,22 @@ def auto_compact_log(
 
     # If we are below the configured limit and no safe projection applies, return as-is.
     tokens = len_tokens(log, model=model.model)
+    initial_tokens = tokens  # preserved for final reduction_pct even after Phase 0
+
+    # Phase 0: Relevance-scored pruning of stale tool outputs.
+    # Runs proactively — before the compaction-trigger check — so it can delay
+    # or prevent Phase 2/3 from being needed at all.  Drops tool outputs that are
+    # old, large, and not referenced by later messages, keeping surviving content
+    # verbatim (no summary drift).
+    log, phase0_tokens_saved = prune_stale_tool_outputs(
+        log, model.model, keep_head=keep_head
+    )
+    if phase0_tokens_saved > 0:
+        logger.info(
+            f"Phase 0 pruned {phase0_tokens_saved:,} tokens of stale tool outputs "
+            f"({len(log)} messages remaining)"
+        )
+        tokens = len_tokens(log, model=model.model)
 
     # Calculate message positions from end (for age-based reasoning stripping)
     log_length = len(log)
@@ -103,7 +180,7 @@ def auto_compact_log(
         for idx, msg in enumerate(log)
     )
 
-    # Only return early if nothing needs processing
+    # Only return early if nothing more is needed (Phase 0 may have been enough)
     if (
         not needs_reasoning_strip
         and not needs_compacting
@@ -271,14 +348,24 @@ def auto_compact_log(
     # Check if we're now within limits
     final_tokens = len_tokens(compacted_log, model.model)
     total_saved = (
-        tool_result_tokens_saved + compression_tokens_saved + reasoning_tokens_saved
+        phase0_tokens_saved
+        + tool_result_tokens_saved
+        + compression_tokens_saved
+        + reasoning_tokens_saved
     )
     if final_tokens <= limit:
-        # Calculate reduction percentage
-        reduction_pct = ((tokens - final_tokens) / tokens * 100) if tokens > 0 else 0.0
+        # Calculate reduction percentage against the original token count
+        reduction_pct = (
+            ((initial_tokens - final_tokens) / initial_tokens * 100)
+            if initial_tokens > 0
+            else 0.0
+        )
 
         # Build detailed breakdown message
         breakdown_parts = []
+        if phase0_tokens_saved > 0:
+            pct = (phase0_tokens_saved / total_saved * 100) if total_saved > 0 else 0
+            breakdown_parts.append(f"stale-prune: {phase0_tokens_saved:,} ({pct:.0f}%)")
         if reasoning_tokens_saved > 0:
             pct = (reasoning_tokens_saved / total_saved * 100) if total_saved > 0 else 0
             breakdown_parts.append(
@@ -301,7 +388,7 @@ def auto_compact_log(
 
         breakdown_str = ", ".join(breakdown_parts) if breakdown_parts else "no savings"
         logger.info(
-            f"Auto-compacting successful: {tokens:,} -> {final_tokens:,} tokens "
+            f"Auto-compacting successful: {initial_tokens:,} -> {final_tokens:,} tokens "
             f"({reduction_pct:.1f}% reduction, saved {total_saved:,} tokens) "
             f"[{breakdown_str}]"
         )

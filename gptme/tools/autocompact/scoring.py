@@ -2,9 +2,21 @@
 
 Provides heuristic-based sentence scoring and extractive summarization
 for compressing long messages while preserving high-value content.
+
+Also provides relevance scoring for tool outputs (Phase 0 pre-pass):
+score_tool_output_relevance() assigns each tool result a keep/drop score
+based on age, error content, and whether any of its paths/commands appear
+in later messages.  A low score + large size → eligible for pre-pass drop
+before the Phase 2 truncation even fires.
 """
 
+from __future__ import annotations
+
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ...message import Message
 
 # --- Enhanced Scoring Patterns (Issue #149) ---
 # Semantic patterns for value-aware retention
@@ -292,3 +304,72 @@ def compress_content(content: str, target_ratio: float = 0.7) -> str:
         compressed = compressed.replace(marker, code_block)
 
     return compressed
+
+
+# ---------------------------------------------------------------------------
+# Phase-0 relevance scoring for tool outputs
+# ---------------------------------------------------------------------------
+
+# Minimum age (distance from the end of the log) before a tool output is even
+# considered for the pre-pass.  Very recent results are always kept verbatim.
+_PRUNE_MIN_AGE = 3
+
+
+def _extract_file_paths(content: str) -> set[str]:
+    """Return all file-path-like tokens found in content."""
+    return set(_FILE_PATH_PATTERN.findall(content))
+
+
+def score_tool_output_relevance(
+    msg: Message,
+    idx: int,
+    log: list[Message],
+) -> float:
+    """Score a tool-output message for 'still needed?'
+
+    Returns a float in roughly [0, 5].  Higher = more likely to be needed.
+    Callers should keep anything >= a threshold (e.g. 1.0) and drop the rest.
+
+    Eligibility guards (hard-coded):
+    - Pinned messages always score max.
+    - Messages within the last ``_PRUNE_MIN_AGE`` positions always score max.
+    - Only ``role=="system"`` messages are scored (tool outputs live there).
+
+    Heuristics (additive):
+    - Error/failure content: +2.0  (silent drops of errors are costly)
+    - Content referenced by a later message (same file path): +3.0
+    - Age penalty: -0.15 per position from the end (capped at -2.0)
+    """
+    if msg.role != "system":
+        return 5.0  # non-tool messages: don't touch
+
+    if msg.pinned:
+        return 5.0
+
+    log_length = len(log)
+    distance_from_end = log_length - idx - 1
+
+    if distance_from_end < _PRUNE_MIN_AGE:
+        return 5.0  # too recent — always keep
+
+    score = 0.0
+
+    # Error content is expensive to re-derive; keep it
+    for pattern in _ERROR_INDICATOR_PATTERNS:
+        if pattern.search(msg.content):
+            score += 2.0
+            break
+
+    # If any file path from this output appears in a later message, it's
+    # probably still active context.
+    own_paths = _extract_file_paths(msg.content)
+    if own_paths:
+        later_msgs = log[idx + 1 :]
+        later_content = "\n".join(m.content for m in later_msgs)
+        if any(p in later_content for p in own_paths):
+            score += 3.0
+
+    # Age penalty: older = less relevant (capped)
+    score -= min(distance_from_end * 0.15, 2.0)
+
+    return score
