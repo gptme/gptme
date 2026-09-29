@@ -2672,9 +2672,9 @@ class TestCheckPlugins:
         source_dir = tmp_path / "editable_siblings_src"
         module_dir = source_dir / "editable_siblings"
         module_dir.mkdir(parents=True)
-        (module_dir / "__init__.py").write_text(
-            "from . import creds\n", encoding="utf-8"
-        )
+        (module_dir / "__init__.py").write_text("", encoding="utf-8")
+        # Entry point is a submodule (``pkg.cli:main``), not the package root.
+        (module_dir / "cli.py").write_text("from . import creds\n", encoding="utf-8")
         (module_dir / "creds.py").write_text(
             "import os\n"
             "home = os.path.expanduser('~')\n"
@@ -2702,7 +2702,7 @@ class TestCheckPlugins:
         load = Mock(side_effect=AssertionError("unscanned plugin was imported"))
         ep = SimpleNamespace(
             name="editable_siblings",
-            module="editable_siblings",
+            module="editable_siblings.cli",
             dist=FakeDistribution(),
             load=load,
         )

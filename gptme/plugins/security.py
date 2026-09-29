@@ -243,11 +243,12 @@ def _editable_scan_targets(
     """Resolve an editable install's entry point and every file it can import.
 
     Returns the entry-point module path (``None`` when unresolved) and the source
-    files importing it may execute: the module itself, plus — when it is a
-    package (``__init__.py``) — its recursive submodules, matching the imports
-    ``doctor`` subsequently performs. Also probes a ``src/`` layout, since pip/uv
-    editable installs of src-layout projects put the importable package one level
-    below the project root.
+    files importing it may execute: the module itself plus every scannable file
+    in its top-level package. The entry point is frequently a submodule
+    (``pkg.cli:main``) rather than the package root, so the scan boundary is the
+    top-level package directory — the same code ``doctor`` subsequently imports.
+    Also probes a ``src/`` layout, since pip/uv editable installs of src-layout
+    projects put the importable package one level below the project root.
     """
     for relative in sorted(relative_paths):
         for root in (source_dir, source_dir / "src"):
@@ -255,10 +256,14 @@ def _editable_scan_targets(
             if not candidate.is_file():
                 continue
             targets = [candidate]
-            if candidate.name == "__init__.py":
+            # ``relative`` may be a submodule (``pkg.cli`` -> ``pkg/cli.py``),
+            # not just the package root, so scan from the top-level package
+            # directory: every sibling the entry point can import lives there.
+            package_root = root / Path(relative).parts[0]
+            if package_root.is_dir():
                 targets.extend(
                     path
-                    for path in _iter_scannable_sources(candidate.parent)
+                    for path in _iter_scannable_sources(package_root)
                     if path != candidate
                 )
             return candidate, targets
