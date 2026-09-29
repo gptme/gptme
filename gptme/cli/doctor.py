@@ -36,7 +36,12 @@ from ..config import (
 )
 from ..credentials import STORED_CREDENTIALS_SOURCE, get_stored_api_key
 from ..info import get_config_info, get_installed_extras
-from ..llm import PROVIDER_API_KEYS, is_plugin_provider, list_available_providers
+from ..llm import (
+    PROVIDER_API_KEYS,
+    get_plugin_api_keys,
+    is_plugin_provider,
+    list_available_providers,
+)
 from ..llm.models import PROVIDERS, get_model, is_custom_provider
 from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
@@ -88,10 +93,12 @@ def _resolve_provider_api_key(
 ) -> str | None:
     """Return the API key that made `provider` available, following runtime precedence.
 
-    Matches `list_available_providers` / runtime auth:
+    Matches runtime auth, not just the discovery label:
 
     - OAuth-authenticated providers use a token file, not an API key.
-    - Stored credentials are read from the credential store.
+    - Stored credentials are a fallback. ``list_available_providers`` records
+      stored keys before plugin env vars, so a plugin can be labeled stored
+      even when runtime uses ``api_key_env``. Prefer a live env key.
     - Otherwise `source` is the env var that made the provider available
       (``PROVIDER_API_KEYS`` entry or a plugin's ``api_key_env``).
       ``config.get_env`` prefers ``GPTME_<KEY>`` over ``<KEY>``.
@@ -99,6 +106,11 @@ def _resolve_provider_api_key(
     if source == "oauth":
         return None
     if source == STORED_CREDENTIALS_SOURCE:
+        env_var = PROVIDER_API_KEYS.get(provider) or get_plugin_api_keys().get(provider)
+        if env_var:
+            api_key = config.get_env(env_var)
+            if api_key:
+                return api_key
         return get_stored_api_key(provider)
     env_var = source or (
         "AZURE_OPENAI_API_KEY" if provider == "azure" else f"{provider.upper()}_API_KEY"

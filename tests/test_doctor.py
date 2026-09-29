@@ -35,6 +35,7 @@ from gptme.cli.doctor import (
     run_diagnostics,
 )
 from gptme.config import Config, MCPConfig, MCPServerConfig, ModelsConfig, UserConfig
+from gptme.credentials import STORED_CREDENTIALS_SOURCE
 
 
 class TestCheckStatus:
@@ -1536,6 +1537,47 @@ class TestProviderPlaceholderFilter:
         monkeypatch.setenv("OPENAI-SUBSCRIPTION_API_KEY", "test")
         config = Config(user=UserConfig())
         assert ("openai-subscription", "oauth") in _usable_providers(config)
+
+    @patch(
+        "gptme.cli.doctor.get_plugin_api_keys",
+        return_value={"acme": "ACME_CUSTOM_KEY"},
+    )
+    @patch("gptme.cli.doctor.get_stored_api_key", return_value="test")
+    def test_stored_placeholder_does_not_hide_plugin_env_key(
+        self, mock_stored, mock_plugin_keys, monkeypatch
+    ):
+        """Discovery may label a plugin as stored; runtime still uses api_key_env."""
+        monkeypatch.setenv("ACME_CUSTOM_KEY", "sk-real-plugin-key")
+        config = Config(user=UserConfig())
+        assert not _provider_has_placeholder_key(
+            "acme", STORED_CREDENTIALS_SOURCE, config
+        )
+
+    @patch(
+        "gptme.cli.doctor.list_available_providers",
+        return_value=[("acme", STORED_CREDENTIALS_SOURCE)],
+    )
+    @patch(
+        "gptme.cli.doctor.get_plugin_api_keys",
+        return_value={"acme": "ACME_CUSTOM_KEY"},
+    )
+    @patch("gptme.cli.doctor.get_stored_api_key", return_value="test")
+    def test_usable_providers_keeps_plugin_env_over_stored_placeholder(
+        self, mock_stored, mock_plugin_keys, mock_providers, monkeypatch
+    ):
+        monkeypatch.setenv("ACME_CUSTOM_KEY", "sk-real-plugin-key")
+        config = Config(user=UserConfig())
+        assert ("acme", STORED_CREDENTIALS_SOURCE) in _usable_providers(config)
+
+    @patch("gptme.cli.doctor.get_plugin_api_keys", return_value={})
+    @patch("gptme.cli.doctor.get_stored_api_key", return_value="test")
+    def test_stored_placeholder_only_is_unusable(
+        self, mock_stored, mock_plugin_keys, monkeypatch
+    ):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        monkeypatch.delenv("GPTME_ACME_API_KEY", raising=False)
+        config = Config(user=UserConfig())
+        assert _provider_has_placeholder_key("acme", STORED_CREDENTIALS_SOURCE, config)
 
 
 class TestOAuthRepairValidation:
