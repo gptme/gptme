@@ -180,6 +180,7 @@ def _compact_summarize(
             use_view_branch=False,
             compact_instructions=merged_instructions,
             keep_recent_tokens=proj_keep_recent,
+            keep_head=_get_keep_head(),
         )
         if not applied:
             return

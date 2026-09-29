@@ -2085,6 +2085,7 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
         use_view_branch,
         compact_instructions=None,
         keep_recent_tokens=20_000,
+        keep_head=0,
     ):
         assert use_view_branch is False
         active_manager.log = Log([Message("system", "summary")])
@@ -3265,6 +3266,7 @@ def test_cmd_compact_summarize_passes_instructions(tmp_path, monkeypatch):
         use_view_branch,
         compact_instructions=None,
         keep_recent_tokens=20_000,
+        keep_head=0,
     ):
         captured.append(compact_instructions or "")
         mgr.log = Log([Message("system", "checkpoint")])
@@ -3454,4 +3456,101 @@ def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
     assert total <= 1800, f"Compacted view exceeds budget: {total} > 1800"
     assert any("truncated to fit context budget" in m.content for m in new_msgs), (
         "Checkpoint truncation notice missing"
+    )
+
+
+# ── Phase 2 (1.5b): checkpoint input clip, output cap, keep_head ────────────
+
+
+def test_clip_checkpoint_input_keeps_head_and_instruction():
+    """_clip_checkpoint_input keeps leading system msgs + the instruction and
+    fits the rest within the budget, dropping the oldest non-system history."""
+    from gptme.message import len_tokens
+    from gptme.tools.autocompact.resume import _clip_checkpoint_input
+
+    msgs = [
+        Message("system", "core prompt"),
+        Message("user", "old " * 800),
+        Message("assistant", "mid " * 800),
+        Message("user", "new " * 300),
+        Message("user", "the instruction"),
+    ]
+
+    budget = 250
+    clipped = _clip_checkpoint_input(msgs, model_str="gpt-4", budget=budget)
+
+    assert clipped[0].content == "core prompt"
+    assert clipped[-1].content == "the instruction"
+    assert len_tokens(clipped, model="gpt-4") <= budget
+    # Oldest history is dropped before the most recent history.
+    dropped = "old " * 800
+    assert all(m.content != dropped for m in clipped)
+
+
+def test_clip_checkpoint_input_noop_when_within_budget():
+    """Input already within budget is returned unchanged."""
+    from gptme.tools.autocompact.resume import _clip_checkpoint_input
+
+    msgs = [
+        Message("system", "core prompt"),
+        Message("user", "hello"),
+        Message("user", "instruction"),
+    ]
+    assert _clip_checkpoint_input(msgs, model_str="gpt-4", budget=10_000) is msgs
+
+
+def test_resume_via_llm_caps_checkpoint_max_tokens(tmp_path, monkeypatch):
+    """The checkpoint call reserves a bounded output budget (1.5b cap)."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _CHECKPOINT_MAX_OUTPUT, _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task 1"),
+        Message("assistant", "done 1"),
+        Message("user", "task 2"),
+        Message("assistant", "done 2"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    captured: dict = {}
+
+    def fake_reply(msgs, **kwargs):
+        captured.update(kwargs)
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages))
+
+    assert captured.get("max_tokens") is not None, "max_tokens was not passed"
+    assert captured["max_tokens"] <= _CHECKPOINT_MAX_OUTPUT
+
+
+def test_resume_via_llm_keep_head_preserves_prefix(tmp_path, monkeypatch):
+    """keep_head protects the first N messages of the original log verbatim,
+    even past the always-kept system block."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "core system prompt"),
+        Message("user", "EARLY_USER_MARKER"),
+        Message("assistant", "assistant 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    # keep_recent_tokens=0 so the early message can only survive via keep_head.
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=0, keep_head=2))
+
+    contents = [m.content for m in manager.log.messages]
+    assert any("EARLY_USER_MARKER" in c for c in contents), (
+        "keep_head prefix not preserved in new view"
     )

@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 # Default keep_recent window — last N tokens of history kept verbatim after checkpoint
 _DEFAULT_KEEP_RECENT_TOKENS = 20_000
 
+# Reserved output budget for the structured checkpoint call (1.5b). Until the
+# model-participating checkpoint turn lands, the checkpoint prompt is capped
+# here and its input is clipped to ``context_window - _CHECKPOINT_MAX_OUTPUT``
+# so the request cannot overflow the model window.
+_CHECKPOINT_MAX_OUTPUT = 8192
+
 logger = logging.getLogger(__name__)
 
 
@@ -277,6 +283,47 @@ def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None)
     return head + _TRUNCATION_MARK + tail
 
 
+def _clip_checkpoint_input(
+    llm_msgs: list[Message],
+    *,
+    model_str: str,
+    budget: int,
+) -> list[Message]:
+    """Clip a checkpoint prompt input to a token budget (1.5b).
+
+    Keeps the leading system messages (core prompt, tool instructions) and the
+    trailing instruction message, and fills the remaining room with the most
+    recent conversation messages — dropping the oldest non-system history when
+    the log overshoots the budget. Typically a no-op: auto-compact fires near
+    the budget, so the input already fits; this guards against a burst of huge
+    tool results pushing the request past the window.
+    """
+    if budget <= 0 or len_tokens(llm_msgs, model=model_str) <= budget:
+        return llm_msgs
+
+    head_end = 0
+    for msg in llm_msgs:
+        if msg.role == "system":
+            head_end += 1
+        else:
+            break
+
+    instruction = llm_msgs[-1]
+    middle = llm_msgs[head_end:-1]
+    fixed = llm_msgs[:head_end] + [instruction]
+    remaining = budget - len_tokens(fixed, model=model_str)
+    kept: list[Message] = []
+    used = 0
+    for msg in reversed(middle):
+        msg_tokens = len_tokens([msg], model=model_str)
+        if used + msg_tokens > remaining:
+            break
+        kept.append(msg)
+        used += msg_tokens
+    kept.reverse()
+    return llm_msgs[:head_end] + kept + [instruction]
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
@@ -284,6 +331,7 @@ def _resume_via_llm(
     llm_unlocked: AbstractContextManager[object] | None = None,
     compact_instructions: str | None = None,
     keep_recent_tokens: int = _DEFAULT_KEEP_RECENT_TOKENS,
+    keep_head: int = 0,
 ) -> Generator[Message, None, bool]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
 
@@ -301,6 +349,9 @@ def _resume_via_llm(
             (from project config or /compact <instructions>).
         keep_recent_tokens: Tokens of recent history to keep verbatim after the
             checkpoint (Phase 2 keep_recent window). Default 20k.
+        keep_head: Number of leading messages to preserve verbatim in the new
+            view, mirroring the trim path's positional protection. The leading
+            system block is always kept; this only extends past it.
     """
 
     # Prepare messages for summarization
@@ -366,6 +417,25 @@ only mentioned in passing.
             ui_only=True,
         )
         return False
+
+    # Phase 2 (1.5b): clip the checkpoint input to the window minus the reserved
+    # output budget so a burst of oversized tool results cannot overflow the
+    # summarizer request. Normally a no-op at the compaction trigger point.
+    if isinstance(m.context, int) and m.context > 0:
+        llm_msgs = _clip_checkpoint_input(
+            llm_msgs,
+            model_str=m.model,
+            budget=max(1, m.context - _CHECKPOINT_MAX_OUTPUT),
+        )
+
+    # Phase 2 (1.5b): cap the checkpoint output so a runaway summary cannot
+    # consume the whole window (until the model-participating turn lands).
+    checkpoint_max_tokens = (
+        min(m.max_output, _CHECKPOINT_MAX_OUTPUT)
+        if isinstance(m.max_output, int) and m.max_output > 0
+        else _CHECKPOINT_MAX_OUTPUT
+    )
+
     snapshot = None
     file_snapshot = None
     conv_snapshot = None
@@ -387,7 +457,13 @@ only mentioned in passing.
             # conversation.jsonl too so those appends are detected.
             conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
     with llm_unlocked or nullcontext():
-        resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+        resume_response = llm.reply(
+            llm_msgs,
+            model=m.full,
+            tools=[],
+            workspace=None,
+            max_tokens=checkpoint_max_tokens,
+        )
     if snapshot is not None:
         current = (
             manager.current_view,
@@ -442,6 +518,12 @@ only mentioned in passing.
             # Stop when we hit the first non-system message
             break
 
+    # Phase 2 (1.5b): preserve the configured keep_head prefix verbatim in the
+    # new view, mirroring the trim path's positional protection. The leading
+    # system block is always kept, so this only extends past it.
+    head_end = max(len(original_system_msgs), min(keep_head, len(msgs)))
+    preserved_head = msgs[:head_end]
+
     # Create file context messages for each loaded file
     file_context_msgs = []
     for file_path, file_content in loaded_files:
@@ -468,7 +550,7 @@ only mentioned in passing.
     # The leading system messages are re-added verbatim in fixed_parts, so the
     # tail is derived from the conversation after them to avoid duplication.
     model_meta = get_default_model()
-    tail_source = msgs[len(original_system_msgs) :]
+    tail_source = msgs[head_end:]
     recent_tail = _get_recent_tail(
         tail_source,
         keep_recent_tokens,
@@ -478,9 +560,7 @@ only mentioned in passing.
     # Budget guard: if fixed parts + recent_tail exceeds the model's context
     # budget, re-derive the tail within the remaining room so the compacted
     # view actually fits.
-    fixed_parts = (
-        original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
-    )
+    fixed_parts = preserved_head + file_context_msgs + [resume_intro_msg, resume_msg]
     if model_meta and isinstance(model_meta.context, int) and model_meta.context > 0:
         budget = get_context_budget(
             model_meta.context, max_output=model_meta.max_output or 8192
@@ -492,7 +572,7 @@ only mentioned in passing.
         # system messages and the checkpoint are kept.
         fixed_tokens = len_tokens(fixed_parts, model=model_str)
         if fixed_tokens > budget:
-            essential = original_system_msgs + [resume_intro_msg, resume_msg]
+            essential = preserved_head + [resume_intro_msg, resume_msg]
             essential_tokens = len_tokens(essential, model=model_str)
             # Drop file context messages (least essential) until the whole
             # fixed set fits within the budget.
@@ -507,7 +587,7 @@ only mentioned in passing.
                 # truncate the checkpoint content to fit, keeping a notice.
                 TRUNCATION_NOTICE = "\n\n[checkpoint truncated to fit context budget]"
                 overhead = len_tokens(
-                    original_system_msgs + [resume_intro_msg], model=model_str
+                    preserved_head + [resume_intro_msg], model=model_str
                 ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
                 room = max(0, budget - overhead)
                 resume_content_trunc = _truncate_to_tokens(
@@ -528,9 +608,7 @@ only mentioned in passing.
                     f"{dropped_count} of the loaded context files to fit."
                 )
             fixed_parts = (
-                original_system_msgs
-                + file_context_msgs
-                + [resume_intro_msg, resume_msg]
+                preserved_head + file_context_msgs + [resume_intro_msg, resume_msg]
             )
             fixed_tokens = len_tokens(fixed_parts, model=model_str)
 

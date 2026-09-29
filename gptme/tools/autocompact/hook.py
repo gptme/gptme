@@ -401,6 +401,7 @@ def autocompact_hook(
                 llm_unlocked=llm_unlocked,
                 compact_instructions=compact_instructions,
                 keep_recent_tokens=keep_recent_tokens,
+                keep_head=_get_keep_head(),
             )
         except Exception as e:
             logger.error(f"Auto-summarize failed: {e}")
