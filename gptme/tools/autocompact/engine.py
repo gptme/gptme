@@ -24,7 +24,11 @@ from ...util.master_context import (
 )
 from ...util.output_storage import create_tool_result_summary, save_large_output
 from ...util.reduce import message_contains_tool_use, reduce_log
-from .scoring import compress_content, score_tool_output_relevance
+from .scoring import (
+    PruneDecision,
+    compress_content,
+    score_tool_output_relevance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +182,101 @@ def prune_stale_tool_outputs(
             pruned.append(msg)
 
     return pruned, tokens_saved
+
+
+def shadow_prune_stale_tool_outputs(
+    log: list[Message],
+    model_name: str,
+    keep_head: int = 0,
+) -> list[PruneDecision]:
+    """Shadow / dry-run pass: return per-message keep/drop decisions without modifying the log.
+
+    Runs exactly the same eligibility and scoring logic as
+    :func:`prune_stale_tool_outputs`, but the original ``log`` is never changed.
+    Callers get a :class:`~.scoring.PruneDecision` for every message that was
+    a candidate (actual tool result, not pinned, not in the protected head),
+    recording what Phase 0 *would have* done.
+
+    This is the evaluation harness called for in issue #3997:
+
+    - **Tokens saved** = ``sum(d.tokens_saved for d in decisions)``
+    - **False-drop candidates** = decisions where ``decision == "drop"`` and a
+      later message re-reads the same content (compare ``content_digest`` to
+      digests of later read-tool outputs).
+    - **Coverage** = fraction of conversation token budget that would have been
+      freed, enabling measurement before the LLM compaction trigger fires.
+
+    Only tool-output messages (``_is_tool_output`` returns ``True``) produce a
+    decision record; all other messages are silently skipped.
+
+    Args:
+        log: The conversation log to analyse (never mutated).
+        model_name: Model name used for token counting.
+        keep_head: Number of messages at the start of the log to protect;
+            messages in this range are always kept and produce no decision.
+
+    Returns:
+        List of :class:`~.scoring.PruneDecision` objects, one per eligible
+        tool-output message, in the same order as they appear in ``log``.
+    """
+    decisions: list[PruneDecision] = []
+
+    for idx, msg in enumerate(log):
+        if msg.pinned or idx < keep_head:
+            continue
+
+        prev = log[idx - 1] if idx > 0 else None
+        if not _is_tool_output(msg, prev):
+            continue
+
+        msg_tokens = len_tokens(msg.content, model_name)
+
+        if msg_tokens < _PRUNE_MIN_TOKENS:
+            # Below size floor — always kept; record with score=None
+            decisions.append(
+                PruneDecision(
+                    idx=idx,
+                    decision="keep",
+                    score=None,
+                    tokens=msg_tokens,
+                    stub_tokens=0,
+                    tokens_saved=0,
+                    content_digest=PruneDecision._digest(msg.content),
+                )
+            )
+            continue
+
+        relevance = score_tool_output_relevance(msg, idx, log)
+
+        if relevance < _PRUNE_SCORE_THRESHOLD:
+            stub = _stale_output_stub(msg, msg_tokens, logdir=None, for_estimate=True)
+            stub_tokens = len_tokens(stub, model_name)
+            saved = max(0, msg_tokens - stub_tokens)
+            decisions.append(
+                PruneDecision(
+                    idx=idx,
+                    decision="drop",
+                    score=relevance,
+                    tokens=msg_tokens,
+                    stub_tokens=stub_tokens,
+                    tokens_saved=saved,
+                    content_digest=PruneDecision._digest(msg.content),
+                )
+            )
+        else:
+            decisions.append(
+                PruneDecision(
+                    idx=idx,
+                    decision="keep",
+                    score=relevance,
+                    tokens=msg_tokens,
+                    stub_tokens=0,
+                    tokens_saved=0,
+                    content_digest=PruneDecision._digest(msg.content),
+                )
+            )
+
+    return decisions
 
 
 def auto_compact_log(

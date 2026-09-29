@@ -9,9 +9,11 @@ from datetime import datetime, timezone
 from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message
 from gptme.tools.autocompact import (
+    PruneDecision,
     auto_compact_log,
     prune_stale_tool_outputs,
     score_tool_output_relevance,
+    shadow_prune_stale_tool_outputs,
 )
 from gptme.tools.autocompact.scoring import _PRUNE_MIN_AGE
 
@@ -449,3 +451,130 @@ def test_phase0_without_logdir_does_not_advertise_a_path():
     compacted = list(auto_compact_log(log, keep_head=0, limit=100))
     assert "Full output saved to:" not in compacted[0].content
     assert "/tool-outputs/" not in compacted[0].content
+
+
+# ---------------------------------------------------------------------------
+# shadow_prune_stale_tool_outputs — dry-run / evaluation harness
+# ---------------------------------------------------------------------------
+
+
+def test_shadow_returns_prune_decisions():
+    """shadow_prune_stale_tool_outputs yields PruneDecision objects, not messages."""
+    large_content = "word " * 400
+    old_output = _tool_out(large_content)
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [old_output] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name())
+
+    assert len(decisions) > 0
+    assert all(isinstance(d, PruneDecision) for d in decisions)
+
+
+def test_shadow_does_not_modify_log():
+    """Shadow pass must leave the original log completely unchanged."""
+    large_content = "word " * 400
+    old_output = _tool_out(large_content)
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    original_content = old_output.content
+    log = [old_output] + padding
+
+    shadow_prune_stale_tool_outputs(log, _model_name())
+
+    assert log[0].content == original_content, "Shadow pass must not mutate messages"
+    assert len(log) == _PRUNE_MIN_AGE + 3
+
+
+def test_shadow_drop_matches_prune_drop():
+    """Shadow decisions must agree with the live pass on which messages to drop."""
+    large_content = "word " * 400
+    old_output = _tool_out(large_content)
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [old_output] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name())
+    pruned, _ = prune_stale_tool_outputs(log, _model_name())
+
+    dropped_idxs = {d.idx for d in decisions if d.decision == "drop"}
+    stubbed_idxs = {
+        i
+        for i, (orig, pruned_m) in enumerate(zip(log, pruned))
+        if orig.content != pruned_m.content
+    }
+    assert dropped_idxs == stubbed_idxs, "Shadow decisions must match live pass stubs"
+
+
+def test_shadow_tokens_saved_positive_for_dropped():
+    """Dropped decisions must report positive tokens_saved."""
+    large_content = "word " * 400
+    old_output = _tool_out(large_content)
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [old_output] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name())
+    drops = [d for d in decisions if d.decision == "drop"]
+
+    assert drops, "Expected at least one drop decision"
+    assert all(d.tokens_saved > 0 for d in drops)
+    assert all(d.tokens > d.stub_tokens for d in drops)
+
+
+def test_shadow_keeps_do_not_save_tokens():
+    """Keep decisions must report tokens_saved == 0."""
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE)]
+
+    # Make the output reference a real path so it scores high (keep)
+    referenced_content = "Contents of /tmp/myfile.py:\n" + "result = 42\n" * 200
+    ref_output = _tool_out(referenced_content)
+    later_ref = _user("Now update /tmp/myfile.py")
+    log2 = [ref_output] + padding + [later_ref]
+
+    decisions = shadow_prune_stale_tool_outputs(log2, _model_name())
+    keeps = [d for d in decisions if d.decision == "keep"]
+
+    assert all(d.tokens_saved == 0 for d in keeps)
+    assert all(d.stub_tokens == 0 for d in keeps)
+
+
+def test_shadow_content_digest_is_stable():
+    """Content digest must be consistent across repeated calls."""
+    large_content = "word " * 400
+    old_output = _tool_out(large_content)
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [old_output] + padding
+
+    d1 = shadow_prune_stale_tool_outputs(log, _model_name())
+    d2 = shadow_prune_stale_tool_outputs(log, _model_name())
+
+    assert [d.content_digest for d in d1] == [d.content_digest for d in d2]
+    # Digest is a short hex string
+    assert all(len(d.content_digest) == 8 for d in d1)
+    assert all(all(c in "0123456789abcdef" for c in d.content_digest) for d in d1)
+
+
+def test_shadow_keep_head_respected():
+    """Messages in the keep_head prefix must not produce any decision."""
+    large_content = "word " * 400
+    head_output = _tool_out(large_content)  # idx 0 → in head
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [head_output] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name(), keep_head=1)
+
+    assert all(d.idx != 0 for d in decisions), (
+        "Head message must not appear in decisions"
+    )
+
+
+def test_shadow_non_tool_system_messages_excluded():
+    """System messages that are not tool results are skipped by the shadow pass."""
+    large_content = "word " * 400
+    # A system message with no call_id and not after a tool call — not a tool result
+    system_instructions = Message("system", large_content, _ts())
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    log = [system_instructions] + padding
+
+    decisions = shadow_prune_stale_tool_outputs(log, _model_name())
+
+    # Non-tool system messages should produce no decision
+    assert all(d.idx != 0 for d in decisions)

@@ -11,7 +11,11 @@ from .decision import (
     estimate_compaction_savings,
     should_auto_compact,
 )
-from .engine import auto_compact_log, prune_stale_tool_outputs
+from .engine import (
+    auto_compact_log,
+    prune_stale_tool_outputs,
+    shadow_prune_stale_tool_outputs,
+)
 from .events import append_compaction_event, read_compaction_events
 from .handlers import (
     _compact_resume,
@@ -22,6 +26,7 @@ from .handlers import (
 from .hook import _get_compacted_name, autocompact_hook, tool
 from .resume import _load_context_files, _parse_context_files, _resume_via_llm
 from .scoring import (
+    PruneDecision,
     _score_reference_potential,
     _score_semantic_importance,
     compress_content,
@@ -48,6 +53,9 @@ __all__ = [
     # Engine
     "auto_compact_log",
     "prune_stale_tool_outputs",
+    "shadow_prune_stale_tool_outputs",
+    # Shadow / evaluation
+    "PruneDecision",
     # Observability
     "append_compaction_event",
     "read_compaction_events",
