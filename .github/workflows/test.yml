@@ -70,6 +70,9 @@ jobs:
     if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     name: Test without API keys
     runs-on: ubuntu-latest
+    # A hung xdist worker otherwise burns the 6h default (gptme/gptme#4009:
+    # TestTmuxRealTerminal::test_confirm_dialog_keys_work ran until cancel).
+    timeout-minutes: 45
     env:
       RELEASE: false
       # Explicitly unset API keys to test without them
