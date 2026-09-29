@@ -129,6 +129,24 @@ def test_truncated_diff_keeps_closed_fence(git_repo: Path):
     assert result.count("````") % 2 == 0
 
 
+def test_reads_untracked_from_git_toplevel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repo = tmp_path / "repo"
+    sub = repo / "pkg"
+    sub.mkdir(parents=True)
+    _git(repo, "init")
+    (repo / "a.txt").write_text("one\n")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-m", "init")
+    (sub / "new.txt").write_text("from-sub\n")
+    monkeypatch.chdir(sub)
+    result = get_git_diff_context("HEAD", cwd=sub)
+    assert result is not None
+    assert "new.txt" in result
+    assert "+from-sub" in result
+
+
 def test_uses_workspace_not_launch_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     launch = tmp_path / "launch"
     workspace = tmp_path / "workspace"

@@ -536,7 +536,7 @@ def _untracked_file_diff(rel: str, path: Path, max_chars: int) -> str:
         if path.is_symlink():
             return _symlink_diff_notice(rel, path, header)
         return f"{header}--- /dev/null\n+++ b/{rel}\n(unreadable: {e})\n"
-    if b"\0" in data[:8192]:
+    if b"\0" in data:
         return f"{header}Binary file {rel} differs\n"
     truncated = len(data) > max_chars
     if truncated:
@@ -601,7 +601,7 @@ def get_git_diff_context(
     untracked: list[str] = []
     try:
         untracked_proc = _run_git_inspect(
-            ["ls-files", "-z", "--others", "--exclude-standard"],
+            ["ls-files", "-z", "--full-name", "--others", "--exclude-standard"],
             cwd=cwd,
             timeout=10,
         )
@@ -621,7 +621,19 @@ def get_git_diff_context(
             changed.append(rel)
             seen.add(rel)
 
-    root = Path(cwd) if cwd is not None else Path.cwd()
+    try:
+        toplevel = _run_git_inspect(
+            ["rev-parse", "--show-toplevel"],
+            cwd=cwd,
+            timeout=10,
+        ).stdout.strip()
+        root = Path(toplevel)
+    except (
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+        subprocess.CalledProcessError,
+    ):
+        root = Path(cwd) if cwd is not None else Path.cwd()
     remaining = max_chars
     untracked_parts: list[str] = []
     for rel in untracked:
