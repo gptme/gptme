@@ -626,6 +626,17 @@ def _parse_duration(text: str) -> float:
     return value * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}.get(m.group(2) or "s", 1)
 
 
+def _is_watch_timeout_value(val: str) -> bool:
+    """True when ``--timeout`` is a watch duration, not a command flag.
+
+    Watch ``--timeout`` requires an explicit unit (``30s``, ``5m``) so a
+    command like ``pytest --timeout 30`` keeps its own flag. Positional
+    durations (``watch timer 30``, ``watch wait id 5``) still accept a
+    bare number via ``_parse_duration``.
+    """
+    return bool(re.fullmatch(r"\d+(?:\.\d+)?(?:ms|s|m|h)", val.strip()))
+
+
 def _parse_opts(
     tokens: list[str], names: frozenset[str] | None = None
 ) -> tuple[dict[str, str], list[str]]:
@@ -634,6 +645,9 @@ def _parse_opts(
     Only ``names`` (default: all watch option names) are consumed; any other
     ``--flag`` stays with the command. Callers pass a verb-specific set so
     ``watch run pytest --pattern smoke`` does not strip pytest's flag.
+    ``--timeout`` is consumed only when the value has a unit, so
+    ``watch run pytest --timeout 30`` keeps pytest's flag while
+    ``--timeout 30s`` still sets the watch deadline.
     """
     allowed = _WATCH_OPT_NAMES if names is None else names
     opts: dict[str, str] = {}
@@ -645,7 +659,9 @@ def _parse_opts(
             name = tok[2:]
             if "=" in name:
                 key, val = name.split("=", 1)
-                if key in allowed:
+                if key in allowed and (
+                    key != "timeout" or _is_watch_timeout_value(val)
+                ):
                     opts[key] = val
                     i += 1
                     continue
@@ -654,9 +670,11 @@ def _parse_opts(
                 and i + 1 < len(tokens)
                 and not tokens[i + 1].startswith("--")
             ):
-                opts[name] = tokens[i + 1]
-                i += 2
-                continue
+                val = tokens[i + 1]
+                if name != "timeout" or _is_watch_timeout_value(val):
+                    opts[name] = val
+                    i += 2
+                    continue
         rest.append(tok)
         i += 1
     return opts, rest
@@ -675,10 +693,17 @@ def _reject_unquoted_operators(raw: str) -> None:
     the watch would report a result for a different command than requested).
     """
     quote = ""
-    for ch in raw:
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
         if quote:
             if ch == quote:
                 quote = ""
+            i += 1
+            continue
+        if ch == "\\":
+            # Escaped operator (``echo \|``) is a literal, same as quoting.
+            i += 2
             continue
         if ch in "\"'":
             quote = ch
@@ -688,6 +713,7 @@ def _reject_unquoted_operators(raw: str) -> None:
                 "(pipes, redirections); watch a single command, or wrap the "
                 "pipeline in a script"
             )
+        i += 1
 
 
 def _join_command(positional: list[str]) -> str:
@@ -981,7 +1007,9 @@ tool = ToolSpec(
         "we spawned (otherwise the worker and pipes leak). `until`/`timer`/`tmux` "
         "have no long-lived child to kill.\n"
         "- `watch wait <id> [timeout]`: blocking observation-only wait; never kills.\n"
-        "Verb options: --timeout on run/until/stream/timer/tmux; --every on "
+        "Verb options: --timeout on run/until/stream/timer/tmux (unit "
+        "required: 30s, 5m — a bare `--timeout 30` stays on the command, so "
+        "`watch run pytest --timeout 30` runs pytest's flag); --every on "
         "until; --pattern/--stable on tmux. Other `--flags` belong to the "
         "watched command (so `watch run pytest --pattern smoke` keeps "
         "--pattern). Set `--timeout` on `until` so a never-met condition "

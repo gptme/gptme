@@ -266,11 +266,40 @@ def test_parse_opts_run_keeps_pattern_flag():
     assert rest == ["pytest", "--pattern", "smoke"]
 
 
+def test_parse_opts_run_keeps_bare_timeout_flag():
+    # pytest --timeout 30 (no unit) is the command's flag, not a watch deadline.
+    opts, rest = _parse_opts(
+        ["pytest", "--timeout", "30", "--timeout=60"],
+        names=frozenset({"timeout"}),
+    )
+    assert opts == {}
+    assert rest == ["pytest", "--timeout", "30", "--timeout=60"]
+
+
+def test_parse_opts_run_consumes_unit_timeout_keeps_bare():
+    opts, rest = _parse_opts(
+        ["pytest", "--timeout", "30", "--timeout", "5s"],
+        names=frozenset({"timeout"}),
+    )
+    assert opts == {"timeout": "5s"}
+    assert rest == ["pytest", "--timeout", "30"]
+
+
 def test_quoted_args_survive_arming(tmp_path: Path):
     # shlex.split + " ".join would turn grep 'foo bar' into grep foo bar.
     out = _watch_cli("run grep 'foo bar' file --timeout 0.5s", tmp_path)
     w = next(w for w in _record_all() if w.kind == "run")
     assert w.description == "grep 'foo bar' file"
+    _watch_cli(f"cancel {out.content.split()[2]}", tmp_path)
+
+
+def test_run_keeps_bare_command_timeout(tmp_path: Path):
+    # A bare `--timeout 30` belongs to the command (pytest-style); the
+    # unit-suffixed `--timeout 0.5s` is the watch deadline.
+    out = _watch_cli("run true --timeout 30 --timeout 0.5s", tmp_path)
+    w = next(w for w in _record_all() if w.kind == "run")
+    assert w.description == "true --timeout 30"
+    assert w.deadline is not None
     _watch_cli(f"cancel {out.content.split()[2]}", tmp_path)
 
 
@@ -628,12 +657,16 @@ def test_quoted_operator_argument_is_allowed():
 
     _reject_unquoted_operators("grep '|' file")  # must not raise
     _reject_unquoted_operators('echo "a > b"')  # must not raise
+    _reject_unquoted_operators(r"echo \|")  # escaped operator is a literal
     import pytest
 
     with pytest.raises(ValueError, match="shell operators"):
         _reject_unquoted_operators("echo ok > status.txt")
     with pytest.raises(ValueError, match="shell operators"):
         _reject_unquoted_operators("echo a | grep b")
+    with pytest.raises(ValueError, match="shell operators"):
+        # escaped backslash, then an unquoted pipe
+        _reject_unquoted_operators(r"echo \\| grep")
 
 
 def test_until_slow_command_outlives_every(tmp_path: Path):
