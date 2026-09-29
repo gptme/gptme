@@ -739,3 +739,131 @@ def test_diff_error_is_usage_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     result = runner.invoke(cli.main, ["--diff", "review this"], input="")
     assert result.exit_code != 0
     assert "not a git repository" in result.output
+
+
+def test_undecodable_filename_does_not_break_diff(git_repo: Path):
+    """A filename invalid in the process encoding must not abort --diff."""
+    raw = os.path.join(os.fsencode(git_repo), b"bad-\xff-name.txt")
+    fd = os.open(raw, os.O_WRONLY | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, b"one\n")
+    finally:
+        os.close(fd)
+
+    # Untracked path: exercises `ls-files --others`.
+    result = get_git_diff_context("HEAD")
+    assert result is not None
+    assert "Changed files:" in result
+
+    # Tracked-and-modified path: exercises `diff --name-only`.
+    _git(git_repo, "add", "-A")
+    _git(git_repo, "commit", "-m", "add oddly named file")
+    fd = os.open(raw, os.O_WRONLY | os.O_TRUNC)
+    try:
+        os.write(fd, b"one\ntwo\n")
+    finally:
+        os.close(fd)
+
+    result = get_git_diff_context("HEAD")
+    assert result is not None
+    assert "+two" in result
+
+
+def test_native_patch_ranges_order_independent(tmp_path: Path):
+    """Ranges must not depend on the order hunks appear in the preview."""
+    logdir = tmp_path / "log"
+    target = tmp_path / "example.py"
+    target.write_text("before\nfirst\nmiddle\nsecond\nafter\n")
+    # Hunks written in reverse file order.
+    patch = (
+        f"{ORIGINAL}second{DIVIDER}replacement{UPDATED}\n"
+        f"{ORIGINAL}first{DIVIDER}first a\nfirst b{UPDATED}"
+    )
+    preview = preview_patch(patch, target)
+    assert preview is not None
+
+    with track_diff_suggestions(logdir, "HEAD"):
+        record_diff_suggestion(
+            ToolUse("patch", [str(target)], patch),
+            ConfirmationResult.confirm(),
+            preview,
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert [(r["old_start"], r["new_start"]) for r in event["line_ranges"]] == [
+        (2, 2),
+        (4, 5),
+    ]
+
+
+def test_failed_atomic_patch_write_is_not_recorded_as_applied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    logdir = tmp_path / "log"
+    tool_use = ToolUse("patch_many", ["example.py"], "patch")
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    def _execute(content: str, path: Path | None):
+        yield Message(
+            "system",
+            "Atomic patch failed: write error on `example.py`: [Errno 28]. "
+            "No files were written.",
+        )
+
+    with (
+        track_diff_suggestions(logdir, "HEAD"),
+        using_current_tool_use(tool_use),
+    ):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: None,
+            )
+        )
+
+    event = json.loads((logdir / "diff-suggestions.jsonl").read_text())
+    assert event["decision"] == "accepted"
+    assert event["execution_status"] == "failed"
+    assert event["execution_error"].startswith("Atomic patch failed:")
+
+
+def test_line_ranges_skipped_without_diff_tracking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Resolving ranges reads the target file, so skip it when --diff is off."""
+    import gptme.util.diff_suggestions as diff_suggestions
+
+    calls: list[object] = []
+
+    def _record(*args: object, **kwargs: object) -> list[object]:
+        calls.append(args)
+        return []
+
+    monkeypatch.setattr(diff_suggestions, "diff_suggestion_line_ranges", _record)
+    target = tmp_path / "example.py"
+    target.write_text("old\n")
+    tool_use = ToolUse("patch", [str(target)], "patch")
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+
+    def _execute(content: str, path: Path | None):
+        yield Message("system", "Patch successfully applied")
+
+    with using_current_tool_use(tool_use):
+        list(
+            execute_with_confirmation(
+                tool_use.content,
+                tool_use.args,
+                tool_use.kwargs,
+                execute_fn=_execute,
+                get_path_fn=lambda *_: target,
+            )
+        )
+
+    assert calls == []

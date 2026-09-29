@@ -22,6 +22,7 @@ console = Console(log_path=False)
 _FAILED_EDIT_PREFIXES = (
     "append aborted:",
     "atomic patch aborted:",
+    "atomic patch failed:",
     "error:",
     "failed ",
     "save aborted:",
@@ -123,6 +124,7 @@ def execute_with_confirmation(
     from .diff_suggestions import (
         confirmation_is_automatic,
         diff_suggestion_line_ranges,
+        is_diff_tracking_active,
         record_diff_suggestion,
     )
 
@@ -225,7 +227,13 @@ def execute_with_confirmation(
                     return
 
         tool_use = get_current_tool_use()
-        line_ranges = diff_suggestion_line_ranges(tool_use, final_preview)
+        # Reading and searching the target file for line ranges is only useful
+        # when a --diff ledger will receive them; skip the I/O otherwise.
+        line_ranges = (
+            diff_suggestion_line_ranges(tool_use, final_preview)
+            if is_diff_tracking_active()
+            else None
+        )
 
         # Execute
         try:

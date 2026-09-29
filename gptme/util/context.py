@@ -491,6 +491,10 @@ def _run_git_inspect(
         [*git_inspect_cmd(), *args],
         capture_output=True,
         text=True,
+        # Repository paths are arbitrary bytes. Decoding strictly would raise
+        # UnicodeDecodeError on a filename invalid in the process encoding,
+        # aborting `--diff` before the chat starts. Replace such bytes instead.
+        errors="replace",
         check=check,
         timeout=timeout,
         cwd=cwd,

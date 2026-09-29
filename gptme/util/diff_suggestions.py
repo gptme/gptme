@@ -45,6 +45,11 @@ def _resolve_tracker() -> _DiffSuggestionTracker | None:
     return _tracker.get()
 
 
+def is_diff_tracking_active() -> bool:
+    """Return whether this thread has an active ``--diff`` suggestion tracker."""
+    return _resolve_tracker() is not None
+
+
 def snapshot_diff_tracker() -> _DiffSuggestionTracker | None:
     """Capture this thread's --diff tracker for a child thread to inherit.
 
@@ -110,15 +115,18 @@ def _native_patch_line_ranges(preview: str, target: str) -> list[dict[str, int |
     headers. Its old-side lines still identify the changed span, provided that
     span occurs exactly once in the current file. Ambiguous previews stay
     unmapped instead of inventing a location.
+
+    Positions are resolved against the pristine file and hunks are ordered by
+    their original location, so ranges do not depend on the order the model
+    wrote the hunks in the preview.
     """
     try:
         path = Path(target).expanduser()
-        lines = path.read_text(encoding="utf-8").splitlines()
+        original = path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
         return []
 
-    ranges: list[dict[str, int | str]] = []
-    line_delta = 0
+    located: list[tuple[int, int, int]] = []
     for hunk in preview.split("\n@@@\n"):
         diff_lines = hunk.splitlines()
         if not diff_lines or any(
@@ -133,17 +141,25 @@ def _native_patch_line_ranges(preview: str, target: str) -> list[dict[str, int |
 
         matches = [
             index
-            for index in range(len(lines) - len(old_lines) + 1)
-            if lines[index : index + len(old_lines)] == old_lines
+            for index in range(len(original) - len(old_lines) + 1)
+            if original[index : index + len(old_lines)] == old_lines
         ]
         if len(matches) != 1:
             return []
 
-        index = matches[0]
-        new_start = index + 1
-        old_start = new_start - line_delta
-        old_count = len(old_lines)
-        new_count = len(new_lines)
+        located.append((matches[0], len(old_lines), len(new_lines)))
+
+    located.sort(key=lambda item: item[0])
+    ranges: list[dict[str, int | str]] = []
+    line_delta = 0
+    prev_end = -1
+    for index, old_count, new_count in located:
+        # Overlapping spans cannot be attributed to the original file.
+        if index <= prev_end:
+            return []
+        prev_end = index + old_count - 1
+        old_start = index + 1
+        new_start = old_start + line_delta
         ranges.append(
             {
                 "file": target,
@@ -155,7 +171,6 @@ def _native_patch_line_ranges(preview: str, target: str) -> list[dict[str, int |
                 "new_count": new_count,
             }
         )
-        lines[index : index + old_count] = new_lines
         line_delta += new_count - old_count
 
     return ranges
