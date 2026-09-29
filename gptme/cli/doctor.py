@@ -1430,14 +1430,16 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
     """Check installed gptme plugins via entry points.
 
     Discovers plugins registered under the ``gptme.plugins`` entry-point group,
-    tries to import each one, and validates its tool and registrar contracts.
-    Tools come from both ``plugin.tools`` and ``plugin.tool_modules``.
+    scans third-party distribution source before import, then validates each
+    plugin's tool and registrar contracts. Tools come from both ``plugin.tools``
+    and ``plugin.tool_modules``.
     Returns one :class:`CheckResult` per plugin with a machine-readable
     per-item verdict list in the ``details`` field.
     """
     from importlib.metadata import entry_points as _entry_points
 
     from ..plugins.entrypoints import ENTRYPOINT_GROUP, _coerce_to_plugin
+    from ..plugins.security import scan_plugin_entry_point
     from ..tools.base import ToolSpec
 
     results: list[CheckResult] = []
@@ -1476,7 +1478,32 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
     for ep in eps:
         ep_name = ep.name
 
-        # 1 — try to import the entry point
+        # 1 — scan third-party distribution source before importing it. Importing
+        # first would execute exactly the payload this check is meant to catch.
+        security_scan = scan_plugin_entry_point(ep)
+        security_verdicts: list[str] = []
+        if security_scan is not None:
+            if security_scan.findings:
+                results.append(
+                    CheckResult(
+                        name=f"Plugin: {ep_name}",
+                        status=CheckStatus.ERROR,
+                        message="Security scan blocked import",
+                        details=[
+                            finding.verdict() for finding in security_scan.findings
+                        ],
+                        fix_hint=(
+                            f"Remove or audit the package providing {ep_name!r} "
+                            "before loading it"
+                        ),
+                    )
+                )
+                continue
+            security_verdicts.append(
+                f"security:ok({security_scan.scanned_files} files scanned)"
+            )
+
+        # 2 — try to import the entry point
         try:
             obj = ep.load()
         except Exception as exc:
@@ -1491,7 +1518,7 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             )
             continue
 
-        # 2 — coerce to GptmePlugin
+        # 3 — coerce to GptmePlugin
         plugin = _coerce_to_plugin(ep_name, obj)
         if plugin is None:
             results.append(
@@ -1507,9 +1534,9 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
             )
             continue
 
-        # 3 — validate each tool's init() contract (direct + module-provided)
+        # 4 — validate each tool's init() contract (direct + module-provided)
         tools, import_errors = _iter_plugin_tools(plugin)
-        contract_verdicts: list[str] = list(import_errors)
+        contract_verdicts: list[str] = security_verdicts + import_errors
         any_failed = bool(import_errors)
         for tool in tools:
             if tool.init is None:
@@ -1530,7 +1557,7 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
                 )
                 any_failed = True
 
-        # 4 — validate hook and command registration contracts. Each callback
+        # 5 — validate hook and command registration contracts. Each callback
         # runs against a temporary registry so doctor never mutates runtime state.
         if plugin.register_hooks is not None:
             verdict, failed = _check_plugin_registrar("hooks", plugin.register_hooks)
@@ -1547,9 +1574,7 @@ def _check_plugins(verbose: bool = False) -> list[CheckResult]:
         n_failed = sum(1 for verdict in contract_verdicts if ":error(" in verdict)
         if any_failed:
             status = CheckStatus.ERROR
-            message = (
-                f"{n_failed}/{len(contract_verdicts)} plugin contract check(s) failed"
-            )
+            message = f"{n_failed}/{len(contract_verdicts)} plugin check(s) failed"
         elif n_tools == 0:
             status = CheckStatus.OK
             message = f"{plugin.name}: loaded (no tools)"
