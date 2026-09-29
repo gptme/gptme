@@ -172,7 +172,13 @@ def _git_capture_bounded(
         proc.wait(timeout=_DIFF_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         proc.kill()
-        proc.wait()
+        try:
+            proc.wait(timeout=_DIFF_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.debug(
+                "dirty diff: git %s could not be reaped for %s", args, workspace
+            )
+            return None
     if proc.stdout is not None:
         proc.stdout.close()
     if not text and proc.returncode not in (0, None):
@@ -192,6 +198,13 @@ def _redact_diff(diff: str) -> str:
     """
     out: list[str] = []
     for line in diff.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            # `diff --git a/<path> b/<path>` carries no +/- marker, and the
+            # paths sit after a `diff --git` prefix the line-anchored patterns
+            # cannot see past. Redact each a//b/ segment so a tracked filename
+            # containing a credential assignment does not leak.
+            out.append("diff --git " + _redact_header_paths(line[len("diff --git ") :]))
+            continue
         match = _DIFF_MARKER_RE.match(line)
         marker = match.group(0) if match else ""
         rest = line[len(marker) :]
@@ -201,6 +214,16 @@ def _redact_diff(diff: str) -> str:
             rest = redact_secrets_from_text(rest)
         out.append(marker + rest)
     return "".join(out)
+
+
+def _redact_header_paths(rest: str) -> str:
+    """Redact a diff header's ``a/``/``b/`` path segments."""
+    return " ".join(
+        f"{token[:2]}{redact_secrets_from_text(token[2:])}"
+        if token[:2] in ("a/", "b/")
+        else token
+        for token in rest.split(" ")
+    )
 
 
 def _get_dirty_diff(workspace: Path) -> tuple[str, bool] | None:

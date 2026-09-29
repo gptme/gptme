@@ -247,6 +247,11 @@ def test_redact_diff_handles_content_starting_with_marker():
         _redact_diff("+++ b/GITHUB_TOKEN=ghp_leak\n")
         == "+++ b/GITHUB_TOKEN=[REDACTED]\n"
     )
+    # ... including the `diff --git` line, which has no +/- marker.
+    assert (
+        _redact_diff("diff --git a/GITHUB_TOKEN=ghp_leak b/GITHUB_TOKEN=ghp_leak\n")
+        == "diff --git a/GITHUB_TOKEN=[REDACTED] b/GITHUB_TOKEN=[REDACTED]\n"
+    )
 
 
 def test_get_dirty_diff_disables_ext_and_textconv(git_repo, monkeypatch):
