@@ -328,7 +328,12 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     module was skipped (over the size limit, unreadable) must not be reported as
     verified.
     """
-    distribution = getattr(entry_point, "dist", None)
+    # importlib.metadata.EntryPoint always has a ``dist`` attribute (it may be
+    # None). Test doubles and other non-distribution objects omit it entirely;
+    # those are not third-party installs, so there is nothing to scan.
+    if not hasattr(entry_point, "dist"):
+        return None
+    distribution = entry_point.dist
     if distribution is None:
         return PluginSecurityScan(0, (), entry_point_scanned=False)
 
