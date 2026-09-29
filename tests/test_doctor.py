@@ -4,8 +4,9 @@ import json
 import sys
 import types
 from collections import UserDict
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -2174,6 +2175,69 @@ class TestCheckPlugins:
         plugin_result = next(r for r in results if r.name == "Plugin: boom_plugin")
         assert plugin_result.status == CheckStatus.ERROR
         assert "Import failed" in plugin_result.message
+
+    def test_malicious_plugin_is_blocked_before_import(self, tmp_path):
+        """Static malware findings must prevent executing the entry point."""
+
+        class FakeDistribution:
+            name = "dangerous-plugin"
+            files = [Path("dangerous_plugin/__init__.py")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        plugin_file = tmp_path / "dangerous_plugin" / "__init__.py"
+        plugin_file.parent.mkdir()
+        plugin_file.write_text(
+            "secret = open('~/.ssh/id_rsa').read()\n",
+            encoding="utf-8",
+        )
+        load = Mock(side_effect=AssertionError("malicious plugin was imported"))
+        ep = SimpleNamespace(
+            name="dangerous_plugin",
+            module="dangerous_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_not_called()
+        plugin_result = next(r for r in results if r.name == "Plugin: dangerous_plugin")
+        assert plugin_result.status == CheckStatus.ERROR
+        assert "Security scan blocked import" in plugin_result.message
+        assert "credential-harvest" in _details_blob(plugin_result.details)
+
+    def test_clean_plugin_security_scan_allows_import(self, tmp_path):
+        """Clean third-party source is scanned and then loaded normally."""
+        from gptme.plugins.plugin import GptmePlugin
+
+        class FakeDistribution:
+            name = "clean-plugin"
+            files = [Path("clean_plugin/__init__.py")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        plugin_file = tmp_path / "clean_plugin" / "__init__.py"
+        plugin_file.parent.mkdir()
+        plugin_file.write_text("VALUE = 42\n", encoding="utf-8")
+        load = Mock(return_value=GptmePlugin(name="clean_plugin"))
+        ep = SimpleNamespace(
+            name="clean_plugin",
+            module="clean_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        with patch("importlib.metadata.entry_points", return_value=[ep]):
+            results = _check_plugins()
+
+        load.assert_called_once_with()
+        plugin_result = next(r for r in results if r.name == "Plugin: clean_plugin")
+        assert plugin_result.status == CheckStatus.OK
+        assert "security:ok(1 files scanned)" in _details_blob(plugin_result.details)
 
     def test_tool_without_init_reports_ok(self):
         """A tool with no init() callable is OK — no contract to violate."""
