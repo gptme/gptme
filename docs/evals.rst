@@ -78,9 +78,20 @@ existing ``gptme-eval:latest`` image can be used directly as the sandbox image:
 .. code-block:: bash
 
     make build-docker
+    openshell provider profile import -f providers/anthropic.yaml --global
     openshell sandbox create \
         --from gptme-eval:latest \
+        --provider anthropic \
         -- gptme-eval hello --model anthropic/claude-sonnet-4-6
+
+Unlike the Docker example, no API key is passed in through the sandbox
+environment. The Anthropic key is declared once as a provider profile and the
+supervisor injects it, as ``ANTHROPIC_API_KEY``, only for the endpoints that
+profile allows (``api.anthropic.com``). The bundled
+``providers/anthropic.yaml`` is an editable example: its ``binaries`` list names
+the processes allowed to reach the endpoint, so copy it, point ``binaries`` at
+the interpreter or client in your image, and import your copy (see the
+`provider profiles docs <https://docs.nvidia.com/openshell/latest/how-it-works/providers/profiles>`_).
 
 This requires a running OpenShell gateway plus Docker or Podman (see the
 `OpenShell support matrix <https://docs.nvidia.com/openshell/latest/about/support-matrix>`_).
