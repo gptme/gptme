@@ -15,7 +15,7 @@ import requests
 from ..config import Config, get_config
 from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
 from ..message import (
-    DegenerationRetryData,
+    DegenerationData,
     Message,
     MessageMetadata,
     UsageData,
@@ -142,6 +142,11 @@ _DEGEN_TRIP_COUNT = 3
 _DEGEN_MIN_CONTENT = 400
 # Chars of new non-code content between each check.
 _DEGEN_CHECK_INTERVAL = 200
+# Max chars withheld while a clean retry is still possible.  Bounds the buffer
+# and keeps output flowing for responses that never accumulate enough non-code
+# text to disarm (e.g. code-only replies); once flushed, a later trip aborts
+# rather than retries, so abandoned output is still never appended.
+_DEGEN_WITHHOLD_MAX = 8192
 
 
 class DegenerationDetected(Exception):
@@ -283,8 +288,19 @@ class _RepetitionDetector:
         self._window_len += len(text)
         self._clean_len += len(text)
         self._since_check += len(text)
+        # Trim the window from the front.  A chunk larger than the window is
+        # partially kept (its tail) rather than evicted whole: otherwise a
+        # single long newline-free line would empty the window and hide
+        # repetition behind a score of 0.
         while self._window_len > self._window and self._clean_chunks:
-            self._window_len -= len(self._clean_chunks.popleft())
+            head = self._clean_chunks[0]
+            drop = self._window_len - self._window
+            if drop >= len(head):
+                self._clean_chunks.popleft()
+                self._window_len -= len(head)
+            else:
+                self._clean_chunks[0] = head[drop:]
+                self._window_len -= drop
 
     # ------------------------------------------------------------------
     def _drop_buffer_tail(self, count: int) -> None:
@@ -2018,7 +2034,7 @@ def stream(
     # Retrying mid-stream is only safe when nothing has been emitted to the
     # caller yet; opt in with GPTME_DEGENERATION_RETRY=1.
     _degen_retry_enabled = _degen_enabled and _degeneration_retry_enabled()
-    _degen_retry_data: DegenerationRetryData | None = None
+    _degen_data: DegenerationData | None = None
     _ignored_providers: list[str] = []
 
     def _stream_create(
@@ -2101,11 +2117,11 @@ def stream(
                     reasoning_effort=reasoning_effort,
                 )
 
-        # Activate the detector on the first attempt only; let the retry run
-        # freely even if it also degenerates (we only retry once).
+        # Detect on both attempts.  A retry may not recurse into another retry,
+        # but it still must be aborted if it degenerates too.
         # _degen_enabled guarantees degen_threshold is not None; assert to narrow.
         detector: _RepetitionDetector | None = None
-        if _degen_enabled and not _is_degen_retry:
+        if _degen_enabled:
             assert degen_threshold is not None
             detector = _RepetitionDetector(threshold=degen_threshold)
 
@@ -2137,10 +2153,13 @@ def stream(
                 yield text
                 return
             _pending.append(text)
+            # Stream once the guard has had its earliest chance to trip, or
+            # once the withheld prefix hits the cap (so a response that never
+            # accumulates non-code text cannot stall output indefinitely).
             if (
                 _detector is not None
                 and _detector.checks_performed >= _detector.trip_count
-            ):
+            ) or sum(len(p) for p in _pending) >= _DEGEN_WITHHOLD_MAX:
                 _degen_emitted = True
                 yield from _pending
                 _pending.clear()
@@ -2280,23 +2299,30 @@ def stream(
         except Exception:
             logger.debug("Error closing degenerate stream", exc_info=True)
 
-        assert detector is not None  # only reachable on attempt 0 with detector
+        assert detector is not None
         _raw_or_provider = (
             _or_resolved.split("@", 1)[1]
             if _or_resolved and "@" in _or_resolved
             else None
         )
-        _degen_retry_data = DegenerationRetryData(
-            provider=_raw_or_provider or "unknown",
-            score=detector.score,
-        )
-        # A retry is only safe when nothing has been emitted to the caller yet
-        # and there is a different subprovider to route to.  A single-provider
-        # pin resolves to no subprovider here, so it is never retried against
-        # itself.
+        # A retry is only safe on the first attempt, when nothing has been
+        # emitted to the caller yet and a different subprovider is known.  A
+        # degenerate retry is aborted rather than silently accepted or retried
+        # recursively.
         can_retry = (
-            _degen_retry_enabled and not _degen_emitted and bool(_raw_or_provider)
+            not _is_degen_retry
+            and _degen_retry_enabled
+            and not _degen_emitted
+            and bool(_raw_or_provider)
         )
+        # Preserve the first attempt's event across a retry.  If the retry also
+        # degenerates, overwrite it with the terminal failure (retried=False).
+        if _degen_data is None or _is_degen_retry:
+            _degen_data = DegenerationData(
+                provider=_raw_or_provider or "unknown",
+                score=detector.score,
+                retried=can_retry,
+            )
         if can_retry:
             assert _raw_or_provider is not None
             logger.warning(
@@ -2331,28 +2357,6 @@ def stream(
                 _degen_pending.clear()
             break
 
-        # Degeneration detected: extract the bad subprovider, set up retry.
-        assert detector is not None  # only reachable on attempt 0 with detector
-        _raw_or_provider = (
-            _or_resolved.split("@", 1)[1]
-            if _or_resolved and "@" in _or_resolved
-            else None
-        )
-        _degen_retry_data = DegenerationRetryData(
-            provider=_raw_or_provider or "unknown",
-            score=detector.score,
-        )
-        logger.warning(
-            "Degeneration detected mid-stream (score=%.2f, provider=%r); "
-            "retrying on a different OpenRouter subprovider.",
-            detector.score,
-            _raw_or_provider,
-        )
-        _ignored_providers = [_raw_or_provider] if _raw_or_provider else []
-        # Reset per-attempt state so the retry starts clean.
-        captured_metadata = None
-        served_model = None
-
     if captured_metadata is None and (
         reasoning_effort is not None or served_model is not None
     ):
@@ -2368,11 +2372,12 @@ def stream(
         # and a usage chunk that arrived before the last model-bearing chunk.
         captured_metadata["served_model"] = served_model
 
-    # Attach degeneration retry info when a retry happened.
-    if _degen_retry_data is not None:
+    # Attach degeneration info when the guard tripped (``retried`` says whether
+    # the response was replaced or truncated).
+    if _degen_data is not None:
         if captured_metadata is None:
             captured_metadata = {"model": model}
-        captured_metadata["degeneration_retry"] = _degen_retry_data
+        captured_metadata["degeneration"] = _degen_data
 
     # Return the captured metadata (accessible via StopIteration.value)
     return captured_metadata

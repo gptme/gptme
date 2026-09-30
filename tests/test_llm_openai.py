@@ -4573,6 +4573,17 @@ class TestRepetitionDetector:
         # since the opening fence immediately flips the code-block state.
         assert det._clean_len < 20
 
+    def test_oversized_single_line_still_trips(self):
+        """A line longer than the window must not empty the scoring buffer."""
+        det = self._make_detector(
+            trip_count=3, window=200, check_interval=50, min_content=100
+        )
+        # One newline-free, highly repetitive chunk far larger than the window:
+        # trimming must keep its tail rather than evict the whole chunk.
+        tripped = det.feed("AB" * 5000)
+        assert tripped
+        assert det.score >= 0.8
+
 
 class TestDegenerationThreshold:
     """Tests for the _degeneration_threshold() env-var parser."""
@@ -4665,21 +4676,23 @@ class TestExtraBodyProviderIgnore:
         assert "provider" not in body
 
 
-class TestDegenerationRetryMetadata:
-    """Verify that degeneration_retry is populated in MessageMetadata."""
+class TestDegenerationMetadata:
+    """Verify that degeneration data is populated in MessageMetadata."""
 
     def test_metadata_field_exists(self):
-        from gptme.message import DegenerationRetryData, MessageMetadata
+        from gptme.message import DegenerationData, MessageMetadata
 
         meta: MessageMetadata = {
             "model": "openrouter/deepseek/deepseek-v4-flash-0731",
-            "degeneration_retry": DegenerationRetryData(
+            "degeneration": DegenerationData(
                 provider="together",
                 score=0.92,
+                retried=True,
             ),
         }
-        assert meta["degeneration_retry"]["provider"] == "together"
-        assert meta["degeneration_retry"]["score"] == pytest.approx(0.92)
+        assert meta["degeneration"]["provider"] == "together"
+        assert meta["degeneration"]["score"] == pytest.approx(0.92)
+        assert meta["degeneration"]["retried"] is True
 
 
 class TestDegenerationDetectorCodeScoring:
@@ -4822,7 +4835,9 @@ class TestDegenerationStreamBehaviour:
 
         assert len(calls) == 1
         assert metadata is not None
-        assert metadata["degeneration_retry"]["provider"] == "together"
+        assert metadata["degeneration"]["provider"] == "together"
+        # Aborts are recorded, but flagged as not retried.
+        assert metadata["degeneration"]["retried"] is False
         # Aborted, so only the already-emitted prefix was returned.
         assert text == "REPEAT " * 60
 
@@ -4846,7 +4861,31 @@ class TestDegenerationStreamBehaviour:
         assert calls[1]["extra_body"]["provider"]["ignore"] == ["together"]
         # No abandoned prefix was appended to the caller's output.
         assert text == "Hello"
-        assert metadata["degeneration_retry"]["provider"] == "together"
+        assert metadata["degeneration"]["provider"] == "together"
+        assert metadata["degeneration"]["retried"] is True
+
+    def test_degenerate_retry_is_aborted(self, monkeypatch):
+        """The sole retry remains guarded and cannot pass degeneration through."""
+        monkeypatch.setenv("GPTME_DEGENERATION_RETRY", "1")
+        degen = _degen_chunk(content="REPEAT " * 200, provider="Together")
+        retry_degen = _degen_chunk(content="SECOND REPEAT " * 200, provider="Fireworks")
+        calls = self._setup(
+            monkeypatch,
+            [
+                _openrouter_stream([degen], provider="Together"),
+                _openrouter_stream([retry_degen], provider="Fireworks"),
+            ],
+        )
+
+        text, metadata = _collect_stream_result(
+            llm_openai.stream([Message(role="user", content="Hi")], _OR_MODEL, None)
+        )
+
+        assert len(calls) == 2
+        assert calls[1]["extra_body"]["provider"]["ignore"] == ["together"]
+        assert text == ""
+        assert metadata["degeneration"]["provider"] == "fireworks"
+        assert metadata["degeneration"]["retried"] is False
 
     def test_pinned_provider_is_not_retried_against_itself(self, monkeypatch):
         """A single-provider pin resolves to no alternative host: abort, no retry."""
@@ -4862,4 +4901,44 @@ class TestDegenerationStreamBehaviour:
         )
 
         assert len(calls) == 1
-        assert metadata["degeneration_retry"]["provider"] == "unknown"
+        assert metadata["degeneration"]["provider"] == "unknown"
+        assert metadata["degeneration"]["retried"] is False
+
+    def test_code_only_stream_still_emits_before_completion(self, monkeypatch):
+        """Withholding is capped so code-heavy replies keep streaming."""
+        monkeypatch.setenv("GPTME_DEGENERATION_RETRY", "1")
+        # Fenced code is excluded from the detector, so it never disarms; the
+        # withheld prefix must still flush at the cap instead of growing
+        # unbounded until the stream completes.
+        chunks = [_degen_chunk(content="```\n", provider="Together")]
+        chunks += [
+            _degen_chunk(content="x = 1\n" * 200, provider="Together")
+            for _ in range(12)
+        ]
+        chunks.append(_degen_chunk(content="```\n", provider="Together"))
+
+        def _counting_stream(items):
+            state = {"consumed": 0}
+
+            class _Stream:
+                response = SimpleNamespace(
+                    headers={"x-openrouter-provider": "Together"}
+                )
+
+                def __iter__(self):
+                    for item in items:
+                        state["consumed"] += 1
+                        yield item
+
+                def close(self):
+                    pass
+
+            return _Stream(), state
+
+        stream, state = _counting_stream(chunks)
+        self._setup(monkeypatch, [stream])
+
+        gen = llm_openai.stream([Message(role="user", content="Hi")], _OR_MODEL, None)
+        first = next(gen)
+        assert first  # output began before the stream was exhausted
+        assert state["consumed"] < len(chunks)

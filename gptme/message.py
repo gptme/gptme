@@ -161,11 +161,12 @@ class MessageTimings(TypedDict, total=False):
     """Per-tool breakdown, e.g. ``{"shell": 1200, "browser": 450}``."""
 
 
-class DegenerationRetryData(TypedDict, total=False):
-    """Recorded when the degeneration guard aborted a stream and retried."""
+class DegenerationData(TypedDict, total=False):
+    """Recorded when the degeneration guard trips on a streamed response."""
 
     provider: str  # the subprovider that produced the degenerate output
     score: float  # repetition score at the time the guard tripped
+    retried: bool  # whether the response was retried on another subprovider
 
 
 class MessageMetadata(TypedDict, total=False):
@@ -220,7 +221,7 @@ class MessageMetadata(TypedDict, total=False):
     prompt_generation: str
     skill_invocation_id: str  # Explicit skill invocation that queued this prompt
     # Set when the degeneration guard aborted mid-stream and retried on another provider.
-    degeneration_retry: DegenerationRetryData
+    degeneration: DegenerationData
 
 
 _TOKEN_KEYS = (
