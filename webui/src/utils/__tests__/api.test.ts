@@ -887,6 +887,37 @@ describe('ApiClient event stream reconnection', () => {
     expect(bodies.map((b) => b.session_id)).toEqual(['old', 'new']);
   });
 
+  it('confirmTool() renews a session the server no longer knows and retries once', async () => {
+    const sessionGone = {
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ error: 'Session not found: old' }),
+      text: async () => JSON.stringify({ error: 'Session not found: old' }),
+      headers: new Headers({ 'content-type': 'application/json' }),
+    };
+    const ok = { ok: true, status: 200, json: async () => ({ status: 'ok' }) };
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(sessionGone)
+      .mockResolvedValueOnce(ok) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    await client.subscribeToEvents('conv-1', createSseCallbacks());
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 'old' });
+
+    const confirm = client.confirmTool('conv-1', 'tool-1', 'confirm');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'new' });
+    jest.advanceTimersByTime(200);
+    await confirm;
+
+    const sessions = (global.fetch as jest.Mock).mock.calls.map(
+      ([, init]) => JSON.parse(init.body).session_id
+    );
+    expect(sessions).toEqual(['old', 'new']);
+  });
+
   it('cancels pending reconnect timers when the stream is closed manually', async () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     const callbacks = createSseCallbacks();

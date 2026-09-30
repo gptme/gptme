@@ -547,6 +547,10 @@ export function ApiProvider({
 
     void (async () => {
       console.log('[ApiContext] Attempting initial connection');
+      // A baseUrl/credential change starts a fresh loop for the new client: cancel
+      // the previous client's pending retry and reset the attempt budget, or that
+      // old timer could fire mid-probe and supersede (or exhaust) the new attempt.
+      stopAutoConnect();
       await autoConnect(true);
     })();
   }, [

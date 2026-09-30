@@ -501,6 +501,21 @@ export class ApiClient {
     return this.ensureSession(conversationId);
   }
 
+  /** Run `request` with the conversation's session, renewing it once if the server dropped it. */
+  private async withSession<T>(
+    conversationId: string,
+    request: (sessionId: string) => Promise<T>
+  ): Promise<T> {
+    const sessionId = await this.ensureSession(conversationId);
+    try {
+      return await request(sessionId);
+    } catch (error) {
+      if (!ApiClient.isSessionGoneError(error)) throw error;
+      console.warn(`[ApiClient] Session ${sessionId} expired on the server; renewing`);
+      return request(await this.renewSession(conversationId));
+    }
+  }
+
   private static isSessionGoneError(error: unknown): boolean {
     return (
       ApiClientError.isApiError(error) &&
@@ -1660,11 +1675,12 @@ export class ApiClient {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
-    const sessionId = await this.ensureSession(logfile);
-    return this.fetchJson(`${this.baseUrl}/api/v2/conversations/${logfile}/rerun`, {
-      method: 'POST',
-      body: JSON.stringify({ session_id: sessionId }),
-    });
+    return this.withSession(logfile, (sessionId) =>
+      this.fetchJson(`${this.baseUrl}/api/v2/conversations/${logfile}/rerun`, {
+        method: 'POST',
+        body: JSON.stringify({ session_id: sessionId }),
+      })
+    );
   }
 
   async uploadFiles(
@@ -1858,32 +1874,32 @@ export class ApiClient {
     console.log(`[ApiClient] Confirming tool: ${toolId}, action: ${action}`);
 
     try {
-      // Get the session ID, healing the event stream if it is down.
-      const sessionId = await this.ensureSession(logfile);
-      console.log(`[ApiClient] Using session for tool confirmation: ${sessionId}`);
+      // Session id from the (healed, if needed) event stream; renewed once if
+      // the server no longer knows it.
+      await this.withSession(logfile, (sessionId) => {
+        const request: ToolConfirmationRequest = {
+          session_id: sessionId,
+          tool_id: toolId,
+          action,
+        };
 
-      const request: ToolConfirmationRequest = {
-        session_id: sessionId,
-        tool_id: toolId,
-        action,
-      };
-
-      if (action === 'edit' && options?.content) {
-        request.content = options.content;
-      } else if (action === 'auto' && options?.count) {
-        request.count = options.count;
-      }
-
-      console.log(`[ApiClient] Sending tool confirmation request:`, request);
-
-      await this.fetchJson<{ status: string }>(
-        `${this.baseUrl}/api/v2/conversations/${logfile}/tool/confirm`,
-        {
-          method: 'POST',
-          body: JSON.stringify(request),
-          signal: this.controller?.signal,
+        if (action === 'edit' && options?.content) {
+          request.content = options.content;
+        } else if (action === 'auto' && options?.count) {
+          request.count = options.count;
         }
-      );
+
+        console.log(`[ApiClient] Sending tool confirmation request:`, request);
+
+        return this.fetchJson<{ status: string }>(
+          `${this.baseUrl}/api/v2/conversations/${logfile}/tool/confirm`,
+          {
+            method: 'POST',
+            body: JSON.stringify(request),
+            signal: this.controller?.signal,
+          }
+        );
+      });
 
       console.log(`[ApiClient] Tool confirmation successful`);
     } catch (error) {
