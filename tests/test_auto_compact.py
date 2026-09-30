@@ -3117,8 +3117,8 @@ def test_hook_installs_view_above_min_savings(monkeypatch):
 
     assert manager.create_view.called, "a view with real savings should be installed"
 
-# ── Phase 2: compact_instructions and keep_recent_tokens ───────────────────
 
+# ── Phase 2: compact_instructions and keep_recent_tokens ───────────────────
 
 
 def test_resume_via_llm_appends_compact_instructions(tmp_path, monkeypatch):
