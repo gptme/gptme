@@ -887,6 +887,39 @@ describe('ApiClient event stream reconnection', () => {
     expect(bodies.map((b) => b.session_id)).toEqual(['old', 'new']);
   });
 
+  it('step() returns silently when superseded by a newer step', async () => {
+    // The first step's request is in flight when a newer step aborts it. The
+    // first step must return silently, not leak its AbortError to the caller
+    // (the outer catch used to check this.controller — the newer step's live
+    // controller — instead of the first step's own captured controller).
+    let rejectFirst: (e: unknown) => void = () => {};
+    const firstPending = new Promise((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(firstPending)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ok', message: 'Step started', session_id: 's2' }),
+      }) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    await client.subscribeToEvents('conv-1', createSseCallbacks());
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 's1' });
+
+    const first = client.step('conv-1');
+    // Let the first step reach its in-flight fetch before the newer step aborts it.
+    await Promise.resolve();
+    await Promise.resolve();
+    const second = client.step('conv-1'); // aborts the first step's in-flight request
+    await second;
+    rejectFirst(new DOMException('The operation was aborted.', 'AbortError'));
+
+    await expect(first).resolves.toBeUndefined();
+  });
+
   it('confirmTool() renews a session the server no longer knows and retries once', async () => {
     const sessionGone = {
       ok: false,

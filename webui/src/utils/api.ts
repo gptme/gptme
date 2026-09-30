@@ -468,7 +468,10 @@ export class ApiClient {
    * of session ids, so a send while the stream is down, still connecting, or
    * gave up during an outage must heal the stream rather than fail.
    */
-  private async ensureSession(conversationId: string, timeoutMs = 15_000): Promise<string> {
+  private async ensureSession(
+    conversationId: string,
+    { timeoutMs = 15_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {}
+  ): Promise<string> {
     const existing = this.sessions$.get(conversationId).get();
     if (existing) return existing;
 
@@ -484,6 +487,8 @@ export class ApiClient {
 
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      if (signal?.aborted)
+        throw new DOMException('Aborted while waiting for session', 'AbortError');
       const sessionId = this.sessions$.get(conversationId).get();
       if (sessionId) return sessionId;
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1795,10 +1800,17 @@ export class ApiClient {
 
     // Create new controller for this request
     this.controller = new AbortController();
+    // Capture this step's own controller: a newer step() replaces
+    // this.controller, so abort checks must use the captured one — otherwise a
+    // superseded step sees a live (newer) controller and leaks its AbortError
+    // to the caller instead of returning silently.
+    const controller = this.controller;
 
     try {
       // Wait for (or heal) the event stream that supplies the session id.
-      let sessionId = await this.ensureSession(logfile);
+      let sessionId = await this.ensureSession(logfile, {
+        signal: controller.signal,
+      });
       console.log(`[ApiClient] Using session ID for generation: ${sessionId}`);
 
       let headers: {
@@ -1817,7 +1829,6 @@ export class ApiClient {
 
       // Start generation. If the server no longer knows our session (restart or
       // eviction while the tab was open), get a fresh one and retry once.
-      const controller = this.controller;
       if (controller.signal.aborted) {
         throw new DOMException('Superseded by a newer step', 'AbortError');
       }
@@ -1850,7 +1861,7 @@ export class ApiClient {
       }
       console.log(`[ApiClient] Generation started:`, request);
     } catch (error) {
-      if (this.controller?.signal.aborted) {
+      if (controller.signal.aborted) {
         console.log('Generation request aborted');
         return;
       }
