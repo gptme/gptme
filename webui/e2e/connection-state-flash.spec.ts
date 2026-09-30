@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
 
 /**
  * Connection-state flash regression (reported on gptme.ai, 2026-09-30).
@@ -91,7 +91,7 @@ async function mockSlowServer(page: Page): Promise<{ probes: () => number }> {
     return route.fulfill({ status: 404, headers: cors(origin), json: { error: 'not mocked' } });
   });
 
-  const json = (body: unknown) => (route: import('@playwright/test').Route) => {
+  const json = (body: unknown) => (route: Route) => {
     if (route.request().method() === 'OPTIONS') {
       return route.fulfill({ status: 204, headers: cors(route.request().headers()['origin']) });
     }
