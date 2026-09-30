@@ -2134,6 +2134,23 @@ export class ApiClient {
  */
 export type IApiClient = Pick<ApiClient, keyof ApiClient>;
 
+// Identity for the pooled-client lifecycle. `serverClients.ts` replaces a client
+// whenever a server's auth header changes, so a conversation can detect that the
+// event stream recorded in its store belongs to a superseded client — even
+// though the store still reports it as connected. Lazy per-object assignment
+// keeps the value stable for a client's lifetime without widening the
+// `IApiClient` interface (the demo client is covered too).
+let _clientGenerationCounter = 0;
+const _clientGeneration = new WeakMap<object, number>();
+export function getClientGeneration(client: object): number {
+  let generation = _clientGeneration.get(client);
+  if (generation === undefined) {
+    generation = ++_clientGenerationCounter;
+    _clientGeneration.set(client, generation);
+  }
+  return generation;
+}
+
 export const createApiClient = (baseUrl?: string, authHeader?: string | null): ApiClient => {
   return new ApiClient(baseUrl, authHeader);
 };

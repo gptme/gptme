@@ -36,7 +36,7 @@ import { playChime } from '@/utils/audio';
 import { speakText } from '@/utils/tts';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
 import { notifyGenerationComplete, notifyToolConfirmation } from '@/utils/notifications';
-import { ApiClientError, getApiErrorPresentation, type IApiClient } from '@/utils/api';
+import { ApiClientError, getApiErrorPresentation, getClientGeneration } from '@/utils/api';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
 
 const MAX_CONNECTED_CONVERSATIONS = 3;
@@ -73,12 +73,6 @@ export function useConversation(conversationId: string, serverId?: string) {
   const isLoadingOlderMessages = use$(isLoadingOlderMessages$);
   // Bumped by retryLoad() to re-run the load+connect effect after a failure.
   const [retryNonce, setRetryNonce] = useState(0);
-  // The client whose event stream this conversation is currently subscribed on.
-  // A credential refresh swaps the pooled client (serverClients.ts disposes the
-  // replaced one), tearing down its stream while the conversation's store state
-  // still says "connected". Comparing the client identity lets the effect
-  // re-subscribe on the replacement instead of returning early.
-  const subscribedClientRef = useRef<IApiClient | null>(null);
 
   // Initialize conversation in store if needed
   useEffect(() => {
@@ -122,16 +116,20 @@ export function useConversation(conversationId: string, serverId?: string) {
 
   // Load conversation data and connect to event stream
   useEffect(() => {
+    // A credential refresh swaps the pooled client (serverClients.ts disposes the
+    // replaced one), closing its stream while the conversation still reports
+    // "connected". The generation stored by the subscription then no longer
+    // matches the current client, so the effect re-subscribes on the
+    // replacement. Reading the generation from the shared store (rather than a
+    // per-instance ref) also keeps a second split-view instance from restarting
+    // the live stream: once the first instance subscribes, every instance sees
+    // the same generation.
+    const clientGeneration = getClientGeneration(api);
     const stillConnectedOnThisClient =
-      conversation$?.isConnected.get() === true && subscribedClientRef.current === api;
+      conversation$?.isConnected.get() === true &&
+      conversation$?.streamClientGeneration?.get() === clientGeneration;
     if (!isConnected || stillConnectedOnThisClient) {
       return;
-    }
-    // The conversation is flagged connected but its stream belonged to a client
-    // that has since been replaced (e.g. an hourly token refresh), so the flag
-    // is stale. Clear it and fall through to subscribe on the replacement.
-    if (conversation$?.isConnected.get()) {
-      setConnected(conversationId, false);
     }
 
     let cancelled = false;
@@ -246,10 +244,10 @@ export function useConversation(conversationId: string, serverId?: string) {
           }
         }
 
-        // Connect to event stream. Record the owning client before subscribing
-        // so a later render that swaps the pooled client re-subscribes instead
-        // of treating this conversation as connected.
-        subscribedClientRef.current = api;
+        // Connect to event stream. Record the client generation that owns the
+        // stream so all instances of this conversation agree a live subscription
+        // exists, and a replaced client is detected as stale.
+        updateConversation(conversationId, { streamClientGeneration: clientGeneration });
         api
           .subscribeToEvents(conversationId, {
             onMessageStart: () => {
