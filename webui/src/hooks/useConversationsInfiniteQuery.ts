@@ -46,17 +46,29 @@ export function conversationsCredentialsScope(
 ): string {
   if (!config.useAuthToken || !config.authToken) return 'anon';
   const subject = jwtSubject(config.authToken);
-  return subject ? `user-${subject}` : `token-${fnv1a(config.authToken)}`;
+  return subject ? `user-${subject}` : `token-${tokenScopeHash(config.authToken)}`;
 }
 
-/** Short non-cryptographic hash so the raw token never appears in a query key. */
-function fnv1a(value: string): string {
-  let hash = 0x811c9dc5;
+/**
+ * Non-reversible scope for an opaque token, so the raw token never appears in a
+ * query key.
+ *
+ * Two independent 32-bit FNV passes (FNV-1a and FNV-1) are concatenated into a
+ * 64-bit-class result. A single 32-bit hash hits the birthday bound at ~2^16
+ * tokens, at which point two accounts' scopes can collide and one could be
+ * served the other's cached conversation list. A cryptographic digest is not
+ * reachable here: the query key is computed synchronously on every render, and
+ * `crypto.subtle.digest` is async.
+ */
+function tokenScopeHash(value: string): string {
+  let a = 0x811c9dc5; // FNV-1a: xor then multiply
+  let b = 0x811c9dc5; // FNV-1: multiply then xor
   for (let i = 0; i < value.length; i++) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+    const c = value.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b, 0x01000193) ^ c;
   }
-  return (hash >>> 0).toString(16);
+  return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
 }
 
 /**

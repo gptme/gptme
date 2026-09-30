@@ -79,6 +79,16 @@ describe('conversationsQueryKey', () => {
     expect(scope('opaque-token')).not.toContain('opaque-token');
   });
 
+  it('scopes opaque tokens with a 64-bit-class hash, not a collidable 32-bit one', () => {
+    // A 32-bit hash collides at the birthday bound (~2^16 tokens), which would
+    // let one account be served another's cached conversation list.
+    const scope = (authToken: string) =>
+      conversationsCredentialsScope({ useAuthToken: true, authToken });
+    expect(scope('opaque-token')).toMatch(/^token-[0-9a-f]{16}$/);
+    expect(scope('opaque-token')).not.toBe(scope('opaque-tokeN'));
+    expect(scope('opaque-token-1')).not.toBe(scope('opaque-token-2'));
+  });
+
   it('still invalidates every credential scope through the prefix key', async () => {
     const client = new QueryClient();
     const key = conversationsDataQueryKey(

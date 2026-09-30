@@ -44,6 +44,11 @@ export function getClientForServerConfig(
     return existing;
   }
 
+  // A config change (baseUrl or auth header) replaces the client. Release the
+  // one being replaced so its DOM listeners, reconnect timers and SSE streams
+  // don't outlive it — the auth header changes on every hourly token refresh.
+  existing?.dispose();
+
   const client = createApiClient(config.baseUrl, authHeader);
   clientPool.set(serverId, client);
   return client;
@@ -84,8 +89,9 @@ export function getPrimaryClient(): IApiClient {
 export function cleanupDisconnectedClients(): void {
   const registry = serverRegistry$.get();
   const connectedIds = new Set(registry.connectedServerIds);
-  for (const [id] of clientPool) {
+  for (const [id, client] of clientPool) {
     if (!connectedIds.has(id)) {
+      client.dispose();
       clientPool.delete(id);
     }
   }

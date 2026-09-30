@@ -375,6 +375,7 @@ export class ApiClient {
   // Slow background retries for streams whose fast reconnect budget ran out.
   private deadStreamRetries = new Map<string, { attempt: number; timer?: number }>();
   private wakeListenersInstalled = false;
+  private wakeHandler: (() => void) | null = null;
   private isCleaningUp = false;
   private authCookieSet = false;
   private authCookieSetAt: number | null = null;
@@ -429,9 +430,31 @@ export class ApiClient {
         this.reviveEventStream(conversationId);
       }
     };
+    this.wakeHandler = wake;
     window.addEventListener('online', wake);
     window.addEventListener('focus', wake);
     document.addEventListener('visibilitychange', wake);
+  }
+
+  /**
+   * Detach the wake listeners installed by {@link installWakeListeners}.
+   *
+   * Without this, a client dropped from the pool (the auth header changing —
+   * gptme.ai refreshes the session token hourly, and the pool keys clients on
+   * the header) would leave its listeners and wake closure attached for the
+   * life of the page. Every focus/online/visibilitychange would then re-open
+   * SSE streams under the old client's rotated credentials, and the listener
+   * count would grow by one client per token refresh.
+   */
+  private teardownWakeListeners(): void {
+    if (!this.wakeListenersInstalled || typeof window === 'undefined') return;
+    this.wakeListenersInstalled = false;
+    const wake = this.wakeHandler;
+    this.wakeHandler = null;
+    if (!wake) return;
+    window.removeEventListener('online', wake);
+    window.removeEventListener('focus', wake);
+    document.removeEventListener('visibilitychange', wake);
   }
 
   /** Re-open a stream the app still wants but whose connection gave up. */
@@ -728,6 +751,25 @@ export class ApiClient {
       }
     } finally {
       this.isCleaningUp = false;
+    }
+  }
+
+  /**
+   * Release everything this client holds when it is dropped from the pool.
+   *
+   * The pool swaps in a fresh client whenever a server's auth header changes
+   * (gptme.ai rotates the session token hourly), so a dropped client must not
+   * keep DOM listeners, reconnect timers or SSE streams alive: they would fire
+   * under superseded credentials and keep stale React callbacks referenced.
+   */
+  public dispose(): void {
+    this.teardownWakeListeners();
+    void this.cancelPendingRequests();
+    for (const conversationId of Array.from(this.eventCallbacks.keys())) {
+      this.closeEventStream(conversationId);
+    }
+    for (const conversationId of Array.from(this.deadStreamRetries.keys())) {
+      this.closeEventStream(conversationId);
     }
   }
 

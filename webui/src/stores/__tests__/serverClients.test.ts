@@ -5,6 +5,7 @@ jest.mock('@/utils/api', () => ({
   createApiClient: jest.fn((baseUrl: string, authHeader: string | null) => ({
     baseUrl,
     authHeader,
+    dispose: jest.fn(),
   })),
 }));
 
@@ -42,6 +43,10 @@ describe('getClientForServerConfig', () => {
       baseUrl: 'http://127.0.0.1:5712',
       authHeader: 'Bearer sidecar-token',
     });
+    // The replaced client must be disposed so its DOM listeners and reconnect
+    // timers don't outlive the pool entry (hourly token refresh creates a new
+    // client each time).
+    expect((unauthenticated as unknown as { dispose: jest.Mock }).dispose).toHaveBeenCalled();
     expect(createApiClient).toHaveBeenLastCalledWith(
       'http://127.0.0.1:5712',
       'Bearer sidecar-token'

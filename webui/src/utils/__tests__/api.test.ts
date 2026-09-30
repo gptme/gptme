@@ -826,6 +826,50 @@ describe('ApiClient event stream reconnection', () => {
     expect(client.sessions$.get('conv-1').get()).toBe('fresh');
   });
 
+  // The pool swaps in a fresh client whenever the auth header changes (gptme.ai
+  // rotates its session token hourly), so a dropped client must release its
+  // wake listeners and reconnect timers instead of leaving them attached for
+  // the life of the page.
+  it('dispose() detaches wake listeners and clears retry timers', async () => {
+    const addSpy = jest.spyOn(window, 'addEventListener');
+    const removeSpy = jest.spyOn(window, 'removeEventListener');
+    const docAddSpy = jest.spyOn(document, 'addEventListener');
+    const docRemoveSpy = jest.spyOn(document, 'removeEventListener');
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+
+    expect(addSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['online', 'focus'])
+    );
+    expect(docAddSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['visibilitychange'])
+    );
+
+    const before = MockEventSource.instances.length;
+    client.dispose();
+
+    expect(removeSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['online', 'focus'])
+    );
+    expect(docRemoveSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['visibilitychange'])
+    );
+
+    // Neither the slow retry timer nor a focus/online event may re-open a stream.
+    jest.advanceTimersByTime(300_000);
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(MockEventSource.instances.length).toBe(before);
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+    docAddSpy.mockRestore();
+    docRemoveSpy.mockRestore();
+  });
+
   it('step() re-opens a dead stream and sends instead of failing on a missing session', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
