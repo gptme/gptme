@@ -310,7 +310,7 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
       const server = findOrCreateServerByUrl(result.instanceUrl, {
         authToken: result.userToken,
         useAuthToken: true,
-        ...(result.sseToken && { sseToken: result.sseToken }),
+        sseToken: result.sseToken ?? null,
       });
       connectServer(server.id);
       setActiveServer(server.id);

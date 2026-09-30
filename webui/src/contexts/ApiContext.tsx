@@ -217,6 +217,7 @@ export function ApiProvider({
           authToken: updates.authToken !== undefined ? updates.authToken : activeServer.authToken,
           useAuthToken:
             updates.useAuthToken !== undefined ? updates.useAuthToken : activeServer.useAuthToken,
+          sseToken: updates.sseToken !== undefined ? updates.sseToken : activeServer.sseToken,
         });
       } else {
         client = getPrimaryClient();

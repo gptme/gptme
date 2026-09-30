@@ -1279,6 +1279,15 @@ export class ApiClient {
       eventSource.close();
       this.eventSources.delete(conversationId);
 
+      // If sseToken was in use but we never connected, it may be expired.
+      // Clear it so the first retry falls back to the JWT/cookie path.
+      if (this.sseToken && !wasConnected && reconnectCount === 0) {
+        console.warn(
+          '[ApiClient] SSE token failed on initial connect, clearing for retry (may be expired)'
+        );
+        this.sseToken = null;
+      }
+
       // Attempt retry with exponential backoff regardless of whether
       // we were previously connected (dropped stream) or never connected
       // (initial failure). Both paths use the same retry budget.
