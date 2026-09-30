@@ -336,6 +336,7 @@ def auto_compact_log(
     reasoning_strip_age_threshold: int | None = None,
     logdir: Path | None = None,
     keep_head: int = 0,
+    target_ratio: float = 1.0,
 ) -> Generator[Message, None, None]:
     """
     Auto-compact log for conversations with massive tool results.
@@ -370,6 +371,11 @@ def auto_compact_log(
             head messages are yielded verbatim and count toward the token budget but
             are never reduced. If the head alone exceeds the limit, compaction accepts
             the overshoot rather than reducing the protected task context.
+        target_ratio: Fraction of ``limit`` the Phase 2 trim aims for. ``1.0``
+            (default) trims to the trigger itself and preserves the previous
+            behaviour. Callers that compact on a budget trigger pass a lower
+            value (see ``TRIM_TARGET_RATIO``) to leave hysteresis headroom so the
+            next turns do not re-trigger immediately.
     """
 
     # Build master context index for byte-range references
@@ -497,7 +503,9 @@ def auto_compact_log(
     tool_result_tokens_saved = 0
     compression_tokens_saved = 0
     current_tokens = len_tokens(compacted_log, model.model)
-    target_tokens = limit
+    # Hysteresis: aim below the trigger so a successful trim leaves headroom.
+    # target_ratio=1.0 keeps the pre-hysteresis behaviour for direct callers.
+    target_tokens = max(1, int(limit * target_ratio))
 
     if current_tokens >= target_tokens:
         # Identify all candidate tool results for truncation (with original indices)

@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 # This prevents triggering compaction that only saves a few percent (not worth cache invalidation)
 MIN_SAVINGS_RATIO = 0.10  # Require at least 10% savings to justify compaction
 
+# Hysteresis: after a budget-triggered compaction, trim toward this fraction of
+# the budget rather than the trigger itself. Without headroom a trim that lands
+# just below the budget re-triggers on the very next step, busting the cache
+# again for a few percent of savings. Direct callers of the engine keep the
+# previous behaviour unless they opt in (``target_ratio=1.0`` default).
+TRIM_TARGET_RATIO = 0.7
+
 CompactAction = Literal["none", "rule_based", "summarize"]
 
 

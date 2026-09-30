@@ -19,7 +19,7 @@ from ...util.context_budget import get_context_budget
 from ..base import ToolSpec, ToolUse
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
-from .decision import should_auto_compact
+from .decision import MIN_SAVINGS_RATIO, TRIM_TARGET_RATIO, should_auto_compact
 from .events import append_compaction_event
 from .handlers import cmd_compact_handler
 from .resume import _resume_via_llm
@@ -272,6 +272,7 @@ def autocompact_hook(
                 limit=budget,
                 logdir=manager.logdir,
                 keep_head=_get_keep_head(),
+                trim_target_ratio=TRIM_TARGET_RATIO,
             )
             compacted_msgs = provider.compress(messages, config).messages
 
@@ -281,6 +282,29 @@ def autocompact_hook(
             compacted_count = len(compacted_msgs)
             original_tokens = len_tokens(messages, m.model) if m else 0
             compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
+
+            # Post-hoc savings gate: the pre-trigger estimate is approximate, so
+            # verify the view we are about to install actually saves enough to
+            # justify the cache invalidation. Rejecting a near-useless view keeps
+            # the promise "no compaction below MIN_SAVINGS_RATIO". Mark the
+            # attempt so the unchanged log does not re-fire every step; the next
+            # growth window can retry (by then the estimate may take the
+            # summarize path instead).
+            reduction_ratio = (
+                (original_tokens - compacted_tokens) / original_tokens
+                if original_tokens > 0
+                else 0.0
+            )
+            # Fail open when token measurement is unavailable (no default
+            # model): we cannot judge the savings, so do not block a trim the
+            # estimate already accepted.
+            if m is not None and reduction_ratio < MIN_SAVINGS_RATIO:
+                logger.warning(
+                    "Rejecting rule-based auto-compact view: actual savings "
+                    f"{reduction_ratio:.1%} below threshold {MIN_SAVINGS_RATIO:.0%}"
+                )
+                _last_autocompact_attempt[conv_key] = (current_time, n_messages)
+                return
 
             # Create a view branch with compacted content
             # Master branch (main) stays intact with full history
