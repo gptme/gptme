@@ -32,7 +32,7 @@ from typing import Any
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
 from ..util.git_cmd import git_inspect_cmd
-from ..util.redact import redact_secrets_from_text
+from ..util.redact import redact_secret_values_in_path, redact_secrets_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,8 @@ def _redact_diff(diff: str) -> str:
     prefix changed lines with ``+``/``-``. Strip the leading marker run, redact
     the remainder, and restore the markers so an edited credential
     (``+GITHUB_TOKEN=...``) is still caught. ``+++``/``---`` header paths are
-    redacted after their ``a/``/``b/`` prefix as well.
+    redacted after their ``a/``/``b/`` prefix as well, but only when the value
+    is secret-shaped so a filename like ``token=parser.py`` stays readable.
     """
     out: list[str] = []
     for line in diff.splitlines(keepends=True):
@@ -202,14 +203,14 @@ def _redact_diff(diff: str) -> str:
             # `diff --git a/<path> b/<path>` carries no +/- marker, and the
             # paths sit after a `diff --git` prefix the line-anchored patterns
             # cannot see past. Redact each a//b/ segment so a tracked filename
-            # containing a credential assignment does not leak.
+            # containing a credential value does not leak.
             out.append("diff --git " + _redact_header_paths(line[len("diff --git ") :]))
             continue
         match = _DIFF_MARKER_RE.match(line)
         marker = match.group(0) if match else ""
         rest = line[len(marker) :]
         if marker in ("+++", "---") and rest[:1] == " " and rest[1:3] in ("a/", "b/"):
-            rest = f" {rest[1:3]}{redact_secrets_from_text(rest[3:])}"
+            rest = f" {rest[1:3]}{redact_secret_values_in_path(rest[3:])}"
         else:
             rest = redact_secrets_from_text(rest)
         out.append(marker + rest)
@@ -217,9 +218,9 @@ def _redact_diff(diff: str) -> str:
 
 
 def _redact_header_paths(rest: str) -> str:
-    """Redact a diff header's ``a/``/``b/`` path segments."""
+    """Redact the secret-shaped value in a diff header's ``a/``/``b/`` paths."""
     return " ".join(
-        f"{token[:2]}{redact_secrets_from_text(token[2:])}"
+        f"{token[:2]}{redact_secret_values_in_path(token[2:])}"
         if token[:2] in ("a/", "b/")
         else token
         for token in rest.split(" ")
@@ -254,9 +255,10 @@ def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
 
     Returns ``(paths, more)``: at most ``_MAX_UNTRACKED_PATHS`` entries, and
     ``more`` when the tree had additional entries beyond the cap. Enumeration
-    is bounded (only ``cap + 1`` lines are ever read). Paths are redacted with
-    the same guard as the tracked diff — a crafted filename such as
-    ``GITHUB_TOKEN=ghp_...`` is otherwise copied verbatim into the message.
+    is bounded (only ``cap + 1`` lines are ever read). Paths pass through the
+    path-aware redactor — a crafted filename such as
+    ``GITHUB_TOKEN=ghp_...`` is rewritten to ``GITHUB_TOKEN=[REDACTED]``, while
+    a legitimate name like ``token=parser.py`` is left intact.
     """
     result = _git_capture_bounded(
         workspace,
@@ -270,7 +272,7 @@ def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
     text, _ = result
     raw = [line for line in text.splitlines() if line.strip()]
     more = len(raw) > _MAX_UNTRACKED_PATHS
-    paths = [redact_secrets_from_text(line) for line in raw[:_MAX_UNTRACKED_PATHS]]
+    paths = [redact_secret_values_in_path(line) for line in raw[:_MAX_UNTRACKED_PATHS]]
     return paths, more
 
 

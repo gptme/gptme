@@ -286,3 +286,47 @@ def test_get_dirty_diff_disables_ext_and_textconv(git_repo, monkeypatch):
     assert result is not None
     assert "--no-ext-diff" in captured["argv"]
     assert "--no-textconv" in captured["argv"]
+
+
+def test_redact_diff_keeps_legitimate_assignment_filenames():
+    from gptme.hooks.dirty_diff import _redact_diff
+
+    # A filename that merely looks like an assignment is not a secret: the
+    # value (`parser.py`) has no credential shape, so the path stays readable.
+    assert _redact_diff("+++ b/token=parser.py\n") == "+++ b/token=parser.py\n"
+    assert (
+        _redact_diff("diff --git a/token=parser.py b/token=parser.py\n")
+        == "diff --git a/token=parser.py b/token=parser.py\n"
+    )
+    # A secret-shaped value in the same position is still redacted.
+    assert (
+        _redact_diff("diff --git a/GITHUB_TOKEN=ghp_leak b/GITHUB_TOKEN=ghp_leak\n")
+        == "diff --git a/GITHUB_TOKEN=[REDACTED] b/GITHUB_TOKEN=[REDACTED]\n"
+    )
+
+
+def test_hook_lists_legit_assignment_filename_untracked(git_repo):
+    (git_repo / "token=parser.py").write_text("print('hi')\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    assert "token=parser.py" in out[0].content
+    assert "token=[REDACTED]" not in out[0].content
+
+
+def test_redact_secret_values_in_path_unit():
+    from gptme.util.redact import redact_secret_values_in_path
+
+    assert redact_secret_values_in_path("token=parser.py") == "token=parser.py"
+    assert redact_secret_values_in_path("config/token=parser.py") == (
+        "config/token=parser.py"
+    )
+    assert redact_secret_values_in_path("GITHUB_TOKEN=ghp_abc123") == (
+        "GITHUB_TOKEN=[REDACTED]"
+    )
+    assert redact_secret_values_in_path("api_key=sk-proj-abcdef123456") == (
+        "api_key=[REDACTED]"
+    )
+    # Not an assignment-shaped path → untouched.
+    assert redact_secret_values_in_path("src/main.py") == "src/main.py"

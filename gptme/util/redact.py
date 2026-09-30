@@ -75,6 +75,76 @@ _ENV_ASSIGN_RE = re.compile(
 
 _REDACTED = "[REDACTED]"
 
+# Path context (filenames, diff headers) differs from line context: a segment
+# such as ``token=parser.py`` is a legitimate filename, not a secret
+# assignment, so redacting on the *name* alone destroys useful context. In a
+# path we redact only when the trailing value is itself secret-shaped — the
+# credible leak is a value copied into a filename, not a keyword in one.
+_SECRET_VALUE_PREFIX_RE = re.compile(
+    r"(?i)^("
+    r"gh[pousr]_|github_pat_|"
+    r"sk-(?:ant-|or-|proj-)?|xox[baprs]-|"
+    r"AKIA|ASIA|glpat-|AIza|ya29\.|npm_|dckr_pat_|"
+    r"rk_live_|sk_live_|pk_live_|rk_test_|sk_test_|pk_test_"
+    r")"
+)
+
+# Assignment-shaped path segment: ``<secret-named-key><sep><value>``.
+_PATH_ASSIGN_RE = re.compile(
+    r"""(?ix)
+    ^(
+        [\w\-]*?
+        (?:
+            api[-_]?key|apikey|token|secret|password|passwd
+            |private[-_]key|privkey|auth[-_]?(?:key|token)
+            |access[-_]key|credential
+        )
+        [\w\-]*
+    )
+    (\s*[=:]\s*)
+    (.+)$
+    """,
+)
+
+
+def looks_like_secret_value(value: str) -> bool:
+    """Heuristic: is ``value`` a credential rather than a filename token?
+
+    Name-based matching is right for line content but wrong for paths, where a
+    filename like ``token=parser.py`` is not an assignment. A value is treated
+    as secret-shaped only when it carries a known vendor prefix or is a long,
+    unprefixed base64-ish token — the shapes real leaked credentials have.
+    """
+    v = value.strip().strip("'\"")
+    if not v:
+        return False
+    if _SECRET_VALUE_PREFIX_RE.match(v):
+        return True
+    # Unprefixed high-entropy token: long, mixed case + digits, and no
+    # path-ish separators — a filename with an extension or underscores
+    # (``my_2024_backup.tar``) is not mistaken for a secret.
+    return bool(
+        re.fullmatch(r"[A-Za-z0-9+/=]{24,}", v)
+        and any(c.islower() for c in v)
+        and any(c.isupper() for c in v)
+        and any(c.isdigit() for c in v)
+    )
+
+
+def redact_secret_values_in_path(path: str) -> str:
+    """Redact only the secret-shaped value of an assignment-shaped path.
+
+    For diff header paths and untracked filenames, where the segment is a path
+    rather than a line: ``token=parser.py`` is preserved (the value is a
+    filename), while ``GITHUB_TOKEN=ghp_...`` becomes ``GITHUB_TOKEN=[REDACTED]``.
+    """
+    ending = "\n" if path.endswith("\n") else ""
+    body = path[: -len(ending)] if ending else path
+    match = _PATH_ASSIGN_RE.match(body)
+    if match and looks_like_secret_value(match.group(3)):
+        return f"{match.group(1)}{match.group(2)}{_REDACTED}{ending}"
+    return path
+
 
 def redact_secrets_from_text(content: str) -> str:
     """Redact common secret patterns from text content.
