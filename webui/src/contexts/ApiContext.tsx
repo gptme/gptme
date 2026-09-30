@@ -81,6 +81,11 @@ const isAutoConnecting$ = observable(false);
 // Auto-connect state management
 let autoConnectTimer: ReturnType<typeof setTimeout> | null = null;
 let autoConnectAttempts = 0;
+// Bumped on every new attempt and whenever the loop is stopped, so a probe that
+// resolves after it was superseded (e.g. a credential change swapped in a new
+// client mid-probe) can detect it is stale and avoid touching shared state —
+// in particular clearing the retry timer a later attempt scheduled.
+let autoConnectGeneration = 0;
 const MAX_AUTO_CONNECT_ATTEMPTS = 10;
 const INITIAL_RETRY_DELAY = 1000;
 const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:5700';
@@ -107,6 +112,9 @@ export function shouldSkipHostedLoopbackAutoConnect(
 }
 
 const stopAutoConnect = () => {
+  // Invalidate any in-flight probe: if it resolves later it must not set state
+  // or clear a retry timer that a newer attempt scheduled.
+  autoConnectGeneration++;
   if (autoConnectTimer) {
     clearTimeout(autoConnectTimer);
     autoConnectTimer = null;
@@ -330,6 +338,7 @@ export function ApiProvider({
   const autoConnect = useCallback(
     async (isInitialAttempt: boolean = false) => {
       const client = getPrimaryClient();
+      const generation = ++autoConnectGeneration;
 
       if (client.isConnected$.get()) {
         console.log('[ApiContext] Already connected, stopping auto-connect');
@@ -355,6 +364,11 @@ export function ApiProvider({
 
       try {
         const connected = await client.checkConnection();
+        // A newer attempt may have started while this probe was in flight — a
+        // credential change swaps in a fresh client and re-runs the effect. Bail
+        // before touching shared state, or this stale attempt would clear the
+        // newer attempt's retry timer and leave the active client disconnected.
+        if (generation !== autoConnectGeneration) return;
         if (connected) {
           console.log('[ApiContext] Auto-connect successful');
           client.setConnected(true);
@@ -368,8 +382,12 @@ export function ApiProvider({
           return;
         }
       } catch (error) {
+        if (generation !== autoConnectGeneration) return;
         console.log(`[ApiContext] Auto-connect attempt ${autoConnectAttempts} failed:`, error);
       }
+
+      // Same staleness check for the post-probe classification and retry below.
+      if (generation !== autoConnectGeneration) return;
 
       // CORS / Private Network Access failures don't recover by retrying within
       // the session. The user has a manual "Retry connection" button; spamming

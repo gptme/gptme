@@ -138,6 +138,38 @@ describe('useConnectionStatus', () => {
     expect(result.current).toBe('disconnected');
   });
 
+  it('does not flash disconnected on a later swap after a slow first connect', () => {
+    const seen: string[] = [];
+    const { rerender } = renderHook(() => {
+      const status = useConnectionStatus();
+      seen.push(status);
+      return status;
+    });
+    // First probe takes longer than the grace period...
+    act(() => {
+      jest.advanceTimersByTime(CONNECTION_GRACE_MS + 1);
+    });
+    act(() => {
+      mockCtx.api.isConnected$.set(true);
+    });
+    seen.length = 0;
+    // ...then a token refresh swaps in a fresh client.
+    mockCtx.api = makeClient();
+    rerender();
+    expect(seen[0]).toBe('connecting');
+    expect(seen).not.toContain('disconnected');
+  });
+
+  it("ignores the primary's attempt flags for a secondary client", () => {
+    const secondary = makeClient();
+    secondary.lastConnectionResult$.set(FAILED);
+    mockCtx.isAutoConnecting$.set(true);
+    const { result } = renderHook(() =>
+      useConnectionStatus(secondary as unknown as Parameters<typeof useConnectionStatus>[0])
+    );
+    expect(result.current).toBe('disconnected');
+  });
+
   it('restarts the grace period when a connected client drops', () => {
     mockCtx.api.isConnected$.set(true);
     const { result } = renderHook(() => useConnectionStatus());

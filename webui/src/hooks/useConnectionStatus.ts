@@ -56,7 +56,14 @@ export function useConnectionStatus(client?: IApiClient): ConnectionStatus {
   const [graceExpired, setGraceExpired] = useState(false);
 
   useEffect(() => {
-    if (isConnected) return;
+    if (isConnected) {
+      // Reset as soon as the client connects. Otherwise a first probe that took
+      // longer than the grace period leaves graceExpired stuck at true, and the
+      // next client swap / drop renders one frame as disconnected before this
+      // effect resets it — the exact flash this hook exists to prevent.
+      setGraceExpired(false);
+      return;
+    }
     setGraceExpired(false);
     const timer = setTimeout(() => setGraceExpired(true), CONNECTION_GRACE_MS);
     return () => clearTimeout(timer);
@@ -64,9 +71,16 @@ export function useConnectionStatus(client?: IApiClient): ConnectionStatus {
     // the client object, so callers that re-wrap a client don't reset the timer.
   }, [target.isConnected$, isConnected]);
 
+  // The attempt flags (isConnecting$/isAutoConnecting$/isExchangingAuthCode) track
+  // the *primary* client only. Applying them to a secondary client would report
+  // it as "connecting" whenever the primary is retrying, hiding the secondary's
+  // own failed probe (and its retry button). Secondary clients rely on their own
+  // lastConnectionResult$ plus the grace period instead.
+  const isPrimary = target.isConnected$ === api.isConnected$;
+
   return deriveConnectionStatus({
     isConnected,
-    isAttempting: isConnecting || isAutoConnecting || isExchangingAuthCode,
+    isAttempting: isPrimary && (isConnecting || isAutoConnecting || isExchangingAuthCode),
     lastResult,
     // No probe is coming for a skipped auto-connect, so don't hold the
     // disconnected guidance back for the grace period.
