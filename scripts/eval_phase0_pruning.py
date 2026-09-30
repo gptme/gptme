@@ -44,6 +44,7 @@ from gptme.tools.autocompact import (
     shadow_prune_stale_tool_outputs,
 )
 from gptme.tools.autocompact.config import _get_keep_head
+from gptme.tools.autocompact.engine import _is_tool_output
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -123,13 +124,15 @@ class AggregateStats:
 
 
 def _count_false_drops(decisions: list[PruneDecision], log_messages: list) -> int:
-    """Count dropped decisions whose payload reappears in a later message.
+    """Count dropped decisions whose payload reappears in a later tool output.
 
-    For each dropped decision at index ``d.idx``, scan every message at
-    index > ``d.idx``.  A match on ``content_digest`` — a short digest of the
-    *normalized* content, with line numbers and tool formatting stripped —
-    means the same payload was re-read/re-used after the drop point: a silent
-    context loss.  This is a normalized match rather than a byte-for-byte
+    For each dropped decision at index ``d.idx``, scan every later *tool
+    output* (see ``_is_tool_output``).  A match on ``content_digest`` — a short
+    digest of the *normalized* content, with line numbers and tool formatting
+    stripped — means the same payload was re-read after the drop point: a
+    silent context loss.  Only tool outputs count as a re-read; a user or
+    assistant message quoting the same text is not the model needing the
+    payload again.  This is a normalized match rather than a byte-for-byte
     comparison, and the digest is short, so a small number of collisions is
     possible over long logs.  Each dropped item is counted at most once.
     """
@@ -140,7 +143,11 @@ def _count_false_drops(decisions: list[PruneDecision], log_messages: list) -> in
     false_drops = 0
     for d in dropped:
         drop_digest = d.content_digest
-        for later_msg in log_messages[d.idx + 1 :]:
+        for i in range(d.idx + 1, len(log_messages)):
+            later_msg = log_messages[i]
+            prev = log_messages[i - 1] if i > 0 else None
+            if not _is_tool_output(later_msg, prev):
+                continue
             if PruneDecision._digest(later_msg.content) == drop_digest:
                 false_drops += 1
                 break  # count this dropped item once regardless of how many later matches

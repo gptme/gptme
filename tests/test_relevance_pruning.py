@@ -488,7 +488,7 @@ def test_count_false_drops_reappears():
     messages = [
         _tool_out(payload),
         _user("what files did we have?"),
-        _system(payload),  # same payload reappears later
+        _tool_out(payload),  # same payload reappears in a later tool output
         _assistant("those files"),
     ]
     assert _count_false_drops([drop], messages) == 1
@@ -532,9 +532,9 @@ def test_count_false_drops_multiple_drops_counted_once_each():
         _tool_out(p1),
         _tool_out(p2),
         _user("q1"),
-        _system(p1),  # reappears once
-        _system(p1),  # reappears again — should NOT add to the count
-        _system(p2),  # second drop reappears
+        _tool_out(p1),  # reappears once
+        _tool_out(p1),  # reappears again — should NOT add to the count
+        _tool_out(p2),  # second drop reappears
         _assistant("ok"),
     ]
     d1 = _make_drop_decision(0, p1)
@@ -553,17 +553,19 @@ def _import_eval_phase0():
     return eval_phase0_pruning
 
 
-def test_trigger_at_first_crossing_below_limit():
+def test_trigger_at_first_turn_boundary_below_limit():
     """A log that never reaches the limit reports no trigger."""
     ev = _import_eval_phase0()
     messages = [_user("hi"), _assistant("hello")]
-    assert ev._trigger_at_first_crossing(messages, _model_name(), 10_000_000, 0) == (
+    assert ev._trigger_at_first_turn_boundary(
+        messages, _model_name(), 10_000_000, 0
+    ) == (
         False,
         False,
     )
 
 
-def test_trigger_at_first_crossing_pruning_delays_trigger():
+def test_trigger_at_first_turn_boundary_pruning_delays_trigger():
     """At the first crossing, pruning savings can pull the prefix under limit."""
     ev = _import_eval_phase0()
     stale = _tool_out("word " * 400)
@@ -572,18 +574,18 @@ def test_trigger_at_first_crossing_pruning_delays_trigger():
     limit = ev.len_tokens(messages, _model_name())
     # Full log is exactly at the limit; the stale output is old enough to prune,
     # so the crossing prefix ends up under budget after Phase 0.
-    assert ev._trigger_at_first_crossing(messages, _model_name(), limit, 0) == (
+    assert ev._trigger_at_first_turn_boundary(messages, _model_name(), limit, 0) == (
         True,
         False,
     )
 
 
-def test_trigger_at_first_crossing_unprunable_stays_triggered():
+def test_trigger_at_first_turn_boundary_unprunable_stays_triggered():
     """With nothing to prune, the crossing prefix remains over budget."""
     ev = _import_eval_phase0()
     messages = [_user("word " * 400), _assistant("done")]
     limit = ev.len_tokens(messages, _model_name())
-    assert ev._trigger_at_first_crossing(messages, _model_name(), limit, 0) == (
+    assert ev._trigger_at_first_turn_boundary(messages, _model_name(), limit, 0) == (
         True,
         True,
     )
