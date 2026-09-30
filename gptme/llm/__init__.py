@@ -622,12 +622,14 @@ def _chat_complete(
             top_p=top_p,
         )
     if provider == "openai-subscription":
-        from .llm_openai_subscription import chat as chat_subscription
+        from .llm_openai_subscription import chat_with_metadata
 
-        content = chat_subscription(
+        content, sub_metadata = chat_with_metadata(
             messages, _get_base_model(model), tools, max_tokens=max_tokens
         )
-        return content, {"model": model}
+        # Keep what the stream recorded (usage, reasoning_effort, served_model)
+        # and stamp the full provider-prefixed requested model.
+        return content, cast(MessageMetadata, {**(sub_metadata or {}), "model": model})
     if provider == "mock":
         from .llm_mock import chat as chat_mock
 

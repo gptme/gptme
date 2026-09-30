@@ -777,6 +777,26 @@ def stream(
     return cast(MessageMetadata, {**effort_meta, "usage": usage_data})
 
 
+def chat_with_metadata(
+    messages: list[Message],
+    model: str,
+    tools: list[Any] | None = None,
+    **kwargs: Any,
+) -> tuple[str, MessageMetadata | None]:
+    """Non-streaming completion that also returns the stream's metadata.
+
+    Drains :func:`stream` and keeps its generator return value (usage,
+    reasoning effort, served model) instead of discarding it.
+    """
+    gen = stream(messages, model, tools, **kwargs)
+    content_parts: list[str] = []
+    while True:
+        try:
+            content_parts.append(next(gen))
+        except StopIteration as e:
+            return "".join(content_parts), e.value
+
+
 def chat(
     messages: list[Message],
     model: str,
@@ -784,8 +804,8 @@ def chat(
     **kwargs: Any,
 ) -> str:
     """Non-streaming completion from ChatGPT subscription API."""
-    content_parts = list(stream(messages, model, tools, **kwargs))
-    return "".join(content_parts)
+    content, _ = chat_with_metadata(messages, model, tools, **kwargs)
+    return content
 
 
 def init(config: Any) -> bool:

@@ -204,6 +204,64 @@ def test_subscription_missing_model_leaves_key_absent():
     assert metadata == {"reasoning_effort": "medium"}
 
 
+def test_subscription_non_streaming_chat_complete_keeps_served_model():
+    """reply() non-streaming mode goes through _chat_complete -> chat_with_metadata;
+    the stream's metadata (incl. served_model) must reach the message."""
+    from gptme.llm import _chat_complete
+
+    events: list[dict[str, Any]] = [
+        {"type": "response.created", "response": {"model": "gpt-5.6-sol"}},
+        {"type": "response.output_text.delta", "delta": "ok"},
+        {
+            "type": "response.completed",
+            "response": {
+                "model": "gpt-5.6-sol",
+                "usage": {"input_tokens": 10, "output_tokens": 2},
+            },
+        },
+    ]
+    auth = llm_openai_subscription.SubscriptionAuth(
+        access_token="x", refresh_token=None, account_id="acct", expires_at=1e12
+    )
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=_FakeSSE(events),
+        ),
+    ):
+        content, metadata = _chat_complete(
+            [Message(role="user", content="hello")],
+            "openai-subscription/gpt-5.6-sol",
+            None,
+        )
+    assert content == "ok"
+    assert metadata is not None
+    assert metadata["model"] == "openai-subscription/gpt-5.6-sol"
+    assert metadata["served_model"] == "gpt-5.6-sol"
+    assert metadata["usage"]["output_tokens"] == 2
+
+
+def test_subscription_chat_still_returns_plain_text():
+    with patch.object(
+        llm_openai_subscription,
+        "stream",
+        side_effect=lambda *a, **k: _gen_with_return(["o", "k"], {"x": 1}),
+    ):
+        assert (
+            llm_openai_subscription.chat([Message(role="user", content="hi")], "m")
+            == "ok"
+        )
+        assert llm_openai_subscription.chat_with_metadata(
+            [Message(role="user", content="hi")], "m"
+        ) == ("ok", {"x": 1})
+
+
+def _gen_with_return(parts: list[str], value: Any):
+    yield from parts
+    return value
+
+
 # --- OpenAI-compatible: _record_usage ----------------------------------------------
 
 
