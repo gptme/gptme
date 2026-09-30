@@ -169,23 +169,39 @@ test.describe('Connection state: no disconnected flash', () => {
 
     await page.goto('/chat');
     await expect(page.getByText(CONV_ID).first()).toBeVisible({ timeout: 15_000 });
-    const probesBefore = server.probes();
 
     // What gptme.ai does on every session-token refresh: the active server's
     // token changes, so the client pool swaps in a fresh, not-yet-connected
-    // client. Drive it through the registry's cross-tab sync path.
+    // client. Drive it through the registry's cross-tab sync path. gptme.ai's
+    // tokens are Supabase JWTs whose `sub` stays the same across refreshes.
+    const setToken = (token: string) =>
+      page.evaluate((authToken) => {
+        const key = 'gptme_servers';
+        const registry = JSON.parse(localStorage.getItem(key) ?? '{}');
+        registry.servers = (registry.servers ?? []).map((server: Record<string, unknown>) =>
+          server.id === registry.activeServerId
+            ? { ...server, authToken, useAuthToken: true }
+            : server
+        );
+        const newValue = JSON.stringify(registry);
+        localStorage.setItem(key, newValue);
+        window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+      }, token);
+    const jwt = (iat: number) =>
+      `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({ sub: 'user-1', iat })).toString('base64url')}.sig`;
+
+    // Sign in (anonymous → account): a different credential scope, so the list
+    // may legitimately reload — it must still never flash disconnected UI.
+    await setToken(jwt(1));
+    await expect(page.getByText(CONV_ID).first()).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(PROBE_DELAY_MS * 2);
     await page.evaluate(() => {
-      const key = 'gptme_servers';
-      const registry = JSON.parse(localStorage.getItem(key) ?? '{}');
-      registry.servers = (registry.servers ?? []).map((server: Record<string, unknown>) =>
-        server.id === registry.activeServerId
-          ? { ...server, authToken: `refreshed-${Date.now()}`, useAuthToken: true }
-          : server
-      );
-      const newValue = JSON.stringify(registry);
-      localStorage.setItem(key, newValue);
-      window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+      window.__conversationDropped = 0;
     });
+    const probesBeforeRefresh = server.probes();
+
+    // Token refresh for the same account: must keep the list on screen.
+    await setToken(jwt(2));
 
     // Give the swapped client time to be probed (slowly) and reconnect, then
     // check nothing flashed disconnected or blanked the list meanwhile.
@@ -193,7 +209,7 @@ test.describe('Connection state: no disconnected flash', () => {
     await expectNoFlashes(page);
     expect(await page.evaluate(() => window.__conversationDropped)).toBe(0);
     // ...and it really did reconnect with the new credential.
-    expect(server.probes()).toBeGreaterThan(probesBefore);
+    expect(server.probes()).toBeGreaterThan(probesBeforeRefresh);
     await expect(page.getByPlaceholder("What's on your mind...")).toBeVisible({
       timeout: 15_000,
     });
