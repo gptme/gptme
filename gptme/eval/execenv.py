@@ -376,6 +376,35 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             )
         self.sandbox_id = result.stdout.strip()
 
+    def _discard_sandbox(self) -> None:
+        """Best-effort delete the sandbox and forget its ID.
+
+        Unlike ``cleanup()``, a failed delete here is not surfaced: this is the
+        timeout path, where the gateway is already unresponsive and an orphaned
+        process tree must not be reused.
+        """
+        if not self.sandbox_id:
+            return
+        try:
+            subprocess.run(
+                [
+                    "openshell",
+                    "sandbox",
+                    "delete",
+                    self.sandbox_id,
+                    "--gateway",
+                    self.gateway_url,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        finally:
+            self.sandbox_id = None
+
     def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
         """Execute command inside the OpenShell sandbox."""
         if not self.sandbox_id:
@@ -422,6 +451,9 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             # Match DockerExecutionEnv: return the partial output and a
             # non-zero status instead of raising, so check evaluation still
             # runs and records a real failure rather than a generic error.
+            # The sandbox-side `timeout 25` normally handles this, so reaching
+            # here means the gateway itself is unresponsive; discard the
+            # sandbox so no orphaned process tree lingers or mutates files.
             if not silent:
                 print("Timeout!")
             stdout_run = _decode(exc.stdout)
@@ -430,6 +462,7 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                 stderr_run += "\n"
             stderr_run += "Command timed out (gateway backstop, 30s)."
             returncode = 124
+            self._discard_sandbox()
 
         if not silent:
             if stdout_run:

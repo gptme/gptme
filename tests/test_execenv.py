@@ -443,6 +443,8 @@ class TestOpenShellExecutionEnv:
                 assert code == 124
                 assert stdout == "partial out"
                 assert "timed out" in stderr
+                # The sandbox is discarded so no orphaned process tree lingers.
+                assert env.sandbox_id is None
             finally:
                 env.sandbox_id = None
 
