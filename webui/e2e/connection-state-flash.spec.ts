@@ -187,14 +187,15 @@ test.describe('Connection state: no disconnected flash', () => {
       window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
     });
 
-    // The swapped client is probed again (slowly) and reconnects...
-    await expect.poll(() => server.probes(), { timeout: 10_000 }).toBeGreaterThan(probesBefore);
+    // Give the swapped client time to be probed (slowly) and reconnect, then
+    // check nothing flashed disconnected or blanked the list meanwhile.
+    await page.waitForTimeout(PROBE_DELAY_MS * 2);
+    await expectNoFlashes(page);
+    expect(await page.evaluate(() => window.__conversationDropped)).toBe(0);
+    // ...and it really did reconnect with the new credential.
+    expect(server.probes()).toBeGreaterThan(probesBefore);
     await expect(page.getByPlaceholder("What's on your mind...")).toBeVisible({
       timeout: 15_000,
     });
-    // ...and nothing flashed disconnected or blanked the list meanwhile.
-    await page.waitForTimeout(PROBE_DELAY_MS + 500);
-    await expectNoFlashes(page);
-    expect(await page.evaluate(() => window.__conversationDropped)).toBe(0);
   });
 });
