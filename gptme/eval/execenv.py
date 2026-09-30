@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 import shlex
 import shutil
@@ -10,6 +11,17 @@ from abc import abstractmethod
 from pathlib import Path
 
 from .filestore import Files, FileStore
+
+logger = logging.getLogger(__name__)
+
+
+def _decode(data: str | bytes | None) -> str:
+    """Normalise subprocess output (str | bytes | None) to text."""
+    if data is None:
+        return ""
+    if isinstance(data, bytes):
+        return data.decode(errors="replace")
+    return data
 
 
 class ExecutionEnv:
@@ -295,10 +307,15 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
     """
     OpenShell-based execution environment with kernel-enforced policy.
 
-    Provides Landlock (filesystem) + seccomp (network) isolation, with
-    credential injection via providers rather than raw env-var passthrough.
-    This closes the key gap in ``DockerExecutionEnv``: eval tasks can no longer
-    exfiltrate provider keys or reach arbitrary hosts.
+    Provides Landlock (filesystem) + seccomp (network) isolation for the
+    *check* command, with credential injection via providers rather than raw
+    env-var passthrough.
+
+    Scope note: this only changes where the eval *check* runs. When the agent
+    runs locally (``use_docker=False``), it still executes on the host with the
+    host environment; when ``--use-docker`` is set, the agent's own container is
+    unchanged and still receives the configured provider keys. Hardening agent
+    execution is a separate change (see ErikBjare/bob#1316).
 
     Requires:
     - ``openshell`` CLI installed (``uv tool install openshell``)
@@ -369,78 +386,73 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             print("\n--- Start of run (OpenShell) ---")
             print("$", command)
 
-        result = subprocess.run(
-            [
-                "openshell",
-                "sandbox",
-                "exec",
-                self.sandbox_id,
-                "--gateway",
-                self.gateway_url,
-                "--workdir",
-                self.container_working_dir,
-                "--",
-                "/bin/bash",
-                "-c",
-                command,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        if not silent:
-            if result.stdout:
-                print(result.stdout, end="")
-            if result.stderr:
-                print(result.stderr, end="")
-            print("--- Finished run (OpenShell) ---\n")
-
-        return result.stdout, result.stderr, result.returncode
-
-    def upload(self, files: Files) -> None:
-        """Write files to staging dir then upload to sandbox."""
-        # Write to the local staging dir first (FileStore handles this)
-        super().upload(files)
-        # Then push each file into the sandbox working directory
-        if not self.sandbox_id:
-            self._create_sandbox()
-        assert self.sandbox_id is not None
-        for name in files:
-            local_path = self.working_dir / name
-            remote_path = f"{self.container_working_dir}/{name}"
+        try:
             result = subprocess.run(
                 [
                     "openshell",
                     "sandbox",
-                    "cp",
-                    str(local_path),
-                    f"{self.sandbox_id}:{remote_path}",
+                    "exec",
+                    self.sandbox_id,
                     "--gateway",
                     self.gateway_url,
+                    "--workdir",
+                    self.container_working_dir,
+                    "--",
+                    "/bin/bash",
+                    "-c",
+                    command,
                 ],
                 check=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to upload {name} to sandbox: {result.stderr.strip()}"
-                )
+            stdout_run, stderr_run, returncode = (
+                result.stdout,
+                result.stderr,
+                result.returncode,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # Match DockerExecutionEnv: return the partial output and a
+            # non-zero status instead of raising, so check evaluation still
+            # runs and records a real failure rather than a generic error.
+            if not silent:
+                print("Timeout!")
+            stdout_run = _decode(exc.stdout)
+            stderr_run = _decode(exc.stderr)
+            if stderr_run and not stderr_run.endswith("\n"):
+                stderr_run += "\n"
+            stderr_run += "Command timed out after 30 seconds."
+            returncode = 124
 
-    def download(self) -> Files:
-        """Download all files from the sandbox working directory."""
+        if not silent:
+            if stdout_run:
+                print(stdout_run, end="")
+            if stderr_run:
+                print(stderr_run, end="")
+            print("--- Finished run (OpenShell) ---\n")
+
+        return stdout_run, stderr_run, returncode
+
+    def upload(self, files: Files) -> None:
+        """Stage files locally, then sync the whole staging tree to the sandbox.
+
+        Syncing the directory (rather than mapping individual files) preserves
+        non-listed workspace state such as ``.git`` history, matching the local
+        ``SimpleExecutionEnv`` semantics used by non-Docker runs.
+        """
+        # Write to the local staging dir first (FileStore handles this)
+        super().upload(files)
         if not self.sandbox_id:
-            return {}
+            self._create_sandbox()
+        assert self.sandbox_id is not None
         result = subprocess.run(
             [
                 "openshell",
                 "sandbox",
                 "cp",
-                f"{self.sandbox_id}:{self.container_working_dir}/.",
-                str(self.working_dir),
+                f"{self.working_dir}/.",
+                f"{self.sandbox_id}:{self.container_working_dir}",
                 "--gateway",
                 self.gateway_url,
                 "--recursive",
@@ -451,15 +463,58 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             timeout=60,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to download from sandbox: {result.stderr.strip()}"
+            raise RuntimeError(f"Failed to upload to sandbox: {result.stderr.strip()}")
+
+    def download(self) -> Files:
+        """Download the sandbox working directory into a fresh staging dir.
+
+        Downloading into a fresh directory (rather than the upload staging dir)
+        avoids returning stale local copies of files the sandbox deleted.
+        """
+        if not self.sandbox_id:
+            return {}
+        files: Files = {}
+        with tempfile.TemporaryDirectory(prefix="gptme-openshell-dl-") as tmp:
+            dest = Path(tmp)
+            result = subprocess.run(
+                [
+                    "openshell",
+                    "sandbox",
+                    "cp",
+                    f"{self.sandbox_id}:{self.container_working_dir}/.",
+                    str(dest),
+                    "--gateway",
+                    self.gateway_url,
+                    "--recursive",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
-        return super().download()
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to download from sandbox: {result.stderr.strip()}"
+                )
+            for path in dest.glob("**/*"):
+                if not path.is_file():
+                    continue
+                key = str(path.relative_to(dest))
+                try:
+                    files[key] = path.read_text()
+                except UnicodeDecodeError:
+                    files[key] = base64.b64encode(path.read_bytes())
+        return files
 
     def cleanup(self) -> None:
-        """Delete the sandbox and remove local staging dir."""
+        """Delete the sandbox and remove local staging dir.
+
+        On a failed delete the sandbox ID is retained (instead of cleared) so
+        the caller can retry or report it, rather than leaking an allocated
+        sandbox with no handle.
+        """
         if self.sandbox_id:
-            subprocess.run(
+            result = subprocess.run(
                 [
                     "openshell",
                     "sandbox",
@@ -470,9 +525,19 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                 ],
                 check=False,
                 capture_output=True,
+                text=True,
                 timeout=10,
             )
-            self.sandbox_id = None
+            if result.returncode == 0:
+                self.sandbox_id = None
+            else:
+                logger.warning(
+                    "Failed to delete OpenShell sandbox %s (exit %d): %s. "
+                    "Sandbox left allocated; delete it manually.",
+                    self.sandbox_id,
+                    result.returncode,
+                    result.stderr.strip(),
+                )
         super().cleanup()
 
     def __del__(self) -> None:

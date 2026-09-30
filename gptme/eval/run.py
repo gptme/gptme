@@ -468,7 +468,10 @@ def execute(
             )
             env: DockerExecutionEnv | OpenShellExecutionEnv | SimpleExecutionEnv
             if _eval_env == "openshell":
-                env = OpenShellExecutionEnv()
+                # Reuse the agent's workspace as the staging dir so the sandbox
+                # receives the full tree (including .git history), matching the
+                # local SimpleExecutionEnv path.
+                env = OpenShellExecutionEnv(host_dir=Path(workspace_dir))
             elif use_docker:
                 env = DockerExecutionEnv()
             else:
@@ -482,8 +485,9 @@ def execute(
                 # in hello-patch), as those need to stay modified.
                 restore_files = test.get("restore_files", [])
                 all_fixtures = test["files"]
-                if use_docker:
-                    # Docker: upload all agent output files + restore fixture inputs.
+                if use_docker or _eval_env == "openshell":
+                    # Docker / OpenShell: upload all agent output files +
+                    # restore fixture inputs into the isolated environment.
                     files_for_run = {
                         **files,
                         **{k: v for k, v in all_fixtures.items() if k in restore_files},
