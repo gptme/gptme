@@ -254,3 +254,184 @@ def test_stream_responses_forwards_caller_sampling_values(monkeypatch):
     assert metadata is None
     assert responses_create.call_args.kwargs["temperature"] == 0.19
     assert responses_create.call_args.kwargs["top_p"] == 0.67
+
+
+def _openrouter_completion(provider: str | None):
+    """A real SDK ChatCompletion, optionally carrying OpenRouter's body ``provider``."""
+    from openai.types.chat import ChatCompletion
+
+    data: dict = {
+        "id": "gen-1",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "meta-llama/llama-3.1",
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "ok"},
+            }
+        ],
+    }
+    if provider is not None:
+        data["provider"] = provider
+    return ChatCompletion.model_validate(data)
+
+
+def _openrouter_chunks(provider: str | None, include_usage: bool):
+    """Real SDK ChatCompletionChunks, optionally carrying the body ``provider``."""
+    from openai.types.chat import ChatCompletionChunk
+
+    def chunk(**extra):
+        data: dict = {
+            "id": "gen-1",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "meta-llama/llama-3.1",
+            **extra,
+        }
+        if provider is not None:
+            data["provider"] = provider
+        return ChatCompletionChunk.model_validate(data)
+
+    chunks = [
+        chunk(
+            choices=[{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}]
+        )
+    ]
+    if include_usage:
+        chunks.append(
+            chunk(
+                choices=[],
+                usage={"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            )
+        )
+    return chunks
+
+
+def _mock_raw_chat_client(monkeypatch, completion, headers):
+    raw_resp = SimpleNamespace(parse=lambda: completion, headers=headers)
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                with_raw_response=SimpleNamespace(create=Mock(return_value=raw_resp))
+            )
+        )
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+
+def test_chat_falls_back_to_body_provider_without_header(monkeypatch):
+    """Proxies that drop x-openrouter-provider still get attribution from the body."""
+    _mock_raw_chat_client(monkeypatch, _openrouter_completion("Together"), {})
+
+    _, metadata = llm_openai.chat(
+        [Message(role="user", content="Say ok.")],
+        "openrouter/meta-llama/llama-3.1",
+        None,
+    )
+
+    assert metadata is not None
+    assert metadata["resolved_model"] == "openrouter/meta-llama/llama-3.1@together"
+
+
+def test_chat_prefers_header_over_body_provider(monkeypatch):
+    _mock_raw_chat_client(
+        monkeypatch,
+        _openrouter_completion("Together"),
+        {"x-openrouter-provider": "Groq"},
+    )
+
+    _, metadata = llm_openai.chat(
+        [Message(role="user", content="Say ok.")],
+        "openrouter/meta-llama/llama-3.1",
+        None,
+    )
+
+    assert metadata is not None
+    assert metadata["resolved_model"] == "openrouter/meta-llama/llama-3.1@groq"
+
+
+def test_chat_without_header_or_body_provider_has_no_resolved_model(monkeypatch):
+    _mock_raw_chat_client(monkeypatch, _openrouter_completion(None), {})
+
+    _, metadata = llm_openai.chat(
+        [Message(role="user", content="Say ok.")],
+        "openrouter/meta-llama/llama-3.1",
+        None,
+    )
+
+    assert not metadata or "resolved_model" not in metadata
+
+
+def test_chat_ignores_body_provider_for_non_openrouter(monkeypatch):
+    _mock_raw_chat_client(monkeypatch, _openrouter_completion("Together"), {})
+
+    _, metadata = llm_openai.chat(
+        [Message(role="user", content="Say ok.")],
+        "openai/gpt-4o",
+        None,
+    )
+
+    assert not metadata or "resolved_model" not in metadata
+
+
+def _mock_stream_client(monkeypatch, chunks, header):
+    stream_obj = MagicMock()
+    stream_obj.response.headers.get.return_value = header
+    stream_obj.__iter__.return_value = iter(chunks)
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=stream_obj))
+        )
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+
+@pytest.mark.parametrize("include_usage", [True, False])
+def test_stream_falls_back_to_chunk_provider_without_header(monkeypatch, include_usage):
+    _mock_stream_client(
+        monkeypatch, _openrouter_chunks("Together", include_usage), header=None
+    )
+
+    text, metadata = _collect_stream_result(
+        llm_openai.stream(
+            [Message(role="user", content="Say ok.")],
+            "openrouter/meta-llama/llama-3.1",
+            None,
+        )
+    )
+
+    assert text == "ok"
+    assert metadata is not None
+    assert metadata["resolved_model"] == "openrouter/meta-llama/llama-3.1@together"
+    if include_usage:
+        assert metadata["usage"] == {"input_tokens": 3, "output_tokens": 2}
+
+
+def test_stream_prefers_header_over_chunk_provider(monkeypatch):
+    _mock_stream_client(
+        monkeypatch, _openrouter_chunks("Together", True), header="Groq"
+    )
+
+    _, metadata = _collect_stream_result(
+        llm_openai.stream(
+            [Message(role="user", content="Say ok.")],
+            "openrouter/meta-llama/llama-3.1",
+            None,
+        )
+    )
+
+    assert metadata is not None
+    assert metadata["resolved_model"] == "openrouter/meta-llama/llama-3.1@groq"
+
+
+def test_openrouter_provider_from_ignores_non_string_values():
+    assert llm_openai._openrouter_provider_from(MagicMock()) is None
+    assert llm_openai._openrouter_provider_from(SimpleNamespace(provider="  ")) is None
+    assert (
+        llm_openai._openrouter_provider_from(SimpleNamespace(provider=" Together "))
+        == "Together"
+    )

@@ -223,6 +223,25 @@ def _make_resolved_model(model: str, openrouter_provider: str) -> str | None:
     return resolved
 
 
+def _openrouter_provider_from(obj: Any) -> str | None:
+    """Return the serving provider OpenRouter reports in a response body.
+
+    OpenRouter includes a top-level ``provider`` field (e.g. ``"Together"``) in
+    chat completion responses and in every streaming chunk. The
+    ``x-openrouter-provider`` response header carries the same information, but
+    OpenAI-compatible proxies in front of OpenRouter often forward only the body,
+    so this is the fallback when the header is absent. The OpenAI SDK keeps
+    unknown response fields in ``model_extra``.
+    """
+    extra = getattr(obj, "model_extra", None)
+    value = extra.get("provider") if isinstance(extra, dict) else None
+    if value is None:
+        value = getattr(obj, "provider", None)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 def _record_usage(
     usage,
     model: str,
@@ -1240,6 +1259,7 @@ def chat(
     response = raw_response.parse()
     _or_provider = (
         raw_response.headers.get("x-openrouter-provider")
+        or _openrouter_provider_from(response)
         if _uses_openrouter_backend(provider, model_meta)
         else None
     )
@@ -1767,6 +1787,9 @@ def stream(
     # stream. The x-openrouter-provider header is available on the initial
     # HTTP response (before the stream body starts).
     _or_resolved: str | None = None
+    # Set when the header is missing (e.g. behind an OpenAI-compatible proxy):
+    # fall back to the ``provider`` field OpenRouter puts in each chunk body.
+    _or_provider_from_body = False
     if _uses_openrouter_backend(provider, model_meta):
         try:
             _or_stream_provider = _stream_obj.response.headers.get(
@@ -1774,6 +1797,7 @@ def stream(
             )
         except AttributeError:
             _or_stream_provider = None
+        _or_provider_from_body = not _or_stream_provider
         if _or_stream_provider:
             _or_resolved = _make_resolved_model(model, _or_stream_provider)
             captured_metadata = _record_usage(
@@ -1792,6 +1816,22 @@ def stream(
             ChoiceDeltaToolCall,
             ChoiceDeltaToolCallFunction,
         )
+
+        if _or_provider_from_body and (
+            _body_provider := _openrouter_provider_from(chunk_raw)
+        ):
+            _or_provider_from_body = False
+            _or_resolved = _make_resolved_model(model, _body_provider)
+            if _or_resolved:
+                if captured_metadata is None:
+                    captured_metadata = _record_usage(
+                        None,
+                        model,
+                        resolved_model=_or_resolved,
+                        reasoning_effort=reasoning_effort,
+                    )
+                else:
+                    captured_metadata["resolved_model"] = _or_resolved
 
         # Cast the chunk to the correct type
         chunk = cast(ChatCompletionChunk, chunk_raw)
