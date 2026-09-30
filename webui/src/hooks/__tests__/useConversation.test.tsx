@@ -1,7 +1,7 @@
 import { observable } from '@legendapp/state';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useApi } from '@/contexts/ApiContext';
-import { conversations$, initConversation } from '@/stores/conversations';
+import { conversations$, initConversation, setConnectionStatus } from '@/stores/conversations';
 import { useConversation } from '../useConversation';
 
 jest.mock('@/contexts/ApiContext', () => ({
@@ -158,6 +158,49 @@ describe('useConversation', () => {
         'initialStepStream'
       )
     ).toBe(false);
+  });
+
+  it('re-subscribes on the replacement client after a credential swap', async () => {
+    const { rerender } = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    // The stream established successfully on the first client.
+    act(() => {
+      setConnectionStatus('chat-placeholder', 'connected');
+    });
+    expect(conversations$.get('chat-placeholder')?.isConnected.get()).toBe(true);
+
+    // A credential refresh swaps the pooled client: serverClients.ts disposes the
+    // old one, closing its event stream, while the conversation still reports
+    // "connected". The hook must re-subscribe on the replacement instead of
+    // returning early and leaving the open chat without events (gptme#4028).
+    const newSubscribeToEvents = jest.fn().mockResolvedValue(undefined);
+    mockedUseApi.mockReturnValue({
+      getClient: () =>
+        ({
+          subscribeToEvents: newSubscribeToEvents,
+          step,
+          interruptGeneration: interruptGenerationApi,
+          editMessage: editMessageApi,
+          rerunTools,
+          closeEventStream,
+          getConversation: jest.fn(),
+          getChatConfig,
+          waitForConversationCreation: jest.fn().mockResolvedValue(undefined),
+        }) as any,
+      isConnected$: observable(true),
+    } as any);
+
+    rerender();
+
+    await waitFor(() => {
+      expect(newSubscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+    // Only the replacement client subscribes; the disposed one is not re-used.
+    expect(subscribeToEvents).toHaveBeenCalledTimes(1);
   });
 
   it('uses the latest generation settings for the initial step', async () => {
