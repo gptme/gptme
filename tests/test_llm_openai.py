@@ -4490,3 +4490,193 @@ class TestNonStreamToolCalls:
             "Let me check.\n"
             '@shell(call_1): {"command": "ls"}'
         )
+
+
+# ---------------------------------------------------------------------------
+# Degeneration guard tests
+# ---------------------------------------------------------------------------
+
+
+class TestRepetitionDetector:
+    """Unit tests for the _RepetitionDetector sliding-window n-gram guard."""
+
+    def _make_detector(self, **kwargs):
+        from gptme.llm.llm_openai import _RepetitionDetector
+
+        kwargs.setdefault("threshold", 0.8)
+        kwargs.setdefault("check_interval", 50)
+        kwargs.setdefault("min_content", 100)
+        return _RepetitionDetector(**kwargs)
+
+    def test_clean_text_does_not_trip(self):
+        # Sequential number string: "0 1 2 3 ... 499" — every 32-char window is unique.
+        det = self._make_detector()
+        clean = " ".join(str(i) for i in range(500))
+        tripped = det.feed(clean)
+        assert not tripped
+        assert det.score < 0.5
+
+    def test_highly_repetitive_text_trips(self):
+        det = self._make_detector(trip_count=3)
+        # Short repeating pattern: period < ngram_size → every window after the
+        # first period is a duplicate → score near 1.0.
+        repeated = "REPEAT REPEAT REPEAT REPEAT " * 50
+        tripped = det.feed(repeated)
+        assert tripped
+        assert det.score >= 0.8
+
+    def test_trip_count_gate(self):
+        """Guard must see trip_count consecutive checks before tripping."""
+        from gptme.llm.llm_openai import _RepetitionDetector
+
+        # Use trip_count=5 and check_interval=200 so we can control exactly
+        # how many intervals fire by feeding content in known-size batches.
+        det = _RepetitionDetector(
+            threshold=0.7,
+            check_interval=200,
+            min_content=200,
+            trip_count=5,
+        )
+        # Highly repetitive chunk just under (trip_count-1) * check_interval
+        # above min_content: fires exactly (trip_count-1) checks.
+        repeated = "PATTERN " * 100  # 800 chars → (800-200)/200 = 3 full intervals
+        det.feed(repeated)
+        assert not det.tripped
+        assert det._consecutive >= 1  # at least one above-threshold check fired
+
+        # One more large repetitive chunk pushes it over trip_count.
+        det.feed(repeated)
+        assert det.tripped
+
+    def test_feed_is_noop_after_trip(self):
+        det = self._make_detector(trip_count=3)
+        repeated = "SAME SAME SAME SAME SAME SAME " * 50
+        det.feed(repeated)
+        assert det.tripped
+        old_score = det.score
+        det.feed(" ".join(str(i) for i in range(200)))
+        # Score doesn't change after tripping.
+        assert det.score == old_score
+
+    def test_score_zero_for_short_window(self):
+        """No check fires before min_content threshold is reached."""
+        det = self._make_detector(min_content=1000)
+        det.feed("short text")
+        assert det.score == 0.0
+
+    def test_code_block_skips_content(self):
+        """Content inside a code fence should not advance the clean counter."""
+        det = self._make_detector(min_content=200, check_interval=50)
+        code_fence_content = "```\n" + ("x = 1\n" * 100) + "```\n"
+        det.feed(code_fence_content)
+        # Only the closing fence line (4 chars) is counted as clean content
+        # since the opening fence immediately flips the code-block state.
+        assert det._clean_len < 20
+
+
+class TestDegenerationThreshold:
+    """Tests for the _degeneration_threshold() env-var parser."""
+
+    def test_default_returns_default_value(self, monkeypatch):
+        from gptme.llm.llm_openai import (
+            _DEGEN_THRESHOLD_DEFAULT,
+            _degeneration_threshold,
+        )
+
+        monkeypatch.delenv("GPTME_DEGENERATION_THRESHOLD", raising=False)
+        assert _degeneration_threshold() == _DEGEN_THRESHOLD_DEFAULT
+
+    def test_disabled_via_zero(self, monkeypatch):
+        from gptme.llm.llm_openai import _degeneration_threshold
+
+        monkeypatch.setenv("GPTME_DEGENERATION_THRESHOLD", "0")
+        assert _degeneration_threshold() is None
+
+    def test_disabled_via_false(self, monkeypatch):
+        from gptme.llm.llm_openai import _degeneration_threshold
+
+        monkeypatch.setenv("GPTME_DEGENERATION_THRESHOLD", "false")
+        assert _degeneration_threshold() is None
+
+    def test_custom_float(self, monkeypatch):
+        from gptme.llm.llm_openai import _degeneration_threshold
+
+        monkeypatch.setenv("GPTME_DEGENERATION_THRESHOLD", "0.75")
+        assert _degeneration_threshold() == pytest.approx(0.75)
+
+    def test_invalid_string_returns_default(self, monkeypatch):
+        from gptme.llm.llm_openai import (
+            _DEGEN_THRESHOLD_DEFAULT,
+            _degeneration_threshold,
+        )
+
+        monkeypatch.setenv("GPTME_DEGENERATION_THRESHOLD", "not-a-number")
+        assert _degeneration_threshold() == _DEGEN_THRESHOLD_DEFAULT
+
+
+class TestExtraBodyProviderIgnore:
+    """Tests for provider_ignore parameter in extra_body()."""
+
+    @staticmethod
+    def _make_model(model: str, **kwargs):
+        from gptme.llm.models.types import ModelMeta
+
+        return ModelMeta(
+            provider=kwargs.pop("provider", "openrouter"),
+            model=model,
+            context=kwargs.pop("context", 128000),
+            **kwargs,
+        )
+
+    def test_provider_ignore_added_to_openrouter_prefs(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("deepseek/deepseek-v4-flash-0731")
+        body = extra_body("openrouter", meta, provider_ignore=["together"])
+        assert body["provider"]["ignore"] == ["together"]
+
+    def test_provider_ignore_none_omits_key(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("deepseek/deepseek-v4-flash-0731")
+        body = extra_body("openrouter", meta, provider_ignore=None)
+        assert "ignore" not in body.get("provider", {})
+
+    def test_provider_ignore_empty_list_omits_key(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("deepseek/deepseek-v4-flash-0731")
+        body = extra_body("openrouter", meta, provider_ignore=[])
+        assert "ignore" not in body.get("provider", {})
+
+    def test_provider_ignore_lowercases_ids(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("deepseek/deepseek-v4-flash-0731")
+        body = extra_body("openrouter", meta, provider_ignore=["Together", "FIREWORKS"])
+        assert body["provider"]["ignore"] == ["together", "fireworks"]
+
+    def test_provider_ignore_not_added_for_non_openrouter(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("gpt-4o", provider="openai")
+        body = extra_body("openai", meta, provider_ignore=["together"])
+        # Non-OpenRouter providers have no provider routing prefs at all.
+        assert "provider" not in body
+
+
+class TestDegenerationRetryMetadata:
+    """Verify that degeneration_retry is populated in MessageMetadata."""
+
+    def test_metadata_field_exists(self):
+        from gptme.message import DegenerationRetryData, MessageMetadata
+
+        meta: MessageMetadata = {
+            "model": "openrouter/deepseek/deepseek-v4-flash-0731",
+            "degeneration_retry": DegenerationRetryData(
+                provider="together",
+                score=0.92,
+            ),
+        }
+        assert meta["degeneration_retry"]["provider"] == "together"
+        assert meta["degeneration_retry"]["score"] == pytest.approx(0.92)

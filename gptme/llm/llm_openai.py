@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+from collections import deque
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -13,7 +14,13 @@ import requests
 
 from ..config import Config, get_config
 from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
-from ..message import Message, MessageMetadata, UsageData, msgs2dicts
+from ..message import (
+    DegenerationRetryData,
+    Message,
+    MessageMetadata,
+    UsageData,
+    msgs2dicts,
+)
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools.base import truncate_tool_description
 from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
@@ -117,6 +124,167 @@ __all__ = [
     "ContentPart",
     "MessageContent",
 ]
+
+# ---------------------------------------------------------------------------
+# Degeneration guard
+# ---------------------------------------------------------------------------
+
+_ENV_DEGEN_THRESHOLD = "GPTME_DEGENERATION_THRESHOLD"
+_DEGEN_THRESHOLD_DEFAULT = 0.85
+# n-gram length (chars). ~32 chars ≈ 8 tokens at 4 chars/token.
+_DEGEN_NGRAM = 32
+# Rolling window size (chars) over which the repetition score is computed.
+_DEGEN_WINDOW = 2000
+# Number of consecutive above-threshold checks before tripping the guard.
+_DEGEN_TRIP_COUNT = 3
+# Minimum chars of non-code content to accumulate before checking.
+_DEGEN_MIN_CONTENT = 400
+# Chars of new non-code content between each check.
+_DEGEN_CHECK_INTERVAL = 200
+
+
+class DegenerationDetected(Exception):
+    """Raised mid-stream when repetition exceeds the configured threshold."""
+
+    def __init__(self, provider: str | None, score: float) -> None:
+        self.degenerate_provider = provider
+        self.score = score
+        super().__init__(
+            f"Degeneration detected (score={score:.2f}, provider={provider!r})"
+        )
+
+
+class _RepetitionDetector:
+    """Sliding-window n-gram repetition detector for streamed text.
+
+    Tracks the fraction of repeated n-gram positions in the last
+    ``window`` characters of accumulated *non-code* content.  The guard
+    trips when the score stays above ``threshold`` for ``trip_count``
+    consecutive checks.
+    """
+
+    def __init__(
+        self,
+        *,
+        threshold: float = _DEGEN_THRESHOLD_DEFAULT,
+        ngram: int = _DEGEN_NGRAM,
+        window: int = _DEGEN_WINDOW,
+        trip_count: int = _DEGEN_TRIP_COUNT,
+        min_content: int = _DEGEN_MIN_CONTENT,
+        check_interval: int = _DEGEN_CHECK_INTERVAL,
+    ) -> None:
+        self._threshold = threshold
+        self._ngram = ngram
+        self._window = window
+        self._trip_count = trip_count
+        self._min_content = min_content
+        self._check_interval = check_interval
+
+        # Rolling deque holding recent chunks; joined lazily for scoring.
+        self._chunks: deque[str] = deque()
+        self._total_len = 0  # total chars in _chunks
+        self._clean_len = 0  # non-code chars accumulated (lifetime)
+        self._since_check = 0  # non-code chars since last check
+
+        # Code-fence tracking (``` fences only).
+        self._in_code = False
+        self._fence_re = re.compile(r"^[ \t]*```")
+
+        self._consecutive = 0
+        self.tripped = False
+        self.score: float = 0.0
+
+    # ------------------------------------------------------------------
+    def feed(self, text: str) -> bool:
+        """Feed a new chunk of streamed text.
+
+        Returns True when the degeneration guard trips (first time only).
+        Subsequent calls are no-ops after tripping.
+        """
+        if self.tripped or not text:
+            return self.tripped
+
+        self._chunks.append(text)
+        self._total_len += len(text)
+
+        # Track code-block state and accumulate only non-code content.
+        # splitlines(keepends=True) preserves line lengths for accurate counting.
+        clean_added = 0
+        for line in text.splitlines(keepends=True):
+            stripped = line.rstrip("\n\r")
+            if self._fence_re.match(stripped):
+                self._in_code = not self._in_code
+            if not self._in_code:
+                clean_added += len(line)
+
+        self._clean_len += clean_added
+        self._since_check += clean_added
+
+        # A single large chunk may span multiple check intervals; loop until
+        # we've consumed all pending intervals (or the guard trips).
+        while (
+            self._clean_len >= self._min_content
+            and self._since_check >= self._check_interval
+        ):
+            self._since_check -= self._check_interval
+            self.score = self._compute_score()
+
+            if self.score >= self._threshold:
+                self._consecutive += 1
+            else:
+                self._consecutive = 0
+
+            if self._consecutive >= self._trip_count:
+                self.tripped = True
+                return True
+
+        return self.tripped
+
+    # ------------------------------------------------------------------
+    def _compute_score(self) -> float:
+        """Return the fraction of repeated n-gram positions in the window.
+
+        0.0 = no repetition; 1.0 = every position is a duplicate.
+        """
+        # Build rolling window from the tail of accumulated chunks.
+        buf = "".join(self._chunks)
+        window = buf[-self._window :]
+
+        n = self._ngram
+        total = len(window) - n + 1
+        if total <= 0:
+            return 0.0
+
+        seen: set[str] = set()
+        repeated = 0
+        for i in range(total):
+            ng = window[i : i + n]
+            if ng in seen:
+                repeated += 1
+            else:
+                seen.add(ng)
+
+        return repeated / total
+
+
+def _degeneration_threshold() -> float | None:
+    """Return the configured threshold, or None when the guard is disabled."""
+    value = os.environ.get(_ENV_DEGEN_THRESHOLD)
+    if value is None:
+        return _DEGEN_THRESHOLD_DEFAULT  # on by default
+    value = value.strip().lower()
+    if value in {"0", "false", "off", "no", "disabled"}:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning(
+            "%s=%r is not a valid float; using default %.2f",
+            _ENV_DEGEN_THRESHOLD,
+            value,
+            _DEGEN_THRESHOLD_DEFAULT,
+        )
+        return _DEGEN_THRESHOLD_DEFAULT
 
 
 def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> str:
@@ -1424,6 +1592,7 @@ def extra_body(
     model_meta: ModelMeta,
     max_tokens: int | None = None,
     relaxed_privacy: bool = False,
+    provider_ignore: list[str] | None = None,
 ) -> dict[str, Any]:
     """Return extra body for the OpenAI API based on the model.
 
@@ -1535,6 +1704,10 @@ def extra_body(
                         ", ".join(sorted(_VALID_QUANTIZATIONS)),
                     )
                 provider_prefs["quantizations"] = parsed
+
+        # Degeneration guard: exclude a previously-degenerate subprovider.
+        if provider_ignore:
+            provider_prefs["ignore"] = [p.lower() for p in provider_ignore]
 
         body["provider"] = provider_prefs
     return body
@@ -1731,9 +1904,6 @@ def stream(
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
-    in_reasoning_block = False
-    stop_reason = None
-
     # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
     optional_kwargs: dict[str, Any] = {}
     if not is_reasoner:
@@ -1751,7 +1921,20 @@ def stream(
         optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
     reasoning_effort = _resolve_reasoning_effort(provider, model_meta)
 
-    def _stream_create(relaxed_privacy: bool = False) -> Any:
+    # Degeneration guard: detect repetition mid-stream and retry once on a
+    # different OpenRouter subprovider.  Only active for OpenRouter backends;
+    # the guard is a no-op when the threshold env-var is set to 0/false/off.
+    degen_threshold = _degeneration_threshold()
+    _degen_enabled = degen_threshold is not None and _uses_openrouter_backend(
+        provider, model_meta
+    )
+    _degen_retry_data: DegenerationRetryData | None = None
+    _ignored_providers: list[str] = []
+
+    def _stream_create(
+        relaxed_privacy: bool = False,
+        provider_ignore: list[str] | None = None,
+    ) -> Any:
         return client.chat.completions.create(
             model=api_model.split("@")[0],
             messages=cast(list, messages_dicts),
@@ -1762,166 +1945,222 @@ def stream(
                 model_meta,
                 max_tokens=max_tokens,
                 relaxed_privacy=relaxed_privacy,
+                provider_ignore=provider_ignore,
             ),
             stream_options={"include_usage": True},
             **optional_kwargs,
         )
 
-    try:
-        _stream_obj = _stream_create()
-    except Exception as _e:
-        if _uses_openrouter_backend(
-            provider, model_meta
-        ) and _is_openrouter_no_endpoints_error(_e):
-            _dc_configured = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
-            logger.warning(
-                "OpenRouter: no endpoints matched the strict constraints "
-                "(require_parameters=True + data_collection=%s) for %s — "
-                "retrying with only the capability guard dropped (data_collection "
-                "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
-                "or use model@provider to pin a no-training host.",
-                _dc_configured,
-                model_meta.model,
-            )
-            _stream_obj = _stream_create(relaxed_privacy=True)
-        else:
-            raise
-    # Capture which subprovider OpenRouter actually used before consuming the
-    # stream. The x-openrouter-provider header is available on the initial
-    # HTTP response (before the stream body starts).
-    _or_resolved: str | None = None
-    # Set when the header is missing (e.g. behind an OpenAI-compatible proxy):
-    # fall back to the ``provider`` field OpenRouter puts in each chunk body.
-    _or_provider_from_body = False
-    if _uses_openrouter_backend(provider, model_meta):
-        try:
-            _or_stream_provider = _stream_obj.response.headers.get(
-                "x-openrouter-provider"
-            )
-        except AttributeError:
-            _or_stream_provider = None
-        _or_provider_from_body = not _or_stream_provider
-        if _or_stream_provider:
-            _or_resolved = _make_resolved_model(model, _or_stream_provider)
-            captured_metadata = _record_usage(
-                None,
-                model,
-                resolved_model=_or_resolved,
-                reasoning_effort=reasoning_effort,
-            )
-
     # Model id as the provider reports it on each chunk (last non-empty wins).
+    # served_model is declared outside the retry loop so the final value survives.
     served_model: str | None = None
-    last_usage = None
-    stream_failed = False
 
-    try:
-        for chunk_raw in _guarded_stream_iter(
-            _stream_obj, model=model, provider=provider
-        ):
-            from openai.types.chat import ChatCompletionChunk  # fmt: skip
-            from openai.types.chat.chat_completion_chunk import (  # fmt: skip
-                ChoiceDeltaToolCall,
-                ChoiceDeltaToolCallFunction,
-            )
+    for _degen_attempt in range(2):
+        _is_degen_retry = _degen_attempt > 0
+        in_reasoning_block = False
+        stop_reason = None
+        _degen_detected = False
+        last_usage = None
+        stream_failed = False
 
-            if _or_provider_from_body and (
-                _body_provider := _openrouter_provider_from(chunk_raw)
+        try:
+            _stream_obj = _stream_create(provider_ignore=_ignored_providers)
+        except Exception as _e:
+            if _uses_openrouter_backend(
+                provider, model_meta
+            ) and _is_openrouter_no_endpoints_error(_e):
+                _dc_configured = get_config().get_env(
+                    "OPENROUTER_DATA_COLLECTION", "deny"
+                )
+                logger.warning(
+                    "OpenRouter: no endpoints matched the strict constraints "
+                    "(require_parameters=True + data_collection=%s) for %s — "
+                    "retrying with only the capability guard dropped (data_collection "
+                    "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
+                    "or use model@provider to pin a no-training host.",
+                    _dc_configured,
+                    model_meta.model,
+                )
+                _stream_obj = _stream_create(
+                    relaxed_privacy=True, provider_ignore=_ignored_providers
+                )
+            else:
+                raise
+
+        # Capture which subprovider OpenRouter actually used before consuming the
+        # stream. The x-openrouter-provider header is available on the initial
+        # HTTP response (before the stream body starts).
+        _or_resolved: str | None = None
+        # Set when the header is missing (e.g. behind an OpenAI-compatible proxy):
+        # fall back to the ``provider`` field OpenRouter puts in each chunk body.
+        _or_provider_from_body = False
+        if _uses_openrouter_backend(provider, model_meta):
+            try:
+                _or_stream_provider = _stream_obj.response.headers.get(
+                    "x-openrouter-provider"
+                )
+            except AttributeError:
+                _or_stream_provider = None
+            _or_provider_from_body = not _or_stream_provider
+            if _or_stream_provider:
+                _or_resolved = _make_resolved_model(model, _or_stream_provider)
+                captured_metadata = _record_usage(
+                    None,
+                    model,
+                    resolved_model=_or_resolved,
+                    reasoning_effort=reasoning_effort,
+                )
+
+        # Activate the detector on the first attempt only; let the retry run
+        # freely even if it also degenerates (we only retry once).
+        # _degen_enabled guarantees degen_threshold is not None; assert to narrow.
+        detector: _RepetitionDetector | None = None
+        if _degen_enabled and not _is_degen_retry:
+            assert degen_threshold is not None
+            detector = _RepetitionDetector(threshold=degen_threshold)
+
+        try:
+            for chunk_raw in _guarded_stream_iter(
+                _stream_obj, model=model, provider=provider
             ):
-                _or_provider_from_body = False
-                _or_resolved = _make_resolved_model(model, _body_provider)
-                if _or_resolved:
-                    if captured_metadata is None:
-                        captured_metadata = _record_usage(
-                            None,
-                            model,
-                            resolved_model=_or_resolved,
-                            reasoning_effort=reasoning_effort,
-                        )
-                    else:
-                        captured_metadata["resolved_model"] = _or_resolved
+                from openai.types.chat import ChatCompletionChunk  # fmt: skip
+                from openai.types.chat.chat_completion_chunk import (  # fmt: skip
+                    ChoiceDeltaToolCall,
+                    ChoiceDeltaToolCallFunction,
+                )
 
-            # Cast the chunk to the correct type
-            chunk = cast(ChatCompletionChunk, chunk_raw)
+                if _or_provider_from_body and (
+                    _body_provider := _openrouter_provider_from(chunk_raw)
+                ):
+                    _or_provider_from_body = False
+                    _or_resolved = _make_resolved_model(model, _body_provider)
+                    if _or_resolved:
+                        if captured_metadata is None:
+                            captured_metadata = _record_usage(
+                                None,
+                                model,
+                                resolved_model=_or_resolved,
+                                reasoning_effort=reasoning_effort,
+                            )
+                        else:
+                            captured_metadata["resolved_model"] = _or_resolved
 
-            if chunk_served := served_model_from(chunk):
-                served_model = chunk_served
+                # Cast the chunk to the correct type
+                chunk = cast(ChatCompletionChunk, chunk_raw)
 
-            # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
-            # endpoint) attach it to every chunk. Keep the latest and record once
-            # after the stream, so one response is one request/turn.
-            if hasattr(chunk, "usage") and chunk.usage:
-                last_usage = chunk.usage
+                if chunk_served := served_model_from(chunk):
+                    served_model = chunk_served
 
-            if not chunk.choices:
-                continue
+                # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
+                # endpoint) attach it to every chunk. Keep the latest and record once
+                # after the stream, so one response is one request/turn.
+                if hasattr(chunk, "usage") and chunk.usage:
+                    last_usage = chunk.usage
 
-            choice = chunk.choices[0]
-            stop_reason = choice.finish_reason
-            delta = choice.delta
+                if not chunk.choices:
+                    continue
 
-            # Handle reasoning content
-            # OpenRouter API uses delta.reasoning
-            # DeepSeek API uses delta.reasoning_content
-            if reasoning_content := (
-                getattr(delta, "reasoning_content", None)
-                or getattr(delta, "reasoning", None)
-            ):
-                if not in_reasoning_block:
-                    yield "<think>\n"
-                    in_reasoning_block = True
-                yield reasoning_content
-            elif in_reasoning_block:
-                yield "\n</think>\n\n"
-                in_reasoning_block = False
-                if delta.content is not None:
+                choice = chunk.choices[0]
+                stop_reason = choice.finish_reason
+                delta = choice.delta
+
+                # Handle reasoning content
+                # OpenRouter API uses delta.reasoning
+                # DeepSeek API uses delta.reasoning_content
+                if reasoning_content := (
+                    getattr(delta, "reasoning_content", None)
+                    or getattr(delta, "reasoning", None)
+                ):
+                    if not in_reasoning_block:
+                        yield "<think>\n"
+                        in_reasoning_block = True
+                    yield reasoning_content
+                    if detector and detector.feed(reasoning_content):
+                        _degen_detected = True
+                        break
+                elif in_reasoning_block:
+                    yield "\n</think>\n\n"
+                    in_reasoning_block = False
+                    if delta.content is not None:
+                        yield delta.content
+                        if detector and detector.feed(delta.content):
+                            _degen_detected = True
+                            break
+                elif delta.content is not None:
                     yield delta.content
-            elif delta.content is not None:
-                yield delta.content
+                    if detector and detector.feed(delta.content):
+                        _degen_detected = True
+                        break
 
-            # Handle tool calls
-            if delta.tool_calls:
-                for tool_call in delta.tool_calls:
-                    if (
-                        isinstance(tool_call, ChoiceDeltaToolCall)
-                        and tool_call.function
-                    ):
-                        func = tool_call.function
-                        if isinstance(func, ChoiceDeltaToolCallFunction):
-                            if func.name:
-                                yield f"\n@{func.name}({tool_call.id}): "
-                            if func.arguments:
-                                yield func.arguments
+                # Handle tool calls
+                if delta.tool_calls:
+                    for tool_call in delta.tool_calls:
+                        if (
+                            isinstance(tool_call, ChoiceDeltaToolCall)
+                            and tool_call.function
+                        ):
+                            func = tool_call.function
+                            if isinstance(func, ChoiceDeltaToolCallFunction):
+                                if func.name:
+                                    yield f"\n@{func.name}({tool_call.id}): "
+                                if func.arguments:
+                                    yield func.arguments
 
-            # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
-            # if delta.type == "response.reasoning_summary.delta":
-            #     if not in_reasoning_block:
-            #         yield "<think>\n"
-            #         in_reasoning_block = True
-            #     yield delta.text
-    except Exception:
-        # A provider/transport error mid-stream. GeneratorExit (consumer closed
-        # early) is a BaseException and deliberately not caught here.
-        stream_failed = True
-        raise
-    finally:
-        # Record usage even if the consumer closes this generator early
-        # (interrupt/break): some providers attach cumulative usage to every
-        # chunk, so the latest value still describes the partial response.
-        if last_usage is not None:
-            captured_metadata = _record_usage(
-                last_usage,
-                model,
-                resolved_model=_or_resolved,
-                reasoning_effort=reasoning_effort,
-                served_model=served_model,
-                success=not stream_failed,
-            )
+                # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
+                # if delta.type == "response.reasoning_summary.delta":
+                #     if not in_reasoning_block:
+                #         yield "<think>\n"
+                #         in_reasoning_block = True
+                #     yield delta.text
 
-    if in_reasoning_block:
-        yield "\n</think>\n"
+        except Exception:
+            # A provider/transport error mid-stream. GeneratorExit (consumer closed
+            # early) is a BaseException and deliberately not caught here.
+            stream_failed = True
+            raise
+        finally:
+            # Record usage even if the consumer closes this generator early
+            # (interrupt/break): some providers attach cumulative usage to every
+            # chunk, so the latest value still describes the partial response.
+            if last_usage is not None:
+                captured_metadata = _record_usage(
+                    last_usage,
+                    model,
+                    resolved_model=_or_resolved,
+                    reasoning_effort=reasoning_effort,
+                    served_model=served_model,
+                    success=not stream_failed,
+                )
 
-    logger.debug(f"Stop reason: {stop_reason}")
+        if in_reasoning_block:
+            yield "\n</think>\n"
+
+        logger.debug(f"Stop reason: {stop_reason}")
+
+        if not _degen_detected:
+            break  # Normal completion — no retry needed.
+
+        # Degeneration detected: extract the bad subprovider, set up retry.
+        assert detector is not None  # only reachable on attempt 0 with detector
+        _raw_or_provider = (
+            _or_resolved.split("@", 1)[1]
+            if _or_resolved and "@" in _or_resolved
+            else None
+        )
+        _degen_retry_data = DegenerationRetryData(
+            provider=_raw_or_provider or "unknown",
+            score=detector.score,
+        )
+        logger.warning(
+            "Degeneration detected mid-stream (score=%.2f, provider=%r); "
+            "retrying on a different OpenRouter subprovider.",
+            detector.score,
+            _raw_or_provider,
+        )
+        _ignored_providers = [_raw_or_provider] if _raw_or_provider else []
+        # Reset per-attempt state so the retry starts clean.
+        captured_metadata = None
+        served_model = None
 
     if captured_metadata is None and (
         reasoning_effort is not None or served_model is not None
@@ -1937,6 +2176,13 @@ def stream(
         # Covers the OpenRouter header-only metadata built before the stream
         # and a usage chunk that arrived before the last model-bearing chunk.
         captured_metadata["served_model"] = served_model
+
+    # Attach degeneration retry info when a retry happened.
+    if _degen_retry_data is not None:
+        if captured_metadata is None:
+            captured_metadata = {"model": model}
+        captured_metadata["degeneration_retry"] = _degen_retry_data
+
     # Return the captured metadata (accessible via StopIteration.value)
     return captured_metadata
 
