@@ -536,6 +536,19 @@ class TestOpenShellExecutionEnv:
             assert env.sandbox_id == "sbx-keep"
             env.sandbox_id = None  # avoid __del__ touching real subprocess
 
+    def test_cleanup_timeout_does_not_raise(self):
+        """cleanup() runs in the runner's finally; it must never raise."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-hung"
+            with patch(
+                "gptme.eval.execenv.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="openshell", timeout=10),
+            ):
+                env.cleanup()  # must not raise
+            assert env.sandbox_id == "sbx-hung"
+            env.sandbox_id = None  # avoid __del__ touching real subprocess
+
     def test_cleanup_clears_id_on_success(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env = self._env(tmpdir)

@@ -546,31 +546,43 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         ``super().cleanup()`` (``FileStore``) only removes the working dir when
         it was auto-created (``_is_temp``). When ``host_dir`` points at the
         agent workspace (as ``run.py`` does), it is *not* removed.
+
+        This never raises: ``cleanup()`` runs in the runner's ``finally``, so
+        an exception here would mask the run result (a successful check
+        reported as a generic eval error) and skip the local staging-dir
+        removal. A slow/wedged gateway is logged and the sandbox ID retained.
         """
         if self.sandbox_id:
-            result = subprocess.run(
-                [
-                    "openshell",
-                    "sandbox",
-                    "delete",
-                    self.sandbox_id,
-                    "--gateway",
-                    self.gateway_url,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                self.sandbox_id = None
-            else:
+            try:
+                result = subprocess.run(
+                    [
+                        "openshell",
+                        "sandbox",
+                        "delete",
+                        self.sandbox_id,
+                        "--gateway",
+                        self.gateway_url,
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode == 0:
+                    self.sandbox_id = None
+                else:
+                    logger.warning(
+                        "Failed to delete OpenShell sandbox %s (exit %d): %s. "
+                        "Sandbox left allocated; delete it manually.",
+                        self.sandbox_id,
+                        result.returncode,
+                        result.stderr.strip(),
+                    )
+            except subprocess.TimeoutExpired:
                 logger.warning(
-                    "Failed to delete OpenShell sandbox %s (exit %d): %s. "
+                    "Timed out deleting OpenShell sandbox %s (10s). "
                     "Sandbox left allocated; delete it manually.",
                     self.sandbox_id,
-                    result.returncode,
-                    result.stderr.strip(),
                 )
         super().cleanup()
 
