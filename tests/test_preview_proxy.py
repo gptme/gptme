@@ -247,6 +247,11 @@ class TestPreviewProxyHTTP:
                 "Cookie": "gptme_token=super-secret-token",
                 "X-Forwarded-User": "erik",
                 "X-Auth-Request-Access-Token": "traefik-token",
+                "X-Supabase-User-Id": "user-id",
+                "X-Supabase-User-Token": "user-jwt",
+                "X-User-LLM-API-Key": "user-api-key",
+                "X-Api-Key": "api-key",
+                "X-Custom-App-Header": "keep-me",
             },
         )
         t.join(timeout=3)
@@ -258,6 +263,11 @@ class TestPreviewProxyHTTP:
         assert "cookie" not in headers
         assert "x-forwarded-user" not in headers
         assert "x-auth-request-access-token" not in headers
+        assert "x-supabase-user-id" not in headers
+        assert "x-supabase-user-token" not in headers
+        assert "x-user-llm-api-key" not in headers
+        assert "x-api-key" not in headers
+        assert headers.get("x-custom-app-header") == "keep-me"
 
     def test_strips_token_query_param(self, client: FlaskClient):
         """Deprecated ?token= auth must not be forwarded upstream."""
@@ -410,6 +420,9 @@ class TestHeaderHelpers:
             ("Cookie", "gptme_token=abc"),
             ("X-Forwarded-User", "bob"),
             ("X-Auth-Request-Email", "a@b.c"),
+            ("X-Supabase-User-Token", "jwt"),
+            ("x-user-llm-api-key", "key"),
+            ("X-Remote-User", "bob"),
             ("Accept", "text/html"),
             ("Host", "example.com"),
             ("Connection", "keep-alive"),
@@ -421,6 +434,9 @@ class TestHeaderHelpers:
         assert "cookie" not in lower
         assert "x-forwarded-user" not in lower
         assert "x-auth-request-email" not in lower
+        assert "x-supabase-user-token" not in lower
+        assert "x-user-llm-api-key" not in lower
+        assert "x-remote-user" not in lower
         assert "host" not in lower
         assert "connection" not in lower
         assert forwarded.get("Accept-Encoding") == "identity"

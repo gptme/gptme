@@ -104,13 +104,26 @@ _HOP_BY_HOP: frozenset[str] = frozenset(
 
 # Auth / identity headers must never be forwarded to loopback listeners.
 # Local processes are untrusted; the server token authorizes every protected
-# route.  Also drop Traefik ForwardAuth identity headers.
+# route.  Also drop identity/credential headers that forward-auth proxies
+# commonly inject in front of the server (see _IDENTITY_HEADER_PREFIXES).
 _IDENTITY_HEADERS: frozenset[str] = frozenset(
     {
         "authorization",
         "cookie",
         "proxy-authorization",
+        "x-api-key",
+        "x-user-llm-api-key",
+        "x-remote-user",
+        "x-remote-email",
     }
+)
+
+# Header-name prefixes used by forward-auth / identity-aware proxies to pass
+# the authenticated user (and sometimes their token) to the upstream.
+_IDENTITY_HEADER_PREFIXES: tuple[str, ...] = (
+    "x-forwarded-",
+    "x-auth-request-",
+    "x-supabase-",
 )
 
 # Response headers that become invalid once requests.iter_content() has
@@ -170,7 +183,7 @@ def _is_identity_header(name: str) -> bool:
     lower = name.lower()
     if lower in _IDENTITY_HEADERS:
         return True
-    return lower.startswith(("x-forwarded-", "x-auth-request-"))
+    return lower.startswith(_IDENTITY_HEADER_PREFIXES)
 
 
 def _json_error(message: str, status: int) -> flask.Response:
