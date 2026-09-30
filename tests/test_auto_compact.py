@@ -612,6 +612,34 @@ def test_estimate_compaction_savings_tool_results_only_when_over_limit():
     )
 
 
+def test_estimate_compaction_savings_respects_keep_head():
+    """Savings inside the protected keep_head prefix must not be counted.
+
+    The engine never trims messages at ``idx < keep_head``, so counting them in
+    the estimate selects ``rule_based`` for savings the engine cannot realize;
+    the post-hoc savings gate then rejects the view and the log stays over
+    budget (Greptile finding on #4023).
+    """
+    from gptme.tools.autocompact import estimate_compaction_savings
+
+    massive = "x " * 3000  # ~3000 tokens, above max_tool_result_tokens
+    messages = [
+        Message("system", "System prompt"),
+        Message("system", massive),  # idx 1, inside keep_head
+        Message("user", "Request"),
+        Message("assistant", "Response"),
+    ]
+
+    _, savings_kept, _ = estimate_compaction_savings(messages, limit=100, keep_head=2)
+    assert savings_kept == 0, (
+        "kept-head tool results must not count toward estimated savings"
+    )
+
+    # Sanity: the same log reports savings once the head is not protected.
+    _, savings_free, _ = estimate_compaction_savings(messages, limit=100)
+    assert savings_free > 0
+
+
 def test_estimate_compaction_savings_includes_phase3():
     """Test that estimation includes Phase 3 assistant message compression.
 
@@ -2889,6 +2917,18 @@ def test_hook_rejects_view_below_min_savings(monkeypatch):
             "gptme.tools.autocompact.hook.get_context_provider",
             return_value=mock_provider,
         ),
+        # Pin the model so the savings gate is actually exercised regardless of
+        # the ambient environment (with no default model the gate fails open).
+        patch(
+            "gptme.tools.autocompact.hook.get_default_model",
+            return_value=get_model("gpt-4"),
+        ),
+        # The rejection must fall back to the LLM summarizer instead of leaving
+        # the over-budget log uncompacted until a provider overflow.
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            return_value=iter([]),
+        ) as mock_resume,
     ):
         list(hook_module.autocompact_hook(manager))
 
@@ -2897,6 +2937,8 @@ def test_hook_rejects_view_below_min_savings(monkeypatch):
     )
     # The rejected attempt is recorded so the unchanged log does not re-fire.
     assert (str(manager.logdir), "master") in hook_module._last_autocompact_attempt
+    # Recovery: the summarizer is tried so an over-budget log is not wedged.
+    mock_resume.assert_called_once()
 
 
 def test_hook_installs_view_above_min_savings(monkeypatch):

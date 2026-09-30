@@ -103,7 +103,12 @@ def estimate_compaction_savings(
     estimated_compression_savings = 0
 
     for idx, msg in enumerate(work_log):
-        if msg.pinned:
+        # Match the engine: the protected ``keep_head`` prefix is never trimmed
+        # (see ``auto_compact_log``), so savings from messages inside it must not
+        # be counted here. Otherwise the estimate can select ``rule_based`` for
+        # savings the engine cannot realize, and the post-hoc savings gate then
+        # rejects the view — leaving the log over budget until provider overflow.
+        if msg.pinned or idx < keep_head:
             continue
 
         msg_tokens = len_tokens(msg.content, model.model)
