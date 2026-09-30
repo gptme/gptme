@@ -137,12 +137,18 @@ def redact_secret_values_in_path(path: str) -> str:
     filename), while ``GITHUB_TOKEN=ghp_...`` becomes ``GITHUB_TOKEN=[REDACTED]``.
     Any suffix after the secret value (an extension, a space inside a quoted
     path) is kept — the redaction must not destroy the surrounding filename.
+    The suffix is itself passed through this redactor, so a filename holding
+    several assignments (``GITHUB_TOKEN=ghp_x PASSWORD=hunter2``) loses every
+    credential, not just the first.
     """
     ending = "\n" if path.endswith("\n") else ""
     body = path[: -len(ending)] if ending else path
     match = _PATH_ASSIGN_RE.match(body)
-    if match and looks_like_secret_value(match.group(3)):
-        value = match.group(3)
+    # Unescape git C-quoting so an escaped-quote-wrapped value
+    # (``\"ghp_...\"``) still matches the vendor prefixes; strip the
+    # surrounding quote characters the unescape may leave behind.
+    value = match.group(3).replace('\\"', '"').strip('"') if match else ""
+    if match and looks_like_secret_value(value):
         prefix_match = _SECRET_VALUE_PREFIX_RE.match(value)
         if prefix_match:
             # Vendor-prefixed value: redact the whole token, but keep any
@@ -151,7 +157,19 @@ def redact_secret_values_in_path(path: str) -> str:
             # (``ghp_leak dir/x`` -> ``[REDACTED] dir/x``).
             rest = value[prefix_match.end() :]
             ws = next((i for i, c in enumerate(rest) if c.isspace()), len(rest))
-            redacted_value = _REDACTED + (rest[ws:] if ws < len(rest) else "")
+            redacted_value = _REDACTED
+            if ws < len(rest):
+                suffix = rest[ws:].lstrip()
+                if suffix:
+                    # A further secret-named assignment in the remainder is a
+                    # second credential, not filename remainder — redact it
+                    # name-based (shape gating would let ``PASSWORD=hunter2``
+                    # through). Anything else (``dir/file.txt``) stays readable.
+                    suffix_match = _PATH_ASSIGN_RE.match(suffix)
+                    if suffix_match:
+                        redacted_value += f" {suffix_match.group(1)}{suffix_match.group(2)}{_REDACTED}"
+                    else:
+                        redacted_value += " " + suffix
         else:
             redacted_value = _REDACTED
         return f"{match.group(1)}{match.group(2)}{redacted_value}{ending}"

@@ -365,3 +365,28 @@ def test_redact_diff_handles_quoted_paths_with_spaces():
         _redact_diff('diff --git "a/token=parser.py" b/token=parser.py\n')
         == 'diff --git "a/token=parser.py" b/token=parser.py\n'
     )
+
+
+def test_redact_secret_values_in_path_redacts_all_assignments():
+    from gptme.util.redact import redact_secret_values_in_path
+
+    # Multiple credentials in one filename: the suffix after the first
+    # secret must be redacted too, not passed through as "filename remainder".
+    assert redact_secret_values_in_path(
+        "GITHUB_TOKEN=ghp_example PASSWORD=hunter2"
+    ) == ("GITHUB_TOKEN=[REDACTED] PASSWORD=[REDACTED]")
+    # Non-secret remainder stays readable.
+    assert redact_secret_values_in_path("GITHUB_TOKEN=ghp_example dir/file.txt") == (
+        "GITHUB_TOKEN=[REDACTED] dir/file.txt"
+    )
+
+
+def test_redact_diff_tokenizer_survives_escaped_quotes():
+    from gptme.hooks.dirty_diff import _redact_diff
+
+    # Git C-quotes an embedded quote as \" — the tokenizer must treat it as a
+    # literal so the quoted path stays one token and gets redacted.
+    line = 'diff --git "a/GITHUB_TOKEN=\\"ghp_leak file.txt\\"" "b/GITHUB_TOKEN=\\"ghp_leak file.txt\\""\n'
+    redacted = _redact_diff(line)
+    assert "ghp_leak" not in redacted
+    assert "[REDACTED]" in redacted

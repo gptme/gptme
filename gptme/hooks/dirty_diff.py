@@ -46,6 +46,9 @@ _MAX_DIFF_CHARS = 16_000
 
 # Cap the untracked path list; names are cheap, but a node_modules tree is not.
 _MAX_UNTRACKED_PATHS = 50
+# Character bound applied even in max_lines mode, so one pathologically long
+# line (a deep path) cannot balloon the read.
+_MAX_LINE_CHARS = 64_000
 
 _DIFF_TIMEOUT_SECONDS = 10
 
@@ -136,12 +139,14 @@ def _git_capture_bounded(
         assert proc.stdout is not None
         if max_lines is not None:
             lines: list[str] = []
+            total = 0
             for raw in proc.stdout:
                 lines.append(raw)
-                if len(lines) >= max_lines:
+                total += len(raw)
+                if len(lines) >= max_lines or total >= _MAX_LINE_CHARS:
                     break
-            text = "".join(lines)
-            truncated = len(lines) >= max_lines
+            text = "".join(lines)[:_MAX_LINE_CHARS]
+            truncated = len(lines) >= max_lines or total > len(text)
         else:
             assert max_chars is not None
             chunks: list[str] = []
@@ -229,8 +234,11 @@ def _split_header_tokens(rest: str) -> list[str]:
     tokens: list[str] = []
     cur: list[str] = []
     in_quotes = False
+    escaped = False
     for ch in rest:
-        if ch == '"':
+        if ch == '"' and not escaped:
+            # A ``\"`` inside a quoted path (git C-quoting) is a literal
+            # quote, not the closing delimiter.
             in_quotes = not in_quotes
             cur.append(ch)
         elif ch == " " and not in_quotes:
@@ -239,6 +247,7 @@ def _split_header_tokens(rest: str) -> list[str]:
                 cur = []
         else:
             cur.append(ch)
+        escaped = ch == "\\" and not escaped
     if cur:
         tokens.append("".join(cur))
     return tokens
