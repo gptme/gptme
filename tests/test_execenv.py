@@ -449,6 +449,73 @@ class TestOpenShellExecutionEnv:
             finally:
                 env.sandbox_id = None
 
+    def test_create_uses_current_cli_and_reads_sandbox_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            try:
+                with (
+                    patch(
+                        "gptme.eval.execenv.shutil.which",
+                        return_value="/bin/openshell",
+                    ),
+                    patch("gptme.eval.execenv.subprocess.run") as mock_run,
+                ):
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout='{"id":"sandbox-id","name":"gptme-eval-test"}',
+                        stderr="",
+                    )
+                    env._create_sandbox()
+                argv = mock_run.call_args[0][0]
+                assert argv[:3] == [
+                    "openshell",
+                    "--gateway-endpoint",
+                    "http://localhost:50051",
+                ]
+                assert argv[3:5] == ["sandbox", "create"]
+                assert argv[argv.index("--from") + 1] == "gptme-eval:latest"
+                assert argv[argv.index("--output") + 1] == "json"
+                assert "--detach" in argv
+                assert "--image" not in argv
+                assert "--gateway" not in argv
+                assert env.sandbox_id == "gptme-eval-test"
+            finally:
+                env.sandbox_id = None
+
+    def test_create_rejects_invalid_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            with (
+                patch(
+                    "gptme.eval.execenv.shutil.which",
+                    return_value="/bin/openshell",
+                ),
+                patch("gptme.eval.execenv.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="not-json", stderr=""
+                )
+                with pytest.raises(RuntimeError, match="invalid sandbox metadata"):
+                    env._create_sandbox()
+
+    def test_registered_gateway_is_used_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {}, clear=True):
+                env = OpenShellExecutionEnv(host_dir=Path(tmpdir))
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="ok", stderr=""
+                    )
+                    env.run("echo hi")
+                argv = mock_run.call_args[0][0]
+                assert argv[:3] == ["openshell", "sandbox", "exec"]
+                assert "--gateway-endpoint" not in argv
+            finally:
+                env.sandbox_id = None
+
     def test_upload_syncs_whole_tree_recursively(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env = self._env(tmpdir)
@@ -460,10 +527,15 @@ class TestOpenShellExecutionEnv:
                     )
                     env.upload({"hello.py": "print('hi')"})
                 call_args = mock_run.call_args[0][0]
-                assert call_args[:3] == ["openshell", "sandbox", "cp"]
-                assert call_args[3] == f"{tmpdir}/."
-                assert call_args[4].endswith(":/workspace")
-                assert "--recursive" in call_args
+                assert call_args[:3] == [
+                    "openshell",
+                    "--gateway-endpoint",
+                    "http://localhost:50051",
+                ]
+                assert call_args[3:6] == ["sandbox", "upload", "sbx-1"]
+                assert call_args[6:8] == [tmpdir, "/workspace"]
+                assert "--no-git-ignore" in call_args
+                assert "--gateway-endpoint" in call_args
                 # staged file is present for the whole-tree sync
                 assert (Path(tmpdir) / "hello.py").read_text() == "print('hi')"
             finally:
@@ -478,7 +550,7 @@ class TestOpenShellExecutionEnv:
             try:
 
                 def fake_run(args, **kwargs):
-                    dest = Path(args[4])
+                    dest = Path(args[7])
                     dest.mkdir(parents=True, exist_ok=True)
                     (dest / "fresh.txt").write_text("new")
                     return subprocess.CompletedProcess(
@@ -499,7 +571,7 @@ class TestOpenShellExecutionEnv:
             try:
 
                 def fake_run(args, **kwargs):
-                    dest = Path(args[4])
+                    dest = Path(args[7])
                     dest.mkdir(parents=True, exist_ok=True)
                     (dest / "partial.txt").write_text("partial")
                     raise subprocess.TimeoutExpired(cmd="openshell", timeout=60)
@@ -536,7 +608,7 @@ class TestOpenShellExecutionEnv:
             try:
 
                 def fake_run(args, **kwargs):
-                    dest = Path(args[4])
+                    dest = Path(args[7])
                     dest.mkdir(parents=True, exist_ok=True)
                     (dest / "ok.txt").write_text("ok")
                     return subprocess.CompletedProcess(
@@ -597,7 +669,14 @@ class TestOpenShellExecutionEnv:
                     )
                     env.run("echo hi", silent=True)
                 argv = mock_run.call_args[0][0]
-                assert argv[:3] == ["openshell", "sandbox", "exec"]
+                assert argv[:3] == [
+                    "openshell",
+                    "--gateway-endpoint",
+                    "http://localhost:50051",
+                ]
+                assert argv[3:5] == ["sandbox", "exec"]
+                assert argv[argv.index("--name") + 1] == "sbx-1"
+                assert "--gateway-endpoint" in argv
                 # coreutils timeout wraps the real command inside the sandbox
                 assert "timeout" in argv
                 assert argv.index("timeout") < argv.index("/bin/bash")

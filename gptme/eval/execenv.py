@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import os
 import shlex
@@ -318,8 +319,8 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
     execution is a separate change (see ErikBjare/bob#1316).
 
     Requires:
-    - ``openshell`` CLI installed (``uv tool install openshell``)
-    - OpenShell gateway running (``openshell gateway start``)
+    - OpenShell installed from its release package
+    - A registered OpenShell gateway (the package installs a user service)
     - Docker 28.0+ / Podman 5.x / K8s as the container runtime
 
     Enable with ``GPTME_EVAL_ENV=openshell``; Docker remains the default.
@@ -333,12 +334,12 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         image: str = "gptme-eval:latest",
         working_dir: str = "/workspace",
         host_dir: Path | None = None,
-        gateway_url: str = "http://localhost:50051",
+        gateway_url: str | None = None,
     ):
         super().__init__(working_dir=host_dir)
         self.image = image
         self.container_working_dir = working_dir
-        self.gateway_url = gateway_url
+        self.gateway_url = gateway_url or os.environ.get("OPENSHELL_GATEWAY_ENDPOINT")
         self.sandbox_id: str | None = None
         #: Set by ``download()`` when artifacts could not be fully copied back
         #: (gateway failure or timeout). The runner surfaces this in the check's
@@ -349,24 +350,28 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         """Check that the openshell CLI is available."""
         if not shutil.which("openshell"):
             raise RuntimeError(
-                "openshell CLI not found. Install with: uv tool install openshell\n"
-                "Then start the gateway: openshell gateway start"
+                "openshell CLI not found. Follow the OpenShell installation guide; "
+                "the release package installs both the CLI and gateway"
             )
 
+    def _gateway_args(self) -> list[str]:
+        """Return an explicit gateway override when one was configured."""
+        return ["--gateway-endpoint", self.gateway_url] if self.gateway_url else []
+
     def _create_sandbox(self) -> None:
-        """Create an OpenShell sandbox and store its ID."""
+        """Create an OpenShell sandbox and store its name."""
         self._ensure_openshell()
         result = subprocess.run(
             [
                 "openshell",
+                *self._gateway_args(),
                 "sandbox",
                 "create",
-                "--image",
+                "--from",
                 self.image,
-                "--gateway",
-                self.gateway_url,
                 "--output",
-                "id",
+                "json",
+                "--detach",
             ],
             check=False,
             capture_output=True,
@@ -378,7 +383,14 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                 f"Failed to create OpenShell sandbox from image '{self.image}'.\n"
                 f"Error: {result.stderr.strip()}"
             )
-        self.sandbox_id = result.stdout.strip()
+        try:
+            sandbox = json.loads(result.stdout)
+            self.sandbox_id = sandbox["name"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise RuntimeError(
+                "OpenShell returned invalid sandbox metadata: "
+                f"{result.stdout.strip() or '<empty>'}"
+            ) from exc
 
     def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
         """Execute command inside the OpenShell sandbox."""
@@ -394,11 +406,11 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             result = subprocess.run(
                 [
                     "openshell",
+                    *self._gateway_args(),
                     "sandbox",
                     "exec",
+                    "--name",
                     self.sandbox_id,
-                    "--gateway",
-                    self.gateway_url,
                     "--workdir",
                     self.container_working_dir,
                     "--",
@@ -465,13 +477,13 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         result = subprocess.run(
             [
                 "openshell",
+                *self._gateway_args(),
                 "sandbox",
-                "cp",
-                f"{self.working_dir}/.",
-                f"{self.sandbox_id}:{self.container_working_dir}",
-                "--gateway",
-                self.gateway_url,
-                "--recursive",
+                "upload",
+                self.sandbox_id,
+                str(self.working_dir),
+                self.container_working_dir,
+                "--no-git-ignore",
             ],
             check=False,
             capture_output=True,
@@ -488,8 +500,8 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         avoids returning stale local copies of files the sandbox deleted.
 
         This never raises. If the gateway is unresponsive — e.g. after the
-        ``run()`` backstop fired and retained the sandbox ID — a failed or
-        timed-out ``cp`` would otherwise escape before check evaluation and
+        ``run()`` backstop fired and retained the sandbox name — a failed or
+        timed-out download would otherwise escape before check evaluation and
         replace the check's partial output and exit code with a generic error
         and zero case results. Instead we log and return whatever was copied,
         so checks still run against the artifacts that did make it across.
@@ -504,13 +516,12 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                 result = subprocess.run(
                     [
                         "openshell",
+                        *self._gateway_args(),
                         "sandbox",
-                        "cp",
-                        f"{self.sandbox_id}:{self.container_working_dir}/.",
+                        "download",
+                        self.sandbox_id,
+                        self.container_working_dir,
                         str(dest),
-                        "--gateway",
-                        self.gateway_url,
-                        "--recursive",
                     ],
                     check=False,
                     capture_output=True,
@@ -564,11 +575,10 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                 result = subprocess.run(
                     [
                         "openshell",
+                        *self._gateway_args(),
                         "sandbox",
                         "delete",
                         self.sandbox_id,
-                        "--gateway",
-                        self.gateway_url,
                     ],
                     check=False,
                     capture_output=True,
