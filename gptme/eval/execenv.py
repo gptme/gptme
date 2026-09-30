@@ -398,6 +398,12 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                     "--workdir",
                     self.container_working_dir,
                     "--",
+                    # Enforce the timeout *inside* the sandbox so the command's
+                    # process tree is killed there (coreutils `timeout` exits 124).
+                    # The outer subprocess timeout=30 is a backstop for an
+                    # unresponsive gateway, not the primary deadline.
+                    "timeout",
+                    "25",
                     "/bin/bash",
                     "-c",
                     command,
@@ -422,7 +428,7 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             stderr_run = _decode(exc.stderr)
             if stderr_run and not stderr_run.endswith("\n"):
                 stderr_run += "\n"
-            stderr_run += "Command timed out after 30 seconds."
+            stderr_run += "Command timed out (gateway backstop, 30s)."
             returncode = 124
 
         if not silent:
@@ -512,6 +518,10 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         On a failed delete the sandbox ID is retained (instead of cleared) so
         the caller can retry or report it, rather than leaking an allocated
         sandbox with no handle.
+
+        ``super().cleanup()`` (``FileStore``) only removes the working dir when
+        it was auto-created (``_is_temp``). When ``host_dir`` points at the
+        agent workspace (as ``run.py`` does), it is *not* removed.
         """
         if self.sandbox_id:
             result = subprocess.run(

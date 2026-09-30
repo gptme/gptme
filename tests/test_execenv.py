@@ -510,3 +510,38 @@ class TestOpenShellExecutionEnv:
                 )
                 env.cleanup()
             assert env.sandbox_id is None
+
+    def test_run_wraps_command_in_sandbox_side_timeout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="ok", stderr=""
+                    )
+                    env.run("echo hi", silent=True)
+                argv = mock_run.call_args[0][0]
+                assert argv[:3] == ["openshell", "sandbox", "exec"]
+                # coreutils timeout wraps the real command inside the sandbox
+                assert "timeout" in argv
+                assert argv.index("timeout") < argv.index("/bin/bash")
+            finally:
+                env.sandbox_id = None
+
+    def test_cleanup_preserves_workspace_dir(self):
+        """Passing host_dir=workspace must not delete it on cleanup."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            sentinel = workspace / "keep.txt"
+            sentinel.write_text("important")
+            env = OpenShellExecutionEnv(host_dir=workspace)
+            assert env._is_temp is False
+            env.sandbox_id = "sbx-1"
+            with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="", stderr=""
+                )
+                env.cleanup()
+            assert workspace.exists()
+            assert sentinel.read_text() == "important"
