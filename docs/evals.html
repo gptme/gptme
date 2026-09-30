@@ -581,6 +581,7 @@ document.write(`
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-leaderboard">Model Leaderboard</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#policy-governed-sandboxes">Policy-governed sandboxes</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#raw-results">Raw Results</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-evals">Other evals</a></li>
@@ -681,6 +682,46 @@ docker<span class="w"> </span>run<span class="w"> </span><span class="se">\</spa
 <span class="w">    </span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
 </pre></div>
 </div>
+</section>
+<section id="policy-governed-sandboxes">
+<h2>Policy-governed sandboxes<a class="headerlink" href="#policy-governed-sandboxes" title="Link to this heading">#</a></h2>
+<p>Eval tasks run code the model wrote, so the execution environment is the thing
+under test as much as the model is. Docker gives process isolation; it does not
+by itself constrain which files the code can read, which hosts it can reach, or
+which credentials it can exfiltrate.</p>
+<p><a class="reference external" href="https://github.com/NVIDIA/OpenShell">NVIDIA OpenShell</a> is an optional
+alternative runtime for that: agents run under kernel-enforced policy
+(Landlock for filesystem access, seccomp for network), network egress is
+mediated by a supervisor, and credentials are injected only for approved
+endpoints rather than passed into the sandbox as environment variables. The
+existing <code class="docutils literal notranslate"><span class="pre">gptme-eval:latest</span></code> image can be used directly as the sandbox image:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>build-docker
+<span class="c1"># providers/anthropic.yaml ships with OpenShell, not gptme. Fetch the</span>
+<span class="c1"># example profile first (see link below) and edit it for your image.</span>
+openshell<span class="w"> </span>provider<span class="w"> </span>profile<span class="w"> </span>import<span class="w"> </span>-f<span class="w"> </span>providers/anthropic.yaml<span class="w"> </span>--global
+openshell<span class="w"> </span>sandbox<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--from<span class="w"> </span>gptme-eval:latest<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--provider<span class="w"> </span>anthropic<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--<span class="w"> </span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
+</pre></div>
+</div>
+<p>Unlike the Docker example, no API key is passed in through the sandbox
+environment. The Anthropic key is declared once as a provider profile and the
+supervisor injects it, as <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>, only for the endpoints that
+profile allows (<code class="docutils literal notranslate"><span class="pre">api.anthropic.com</span></code>).</p>
+<p>The profile is not part of this repository: OpenShell keeps a set of reviewable
+example profiles — <a class="reference external" href="https://github.com/NVIDIA/OpenShell/blob/main/providers/anthropic.yaml">providers/anthropic.yaml</a>
+among them — in <a class="reference external" href="https://github.com/NVIDIA/OpenShell/tree/main/providers">its repository</a>. These examples are
+not compiled into the gateway: a gateway serves exactly the profiles an operator
+imported, so a new one starts with an empty catalog. A profile’s <code class="docutils literal notranslate"><span class="pre">binaries</span></code>
+list is the least-privilege control deciding which processes may reach its
+endpoints, and the examples name paths from a reference image layout, so copy
+the profile, point <code class="docutils literal notranslate"><span class="pre">binaries</span></code> at the client or interpreter in
+<code class="docutils literal notranslate"><span class="pre">gptme-eval:latest</span></code>, then import your copy (see the
+<a class="reference external" href="https://docs.nvidia.com/openshell/latest/how-it-works/providers/profiles">provider profiles docs</a>).</p>
+<p>This requires a running OpenShell gateway plus Docker or Podman (see the
+<a class="reference external" href="https://docs.nvidia.com/openshell/latest/about/support-matrix">OpenShell support matrix</a>).
+It is not the default eval path today.</p>
 </section>
 <section id="available-eval-suites">
 <h2>Available Eval Suites<a class="headerlink" href="#available-eval-suites" title="Link to this heading">#</a></h2>
@@ -886,6 +927,7 @@ For authoritative pass/fail results and leaderboard submission, use the official
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-leaderboard">Model Leaderboard</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#policy-governed-sandboxes">Policy-governed sandboxes</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#raw-results">Raw Results</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-evals">Other evals</a></li>
