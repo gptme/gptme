@@ -2,11 +2,14 @@ import { createApiClient } from '@/utils/api';
 import { getClientForServerConfig } from '../serverClients';
 
 jest.mock('@/utils/api', () => ({
-  createApiClient: jest.fn((baseUrl: string, authHeader: string | null) => ({
-    baseUrl,
-    authHeader,
-    dispose: jest.fn(),
-  })),
+  createApiClient: jest.fn(
+    (baseUrl: string, authHeader: string | null, sseToken: string | null) => ({
+      baseUrl,
+      authHeader,
+      sseToken: sseToken ?? null,
+      dispose: jest.fn(),
+    })
+  ),
 }));
 
 jest.mock('@/utils/demoApiClient', () => ({
@@ -49,7 +52,8 @@ describe('getClientForServerConfig', () => {
     expect((unauthenticated as unknown as { dispose: jest.Mock }).dispose).toHaveBeenCalled();
     expect(createApiClient).toHaveBeenLastCalledWith(
       'http://127.0.0.1:5712',
-      'Bearer sidecar-token'
+      'Bearer sidecar-token',
+      null
     );
   });
 

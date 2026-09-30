@@ -355,6 +355,8 @@ function formatWatchEventContent(event: {
 export class ApiClient {
   public baseUrl: string;
   public authHeader: string | null = null;
+  /** Short-lived instance-scoped token used specifically for EventSource ?token= (gptme-cloud#1076). */
+  public sseToken: string | null = null;
   public readonly isConnected$: Observable<boolean> = observable(false);
   public readonly lastConnectionResult$: Observable<ConnectionProbeResult | null> =
     observable<ConnectionProbeResult | null>(null);
@@ -400,9 +402,14 @@ export class ApiClient {
     }
   }
 
-  constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
+  constructor(
+    baseUrl: string = getApiBaseUrl(),
+    authHeader: string | null = null,
+    sseToken: string | null = null
+  ) {
     this.baseUrl = baseUrl;
     this.authHeader = authHeader;
+    this.sseToken = sseToken;
     this.identifier = crypto.randomUUID();
     console.log(`[ApiClient] Identifier: ${this.identifier}`);
 
@@ -1063,7 +1070,12 @@ export class ApiClient {
       await this.authCookiePromise;
     }
 
-    if (this.authHeader && !this.authCookieSet) {
+    if (this.sseToken) {
+      // Prefer the instance-scoped SSE token (gptme-cloud#1076): it is bound to
+      // this instance/user/purpose and never exposes the Supabase JWT in the URL.
+      url.searchParams.set('token', this.sseToken);
+      console.log('[ApiClient] Using instance-scoped SSE token for EventSource ?token=');
+    } else if (this.authHeader && !this.authCookieSet) {
       // Fallback: pass token as query param if cookie endpoint was unavailable
       const token = this.authHeader.split(' ')[1];
       if (!token) {
@@ -2151,6 +2163,10 @@ export function getClientGeneration(client: object): number {
   return generation;
 }
 
-export const createApiClient = (baseUrl?: string, authHeader?: string | null): ApiClient => {
-  return new ApiClient(baseUrl, authHeader);
+export const createApiClient = (
+  baseUrl?: string,
+  authHeader?: string | null,
+  sseToken?: string | null
+): ApiClient => {
+  return new ApiClient(baseUrl, authHeader, sseToken);
 };
