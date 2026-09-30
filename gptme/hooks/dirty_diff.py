@@ -204,26 +204,73 @@ def _redact_diff(diff: str) -> str:
             # paths sit after a `diff --git` prefix the line-anchored patterns
             # cannot see past. Redact each a//b/ segment so a tracked filename
             # containing a credential value does not leak.
-            out.append("diff --git " + _redact_header_paths(line[len("diff --git ") :]))
+            ending = "\n" if line.endswith("\n") else ""
+            body = line[len("diff --git ") : len(line) - len(ending)]
+            out.append("diff --git " + _redact_header_paths(body) + ending)
             continue
         match = _DIFF_MARKER_RE.match(line)
         marker = match.group(0) if match else ""
         rest = line[len(marker) :]
-        if marker in ("+++", "---") and rest[:1] == " " and rest[1:3] in ("a/", "b/"):
-            rest = f" {rest[1:3]}{redact_secret_values_in_path(rest[3:])}"
+        if marker in ("+++", "---"):
+            rest = _redact_path_header(rest)
         else:
             rest = redact_secrets_from_text(rest)
         out.append(marker + rest)
     return "".join(out)
 
 
+def _split_header_tokens(rest: str) -> list[str]:
+    """Split a diff header's argument list, keeping quoted paths as one token.
+
+    Git quotes paths containing spaces or special characters (``diff --git
+    "a/foo bar" "b/foo bar"``), so a plain ``str.split(" ")`` would tear a
+    quoted path apart and its pieces would no longer start with ``a/``/``b/``.
+    """
+    tokens: list[str] = []
+    cur: list[str] = []
+    in_quotes = False
+    for ch in rest:
+        if ch == '"':
+            in_quotes = not in_quotes
+            cur.append(ch)
+        elif ch == " " and not in_quotes:
+            if cur:
+                tokens.append("".join(cur))
+                cur = []
+        else:
+            cur.append(ch)
+    if cur:
+        tokens.append("".join(cur))
+    return tokens
+
+
+def _redact_quoted_or_plain_path(token: str, lead_space: bool) -> str:
+    """Redact a single ``a/``/``b/``-prefixed path token, keeping its quoting."""
+    body = token
+    quoted = body.startswith('"') and body.endswith('"') and len(body) >= 2
+    inner = body[1:-1] if quoted else body
+    if inner[:2] in ("a/", "b/"):
+        inner = f"{inner[:2]}{redact_secret_values_in_path(inner[2:])}"
+    body = f'"{inner}"' if quoted else inner
+    return f" {body}" if lead_space else body
+
+
+def _redact_path_header(rest: str) -> str:
+    """Redact ``---``/``+++`` header paths (plain or quoted, a/ or b/ prefixed)."""
+    ending = "\n" if rest.endswith("\n") else ""
+    body = rest[: len(rest) - len(ending)] if ending else rest
+    lead_space = body[:1] == " "
+    body = body[1:] if lead_space else body
+    if body[:1] == '"' or body[:2] in ("a/", "b/"):
+        return _redact_quoted_or_plain_path(body, lead_space) + ending
+    return rest
+
+
 def _redact_header_paths(rest: str) -> str:
     """Redact the secret-shaped value in a diff header's ``a/``/``b/`` paths."""
     return " ".join(
-        f"{token[:2]}{redact_secret_values_in_path(token[2:])}"
-        if token[:2] in ("a/", "b/")
-        else token
-        for token in rest.split(" ")
+        _redact_quoted_or_plain_path(t, lead_space=False)
+        for t in _split_header_tokens(rest)
     )
 
 

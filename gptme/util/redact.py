@@ -135,12 +135,26 @@ def redact_secret_values_in_path(path: str) -> str:
     For diff header paths and untracked filenames, where the segment is a path
     rather than a line: ``token=parser.py`` is preserved (the value is a
     filename), while ``GITHUB_TOKEN=ghp_...`` becomes ``GITHUB_TOKEN=[REDACTED]``.
+    Any suffix after the secret value (an extension, a space inside a quoted
+    path) is kept — the redaction must not destroy the surrounding filename.
     """
     ending = "\n" if path.endswith("\n") else ""
     body = path[: -len(ending)] if ending else path
     match = _PATH_ASSIGN_RE.match(body)
     if match and looks_like_secret_value(match.group(3)):
-        return f"{match.group(1)}{match.group(2)}{_REDACTED}{ending}"
+        value = match.group(3)
+        prefix_match = _SECRET_VALUE_PREFIX_RE.match(value)
+        if prefix_match:
+            # Vendor-prefixed value: redact the whole token, but keep any
+            # whitespace-separated suffix — a space inside a quoted path is
+            # filename remainder, not part of the secret
+            # (``ghp_leak dir/x`` -> ``[REDACTED] dir/x``).
+            rest = value[prefix_match.end() :]
+            ws = next((i for i, c in enumerate(rest) if c.isspace()), len(rest))
+            redacted_value = _REDACTED + (rest[ws:] if ws < len(rest) else "")
+        else:
+            redacted_value = _REDACTED
+        return f"{match.group(1)}{match.group(2)}{redacted_value}{ending}"
     return path
 
 

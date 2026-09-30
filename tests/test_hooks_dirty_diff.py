@@ -339,3 +339,29 @@ def test_redact_secret_values_in_path_unit():
     assert redact_secret_values_in_path("src/main.py") == "src/main.py"
     # Assignment-shaped but a plausible filename → preserved.
     assert redact_secret_values_in_path("token=config.json") == "token=config.json"
+
+
+def test_redact_diff_handles_quoted_paths_with_spaces():
+    from gptme.hooks.dirty_diff import _redact_diff
+
+    # Git quotes paths containing spaces; the quoted path must stay one token
+    # so the a//b/ prefix is recognised and a secret value inside is redacted.
+    assert (
+        _redact_diff(
+            'diff --git "a/GITHUB_TOKEN=ghp_leak dir/x" "b/GITHUB_TOKEN=ghp_leak dir/x"\n'
+        )
+        == 'diff --git "a/GITHUB_TOKEN=[REDACTED] dir/x" "b/GITHUB_TOKEN=[REDACTED] dir/x"\n'
+    )
+    assert (
+        _redact_diff('+++ "b/GITHUB_TOKEN=ghp_leak file.py"\n')
+        == '+++ "b/GITHUB_TOKEN=[REDACTED] file.py"\n'
+    )
+    assert (
+        _redact_diff('--- "a/my plain token=parser.py"\n')
+        == '--- "a/my plain token=parser.py"\n'
+    )
+    # Unquoted single-token quoted-form mixed in stays readable.
+    assert (
+        _redact_diff('diff --git "a/token=parser.py" b/token=parser.py\n')
+        == 'diff --git "a/token=parser.py" b/token=parser.py\n'
+    )
