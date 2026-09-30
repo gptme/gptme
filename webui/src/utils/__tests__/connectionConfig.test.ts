@@ -121,6 +121,7 @@ describe('processConnectionFromHash', () => {
       {
         authToken: 'token-123',
         useAuthToken: true,
+        sseToken: null,
       }
     );
     expect(mockSetActiveServer).toHaveBeenCalledWith('server-1');
@@ -152,6 +153,7 @@ describe('processConnectionFromHash', () => {
       {
         authToken: 'token-123',
         useAuthToken: true,
+        sseToken: null,
       }
     );
     expect(mockConnectServer).toHaveBeenCalledWith('server-1');
