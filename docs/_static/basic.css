@@ -48,7 +48,7 @@ div.sphinxsidebarwrapper {
 
 div.sphinxsidebar {
     float: left;
-    width: 270px;
+    width: 230px;
     margin-left: -100%;
     font-size: 90%;
     word-wrap: break-word;
@@ -739,14 +739,6 @@ dl.glossary dt {
 abbr, acronym {
     border-bottom: dotted 1px;
     cursor: help;
-}
-
-.translated {
-    background-color: rgba(207, 255, 207, 0.2)
-}
-
-.untranslated {
-    background-color: rgba(255, 207, 207, 0.2)
 }
 
 /* -- code displays --------------------------------------------------------- */

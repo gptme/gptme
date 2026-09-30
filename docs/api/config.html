@@ -16,34 +16,38 @@
     document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
     document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
   </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-
-  
-  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
-  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
-<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
-<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
-    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=4418a689" />
     <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.12.1.css" />
     <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
   
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
-<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
-  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
 
     <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/asciinema-player_3.12.1.js"></script>
-    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=fab101a9"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'api/config';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <link rel="canonical" href="https://gptme.org/docs/api/config.html" />
     <link rel="icon" href="../_static/logo.png"/>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -52,34 +56,30 @@
     <link rel="prev" title="Tools" href="tools.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
   </head>
-  
-  
-  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
-
+  <body data-default-mode="">
   
   
   <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
   
   <div id="pst-scroll-pixel-helper"></div>
   
   <button type="button" class="btn rounded-pill" id="pst-back-to-top">
     <i class="fa-solid fa-arrow-up"></i>Back to top</button>
-
   
-  <input type="checkbox"
-          class="sidebar-toggle"
-          id="pst-primary-sidebar-checkbox"/>
-  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
   
-  <input type="checkbox"
-          class="sidebar-toggle"
-          id="pst-secondary-sidebar-checkbox"/>
-  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
   
-  <div class="search-button__wrapper">
-    <div class="search-button__overlay"></div>
-    <div class="search-button__search-container">
+  
+  <dialog id="pst-search-dialog">
+    
 <form class="bd-search d-flex align-items-center"
       action="../search.html"
       method="get">
@@ -87,7 +87,6 @@
   <input type="search"
          class="form-control"
          name="q"
-         id="search-input"
          placeholder="Search..."
          aria-label="Search..."
          autocomplete="off"
@@ -95,15 +94,59 @@
          autocapitalize="off"
          spellcheck="false"/>
   <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
-</form></div>
-  </div>
+</form>
+  </dialog>
 
   <div class="pst-async-banner-revealer d-none">
   <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
 </div>
 
   
-    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
     </header>
   
 
@@ -112,7 +155,8 @@
       
       
       
-      <div class="bd-sidebar-primary bd-sidebar">
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
         
 
   
@@ -142,21 +186,17 @@
     
     
     <img src="../_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
-    <script>document.write(`<img src="../_static/logo.png" class="logo__image only-dark" alt="gptme - Home"/>`);</script>
+    <img src="../_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
   
   
 </a></div>
         <div class="sidebar-primary-item">
 
- <script>
- document.write(`
-   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
-    <i class="fa-solid fa-magnifying-glass"></i>
-    <span class="search-button__default-text">Search</span>
-    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
-   </button>
- `);
- </script></div>
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
@@ -392,9 +432,14 @@
   
   
   <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
   </div>
-  
-  <div id="rtd-footer-container"></div>
 
 
       </div>
@@ -524,7 +569,7 @@
 
 
 <button onclick="toggleFullScreen()"
-  class="btn btn-sm btn-fullscreen-button"
+  class="btn btn-sm btn-fullscreen-button pst-navbar-icon"
   title="Fullscreen mode"
   data-bs-placement="bottom" data-bs-toggle="tooltip"
 >
@@ -538,25 +583,24 @@
 
 
 
-<script>
-document.write(`
-  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
-    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
-    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
-    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
   </button>
-`);
-</script>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div>
 
 
-<script>
-document.write(`
-  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
     <i class="fa-solid fa-magnifying-glass fa-lg"></i>
-  </button>
-`);
-</script>
-<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm pst-navbar-icon" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
     <span class="fa-solid fa-list"></span>
 </button>
 </div></div>
@@ -578,14 +622,14 @@ document.write(`
                 <h2> Contents </h2>
             </div>
             <nav aria-label="Page">
-                <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig"><code class="docutils literal notranslate"><span class="pre">AgentConfig</span></code></a><ul class="visible nav section-nav flex-column">
+                <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig"><code class="docutils literal notranslate"><span class="pre">AgentConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig.__init__"><code class="docutils literal notranslate"><span class="pre">AgentConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig.color"><code class="docutils literal notranslate"><span class="pre">AgentConfig.color</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig.urls"><code class="docutils literal notranslate"><span class="pre">AgentConfig.urls</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig"><code class="docutils literal notranslate"><span class="pre">ChatConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig"><code class="docutils literal notranslate"><span class="pre">ChatConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ChatConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.agent_config"><code class="docutils literal notranslate"><span class="pre">ChatConfig.agent_config</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ChatConfig.from_dict()</span></code></a></li>
@@ -595,7 +639,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.to_dict"><code class="docutils literal notranslate"><span class="pre">ChatConfig.to_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config"><code class="docutils literal notranslate"><span class="pre">Config</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config"><code class="docutils literal notranslate"><span class="pre">Config</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.__init__"><code class="docutils literal notranslate"><span class="pre">Config.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_logdir"><code class="docutils literal notranslate"><span class="pre">Config.from_logdir()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_workspace"><code class="docutils literal notranslate"><span class="pre">Config.from_workspace()</span></code></a></li>
@@ -606,80 +650,80 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.mcp"><code class="docutils literal notranslate"><span class="pre">Config.mcp</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig"><code class="docutils literal notranslate"><span class="pre">ContextConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig"><code class="docutils literal notranslate"><span class="pre">ContextConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ContextConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ContextConfig.from_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig.from_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.HooksConfig"><code class="docutils literal notranslate"><span class="pre">HooksConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.HooksConfig"><code class="docutils literal notranslate"><span class="pre">HooksConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.HooksConfig.__init__"><code class="docutils literal notranslate"><span class="pre">HooksConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.LessonsConfig"><code class="docutils literal notranslate"><span class="pre">LessonsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.LessonsConfig"><code class="docutils literal notranslate"><span class="pre">LessonsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.LessonsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">LessonsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig"><code class="docutils literal notranslate"><span class="pre">MCPConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig"><code class="docutils literal notranslate"><span class="pre">MCPConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">MCPConfig.from_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.is_http"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.is_http</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelConfig"><code class="docutils literal notranslate"><span class="pre">ModelConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelConfig"><code class="docutils literal notranslate"><span class="pre">ModelConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ModelConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelsConfig"><code class="docutils literal notranslate"><span class="pre">ModelsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelsConfig"><code class="docutils literal notranslate"><span class="pre">ModelsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ModelsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.PluginsConfig"><code class="docutils literal notranslate"><span class="pre">PluginsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.PluginsConfig"><code class="docutils literal notranslate"><span class="pre">PluginsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.PluginsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">PluginsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig"><code class="docutils literal notranslate"><span class="pre">ProjectConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig"><code class="docutils literal notranslate"><span class="pre">ProjectConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.from_dict()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.merge"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.merge()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.to_dict"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.to_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig"><code class="docutils literal notranslate"><span class="pre">ProviderConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig"><code class="docutils literal notranslate"><span class="pre">ProviderConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ProviderConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig.get_api_key"><code class="docutils literal notranslate"><span class="pre">ProviderConfig.get_api_key()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.RagConfig"><code class="docutils literal notranslate"><span class="pre">RagConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.RagConfig"><code class="docutils literal notranslate"><span class="pre">RagConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.RagConfig.__init__"><code class="docutils literal notranslate"><span class="pre">RagConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ScriptHookConfig"><code class="docutils literal notranslate"><span class="pre">ScriptHookConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ScriptHookConfig"><code class="docutils literal notranslate"><span class="pre">ScriptHookConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ScriptHookConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ScriptHookConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.SettingsConfig"><code class="docutils literal notranslate"><span class="pre">SettingsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.SettingsConfig"><code class="docutils literal notranslate"><span class="pre">SettingsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.SettingsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">SettingsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserConfig"><code class="docutils literal notranslate"><span class="pre">UserConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserConfig"><code class="docutils literal notranslate"><span class="pre">UserConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig.color"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig.color</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -729,7 +773,7 @@ configuration reference.</p>
 </ul>
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.AgentConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">AgentConfig</span></span><a class="headerlink" href="#gptme.config.AgentConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">AgentConfig</span></span><a class="headerlink" href="#gptme.config.AgentConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for agent-specific settings.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.AgentConfig.__init__">
@@ -758,7 +802,7 @@ configuration reference.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ChatConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ChatConfig</span></span><a class="headerlink" href="#gptme.config.ChatConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ChatConfig</span></span><a class="headerlink" href="#gptme.config.ChatConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for a chat session.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ChatConfig.__init__">
@@ -767,25 +811,25 @@ configuration reference.</p>
 
 <dl class="py property">
 <dt class="sig sig-object py" id="gptme.config.ChatConfig.agent_config">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">agent_config</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gptme.config.AgentConfig" title="gptme.config.models.AgentConfig"><span class="pre">AgentConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></em><a class="headerlink" href="#gptme.config.ChatConfig.agent_config" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">agent_config</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gptme.config.AgentConfig" title="gptme.config.models.AgentConfig"><span class="pre">AgentConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></em><a class="headerlink" href="#gptme.config.ChatConfig.agent_config" title="Link to this definition">#</a></dt>
 <dd><p>Get the agent configuration if available.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ChatConfig.from_dict">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">create_workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.from_dict" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">create_workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.from_dict" title="Link to this definition">#</a></dt>
 <dd><p>Create a ChatConfig instance from a dictionary. Warns about unknown keys.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ChatConfig.from_logdir">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_logdir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.from_logdir" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_logdir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.from_logdir" title="Link to this definition">#</a></dt>
 <dd><p>Load ChatConfig from a log directory.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ChatConfig.load_or_create">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">load_or_create</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">cli_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.load_or_create" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">load_or_create</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">cli_config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.load_or_create" title="Link to this definition">#</a></dt>
 <dd><p>Load or create a chat config, applying CLI overrides.</p>
 </dd></dl>
 
@@ -813,7 +857,7 @@ configuration reference.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.Config">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">Config</span></span><a class="headerlink" href="#gptme.config.Config" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">Config</span></span><a class="headerlink" href="#gptme.config.Config" title="Link to this definition">#</a></dt>
 <dd><p>A complete configuration object, including user and project configurations.</p>
 <p>It is meant to be used to resolve configuration values, not to be passed around everywhere.
 Care must be taken to avoid this becoming a “god object” passed around loosely, or frequently used as a global.</p>
@@ -824,13 +868,13 @@ Care must be taken to avoid this becoming a “god object” passed around loose
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.Config.from_logdir">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_logdir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.Config.from_logdir" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_logdir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.Config.from_logdir" title="Link to this definition">#</a></dt>
 <dd><p>Load the configuration from a log directory.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.Config.from_workspace">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_workspace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.Config.from_workspace" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_workspace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.Config.from_workspace" title="Link to this definition">#</a></dt>
 <dd><p>Load the configuration from a workspace directory. Clearing any cache.</p>
 </dd></dl>
 
@@ -874,7 +918,7 @@ project’s plugins under a user allowlist, add them to either list.</p>
 
 <dl class="py property">
 <dt class="sig sig-object py" id="gptme.config.Config.mcp">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">mcp</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gptme.config.MCPConfig" title="gptme.config.models.MCPConfig"><span class="pre">MCPConfig</span></a></em><a class="headerlink" href="#gptme.config.Config.mcp" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">mcp</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gptme.config.MCPConfig" title="gptme.config.models.MCPConfig"><span class="pre">MCPConfig</span></a></em><a class="headerlink" href="#gptme.config.Config.mcp" title="Link to this definition">#</a></dt>
 <dd><p>Get the MCP configuration, merging user and project configurations.</p>
 </dd></dl>
 
@@ -882,7 +926,7 @@ project’s plugins under a user allowlist, add them to either list.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ContextConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ContextConfig</span></span><a class="headerlink" href="#gptme.config.ContextConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ContextConfig</span></span><a class="headerlink" href="#gptme.config.ContextConfig" title="Link to this definition">#</a></dt>
 <dd><p>Unified configuration for context management.</p>
 <dl>
 <dt>Structure:</dt><dd><p>[context]
@@ -902,7 +946,7 @@ max_candidates = 30
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ContextConfig.from_dict">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.ContextConfig" title="gptme.context.config.ContextConfig"><span class="pre">ContextConfig</span></a></span></span><a class="headerlink" href="#gptme.config.ContextConfig.from_dict" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.ContextConfig" title="gptme.context.config.ContextConfig"><span class="pre">ContextConfig</span></a></span></span><a class="headerlink" href="#gptme.config.ContextConfig.from_dict" title="Link to this definition">#</a></dt>
 <dd><p>Create config from dictionary (typically from gptme.toml).</p>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="n">ContextConfig</span><span class="o">.</span><span class="n">from_dict</span><span class="p">({</span>
@@ -923,7 +967,7 @@ max_candidates = 30
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ContextSelectorConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ContextSelectorConfig</span></span><a class="headerlink" href="#gptme.config.ContextSelectorConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ContextSelectorConfig</span></span><a class="headerlink" href="#gptme.config.ContextSelectorConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for context selection behavior.</p>
 <p>This configuration controls which selection strategy is used,
 cost limits, and strategy-specific parameters.</p>
@@ -934,7 +978,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ContextSelectorConfig.from_dict">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.ContextSelectorConfig" title="gptme.context.selector.config.ContextSelectorConfig"><span class="pre">ContextSelectorConfig</span></a></span></span><a class="headerlink" href="#gptme.config.ContextSelectorConfig.from_dict" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.ContextSelectorConfig" title="gptme.context.selector.config.ContextSelectorConfig"><span class="pre">ContextSelectorConfig</span></a></span></span><a class="headerlink" href="#gptme.config.ContextSelectorConfig.from_dict" title="Link to this definition">#</a></dt>
 <dd><p>Create config from dictionary (typically from gptme.toml).</p>
 </dd></dl>
 
@@ -942,7 +986,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.HooksConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">HooksConfig</span></span><a class="headerlink" href="#gptme.config.HooksConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">HooksConfig</span></span><a class="headerlink" href="#gptme.config.HooksConfig" title="Link to this definition">#</a></dt>
 <dd><p>Project-configured hooks.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.HooksConfig.__init__">
@@ -953,7 +997,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.LessonsConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">LessonsConfig</span></span><a class="headerlink" href="#gptme.config.LessonsConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">LessonsConfig</span></span><a class="headerlink" href="#gptme.config.LessonsConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for the lessons system.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.LessonsConfig.__init__">
@@ -964,7 +1008,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.MCPConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">MCPConfig</span></span><a class="headerlink" href="#gptme.config.MCPConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">MCPConfig</span></span><a class="headerlink" href="#gptme.config.MCPConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for <a class="reference internal" href="../mcp.html#mcp"><span class="std std-ref">Model Context Protocol</span></a> support, including which MCP servers to use.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.MCPConfig.__init__">
@@ -973,7 +1017,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.MCPConfig.from_dict">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">doc</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.MCPConfig.from_dict" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">doc</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.MCPConfig.from_dict" title="Link to this definition">#</a></dt>
 <dd><p>Create a MCPConfig instance from a dictionary. Warns about unknown keys.</p>
 </dd></dl>
 
@@ -981,7 +1025,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.MCPServerConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">MCPServerConfig</span></span><a class="headerlink" href="#gptme.config.MCPServerConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">MCPServerConfig</span></span><a class="headerlink" href="#gptme.config.MCPServerConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for a MCP server.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.MCPServerConfig.__init__">
@@ -990,7 +1034,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py property">
 <dt class="sig sig-object py" id="gptme.config.MCPServerConfig.is_http">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_http</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></em><a class="headerlink" href="#gptme.config.MCPServerConfig.is_http" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_http</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></em><a class="headerlink" href="#gptme.config.MCPServerConfig.is_http" title="Link to this definition">#</a></dt>
 <dd><p>Check if this is an HTTP MCP server.</p>
 </dd></dl>
 
@@ -998,7 +1042,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ModelConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ModelConfig</span></span><a class="headerlink" href="#gptme.config.ModelConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ModelConfig</span></span><a class="headerlink" href="#gptme.config.ModelConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration overrides for one fully-qualified model ID.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ModelConfig.__init__">
@@ -1009,7 +1053,7 @@ cost limits, and strategy-specific parameters.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ModelsConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ModelsConfig</span></span><a class="headerlink" href="#gptme.config.ModelsConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ModelsConfig</span></span><a class="headerlink" href="#gptme.config.ModelsConfig" title="Link to this definition">#</a></dt>
 <dd><p>Model-related user preferences, stored under a <code class="docutils literal notranslate"><span class="pre">[models]</span></code> section.</p>
 <p>Scope: these refer to the primary chat/LLM model (the same notion as the
 <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> env var). Other modalities (TTS/STT/image) are configured
@@ -1024,7 +1068,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.PluginsConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">PluginsConfig</span></span><a class="headerlink" href="#gptme.config.PluginsConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">PluginsConfig</span></span><a class="headerlink" href="#gptme.config.PluginsConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for the plugin system.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.PluginsConfig.__init__">
@@ -1035,7 +1079,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ProjectConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ProjectConfig</span></span><a class="headerlink" href="#gptme.config.ProjectConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ProjectConfig</span></span><a class="headerlink" href="#gptme.config.ProjectConfig" title="Link to this definition">#</a></dt>
 <dd><p>Project-level configuration, such as which files to include in the context by default.</p>
 <p>This is loaded from a gptme.toml <a class="reference internal" href="../config.html#project-config"><span class="std std-ref">Project config</span></a> file in the project directory or .github directory.</p>
 <dl class="py method">
@@ -1045,7 +1089,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ProjectConfig.from_dict">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ProjectConfig.from_dict" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.14)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ProjectConfig.from_dict" title="Link to this definition">#</a></dt>
 <dd><p>Create a ProjectConfig instance from a dictionary. Warns about unknown keys.</p>
 </dd></dl>
 
@@ -1065,7 +1109,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ProviderConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ProviderConfig</span></span><a class="headerlink" href="#gptme.config.ProviderConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ProviderConfig</span></span><a class="headerlink" href="#gptme.config.ProviderConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for a custom OpenAI-compatible provider.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ProviderConfig.__init__">
@@ -1082,7 +1126,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.RagConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">RagConfig</span></span><a class="headerlink" href="#gptme.config.RagConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">RagConfig</span></span><a class="headerlink" href="#gptme.config.RagConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for <a class="reference internal" href="../tools/rag.html#rag"><span class="std std-ref">retrieval-augmented generation</span></a> support.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.RagConfig.__init__">
@@ -1093,7 +1137,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.ScriptHookConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ScriptHookConfig</span></span><a class="headerlink" href="#gptme.config.ScriptHookConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ScriptHookConfig</span></span><a class="headerlink" href="#gptme.config.ScriptHookConfig" title="Link to this definition">#</a></dt>
 <dd><p>Shell command registered for an allowlisted lifecycle hook event.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.ScriptHookConfig.__init__">
@@ -1104,7 +1148,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.SettingsConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">SettingsConfig</span></span><a class="headerlink" href="#gptme.config.SettingsConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">SettingsConfig</span></span><a class="headerlink" href="#gptme.config.SettingsConfig" title="Link to this definition">#</a></dt>
 <dd><p>Project/user settings that affect CLI defaults.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.SettingsConfig.__init__">
@@ -1115,7 +1159,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.UserConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">UserConfig</span></span><a class="headerlink" href="#gptme.config.UserConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">UserConfig</span></span><a class="headerlink" href="#gptme.config.UserConfig" title="Link to this definition">#</a></dt>
 <dd><p>User-level configuration, such as user-specific prompts and environment variables.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.UserConfig.__init__">
@@ -1126,7 +1170,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.UserIdentityConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">UserIdentityConfig</span></span><a class="headerlink" href="#gptme.config.UserIdentityConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">UserIdentityConfig</span></span><a class="headerlink" href="#gptme.config.UserIdentityConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration for user identity.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.UserIdentityConfig.__init__">
@@ -1143,7 +1187,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py class">
 <dt class="sig sig-object py" id="gptme.config.UserPromptConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">UserPromptConfig</span></span><a class="headerlink" href="#gptme.config.UserPromptConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">UserPromptConfig</span></span><a class="headerlink" href="#gptme.config.UserPromptConfig" title="Link to this definition">#</a></dt>
 <dd><p>User-level configuration for user-specific prompts and project descriptions.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.UserPromptConfig.__init__">
@@ -1154,7 +1198,7 @@ own scoped keys (e.g. <code class="docutils literal notranslate"><span class="pr
 
 <dl class="py function">
 <dt class="sig sig-object py" id="gptme.config.check_project_shell_trust">
-<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">check_project_shell_trust</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context_cmd</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_commands</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interactive</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#gptme.config.check_project_shell_trust" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">check_project_shell_trust</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context_cmd</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">hook_commands</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">interactive</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#gptme.config.check_project_shell_trust" title="Link to this definition">#</a></dt>
 <dd><p>Gate project-level shell execution behind a TOFU trust check.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -1218,7 +1262,7 @@ then runtime defaults) takes priority, then <code class="docutils literal notran
 
 <dl class="py function">
 <dt class="sig sig-object py" id="gptme.config.get_project_config">
-<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">get_project_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quiet</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.ProjectConfig" title="gptme.config.models.ProjectConfig"><span class="pre">ProjectConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.config.get_project_config" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">get_project_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">quiet</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.ProjectConfig" title="gptme.config.models.ProjectConfig"><span class="pre">ProjectConfig</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.config.get_project_config" title="Link to this definition">#</a></dt>
 <dd><p>Get a cached copy of or load the project configuration from a gptme.toml file in the workspace or .github directory.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -1400,22 +1444,24 @@ environment -&gt; chat/project <code class="docutils literal notranslate"><span 
             
             
               
-                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
 
 
-  <div class="sidebar-secondary-item">
-  <div class="page-toc tocsection onthispage">
+  <div class="sidebar-secondary-item"><div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
     <i class="fa-solid fa-list"></i> Contents
   </div>
-  <nav class="bd-toc-nav page-toc">
-    <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig"><code class="docutils literal notranslate"><span class="pre">AgentConfig</span></code></a><ul class="visible nav section-nav flex-column">
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig"><code class="docutils literal notranslate"><span class="pre">AgentConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig.__init__"><code class="docutils literal notranslate"><span class="pre">AgentConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig.color"><code class="docutils literal notranslate"><span class="pre">AgentConfig.color</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.AgentConfig.urls"><code class="docutils literal notranslate"><span class="pre">AgentConfig.urls</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig"><code class="docutils literal notranslate"><span class="pre">ChatConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig"><code class="docutils literal notranslate"><span class="pre">ChatConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ChatConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.agent_config"><code class="docutils literal notranslate"><span class="pre">ChatConfig.agent_config</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ChatConfig.from_dict()</span></code></a></li>
@@ -1425,7 +1471,7 @@ environment -&gt; chat/project <code class="docutils literal notranslate"><span 
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ChatConfig.to_dict"><code class="docutils literal notranslate"><span class="pre">ChatConfig.to_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config"><code class="docutils literal notranslate"><span class="pre">Config</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config"><code class="docutils literal notranslate"><span class="pre">Config</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.__init__"><code class="docutils literal notranslate"><span class="pre">Config.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_logdir"><code class="docutils literal notranslate"><span class="pre">Config.from_logdir()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.from_workspace"><code class="docutils literal notranslate"><span class="pre">Config.from_workspace()</span></code></a></li>
@@ -1436,80 +1482,80 @@ environment -&gt; chat/project <code class="docutils literal notranslate"><span 
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.Config.mcp"><code class="docutils literal notranslate"><span class="pre">Config.mcp</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig"><code class="docutils literal notranslate"><span class="pre">ContextConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig"><code class="docutils literal notranslate"><span class="pre">ContextConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ContextConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ContextConfig.from_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ContextSelectorConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ContextSelectorConfig.from_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.HooksConfig"><code class="docutils literal notranslate"><span class="pre">HooksConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.HooksConfig"><code class="docutils literal notranslate"><span class="pre">HooksConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.HooksConfig.__init__"><code class="docutils literal notranslate"><span class="pre">HooksConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.LessonsConfig"><code class="docutils literal notranslate"><span class="pre">LessonsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.LessonsConfig"><code class="docutils literal notranslate"><span class="pre">LessonsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.LessonsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">LessonsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig"><code class="docutils literal notranslate"><span class="pre">MCPConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig"><code class="docutils literal notranslate"><span class="pre">MCPConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">MCPConfig.from_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig.is_http"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig.is_http</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelConfig"><code class="docutils literal notranslate"><span class="pre">ModelConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelConfig"><code class="docutils literal notranslate"><span class="pre">ModelConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ModelConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelsConfig"><code class="docutils literal notranslate"><span class="pre">ModelsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelsConfig"><code class="docutils literal notranslate"><span class="pre">ModelsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ModelsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ModelsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.PluginsConfig"><code class="docutils literal notranslate"><span class="pre">PluginsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.PluginsConfig"><code class="docutils literal notranslate"><span class="pre">PluginsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.PluginsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">PluginsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig"><code class="docutils literal notranslate"><span class="pre">ProjectConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig"><code class="docutils literal notranslate"><span class="pre">ProjectConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.from_dict()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.merge"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.merge()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProjectConfig.to_dict"><code class="docutils literal notranslate"><span class="pre">ProjectConfig.to_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig"><code class="docutils literal notranslate"><span class="pre">ProviderConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig"><code class="docutils literal notranslate"><span class="pre">ProviderConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ProviderConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ProviderConfig.get_api_key"><code class="docutils literal notranslate"><span class="pre">ProviderConfig.get_api_key()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.RagConfig"><code class="docutils literal notranslate"><span class="pre">RagConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.RagConfig"><code class="docutils literal notranslate"><span class="pre">RagConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.RagConfig.__init__"><code class="docutils literal notranslate"><span class="pre">RagConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ScriptHookConfig"><code class="docutils literal notranslate"><span class="pre">ScriptHookConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ScriptHookConfig"><code class="docutils literal notranslate"><span class="pre">ScriptHookConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ScriptHookConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ScriptHookConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.SettingsConfig"><code class="docutils literal notranslate"><span class="pre">SettingsConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.SettingsConfig"><code class="docutils literal notranslate"><span class="pre">SettingsConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.SettingsConfig.__init__"><code class="docutils literal notranslate"><span class="pre">SettingsConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserConfig"><code class="docutils literal notranslate"><span class="pre">UserConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserConfig"><code class="docutils literal notranslate"><span class="pre">UserConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserConfig.__init__()</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserIdentityConfig.color"><code class="docutils literal notranslate"><span class="pre">UserIdentityConfig.color</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -1579,8 +1625,8 @@ By Erik Bjäreholt
   </div>
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
-<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
 
   <footer class="bd-footer">
   </footer>
