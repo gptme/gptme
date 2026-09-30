@@ -26,7 +26,7 @@ from ..logmanager import LogManager
 from .agents import Agent, GPTMe
 from .agents.claude_code import ClaudeCodeAgent, is_claude_code_model
 from .cost import CostSummary, get_eval_costs, token_fields_from_cost
-from .execenv import DockerExecutionEnv, SimpleExecutionEnv
+from .execenv import DockerExecutionEnv, OpenShellExecutionEnv, SimpleExecutionEnv
 from .pass_rate_gate import apply_gate, load_pass_rate_data
 from .types import (
     CaseResult,
@@ -463,11 +463,20 @@ def execute(
             # For local (non-Docker) runs, reuse the agent's workspace directory so
             # the run script has access to the full git history and all side-effects
             # (e.g. installed packages, git objects) without serialisation round-trips.
-            env: DockerExecutionEnv | SimpleExecutionEnv
-            if use_docker:
+            _eval_env = os.environ.get(
+                "GPTME_EVAL_ENV", "docker" if use_docker else "simple"
+            )
+            env: DockerExecutionEnv | OpenShellExecutionEnv | SimpleExecutionEnv
+            if _eval_env == "openshell":
+                # Reuse the agent's workspace as the staging dir so the sandbox
+                # receives the full tree (including .git history), matching the
+                # local SimpleExecutionEnv path.
+                env = OpenShellExecutionEnv(host_dir=Path(workspace_dir))
+            elif use_docker:
                 env = DockerExecutionEnv()
             else:
                 env = SimpleExecutionEnv(working_dir=Path(workspace_dir))
+            download_failed = False
             try:
                 # Restore specific input fixture files before running checks.
                 # Some tests provide input files (e.g. old.json/new.json for json-diff)
@@ -477,8 +486,9 @@ def execute(
                 # in hello-patch), as those need to stay modified.
                 restore_files = test.get("restore_files", [])
                 all_fixtures = test["files"]
-                if use_docker:
-                    # Docker: upload all agent output files + restore fixture inputs.
+                if use_docker or _eval_env == "openshell":
+                    # Docker / OpenShell: upload all agent output files +
+                    # restore fixture inputs into the isolated environment.
                     files_for_run = {
                         **files,
                         **{k: v for k, v in all_fixtures.items() if k in restore_files},
@@ -494,6 +504,22 @@ def execute(
                 stdout_run, stderr_run, exit_code = env.run(test["run"])
                 time_run = time.time() - run_start
                 files = env.download()
+                # Only an explicit boolean True means the backend reported a
+                # failed download: plain getattr against a mocked env would
+                # return a truthy Mock and falsely mark every run as failed.
+                download_failed = getattr(env, "download_failed", False) is True
+                if download_failed:
+                    # A partial artifact set must never be scored: a
+                    # file-presence check would falsely fail and an absence
+                    # check would falsely pass, corrupting the eval result.
+                    # Keep the check's stdout/stderr/exit_code for debugging,
+                    # but record the run as an infrastructure error below so
+                    # no check is evaluated against incomplete artifacts.
+                    stderr_run += (
+                        "\n[eval] ERROR: artifact download from the execution "
+                        "environment failed or timed out; files are partial "
+                        "or missing — file-based checks were not scored.\n"
+                    )
             finally:
                 env.cleanup()
 
@@ -516,7 +542,18 @@ def execute(
                         CaseResult(name=name, passed=passed, duration=eval_duration)
                     )
 
-            _evaluate_checks(test["expect"], ctx)
+            if download_failed:
+                # Artifacts are incomplete, so any file-based verdict would be
+                # wrong (false pass or false fail). Surface an infrastructure
+                # error instead of a corrupted result; the check's stdout,
+                # stderr and exit_code are preserved above for debugging.
+                status = "error"
+                print(
+                    f"--- Skipping checks for '{test['name']}': "
+                    "artifact download failed ---"
+                )
+            else:
+                _evaluate_checks(test["expect"], ctx)
 
             # Load the parent conversation log once: used for the tool-efficiency
             # metric (always) and any trajectory checks (when defined).
@@ -528,7 +565,7 @@ def execute(
             tool_calls = count_tool_calls(messages)
 
             check_log = test.get("check_log", {})
-            if check_log:
+            if check_log and not download_failed:
                 _evaluate_checks(check_log, messages)
             print("--- End of results ---")
 

@@ -21,6 +21,7 @@ from gptme.eval.execenv import (
     DockerClaudeCodeEnv,
     DockerExecutionEnv,
     DockerGPTMeEnv,
+    OpenShellExecutionEnv,
     SimpleExecutionEnv,
 )
 
@@ -416,3 +417,290 @@ class TestDockerGPTMeEnvIntegration:
             assert "modified" in files["output.txt"]
         finally:
             env.cleanup()
+
+
+class TestOpenShellExecutionEnv:
+    """Unit tests for OpenShellExecutionEnv (mocked; no gateway required)."""
+
+    def _env(self, tmpdir: str):
+        return OpenShellExecutionEnv(
+            host_dir=Path(tmpdir),
+            gateway_url="http://localhost:50051",
+        )
+
+    def test_run_timeout_returns_partial_instead_of_raising(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch(
+                    "gptme.eval.execenv.subprocess.run",
+                    side_effect=subprocess.TimeoutExpired(
+                        cmd="openshell", timeout=30, output="partial out", stderr=""
+                    ),
+                ):
+                    stdout, stderr, code = env.run("sleep 999", silent=True)
+                assert code == 124
+                assert stdout == "partial out"
+                assert "timed out" in stderr
+                # The sandbox is kept so download() can still retrieve the
+                # artifacts the check produced before the backstop fired.
+                assert env.sandbox_id == "sbx-1"
+            finally:
+                env.sandbox_id = None
+
+    def test_create_uses_current_cli_and_reads_sandbox_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            try:
+                with (
+                    patch(
+                        "gptme.eval.execenv.shutil.which",
+                        return_value="/bin/openshell",
+                    ),
+                    patch("gptme.eval.execenv.subprocess.run") as mock_run,
+                ):
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout='{"id":"sandbox-id","name":"gptme-eval-test"}',
+                        stderr="",
+                    )
+                    env._create_sandbox()
+                argv = mock_run.call_args[0][0]
+                assert argv[:3] == [
+                    "openshell",
+                    "--gateway-endpoint",
+                    "http://localhost:50051",
+                ]
+                assert argv[3:5] == ["sandbox", "create"]
+                assert argv[argv.index("--from") + 1] == "gptme-eval:latest"
+                assert argv[argv.index("--output") + 1] == "json"
+                assert "--detach" in argv
+                assert "--image" not in argv
+                assert "--gateway" not in argv
+                assert env.sandbox_id == "gptme-eval-test"
+            finally:
+                env.sandbox_id = None
+
+    def test_create_rejects_invalid_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            with (
+                patch(
+                    "gptme.eval.execenv.shutil.which",
+                    return_value="/bin/openshell",
+                ),
+                patch("gptme.eval.execenv.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="not-json", stderr=""
+                )
+                with pytest.raises(RuntimeError, match="invalid sandbox metadata"):
+                    env._create_sandbox()
+
+    def test_registered_gateway_is_used_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {}, clear=True):
+                env = OpenShellExecutionEnv(host_dir=Path(tmpdir))
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="ok", stderr=""
+                    )
+                    env.run("echo hi")
+                argv = mock_run.call_args[0][0]
+                assert argv[:3] == ["openshell", "sandbox", "exec"]
+                assert "--gateway-endpoint" not in argv
+            finally:
+                env.sandbox_id = None
+
+    def test_upload_syncs_whole_tree_recursively(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="", stderr=""
+                    )
+                    env.upload({"hello.py": "print('hi')"})
+                call_args = mock_run.call_args[0][0]
+                assert call_args[:3] == [
+                    "openshell",
+                    "--gateway-endpoint",
+                    "http://localhost:50051",
+                ]
+                assert call_args[3:6] == ["sandbox", "upload", "sbx-1"]
+                assert call_args[6:8] == [tmpdir, "/workspace"]
+                assert "--no-git-ignore" in call_args
+                assert "--gateway-endpoint" in call_args
+                # staged file is present for the whole-tree sync
+                assert (Path(tmpdir) / "hello.py").read_text() == "print('hi')"
+            finally:
+                env.sandbox_id = None
+
+    def test_download_does_not_return_stale_staged_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            # A stale file left over in the staging dir must NOT appear in results.
+            (Path(tmpdir) / "stale.txt").write_text("old")
+            try:
+
+                def fake_run(args, **kwargs):
+                    dest = Path(args[7])
+                    dest.mkdir(parents=True, exist_ok=True)
+                    (dest / "fresh.txt").write_text("new")
+                    return subprocess.CompletedProcess(
+                        args=args, returncode=0, stdout="", stderr=""
+                    )
+
+                with patch("gptme.eval.execenv.subprocess.run", side_effect=fake_run):
+                    files = env.download()
+                assert files == {"fresh.txt": "new"}
+            finally:
+                env.sandbox_id = None
+
+    def test_download_timeout_returns_partial_instead_of_raising(self):
+        """A hung gateway must not rob the check of its partial results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+
+                def fake_run(args, **kwargs):
+                    dest = Path(args[7])
+                    dest.mkdir(parents=True, exist_ok=True)
+                    (dest / "partial.txt").write_text("partial")
+                    raise subprocess.TimeoutExpired(cmd="openshell", timeout=60)
+
+                with patch("gptme.eval.execenv.subprocess.run", side_effect=fake_run):
+                    files = env.download()
+                assert files == {"partial.txt": "partial"}
+                # The failure must be visible, not silent.
+                assert env.download_failed is True
+            finally:
+                env.sandbox_id = None
+
+    def test_download_failure_returns_empty_instead_of_raising(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[], returncode=1, stdout="", stderr="gateway error"
+                    )
+                    files = env.download()
+                assert files == {}
+                # The failure must be visible, not silent.
+                assert env.download_failed is True
+            finally:
+                env.sandbox_id = None
+
+    def test_download_success_resets_failed_flag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            env.download_failed = True
+            try:
+
+                def fake_run(args, **kwargs):
+                    dest = Path(args[7])
+                    dest.mkdir(parents=True, exist_ok=True)
+                    (dest / "ok.txt").write_text("ok")
+                    return subprocess.CompletedProcess(
+                        args=args, returncode=0, stdout="", stderr=""
+                    )
+
+                with patch("gptme.eval.execenv.subprocess.run", side_effect=fake_run):
+                    files = env.download()
+                assert files == {"ok.txt": "ok"}
+                assert env.download_failed is False
+            finally:
+                env.sandbox_id = None
+
+    def test_cleanup_retains_id_when_delete_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-keep"
+            with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=1, stdout="", stderr="gateway error"
+                )
+                env.cleanup()
+            assert env.sandbox_id == "sbx-keep"
+            env.sandbox_id = None  # avoid __del__ touching real subprocess
+
+    def test_cleanup_timeout_does_not_raise(self):
+        """cleanup() runs in the runner's finally; it must never raise."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-hung"
+            with patch(
+                "gptme.eval.execenv.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="openshell", timeout=10),
+            ):
+                env.cleanup()  # must not raise
+            assert env.sandbox_id == "sbx-hung"
+            env.sandbox_id = None  # avoid __del__ touching real subprocess
+
+    def test_cleanup_clears_id_on_success(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-gone"
+            with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="", stderr=""
+                )
+                env.cleanup()
+            assert env.sandbox_id is None
+
+    def test_run_wraps_command_in_sandbox_side_timeout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="ok", stderr=""
+                    )
+                    env.run("echo hi", silent=True)
+                argv = mock_run.call_args[0][0]
+                assert argv[:3] == [
+                    "openshell",
+                    "--gateway-endpoint",
+                    "http://localhost:50051",
+                ]
+                assert argv[3:5] == ["sandbox", "exec"]
+                assert argv[argv.index("--name") + 1] == "sbx-1"
+                assert "--gateway-endpoint" in argv
+                # coreutils timeout wraps the real command inside the sandbox
+                assert "timeout" in argv
+                assert argv.index("timeout") < argv.index("/bin/bash")
+                # Sandbox-side deadline matches the local/Docker 30s check
+                # deadline (the outer subprocess timeout is a hung-gateway
+                # backstop only).
+                assert argv[argv.index("timeout") + 1] == "30"
+                assert mock_run.call_args[1]["timeout"] == 45
+            finally:
+                env.sandbox_id = None
+
+    def test_cleanup_preserves_workspace_dir(self):
+        """Passing host_dir=workspace must not delete it on cleanup."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            sentinel = workspace / "keep.txt"
+            sentinel.write_text("important")
+            env = OpenShellExecutionEnv(host_dir=workspace)
+            assert env._is_temp is False
+            env.sandbox_id = "sbx-1"
+            with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="", stderr=""
+                )
+                env.cleanup()
+            assert workspace.exists()
+            assert sentinel.read_text() == "important"

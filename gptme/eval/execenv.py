@@ -1,4 +1,6 @@
 import base64
+import json
+import logging
 import os
 import shlex
 import shutil
@@ -10,6 +12,17 @@ from abc import abstractmethod
 from pathlib import Path
 
 from .filestore import Files, FileStore
+
+logger = logging.getLogger(__name__)
+
+
+def _decode(data: str | bytes | None) -> str:
+    """Normalise subprocess output (str | bytes | None) to text."""
+    if data is None:
+        return ""
+    if isinstance(data, bytes):
+        return data.decode(errors="replace")
+    return data
 
 
 class ExecutionEnv:
@@ -288,6 +301,310 @@ class DockerExecutionEnv(ExecutionEnv):
 
     def __del__(self) -> None:
         """Cleanup container on object destruction."""
+        self.cleanup()
+
+
+class OpenShellExecutionEnv(FileStore, ExecutionEnv):
+    """
+    OpenShell-based execution environment with kernel-enforced policy.
+
+    Provides Landlock (filesystem) + seccomp (network) isolation for the
+    *check* command, with credential injection via providers rather than raw
+    env-var passthrough.
+
+    Scope note: this only changes where the eval *check* runs. When the agent
+    runs locally (``use_docker=False``), it still executes on the host with the
+    host environment; when ``--use-docker`` is set, the agent's own container is
+    unchanged and still receives the configured provider keys. Hardening agent
+    execution is a separate change (see ErikBjare/bob#1316).
+
+    Requires:
+    - OpenShell installed from its release package
+    - A registered OpenShell gateway (the package installs a user service)
+    - Docker 28.0+ / Podman 5.x / K8s as the container runtime
+
+    Enable with ``GPTME_EVAL_ENV=openshell``; Docker remains the default.
+
+    Provider keys (OPENAI_API_KEY etc.) should be declared in a providers yaml
+    and injected by the supervisor, rather than passed via ``DOCKER_ENV_PASSTHROUGH``.
+    """
+
+    def __init__(
+        self,
+        image: str = "gptme-eval:latest",
+        working_dir: str = "/workspace",
+        host_dir: Path | None = None,
+        gateway_url: str | None = None,
+    ):
+        super().__init__(working_dir=host_dir)
+        self.image = image
+        self.container_working_dir = working_dir
+        self.gateway_url = gateway_url or os.environ.get("OPENSHELL_GATEWAY_ENDPOINT")
+        self.sandbox_id: str | None = None
+        #: Set by ``download()`` when artifacts could not be fully copied back
+        #: (gateway failure or timeout). The runner surfaces this in the check's
+        #: stderr so a partial file set is never scored silently.
+        self.download_failed: bool = False
+
+    def _ensure_openshell(self) -> None:
+        """Check that the openshell CLI is available."""
+        if not shutil.which("openshell"):
+            raise RuntimeError(
+                "openshell CLI not found. Follow the OpenShell installation guide; "
+                "the release package installs both the CLI and gateway"
+            )
+
+    def _gateway_args(self) -> list[str]:
+        """Return an explicit gateway override when one was configured."""
+        return ["--gateway-endpoint", self.gateway_url] if self.gateway_url else []
+
+    def _create_sandbox(self) -> None:
+        """Create an OpenShell sandbox and store its name."""
+        self._ensure_openshell()
+        result = subprocess.run(
+            [
+                "openshell",
+                *self._gateway_args(),
+                "sandbox",
+                "create",
+                "--from",
+                self.image,
+                "--output",
+                "json",
+                "--detach",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to create OpenShell sandbox from image '{self.image}'.\n"
+                f"Error: {result.stderr.strip()}"
+            )
+        try:
+            sandbox = json.loads(result.stdout)
+            self.sandbox_id = sandbox["name"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise RuntimeError(
+                "OpenShell returned invalid sandbox metadata: "
+                f"{result.stdout.strip() or '<empty>'}"
+            ) from exc
+
+    def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
+        """Execute command inside the OpenShell sandbox."""
+        if not self.sandbox_id:
+            self._create_sandbox()
+        assert self.sandbox_id is not None
+
+        if not silent:
+            print("\n--- Start of run (OpenShell) ---")
+            print("$", command)
+
+        try:
+            result = subprocess.run(
+                [
+                    "openshell",
+                    *self._gateway_args(),
+                    "sandbox",
+                    "exec",
+                    "--name",
+                    self.sandbox_id,
+                    "--workdir",
+                    self.container_working_dir,
+                    "--",
+                    # Enforce the timeout *inside* the sandbox so the command's
+                    # process tree is killed there (coreutils `timeout` exits 124).
+                    # 30s matches the local/Docker check deadline; the outer
+                    # subprocess timeout is only a backstop for a hung gateway
+                    # client, not the primary deadline.
+                    "timeout",
+                    "30",
+                    "/bin/bash",
+                    "-c",
+                    command,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+            stdout_run, stderr_run, returncode = (
+                result.stdout,
+                result.stderr,
+                result.returncode,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # Match DockerExecutionEnv: return the partial output and a
+            # non-zero status instead of raising, so check evaluation still
+            # runs and records a real failure rather than a generic error.
+            # The sandbox-side `timeout 30` normally enforces the check
+            # deadline; reaching here means the gateway client itself is hung.
+            # Keep the sandbox ID so `download()` can still retrieve whatever
+            # the check produced before the backstop fired (the runner calls
+            # `cleanup()`, which deletes the sandbox, in its `finally`).
+            if not silent:
+                print("Timeout!")
+            stdout_run = _decode(exc.stdout)
+            stderr_run = _decode(exc.stderr)
+            if stderr_run and not stderr_run.endswith("\n"):
+                stderr_run += "\n"
+            stderr_run += "Command timed out (gateway backstop, 45s)."
+            returncode = 124
+
+        if not silent:
+            if stdout_run:
+                print(stdout_run, end="")
+            if stderr_run:
+                print(stderr_run, end="")
+            print("--- Finished run (OpenShell) ---\n")
+
+        return stdout_run, stderr_run, returncode
+
+    def upload(self, files: Files) -> None:
+        """Stage files locally, then sync the whole staging tree to the sandbox.
+
+        Syncing the directory (rather than mapping individual files) preserves
+        non-listed workspace state such as ``.git`` history, matching the local
+        ``SimpleExecutionEnv`` semantics used by non-Docker runs.
+        """
+        # Write to the local staging dir first (FileStore handles this)
+        super().upload(files)
+        if not self.sandbox_id:
+            self._create_sandbox()
+        assert self.sandbox_id is not None
+        result = subprocess.run(
+            [
+                "openshell",
+                *self._gateway_args(),
+                "sandbox",
+                "upload",
+                self.sandbox_id,
+                str(self.working_dir),
+                self.container_working_dir,
+                "--no-git-ignore",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to upload to sandbox: {result.stderr.strip()}")
+
+    def download(self) -> Files:
+        """Download the sandbox working directory into a fresh staging dir.
+
+        Downloading into a fresh directory (rather than the upload staging dir)
+        avoids returning stale local copies of files the sandbox deleted.
+
+        This never raises. If the gateway is unresponsive — e.g. after the
+        ``run()`` backstop fired and retained the sandbox name — a failed or
+        timed-out download would otherwise escape before check evaluation and
+        replace the check's partial output and exit code with a generic error
+        and zero case results. Instead we log and return whatever was copied,
+        so checks still run against the artifacts that did make it across.
+        """
+        self.download_failed = False
+        if not self.sandbox_id:
+            return {}
+        files: Files = {}
+        with tempfile.TemporaryDirectory(prefix="gptme-openshell-dl-") as tmp:
+            dest = Path(tmp)
+            try:
+                result = subprocess.run(
+                    [
+                        "openshell",
+                        *self._gateway_args(),
+                        "sandbox",
+                        "download",
+                        self.sandbox_id,
+                        self.container_working_dir,
+                        str(dest),
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode != 0:
+                    self.download_failed = True
+                    logger.warning(
+                        "Failed to download from OpenShell sandbox %s (exit %d): %s. "
+                        "Returning partial artifacts.",
+                        self.sandbox_id,
+                        result.returncode,
+                        result.stderr.strip(),
+                    )
+            except subprocess.TimeoutExpired:
+                self.download_failed = True
+                logger.warning(
+                    "Timed out downloading from OpenShell sandbox %s (60s). "
+                    "Returning partial artifacts.",
+                    self.sandbox_id,
+                )
+            for path in dest.glob("**/*"):
+                if not path.is_file():
+                    continue
+                key = str(path.relative_to(dest))
+                try:
+                    files[key] = path.read_text()
+                except UnicodeDecodeError:
+                    files[key] = base64.b64encode(path.read_bytes())
+        return files
+
+    def cleanup(self) -> None:
+        """Delete the sandbox and remove local staging dir.
+
+        On a failed delete the sandbox ID is retained (instead of cleared) so
+        the caller can retry or report it, rather than leaking an allocated
+        sandbox with no handle.
+
+        ``super().cleanup()`` (``FileStore``) only removes the working dir when
+        it was auto-created (``_is_temp``). When ``host_dir`` points at the
+        agent workspace (as ``run.py`` does), it is *not* removed.
+
+        This never raises: ``cleanup()`` runs in the runner's ``finally``, so
+        an exception here would mask the run result (a successful check
+        reported as a generic eval error) and skip the local staging-dir
+        removal. A slow/wedged gateway is logged and the sandbox ID retained.
+        """
+        if self.sandbox_id:
+            try:
+                result = subprocess.run(
+                    [
+                        "openshell",
+                        *self._gateway_args(),
+                        "sandbox",
+                        "delete",
+                        self.sandbox_id,
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode == 0:
+                    self.sandbox_id = None
+                else:
+                    logger.warning(
+                        "Failed to delete OpenShell sandbox %s (exit %d): %s. "
+                        "Sandbox left allocated; delete it manually.",
+                        self.sandbox_id,
+                        result.returncode,
+                        result.stderr.strip(),
+                    )
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "Timed out deleting OpenShell sandbox %s (10s). "
+                    "Sandbox left allocated; delete it manually.",
+                    self.sandbox_id,
+                )
+        super().cleanup()
+
+    def __del__(self) -> None:
+        """Cleanup sandbox on object destruction."""
         self.cleanup()
 
 
