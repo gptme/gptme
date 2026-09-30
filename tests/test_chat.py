@@ -1131,6 +1131,46 @@ def test_interactive_does_not_swallow_untagged_sdk_errors():
         )
 
 
+def test_interactive_recovers_from_detected_degeneration():
+    """A failed degenerate response returns control to the interactive prompt."""
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.constants import LLM_REQUEST_FAILED_PREFIX
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.llm.llm_openai import DegenerationDetected
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = Path("/tmp")
+    manager.logdir = Path("/tmp/logdir")
+    error = DegenerationDetected("together", 0.95)
+    mark_llm_reply_origin(error, output_emitted=True, visible_output_emitted=True)
+
+    with (
+        patch.object(_chat_mod, "_process_message_conversation", side_effect=error),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+        patch.object(_chat_mod, "_get_user_input", return_value=None),
+        patch.object(_chat_mod, "_should_prompt_for_input", return_value=True),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "hello")],
+            stream=True,
+            tool_format="markdown",
+            model=None,
+            interactive=True,
+        )
+
+    failure = manager.append.call_args_list[-1].args[0]
+    assert failure.role == "system"
+    assert failure.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+
+
 def test_interactive_does_not_swallow_tool_httpx_errors():
     """httpx errors from tools/hooks must not be recovered as LLM failures."""
     import sys

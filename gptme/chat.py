@@ -25,7 +25,7 @@ from .init import init
 from .llm import (
     did_llm_reply_emit_visible_output,
     is_context_length_error,
-    is_provider_error,
+    is_llm_reply_error,
     reply,
 )
 from .llm.models import get_default_model, get_model
@@ -487,14 +487,12 @@ def _run_chat_loop(
             prompt_queue.clear()
             continue
         except Exception as e:
-            # A failing provider call (rate limit, upstream outage, network
-            # error) must not kill an interactive session: report it and hand
-            # control back to the user, who can retry or switch model.
-            # Only errors tagged at the provider call inside `reply()` qualify
-            # — tool/hook httpx or SDK failures must not be swallowed.
-            # Non-interactive runs still fail loudly so the exit code carries
-            # the error class. See https://github.com/gptme/gptme/issues/3668
-            if not interactive or not is_provider_error(e):
+            # A failed LLM reply (provider outage or detected degeneration) must
+            # not kill an interactive session: report it and hand control back
+            # to the user, who can retry or switch model.  Only errors tagged at
+            # the provider call inside `reply()` qualify — tool/hook SDK errors
+            # must not be swallowed.  Non-interactive runs still fail loudly.
+            if not interactive or not is_llm_reply_error(e):
                 raise
             logger.error("%s %s", LLM_REQUEST_FAILED_PREFIX, e)
             if not is_output_json() and not is_output_quiet():
