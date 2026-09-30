@@ -1039,10 +1039,12 @@ export class ApiClient {
             maxAttempts: maxReconnects,
             retryInMs: 0,
           });
-          // Compute the same skip-logic as onerror for the initial-failure case:
-          // if this is the first attempt with an sseToken and it timed out (never got a session),
-          // skip the token on retry so we don't keep re-attaching an expired token in the URL.
-          const skipSseOnTimeout = skipSseToken || (this.sseToken !== null && reconnectCount === 0);
+          // Same skip-logic as onerror, with the same authCookieSet guard:
+          // only skip the sseToken on a same-origin server (where cookie auth is available
+          // as a fallback). For cross-origin servers, authCookieSet=false and the sseToken
+          // is the only credential — keep it so the retry is not unauthenticated.
+          const skipSseOnTimeout =
+            skipSseToken || (this.sseToken !== null && reconnectCount === 0 && this.authCookieSet);
           reconnect(nextAttempt, skipSseOnTimeout);
         } else {
           this.teardownEventStream(conversationId);

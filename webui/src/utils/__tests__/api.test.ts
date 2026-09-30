@@ -1091,6 +1091,32 @@ describe('ApiClient event stream reconnection', () => {
     expect(second.url).not.toContain('token=');
     expect(second.init).toMatchObject({ withCredentials: true });
   });
+
+  it('preserves sseToken on session-ID timeout for cross-origin server', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) → authCookieSet stays false.
+    // Without the authCookieSet guard, a 5s session-ID timeout would set skipSseOnTimeout=true,
+    // leaving the retry with no credentials (no cookie, no sseToken, no JWT).
+    const client = new ApiClient('http://127.0.0.1:5700', null, 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken
+    expect(first.url).toContain('token=my-sse-token');
+
+    // Open the EventSource but never emit the session_id — simulates a slow initial handshake
+    first.emitOpen();
+    // Advance past the 5-second session-ID timeout
+    jest.advanceTimersByTime(6000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // For cross-origin servers, sseToken must be preserved on the retry (authCookieSet=false,
+    // no cookie fallback available — dropping sseToken leaves the stream unauthenticated)
+    expect(second.url).toContain('token=my-sse-token');
+  });
 });
 
 describe('getApiErrorPresentation', () => {
