@@ -367,6 +367,14 @@ export class ApiClient {
   private eventSources: Map<string, EventSource> = new Map(); // Map conversation IDs to EventSource instances
   private eventStreamTimers: Map<string, { reconnectTimer?: number; sessionIdTimeout?: number }> =
     new Map();
+  // Callbacks of every stream the app still wants open, so a stream that died
+  // (reconnect budget exhausted, e.g. during a server/proxy outage) can be
+  // re-opened later without the component re-subscribing. Cleared only by the
+  // public closeEventStream(), i.e. when the app deliberately stops listening.
+  private eventCallbacks = new Map<string, Parameters<ApiClient['subscribeToEvents']>[1]>();
+  // Slow background retries for streams whose fast reconnect budget ran out.
+  private deadStreamRetries = new Map<string, { attempt: number; timer?: number }>();
+  private wakeListenersInstalled = false;
   private isCleaningUp = false;
   private authCookieSet = false;
   private authCookieSetAt: number | null = null;
@@ -404,6 +412,101 @@ export class ApiClient {
     if (this.authHeader && !this.isBaseUrlCrossOrigin()) {
       this.authCookiePromise = this.ensureAuthCookie();
     }
+  }
+
+  /**
+   * Re-open dead event streams when the page comes back (tab focus/visible,
+   * network online). A tab left open through an outage otherwise stays dead —
+   * no session id, so every send failed with "Session ID not found" — until a
+   * manual reload.
+   */
+  private installWakeListeners(): void {
+    if (this.wakeListenersInstalled || typeof window === 'undefined') return;
+    this.wakeListenersInstalled = true;
+    const wake = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      for (const conversationId of Array.from(this.deadStreamRetries.keys())) {
+        this.reviveEventStream(conversationId);
+      }
+    };
+    window.addEventListener('online', wake);
+    window.addEventListener('focus', wake);
+    document.addEventListener('visibilitychange', wake);
+  }
+
+  /** Re-open a stream the app still wants but whose connection gave up. */
+  private reviveEventStream(conversationId: string): boolean {
+    const callbacks = this.eventCallbacks.get(conversationId);
+    if (!callbacks) return false;
+    const dead = this.deadStreamRetries.get(conversationId);
+    if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
+    console.log(`[ApiClient] Re-opening event stream for ${conversationId}`);
+    this.subscribeToEvents(conversationId, callbacks, 0).catch((err) => {
+      console.error('[ApiClient] Re-opening event stream failed:', err);
+    });
+    return true;
+  }
+
+  /**
+   * After the fast reconnect budget is exhausted, keep retrying slowly (30s,
+   * 60s, … capped at 5 min) instead of staying dead until reload.
+   */
+  private scheduleDeadStreamRetry(conversationId: string): void {
+    if (!this.eventCallbacks.has(conversationId)) return;
+    this.installWakeListeners();
+    const prev = this.deadStreamRetries.get(conversationId);
+    if (prev?.timer !== undefined) window.clearTimeout(prev.timer);
+    const attempt = (prev?.attempt ?? 0) + 1;
+    const delay = Math.min(30_000 * Math.pow(2, attempt - 1), 300_000);
+    const timer = window.setTimeout(() => this.reviveEventStream(conversationId), delay);
+    this.deadStreamRetries.set(conversationId, { attempt, timer });
+  }
+
+  /**
+   * Session id for `conversationId`, waiting for (and if needed re-opening) the
+   * event stream that delivers it. The `connected` SSE event is the only source
+   * of session ids, so a send while the stream is down, still connecting, or
+   * gave up during an outage must heal the stream rather than fail.
+   */
+  private async ensureSession(conversationId: string, timeoutMs = 15_000): Promise<string> {
+    const existing = this.sessions$.get(conversationId).get();
+    if (existing) return existing;
+
+    const source = this.eventSources.get(conversationId);
+    const EVENT_SOURCE_CLOSED = 2; // EventSource.CLOSED
+    const streamAlive = source !== undefined && source.readyState !== EVENT_SOURCE_CLOSED;
+    if (!streamAlive && !this.reviveEventStream(conversationId)) {
+      // Nothing has ever subscribed to this conversation, so no session is coming.
+      throw new ApiClientError('No active session for this conversation', 404);
+    }
+    // Otherwise the stream is connecting, or was dead / in a reconnect back-off and
+    // has just been re-opened because the user is waiting on it.
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const sessionId = this.sessions$.get(conversationId).get();
+      if (sessionId) return sessionId;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new ApiClientError(
+      'Could not connect the event stream for this conversation — check your connection and retry',
+      503
+    );
+  }
+
+  /** Drop a session id the server no longer knows (restart/eviction) and get a fresh one. */
+  private async renewSession(conversationId: string): Promise<string> {
+    this.sessions$.delete(conversationId);
+    this.teardownEventStream(conversationId);
+    return this.ensureSession(conversationId);
+  }
+
+  private static isSessionGoneError(error: unknown): boolean {
+    return (
+      ApiClientError.isApiError(error) &&
+      error.status === 404 &&
+      /session not found/i.test(error.message)
+    );
   }
 
   /**
@@ -818,8 +921,10 @@ export class ApiClient {
       }
     }
 
-    // Close any existing event stream for this conversation
-    this.closeEventStream(conversationId);
+    // Close any existing event stream for this conversation (keeping its
+    // callbacks: this is a (re)subscription, not the app giving up on it).
+    this.teardownEventStream(conversationId);
+    this.eventCallbacks.set(conversationId, callbacks);
     callbacks.onConnectionState?.(
       reconnectAttempt > 0
         ? {
@@ -834,7 +939,7 @@ export class ApiClient {
     // Function to reconnect to the event stream if it fails, or we fail to get a session ID
     const reconnect = (attempt: number) => {
       console.log(`[ApiClient] Attempting reconnection for ${conversationId}`);
-      this.closeEventStream(conversationId);
+      this.teardownEventStream(conversationId);
       // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
       this.resetAuthCookie();
       this.subscribeToEvents(conversationId, callbacks, attempt).catch((err) => {
@@ -859,7 +964,8 @@ export class ApiClient {
           });
           reconnect(nextAttempt);
         } else {
-          this.closeEventStream(conversationId);
+          this.teardownEventStream(conversationId);
+          this.scheduleDeadStreamRetry(conversationId);
           callbacks.onConnectionState?.({
             status: 'disconnected',
             message: 'Timed out waiting for event stream session',
@@ -1021,6 +1127,11 @@ export class ApiClient {
               sessionIdTimeout: undefined,
             });
             reconnectCount = 0; // Reset reconnect count after the server handshake succeeds
+            {
+              const dead = this.deadStreamRetries.get(conversationId);
+              if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
+              this.deadStreamRetries.delete(conversationId);
+            }
             // Notify that connection is established
             callbacks.onConnectionState?.({ status: 'connected' });
             callbacks.onConnected?.();
@@ -1121,7 +1232,10 @@ export class ApiClient {
           reconnectTimer,
         });
       } else {
-        console.warn(`[ApiClient] Max reconnects (${maxReconnects}) reached, giving up`);
+        console.warn(
+          `[ApiClient] Max reconnects (${maxReconnects}) reached; retrying slowly in the background`
+        );
+        this.scheduleDeadStreamRetry(conversationId);
         callbacks.onConnectionState?.({
           status: 'disconnected',
           message: wasConnected
@@ -1137,7 +1251,17 @@ export class ApiClient {
     };
   }
 
+  /** The app no longer wants events for this conversation. */
   closeEventStream(conversationId: string): void {
+    this.eventCallbacks.delete(conversationId);
+    const dead = this.deadStreamRetries.get(conversationId);
+    if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
+    this.deadStreamRetries.delete(conversationId);
+    this.teardownEventStream(conversationId);
+  }
+
+  /** Close the current connection and its timers; callbacks survive for a reconnect. */
+  private teardownEventStream(conversationId: string): void {
     const timers = this.eventStreamTimers.get(conversationId);
     if (timers?.reconnectTimer !== undefined) {
       window.clearTimeout(timers.reconnectTimer);
@@ -1536,10 +1660,7 @@ export class ApiClient {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
-    const sessionId: string | undefined = this.sessions$.get(logfile).get();
-    if (!sessionId) {
-      throw new ApiClientError('No active session for this conversation');
-    }
+    const sessionId = await this.ensureSession(logfile);
     return this.fetchJson(`${this.baseUrl}/api/v2/conversations/${logfile}/rerun`, {
       method: 'POST',
       body: JSON.stringify({ session_id: sessionId }),
@@ -1660,11 +1781,8 @@ export class ApiClient {
     this.controller = new AbortController();
 
     try {
-      // Wait for a valid session ID before proceeding
-      const sessionId: string | undefined = this.sessions$.get(logfile).get();
-      if (!sessionId) {
-        throw new ApiClientError('Session ID not found for conversation', 404);
-      }
+      // Wait for (or heal) the event stream that supplies the session id.
+      let sessionId = await this.ensureSession(logfile);
       console.log(`[ApiClient] Using session ID for generation: ${sessionId}`);
 
       let headers: {
@@ -1681,24 +1799,39 @@ export class ApiClient {
         };
       }
 
-      // Start generation
-      const request = await this.fetchJson<{ status: string; message: string; session_id: string }>(
-        `${this.baseUrl}/api/v2/conversations/${logfile}/step`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            session_id: sessionId,
-            model,
-            branch,
-            stream,
-            ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(topP !== undefined ? { top_p: topP } : {}),
-          }),
-          signal: this.controller.signal,
-        }
-      );
+      // Start generation. If the server no longer knows our session (restart or
+      // eviction while the tab was open), get a fresh one and retry once.
+      const controller = this.controller;
+      if (controller.signal.aborted) {
+        throw new DOMException('Superseded by a newer step', 'AbortError');
+      }
+      const postStep = (sid: string) =>
+        this.fetchJson<{ status: string; message: string; session_id: string }>(
+          `${this.baseUrl}/api/v2/conversations/${logfile}/step`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              session_id: sid,
+              model,
+              branch,
+              stream,
+              ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+              ...(temperature !== undefined ? { temperature } : {}),
+              ...(topP !== undefined ? { top_p: topP } : {}),
+            }),
+            signal: controller.signal,
+          }
+        );
+      let request: { status: string; message: string; session_id: string };
+      try {
+        request = await postStep(sessionId);
+      } catch (error) {
+        if (!ApiClient.isSessionGoneError(error)) throw error;
+        console.warn(`[ApiClient] Session ${sessionId} expired on the server; renewing`);
+        sessionId = await this.renewSession(logfile);
+        request = await postStep(sessionId);
+      }
       console.log(`[ApiClient] Generation started:`, request);
     } catch (error) {
       if (this.controller?.signal.aborted) {
@@ -1725,13 +1858,9 @@ export class ApiClient {
     console.log(`[ApiClient] Confirming tool: ${toolId}, action: ${action}`);
 
     try {
-      // Get the session ID
-      const sessionId: string | undefined = this.sessions$.get(logfile).get();
+      // Get the session ID, healing the event stream if it is down.
+      const sessionId = await this.ensureSession(logfile);
       console.log(`[ApiClient] Using session for tool confirmation: ${sessionId}`);
-
-      if (!sessionId) {
-        throw new ApiClientError('Session ID not found for conversation', 404);
-      }
 
       const request: ToolConfirmationRequest = {
         session_id: sessionId,

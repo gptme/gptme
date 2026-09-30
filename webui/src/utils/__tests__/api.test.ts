@@ -34,7 +34,10 @@ class MockEventSource {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
-  close = jest.fn();
+  readyState = 0;
+  close = jest.fn(() => {
+    this.readyState = 2;
+  });
 
   constructor(
     public url: string,
@@ -789,6 +792,99 @@ describe('ApiClient event stream reconnection', () => {
     expect(MockEventSource.instances).toHaveLength(2);
     expect(MockEventSource.instances[1].url).toContain('session_id=session-1');
     expect(callbacks.onError).not.toHaveBeenCalled();
+  });
+
+  // gptme-cloud#1063 follow-up: a tab left open through an outage exhausted its
+  // reconnect budget, never got a session id, and every later send failed with
+  // "Session ID not found for conversation" until a manual reload.
+  const exhaustReconnectBudget = async (instance: () => MockEventSource) => {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      instance().emitError();
+      jest.advanceTimersByTime(Math.pow(2, attempt - 1) * 1000);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    instance().emitError(); // sixth failure: fast budget exhausted
+  };
+
+  it('keeps retrying slowly after the reconnect budget is exhausted', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+
+    expect(callbacks.onConnectionState).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'disconnected' })
+    );
+    const before = MockEventSource.instances.length;
+    jest.advanceTimersByTime(30_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(MockEventSource.instances.length).toBe(before + 1);
+
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'fresh' });
+    expect(client.sessions$.get('conv-1').get()).toBe('fresh');
+  });
+
+  it('step() re-opens a dead stream and sends instead of failing on a missing session', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', message: 'Step started', session_id: 'fresh' }),
+    }) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+    const before = MockEventSource.instances.length;
+
+    const step = client.step('conv-1');
+    await Promise.resolve();
+    await Promise.resolve();
+    // The send re-opened the stream immediately (no waiting for the slow retry).
+    expect(MockEventSource.instances.length).toBe(before + 1);
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'fresh' });
+    jest.advanceTimersByTime(200);
+    await step;
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls.at(-1)!;
+    expect(url).toContain('/api/v2/conversations/conv-1/step');
+    expect(JSON.parse(init.body).session_id).toBe('fresh');
+  });
+
+  it('step() renews a session the server no longer knows and retries once', async () => {
+    const sessionGone = {
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ error: 'Session not found: old' }),
+      text: async () => JSON.stringify({ error: 'Session not found: old' }),
+      headers: new Headers({ 'content-type': 'application/json' }),
+    };
+    const ok = {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', message: 'Step started', session_id: 'new' }),
+    };
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(sessionGone)
+      .mockResolvedValueOnce(ok) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 'old' });
+
+    const step = client.step('conv-1');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'new' });
+    jest.advanceTimersByTime(200);
+    await step;
+
+    const bodies = (global.fetch as jest.Mock).mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(bodies.map((b) => b.session_id)).toEqual(['old', 'new']);
   });
 
   it('cancels pending reconnect timers when the stream is closed manually', async () => {
