@@ -507,6 +507,8 @@ class TestOpenShellExecutionEnv:
                 with patch("gptme.eval.execenv.subprocess.run", side_effect=fake_run):
                     files = env.download()
                 assert files == {"partial.txt": "partial"}
+                # The failure must be visible, not silent.
+                assert env.download_failed is True
             finally:
                 env.sandbox_id = None
 
@@ -521,6 +523,30 @@ class TestOpenShellExecutionEnv:
                     )
                     files = env.download()
                 assert files == {}
+                # The failure must be visible, not silent.
+                assert env.download_failed is True
+            finally:
+                env.sandbox_id = None
+
+    def test_download_success_resets_failed_flag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            env.download_failed = True
+            try:
+
+                def fake_run(args, **kwargs):
+                    dest = Path(args[4])
+                    dest.mkdir(parents=True, exist_ok=True)
+                    (dest / "ok.txt").write_text("ok")
+                    return subprocess.CompletedProcess(
+                        args=args, returncode=0, stdout="", stderr=""
+                    )
+
+                with patch("gptme.eval.execenv.subprocess.run", side_effect=fake_run):
+                    files = env.download()
+                assert files == {"ok.txt": "ok"}
+                assert env.download_failed is False
             finally:
                 env.sandbox_id = None
 

@@ -340,6 +340,10 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         self.container_working_dir = working_dir
         self.gateway_url = gateway_url
         self.sandbox_id: str | None = None
+        #: Set by ``download()`` when artifacts could not be fully copied back
+        #: (gateway failure or timeout). The runner surfaces this in the check's
+        #: stderr so a partial file set is never scored silently.
+        self.download_failed: bool = False
 
     def _ensure_openshell(self) -> None:
         """Check that the openshell CLI is available."""
@@ -490,6 +494,7 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
         and zero case results. Instead we log and return whatever was copied,
         so checks still run against the artifacts that did make it across.
         """
+        self.download_failed = False
         if not self.sandbox_id:
             return {}
         files: Files = {}
@@ -513,6 +518,7 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                     timeout=60,
                 )
                 if result.returncode != 0:
+                    self.download_failed = True
                     logger.warning(
                         "Failed to download from OpenShell sandbox %s (exit %d): %s. "
                         "Returning partial artifacts.",
@@ -521,6 +527,7 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                         result.stderr.strip(),
                     )
             except subprocess.TimeoutExpired:
+                self.download_failed = True
                 logger.warning(
                     "Timed out downloading from OpenShell sandbox %s (60s). "
                     "Returning partial artifacts.",

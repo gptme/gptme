@@ -503,6 +503,17 @@ def execute(
                 stdout_run, stderr_run, exit_code = env.run(test["run"])
                 time_run = time.time() - run_start
                 files = env.download()
+                if getattr(env, "download_failed", False):
+                    # A partial artifact set must never be scored silently:
+                    # file-presence checks would falsely fail and
+                    # absence checks falsely pass. Flag it in the check's
+                    # stderr so the run record shows the artifacts are
+                    # incomplete.
+                    stderr_run += (
+                        "\n[eval] WARNING: artifact download from the execution "
+                        "environment failed or timed out; files are partial "
+                        "or missing — file-based checks may be unreliable.\n"
+                    )
             finally:
                 env.cleanup()
 
