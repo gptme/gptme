@@ -750,8 +750,17 @@ jobs:
 
       - name: Install Android NDK 27
         run: |
-          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
-          echo "NDK_HOME=${ANDROID_HOME}/ndk/27.0.12077973" >> $GITHUB_ENV
+          NDK_VERSION="27.0.12077973"
+          for attempt in 1 2 3; do
+            if "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}"; then
+              break
+            fi
+            echo "sdkmanager attempt ${attempt} failed (likely a corrupted download); retrying..." >&2
+            rm -rf "${ANDROID_HOME}/ndk/${NDK_VERSION}"
+            [[ "${attempt}" == 3 ]] && exit 1
+            sleep 10
+          done
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
 
       - name: Set up Rust with Android targets
         uses: dtolnay/rust-toolchain@stable
