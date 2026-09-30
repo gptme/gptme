@@ -24,8 +24,19 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
+from gptme.llm.models import (
+    MODEL_ALIASES,
+    MODELS,
+    PROVIDER_ALIASES,
+    ModelMeta,
+    Provider,
+    _find_base_model_properties,
+    _find_closest_model_properties,
+    get_default_model,
+    get_model,
+)
 from gptme.logmanager import Log, get_user_conversations
 from gptme.message import len_tokens
 from gptme.tools.autocompact import (
@@ -112,12 +123,15 @@ class AggregateStats:
 
 
 def _count_false_drops(decisions: list[PruneDecision], log_messages: list) -> int:
-    """Count dropped decisions whose payload reappears verbatim in a later message.
+    """Count dropped decisions whose payload reappears in a later message.
 
     For each dropped decision at index ``d.idx``, scan every message at
-    index > ``d.idx``.  A match on ``content_digest`` (SHA-256 of normalized
-    content) means the same payload was re-read/re-used after the drop point —
-    a silent context loss.  Each dropped item is counted at most once.
+    index > ``d.idx``.  A match on ``content_digest`` — a short digest of the
+    *normalized* content, with line numbers and tool formatting stripped —
+    means the same payload was re-read/re-used after the drop point: a silent
+    context loss.  This is a normalized match rather than a byte-for-byte
+    comparison, and the digest is short, so a small number of collisions is
+    possible over long logs.  Each dropped item is counted at most once.
     """
     dropped = [d for d in decisions if d.decision == "drop"]
     if not dropped:
@@ -133,43 +147,83 @@ def _count_false_drops(decisions: list[PruneDecision], log_messages: list) -> in
     return false_drops
 
 
-def _trigger_at_first_crossing(
+def _resolve_recorded_model(name: str | None, fallback: ModelMeta) -> ModelMeta:
+    """Resolve a conversation's recorded model name without network access.
+
+    ``get_model`` performs a *dynamic* provider fetch when the requested model
+    is absent from the static registry (see ``resolution._resolve_model``); for
+    the ``openrouter``/``gptme`` providers that is an HTTP request, which would
+    break this script's offline contract and can hang on a slow provider.
+
+    Reproduce the *offline* portion of resolution instead — static exact/alias
+    lookup, then the same date-suffix and closest-match fallbacks ``get_model``
+    would use — and finally the caller's ``fallback``.
+    """
+    if not name or "/" not in name:
+        return fallback
+    provider_str, _, model_name = name.partition("/")
+    provider = cast(Provider, PROVIDER_ALIASES.get(provider_str, provider_str))
+    entries = MODELS.get(provider)
+    if not entries:
+        return fallback
+
+    # Mirror resolution's normalization for subprovider (@) and reasoning (:)
+    # suffixes, then try the provider alias map.
+    lookup = model_name.split("@")[0].rsplit(":", 1)[0]
+    if lookup in entries:
+        return ModelMeta(provider, model_name, **entries[lookup])
+    canonical = MODEL_ALIASES.get(provider, {}).get(lookup, lookup)
+    if canonical in entries:
+        return ModelMeta(provider, model_name, **entries[canonical])
+
+    props = _find_base_model_properties(provider, lookup) or (
+        _find_closest_model_properties(provider, lookup)
+    )
+    if props:
+        return ModelMeta(provider, model_name, **props)
+    return fallback
+
+
+def _trigger_at_first_turn_boundary(
     messages: list,
     model_name: str,
     limit: int,
     keep_head: int,
 ) -> tuple[bool, bool]:
-    """Evaluate the compaction trigger at the moment the log first crosses ``limit``.
+    """Evaluate the compaction trigger at the first turn boundary over ``limit``.
 
-    Production checks the budget as messages arrive and runs Phase 0 at that
-    point, so measuring the completed log cannot show whether pruning at the
-    arrival point would have delayed compaction. Find the shortest prefix whose
-    token count reaches ``limit`` (the arrival point), run the shadow pass
-    there, and report whether the prefix is still over budget after pruning.
+    Production runs the autocompact hook on ``TURN_POST`` — once per turn,
+    after all steps complete (see ``gptme/tools/autocompact/hook.py``) — so the
+    relevant observation point is the end of a turn, i.e. the prefix just
+    before the next user message. Evaluating at an arbitrary mid-turn message
+    prefix (say, right after a large tool result) would not match production:
+    the rest of the turn changes both the amount over budget and which outputs
+    are old enough to prune.
 
-    Returns ``(trigger_before, trigger_after)``. Both are ``False`` when the
-    full log never reaches ``limit``.
+    Find the first turn-boundary prefix whose token count reaches ``limit``,
+    run the shadow pass there, and report whether that prefix is still over
+    budget after pruning.
+
+    Returns ``(trigger_before, trigger_after)``. Both are ``False`` when no
+    turn boundary reaches ``limit``.
     """
-    if len_tokens(messages, model_name) < limit:
-        return False, False
+    # A turn ends just before the next user message; the final boundary is the
+    # end of the log.
+    boundaries = sorted(
+        {i for i, m in enumerate(messages) if m.role == "user"} | {len(messages)}
+    )
 
-    # Token count is monotonic non-decreasing in prefix length → binary search
-    # for the first prefix that reaches the limit.
-    lo, hi = 1, len(messages)
-    cross_k = len(messages)
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if len_tokens(messages[:mid], model_name) >= limit:
-            cross_k = mid
-            hi = mid - 1
-        else:
-            lo = mid + 1
-
-    prefix = messages[:cross_k]
-    prefix_tokens = len_tokens(prefix, model_name)
-    decisions = shadow_prune_stale_tool_outputs(prefix, model_name, keep_head=keep_head)
-    freed = sum(d.tokens_saved for d in decisions)
-    return prefix_tokens >= limit, (prefix_tokens - freed) >= limit
+    for end in boundaries:
+        prefix = messages[:end]
+        prefix_tokens = len_tokens(prefix, model_name)
+        if prefix_tokens < limit:
+            continue
+        decisions = shadow_prune_stale_tool_outputs(
+            prefix, model_name, keep_head=keep_head
+        )
+        freed = sum(d.tokens_saved for d in decisions)
+        return True, (prefix_tokens - freed) >= limit
+    return False, False
 
 
 # ---------------------------------------------------------------------------
@@ -192,31 +246,29 @@ def analyze_conversation(
     if not messages:
         return None
 
-    from gptme.llm.models import get_default_model, get_model
+    try:
+        default_model = get_default_model() or get_model("gpt-4")
+        # A saved conversation may have used a different model than the current
+        # default. Prefer the recorded model so the tokenizer and context window
+        # match what produced the log — resolved offline to keep this script's
+        # no-network contract.
+        model_obj = _resolve_recorded_model(conv.model, default_model)
+        model_name = model_obj.model
 
-    default_model = get_default_model() or get_model("gpt-4")
-    # A saved conversation may have used a different model than the current
-    # default. Prefer the model recorded in the log so the tokenizer and
-    # context window match what produced it.
-    conv_model = getattr(conv, "model", None)
-    if conv_model:
-        try:
-            model_obj = get_model(conv_model)
-        except Exception:
-            model_obj = default_model
-    else:
-        model_obj = default_model
-    model_name = model_obj.model
+        # Production protects the configured head from all compaction phases.
+        keep_head = _get_keep_head()
 
-    # Production protects the configured head from all compaction phases.
-    keep_head = _get_keep_head()
+        total_tokens = len_tokens(messages, model_name)
 
-    total_tokens = len_tokens(messages, model_name)
-
-    # Run the shadow pass (never mutates the log)
-    decisions = shadow_prune_stale_tool_outputs(
-        messages, model_name, keep_head=keep_head
-    )
+        # Run the shadow pass (never mutates the log)
+        decisions = shadow_prune_stale_tool_outputs(
+            messages, model_name, keep_head=keep_head
+        )
+    except Exception as exc:
+        # A single misconfigured conversation must not abort the whole run.
+        if verbose:
+            print(f"  ERROR analyzing {conv.name}: {exc}", file=sys.stderr)
+        return None
 
     if not decisions:
         return None  # no tool outputs at all
@@ -259,10 +311,10 @@ def analyze_conversation(
                 )
                 if fallback > 2000:
                     limit = fallback
-        # Production checks the budget as messages arrive (before Phase 0
-        # runs), so evaluate the trigger at the first crossing point rather
-        # than on the completed log.
-        trigger_before, trigger_after = _trigger_at_first_crossing(
+        # Production runs the autocompact hook on TURN_POST, so evaluate the
+        # trigger at the first turn boundary over budget rather than on the
+        # completed log.
+        trigger_before, trigger_after = _trigger_at_first_turn_boundary(
             messages, model_name, limit, keep_head
         )
     except Exception:
@@ -358,9 +410,11 @@ def main() -> None:
             break
         agg.total_conversations += 1
 
-        if hasattr(conv, "messages") and conv.messages is not None:
-            if conv.messages < args.min_messages:
-                continue
+        # ConversationMeta always carries an int message count (populated even
+        # by the fast tail scan when detail=False), so the filter is
+        # unconditional.
+        if conv.messages < args.min_messages:
+            continue
 
         stats = analyze_conversation(conv, verbose=args.verbose, budget=args.budget)
         if stats is None:
@@ -433,7 +487,7 @@ def main() -> None:
     print("=" * 70)
     print("Phase 0 pruning evaluation — issue #3997")
     print("=" * 70)
-    print(f"Conversations scanned:          {agg.total_conversations:>8,}")
+    print(f"Conversations visited:          {agg.total_conversations:>8,}")
     print(f"Conversations analyzed:         {agg.analyzed_conversations:>8,}")
     print()
     print("── Metric 1: Tokens freed ──────────────────────────────────────────")
