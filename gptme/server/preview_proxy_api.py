@@ -21,9 +21,22 @@ Route (WebSocket)::
     WS  /preview/<port>/[<path>]           →  ws://127.0.0.1:<port>/[<path>]
     (detected by ``Upgrade: websocket`` request header)
 
-The path is reachable via the existing Traefik-authenticated ``/api/v1/instances/{id}``
-strip-prefix path in the cloud deployment, so no infra changes are required —
-authentication, ownership, and WebSocket forwarding are all inherited.
+gptme.ai cloud
+--------------
+This path is the *backend* of cloud previews, not a URL to hand to users.
+Through the fleet host (``/api/v1/instances/{id}/preview/{port}/``) the
+ingress requires an API bearer token, so a browser tab or iframe gets 401.
+The user-facing URL is ``https://{port}-{instance_id}.gptme.dev/``: the owner
+opens it from gptme.ai, which creates the route and signs the browser in, and
+the ingress rewrites every path on that host to ``/preview/{port}/``. Serve the
+app at ``/`` (no ``--base``). Inside an instance, ``/scripts/gptme-preview
+<port>`` prints the link and the instance prompt documents the flow
+(gptme/gptme-cloud#1066).
+
+The CSP sandbox below applies on that host too: preview documents get an
+opaque origin, so storage and cookies are unavailable, and module scripts or
+``fetch()`` to the app itself need ``Access-Control-Allow-Origin: *`` (Vite:
+``--cors``).
 
 Security
 --------
