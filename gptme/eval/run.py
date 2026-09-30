@@ -26,7 +26,7 @@ from ..logmanager import LogManager
 from .agents import Agent, GPTMe
 from .agents.claude_code import ClaudeCodeAgent, is_claude_code_model
 from .cost import CostSummary, get_eval_costs, token_fields_from_cost
-from .execenv import DockerExecutionEnv, SimpleExecutionEnv
+from .execenv import DockerExecutionEnv, OpenShellExecutionEnv, SimpleExecutionEnv
 from .pass_rate_gate import apply_gate, load_pass_rate_data
 from .types import (
     CaseResult,
@@ -463,8 +463,13 @@ def execute(
             # For local (non-Docker) runs, reuse the agent's workspace directory so
             # the run script has access to the full git history and all side-effects
             # (e.g. installed packages, git objects) without serialisation round-trips.
-            env: DockerExecutionEnv | SimpleExecutionEnv
-            if use_docker:
+            _eval_env = os.environ.get(
+                "GPTME_EVAL_ENV", "docker" if use_docker else "simple"
+            )
+            env: DockerExecutionEnv | OpenShellExecutionEnv | SimpleExecutionEnv
+            if _eval_env == "openshell":
+                env = OpenShellExecutionEnv()
+            elif use_docker:
                 env = DockerExecutionEnv()
             else:
                 env = SimpleExecutionEnv(working_dir=Path(workspace_dir))

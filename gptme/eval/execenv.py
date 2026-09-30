@@ -291,6 +291,195 @@ class DockerExecutionEnv(ExecutionEnv):
         self.cleanup()
 
 
+class OpenShellExecutionEnv(FileStore, ExecutionEnv):
+    """
+    OpenShell-based execution environment with kernel-enforced policy.
+
+    Provides Landlock (filesystem) + seccomp (network) isolation, with
+    credential injection via providers rather than raw env-var passthrough.
+    This closes the key gap in ``DockerExecutionEnv``: eval tasks can no longer
+    exfiltrate provider keys or reach arbitrary hosts.
+
+    Requires:
+    - ``openshell`` CLI installed (``uv tool install openshell``)
+    - OpenShell gateway running (``openshell gateway start``)
+    - Docker 28.0+ / Podman 5.x / K8s as the container runtime
+
+    Enable with ``GPTME_EVAL_ENV=openshell``; Docker remains the default.
+
+    Provider keys (OPENAI_API_KEY etc.) should be declared in a providers yaml
+    and injected by the supervisor, rather than passed via ``DOCKER_ENV_PASSTHROUGH``.
+    """
+
+    def __init__(
+        self,
+        image: str = "gptme-eval:latest",
+        working_dir: str = "/workspace",
+        host_dir: Path | None = None,
+        gateway_url: str = "http://localhost:50051",
+    ):
+        super().__init__(working_dir=host_dir)
+        self.image = image
+        self.container_working_dir = working_dir
+        self.gateway_url = gateway_url
+        self.sandbox_id: str | None = None
+
+    def _ensure_openshell(self) -> None:
+        """Check that the openshell CLI is available."""
+        if not shutil.which("openshell"):
+            raise RuntimeError(
+                "openshell CLI not found. Install with: uv tool install openshell\n"
+                "Then start the gateway: openshell gateway start"
+            )
+
+    def _create_sandbox(self) -> None:
+        """Create an OpenShell sandbox and store its ID."""
+        self._ensure_openshell()
+        result = subprocess.run(
+            [
+                "openshell",
+                "sandbox",
+                "create",
+                "--image",
+                self.image,
+                "--gateway",
+                self.gateway_url,
+                "--output",
+                "id",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to create OpenShell sandbox from image '{self.image}'.\n"
+                f"Error: {result.stderr.strip()}"
+            )
+        self.sandbox_id = result.stdout.strip()
+
+    def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
+        """Execute command inside the OpenShell sandbox."""
+        if not self.sandbox_id:
+            self._create_sandbox()
+        assert self.sandbox_id is not None
+
+        if not silent:
+            print("\n--- Start of run (OpenShell) ---")
+            print("$", command)
+
+        result = subprocess.run(
+            [
+                "openshell",
+                "sandbox",
+                "exec",
+                self.sandbox_id,
+                "--gateway",
+                self.gateway_url,
+                "--workdir",
+                self.container_working_dir,
+                "--",
+                "/bin/bash",
+                "-c",
+                command,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if not silent:
+            if result.stdout:
+                print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="")
+            print("--- Finished run (OpenShell) ---\n")
+
+        return result.stdout, result.stderr, result.returncode
+
+    def upload(self, files: Files) -> None:
+        """Write files to staging dir then upload to sandbox."""
+        # Write to the local staging dir first (FileStore handles this)
+        super().upload(files)
+        # Then push each file into the sandbox working directory
+        if not self.sandbox_id:
+            self._create_sandbox()
+        assert self.sandbox_id is not None
+        for name in files:
+            local_path = self.working_dir / name
+            remote_path = f"{self.container_working_dir}/{name}"
+            result = subprocess.run(
+                [
+                    "openshell",
+                    "sandbox",
+                    "cp",
+                    str(local_path),
+                    f"{self.sandbox_id}:{remote_path}",
+                    "--gateway",
+                    self.gateway_url,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to upload {name} to sandbox: {result.stderr.strip()}"
+                )
+
+    def download(self) -> Files:
+        """Download all files from the sandbox working directory."""
+        if not self.sandbox_id:
+            return {}
+        result = subprocess.run(
+            [
+                "openshell",
+                "sandbox",
+                "cp",
+                f"{self.sandbox_id}:{self.container_working_dir}/.",
+                str(self.working_dir),
+                "--gateway",
+                self.gateway_url,
+                "--recursive",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to download from sandbox: {result.stderr.strip()}"
+            )
+        return super().download()
+
+    def cleanup(self) -> None:
+        """Delete the sandbox and remove local staging dir."""
+        if self.sandbox_id:
+            subprocess.run(
+                [
+                    "openshell",
+                    "sandbox",
+                    "delete",
+                    self.sandbox_id,
+                    "--gateway",
+                    self.gateway_url,
+                ],
+                check=False,
+                capture_output=True,
+                timeout=10,
+            )
+            self.sandbox_id = None
+        super().cleanup()
+
+    def __del__(self) -> None:
+        """Cleanup sandbox on object destruction."""
+        self.cleanup()
+
+
 # Environment variable passthrough configuration
 # These are the API keys and config vars that should be passed to Docker containers
 DOCKER_ENV_PASSTHROUGH = [
