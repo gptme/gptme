@@ -307,8 +307,36 @@ def _stamp_reasoning_effort(
     return metadata
 
 
+def _served_model_of(message: Any) -> str | None:
+    """Return the provider-reported ``message.model`` if it is a non-empty string."""
+    value = getattr(message, "model", None)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _stamp_served_model(
+    metadata: MessageMetadata | None, model: str, served_model: str | None
+) -> MessageMetadata | None:
+    """Attach ``served_model`` (the model id Anthropic reported) when present.
+
+    Recorded even when it equals the requested model: presence means verified,
+    absence means the response did not report a model.
+    """
+    if served_model is None:
+        return metadata
+    if metadata is None:
+        metadata = {"model": model}
+    metadata["served_model"] = served_model
+    return metadata
+
+
 def _partial_stream_metadata(
-    model: str, usage: Any, *, use_thinking: bool
+    model: str,
+    usage: Any,
+    *,
+    use_thinking: bool,
+    served_model: str | None = None,
 ) -> MessageMetadata:
     """Fallback metadata for callers that close the stream before ``message_delta``.
 
@@ -318,6 +346,8 @@ def _partial_stream_metadata(
     this partial dict.
     """
     metadata: MessageMetadata = {"model": model}
+    if served_model is not None:
+        metadata["served_model"] = served_model
     if usage:
         partial_usage: UsageData = {}
         if (v := getattr(usage, "input_tokens", None)) is not None:
@@ -827,10 +857,14 @@ def chat(
         timeout=60,
     )
     content = response.content
-    metadata = _stamp_reasoning_effort(
-        _record_usage(response.usage, model),
+    metadata = _stamp_served_model(
+        _stamp_reasoning_effort(
+            _record_usage(response.usage, model),
+            model,
+            _effective_effort_level(use_thinking=use_thinking),
+        ),
         model,
-        _effective_effort_level(use_thinking=use_thinking),
+        _served_model_of(response),
     )
 
     parsed_block = []
@@ -868,6 +902,8 @@ def stream(
 
     # Variable to capture metadata from usage recording
     captured_metadata: MessageMetadata | None = None
+    # Model id Anthropic reports on message_start (message.model).
+    served_model: str | None = None
     # Track the signature for the current thinking block so it can be embedded
     # in the output before </think> for round-trip preservation.
     _current_block_signature: str | None = None
@@ -1003,6 +1039,7 @@ def stream(
                         anthropic.types.MessageStartEvent,
                         chunk,
                     )
+                    served_model = _served_model_of(chunk.message) or served_model
                     # Capture input/cache token counts (and the request's
                     # reasoning effort) as a fallback for callers that break
                     # the stream before message_delta arrives (e.g.
@@ -1013,6 +1050,7 @@ def stream(
                             model,
                             chunk.message.usage,
                             use_thinking=use_thinking,
+                            served_model=served_model,
                         )
                 case "message_delta":
                     chunk = cast(anthropic.types.MessageDeltaEvent, chunk)
@@ -1026,8 +1064,14 @@ def stream(
                     pass
 
     # Return the captured metadata (accessible via StopIteration.value)
-    return _stamp_reasoning_effort(
-        captured_metadata, model, _effective_effort_level(use_thinking=use_thinking)
+    return _stamp_served_model(
+        _stamp_reasoning_effort(
+            captured_metadata,
+            model,
+            _effective_effort_level(use_thinking=use_thinking),
+        ),
+        model,
+        served_model,
     )
 
 

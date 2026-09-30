@@ -75,6 +75,21 @@ def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
     return getattr(obj, key, default)
 
 
+def served_model_from(obj: Any) -> str | None:
+    """Return ``obj.model`` (dict key or attribute) if it is a non-empty string.
+
+    Used to record the model id the provider reports in its response as
+    ``MessageMetadata.served_model``. Anything else (missing, ``None``, empty,
+    or a non-string such as a test mock) yields ``None`` so the key stays absent.
+    """
+    if obj is None:
+        return None
+    value = _obj_get(obj, "model", None)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
 def _longest_suffix_prefix(text: str, pattern: str) -> str:
     """Return the longest suffix of ``text`` that could continue ``pattern``."""
     max_len = min(len(text), len(pattern) - 1)
@@ -316,6 +331,7 @@ def _stream_responses_events(
     event_iter: Iterable[Any],
     *,
     usage_callback: Callable[[Any], None] | None = None,
+    model_callback: Callable[[str], None] | None = None,
 ) -> Generator[str, None, None]:
     """Process a Responses API event stream, yielding formatted text chunks.
 
@@ -326,6 +342,13 @@ def _stream_responses_events(
 
     ``usage_callback`` is called with the usage object from ``response.completed``
     and ``response.done`` events (subscription streams use ``response.done``).
+
+    ``model_callback`` is called with the provider-reported model id
+    (``response.model``) whenever a ``response.created``,
+    ``response.in_progress``, ``response.completed`` or ``response.done`` event
+    carries a non-empty one, so callers keeping the last value get the
+    completed/done model when present. On completed/done it fires before
+    ``usage_callback`` so usage recording can include it.
     """
     in_reasoning_block = False
     seen_reasoning_delta = False
@@ -408,9 +431,19 @@ def _stream_responses_events(
             if delta:
                 yield delta
 
+        elif event_type in ("response.created", "response.in_progress"):
+            if model_callback is not None:
+                served = served_model_from(_obj_get(event, "response", None))
+                if served is not None:
+                    model_callback(served)
+
         elif event_type in ("response.completed", "response.done"):
+            response_obj = _obj_get(event, "response", None)
+            if model_callback is not None:
+                served = served_model_from(response_obj)
+                if served is not None:
+                    model_callback(served)
             if usage_callback is not None:
-                response_obj = _obj_get(event, "response", None)
                 if response_obj is not None:
                     usage = _obj_get(response_obj, "usage", None)
                     if usage is not None:

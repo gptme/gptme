@@ -189,6 +189,14 @@ class MessageMetadata(TypedDict, total=False):
     # it differs from `model`, i.e. when OpenRouter auto-routed to a provider
     # different from what the model string alone implies.
     resolved_model: str
+    # The model id exactly as the provider reported it in its response (raw,
+    # unprefixed, e.g. "gpt-5.6-sol", "claude-sonnet-4-6-20250929",
+    # "deepseek/deepseek-v4-flash-0731"). Set whenever the response carried a
+    # non-empty model string, EVEN WHEN it equals the requested model: presence
+    # means the served model was verified, absence means the provider did not
+    # report one. Distinct from `model` (what gptme requested) and from
+    # `resolved_model` (OpenRouter subprovider @suffix form), which is unchanged.
+    served_model: str
     cost: float  # Cost in USD
     usage: UsageData
     # Effective reasoning effort level applied to the request (e.g. "high"),
