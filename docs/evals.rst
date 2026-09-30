@@ -78,6 +78,8 @@ existing ``gptme-eval:latest`` image can be used directly as the sandbox image:
 .. code-block:: bash
 
     make build-docker
+    # providers/anthropic.yaml ships with OpenShell, not gptme. Fetch the
+    # example profile first (see link below) and edit it for your image.
     openshell provider profile import -f providers/anthropic.yaml --global
     openshell sandbox create \
         --from gptme-eval:latest \
@@ -87,10 +89,18 @@ existing ``gptme-eval:latest`` image can be used directly as the sandbox image:
 Unlike the Docker example, no API key is passed in through the sandbox
 environment. The Anthropic key is declared once as a provider profile and the
 supervisor injects it, as ``ANTHROPIC_API_KEY``, only for the endpoints that
-profile allows (``api.anthropic.com``). The bundled
-``providers/anthropic.yaml`` is an editable example: its ``binaries`` list names
-the processes allowed to reach the endpoint, so copy it, point ``binaries`` at
-the interpreter or client in your image, and import your copy (see the
+profile allows (``api.anthropic.com``).
+
+The profile is not part of this repository: OpenShell ships a set of reviewable
+example profiles — `providers/anthropic.yaml
+<https://github.com/NVIDIA/OpenShell/blob/main/providers/anthropic.yaml>`_
+among them — in `its repository
+<https://github.com/NVIDIA/OpenShell/tree/main/providers>`_, and no gateway
+loads them automatically, so you import the ones you need. A profile's
+``binaries`` list is the least-privilege control deciding which processes may
+reach its endpoints, and the examples name paths from a reference image layout,
+so copy the profile, point ``binaries`` at the client or interpreter in
+``gptme-eval:latest``, then import your copy (see the
 `provider profiles docs <https://docs.nvidia.com/openshell/latest/how-it-works/providers/profiles>`_).
 
 This requires a running OpenShell gateway plus Docker or Podman (see the
