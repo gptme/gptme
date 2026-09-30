@@ -314,6 +314,8 @@ def shadow_prune_stale_tool_outputs(
         append_phase0_shadow_event(logdir, [d.to_dict() for d in decisions])
 
     return decisions
+
+
 _REASONING_TAGS = ("<think>", "<thinking>")
 
 
