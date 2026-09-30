@@ -504,7 +504,10 @@ def execute(
                 stdout_run, stderr_run, exit_code = env.run(test["run"])
                 time_run = time.time() - run_start
                 files = env.download()
-                download_failed = getattr(env, "download_failed", False)
+                # Only an explicit boolean True means the backend reported a
+                # failed download: plain getattr against a mocked env would
+                # return a truthy Mock and falsely mark every run as failed.
+                download_failed = getattr(env, "download_failed", False) is True
                 if download_failed:
                     # A partial artifact set must never be scored: a
                     # file-presence check would falsely fail and an absence
