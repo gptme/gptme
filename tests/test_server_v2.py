@@ -3887,6 +3887,74 @@ def test_v2_conversation_delete_rechecks_existence_under_lock(client: FlaskClien
     }
 
 
+def test_v2_conversation_delete_while_cwd_inside_keeps_server_usable(
+    client: FlaskClient,
+):
+    """Deleting the conversation the process is chdir'd into must not brick PUT.
+
+    Session steps os.chdir() into the conversation workspace; deleting that
+    conversation left the server with a vanished cwd and every later
+    conversation create returned 500 (Path.cwd() -> FileNotFoundError) until
+    restart. Hit in production by the gptme.ai chat probe (gptme-cloud#1063).
+    """
+    import os
+
+    from gptme.dirs import get_logs_dir
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    workspace = get_logs_dir() / conversation_id / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    original_cwd = os.getcwd()
+    os.chdir(workspace)  # what session_step does on the first user message
+    try:
+        response = client.delete(f"/api/v2/conversations/{conversation_id}")
+        assert response.status_code == 200
+        assert Path.cwd().exists()
+
+        created = client.put(
+            f"/api/v2/conversations/{conversation_id}-next",
+            json={"messages": [{"role": "system", "content": "hi"}]},
+        )
+        assert created.status_code == 200, created.get_json()
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_v2_conversation_delete_with_already_vanished_cwd_recovers(
+    client: FlaskClient, tmp_path: Path
+):
+    """A DELETE issued while the process cwd is already gone must still recover.
+
+    Complements the sibling test above: that one covers the cwd being removed
+    *by* the DELETE; this one covers recovering when the cwd had already
+    vanished before the request (the FileNotFoundError branch of
+    _leave_dir_before_delete), which must not brick later PUTs either.
+    """
+    import os
+    import shutil
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    doomed = tmp_path / "vanished"
+    doomed.mkdir()
+    original_cwd = os.getcwd()
+    os.chdir(doomed)
+    shutil.rmtree(doomed)  # cwd is now gone; do not chdir back
+    try:
+        response = client.delete(f"/api/v2/conversations/{conversation_id}")
+        assert response.status_code == 200
+        assert Path.cwd().exists()
+
+        created = client.put(
+            f"/api/v2/conversations/{conversation_id}-next",
+            json={"messages": [{"role": "system", "content": "hi"}]},
+        )
+        assert created.status_code == 200, created.get_json()
+    finally:
+        os.chdir(original_cwd)
+
+
 def test_v2_chat_config_patch_loads_log_under_conversation_lock(
     client: FlaskClient,
 ):

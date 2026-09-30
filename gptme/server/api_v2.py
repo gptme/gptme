@@ -2459,6 +2459,24 @@ def api_conversation_fork(conversation_id: str):
         )
 
 
+def _leave_dir_before_delete(path: Path) -> None:
+    """Move the process out of ``path`` before it is removed.
+
+    Session steps ``os.chdir`` the whole server process into the conversation
+    workspace (``session_step.py``). Deleting that conversation used to leave
+    the process with a vanished cwd, so every later ``Path.cwd()`` — e.g. the
+    ``ChatConfig`` default workspace on ``PUT /api/v2/conversations`` — raised
+    ``FileNotFoundError`` and returned 500 until the server restarted.
+    """
+    try:
+        cwd = Path.cwd().resolve()
+    except FileNotFoundError:
+        cwd = None
+    target = path.resolve()
+    if cwd is None or cwd == target or target in cwd.parents:
+        os.chdir(get_logs_dir())
+
+
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])
 @require_auth
 @api_doc(
@@ -2524,6 +2542,7 @@ def api_conversation_delete(conversation_id: str):
         from ..util.cost_tracker import CostTracker, session_id_for_logdir  # fmt: skip
 
         cost_session_id = session_id_for_logdir(logdir)
+        _leave_dir_before_delete(logdir)
         try:
             shutil.rmtree(logdir)
         except OSError as e:
