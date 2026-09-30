@@ -963,9 +963,12 @@ export class ApiClient {
       }) => void;
     },
     reconnectAttempt = 0,
-    // When true, skip the JWT-in-URL fallback (used after clearing an expired sseToken
-    // to avoid defeating the credential isolation the token was meant to provide).
-    skipQueryParamAuth = false
+    // When true, skip both sseToken and the JWT-in-URL fallback for this attempt.
+    // Set when a previous attempt used the sseToken and failed, to avoid permanently
+    // downgrading the pooled client (this.sseToken is never cleared — just bypassed
+    // for the current reconnect cycle so the token remains available for future
+    // subscriptions if the failure was transient).
+    skipSseToken = false
   ): Promise<void> {
     const maxReconnects = 5;
 
@@ -1009,14 +1012,14 @@ export class ApiClient {
     );
 
     // Function to reconnect to the event stream if it fails, or we fail to get a session ID.
-    // skipQueryParam: when the sseToken was just cleared, prevent falling back to JWT-in-URL
-    // on the immediate retry (the sseToken was specifically meant to avoid that exposure).
-    const reconnect = (attempt: number, skipQueryParam = false) => {
+    // skipSse: propagated when the sseToken was used and failed, so all retries in this cycle
+    // avoid both the sseToken and the JWT-in-URL fallback (credential isolation is preserved).
+    const reconnect = (attempt: number, skipSse = false) => {
       console.log(`[ApiClient] Attempting reconnection for ${conversationId}`);
       this.teardownEventStream(conversationId);
       // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
       this.resetAuthCookie();
-      this.subscribeToEvents(conversationId, callbacks, attempt, skipQueryParam).catch((err) => {
+      this.subscribeToEvents(conversationId, callbacks, attempt, skipSse).catch((err) => {
         console.error('[ApiClient] Reconnect failed:', err);
         callbacks.onError?.(String(err));
       });
@@ -1075,15 +1078,16 @@ export class ApiClient {
       await this.authCookiePromise;
     }
 
-    if (this.sseToken) {
+    if (this.sseToken && !skipSseToken) {
       // Prefer the instance-scoped SSE token (gptme-cloud#1076): it is bound to
       // this instance/user/purpose and never exposes the Supabase JWT in the URL.
       url.searchParams.set('token', this.sseToken);
       console.log('[ApiClient] Using instance-scoped SSE token for EventSource ?token=');
-    } else if (this.authHeader && !this.authCookieSet && !skipQueryParamAuth) {
+    } else if (this.authHeader && !this.authCookieSet && !skipSseToken) {
       // Fallback: pass token as query param if cookie endpoint was unavailable.
-      // Skipped when retrying immediately after clearing an sseToken (skipQueryParamAuth=true)
-      // to avoid exposing the broader user token in a URL when a transient SSE error occurred.
+      // Suppressed when skipSseToken=true (we already tried with the sseToken in this
+      // reconnect cycle and failed) — avoid exposing the broader user token in a URL
+      // when the sseToken failure may have been transient. Try cookie/no-auth instead.
       const token = this.authHeader.split(' ')[1];
       if (!token) {
         console.error('[ApiClient] Invalid auth header format, expected "Bearer <token>"');
@@ -1286,23 +1290,25 @@ export class ApiClient {
       eventSource.close();
       this.eventSources.delete(conversationId);
 
-      // Clear sseToken when it appears to have expired:
-      //   • Initial connect failed (never connected, first attempt) — token may already be stale.
-      //   • Drop after a successful connection, and the first retry also failed — the token likely
-      //     expired during the session.
-      // In both cases, set skipQueryParamAuth on the immediate follow-up reconnect to avoid
-      // defeating the credential isolation the sseToken was meant to provide (we don't want
-      // to expose the Supabase JWT in a URL query parameter just because a transient SSE error
-      // occurred).
-      const sseTokenCleared =
-        this.sseToken !== null &&
-        ((!wasConnected && reconnectCount === 0) || (wasConnected && reconnectCount >= 1));
-      if (sseTokenCleared) {
+      // Decide whether to skip the sseToken on the next retry.
+      // Never clear this.sseToken: the ApiClient is pooled and clearing it would
+      // permanently downgrade ALL future subscriptions from this client instance to
+      // JWT-in-URL, even if the failure was a transient network error.
+      // Instead, propagate skipSseToken=true through the reconnect cycle when:
+      //   • Initial connect failed while using the sseToken (first attempt, never connected)
+      //   • Drop after a successful connection and the sseToken is set (may have expired)
+      // This bypasses both the sseToken AND the JWT-in-URL fallback for subsequent retries in
+      // this reconnect cycle, preserving credential isolation.
+      const nextSkipSse =
+        skipSseToken || // already bypassing — keep it bypassed
+        (this.sseToken !== null &&
+          ((!wasConnected && reconnectCount === 0) || (wasConnected && reconnectCount >= 1)));
+      if (nextSkipSse && !skipSseToken && this.sseToken !== null) {
         console.warn(
-          '[ApiClient] SSE token cleared after connection failure (may be expired). ' +
-            `wasConnected=${wasConnected}, attempt=${reconnectCount}`
+          '[ApiClient] SSE token bypassed for reconnect (may be expired or connection issue). ' +
+            `wasConnected=${wasConnected}, attempt=${reconnectCount}. ` +
+            'Token preserved on client for future subscriptions.'
         );
-        this.sseToken = null;
       }
 
       // Attempt retry with exponential backoff regardless of whether
@@ -1325,7 +1331,7 @@ export class ApiClient {
         });
 
         const reconnectTimer = window.setTimeout(() => {
-          reconnect(reconnectCount, sseTokenCleared);
+          reconnect(reconnectCount, nextSkipSse);
         }, delay);
         this.eventStreamTimers.set(conversationId, {
           ...this.eventStreamTimers.get(conversationId),
