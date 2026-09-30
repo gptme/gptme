@@ -1041,6 +1041,32 @@ describe('ApiClient event stream reconnection', () => {
       })
     );
   });
+
+  it('skips sseToken on reconnect after initial failure but keeps withCredentials', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700', null, 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken in the URL query param
+    expect(first.url).toContain('token=my-sse-token');
+    // withCredentials is always true (cookie auth available regardless)
+    expect(first.init).toMatchObject({ withCredentials: true });
+
+    // Fail before connecting (wasConnected=false, reconnectCount=0) — triggers skipSseToken=true
+    first.emitError();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // Reconnect omits both sseToken and JWT-in-URL (skipSseToken=true) to avoid
+    // credential exposure while the sseToken failure may be transient
+    expect(second.url).not.toContain('token=');
+    // Cookie auth is still active — withCredentials must remain true
+    expect(second.init).toMatchObject({ withCredentials: true });
+  });
 });
 
 describe('getApiErrorPresentation', () => {
