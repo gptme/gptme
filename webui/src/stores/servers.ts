@@ -388,9 +388,10 @@ export function findOrCreateServerByUrl(
           authToken: defaults.authToken,
           useAuthToken: defaults.useAuthToken ?? Boolean(defaults.authToken),
         }),
-        // Only overwrite a stored sseToken with a real value — a null from a re-auth
-        // exchange that omits INSTANCE_TOKEN_SECRET must not clear a previously valid token.
-        ...(defaults?.sseToken != null && { sseToken: defaults.sseToken }),
+        // Allow null to explicitly clear a previously stored sseToken (e.g. when the
+        // server removes INSTANCE_TOKEN_SECRET and re-auth returns no sseToken).
+        // Only undefined (field absent) is treated as "no change".
+        ...(defaults.sseToken !== undefined && { sseToken: defaults.sseToken }),
       });
     }
     return serverRegistry$.get().servers.find((s) => s.id === existing.id)!;
