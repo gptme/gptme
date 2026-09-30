@@ -89,10 +89,19 @@ class ConvStats:
 
 
 @dataclass
+class AnalysisError:
+    """Sentinel returned by analyze_conversation when a conversation fails."""
+
+    name: str
+    error: str
+
+
+@dataclass
 class AggregateStats:
     total_conversations: int = 0
     analyzed_conversations: int = 0
     skipped_no_tool_outputs: int = 0
+    skipped_error: int = 0
     total_tokens: int = 0
     total_tool_output_tokens: int = 0
     total_tokens_freed: int = 0
@@ -133,7 +142,9 @@ def _count_false_drops(decisions: list[PruneDecision], log_messages: list) -> in
     stripped — means the same payload was re-read after the drop point: a
     silent context loss.  Only tool outputs count as a re-read; a user or
     assistant message quoting the same text is not the model needing the
-    payload again.  This is a normalized match rather than a byte-for-byte
+    payload again, and a match inside another *dropped* tool output is not a
+    re-read either (that copy is pruned too).  This is a normalized match
+    rather than a byte-for-byte
     comparison, and the digest is short, so a small number of collisions is
     possible over long logs.  Each dropped item is counted at most once.
     """
@@ -141,10 +152,17 @@ def _count_false_drops(decisions: list[PruneDecision], log_messages: list) -> in
     if not dropped:
         return 0
 
+    # Tool outputs that Phase 0 itself drops do not survive pruning, so a
+    # payload reappearing only in another dropped item is not actually
+    # re-read by the model — exclude those from the false-drop count.
+    dropped_idx = {d.idx for d in dropped}
+
     false_drops = 0
     for d in dropped:
         drop_digest = d.content_digest
         for i in range(d.idx + 1, len(log_messages)):
+            if i in dropped_idx:
+                continue
             later_msg = log_messages[i]
             prev = log_messages[i - 1] if i > 0 else None
             if not _is_tool_output(later_msg, prev):
@@ -241,14 +259,12 @@ def _trigger_at_first_turn_boundary(
 
 def analyze_conversation(
     conv, verbose: bool = False, budget: int | None = None
-) -> ConvStats | None:
+) -> ConvStats | AnalysisError | None:
     """Run the shadow pass on one conversation and return stats."""
     try:
         log = Log.read_jsonl(conv.path)
     except Exception as exc:
-        if verbose:
-            print(f"  ERROR reading {conv.name}: {exc}", file=sys.stderr)
-        return None
+        return AnalysisError(name=conv.name, error=f"read failed: {exc}")
 
     messages = log.messages
     if not messages:
@@ -325,7 +341,14 @@ def analyze_conversation(
         trigger_before, trigger_after = _trigger_at_first_turn_boundary(
             messages, model_name, limit, keep_head
         )
-    except Exception:
+    except Exception as exc:
+        # A single failing trigger evaluation must not abort the run, but it
+        # must not silently read as "no trigger" either.
+        if verbose:
+            print(
+                f"  ERROR evaluating compaction trigger for {conv.name}: {exc}",
+                file=sys.stderr,
+            )
         trigger_before = False
         trigger_after = False
 
@@ -425,6 +448,14 @@ def main() -> None:
             continue
 
         stats = analyze_conversation(conv, verbose=args.verbose, budget=args.budget)
+        if isinstance(stats, AnalysisError):
+            agg.skipped_error += 1
+            if args.verbose:
+                print(
+                    f"  skipped {stats.name}: analysis error: {stats.error}",
+                    file=sys.stderr,
+                )
+            continue
         if stats is None:
             agg.skipped_no_tool_outputs += 1
             continue
@@ -466,6 +497,7 @@ def main() -> None:
                         "total_conversations": agg.total_conversations,
                         "analyzed": agg.analyzed_conversations,
                         "skipped_no_tool_outputs": agg.skipped_no_tool_outputs,
+                        "skipped_error": agg.skipped_error,
                         "total_tokens": agg.total_tokens,
                         "total_tool_output_tokens": agg.total_tool_output_tokens,
                         "total_tokens_freed": agg.total_tokens_freed,
@@ -492,6 +524,9 @@ def main() -> None:
     print("=" * 70)
     print(f"Conversations visited:          {agg.total_conversations:>8,}")
     print(f"Conversations analyzed:         {agg.analyzed_conversations:>8,}")
+    if agg.skipped_error:
+        print(f"Skipped (analysis error):       {agg.skipped_error:>8,}")
+    print(f"Skipped (no tool outputs):      {agg.skipped_no_tool_outputs:>8,}")
     print()
     print("── Metric 1: Tokens freed ──────────────────────────────────────────")
     print(f"Total tokens in analyzed logs:  {agg.total_tokens:>8,}")
@@ -510,7 +545,10 @@ def main() -> None:
     print(f"Decisions to drop:              {agg.total_dropped:>8,}")
     print(f"False-drop candidates:          {agg.total_false_drop_candidates:>8,}")
     print(f"  overall false-drop rate:      {agg.overall_false_drop_rate:>7.1%}")
-    note = "  (false-drop = dropped payload reappears verbatim in a later message)"
+    note = (
+        "  (false-drop = dropped payload reappears in a later tool output that"
+        " survives pruning; normalized match)"
+    )
     print(note)
     print()
     print("── Metric 3: Compaction trigger impact ─────────────────────────────")
