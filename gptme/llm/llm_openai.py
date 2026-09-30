@@ -36,6 +36,7 @@ from .openai_responses import (
     _obj_get,
     _stream_responses_events,
     _tool_spec_to_responses_tool,
+    served_model_from,
 )
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
@@ -227,18 +228,25 @@ def _record_usage(
     model: str,
     resolved_model: str | None = None,
     reasoning_effort: str | None = None,
+    served_model: str | None = None,
 ) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata.
 
     ``reasoning_effort`` is the effective level applied to the request (from
     ``GPTME_THINKING_EFFORT``); it is stamped on the metadata so session logs
     record how much reasoning was requested, not just how many tokens came back.
+
+    ``served_model`` is the model id exactly as the provider reported it in its
+    response (``response.model`` / ``chunk.model``); stamped whenever non-empty,
+    even when it equals the requested model.
     """
     if not usage:
-        if resolved_model or reasoning_effort:
+        if resolved_model or reasoning_effort or served_model:
             bare: MessageMetadata = {"model": model}
             if resolved_model:
                 bare["resolved_model"] = resolved_model
+            if served_model:
+                bare["served_model"] = served_model
             if reasoning_effort:
                 bare["reasoning_effort"] = reasoning_effort
             return bare
@@ -306,6 +314,8 @@ def _record_usage(
     metadata: MessageMetadata = {"model": model}
     if resolved_model:
         metadata["resolved_model"] = resolved_model
+    if served_model:
+        metadata["served_model"] = served_model
     if reasoning_effort:
         metadata["reasoning_effort"] = reasoning_effort
     if usage_data:
@@ -1143,7 +1153,10 @@ def chat(
 
         response = client.responses.create(**response_kwargs)
         metadata = _record_usage(
-            response.usage, model, reasoning_effort=reasoning_effort
+            response.usage,
+            model,
+            reasoning_effort=reasoning_effort,
+            served_model=served_model_from(response),
         )
 
         result: list[str] = []
@@ -1236,6 +1249,7 @@ def chat(
         model,
         resolved_model=_resolved,
         reasoning_effort=reasoning_effort,
+        served_model=served_model_from(response),
     )
     if not response.choices:
         raise ValueError("OpenAI API returned empty choices list")
@@ -1564,23 +1578,38 @@ def _stream_responses(
             kwargs["top_p"] = top_p_value
 
     captured_metadata: MessageMetadata | None = None
+    served_model: str | None = None
+
+    def _capture_model(served: str) -> None:
+        # Last non-empty wins; fires before usage on response.completed.
+        nonlocal served_model
+        served_model = served
 
     def _capture_usage(usage: Any) -> None:
         nonlocal captured_metadata
         captured_metadata = _record_usage(
-            usage, model, reasoning_effort=reasoning_effort
+            usage,
+            model,
+            reasoning_effort=reasoning_effort,
+            served_model=served_model,
         )
 
     stream = client.responses.create(**kwargs)
     yield from _stream_responses_events(
         _guarded_stream_iter(stream, model=model, provider=provider),
         usage_callback=_capture_usage,
+        model_callback=_capture_model,
     )
 
-    if captured_metadata is None and reasoning_effort is not None:
-        # No usage event arrived; still record what was requested.
+    if captured_metadata is None and (
+        reasoning_effort is not None or served_model is not None
+    ):
+        # No usage event arrived; still record what was requested/served.
         captured_metadata = _record_usage(
-            None, model, reasoning_effort=reasoning_effort
+            None,
+            model,
+            reasoning_effort=reasoning_effort,
+            served_model=served_model,
         )
     return captured_metadata
 
@@ -1754,6 +1783,9 @@ def stream(
                 reasoning_effort=reasoning_effort,
             )
 
+    # Model id as the provider reports it on each chunk (last non-empty wins).
+    served_model: str | None = None
+
     for chunk_raw in _guarded_stream_iter(_stream_obj, model=model, provider=provider):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
         from openai.types.chat.chat_completion_chunk import (  # fmt: skip
@@ -1764,6 +1796,9 @@ def stream(
         # Cast the chunk to the correct type
         chunk = cast(ChatCompletionChunk, chunk_raw)
 
+        if chunk_served := served_model_from(chunk):
+            served_model = chunk_served
+
         # Record usage if available (typically in final chunk)
         # and capture metadata for message attachment
         if hasattr(chunk, "usage") and chunk.usage:
@@ -1772,6 +1807,7 @@ def stream(
                 model,
                 resolved_model=_or_resolved,
                 reasoning_effort=reasoning_effort,
+                served_model=served_model,
             )
 
         if not chunk.choices:
@@ -1823,11 +1859,20 @@ def stream(
 
     logger.debug(f"Stop reason: {stop_reason}")
 
-    if captured_metadata is None and reasoning_effort is not None:
-        # No usage chunk arrived; still record what was requested.
+    if captured_metadata is None and (
+        reasoning_effort is not None or served_model is not None
+    ):
+        # No usage chunk arrived; still record what was requested/served.
         captured_metadata = _record_usage(
-            None, model, reasoning_effort=reasoning_effort
+            None,
+            model,
+            reasoning_effort=reasoning_effort,
+            served_model=served_model,
         )
+    elif captured_metadata is not None and served_model is not None:
+        # Covers the OpenRouter header-only metadata built before the stream
+        # and a usage chunk that arrived before the last model-bearing chunk.
+        captured_metadata["served_model"] = served_model
     # Return the captured metadata (accessible via StopIteration.value)
     return captured_metadata
 

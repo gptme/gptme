@@ -730,10 +730,22 @@ def stream(
 
     _usage_holder: list[Any] = []
 
+    _served_model: str | None = None
+
     def _capture_usage(usage: Any) -> None:
         _usage_holder.append(usage)
 
-    yield from _stream_responses_events(_sse_events(), usage_callback=_capture_usage)
+    def _capture_model(served: str) -> None:
+        # Last non-empty wins: response.created/in_progress first, then the
+        # response.completed/done value (preferred) when the backend sends it.
+        nonlocal _served_model
+        _served_model = served
+
+    yield from _stream_responses_events(
+        _sse_events(),
+        usage_callback=_capture_usage,
+        model_callback=_capture_model,
+    )
 
     # Return usage metadata so _StreamWithMetadata can attach it to the message.
     # _StreamWithMetadata adds the full provider-prefixed model name automatically.
@@ -742,6 +754,10 @@ def stream(
     # the session still shows what was requested.
     _, reasoning_effort = _codex_model_and_effort(model)
     effort_meta: MessageMetadata = {"reasoning_effort": reasoning_effort}
+    if _served_model is not None:
+        # Model id exactly as the ChatGPT backend reported it (e.g.
+        # "gpt-5.6-sol"), recorded even when it matches the requested model.
+        effort_meta["served_model"] = _served_model
     if not _usage_holder:
         return effort_meta
     counts = _extract_usage_token_counts(_usage_holder[0])
@@ -761,6 +777,26 @@ def stream(
     return cast(MessageMetadata, {**effort_meta, "usage": usage_data})
 
 
+def chat_with_metadata(
+    messages: list[Message],
+    model: str,
+    tools: list[Any] | None = None,
+    **kwargs: Any,
+) -> tuple[str, MessageMetadata | None]:
+    """Non-streaming completion that also returns the stream's metadata.
+
+    Drains :func:`stream` and keeps its generator return value (usage,
+    reasoning effort, served model) instead of discarding it.
+    """
+    gen = stream(messages, model, tools, **kwargs)
+    content_parts: list[str] = []
+    while True:
+        try:
+            content_parts.append(next(gen))
+        except StopIteration as e:
+            return "".join(content_parts), e.value
+
+
 def chat(
     messages: list[Message],
     model: str,
@@ -768,8 +804,8 @@ def chat(
     **kwargs: Any,
 ) -> str:
     """Non-streaming completion from ChatGPT subscription API."""
-    content_parts = list(stream(messages, model, tools, **kwargs))
-    return "".join(content_parts)
+    content, _ = chat_with_metadata(messages, model, tools, **kwargs)
+    return content
 
 
 def init(config: Any) -> bool:
