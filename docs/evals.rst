@@ -60,6 +60,32 @@ However, we recommend running it in Docker to improve isolation and reproducibil
         -v $(pwd)/eval_results:/app/eval_results \
         gptme-eval hello --model anthropic/claude-sonnet-4-6
 
+Policy-governed sandboxes
+-------------------------
+
+Eval tasks run code the model wrote, so the execution environment is the thing
+under test as much as the model is. Docker gives process isolation; it does not
+by itself constrain which files the code can read, which hosts it can reach, or
+which credentials it can exfiltrate.
+
+`NVIDIA OpenShell <https://github.com/NVIDIA/OpenShell>`_ is an optional
+alternative runtime for that: agents run under kernel-enforced policy
+(Landlock for filesystem access, seccomp for network), network egress is
+mediated by a supervisor, and credentials are injected only for approved
+endpoints rather than passed into the sandbox as environment variables. The
+existing ``gptme-eval:latest`` image can be used directly as the sandbox image:
+
+.. code-block:: bash
+
+    make build-docker
+    openshell sandbox create \
+        --from gptme-eval:latest \
+        -- gptme-eval hello --model anthropic/claude-sonnet-4-6
+
+This requires a running OpenShell gateway plus Docker or Podman (see the
+`OpenShell support matrix <https://docs.nvidia.com/openshell/latest/about/support-matrix>`_).
+It is not the default eval path today.
+
 Available Eval Suites
 ---------------------
 
