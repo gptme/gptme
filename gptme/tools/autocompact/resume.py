@@ -245,7 +245,7 @@ def _fit_suffix(text: str, max_tokens: int, model_str: str) -> str:
     cut = len(text) - int(len(text) * ratio)
     candidate = text[cut:]
     while candidate and len_tokens(candidate, model=model_str) > max_tokens:
-        candidate = candidate[int(len(candidate) * 0.1) :]
+        candidate = candidate[max(1, int(len(candidate) * 0.1)) :]
     first_nl = candidate.find("\n")
     if 0 <= first_nl < len(candidate) - 1:
         candidate = candidate[first_nl + 1 :]
