@@ -612,6 +612,34 @@ def test_estimate_compaction_savings_tool_results_only_when_over_limit():
     )
 
 
+def test_estimate_compaction_savings_respects_keep_head():
+    """Savings inside the protected keep_head prefix must not be counted.
+
+    The engine never trims messages at ``idx < keep_head``, so counting them in
+    the estimate selects ``rule_based`` for savings the engine cannot realize;
+    the post-hoc savings gate then rejects the view and the log stays over
+    budget (Greptile finding on #4023).
+    """
+    from gptme.tools.autocompact import estimate_compaction_savings
+
+    massive = "x " * 3000  # ~3000 tokens, above max_tool_result_tokens
+    messages = [
+        Message("system", "System prompt"),
+        Message("system", massive),  # idx 1, inside keep_head
+        Message("user", "Request"),
+        Message("assistant", "Response"),
+    ]
+
+    _, savings_kept, _ = estimate_compaction_savings(messages, limit=100, keep_head=2)
+    assert savings_kept == 0, (
+        "kept-head tool results must not count toward estimated savings"
+    )
+
+    # Sanity: the same log reports savings once the head is not protected.
+    _, savings_free, _ = estimate_compaction_savings(messages, limit=100)
+    assert savings_free > 0
+
+
 def test_estimate_compaction_savings_includes_phase3():
     """Test that estimation includes Phase 3 assistant message compression.
 
@@ -2788,3 +2816,183 @@ def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
         assert mock_resume.called, (
             "Latch must release once real growth reaches threshold"
         )
+
+
+def _big_plain_system_result(n_words: int) -> Message:
+    """A large plain ``system`` message that Phase 2 (not Phase 0) will trim.
+
+    Phase 0 only stubs *tool* outputs (``call_id`` or directly after a
+    tool-call assistant message), so a plain system message is ignored by the
+    pre-pass and handled by the Phase 2 largest-first loop.
+    """
+    words = " ".join(f"tok{i}" for i in range(n_words))
+    return Message(
+        "system",
+        f"Ran command: `find /usr -type f`\n{words}",
+        datetime.now(tz=timezone.utc),
+    )
+
+
+def test_auto_compact_log_target_ratio_leaves_headroom():
+    """Hysteresis: ``target_ratio`` trims below the trigger, not to it.
+
+    Phase 1.5b: a trim that stops as soon as it is under the budget re-triggers
+    on the next step. With three equal massive results and a limit of 2.2x one
+    result, the default (ratio 1.0) stops after removing one (~2 results left);
+    ratio 0.7 must remove a second result to reach its target.
+    """
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO
+
+    model = get_default_model() or get_model("gpt-4")
+    results = [_big_plain_system_result(20000) for _ in range(3)]
+    msgs = [
+        Message("user", "list files", datetime.now(tz=timezone.utc)),
+        Message("assistant", "ok", datetime.now(tz=timezone.utc)),
+        *results,
+    ]
+    one_result_tokens = len_tokens(results[0].content, model.model)
+    limit = int(2.2 * one_result_tokens)
+
+    default = list(auto_compact_log(msgs, limit=limit))
+    default_tokens = len_tokens(default, model.model)
+    # Default lands under the trigger but without headroom above the target.
+    assert default_tokens > int(TRIM_TARGET_RATIO * limit), (
+        "precondition: default trim should not already be below the 0.7 target"
+    )
+
+    hysteretic = list(
+        auto_compact_log(msgs, limit=limit, target_ratio=TRIM_TARGET_RATIO)
+    )
+    hysteretic_tokens = len_tokens(hysteretic, model.model)
+    assert hysteretic_tokens <= int(TRIM_TARGET_RATIO * limit), (
+        f"target_ratio={TRIM_TARGET_RATIO} should trim below the target "
+        f"({hysteretic_tokens} > {int(TRIM_TARGET_RATIO * limit)})"
+    )
+    assert hysteretic_tokens < default_tokens, (
+        "hysteretic trim must remove more than the default"
+    )
+
+
+def test_hook_rejects_view_below_min_savings(monkeypatch):
+    """Phase 1.5b: never install a view that fails the actual savings gate."""
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.context_provider import CompactionResult
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [
+        Message("system", "System prompt " * 50),
+        Message("user", "do the thing " * 50),
+        Message("system", "result " * 50),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-savings-gate"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.current_view = "main"
+
+    mock_provider = MagicMock()
+
+    def fake_compress(messages, config):
+        # Returns the log essentially unchanged: ~0% savings.
+        return CompactionResult(
+            messages=list(messages),
+            source_digest=hashlib.sha256(b"same").hexdigest(),
+            covered_through=len(messages) - 1,
+        )
+
+    mock_provider.compress.side_effect = fake_compress
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="rule_based",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        # Pin the model so the savings gate is actually exercised regardless of
+        # the ambient environment (with no default model the gate fails open).
+        patch(
+            "gptme.tools.autocompact.hook.get_default_model",
+            return_value=get_model("gpt-4"),
+        ),
+        # The rejection must fall back to the LLM summarizer instead of leaving
+        # the over-budget log uncompacted until a provider overflow.
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            return_value=iter([]),
+        ) as mock_resume,
+    ):
+        list(hook_module.autocompact_hook(manager))
+
+    assert not manager.create_view.called, (
+        "a view saving <MIN_SAVINGS_RATIO must be rejected, not installed"
+    )
+    # The rejected attempt is recorded so the unchanged log does not re-fire.
+    assert (str(manager.logdir), "master") in hook_module._last_autocompact_attempt
+    # Recovery: the summarizer is tried so an over-budget log is not wedged.
+    mock_resume.assert_called_once()
+
+
+def test_hook_installs_view_above_min_savings(monkeypatch):
+    """Positive control: a view with real savings is installed as before."""
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.context_provider import CompactionResult
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    big = "token " * 4000
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", big),
+        Message("system", big),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-savings-pass"
+    manager.current_branch = "master"
+    manager.current_view = "main"
+
+    def set_msgs(compacted):
+        manager.log.messages = compacted
+
+    manager.log.messages = msgs
+
+    mock_provider = MagicMock()
+
+    def fake_compress(messages, config):
+        compacted = [messages[0], Message("system", "compacted")]
+        return CompactionResult(
+            messages=compacted,
+            source_digest=hashlib.sha256(b"small").hexdigest(),
+            covered_through=len(messages) - 1,
+        )
+
+    mock_provider.compress.side_effect = fake_compress
+    manager.create_view.side_effect = lambda _name, compacted: set_msgs(compacted)
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="rule_based",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook.get_context_provider",
+            return_value=mock_provider,
+        ),
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        list(hook_module.autocompact_hook(manager))
+
+    assert manager.create_view.called, "a view with real savings should be installed"

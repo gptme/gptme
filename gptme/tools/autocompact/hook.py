@@ -19,7 +19,7 @@ from ...util.context_budget import get_context_budget
 from ..base import ToolSpec, ToolUse
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
-from .decision import should_auto_compact
+from .decision import MIN_SAVINGS_RATIO, TRIM_TARGET_RATIO, should_auto_compact
 from .events import append_compaction_event
 from .handlers import cmd_compact_handler
 from .resume import _resume_via_llm
@@ -272,6 +272,7 @@ def autocompact_hook(
                 limit=budget,
                 logdir=manager.logdir,
                 keep_head=_get_keep_head(),
+                trim_target_ratio=TRIM_TARGET_RATIO,
             )
             compacted_msgs = provider.compress(messages, config).messages
 
@@ -282,68 +283,99 @@ def autocompact_hook(
             original_tokens = len_tokens(messages, m.model) if m else 0
             compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
 
-            # Create a view branch with compacted content
-            # Master branch (main) stays intact with full history
-            view_name = manager.get_next_view_name()
-            manager.create_view(view_name, compacted_msgs)
-            manager.switch_view(view_name)
-            post_trim_count = _effective_message_count(manager.log.messages)
-            _last_autocompact_attempt[conv_key] = (current_time, post_trim_count)
-            # The latch deliberately survives a successful trim: an ineffective
-            # trim that leaves the conversation over budget must not reset the
-            # growth clock, or summarize retries (and fails) every 20 messages.
-            # The baseline may only move *down* — to the post-trim count when a
-            # trim actually shrinks the view (otherwise growth measured from a
-            # larger pre-trim count could never reach the threshold). A trim that
-            # preserves the message count leaves the baseline untouched, so
-            # growth keeps accumulating across repeated trims.
-            if conv_key in _failed_summarize:
-                _failed_summarize[conv_key] = min(
-                    _failed_summarize[conv_key], post_trim_count
-                )
-
-            # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
-            # (e.g., attention-router can batch-apply decay and re-evaluate tiers)
-            yield from trigger_hook(
-                HookType.CACHE_INVALIDATED,
-                manager=manager,
-                reason="compact",
-                tokens_before=original_tokens,
-                tokens_after=compacted_tokens,
-            )
-
-            reduction_pct = (
-                ((original_tokens - compacted_tokens) / original_tokens * 100)
+            # Post-hoc savings gate: the pre-trigger estimate is approximate, so
+            # verify the view we are about to install actually saves enough to
+            # justify the cache invalidation. Rejecting a near-useless view keeps
+            # the promise "no compaction below MIN_SAVINGS_RATIO". Mark the
+            # attempt so the unchanged log does not re-fire every step; the next
+            # growth window can retry (by then the estimate may take the
+            # summarize path instead).
+            reduction_ratio = (
+                (original_tokens - compacted_tokens) / original_tokens
                 if original_tokens > 0
                 else 0.0
             )
-            append_compaction_event(
-                manager.logdir,
-                trigger="budget",
-                method="trim",
-                tokens_before=original_tokens,
-                tokens_after=compacted_tokens,
-                messages_before=original_count,
-                messages_after=compacted_count,
-                elapsed_seconds=time.time() - current_time,
-            )
-            # Yield a message indicating what happened
-            yield Message(
-                "system",
-                f"🔄 Auto-compacted conversation to view branch:\n"
-                f"• Messages: {original_count} → {compacted_count}\n"
-                f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
-                f"({reduction_pct:.1f}% reduction)\n"
-                f"• View: {view_name} (master branch preserved with full history)",
-                hide=True,  # Hide to prevent triggering responses
-                ui_only=True,  # Status message: never sent to the provider
-            )
+            # Fail open when token measurement is unavailable (no default
+            # model): we cannot judge the savings, so do not block a trim the
+            # estimate already accepted.
+            if m is not None and reduction_ratio < MIN_SAVINGS_RATIO:
+                logger.warning(
+                    "Rejecting rule-based auto-compact view: actual savings "
+                    f"{reduction_ratio:.1%} below threshold {MIN_SAVINGS_RATIO:.0%}"
+                )
+                _last_autocompact_attempt[conv_key] = (current_time, n_messages)
+                # The estimate said rule-based was worth it, but the real
+                # view saves too little. Fall back to the LLM summarizer (the
+                # path chosen when the estimate itself shows low rule-based
+                # savings) instead of leaving the over-budget log uncompacted
+                # until a provider overflow. Skip while a recent summarize
+                # failure is latched — retrying it every step would thrash.
+                if conv_key not in _failed_summarize:
+                    action = "summarize"
+
+            else:
+                # Create a view branch with compacted content
+                # Master branch (main) stays intact with full history
+                view_name = manager.get_next_view_name()
+                manager.create_view(view_name, compacted_msgs)
+                manager.switch_view(view_name)
+                post_trim_count = _effective_message_count(manager.log.messages)
+                _last_autocompact_attempt[conv_key] = (current_time, post_trim_count)
+                # The latch deliberately survives a successful trim: an ineffective
+                # trim that leaves the conversation over budget must not reset the
+                # growth clock, or summarize retries (and fails) every 20 messages.
+                # The baseline may only move *down* — to the post-trim count when a
+                # trim actually shrinks the view (otherwise growth measured from a
+                # larger pre-trim count could never reach the threshold). A trim that
+                # preserves the message count leaves the baseline untouched, so
+                # growth keeps accumulating across repeated trims.
+                if conv_key in _failed_summarize:
+                    _failed_summarize[conv_key] = min(
+                        _failed_summarize[conv_key], post_trim_count
+                    )
+
+                # Trigger CACHE_INVALIDATED hook - perfect time for plugins to update state
+                # (e.g., attention-router can batch-apply decay and re-evaluate tiers)
+                yield from trigger_hook(
+                    HookType.CACHE_INVALIDATED,
+                    manager=manager,
+                    reason="compact",
+                    tokens_before=original_tokens,
+                    tokens_after=compacted_tokens,
+                )
+
+                reduction_pct = (
+                    ((original_tokens - compacted_tokens) / original_tokens * 100)
+                    if original_tokens > 0
+                    else 0.0
+                )
+                append_compaction_event(
+                    manager.logdir,
+                    trigger="budget",
+                    method="trim",
+                    tokens_before=original_tokens,
+                    tokens_after=compacted_tokens,
+                    messages_before=original_count,
+                    messages_after=compacted_count,
+                    elapsed_seconds=time.time() - current_time,
+                )
+                # Yield a message indicating what happened
+                yield Message(
+                    "system",
+                    f"🔄 Auto-compacted conversation to view branch:\n"
+                    f"• Messages: {original_count} → {compacted_count}\n"
+                    f"• Tokens: {original_tokens:,} → {compacted_tokens:,} "
+                    f"({reduction_pct:.1f}% reduction)\n"
+                    f"• View: {view_name} (master branch preserved with full history)",
+                    hide=True,  # Hide to prevent triggering responses
+                    ui_only=True,  # Status message: never sent to the provider
+                )
         except Exception as e:
             logger.error(f"Auto-compact failed during compaction: {e}")
             # Don't yield error message to avoid triggering more hooks
             return
 
-    elif action == "summarize":
+    if action == "summarize":
         logger.info("Auto-summarize triggered: rule-based compaction insufficient")
         m = get_default_model()
         original_tokens = len_tokens(messages, m.model) if m else 0

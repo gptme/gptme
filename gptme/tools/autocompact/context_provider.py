@@ -73,6 +73,7 @@ class CompressionConfig:
     logdir: Path | None = None
     reasoning_strip_age_threshold: int | None = None
     keep_head: int = 0
+    trim_target_ratio: float = 1.0
     extra_config: dict = field(default_factory=dict)
 
 
@@ -137,6 +138,7 @@ class DefaultContextProvider(ContextProvider):
                 logdir=config.logdir,
                 reasoning_strip_age_threshold=config.reasoning_strip_age_threshold,
                 keep_head=config.keep_head,
+                target_ratio=config.trim_target_ratio,
             )
         )
         return CompactionResult(

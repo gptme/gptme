@@ -7,6 +7,7 @@ prevent resumption, compacting them to allow the conversation to continue.
 
 from .decision import (
     MIN_SAVINGS_RATIO,
+    TRIM_TARGET_RATIO,
     CompactAction,
     estimate_compaction_savings,
     should_auto_compact,
@@ -53,6 +54,7 @@ __all__ = [
     # Decision logic
     "CompactAction",
     "MIN_SAVINGS_RATIO",
+    "TRIM_TARGET_RATIO",
     "estimate_compaction_savings",
     "should_auto_compact",
     # Engine
