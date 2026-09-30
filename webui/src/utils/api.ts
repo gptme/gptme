@@ -1039,7 +1039,11 @@ export class ApiClient {
             maxAttempts: maxReconnects,
             retryInMs: 0,
           });
-          reconnect(nextAttempt, skipSseToken);
+          // Compute the same skip-logic as onerror for the initial-failure case:
+          // if this is the first attempt with an sseToken and it timed out (never got a session),
+          // skip the token on retry so we don't keep re-attaching an expired token in the URL.
+          const skipSseOnTimeout = skipSseToken || (this.sseToken !== null && reconnectCount === 0);
+          reconnect(nextAttempt, skipSseOnTimeout);
         } else {
           this.teardownEventStream(conversationId);
           this.scheduleDeadStreamRetry(conversationId);
@@ -1299,9 +1303,19 @@ export class ApiClient {
       //   • Drop after a successful connection and the sseToken is set (may have expired)
       // This bypasses both the sseToken AND the JWT-in-URL fallback for subsequent retries in
       // this reconnect cycle, preserving credential isolation.
+      // Decide whether to skip the sseToken on the next retry.
+      // For cross-origin servers (authCookieSet=false), cookie auth is unavailable —
+      // skipping both sseToken AND JWT-in-URL leaves the retry with no credentials at all.
+      // Only bypass the sseToken after a drop if cookie auth IS available as a fallback.
+      // For initial connect failure (never connected), always bypass (the token clearly failed).
+      // Note: this.sseToken is set once in the constructor and never cleared, so
+      // the sseToken branch (line 913) always fires before the JWT-fallback branch when
+      // skipSseToken=false — there is no JWT exposure risk in the cross-origin path.
       const nextSkipSse =
         skipSseToken || // already bypassing — keep it bypassed
-        (this.sseToken !== null && ((!wasConnected && reconnectCount === 0) || wasConnected));
+        (this.sseToken !== null &&
+          ((!wasConnected && reconnectCount === 0) || // initial connect failed with sseToken
+            (wasConnected && this.authCookieSet))); // drop after connect — only bypass when cookie is available
       if (nextSkipSse && !skipSseToken && this.sseToken !== null) {
         console.warn(
           '[ApiClient] SSE token bypassed for reconnect (may be expired or connection issue). ' +

@@ -388,7 +388,9 @@ export function findOrCreateServerByUrl(
           authToken: defaults.authToken,
           useAuthToken: defaults.useAuthToken ?? Boolean(defaults.authToken),
         }),
-        ...(defaults?.sseToken !== undefined && { sseToken: defaults.sseToken }),
+        // Only overwrite a stored sseToken with a real value — a null from a re-auth
+        // exchange that omits INSTANCE_TOKEN_SECRET must not clear a previously valid token.
+        ...(defaults?.sseToken != null && { sseToken: defaults.sseToken }),
       });
     }
     return serverRegistry$.get().servers.find((s) => s.id === existing.id)!;
@@ -401,7 +403,7 @@ export function findOrCreateServerByUrl(
     baseUrl,
     authToken: defaults?.authToken ?? null,
     useAuthToken: defaults?.useAuthToken ?? false,
-    ...(defaults?.sseToken !== undefined && { sseToken: defaults.sseToken }),
+    ...(defaults?.sseToken != null && { sseToken: defaults.sseToken }),
   });
 }
 

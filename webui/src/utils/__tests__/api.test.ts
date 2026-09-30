@@ -1067,6 +1067,30 @@ describe('ApiClient event stream reconnection', () => {
     // Cookie auth is still active — withCredentials must remain true
     expect(second.init).toMatchObject({ withCredentials: true });
   });
+
+  it('skips both sseToken and JWT fallback on reconnect when both are set and initial attempt fails', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) so authCookieSet stays false.
+    const client = new ApiClient('http://127.0.0.1:5700', 'Bearer jwt-token', 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken (preferred over JWT)
+    expect(first.url).toContain('token=my-sse-token');
+    expect(first.url).not.toContain('jwt-token');
+
+    // Fail before connecting (wasConnected=false, reconnectCount=0) → nextSkipSse=true
+    first.emitError();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // Reconnect suppresses both the sseToken and the JWT-in-URL fallback
+    expect(second.url).not.toContain('token=');
+    expect(second.init).toMatchObject({ withCredentials: true });
+  });
 });
 
 describe('getApiErrorPresentation', () => {
