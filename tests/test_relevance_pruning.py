@@ -409,6 +409,139 @@ def test_phase0_recovery_survives_jsonl_rewrite(tmp_path):
     assert stale_content not in logfile.read_text()
 
 
+# ---------------------------------------------------------------------------
+# Tests for eval_phase0_pruning._count_false_drops (issue #3997 evaluation)
+# ---------------------------------------------------------------------------
+
+
+def _make_drop_decision(idx: int, content: str) -> PruneDecision:
+    """Helper: build a PruneDecision with decision='drop' for the given content."""
+    from gptme.message import len_tokens as _len_tokens
+
+    model = _model_name()
+    tokens = _len_tokens(content, model)
+    return PruneDecision(
+        idx=idx,
+        decision="drop",
+        score=0.1,
+        tokens=tokens,
+        stub_tokens=10,
+        tokens_saved=max(0, tokens - 10),
+        content_digest=PruneDecision._digest(content),
+    )
+
+
+def _make_keep_decision(idx: int, content: str) -> PruneDecision:
+    from gptme.message import len_tokens as _len_tokens
+
+    return PruneDecision(
+        idx=idx,
+        decision="keep",
+        score=5.0,
+        tokens=_len_tokens(content, _model_name()),
+        stub_tokens=0,
+        tokens_saved=0,
+        content_digest=PruneDecision._digest(content),
+    )
+
+
+def test_count_false_drops_no_drops():
+    """Zero dropped decisions → zero false drops."""
+    import sys
+
+    sys.path.insert(
+        0, str(__import__("pathlib").Path(__file__).parent.parent / "scripts")
+    )
+    from eval_phase0_pruning import _count_false_drops
+
+    messages = [_user("q"), _assistant("a")]
+    keep = _make_keep_decision(0, "tool out")
+    assert _count_false_drops([keep], messages) == 0
+
+
+def test_count_false_drops_no_reappearance():
+    """Dropped content never appears later → false-drop rate is zero."""
+    import sys
+
+    sys.path.insert(
+        0, str(__import__("pathlib").Path(__file__).parent.parent / "scripts")
+    )
+    from eval_phase0_pruning import _count_false_drops
+
+    dropped_content = "unique dropped content xyz987"
+    drop = _make_drop_decision(0, dropped_content)
+    messages = [_tool_out(dropped_content), _user("something else"), _assistant("done")]
+    assert _count_false_drops([drop], messages) == 0
+
+
+def test_count_false_drops_reappears():
+    """Dropped content reappears verbatim in a later message → false drop counted."""
+    import sys
+
+    sys.path.insert(
+        0, str(__import__("pathlib").Path(__file__).parent.parent / "scripts")
+    )
+    from eval_phase0_pruning import _count_false_drops
+
+    payload = "result: files.txt foo.py bar.txt (important content)"
+    drop = _make_drop_decision(0, payload)
+    messages = [
+        _tool_out(payload),
+        _user("what files did we have?"),
+        _system(payload),  # same payload reappears later
+        _assistant("those files"),
+    ]
+    assert _count_false_drops([drop], messages) == 1
+
+
+def test_count_false_drops_earlier_match_ignored():
+    """A matching message that appears BEFORE the drop index is not a false drop."""
+    import sys
+
+    sys.path.insert(
+        0, str(__import__("pathlib").Path(__file__).parent.parent / "scripts")
+    )
+    from eval_phase0_pruning import _count_false_drops
+
+    payload = "some tool output content here"
+    # messages[0] and messages[2] have the same content
+    messages = [
+        _system(payload),  # idx 0: earlier copy
+        _user("some question"),
+        _tool_out(payload),  # idx 2: the dropped one
+        _user("unrelated"),
+        _assistant("done"),
+    ]
+    drop = _make_drop_decision(2, payload)
+    # Nothing after idx=2 has this payload → no false drop
+    assert _count_false_drops([drop], messages) == 0
+
+
+def test_count_false_drops_multiple_drops_counted_once_each():
+    """Each dropped item is counted at most once even if it reappears multiple times."""
+    import sys
+
+    sys.path.insert(
+        0, str(__import__("pathlib").Path(__file__).parent.parent / "scripts")
+    )
+    from eval_phase0_pruning import _count_false_drops
+
+    p1 = "first dropped payload"
+    p2 = "second dropped payload"
+    messages = [
+        _tool_out(p1),
+        _tool_out(p2),
+        _user("q1"),
+        _system(p1),  # reappears once
+        _system(p1),  # reappears again — should NOT add to the count
+        _system(p2),  # second drop reappears
+        _assistant("ok"),
+    ]
+    d1 = _make_drop_decision(0, p1)
+    d2 = _make_drop_decision(1, p2)
+    assert _count_false_drops([d1, d2], messages) == 2
+
+
 def test_phase0_estimate_uses_recovery_stub_template():
     """Estimator must not use a one-line stub that overstates savings.
 
