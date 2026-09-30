@@ -6,7 +6,7 @@ import logging
 import os
 import re
 from collections import deque
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Iterator
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
@@ -130,6 +130,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 _ENV_DEGEN_THRESHOLD = "GPTME_DEGENERATION_THRESHOLD"
+_ENV_DEGEN_RETRY = "GPTME_DEGENERATION_RETRY"
 _DEGEN_THRESHOLD_DEFAULT = 0.85
 # n-gram length (chars). ~32 chars ≈ 8 tokens at 4 chars/token.
 _DEGEN_NGRAM = 32
@@ -161,6 +162,13 @@ class _RepetitionDetector:
     ``window`` characters of accumulated *non-code* content.  The guard
     trips when the score stays above ``threshold`` for ``trip_count``
     consecutive checks.
+
+    Only non-code text is scored: fenced code blocks are tracked across
+    chunk boundaries (a fence split between two chunks is still
+    recognized) and excluded from both the check cadence and the score, so
+    legitimately repetitive code (tables, test cases) cannot trip the
+    guard.  The scored buffer is bounded to ``window`` characters, so the
+    detector does not retain or re-join the whole stream.
     """
 
     def __init__(
@@ -173,24 +181,30 @@ class _RepetitionDetector:
         min_content: int = _DEGEN_MIN_CONTENT,
         check_interval: int = _DEGEN_CHECK_INTERVAL,
     ) -> None:
+        if not (0.0 < threshold <= 1.0):
+            raise ValueError(f"threshold must be in (0, 1], got {threshold!r}")
         self._threshold = threshold
         self._ngram = ngram
         self._window = window
-        self._trip_count = trip_count
+        self.trip_count = trip_count
         self._min_content = min_content
         self._check_interval = check_interval
 
-        # Rolling deque holding recent chunks; joined lazily for scoring.
-        self._chunks: deque[str] = deque()
-        self._total_len = 0  # total chars in _chunks
+        # Rolling window over non-code text only, bounded to `window` chars.
+        self._clean_chunks: deque[str] = deque()
+        self._window_len = 0  # chars currently held in _clean_chunks
         self._clean_len = 0  # non-code chars accumulated (lifetime)
         self._since_check = 0  # non-code chars since last check
 
-        # Code-fence tracking (``` fences only).
+        # Code-fence tracking (``` fences only), carried across chunks so a
+        # fence split between two chunks is still recognized.
         self._in_code = False
+        self._line_carry = ""
+        self._carry_counted_len = 0
         self._fence_re = re.compile(r"^[ \t]*```")
 
         self._consecutive = 0
+        self.checks_performed = 0
         self.tripped = False
         self.score: float = 0.0
 
@@ -204,21 +218,7 @@ class _RepetitionDetector:
         if self.tripped or not text:
             return self.tripped
 
-        self._chunks.append(text)
-        self._total_len += len(text)
-
-        # Track code-block state and accumulate only non-code content.
-        # splitlines(keepends=True) preserves line lengths for accurate counting.
-        clean_added = 0
-        for line in text.splitlines(keepends=True):
-            stripped = line.rstrip("\n\r")
-            if self._fence_re.match(stripped):
-                self._in_code = not self._in_code
-            if not self._in_code:
-                clean_added += len(line)
-
-        self._clean_len += clean_added
-        self._since_check += clean_added
+        self._ingest(text)
 
         # A single large chunk may span multiple check intervals; loop until
         # we've consumed all pending intervals (or the guard trips).
@@ -227,6 +227,7 @@ class _RepetitionDetector:
             and self._since_check >= self._check_interval
         ):
             self._since_check -= self._check_interval
+            self.checks_performed += 1
             self.score = self._compute_score()
 
             if self.score >= self._threshold:
@@ -234,20 +235,78 @@ class _RepetitionDetector:
             else:
                 self._consecutive = 0
 
-            if self._consecutive >= self._trip_count:
+            if self._consecutive >= self.trip_count:
                 self.tripped = True
                 return True
 
         return self.tripped
 
     # ------------------------------------------------------------------
+    def _ingest(self, text: str) -> None:
+        """Split ``text`` into lines and append its non-code content.
+
+        Incomplete trailing lines are carried into the next chunk so a fence
+        marker that straddles a chunk boundary is still detected.  The carried
+        fragment is counted provisionally and rolled back when it completes, so
+        a stream that never sends a final newline is still scored.
+        """
+        # Roll back the provisionally counted trailing fragment.
+        if self._carry_counted_len:
+            self._clean_len -= self._carry_counted_len
+            self._since_check -= self._carry_counted_len
+            self._drop_buffer_tail(self._carry_counted_len)
+            self._carry_counted_len = 0
+
+        combined = self._line_carry + text
+        self._line_carry = ""
+        chunk_lines = combined.splitlines(keepends=True)
+        if chunk_lines and not chunk_lines[-1].endswith(("\n", "\r")):
+            self._line_carry = chunk_lines.pop()
+
+        for line in chunk_lines:
+            stripped = line.rstrip("\r\n")
+            if self._fence_re.match(stripped):
+                self._in_code = not self._in_code
+            if not self._in_code and line:
+                self._append_buffer(line)
+
+        # Count the trailing fragment provisionally (fence lines are excluded
+        # once the state has flipped).
+        if self._line_carry and not self._in_code:
+            self._append_buffer(self._line_carry)
+            self._carry_counted_len = len(self._line_carry)
+
+    # ------------------------------------------------------------------
+    def _append_buffer(self, text: str) -> None:
+        """Append non-code text, advancing the lifetime counters."""
+        self._clean_chunks.append(text)
+        self._window_len += len(text)
+        self._clean_len += len(text)
+        self._since_check += len(text)
+        while self._window_len > self._window and self._clean_chunks:
+            self._window_len -= len(self._clean_chunks.popleft())
+
+    # ------------------------------------------------------------------
+    def _drop_buffer_tail(self, count: int) -> None:
+        """Remove ``count`` chars from the tail of the scored buffer."""
+        while count > 0 and self._clean_chunks:
+            last = self._clean_chunks[-1]
+            if len(last) <= count:
+                self._clean_chunks.pop()
+                self._window_len -= len(last)
+                count -= len(last)
+            else:
+                self._clean_chunks[-1] = last[:-count]
+                self._window_len -= count
+                count = 0
+
     def _compute_score(self) -> float:
         """Return the fraction of repeated n-gram positions in the window.
 
         0.0 = no repetition; 1.0 = every position is a duplicate.
         """
-        # Build rolling window from the tail of accumulated chunks.
-        buf = "".join(self._chunks)
+        # Rolling window from the tail of accumulated non-code chunks.
+        buf = "".join(self._clean_chunks)
         window = buf[-self._window :]
 
         n = self._ngram
@@ -268,7 +327,12 @@ class _RepetitionDetector:
 
 
 def _degeneration_threshold() -> float | None:
-    """Return the configured threshold, or None when the guard is disabled."""
+    """Return the configured threshold, or None when the guard is disabled.
+
+    The value must be a finite float in (0, 1]; anything else (including
+    ``nan``, infinities, negatives, or a value above 1) is rejected in favour
+    of the default rather than silently disabling or over-arming the guard.
+    """
     value = os.environ.get(_ENV_DEGEN_THRESHOLD)
     if value is None:
         return _DEGEN_THRESHOLD_DEFAULT  # on by default
@@ -276,15 +340,37 @@ def _degeneration_threshold() -> float | None:
     if value in {"0", "false", "off", "no", "disabled"}:
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except ValueError:
+        parsed = None
+    if parsed is None or not (0.0 < parsed <= 1.0):
         logger.warning(
-            "%s=%r is not a valid float; using default %.2f",
+            "%s=%r is not a finite threshold in (0, 1]; using default %.2f",
             _ENV_DEGEN_THRESHOLD,
             value,
             _DEGEN_THRESHOLD_DEFAULT,
         )
         return _DEGEN_THRESHOLD_DEFAULT
+    return parsed
+
+
+def _degeneration_retry_enabled() -> bool:
+    """Whether a detected degeneration may retry on another subprovider.
+
+    Off by default.  A same-turn retry is only safe when no text has been
+    handed to the caller yet — otherwise the retry's output is appended to
+    abandoned text the caller has already accumulated.  Enabling this makes
+    the stream withhold its prefix until the guard has had its earliest chance
+    to trip, so an early trip can be discarded cleanly; a trip that happens
+    after the prefix is flushed aborts the stream without a retry.
+    """
+    return os.environ.get(_ENV_DEGEN_RETRY, "").strip().lower() in {
+        "1",
+        "true",
+        "on",
+        "yes",
+        "enabled",
+    }
 
 
 def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> str:
@@ -1921,13 +2007,17 @@ def stream(
         optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
     reasoning_effort = _resolve_reasoning_effort(provider, model_meta)
 
-    # Degeneration guard: detect repetition mid-stream and retry once on a
-    # different OpenRouter subprovider.  Only active for OpenRouter backends;
-    # the guard is a no-op when the threshold env-var is set to 0/false/off.
+    # Degeneration guard: detect repetition mid-stream and (when retry is
+    # enabled) retry once on a different OpenRouter subprovider.  Only active
+    # for OpenRouter backends; the guard is a no-op when the threshold env-var
+    # is set to 0/false/off.
     degen_threshold = _degeneration_threshold()
     _degen_enabled = degen_threshold is not None and _uses_openrouter_backend(
         provider, model_meta
     )
+    # Retrying mid-stream is only safe when nothing has been emitted to the
+    # caller yet; opt in with GPTME_DEGENERATION_RETRY=1.
+    _degen_retry_enabled = _degen_enabled and _degeneration_retry_enabled()
     _degen_retry_data: DegenerationRetryData | None = None
     _ignored_providers: list[str] = []
 
@@ -2019,6 +2109,42 @@ def stream(
             assert degen_threshold is not None
             detector = _RepetitionDetector(threshold=degen_threshold)
 
+        # Text withheld while a clean retry is still possible.  Only used when
+        # the retry path is enabled; otherwise text streams through unchanged.
+        _degen_pending: list[str] = []
+        _degen_emitted = False
+
+        def _emit(
+            text: str,
+            *,
+            _detector: _RepetitionDetector | None = detector,
+            _pending: list[str] = _degen_pending,
+            _retry_enabled: bool = _degen_retry_enabled,
+            _is_retry: bool = _is_degen_retry,
+        ) -> Iterator[str]:
+            """Yield streamed text, withholding the prefix while a retry is live.
+
+            A same-turn retry must not append to text the caller has already
+            accumulated, so nothing is emitted until the guard has had its
+            earliest chance to trip.  Once that window passes (or on the retry
+            attempt itself), text streams through immediately.
+            """
+            nonlocal _degen_emitted
+            if not text:
+                return
+            if not _retry_enabled or _is_retry or _degen_emitted:
+                _degen_emitted = True
+                yield text
+                return
+            _pending.append(text)
+            if (
+                _detector is not None
+                and _detector.checks_performed >= _detector.trip_count
+            ):
+                _degen_emitted = True
+                yield from _pending
+                _pending.clear()
+
         try:
             for chunk_raw in _guarded_stream_iter(
                 _stream_obj, model=model, provider=provider
@@ -2067,30 +2193,32 @@ def stream(
                 # Handle reasoning content
                 # OpenRouter API uses delta.reasoning
                 # DeepSeek API uses delta.reasoning_content
+                # Feed the detector before emitting so a tripping chunk is not
+                # handed to the caller.
                 if reasoning_content := (
                     getattr(delta, "reasoning_content", None)
                     or getattr(delta, "reasoning", None)
                 ):
-                    if not in_reasoning_block:
-                        yield "<think>\n"
-                        in_reasoning_block = True
-                    yield reasoning_content
                     if detector and detector.feed(reasoning_content):
                         _degen_detected = True
                         break
+                    if not in_reasoning_block:
+                        yield from _emit("<think>\n")
+                        in_reasoning_block = True
+                    yield from _emit(reasoning_content)
                 elif in_reasoning_block:
-                    yield "\n</think>\n\n"
+                    yield from _emit("\n</think>\n\n")
                     in_reasoning_block = False
                     if delta.content is not None:
-                        yield delta.content
                         if detector and detector.feed(delta.content):
                             _degen_detected = True
                             break
+                        yield from _emit(delta.content)
                 elif delta.content is not None:
-                    yield delta.content
                     if detector and detector.feed(delta.content):
                         _degen_detected = True
                         break
+                    yield from _emit(delta.content)
 
                 # Handle tool calls
                 if delta.tool_calls:
@@ -2102,9 +2230,9 @@ def stream(
                             func = tool_call.function
                             if isinstance(func, ChoiceDeltaToolCallFunction):
                                 if func.name:
-                                    yield f"\n@{func.name}({tool_call.id}): "
+                                    yield from _emit(f"\n@{func.name}({tool_call.id}): ")
                                 if func.arguments:
-                                    yield func.arguments
+                                    yield from _emit(func.arguments)
 
                 # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
                 # if delta.type == "response.reasoning_summary.delta":
@@ -2133,12 +2261,75 @@ def stream(
                 )
 
         if in_reasoning_block:
-            yield "\n</think>\n"
+            yield from _emit("\n</think>\n")
 
         logger.debug(f"Stop reason: {stop_reason}")
 
         if not _degen_detected:
+            # Flush anything withheld (short streams may never disarm).
+            if _degen_pending:
+                _degen_emitted = True
+                yield from _degen_pending
+                _degen_pending.clear()
             break  # Normal completion — no retry needed.
+
+        # Degeneration detected.  Close the abandoned stream before deciding
+        # whether to retry.
+        try:
+            _stream_obj.close()
+        except Exception:
+            logger.debug("Error closing degenerate stream", exc_info=True)
+
+        assert detector is not None  # only reachable on attempt 0 with detector
+        _raw_or_provider = (
+            _or_resolved.split("@", 1)[1]
+            if _or_resolved and "@" in _or_resolved
+            else None
+        )
+        _degen_retry_data = DegenerationRetryData(
+            provider=_raw_or_provider or "unknown",
+            score=detector.score,
+        )
+        # A retry is only safe when nothing has been emitted to the caller yet
+        # and there is a different subprovider to route to.  A single-provider
+        # pin resolves to no subprovider here, so it is never retried against
+        # itself.
+        can_retry = (
+            _degen_retry_enabled and not _degen_emitted and bool(_raw_or_provider)
+        )
+        if can_retry:
+            assert _raw_or_provider is not None
+            logger.warning(
+                "Degeneration detected mid-stream (score=%.2f, provider=%r); "
+                "retrying on a different OpenRouter subprovider.",
+                detector.score,
+                _raw_or_provider,
+            )
+            _ignored_providers = [_raw_or_provider]
+            # Discard the withheld degenerate prefix so the retry starts clean.
+            _degen_pending.clear()
+            # Reset per-attempt state so the retry starts clean.
+            captured_metadata = None
+            served_model = None
+        else:
+            if _degen_emitted:
+                _reason = "output already emitted to the caller"
+            else:
+                _reason = "no alternative subprovider available"
+            logger.warning(
+                "Degeneration detected mid-stream (score=%.2f, provider=%r); "
+                "aborting stream (%s). Set %s=1 to allow a clean retry.",
+                detector.score,
+                _raw_or_provider,
+                _reason,
+                _ENV_DEGEN_RETRY,
+            )
+            # Emit whatever was withheld so the caller still gets a response.
+            if _degen_pending:
+                _degen_emitted = True
+                yield from _degen_pending
+                _degen_pending.clear()
+            break
 
         # Degeneration detected: extract the bad subprovider, set up retry.
         assert detector is not None  # only reachable on attempt 0 with detector

@@ -4680,3 +4680,186 @@ class TestDegenerationRetryMetadata:
         }
         assert meta["degeneration_retry"]["provider"] == "together"
         assert meta["degeneration_retry"]["score"] == pytest.approx(0.92)
+
+
+class TestDegenerationDetectorCodeScoring:
+    """The guard scores only non-code text and tolerates split fences."""
+
+    def _make(self, **kwargs):
+        from gptme.llm.llm_openai import _RepetitionDetector
+
+        kwargs.setdefault("threshold", 0.8)
+        kwargs.setdefault("check_interval", 50)
+        kwargs.setdefault("min_content", 100)
+        return _RepetitionDetector(**kwargs)
+
+    def test_repetitive_code_block_does_not_trip(self):
+        det = self._make()
+        # Unique non-code prefix so the check cadence advances.
+        prefix = " ".join(str(i) for i in range(300)) + "\n"
+        code = "```python\n" + ("x = x + 1\n" * 100) + "```\n"
+        det.feed(prefix + code)
+        assert det.checks_performed >= 1
+        assert not det.tripped
+        # The repetitive code never reaches the scored buffer.
+        assert det.score < 0.5
+
+    def test_fence_split_across_chunks_is_excluded(self):
+        det = self._make()
+        prefix = " ".join(str(i) for i in range(300)) + "\n``"
+        det.feed(prefix)
+        det.feed("`\n")
+        det.feed("x = x + 1\n" * 200)
+        assert not det.tripped
+        assert det.score < 0.5
+
+    def test_scored_buffer_is_bounded_to_window(self):
+        det = self._make(window=200, min_content=100_000)
+        det.feed("alpha beta gamma delta\n" * 500)
+        # Buffer holds at most the window (plus one final line).
+        assert det._window_len <= 200 + len("alpha beta gamma delta\n")
+
+    def test_stream_without_final_newline_is_scored(self):
+        det = self._make(threshold=0.7)
+        det.feed("REPEAT REPEAT REPEAT " * 60)
+        assert det.tripped
+
+
+class TestDegenerationThresholdValidation:
+    """Reject non-finite / out-of-range thresholds instead of honouring them."""
+
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-1", "-0.5", "1.5", "2"])
+    def test_invalid_numeric_threshold_falls_back_to_default(self, monkeypatch, value):
+        from gptme.llm.llm_openai import (
+            _DEGEN_THRESHOLD_DEFAULT,
+            _degeneration_threshold,
+        )
+
+        monkeypatch.setenv("GPTME_DEGENERATION_THRESHOLD", value)
+        assert _degeneration_threshold() == _DEGEN_THRESHOLD_DEFAULT
+
+    def test_boundary_one_is_accepted(self, monkeypatch):
+        from gptme.llm.llm_openai import _degeneration_threshold
+
+        monkeypatch.setenv("GPTME_DEGENERATION_THRESHOLD", "1.0")
+        assert _degeneration_threshold() == pytest.approx(1.0)
+
+
+_OR_MODEL = "openrouter/deepseek/deepseek-v4-flash-0731"
+
+
+def _degen_chunk(content=None, reasoning=None, provider=None):
+    chunk = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                finish_reason=None,
+                delta=SimpleNamespace(
+                    reasoning_content=reasoning,
+                    reasoning=None,
+                    content=content,
+                    tool_calls=None,
+                ),
+            )
+        ],
+    )
+    if provider is not None:
+        chunk.model_extra = {"provider": provider}
+    return chunk
+
+
+def _openrouter_stream(chunks, provider="Together"):
+    """Stream-shaped stub carrying the OpenRouter provider header."""
+
+    class _Stream:
+        response = SimpleNamespace(
+            headers={"x-openrouter-provider": provider} if provider else {}
+        )
+
+        def __iter__(self):
+            return iter(chunks)
+
+        def close(self):
+            pass
+
+    return _Stream()
+
+
+class TestDegenerationStreamBehaviour:
+    """End-to-end stream() behaviour for the degeneration guard."""
+
+    def _setup(self, monkeypatch, streams):
+        calls: list[dict] = []
+
+        def _create(**kwargs):
+            calls.append(kwargs)
+            return streams[len(calls) - 1]
+
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+        monkeypatch.setattr(
+            llm_openai, "_should_use_responses_api", lambda *args: False
+        )
+        monkeypatch.delenv("GPTME_DEGENERATION_THRESHOLD", raising=False)
+        return calls
+
+    def test_aborts_without_retry_by_default(self, monkeypatch):
+        """Default: the guard aborts and records, and never opens a second stream."""
+        monkeypatch.delenv("GPTME_DEGENERATION_RETRY", raising=False)
+        chunks = [
+            _degen_chunk(content="REPEAT " * 60, provider="Together"),
+            _degen_chunk(content="REPEAT " * 60, provider="Together"),
+            _degen_chunk(content="REPEAT " * 80, provider="Together"),
+        ]
+        calls = self._setup(monkeypatch, [_openrouter_stream(chunks)])
+
+        text, metadata = _collect_stream_result(
+            llm_openai.stream([Message(role="user", content="Hi")], _OR_MODEL, None)
+        )
+
+        assert len(calls) == 1
+        assert metadata is not None
+        assert metadata["degeneration_retry"]["provider"] == "together"
+        # Aborted, so only the already-emitted prefix was returned.
+        assert text == "REPEAT " * 60
+
+    def test_retry_does_not_append_abandoned_output(self, monkeypatch):
+        """With retry opt-in, a clean retry replaces rather than appends output."""
+        monkeypatch.setenv("GPTME_DEGENERATION_RETRY", "1")
+        degen = _degen_chunk(content="REPEAT " * 200, provider="Together")
+        clean = _degen_chunk(content="Hello", provider="Fireworks")
+        streams = [
+            _openrouter_stream([degen], provider="Together"),
+            _openrouter_stream([clean], provider="Fireworks"),
+        ]
+        calls = self._setup(monkeypatch, streams)
+
+        text, metadata = _collect_stream_result(
+            llm_openai.stream([Message(role="user", content="Hi")], _OR_MODEL, None)
+        )
+
+        assert len(calls) == 2
+        # The retry excludes the degenerate subprovider.
+        assert calls[1]["extra_body"]["provider"]["ignore"] == ["together"]
+        # No abandoned prefix was appended to the caller's output.
+        assert text == "Hello"
+        assert metadata["degeneration_retry"]["provider"] == "together"
+
+    def test_pinned_provider_is_not_retried_against_itself(self, monkeypatch):
+        """A single-provider pin resolves to no alternative host: abort, no retry."""
+        monkeypatch.setenv("GPTME_DEGENERATION_RETRY", "1")
+        pinned = _OR_MODEL + "@together"
+        degen = _degen_chunk(content="REPEAT " * 200, provider="Together")
+        calls = self._setup(
+            monkeypatch, [_openrouter_stream([degen], provider="Together")]
+        )
+
+        _text, metadata = _collect_stream_result(
+            llm_openai.stream([Message(role="user", content="Hi")], pinned, None)
+        )
+
+        assert len(calls) == 1
+        assert metadata["degeneration_retry"]["provider"] == "unknown"
