@@ -99,8 +99,9 @@ class AggregateStats:
     total_candidates: int = 0
     total_dropped: int = 0
     total_false_drop_candidates: int = 0
+    # Conversations where Phase 0 pulls the first over-budget turn boundary
+    # back under the limit, so the compaction trigger would not fire there.
     trigger_delayed_count: int = 0
-    trigger_prevented_count: int = 0
     conv_stats: list[ConvStats] = field(default_factory=list)
 
     @property
@@ -443,11 +444,6 @@ def main() -> None:
             and not stats.compaction_would_trigger_after
         ):
             agg.trigger_delayed_count += 1
-        if (
-            stats.compaction_would_trigger_before
-            and not stats.compaction_would_trigger_after
-        ):
-            agg.trigger_prevented_count += 1
         agg.conv_stats.append(stats)
 
         if args.verbose and stats.n_dropped > 0:
