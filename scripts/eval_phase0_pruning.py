@@ -32,6 +32,7 @@ from gptme.tools.autocompact import (
     PruneDecision,
     shadow_prune_stale_tool_outputs,
 )
+from gptme.tools.autocompact.config import _get_keep_head
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -132,6 +133,45 @@ def _count_false_drops(decisions: list[PruneDecision], log_messages: list) -> in
     return false_drops
 
 
+def _trigger_at_first_crossing(
+    messages: list,
+    model_name: str,
+    limit: int,
+    keep_head: int,
+) -> tuple[bool, bool]:
+    """Evaluate the compaction trigger at the moment the log first crosses ``limit``.
+
+    Production checks the budget as messages arrive and runs Phase 0 at that
+    point, so measuring the completed log cannot show whether pruning at the
+    arrival point would have delayed compaction. Find the shortest prefix whose
+    token count reaches ``limit`` (the arrival point), run the shadow pass
+    there, and report whether the prefix is still over budget after pruning.
+
+    Returns ``(trigger_before, trigger_after)``. Both are ``False`` when the
+    full log never reaches ``limit``.
+    """
+    if len_tokens(messages, model_name) < limit:
+        return False, False
+
+    # Token count is monotonic non-decreasing in prefix length → binary search
+    # for the first prefix that reaches the limit.
+    lo, hi = 1, len(messages)
+    cross_k = len(messages)
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if len_tokens(messages[:mid], model_name) >= limit:
+            cross_k = mid
+            hi = mid - 1
+        else:
+            lo = mid + 1
+
+    prefix = messages[:cross_k]
+    prefix_tokens = len_tokens(prefix, model_name)
+    decisions = shadow_prune_stale_tool_outputs(prefix, model_name, keep_head=keep_head)
+    freed = sum(d.tokens_saved for d in decisions)
+    return prefix_tokens >= limit, (prefix_tokens - freed) >= limit
+
+
 # ---------------------------------------------------------------------------
 # Per-conversation analysis
 # ---------------------------------------------------------------------------
@@ -154,13 +194,29 @@ def analyze_conversation(
 
     from gptme.llm.models import get_default_model, get_model
 
-    model_obj = get_default_model() or get_model("gpt-4")
+    default_model = get_default_model() or get_model("gpt-4")
+    # A saved conversation may have used a different model than the current
+    # default. Prefer the model recorded in the log so the tokenizer and
+    # context window match what produced it.
+    conv_model = getattr(conv, "model", None)
+    if conv_model:
+        try:
+            model_obj = get_model(conv_model)
+        except Exception:
+            model_obj = default_model
+    else:
+        model_obj = default_model
     model_name = model_obj.model
+
+    # Production protects the configured head from all compaction phases.
+    keep_head = _get_keep_head()
 
     total_tokens = len_tokens(messages, model_name)
 
     # Run the shadow pass (never mutates the log)
-    decisions = shadow_prune_stale_tool_outputs(messages, model_name)
+    decisions = shadow_prune_stale_tool_outputs(
+        messages, model_name, keep_head=keep_head
+    )
 
     if not decisions:
         return None  # no tool outputs at all
@@ -193,9 +249,22 @@ def analyze_conversation(
             )
             _logger.setLevel(prev_level)
             if limit <= 2000:
-                limit = 40_000
-        trigger_before = total_tokens >= limit
-        trigger_after = (total_tokens - tokens_freed) >= limit
+                # The derived budget collapsed to the floor because model
+                # metadata was missing or the window is smaller than the
+                # output reservation. Fall back to the model's declared
+                # window — not a hardcoded constant — so the trigger threshold
+                # tracks the actual model instead of silently widening.
+                fallback = (
+                    (model_obj.context or 0) - (model_obj.max_output or 8192) - 1000
+                )
+                if fallback > 2000:
+                    limit = fallback
+        # Production checks the budget as messages arrive (before Phase 0
+        # runs), so evaluate the trigger at the first crossing point rather
+        # than on the completed log.
+        trigger_before, trigger_after = _trigger_at_first_crossing(
+            messages, model_name, limit, keep_head
+        )
     except Exception:
         trigger_before = False
         trigger_after = False
@@ -277,12 +346,17 @@ def main() -> None:
         file=sys.stderr,
     )
 
-    conversations = list(get_user_conversations(detail=False))[: args.limit * 3]
-    agg.total_conversations = len(conversations)
+    # Iterate newest-first until ``--limit`` conversations have been analyzed.
+    # Do NOT pre-slice: conversations can be skipped by the message/token
+    # filters, and slicing before filtering would silently narrow the sample
+    # even when older eligible logs exist.
+    conversations = get_user_conversations(detail=False)
+    agg.total_conversations = 0
 
     for conv in conversations:
         if agg.analyzed_conversations >= args.limit:
             break
+        agg.total_conversations += 1
 
         if hasattr(conv, "messages") and conv.messages is not None:
             if conv.messages < args.min_messages:
@@ -316,12 +390,14 @@ def main() -> None:
         agg.conv_stats.append(stats)
 
         if args.verbose and stats.n_dropped > 0:
+            # stderr keeps stdout a single clean JSON document under --json -v.
             print(
                 f"  [{agg.analyzed_conversations}] {conv.name}: "
                 f"{stats.tokens_freed:,} tokens freed "
                 f"({stats.freed_pct:.1%}), "
                 f"{stats.n_dropped}/{stats.n_candidates} dropped, "
-                f"{stats.n_false_drop_candidates} false-drop candidates"
+                f"{stats.n_false_drop_candidates} false-drop candidates",
+                file=sys.stderr,
             )
 
     # --- Print summary ---

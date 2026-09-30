@@ -542,6 +542,104 @@ def test_count_false_drops_multiple_drops_counted_once_each():
     assert _count_false_drops([d1, d2], messages) == 2
 
 
+def _import_eval_phase0():
+    import sys
+
+    sys.path.insert(
+        0, str(__import__("pathlib").Path(__file__).parent.parent / "scripts")
+    )
+    import eval_phase0_pruning
+
+    return eval_phase0_pruning
+
+
+def test_trigger_at_first_crossing_below_limit():
+    """A log that never reaches the limit reports no trigger."""
+    ev = _import_eval_phase0()
+    messages = [_user("hi"), _assistant("hello")]
+    assert ev._trigger_at_first_crossing(messages, _model_name(), 10_000_000, 0) == (
+        False,
+        False,
+    )
+
+
+def test_trigger_at_first_crossing_pruning_delays_trigger():
+    """At the first crossing, pruning savings can pull the prefix under limit."""
+    ev = _import_eval_phase0()
+    stale = _tool_out("word " * 400)
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE + 2)]
+    messages = [stale] + padding
+    limit = ev.len_tokens(messages, _model_name())
+    # Full log is exactly at the limit; the stale output is old enough to prune,
+    # so the crossing prefix ends up under budget after Phase 0.
+    assert ev._trigger_at_first_crossing(messages, _model_name(), limit, 0) == (
+        True,
+        False,
+    )
+
+
+def test_trigger_at_first_crossing_unprunable_stays_triggered():
+    """With nothing to prune, the crossing prefix remains over budget."""
+    ev = _import_eval_phase0()
+    messages = [_user("word " * 400), _assistant("done")]
+    limit = ev.len_tokens(messages, _model_name())
+    assert ev._trigger_at_first_crossing(messages, _model_name(), limit, 0) == (
+        True,
+        True,
+    )
+
+
+def test_json_output_stays_pure_with_verbose(monkeypatch, capsys):
+    """--json -v must emit a single parseable JSON document on stdout."""
+    import json
+    import sys
+
+    ev = _import_eval_phase0()
+
+    class _Conv:
+        name = "conv1"
+        path = "unused"
+        messages = 20
+        model = None
+
+    def fake_convs(*, detail=False):
+        yield _Conv()
+
+    def fake_analyze(conv, verbose=False, budget=None):
+        return ev.ConvStats(
+            name=conv.name,
+            total_tokens=10_000,
+            tool_output_tokens=8_000,
+            tokens_freed=4_000,
+            n_candidates=5,
+            n_dropped=3,
+            n_false_drop_candidates=0,
+            compaction_would_trigger_before=True,
+            compaction_would_trigger_after=False,
+        )
+
+    monkeypatch.setattr(ev, "get_user_conversations", fake_convs)
+    monkeypatch.setattr(ev, "analyze_conversation", fake_analyze)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eval_phase0_pruning.py",
+            "--json",
+            "-v",
+            "--limit",
+            "5",
+            "--min-tokens",
+            "100",
+        ],
+    )
+
+    ev.main()
+    out = capsys.readouterr().out
+    parsed = json.loads(out)  # must not raise: stdout is a single JSON doc
+    assert parsed["summary"]["analyzed"] == 1
+
+
 def test_phase0_estimate_uses_recovery_stub_template():
     """Estimator must not use a one-line stub that overstates savings.
 
