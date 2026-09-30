@@ -755,9 +755,12 @@ jobs:
             if "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}"; then
               break
             fi
-            echo "sdkmanager attempt ${attempt} failed (likely a corrupted download); retrying..." >&2
             rm -rf "${ANDROID_HOME}/ndk/${NDK_VERSION}"
-            [[ "${attempt}" == 3 ]] && exit 1
+            if [[ "${attempt}" == 3 ]]; then
+              echo "sdkmanager attempt ${attempt} failed (likely a corrupted download); no retries remain." >&2
+              exit 1
+            fi
+            echo "sdkmanager attempt ${attempt} failed (likely a corrupted download); retrying..." >&2
             sleep 10
           done
           echo "NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> $GITHUB_ENV
