@@ -290,9 +290,12 @@ def analyze_conversation(
         )
     except Exception as exc:
         # A single misconfigured conversation must not abort the whole run.
+        # Return the error sentinel (not None) so model-resolution, token-count,
+        # or shadow-pass failures are counted as errors rather than silently
+        # reported as "no tool outputs".
         if verbose:
             print(f"  ERROR analyzing {conv.name}: {exc}", file=sys.stderr)
-        return None
+        return AnalysisError(name=conv.name, error=f"analysis failed: {exc}")
 
     if not decisions:
         return None  # no tool outputs at all

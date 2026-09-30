@@ -642,6 +642,44 @@ def test_json_output_stays_pure_with_verbose(monkeypatch, capsys):
     assert parsed["summary"]["analyzed"] == 1
 
 
+def test_analysis_error_counted_separately(monkeypatch, capsys):
+    """A conversation that fails analysis is an error, not a "no tool outputs" skip.
+
+    Regression guard: model-resolution / token-count / shadow-pass failures must
+    surface under skipped_error rather than silently inflating
+    skipped_no_tool_outputs.
+    """
+    import json
+    import sys
+
+    ev = _import_eval_phase0()
+
+    class _Conv:
+        name = "conv1"
+        path = "unused"
+        messages = 20
+        model = None
+
+    def fake_convs(*, detail=False):
+        yield _Conv()
+
+    def fake_analyze(conv, verbose=False, budget=None):
+        return ev.AnalysisError(name=conv.name, error="boom")
+
+    monkeypatch.setattr(ev, "get_user_conversations", fake_convs)
+    monkeypatch.setattr(ev, "analyze_conversation", fake_analyze)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["eval_phase0_pruning.py", "--json", "--limit", "5", "--min-tokens", "100"],
+    )
+
+    ev.main()
+    parsed = json.loads(capsys.readouterr().out)
+    assert parsed["summary"]["skipped_error"] == 1
+    assert parsed["summary"]["skipped_no_tool_outputs"] == 0
+
+
 def test_phase0_estimate_uses_recovery_stub_template():
     """Estimator must not use a one-line stub that overstates savings.
 
