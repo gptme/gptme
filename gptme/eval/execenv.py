@@ -482,31 +482,49 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
 
         Downloading into a fresh directory (rather than the upload staging dir)
         avoids returning stale local copies of files the sandbox deleted.
+
+        This never raises. If the gateway is unresponsive — e.g. after the
+        ``run()`` backstop fired and retained the sandbox ID — a failed or
+        timed-out ``cp`` would otherwise escape before check evaluation and
+        replace the check's partial output and exit code with a generic error
+        and zero case results. Instead we log and return whatever was copied,
+        so checks still run against the artifacts that did make it across.
         """
         if not self.sandbox_id:
             return {}
         files: Files = {}
         with tempfile.TemporaryDirectory(prefix="gptme-openshell-dl-") as tmp:
             dest = Path(tmp)
-            result = subprocess.run(
-                [
-                    "openshell",
-                    "sandbox",
-                    "cp",
-                    f"{self.sandbox_id}:{self.container_working_dir}/.",
-                    str(dest),
-                    "--gateway",
-                    self.gateway_url,
-                    "--recursive",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to download from sandbox: {result.stderr.strip()}"
+            try:
+                result = subprocess.run(
+                    [
+                        "openshell",
+                        "sandbox",
+                        "cp",
+                        f"{self.sandbox_id}:{self.container_working_dir}/.",
+                        str(dest),
+                        "--gateway",
+                        self.gateway_url,
+                        "--recursive",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        "Failed to download from OpenShell sandbox %s (exit %d): %s. "
+                        "Returning partial artifacts.",
+                        self.sandbox_id,
+                        result.returncode,
+                        result.stderr.strip(),
+                    )
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "Timed out downloading from OpenShell sandbox %s (60s). "
+                    "Returning partial artifacts.",
+                    self.sandbox_id,
                 )
             for path in dest.glob("**/*"):
                 if not path.is_file():

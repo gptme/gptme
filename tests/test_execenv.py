@@ -491,6 +491,39 @@ class TestOpenShellExecutionEnv:
             finally:
                 env.sandbox_id = None
 
+    def test_download_timeout_returns_partial_instead_of_raising(self):
+        """A hung gateway must not rob the check of its partial results."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+
+                def fake_run(args, **kwargs):
+                    dest = Path(args[4])
+                    dest.mkdir(parents=True, exist_ok=True)
+                    (dest / "partial.txt").write_text("partial")
+                    raise subprocess.TimeoutExpired(cmd="openshell", timeout=60)
+
+                with patch("gptme.eval.execenv.subprocess.run", side_effect=fake_run):
+                    files = env.download()
+                assert files == {"partial.txt": "partial"}
+            finally:
+                env.sandbox_id = None
+
+    def test_download_failure_returns_empty_instead_of_raising(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = self._env(tmpdir)
+            env.sandbox_id = "sbx-1"
+            try:
+                with patch("gptme.eval.execenv.subprocess.run") as mock_run:
+                    mock_run.return_value = subprocess.CompletedProcess(
+                        args=[], returncode=1, stdout="", stderr="gateway error"
+                    )
+                    files = env.download()
+                assert files == {}
+            finally:
+                env.sandbox_id = None
+
     def test_cleanup_retains_id_when_delete_fails(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env = self._env(tmpdir)
