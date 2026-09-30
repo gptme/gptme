@@ -376,35 +376,6 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             )
         self.sandbox_id = result.stdout.strip()
 
-    def _discard_sandbox(self) -> None:
-        """Best-effort delete the sandbox and forget its ID.
-
-        Unlike ``cleanup()``, a failed delete here is not surfaced: this is the
-        timeout path, where the gateway is already unresponsive and an orphaned
-        process tree must not be reused.
-        """
-        if not self.sandbox_id:
-            return
-        try:
-            subprocess.run(
-                [
-                    "openshell",
-                    "sandbox",
-                    "delete",
-                    self.sandbox_id,
-                    "--gateway",
-                    self.gateway_url,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        except (subprocess.TimeoutExpired, OSError):
-            pass
-        finally:
-            self.sandbox_id = None
-
     def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
         """Execute command inside the OpenShell sandbox."""
         if not self.sandbox_id:
@@ -429,10 +400,11 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                     "--",
                     # Enforce the timeout *inside* the sandbox so the command's
                     # process tree is killed there (coreutils `timeout` exits 124).
-                    # The outer subprocess timeout=30 is a backstop for an
-                    # unresponsive gateway, not the primary deadline.
+                    # 30s matches the local/Docker check deadline; the outer
+                    # subprocess timeout is only a backstop for a hung gateway
+                    # client, not the primary deadline.
                     "timeout",
-                    "25",
+                    "30",
                     "/bin/bash",
                     "-c",
                     command,
@@ -440,7 +412,7 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=45,
             )
             stdout_run, stderr_run, returncode = (
                 result.stdout,
@@ -451,18 +423,19 @@ class OpenShellExecutionEnv(FileStore, ExecutionEnv):
             # Match DockerExecutionEnv: return the partial output and a
             # non-zero status instead of raising, so check evaluation still
             # runs and records a real failure rather than a generic error.
-            # The sandbox-side `timeout 25` normally handles this, so reaching
-            # here means the gateway itself is unresponsive; discard the
-            # sandbox so no orphaned process tree lingers or mutates files.
+            # The sandbox-side `timeout 30` normally enforces the check
+            # deadline; reaching here means the gateway client itself is hung.
+            # Keep the sandbox ID so `download()` can still retrieve whatever
+            # the check produced before the backstop fired (the runner calls
+            # `cleanup()`, which deletes the sandbox, in its `finally`).
             if not silent:
                 print("Timeout!")
             stdout_run = _decode(exc.stdout)
             stderr_run = _decode(exc.stderr)
             if stderr_run and not stderr_run.endswith("\n"):
                 stderr_run += "\n"
-            stderr_run += "Command timed out (gateway backstop, 30s)."
+            stderr_run += "Command timed out (gateway backstop, 45s)."
             returncode = 124
-            self._discard_sandbox()
 
         if not silent:
             if stdout_run:

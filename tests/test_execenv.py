@@ -443,8 +443,9 @@ class TestOpenShellExecutionEnv:
                 assert code == 124
                 assert stdout == "partial out"
                 assert "timed out" in stderr
-                # The sandbox is discarded so no orphaned process tree lingers.
-                assert env.sandbox_id is None
+                # The sandbox is kept so download() can still retrieve the
+                # artifacts the check produced before the backstop fired.
+                assert env.sandbox_id == "sbx-1"
             finally:
                 env.sandbox_id = None
 
@@ -528,6 +529,11 @@ class TestOpenShellExecutionEnv:
                 # coreutils timeout wraps the real command inside the sandbox
                 assert "timeout" in argv
                 assert argv.index("timeout") < argv.index("/bin/bash")
+                # Sandbox-side deadline matches the local/Docker 30s check
+                # deadline (the outer subprocess timeout is a hung-gateway
+                # backstop only).
+                assert argv[argv.index("timeout") + 1] == "30"
+                assert mock_run.call_args[1]["timeout"] == 45
             finally:
                 env.sandbox_id = None
 
