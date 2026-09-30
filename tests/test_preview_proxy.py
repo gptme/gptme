@@ -250,6 +250,8 @@ class TestPreviewProxyHTTP:
                 "X-Supabase-User-Id": "user-id",
                 "X-Supabase-User-Token": "user-jwt",
                 "X-User-LLM-API-Key": "user-api-key",
+                "X-Remote-User": "erik",
+                "X-Remote-Email": "erik@example.com",
                 "X-Api-Key": "api-key",
                 "X-Custom-App-Header": "keep-me",
             },
@@ -266,7 +268,10 @@ class TestPreviewProxyHTTP:
         assert "x-supabase-user-id" not in headers
         assert "x-supabase-user-token" not in headers
         assert "x-user-llm-api-key" not in headers
-        assert "x-api-key" not in headers
+        assert "x-remote-user" not in headers
+        assert "x-remote-email" not in headers
+        # Generic app-facing credentials are intentionally forwarded.
+        assert headers.get("x-api-key") == "api-key"
         assert headers.get("x-custom-app-header") == "keep-me"
 
     def test_strips_token_query_param(self, client: FlaskClient):
@@ -423,6 +428,8 @@ class TestHeaderHelpers:
             ("X-Supabase-User-Token", "jwt"),
             ("x-user-llm-api-key", "key"),
             ("X-Remote-User", "bob"),
+            ("X-Remote-Email", "bob@example.com"),
+            ("X-Api-Key", "app-key"),
             ("Accept", "text/html"),
             ("Host", "example.com"),
             ("Connection", "keep-alive"),
@@ -437,8 +444,11 @@ class TestHeaderHelpers:
         assert "x-supabase-user-token" not in lower
         assert "x-user-llm-api-key" not in lower
         assert "x-remote-user" not in lower
+        assert "x-remote-email" not in lower
         assert "host" not in lower
         assert "connection" not in lower
+        # Generic app-facing credentials are intentionally forwarded.
+        assert forwarded["X-Api-Key"] == "app-key"
         assert forwarded.get("Accept-Encoding") == "identity"
         assert forwarded["Accept"] == "text/html"
 

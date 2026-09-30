@@ -106,12 +106,17 @@ _HOP_BY_HOP: frozenset[str] = frozenset(
 # Local processes are untrusted; the server token authorizes every protected
 # route.  Also drop identity/credential headers that forward-auth proxies
 # commonly inject in front of the server (see _IDENTITY_HEADER_PREFIXES).
+#
+# Generic app-facing credential headers such as `x-api-key` are deliberately
+# NOT stripped: gptme's server token travels in `Authorization`/`Cookie`, while
+# `x-api-key` is a widely used app-level header that a preview app may
+# legitimately expect from its own client.  Removing it would break those
+# auth flows without protecting any gptme surface.
 _IDENTITY_HEADERS: frozenset[str] = frozenset(
     {
         "authorization",
         "cookie",
         "proxy-authorization",
-        "x-api-key",
         "x-user-llm-api-key",
         "x-remote-user",
         "x-remote-email",
