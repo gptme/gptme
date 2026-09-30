@@ -476,6 +476,7 @@ def execute(
                 env = DockerExecutionEnv()
             else:
                 env = SimpleExecutionEnv(working_dir=Path(workspace_dir))
+            download_failed = False
             try:
                 # Restore specific input fixture files before running checks.
                 # Some tests provide input files (e.g. old.json/new.json for json-diff)
@@ -503,16 +504,18 @@ def execute(
                 stdout_run, stderr_run, exit_code = env.run(test["run"])
                 time_run = time.time() - run_start
                 files = env.download()
-                if getattr(env, "download_failed", False):
-                    # A partial artifact set must never be scored silently:
-                    # file-presence checks would falsely fail and
-                    # absence checks falsely pass. Flag it in the check's
-                    # stderr so the run record shows the artifacts are
-                    # incomplete.
+                download_failed = getattr(env, "download_failed", False)
+                if download_failed:
+                    # A partial artifact set must never be scored: a
+                    # file-presence check would falsely fail and an absence
+                    # check would falsely pass, corrupting the eval result.
+                    # Keep the check's stdout/stderr/exit_code for debugging,
+                    # but record the run as an infrastructure error below so
+                    # no check is evaluated against incomplete artifacts.
                     stderr_run += (
-                        "\n[eval] WARNING: artifact download from the execution "
+                        "\n[eval] ERROR: artifact download from the execution "
                         "environment failed or timed out; files are partial "
-                        "or missing — file-based checks may be unreliable.\n"
+                        "or missing — file-based checks were not scored.\n"
                     )
             finally:
                 env.cleanup()
@@ -536,7 +539,18 @@ def execute(
                         CaseResult(name=name, passed=passed, duration=eval_duration)
                     )
 
-            _evaluate_checks(test["expect"], ctx)
+            if download_failed:
+                # Artifacts are incomplete, so any file-based verdict would be
+                # wrong (false pass or false fail). Surface an infrastructure
+                # error instead of a corrupted result; the check's stdout,
+                # stderr and exit_code are preserved above for debugging.
+                status = "error"
+                print(
+                    f"--- Skipping checks for '{test['name']}': "
+                    "artifact download failed ---"
+                )
+            else:
+                _evaluate_checks(test["expect"], ctx)
 
             # Load the parent conversation log once: used for the tool-efficiency
             # metric (always) and any trajectory checks (when defined).
@@ -548,7 +562,7 @@ def execute(
             tool_calls = count_tool_calls(messages)
 
             check_log = test.get("check_log", {})
-            if check_log:
+            if check_log and not download_failed:
                 _evaluate_checks(check_log, messages)
             print("--- End of results ---")
 
