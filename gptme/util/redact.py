@@ -112,23 +112,21 @@ def looks_like_secret_value(value: str) -> bool:
 
     Name-based matching is right for line content but wrong for paths, where a
     filename like ``token=parser.py`` is not an assignment. A value is treated
-    as secret-shaped only when it carries a known vendor prefix or is a long,
-    unprefixed base64-ish token — the shapes real leaked credentials have.
+    as secret-shaped when it carries a known vendor prefix or is a long,
+    unprefixed opaque token — the shapes real leaked credentials have.
     """
     v = value.strip().strip("'\"")
     if not v:
         return False
     if _SECRET_VALUE_PREFIX_RE.match(v):
         return True
-    # Unprefixed high-entropy token: long, mixed case + digits, and no
-    # path-ish separators — a filename with an extension or underscores
-    # (``my_2024_backup.tar``) is not mistaken for a secret.
-    return bool(
-        re.fullmatch(r"[A-Za-z0-9+/=]{24,}", v)
-        and any(c.islower() for c in v)
-        and any(c.isupper() for c in v)
-        and any(c.isdigit() for c in v)
-    )
+    # Unprefixed high-entropy token: long, no path-ish separators (so a
+    # filename with an extension or underscores is not mistaken for a secret),
+    # containing a digit. Accept base64-ish (mixed case) or a long lowercase
+    # hex run — the two shapes of unprefixed vendor-less keys.
+    if not re.fullmatch(r"[A-Za-z0-9+/=]{24,}", v) or not any(c.isdigit() for c in v):
+        return False
+    return any(c.isupper() for c in v) or bool(re.fullmatch(r"[0-9a-f]{24,}", v))
 
 
 def redact_secret_values_in_path(path: str) -> str:

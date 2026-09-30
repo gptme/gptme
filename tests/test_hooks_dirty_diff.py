@@ -328,5 +328,14 @@ def test_redact_secret_values_in_path_unit():
     assert redact_secret_values_in_path("api_key=sk-proj-abcdef123456") == (
         "api_key=[REDACTED]"
     )
+    # Unprefixed but clearly opaque: long mixed-case or long hex runs redact.
+    assert redact_secret_values_in_path("token=AbCdEf0123456789AbCdEf01") == (
+        "token=[REDACTED]"
+    )
+    assert redact_secret_values_in_path("token=abcdef0123456789abcdef01") == (
+        "token=[REDACTED]"
+    )
     # Not an assignment-shaped path → untouched.
     assert redact_secret_values_in_path("src/main.py") == "src/main.py"
+    # Assignment-shaped but a plausible filename → preserved.
+    assert redact_secret_values_in_path("token=config.json") == "token=config.json"
