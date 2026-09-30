@@ -1039,7 +1039,7 @@ export class ApiClient {
             maxAttempts: maxReconnects,
             retryInMs: 0,
           });
-          reconnect(nextAttempt);
+          reconnect(nextAttempt, skipSseToken);
         } else {
           this.teardownEventStream(conversationId);
           this.scheduleDeadStreamRetry(conversationId);
@@ -1301,8 +1301,7 @@ export class ApiClient {
       // this reconnect cycle, preserving credential isolation.
       const nextSkipSse =
         skipSseToken || // already bypassing — keep it bypassed
-        (this.sseToken !== null &&
-          ((!wasConnected && reconnectCount === 0) || (wasConnected && reconnectCount >= 1)));
+        (this.sseToken !== null && ((!wasConnected && reconnectCount === 0) || wasConnected));
       if (nextSkipSse && !skipSseToken && this.sseToken !== null) {
         console.warn(
           '[ApiClient] SSE token bypassed for reconnect (may be expired or connection issue). ' +
