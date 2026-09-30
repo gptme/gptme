@@ -18,6 +18,7 @@ import { InlineToolExecution, ToolCompletionBadge } from './InlineToolExecution'
 import { OpenConversationPathButton } from './OpenConversationPathButton';
 import { Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
+import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useModels } from '@/hooks/useModels';
 import { chatRoute } from '@/utils/routes';
@@ -75,6 +76,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const serverClient = serverId ? getClient(serverId) : api;
   const isConnected = use$(serverClient.isConnected$);
   const lastConnectionResult = use$(serverClient.lastConnectionResult$);
+  const serverConnectionStatus = useConnectionStatus(serverClient);
   const [isRetryingConnection, setIsRetryingConnection] = useState(false);
   const hasSession$ = useObservable<boolean>(false);
   const { defaultModel } = useModels();
@@ -751,7 +753,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Top-of-view banner when the API server itself is unreachable (not in intentional demo mode).
   // This is distinct from the SSE-level reconnect banner above which fires after a successful
   // connection drops mid-session. This fires on load when the server was never reachable.
-  const showServerDisconnectedBanner = (serverNotFound || !isConnected) && !isDemoMode();
+  // Only once the server is genuinely unreachable — not during the initial probe or a
+  // client swap (token refresh), which used to flash this banner on every load.
+  const showServerDisconnectedBanner =
+    (serverNotFound || serverConnectionStatus === 'disconnected') && !isDemoMode();
 
   // Classify failure reason to give actionable guidance (mirrors WelcomeView logic).
   const disconnectedDesc = (() => {

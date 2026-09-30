@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useApi } from '@/contexts/ApiContext';
+import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { groupByDate, getRelativeTimeString } from '@/utils/time';
 import { demoConversations } from '@/democonversations';
 import {
@@ -107,6 +108,7 @@ export const ConversationList: FC<Props> = ({
 }) => {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
+  const connectionStatus = useConnectionStatus();
 
   const { toggleStar } = useConversationMetadata();
 
@@ -521,11 +523,26 @@ export const ConversationList: FC<Props> = ({
           )}
         </div>
       )}
-      {!isLoading && !isError && !isConnected && conversations.length === 0 && (
-        <div className="px-2 py-2 text-sm text-muted-foreground">
-          Not connected to API. Use the connect button to load conversations.
-        </div>
-      )}
+      {!isLoading &&
+        !isError &&
+        connectionStatus === 'connecting' &&
+        conversations.length === 0 && (
+          <div
+            className="flex items-center justify-center px-2 py-4 text-sm text-muted-foreground"
+            data-testid="conversation-list-connecting"
+          >
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Connecting…
+          </div>
+        )}
+      {!isLoading &&
+        !isError &&
+        connectionStatus === 'disconnected' &&
+        conversations.length === 0 && (
+          <div className="px-2 py-2 text-sm text-muted-foreground">
+            Not connected to API. Use the connect button to load conversations.
+          </div>
+        )}
       {!isLoading && !isError && isConnected && conversations.length === 0 && (
         <div className="px-2 py-2 text-sm text-muted-foreground">
           No conversations found. Start a new conversation to get started.

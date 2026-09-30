@@ -24,6 +24,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQuery';
 import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
 import { useApi } from '@/contexts/ApiContext';
+import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { serverRegistry$ } from '@/stores/servers';
 import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { shouldShowDemoContent } from '@/utils/connectionConfig';
@@ -66,6 +67,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
+  const connectionStatus = useConnectionStatus();
   const conversation$ = useObservable<ConversationSummary | undefined>(undefined);
   const selectedTaskId = use$(selectedTask$);
 
@@ -228,10 +230,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     []
   );
 
+  // Keep the last-known-good list while (re)connecting — e.g. gptme.ai swaps in a
+  // fresh client on every hourly token refresh — and only clear it once the
+  // server is genuinely unreachable, so the sidebar doesn't blank and refill.
   const apiItems: ConversationSummary[] = useMemo(() => {
-    if (!isConnected) return [];
+    if (connectionStatus === 'disconnected') return [];
     return apiConversations;
-  }, [isConnected, apiConversations]);
+  }, [connectionStatus, apiConversations]);
 
   // Reactive computation for store conversations using Legend State
   const storeConversations$ = useObservable(() => {

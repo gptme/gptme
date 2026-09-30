@@ -42,6 +42,12 @@ interface ApiContextType {
   isConnected$: Observable<boolean>;
   isAutoConnecting$: Observable<boolean>;
   isExchangingAuthCode: boolean;
+  /**
+   * True when the initial auto-connect is intentionally skipped for the active
+   * server (hosted page → default loopback server, remote-only mobile), so no
+   * probe is coming and a disconnected state is final rather than pending.
+   */
+  autoConnectSkipped: boolean;
   connectionConfig: ConnectionConfig;
   updateConfig: (config: Partial<ConnectionConfig>) => void;
   connect: (
@@ -528,6 +534,12 @@ export function ApiProvider({
   }, [
     autoConnect,
     connectionConfig.baseUrl,
+    // A credential change swaps in a fresh, not-yet-connected client (the pool
+    // keys clients on the auth header) — e.g. gptme.ai refreshing its session
+    // token hourly. Probe it right away instead of leaving it disconnected until
+    // something else happens to call connect().
+    connectionConfig.authToken,
+    connectionConfig.useAuthToken,
     isLoadingTauriStatus,
     isTauri,
     needsTauriServerUrlSync,
@@ -544,6 +556,8 @@ export function ApiProvider({
         isConnected$: api.isConnected$,
         isAutoConnecting$,
         isExchangingAuthCode,
+        autoConnectSkipped:
+          shouldSkipInitialMobileAutoConnect || shouldSkipHostedLoopbackAutoConnectOnFirstLoad,
         connectionConfig,
         updateConfig,
         connect,

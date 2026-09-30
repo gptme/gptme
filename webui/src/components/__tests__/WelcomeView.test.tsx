@@ -94,6 +94,27 @@ jest.mock('@/contexts/ApiContext', () => {
   };
 });
 
+// WelcomeView renders from the tri-state connection status. The grace period
+// for un-probed clients is covered in hooks/__tests__/useConnectionStatus; here
+// "not connected and nothing in flight" counts as disconnected so each test can
+// drive the banner directly from the observables above.
+jest.mock('@/hooks/useConnectionStatus', () => {
+  const actual = jest.requireActual('@/hooks/useConnectionStatus');
+  const { use$ } = jest.requireActual('@legendapp/state/react');
+  return {
+    ...actual,
+    useConnectionStatus: () => {
+      const ctx = jest.requireMock('@/contexts/ApiContext').useApi();
+      return actual.deriveConnectionStatus({
+        isConnected: use$(ctx.isConnected$),
+        isAttempting: use$(ctx.isAutoConnecting$),
+        lastResult: use$(ctx.api.lastConnectionResult$),
+        graceExpired: true,
+      });
+    },
+  };
+});
+
 jest.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
     invalidateQueries: mockInvalidateQueries,
