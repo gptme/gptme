@@ -162,6 +162,52 @@ def test_cli_anchors_stored_log_not_prepared_messages(monkeypatch):
     assert measure_context_tokens([*log.messages, result], "openai/gpt-4") >= 1000
 
 
+def test_cli_resolves_model_once_per_generation(monkeypatch):
+    """Reuse one get_model() lookup for reply and usage anchoring.
+
+    A second lookup after generation could retry a failing dynamic model
+    catalog (OpenRouter/gptme) and fail the step after a successful reply.
+    """
+    import importlib
+
+    chat = importlib.import_module("gptme.chat")
+    from gptme.llm.models import get_model as real_get_model
+    from gptme.logmanager import Log
+
+    stored = [Message("user", "Hello")]
+    response = Message("assistant", "Done", metadata={"usage": {"input_tokens": 1000}})
+    calls: list[bool] = []
+    generated = False
+
+    def tracking_get_model(model):
+        calls.append(generated)
+        return real_get_model(model)
+
+    def fake_reply(*args, **kwargs):
+        nonlocal generated
+        generated = True
+        return response
+
+    monkeypatch.setattr(chat, "get_model", tracking_get_model)
+    monkeypatch.setattr(chat, "reply", fake_reply)
+    result = chat._reply_with_overflow_recovery(
+        log=Log(stored),
+        msgs=stored,
+        model="openai/gpt-4",
+        stream=False,
+        tools=None,
+        workspace=None,
+        output_schema=None,
+        on_token=None,
+        on_thinking=None,
+        logdir=None,
+    )
+    assert generated
+    assert calls == [False]  # resolved once, before generation
+    assert result.metadata is not None
+    assert result.metadata["input_log_messages"] == len(stored)
+
+
 def test_input_digest_tracks_tool_pairs_and_files(tmp_path):
     message = Message(
         "system", "Result", call_id="call_1", files=[tmp_path / "one.txt"]

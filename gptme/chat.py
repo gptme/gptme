@@ -819,9 +819,13 @@ def _reply_with_overflow_recovery(
         )
         input_count = len(stored_input)
         input_digest = input_log_digest(stored_input)
+        # Resolve model metadata once: get_model() may hit a dynamic catalog
+        # (OpenRouter/gptme) whose failures aren't cached, so a second lookup
+        # after generation could fail the step after a successful reply.
+        model_meta = get_model(model)
         response = reply(
             messages,
-            get_model(model).full,
+            model_meta.full,
             stream,
             tools,
             workspace,
@@ -830,7 +834,7 @@ def _reply_with_overflow_recovery(
             on_thinking=on_thinking,
             max_tokens=max_tokens,
         )
-        anchor_context_usage(response, input_count, input_digest, get_model(model).full)
+        anchor_context_usage(response, input_count, input_digest, model_meta.full)
         return response
 
     try:
