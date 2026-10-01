@@ -173,6 +173,77 @@ def _logfile_snapshot(path: Path) -> tuple[int, int] | None:
     return (stat.st_size, stat.st_mtime_ns)
 
 
+SUMMARY_MAX_OUTPUT_TOKENS = 8192
+"""Cap on the summary the model may write; a resume is a digest, not a transcript."""
+
+SUMMARY_MAX_TOOL_OUTPUT_TOKENS = 2000
+"""Per-message cap on non-assistant (tool result) content sent to the summarizer."""
+
+_SUMMARY_PROMPT_OVERHEAD_TOKENS = 4000
+
+
+def _clip_middle(content: str, max_tokens: int, model: str) -> str:
+    """Keep the head and tail of ``content`` so it fits in ``max_tokens``."""
+    tokens = len_tokens(content, model)
+    if tokens <= max_tokens:
+        return content
+    keep = max(int(len(content) * max_tokens / tokens), 200)
+    head = keep * 2 // 3
+    tail = keep - head
+    omitted = max(len(content) - keep, 0)
+    return (
+        f"{content[:head]}\n[... {omitted} characters omitted ...]\n{content[-tail:]}"
+    )
+
+
+def _bound_summarize_input(
+    msgs: list[Message],
+    model: str,
+    context_window: int | None,
+    keep_head: int = 0,
+) -> list[Message]:
+    """Bound the summarizer request so summarizing an oversized log cannot itself overflow.
+
+    - The first ``keep_head`` messages (original system prompt) stay verbatim.
+    - Tool-result style (non-assistant) messages are clipped to
+      ``SUMMARY_MAX_TOOL_OUTPUT_TOKENS`` each, keeping head and tail.
+    - If the total still exceeds the window (minus the output cap and prompt
+      overhead), the oldest messages after the head are dropped, so the summary
+      covers the most recent work.
+    """
+    head = msgs[:keep_head]
+    body = [
+        m.replace(
+            content=_clip_middle(m.content, SUMMARY_MAX_TOOL_OUTPUT_TOKENS, model)
+        )
+        if m.role != "assistant"
+        and len_tokens(m.content, model) > SUMMARY_MAX_TOOL_OUTPUT_TOKENS
+        else m
+        for m in msgs[keep_head:]
+    ]
+    if not context_window:
+        return head + body
+
+    budget = (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+    used = len_tokens(head, model) + len_tokens(body, model)
+    dropped = 0
+    while used > budget and len(body) > 2:
+        used -= len_tokens(body.pop(0), model)
+        dropped += 1
+    if dropped:
+        logger.info("Summarizer input: dropped %d oldest messages to fit", dropped)
+        body.insert(
+            0,
+            Message(
+                "system",
+                f"[{dropped} older messages omitted to fit the summarization window]",
+            ),
+        )
+    return head + body
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
@@ -233,9 +304,6 @@ Format the response as a structured document that could serve as a RESUME.md fil
 
     # Create a temporary message for the LLM prompt
     resume_request = Message("user", resume_prompt)
-    # Use full prepared messages for prompt caching friendliness
-    llm_msgs = prepared_msgs + [resume_request]
-
     # Generate the resume using LLM
     m = get_default_model()
     if not m:
@@ -247,6 +315,15 @@ Format the response as a structured document that could serve as a RESUME.md fil
             ui_only=True,
         )
         return
+    n_head = 0
+    for msg in prepared_msgs:
+        if msg.role != "system":
+            break
+        n_head += 1
+    context_window = m.context if isinstance(m.context, int) else None
+    llm_msgs = _bound_summarize_input(
+        prepared_msgs, m.model, context_window, keep_head=n_head
+    ) + [resume_request]
     snapshot = None
     file_snapshot = None
     conv_snapshot = None
@@ -268,7 +345,13 @@ Format the response as a structured document that could serve as a RESUME.md fil
             # conversation.jsonl too so those appends are detected.
             conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
     with llm_unlocked or nullcontext():
-        resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+        resume_response = llm.reply(
+            llm_msgs,
+            model=m.full,
+            tools=[],
+            workspace=None,
+            max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
+        )
     if snapshot is not None:
         current = (
             manager.current_view,

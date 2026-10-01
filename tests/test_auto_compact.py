@@ -2996,3 +2996,34 @@ def test_hook_installs_view_above_min_savings(monkeypatch):
         list(hook_module.autocompact_hook(manager))
 
     assert manager.create_view.called, "a view with real savings should be installed"
+
+
+def test_bound_summarize_input_clips_tool_output_and_drops_oldest():
+    from gptme.tools.autocompact.resume import (
+        SUMMARY_MAX_TOOL_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    big = "line of tool output\n" * 20000
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "first task"),
+        Message("system", big),
+        Message("assistant", "ok"),
+        Message("user", "second task"),
+        Message("assistant", "done"),
+    ]
+    # Clipping only (no window): head verbatim, tool output clipped, count unchanged
+    out = _bound_summarize_input(msgs, model, None, keep_head=1)
+    assert len(out) == len(msgs)
+    assert out[0].content == "System prompt"
+    assert len_tokens(out[2].content, model) <= SUMMARY_MAX_TOOL_OUTPUT_TOKENS + 50
+    assert "characters omitted" in out[2].content
+
+    # Tight window: oldest post-head messages dropped, recent tail + head kept
+    out = _bound_summarize_input(msgs, model, 12500, keep_head=1)
+    assert out[0].content == "System prompt"
+    assert "older messages omitted" in out[1].content
+    assert out[-1].content == "done"
+    assert len(out) < len(msgs) + 1
