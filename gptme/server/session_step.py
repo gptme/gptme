@@ -852,7 +852,11 @@ def step(
     from ..llm.models import get_model, set_default_model
     from ..model_attestation import record_runtime_selection
 
-    set_default_model(model)
+    # Resolve model metadata once per step: get_model() may hit a dynamic
+    # model catalog (OpenRouter/gptme) whose failures aren't cached, so a
+    # second lookup after generation could stall step completion.
+    model_meta = get_model(model)
+    set_default_model(model_meta)
     record_runtime_selection(model, "api_request")
 
     # Trigger SESSION_START hook for new conversations
@@ -1037,7 +1041,7 @@ def step(
         # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity
         # compaction compares against; the raw request name can differ.
         msg = Message("assistant", output, metadata=metadata)
-        anchor_context_usage(msg, input_count, input_digest, get_model(model).full)
+        anchor_context_usage(msg, input_count, input_digest, model_meta.full)
 
         _append_and_notify(manager, session, msg)
 
