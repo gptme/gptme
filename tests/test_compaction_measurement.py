@@ -98,8 +98,11 @@ def test_ui_status_is_not_growth():
 
 
 def test_cli_anchors_stored_log_not_prepared_messages(monkeypatch):
-    import gptme.chat as chat
+    import importlib
+
     from gptme.logmanager import Log
+
+    chat = importlib.import_module("gptme.chat")
     from gptme.util.context_measurement import measure_context_tokens
 
     stored = [Message("user", "First"), Message("user", "Second")]
@@ -135,13 +138,15 @@ def test_input_digest_tracks_tool_pairs_and_files(tmp_path):
 
 
 def test_overflow_retry_anchors_compacted_view(tmp_path, monkeypatch):
+    import importlib
+
     import httpx
 
-    import gptme.chat as chat
     from gptme.llm import mark_llm_reply_origin
     from gptme.logmanager import LogManager
     from gptme.util.context_measurement import measure_context_tokens
 
+    chat = importlib.import_module("gptme.chat")
     manager = LogManager(
         [
             Message("system", "Prompt"),
