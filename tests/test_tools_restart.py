@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.hooks import HookType
 from gptme.message import Message
 from gptme.tools.restart import (
     _FLAGS_WITH_VALUES,
@@ -709,6 +710,18 @@ class TestWebSwitch:
         assert "http://127.0.0.1:5700/chat/c" in out
         assert "s3cret" not in out
 
+    def test_open_web_failure_prints_token_url(self, monkeypatch, capsys):
+        """A failed browser open must leave a copy-pasteable, token-bearing URL."""
+        monkeypatch.setattr("atexit._run_exitfuncs", lambda: None)
+        monkeypatch.setattr("webbrowser.open", lambda url: False)
+
+        url = "http://127.0.0.1:5700/chat/c#baseUrl=http%3A%2F%2F127.0.0.1%3A5700&userToken=s3cret"
+        open_web(url)
+
+        out = capsys.readouterr().out
+        assert "Couldn't open a browser" in out
+        assert url in out
+
 
 class TestCmdRestart:
     """The CLI /restart command with targets."""
@@ -749,11 +762,40 @@ class TestCmdRestart:
         with (
             patch("gptme.tools.restart.check_interface_available"),
             patch("gptme.util.prompt.prompt_alert", return_value="y"),
+            patch("gptme.hooks.trigger_hook", return_value=iter([])) as trigger,
             patch("gptme.tools.restart._do_restart") as do_restart,
         ):
             cmd_restart(ctx)
         ctx.manager.write.assert_called_with(sync=True)
         do_restart.assert_called_once_with("my-conv", target="tui", source="cli")
+        trigger.assert_called_once()
+        assert trigger.call_args.args[0] == HookType.SESSION_END
+
+    @pytest.mark.parametrize(
+        "args",
+        [pytest.param([], id="bare"), pytest.param(["cli"], id="cli"), ["tui"]],
+    )
+    def test_session_end_hooks_run_before_restart(self, tmp_path, args):
+        """The CLI restart re-execs, so SESSION_END must run first (as the TUI does)."""
+        from gptme.commands.session import cmd_restart
+
+        order = []
+
+        def hook(*_args, **_kwargs):
+            order.append("session_end")
+            return iter([])
+
+        def do_restart(*_args, **_kwargs):
+            order.append("restart")
+
+        with (
+            patch("gptme.tools.restart.check_interface_available"),
+            patch("gptme.util.prompt.prompt_alert", return_value="y"),
+            patch("gptme.hooks.trigger_hook", side_effect=hook),
+            patch("gptme.tools.restart._do_restart", side_effect=do_restart),
+        ):
+            cmd_restart(self._ctx(tmp_path, args))
+        assert order == ["session_end", "restart"]
 
     def test_tui_not_installed_does_not_prompt(self, tmp_path, capsys):
         from gptme.commands.session import cmd_restart
@@ -791,7 +833,7 @@ class TestCmdRestart:
                 return_value="http://s/chat/my-conv",
             ),
             patch("gptme.util.prompt.prompt_alert", return_value="y"),
-            patch("gptme.hooks.trigger_hook", return_value=iter([])),
+            patch("gptme.hooks.trigger_hook", return_value=iter([])) as trigger,
             patch("gptme.tools.restart.open_web") as mock_open_web,
             patch("gptme.tools.restart._do_restart") as do_restart,
             pytest.raises(SystemExit) as exc,
@@ -801,3 +843,6 @@ class TestCmdRestart:
         mock_open_web.assert_called_once_with("http://s/chat/my-conv")
         do_restart.assert_not_called()
         ctx.manager.write.assert_called_with(sync=True)
+        # session-end hooks run exactly once on the web handover
+        trigger.assert_called_once()
+        assert trigger.call_args.args[0] == HookType.SESSION_END

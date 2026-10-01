@@ -28,6 +28,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { useApi } from '@/contexts/ApiContext';
+import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { Badge } from '@/components/ui/badge';
 import { ModelPicker } from '@/components/ModelPicker';
 import { ProviderIcon } from '@/components/ProviderIcon';
@@ -856,6 +857,7 @@ export const ChatInput: FC<Props> = ({
   );
 
   const isConnected = use$(isConnected$);
+  const connectionStatus = useConnectionStatus();
 
   // Get available workspaces and agents using reusable hooks
   const { workspaces: availableWorkspaces, addCustomWorkspace } = useWorkspaces(false);
@@ -888,9 +890,11 @@ export const ChatInput: FC<Props> = ({
   const isBusy = isGenerating || !!conversation?.pendingTool;
   const placeholder = isReadOnly
     ? 'This is a demo conversation (read-only)'
-    : !isConnected
-      ? 'Connect to gptme to send messages'
-      : "What's on your mind...";
+    : connectionStatus === 'connecting'
+      ? 'Connecting…'
+      : !isConnected
+        ? 'Connect to gptme to send messages'
+        : "What's on your mind...";
 
   // Don't disable input while waiting for session - let users type
   // Session will be established by the time they finish typing

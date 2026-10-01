@@ -34,7 +34,10 @@ class MockEventSource {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
-  close = jest.fn();
+  readyState = 0;
+  close = jest.fn(() => {
+    this.readyState = 2;
+  });
 
   constructor(
     public url: string,
@@ -352,11 +355,207 @@ describe('ApiClient API compatibility', () => {
     expect(client.compatibilityWarning$.get()).toBeNull();
   });
 
+  it.each(['before', 'after'] as const)(
+    'explicit connect joins a successful newer probe when its response arrives %s the winner',
+    async (order) => {
+      let resolveExplicit!: (response: Response) => void;
+      let resolveAuto!: (response: Response) => void;
+      const explicitResponse = new Promise<Response>((resolve) => {
+        resolveExplicit = resolve;
+      });
+      const autoResponse = new Promise<Response>((resolve) => {
+        resolveAuto = resolve;
+      });
+      const success = {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+        }),
+      } as Response;
+      global.fetch = jest
+        .fn()
+        .mockReturnValueOnce(explicitResponse)
+        .mockReturnValueOnce(autoResponse)
+        .mockResolvedValue(success);
+      const client = new ApiClient('https://instance.example.com');
+
+      // ApiContext.connect() treats false as failure and disconnects the client.
+      const explicitConnect = client.checkConnection().then((connected) => {
+        if (!connected) client.setConnected(false);
+        return connected;
+      });
+      const autoConnect = client.checkConnection();
+      if (order === 'before') resolveExplicit(success);
+      resolveAuto(success);
+      await expect(autoConnect).resolves.toBe(true);
+      if (order === 'after') resolveExplicit(success);
+
+      await expect(explicitConnect).resolves.toBe(true);
+      expect(client.isConnected$.get()).toBe(true);
+      expect(client.lastConnectionResult$.get()).toEqual({
+        ok: true,
+        url: 'https://instance.example.com/api/v2',
+      });
+    }
+  );
+
+  it.each(
+    (['root', 'json', 'parse-error', 'auth', 'network-error'] as const).flatMap((stage) =>
+      [true, false].map((connected) => ({ stage, connected }))
+    )
+  )(
+    'defers a superseded $stage result to the newest probe (connected=$connected)',
+    async ({ stage, connected }) => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // Resolves once the older probe has actually reached the gated stage, so
+      // the newer probe starts only while the older one is genuinely suspended.
+      // Without this the first mockImplementationOnce could be consumed by the
+      // newer probe and the older one would resolve immediately — passing
+      // without ever exercising the superseded branch.
+      let reachedGate!: () => void;
+      const olderReachedGate = new Promise<void>((resolve) => {
+        reachedGate = resolve;
+      });
+      const root = {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+        }),
+      } as Response;
+      const client = new ApiClient('https://instance.example.com');
+      const fetch = jest.fn().mockImplementationOnce(async () => {
+        if (stage === 'root' || stage === 'network-error') {
+          reachedGate();
+          await gate;
+          if (stage === 'network-error') throw new TypeError('Failed to fetch');
+        }
+        return {
+          ...root,
+          json: async () => {
+            if (stage === 'json' || stage === 'parse-error') {
+              reachedGate();
+              await gate;
+            }
+            if (stage === 'parse-error') throw new SyntaxError('invalid JSON');
+            return root.json();
+          },
+        } as Response;
+      });
+      if (stage === 'auth') {
+        fetch.mockImplementationOnce(async () => {
+          reachedGate();
+          await gate;
+          return root;
+        });
+      }
+      fetch
+        .mockResolvedValueOnce(root)
+        .mockResolvedValueOnce(connected ? root : { ok: false, status: 401 });
+      global.fetch = fetch;
+
+      const older = client.checkConnection();
+      await olderReachedGate;
+      // The older probe is suspended at the intended stage before the newer
+      // probe starts, so the mock implementations are consumed in order.
+      const newer = client.checkConnection();
+      await expect(newer).resolves.toBe(connected);
+      const winningResult = client.lastConnectionResult$.get();
+      release();
+      await expect(older).resolves.toBe(connected);
+      expect(client.isConnected$.get()).toBe(connected);
+      expect(winningResult).toMatchObject(connected ? { ok: true } : { ok: false, status: 401 });
+      expect(client.lastConnectionResult$.get()).toEqual(winningResult);
+    }
+  );
+
+  it('follows a chain of overlapping probes to the final winner', async () => {
+    const resolvers: Array<(response: Response) => void> = [];
+    const pending = Array.from(
+      { length: 3 },
+      () => new Promise<Response>((resolve) => resolvers.push(resolve))
+    );
+    const success = {
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    } as Response;
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(pending[0])
+      .mockReturnValueOnce(pending[1])
+      .mockReturnValueOnce(pending[2])
+      .mockResolvedValue(success);
+    const client = new ApiClient('https://instance.example.com');
+    const first = client.checkConnection();
+    const second = client.checkConnection();
+    resolvers[0](success);
+    // Let the first probe adopt the still-pending second probe.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const third = client.checkConnection();
+    resolvers[1](success);
+    resolvers[2](success);
+
+    await expect(Promise.all([first, second, third])).resolves.toEqual([true, true, true]);
+    expect(client.isConnected$.get()).toBe(true);
+  });
+
+  it('adopts the probe that superseded it, not a later unrelated probe', async () => {
+    const deferred = () => {
+      let resolve!: (response: Response) => void;
+      const promise = new Promise<Response>((res) => {
+        resolve = res;
+      });
+      return { promise, resolve };
+    };
+    const rootA = deferred();
+    const rootB = deferred();
+    const authB = deferred();
+    const rootC = deferred();
+    const success = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        api_version: CLIENT_API_VERSION,
+        contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+      }),
+    } as Response;
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(rootA.promise)
+      .mockReturnValueOnce(rootB.promise)
+      .mockReturnValueOnce(authB.promise)
+      .mockReturnValueOnce(rootC.promise);
+    const client = new ApiClient('https://instance.example.com');
+
+    const probeA = client.checkConnection();
+    const probeB = client.checkConnection();
+    // B wins and finishes before C starts.
+    rootB.resolve(success);
+    authB.resolve(success);
+    await expect(probeB).resolves.toBe(true);
+
+    // A later, unrelated probe C starts and fails.
+    const probeC = client.checkConnection();
+    rootC.resolve({ ok: false, status: 401 } as Response);
+    await expect(probeC).resolves.toBe(false);
+
+    // A was superseded by B, so it adopts B's success — not C's later failure.
+    rootA.resolve(success);
+    await expect(probeA).resolves.toBe(true);
+  });
+
   it('discards stale probe results when a newer probe finishes first', async () => {
     // Simulate: probe A (older, incompatible) starts first; probe B (newer, compatible) starts
     // second and would finish next. Without a generation guard, probe A's catch-path
     // `compatibilityWarning$.set(null)` or success-path write would overwrite probe B's warning.
-    // With the guard: probe A sees _probeNonce !== nonceA and silently returns false.
+    // With the guard: probe A adopts probe B's result without publishing stale state.
     let resolveOldProbe!: (r: Response) => void;
     let resolveNewProbe!: (r: Response) => void;
 
@@ -791,6 +990,207 @@ describe('ApiClient event stream reconnection', () => {
     expect(callbacks.onError).not.toHaveBeenCalled();
   });
 
+  // gptme-cloud#1063 follow-up: a tab left open through an outage exhausted its
+  // reconnect budget, never got a session id, and every later send failed with
+  // "Session ID not found for conversation" until a manual reload.
+  const exhaustReconnectBudget = async (instance: () => MockEventSource) => {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      instance().emitError();
+      jest.advanceTimersByTime(Math.pow(2, attempt - 1) * 1000);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    instance().emitError(); // sixth failure: fast budget exhausted
+  };
+
+  it('keeps retrying slowly after the reconnect budget is exhausted', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+
+    expect(callbacks.onConnectionState).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'disconnected' })
+    );
+    const before = MockEventSource.instances.length;
+    jest.advanceTimersByTime(30_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(MockEventSource.instances.length).toBe(before + 1);
+
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'fresh' });
+    expect(client.sessions$.get('conv-1').get()).toBe('fresh');
+  });
+
+  // The pool swaps in a fresh client whenever the auth header changes (gptme.ai
+  // rotates its session token hourly), so a dropped client must release its
+  // wake listeners and reconnect timers instead of leaving them attached for
+  // the life of the page.
+  it('dispose() detaches wake listeners and clears retry timers', async () => {
+    const addSpy = jest.spyOn(window, 'addEventListener');
+    const removeSpy = jest.spyOn(window, 'removeEventListener');
+    const docAddSpy = jest.spyOn(document, 'addEventListener');
+    const docRemoveSpy = jest.spyOn(document, 'removeEventListener');
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+
+    expect(addSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['online', 'focus'])
+    );
+    expect(docAddSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['visibilitychange'])
+    );
+
+    const before = MockEventSource.instances.length;
+    client.dispose();
+
+    expect(removeSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['online', 'focus'])
+    );
+    expect(docRemoveSpy.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['visibilitychange'])
+    );
+
+    // Neither the slow retry timer nor a focus/online event may re-open a stream.
+    jest.advanceTimersByTime(300_000);
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(MockEventSource.instances.length).toBe(before);
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+    docAddSpy.mockRestore();
+    docRemoveSpy.mockRestore();
+  });
+
+  it('step() re-opens a dead stream and sends instead of failing on a missing session', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', message: 'Step started', session_id: 'fresh' }),
+    }) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+    const before = MockEventSource.instances.length;
+
+    const step = client.step('conv-1');
+    await Promise.resolve();
+    await Promise.resolve();
+    // The send re-opened the stream immediately (no waiting for the slow retry).
+    expect(MockEventSource.instances.length).toBe(before + 1);
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'fresh' });
+    jest.advanceTimersByTime(200);
+    await step;
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls.at(-1)!;
+    expect(url).toContain('/api/v2/conversations/conv-1/step');
+    expect(JSON.parse(init.body).session_id).toBe('fresh');
+  });
+
+  it('step() renews a session the server no longer knows and retries once', async () => {
+    const sessionGone = {
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ error: 'Session not found: old' }),
+      text: async () => JSON.stringify({ error: 'Session not found: old' }),
+      headers: new Headers({ 'content-type': 'application/json' }),
+    };
+    const ok = {
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', message: 'Step started', session_id: 'new' }),
+    };
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(sessionGone)
+      .mockResolvedValueOnce(ok) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 'old' });
+
+    const step = client.step('conv-1');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'new' });
+    jest.advanceTimersByTime(200);
+    await step;
+
+    const bodies = (global.fetch as jest.Mock).mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(bodies.map((b) => b.session_id)).toEqual(['old', 'new']);
+  });
+
+  it('step() returns silently when superseded by a newer step', async () => {
+    // The first step's request is in flight when a newer step aborts it. The
+    // first step must return silently, not leak its AbortError to the caller
+    // (the outer catch used to check this.controller — the newer step's live
+    // controller — instead of the first step's own captured controller).
+    let rejectFirst: (e: unknown) => void = () => {};
+    const firstPending = new Promise((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(firstPending)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ok', message: 'Step started', session_id: 's2' }),
+      }) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    await client.subscribeToEvents('conv-1', createSseCallbacks());
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 's1' });
+
+    const first = client.step('conv-1');
+    // Let the first step reach its in-flight fetch before the newer step aborts it.
+    await Promise.resolve();
+    await Promise.resolve();
+    const second = client.step('conv-1'); // aborts the first step's in-flight request
+    await second;
+    rejectFirst(new DOMException('The operation was aborted.', 'AbortError'));
+
+    await expect(first).resolves.toBeUndefined();
+  });
+
+  it('confirmTool() renews a session the server no longer knows and retries once', async () => {
+    const sessionGone = {
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ error: 'Session not found: old' }),
+      text: async () => JSON.stringify({ error: 'Session not found: old' }),
+      headers: new Headers({ 'content-type': 'application/json' }),
+    };
+    const ok = { ok: true, status: 200, json: async () => ({ status: 'ok' }) };
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(sessionGone)
+      .mockResolvedValueOnce(ok) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    await client.subscribeToEvents('conv-1', createSseCallbacks());
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 'old' });
+
+    const confirm = client.confirmTool('conv-1', 'tool-1', 'confirm');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'new' });
+    jest.advanceTimersByTime(200);
+    await confirm;
+
+    const sessions = (global.fetch as jest.Mock).mock.calls.map(
+      ([, init]) => JSON.parse(init.body).session_id
+    );
+    expect(sessions).toEqual(['old', 'new']);
+  });
+
   it('cancels pending reconnect timers when the stream is closed manually', async () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     const callbacks = createSseCallbacks();
@@ -836,6 +1236,164 @@ describe('ApiClient event stream reconnection', () => {
         content: "⏳ Subagent 'worker-1' progress: halfway",
       })
     );
+  });
+
+  it('keeps sseToken on reconnect after initial failure when no cookie fallback exists', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) → authCookieSet stays false.
+    // Bypassing the sseToken here would leave the retry with no credentials at all, so a
+    // transient network failure (onerror carries no status code) must not strip the token.
+    const client = new ApiClient('http://127.0.0.1:5700', null, 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken in the URL query param
+    expect(first.url).toContain('token=my-sse-token');
+    // withCredentials is always true
+    expect(first.init).toMatchObject({ withCredentials: true });
+
+    // Fail before connecting (wasConnected=false, reconnectCount=0)
+    first.emitError();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // No cookie fallback exists, so the retry keeps the sseToken
+    expect(second.url).toContain('token=my-sse-token');
+    expect(second.init).toMatchObject({ withCredentials: true });
+  });
+
+  it('keeps sseToken and never exposes the JWT on reconnect when both are set and initial attempt fails', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) so authCookieSet stays false.
+    const client = new ApiClient('http://127.0.0.1:5700', 'Bearer jwt-token', 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken (preferred over JWT)
+    expect(first.url).toContain('token=my-sse-token');
+    expect(first.url).not.toContain('jwt-token');
+
+    // Fail before connecting (wasConnected=false, reconnectCount=0)
+    first.emitError();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // The retry keeps the sseToken (credential isolation: the JWT is still never in the URL)
+    expect(second.url).toContain('token=my-sse-token');
+    expect(second.url).not.toContain('jwt-token');
+    expect(second.init).toMatchObject({ withCredentials: true });
+  });
+
+  it('bypasses sseToken on reconnect after initial failure when cookie auth is available', async () => {
+    // Same-origin (jsdom origin) + authHeader → the cookie endpoint succeeds, so the retry
+    // can safely fall back to cookie auth instead of re-sending a possibly-bad sseToken.
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 } as Response);
+    try {
+      const client = new ApiClient(window.location.origin, 'Bearer jwt-token', 'my-sse-token');
+      const callbacks = createSseCallbacks();
+
+      await client.subscribeToEvents('conv-1', callbacks);
+
+      const first = MockEventSource.instances[0];
+      expect(first.url).toContain('token=my-sse-token');
+
+      // Fail before connecting (wasConnected=false, reconnectCount=0) with cookie available
+      first.emitError();
+      jest.advanceTimersByTime(1000);
+      await Promise.resolve();
+
+      expect(MockEventSource.instances).toHaveLength(2);
+      const second = MockEventSource.instances[1];
+      // Cookie auth is available, so the sseToken is bypassed (and the JWT is never in the URL)
+      expect(second.url).not.toContain('token=');
+      expect(second.init).toMatchObject({ withCredentials: true });
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('re-uses sseToken when skipSseToken is set but no cookie is available at retry time', async () => {
+    // Unit check of the effective-skip guard: skipSseToken=true must NOT strip the sseToken
+    // when authCookieSet is false (no cookie auth to fall back to). This is the branch that
+    // matters after resetAuthCookie clears an expired cookie on reconnect while skipSseToken
+    // is still carried forward — honoring the skip then would leave the retry with no
+    // credentials (no cookie, and the JWT fallback is suppressed by the same flag).
+    // Cross-origin in jsdom → authCookieSet is false.
+    const client = new ApiClient('http://127.0.0.1:5700', 'Bearer jwt-token', 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks, 1, true);
+
+    const first = MockEventSource.instances[0];
+    expect(first.url).toContain('token=my-sse-token');
+    expect(first.url).not.toContain('jwt-token');
+    expect(first.init).toMatchObject({ withCredentials: true });
+  });
+
+  it('preserves sseToken on session-ID timeout for cross-origin server', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) → authCookieSet stays false.
+    // Without the authCookieSet guard, a 5s session-ID timeout would set skipSseOnTimeout=true,
+    // leaving the retry with no credentials (no cookie, no sseToken, no JWT).
+    const client = new ApiClient('http://127.0.0.1:5700', null, 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken
+    expect(first.url).toContain('token=my-sse-token');
+
+    // Open the EventSource but never emit the session_id — simulates a slow initial handshake
+    first.emitOpen();
+    // Advance past the 5-second session-ID timeout
+    jest.advanceTimersByTime(6000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // For cross-origin servers, sseToken must be preserved on the retry (authCookieSet=false,
+    // no cookie fallback available — dropping sseToken leaves the stream unauthenticated)
+    expect(second.url).toContain('token=my-sse-token');
+  });
+
+  it('preserves sseToken on session-ID timeout for a same-origin server (timeout is not an auth failure)', async () => {
+    // Same-origin (jsdom origin) with an authHeader → the cookie endpoint succeeds and
+    // authCookieSet=true. A session-ID timeout must still keep the valid instance-scoped
+    // sseToken on the retry: the timeout means the stream connected but no session_id
+    // arrived (or is still connecting), NOT that the token was rejected. Downgrading to
+    // cookie auth here is a credential swap with no evidence of failure.
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 } as Response);
+    try {
+      const client = new ApiClient(window.location.origin, 'Bearer jwt-token', 'my-sse-token');
+      const callbacks = createSseCallbacks();
+
+      await client.subscribeToEvents('conv-1', callbacks);
+
+      const first = MockEventSource.instances[0];
+      expect(first.url).toContain('token=my-sse-token');
+      expect(first.url).not.toContain('jwt-token');
+
+      // Open but never emit the session_id — a slow handshake, not an auth failure.
+      first.emitOpen();
+      jest.advanceTimersByTime(6000);
+      await Promise.resolve();
+
+      expect(MockEventSource.instances).toHaveLength(2);
+      const second = MockEventSource.instances[1];
+      // The sseToken must still be used on the retry, even though cookie auth is available.
+      expect(second.url).toContain('token=my-sse-token');
+      expect(second.url).not.toContain('jwt-token');
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });
 

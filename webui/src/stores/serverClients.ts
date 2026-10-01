@@ -32,7 +32,7 @@ function getDemoClient(): IApiClient {
  */
 export function getClientForServerConfig(
   serverId: string,
-  config: Pick<ServerConfig, 'baseUrl' | 'authToken' | 'useAuthToken'>
+  config: Pick<ServerConfig, 'baseUrl' | 'authToken' | 'useAuthToken' | 'sseToken'>
 ): IApiClient {
   if (_isDemoMode) {
     return getDemoClient();
@@ -40,11 +40,21 @@ export function getClientForServerConfig(
 
   const authHeader = config.useAuthToken && config.authToken ? `Bearer ${config.authToken}` : null;
   const existing = clientPool.get(serverId);
-  if (existing && existing.baseUrl === config.baseUrl && existing.authHeader === authHeader) {
+  if (
+    existing &&
+    existing.baseUrl === config.baseUrl &&
+    existing.authHeader === authHeader &&
+    (existing.sseToken ?? null) === (config.sseToken ?? null)
+  ) {
     return existing;
   }
 
-  const client = createApiClient(config.baseUrl, authHeader);
+  // A config change (baseUrl or auth header) replaces the client. Release the
+  // one being replaced so its DOM listeners, reconnect timers and SSE streams
+  // don't outlive it — the auth header changes on every hourly token refresh.
+  existing?.dispose();
+
+  const client = createApiClient(config.baseUrl, authHeader, config.sseToken ?? null);
   clientPool.set(serverId, client);
   return client;
 }
@@ -84,8 +94,9 @@ export function getPrimaryClient(): IApiClient {
 export function cleanupDisconnectedClients(): void {
   const registry = serverRegistry$.get();
   const connectedIds = new Set(registry.connectedServerIds);
-  for (const [id] of clientPool) {
+  for (const [id, client] of clientPool) {
     if (!connectedIds.has(id)) {
+      client.dispose();
       clientPool.delete(id);
     }
   }

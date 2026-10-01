@@ -293,6 +293,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
   const client: IApiClient = {
     baseUrl,
     authHeader: null,
+    sseToken: null,
     isConnected$,
     lastConnectionResult$,
     compatibilityWarning$,
@@ -305,6 +306,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       isConnected$.set(connected);
     },
     cancelPendingRequests: async () => {},
+    dispose: () => {},
 
     // Streaming — replay a deterministic in-memory fixture instead of opening SSE.
     subscribeToEvents: async (conversationId, callbacks) => {

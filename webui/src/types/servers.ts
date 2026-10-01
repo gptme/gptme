@@ -4,6 +4,8 @@ export interface ServerConfig {
   baseUrl: string;
   authToken: string | null;
   useAuthToken: boolean;
+  /** Short-lived instance-scoped SSE token (gptme-cloud#1076). Used for EventSource ?token= instead of the Supabase JWT. */
+  sseToken?: string | null;
   createdAt: number;
   lastUsedAt: number;
   isPreset?: boolean; // pre-configured servers can't be deleted
