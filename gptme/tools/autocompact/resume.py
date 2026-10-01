@@ -328,16 +328,27 @@ def _bound_summarize_input(
         # The system prompt alone exceeds the summarizer window. Clip it to
         # half the budget in place — keeping it verbatim would send a request
         # that cannot be summarized at all — and leave the other half for the
-        # newest conversation messages. Returning the clipped head alone would
-        # let the summarizer produce a resume from system instructions with no
-        # task or progress in it, and that resume then replaces the working
-        # conversation history. ``budget`` already excludes the output cap,
-        # provider framing, and the caller's summarizer prompt, so the clipped
-        # head plus that prompt still fits the window.
+        # newest conversation messages. ``budget`` already excludes the output
+        # cap, provider framing, and the caller's summarizer prompt, so the
+        # clipped head plus that prompt still fits the window.
         head = _clip_messages_to_budget(head, max(budget // 2, 1), model)
         head_tokens = len_tokens(head, model)
 
     body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+    if body_budget <= 0 and body:
+        # The head fits the window but leaves no room for the conversation: it
+        # is within ``_OMISSION_MARKER_RESERVE_TOKENS`` of the whole budget.
+        # Returning the head alone would make the summarizer build a resume from
+        # system instructions with no task or progress, and that resume then
+        # replaces the working conversation history. Clip the head back to
+        # reserve a minimal slice for the newest conversation messages.
+        head = _clip_messages_to_budget(
+            head,
+            max(budget - _OMISSION_MARKER_RESERVE_TOKENS - SUMMARY_MIN_CLIP_TOKENS, 1),
+            model,
+        )
+        head_tokens = len_tokens(head, model)
+        body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
     if body_budget <= 0:
         return head
 

@@ -3120,6 +3120,52 @@ def test_bound_summarize_input_head_over_budget_keeps_conversation():
     )
 
 
+def test_bound_summarize_input_head_under_budget_keeps_conversation():
+    """A system prompt just under the window must not starve the conversation.
+
+    The head fits ``budget`` but leaves less than the omission-marker reserve for
+    the body, so ``body_budget = budget - head_tokens - reserve`` goes
+    non-positive and the function used to return the head alone, dropping every
+    user/assistant message. The newest conversation message must survive.
+    """
+    from gptme.tools.autocompact.resume import (
+        _OMISSION_MARKER_RESERVE_TOKENS,
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    context_window = 30000
+    budget = (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+    unit = "system instruction line with several words here\n"
+    per = len_tokens(unit, model)
+    head_text = unit * max((budget - _OMISSION_MARKER_RESERVE_TOKENS) // per, 1)
+    # Land the head in (budget - reserve, budget]: it fits the window itself but
+    # leaves no usable room for the body.
+    while len_tokens(head_text, model) <= budget - _OMISSION_MARKER_RESERVE_TOKENS:
+        head_text += unit
+    head_tokens = len_tokens(head_text, model)
+    assert budget - _OMISSION_MARKER_RESERVE_TOKENS < head_tokens <= budget
+
+    msgs = [
+        Message("system", head_text),
+        Message("user", "the actual task"),
+        Message("assistant", "working on it"),
+        Message("user", "newest progress"),
+    ]
+    out = _bound_summarize_input(msgs, model, context_window, keep_head=1)
+
+    assert any(m.content == "newest progress" for m in out), (
+        "newest conversation message must survive a near-budget system prompt"
+    )
+    assert len_tokens(out, model) <= (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+
+
 def test_bound_summarize_input_head_over_budget_multiple_head_messages():
     """Multiple oversized head messages must not overrun the head's share.
 
