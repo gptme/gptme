@@ -1936,3 +1936,68 @@ def test_auto_naming_thread_registry_cleans_up_and_deduplicates(tmp_path, monkey
     first.join(timeout=2)
     assert not first.is_alive()
     assert tmp_path not in chat_module._naming_threads
+
+
+# ── resume-only message injection ───────────────────────────────────────
+
+
+def test_append_resume_msgs_adds_when_absent(tmp_path):
+    """A resume message reaches the log when the log does not already carry it."""
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "startup prompt"), Message("user", "hello")],
+        logdir=tmp_path / "conversation",
+    )
+    profile_msg = Message(
+        "system",
+        "# Agent Profile: explorer\n\nRead-only.",
+        hide=True,
+        pinned=True,
+    )
+
+    chat_module._append_resume_msgs(manager, [profile_msg])
+
+    assert manager.log.messages[-1].content.startswith("# Agent Profile: explorer")
+    assert manager.log.messages[-1].pinned
+
+
+def test_append_resume_msgs_skips_when_already_present(tmp_path):
+    """A profile embedded in the persisted startup prompt must not be re-appended."""
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message(
+                "system",
+                "startup prompt\n\n# Agent Profile: explorer\n\nRead-only.",
+                hide=True,
+                pinned=True,
+            ),
+            Message("user", "hello"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    before = len(manager.log.messages)
+
+    chat_module._append_resume_msgs(
+        manager,
+        [
+            Message(
+                "system",
+                "# Agent Profile: explorer\n\nRead-only.",
+                hide=True,
+                pinned=True,
+            )
+        ],
+    )
+
+    assert len(manager.log.messages) == before

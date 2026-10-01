@@ -146,6 +146,29 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
         logger.warning("track-tokens failed: %s", e)
 
 
+def _append_resume_msgs(manager: LogManager, resume_msgs: list[Message]) -> None:
+    """Append messages that must take effect when resuming an existing log.
+
+    ``initial_msgs`` only seeds a *new* log — ``LogManager.load`` keeps the
+    persisted history when one exists — so a message meant to be re-applied on
+    resume (e.g. an agent profile whose persisted prompt is stale) would be
+    discarded.  Append it instead.  The first content line is used as an
+    idempotency marker: a message whose marker already appears in the log is
+    skipped, so repeated resumes do not stack duplicates.
+    """
+    for msg in resume_msgs:
+        marker = (
+            msg.content.split("\n", 1)[0].strip()
+            if isinstance(msg.content, str)
+            else ""
+        )
+        if marker and any(
+            isinstance(m.content, str) and marker in m.content for m in manager.log
+        ):
+            continue
+        manager.append(msg)
+
+
 @trace_function(name="chat.main", attributes={"component": "chat"})
 def chat(
     prompt_msgs: list[Message],
@@ -161,6 +184,7 @@ def chat(
     tool_format: ToolFormat | None = None,
     output_schema: type | None = None,
     output_format: str = "text",
+    resume_msgs: list[Message] | None = None,
 ) -> None:
     """
     Run the chat loop.
@@ -168,6 +192,9 @@ def chat(
     prompt_msgs: list of messages to execute in sequence.
     initial_msgs: list of history messages.
     workspace: path to workspace directory.
+    resume_msgs: messages to (re-)apply after loading an existing conversation,
+        e.g. a runtime-config-derived prompt that would otherwise be discarded
+        because ``initial_msgs`` only seeds a new log.
 
     Callable from other modules.
     """
@@ -242,6 +269,12 @@ def chat(
         if not is_output_json() and not is_output_quiet():
             console.log(f"Using logdir: {path_with_tilde(logdir)}")
         manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+
+        # ``initial_msgs`` is ignored when the log already has history, so
+        # resume-only injections (e.g. a re-applied agent profile) must be
+        # appended after load to actually reach the model.
+        if resume_msgs:
+            _append_resume_msgs(manager, resume_msgs)
 
         from .lessons.skill_events import skill_session
 
