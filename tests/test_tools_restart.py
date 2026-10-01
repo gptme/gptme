@@ -710,6 +710,18 @@ class TestWebSwitch:
         assert "http://127.0.0.1:5700/chat/c" in out
         assert "s3cret" not in out
 
+    def test_open_web_failure_prints_token_url(self, monkeypatch, capsys):
+        """A failed browser open must leave a copy-pasteable, token-bearing URL."""
+        monkeypatch.setattr("atexit._run_exitfuncs", lambda: None)
+        monkeypatch.setattr("webbrowser.open", lambda url: False)
+
+        url = "http://127.0.0.1:5700/chat/c#baseUrl=http%3A%2F%2F127.0.0.1%3A5700&userToken=s3cret"
+        open_web(url)
+
+        out = capsys.readouterr().out
+        assert "Couldn't open a browser" in out
+        assert url in out
+
 
 class TestCmdRestart:
     """The CLI /restart command with targets."""
