@@ -2,7 +2,7 @@ name: Eval Quality Gate
 
 on:
   pull_request:
-    branches: [ master ]
+    branches: [ master, 'feat/*' ]
     types: [opened, synchronize, reopened]
     paths:
       - 'gptme/tools/**'

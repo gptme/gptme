@@ -6,7 +6,7 @@ name: Site (next)
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, 'feat/*' ]
     paths:
       - 'site/next/**'
       - 'README.md'
@@ -14,7 +14,7 @@ on:
       - 'media/icon.svg'
       - '.github/workflows/site-next.yml'
   pull_request:
-    branches: [ master ]
+    branches: [ master, 'feat/*' ]
     paths:
       - 'site/next/**'
       - 'README.md'
