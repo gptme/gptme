@@ -1458,7 +1458,8 @@ def main(
         # version), so the profile must still take effect for existing conversations.
         # An explicit --agent-profile wins; otherwise fall back to the profile
         # persisted with the conversation, so a resume or interface switch keeps
-        # the same identity without passing the flag again.
+        # the same identity without passing the flag again. ``resume_key`` makes
+        # the application idempotent across resumes without content sniffing.
         if selected_profile is None:
             selected_profile = _resolve_resume_profile(config.chat.agent_profile)
             if selected_profile:
@@ -1470,6 +1471,7 @@ def main(
                     f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
                     hide=True,
                     pinned=True,
+                    metadata={"resume_key": "agent_profile"},
                 )
             ]
     else:

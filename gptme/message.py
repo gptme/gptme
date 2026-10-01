@@ -229,6 +229,10 @@ class MessageMetadata(TypedDict, total=False):
     skill_invocation_id: str  # Explicit skill invocation that queued this prompt
     # Set when the degeneration guard aborted mid-stream and retried on another provider.
     degeneration: DegenerationData
+    # Stable key for resume-only prompt messages (e.g. a re-applied agent
+    # profile) so repeated resumes replace the same message instead of
+    # stacking duplicates or matching by content substring.
+    resume_key: str
 
 
 _TOKEN_KEYS = (

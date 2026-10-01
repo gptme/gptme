@@ -1941,8 +1941,20 @@ def test_auto_naming_thread_registry_cleans_up_and_deduplicates(tmp_path, monkey
 # ── resume-only message injection ───────────────────────────────────────
 
 
-def test_append_resume_msgs_adds_when_absent(tmp_path):
-    """A resume message reaches the log when the log does not already carry it."""
+def _profile_resume_msg(content: str = "# Agent Profile: explorer\n\nRead-only."):
+    from gptme.message import Message
+
+    return Message(
+        "system",
+        content,
+        hide=True,
+        pinned=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+
+
+def test_apply_resume_msgs_inserts_before_history(tmp_path):
+    """A resume message belongs in the leading system block, not after history."""
     import importlib
 
     from gptme.logmanager import LogManager
@@ -1953,21 +1965,17 @@ def test_append_resume_msgs_adds_when_absent(tmp_path):
         [Message("system", "startup prompt"), Message("user", "hello")],
         logdir=tmp_path / "conversation",
     )
-    profile_msg = Message(
-        "system",
-        "# Agent Profile: explorer\n\nRead-only.",
-        hide=True,
-        pinned=True,
-    )
 
-    chat_module._append_resume_msgs(manager, [profile_msg])
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
 
-    assert manager.log.messages[-1].content.startswith("# Agent Profile: explorer")
-    assert manager.log.messages[-1].pinned
+    msgs = manager.log.messages
+    assert msgs[1].content.startswith("# Agent Profile: explorer")
+    assert msgs[1].pinned
+    assert msgs[-1].content == "hello"
 
 
-def test_append_resume_msgs_skips_when_already_present(tmp_path):
-    """A profile embedded in the persisted startup prompt must not be re-appended."""
+def test_apply_resume_msgs_skips_when_already_present(tmp_path):
+    """A profile embedded in the persisted startup prompt must not be re-applied."""
     import importlib
 
     from gptme.logmanager import LogManager
@@ -1988,16 +1996,58 @@ def test_append_resume_msgs_skips_when_already_present(tmp_path):
     )
     before = len(manager.log.messages)
 
-    chat_module._append_resume_msgs(
-        manager,
-        [
-            Message(
-                "system",
-                "# Agent Profile: explorer\n\nRead-only.",
-                hide=True,
-                pinned=True,
-            )
-        ],
-    )
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
 
     assert len(manager.log.messages) == before
+
+
+def test_apply_resume_msgs_user_text_does_not_suppress(tmp_path):
+    """A user message quoting the profile header must not suppress the profile."""
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "earlier I saw '# Agent Profile: explorer'"),
+            Message("assistant", "noted"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
+
+    assert manager.log.messages[1].content.startswith("# Agent Profile: explorer")
+
+
+def test_apply_resume_msgs_replaces_changed_content(tmp_path):
+    """An edited profile replaces the previously applied copy instead of stacking."""
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "startup prompt"),
+            _profile_resume_msg("# Agent Profile: explorer\n\nOld instructions."),
+            Message("user", "hello"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+
+    chat_module._apply_resume_msgs(
+        manager, [_profile_resume_msg("# Agent Profile: explorer\n\nNew instructions.")]
+    )
+
+    profiles = [
+        m
+        for m in manager.log.messages
+        if m.content.startswith("# Agent Profile: explorer")
+    ]
+    assert len(profiles) == 1
+    assert "New instructions." in profiles[0].content
