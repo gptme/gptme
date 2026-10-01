@@ -189,7 +189,11 @@ def should_auto_compact(
     total, estimated_savings, reasoning_savings = estimate_compaction_savings(
         log, limit, keep_head=keep_head
     )
-    savings_ratio = estimated_savings / total_tokens if total_tokens > 0 else 0
+    # Compare trim savings against the stored-text total the engine will
+    # actually shrink, not the larger provider-reported count: a trim saving
+    # >10% of stored text must not fail the gate just because provider overhead
+    # (tool schemas, etc.) inflated the denominator.
+    savings_ratio = estimated_savings / total if total > 0 else 0
 
     if savings_ratio < MIN_SAVINGS_RATIO:
         logger.info(

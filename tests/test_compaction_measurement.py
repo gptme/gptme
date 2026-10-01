@@ -82,6 +82,33 @@ def test_model_change_and_legacy_usage_fall_back():
     )
 
 
+def test_bare_provider_model_name_matches_qualified_anchor():
+    from gptme.util.context_measurement import (
+        anchor_context_usage,
+        measure_context_tokens,
+    )
+
+    prefix = [Message("user", "Task")]
+    # Anthropic records the bare model name in response metadata.
+    response = Message(
+        "assistant",
+        "Done",
+        metadata={
+            "model": "claude-sonnet-4-5",
+            "usage": {"input_tokens": 10000},
+        },
+    )
+    anchor_context_usage(
+        response, len(prefix), input_log_digest(prefix), "anthropic/claude-sonnet-4-5"
+    )
+    messages = [*prefix, response]
+    assert measure_context_tokens(messages, "anthropic/claude-sonnet-4-5") >= 10000
+    # A genuinely different model must still invalidate the anchor.
+    assert measure_context_tokens(messages, "openai/gpt-4") == len_tokens(
+        messages, "openai/gpt-4"
+    )
+
+
 def test_ui_status_is_not_growth():
     from gptme.util.context_measurement import (
         anchor_context_usage,
@@ -98,11 +125,13 @@ def test_ui_status_is_not_growth():
 
 
 def test_cli_anchors_stored_log_not_prepared_messages(monkeypatch):
+    # `import gptme.chat as chat` binds the re-exported chat() *function*
+    # (gptme/__init__ lazy-exports it over the submodule), so resolve the
+    # module explicitly.
     import importlib
 
-    from gptme.logmanager import Log
-
     chat = importlib.import_module("gptme.chat")
+    from gptme.logmanager import Log
     from gptme.util.context_measurement import measure_context_tokens
 
     stored = [Message("user", "First"), Message("user", "Second")]
