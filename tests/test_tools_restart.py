@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gptme.hooks import HookType
 from gptme.message import Message
 from gptme.tools.restart import (
     _FLAGS_WITH_VALUES,
@@ -749,11 +750,36 @@ class TestCmdRestart:
         with (
             patch("gptme.tools.restart.check_interface_available"),
             patch("gptme.util.prompt.prompt_alert", return_value="y"),
+            patch("gptme.hooks.trigger_hook", return_value=iter([])) as trigger,
             patch("gptme.tools.restart._do_restart") as do_restart,
         ):
             cmd_restart(ctx)
         ctx.manager.write.assert_called_with(sync=True)
         do_restart.assert_called_once_with("my-conv", target="tui", source="cli")
+        trigger.assert_called_once()
+        assert trigger.call_args.args[0] == HookType.SESSION_END
+
+    def test_session_end_hooks_run_before_restart(self, tmp_path):
+        """The CLI restart re-execs, so SESSION_END must run first (as the TUI does)."""
+        from gptme.commands.session import cmd_restart
+
+        order = []
+
+        def hook(*_args, **_kwargs):
+            order.append("session_end")
+            return iter([])
+
+        def do_restart(*_args, **_kwargs):
+            order.append("restart")
+
+        with (
+            patch("gptme.tools.restart.check_interface_available"),
+            patch("gptme.util.prompt.prompt_alert", return_value="y"),
+            patch("gptme.hooks.trigger_hook", side_effect=hook),
+            patch("gptme.tools.restart._do_restart", side_effect=do_restart),
+        ):
+            cmd_restart(self._ctx(tmp_path, ["tui"]))
+        assert order == ["session_end", "restart"]
 
     def test_tui_not_installed_does_not_prompt(self, tmp_path, capsys):
         from gptme.commands.session import cmd_restart
@@ -791,7 +817,7 @@ class TestCmdRestart:
                 return_value="http://s/chat/my-conv",
             ),
             patch("gptme.util.prompt.prompt_alert", return_value="y"),
-            patch("gptme.hooks.trigger_hook", return_value=iter([])),
+            patch("gptme.hooks.trigger_hook", return_value=iter([])) as trigger,
             patch("gptme.tools.restart.open_web") as mock_open_web,
             patch("gptme.tools.restart._do_restart") as do_restart,
             pytest.raises(SystemExit) as exc,
@@ -801,3 +827,6 @@ class TestCmdRestart:
         mock_open_web.assert_called_once_with("http://s/chat/my-conv")
         do_restart.assert_not_called()
         ctx.manager.write.assert_called_with(sync=True)
+        # session-end hooks run exactly once on the web handover
+        trigger.assert_called_once()
+        assert trigger.call_args.args[0] == HookType.SESSION_END
