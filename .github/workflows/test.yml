@@ -2,9 +2,9 @@ name: Test
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, 'feat/*' ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, 'feat/*' ]
 
 env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
