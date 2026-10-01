@@ -1123,6 +1123,22 @@ describe('ApiClient event stream reconnection', () => {
     }
   });
 
+  it('re-uses sseToken when skipSseToken is set but no cookie is available at retry time', async () => {
+    // Mirrors the state after resetAuthCookie clears an expired cookie on reconnect while
+    // skipSseToken is still carried forward from a prior attempt. Cross-origin in jsdom →
+    // authCookieSet is false, so honoring the skip would leave the retry with no credentials
+    // (no cookie, and the JWT fallback is suppressed by the same flag). The sseToken must win.
+    const client = new ApiClient('http://127.0.0.1:5700', 'Bearer jwt-token', 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks, 1, true);
+
+    const first = MockEventSource.instances[0];
+    expect(first.url).toContain('token=my-sse-token');
+    expect(first.url).not.toContain('jwt-token');
+    expect(first.init).toMatchObject({ withCredentials: true });
+  });
+
   it('preserves sseToken on session-ID timeout for cross-origin server', async () => {
     // Cross-origin in jsdom (127.0.0.1 vs localhost origin) → authCookieSet stays false.
     // Without the authCookieSet guard, a 5s session-ID timeout would set skipSseOnTimeout=true,

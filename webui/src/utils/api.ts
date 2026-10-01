@@ -1085,7 +1085,14 @@ export class ApiClient {
       await this.authCookiePromise;
     }
 
-    if (this.sseToken && !skipSseToken) {
+    // Only bypass the sseToken when cookie auth is actually available right now.
+    // resetAuthCookie (called on reconnect) can clear authCookieSet for an expired
+    // cookie while skipSseToken is still carried forward from a prior attempt; in
+    // that case honoring the skip would leave the retry with no credentials at all
+    // (no cookie, and the JWT fallback is suppressed by the same flag). Retrying
+    // with the sseToken is strictly better than an unauthenticated request.
+    const skipSseTokenEffective = skipSseToken && this.authCookieSet;
+    if (this.sseToken && !skipSseTokenEffective) {
       // Prefer the instance-scoped SSE token (gptme-cloud#1076): it is bound to
       // this instance/user/purpose and never exposes the Supabase JWT in the URL.
       url.searchParams.set('token', this.sseToken);

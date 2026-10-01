@@ -572,6 +572,7 @@ export function ApiProvider({
     // something else happens to call connect().
     connectionConfig.authToken,
     connectionConfig.useAuthToken,
+    connectionConfig.sseToken,
     isLoadingTauriStatus,
     isTauri,
     needsTauriServerUrlSync,
