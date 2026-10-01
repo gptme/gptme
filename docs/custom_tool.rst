@@ -72,13 +72,10 @@ Examples
 
 For examples of script-based tools, see:
 
-**gptme-contrib** - A collection of community-contributed tools and scripts:
+**gptme-contrib** - A collection of community-contributed tools, scripts, and packages:
 
 - `Twitter CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/twitter.py>`_: Twitter client with OAuth support
 - `Perplexity CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/perplexity.py>`_: Perplexity search tool
-
-**Standalone Tools** - Independent tool repositories:
-
 - `gptme-rag <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-rag>`_: Document indexing and retrieval
 
 For examples of custom tools, see:
