@@ -134,6 +134,10 @@ const updateConfig = (newConfig: Partial<ConnectionConfig>) => {
       ...(newConfig.baseUrl !== undefined && { baseUrl: newConfig.baseUrl }),
       ...(newConfig.authToken !== undefined && { authToken: newConfig.authToken }),
       ...(newConfig.useAuthToken !== undefined && { useAuthToken: newConfig.useAuthToken }),
+      // Thread sseToken like the other connection fields so a caller rotating the
+      // SSE token (e.g. after re-auth) invalidates the pooled client instead of
+      // silently keeping the stale one.
+      ...(newConfig.sseToken !== undefined && { sseToken: newConfig.sseToken }),
     });
   }
 };
@@ -485,6 +489,7 @@ export function ApiProvider({
         baseUrl: activeServer.baseUrl,
         authToken: activeServer.authToken,
         useAuthToken: activeServer.useAuthToken,
+        sseToken: activeServer.sseToken,
       }
     : { baseUrl: DEFAULT_LOCAL_SERVER_URL, authToken: null, useAuthToken: false };
 

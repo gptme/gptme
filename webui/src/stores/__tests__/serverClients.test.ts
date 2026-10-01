@@ -109,6 +109,23 @@ describe('getClientForServerConfig', () => {
     );
   });
 
+  it('disposes the replaced client when sseToken rotates', () => {
+    const baseConfig = {
+      baseUrl: 'http://127.0.0.1:5717',
+      authToken: 'user-token',
+      useAuthToken: true,
+      sseToken: 'old-sse-token',
+    };
+
+    const oldClient = getClientForServerConfig('sse-dispose-test', baseConfig);
+    getClientForServerConfig('sse-dispose-test', {
+      ...baseConfig,
+      sseToken: 'rotated-sse-token',
+    });
+
+    expect((oldClient as unknown as { dispose: jest.Mock }).dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('reuses client when sseToken is unchanged', () => {
     const config = {
       baseUrl: 'http://127.0.0.1:5716',
