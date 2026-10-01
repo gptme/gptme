@@ -177,23 +177,58 @@ SUMMARY_MAX_OUTPUT_TOKENS = 8192
 """Cap on the summary the model may write; a resume is a digest, not a transcript."""
 
 SUMMARY_MAX_TOOL_OUTPUT_TOKENS = 2000
-"""Per-message cap on non-assistant (tool result) content sent to the summarizer."""
+"""Per-message cap on tool-result (``system`` role) content sent to the summarizer."""
+
+SUMMARY_MIN_CLIP_TOKENS = 200
+"""Smallest partial message worth sending; below this a message is dropped whole."""
 
 _SUMMARY_PROMPT_OVERHEAD_TOKENS = 4000
+"""Reserved for provider-side framing around the summarizer request."""
+
+_OMISSION_MARKER_RESERVE_TOKENS = 64
+"""Reserved for the "[N older messages omitted]" note when messages are dropped."""
 
 
 def _clip_middle(content: str, max_tokens: int, model: str) -> str:
-    """Keep the head and tail of ``content`` so it fits in ``max_tokens``."""
-    tokens = len_tokens(content, model)
-    if tokens <= max_tokens:
+    """Keep the head and tail of ``content`` so the result fits ``max_tokens``.
+
+    The first estimate slices by character count using the full message's token
+    density, but density varies across the message and the omission marker has
+    its own cost. The *assembled* string is recounted and shrunk until it fits.
+    """
+    if max_tokens <= 0:
         return content
-    keep = max(int(len(content) * max_tokens / tokens), 200)
-    head = keep * 2 // 3
-    tail = keep - head
-    omitted = max(len(content) - keep, 0)
-    return (
-        f"{content[:head]}\n[... {omitted} characters omitted ...]\n{content[-tail:]}"
-    )
+    total = len_tokens(content, model)
+    if total <= max_tokens:
+        return content
+
+    def assemble(keep: int) -> str:
+        keep = min(keep, len(content))
+        head_chars = keep * 2 // 3
+        tail_chars = keep - head_chars
+        omitted = max(len(content) - keep, 0)
+        marker = f"\n[... {omitted} characters omitted ...]\n"
+        return f"{content[:head_chars]}{marker}{content[-tail_chars:]}"
+
+    keep = max(int(len(content) * max_tokens / total) - 32, 1)
+    clipped = assemble(keep)
+    for _ in range(8):
+        used = len_tokens(clipped, model)
+        if used <= max_tokens:
+            return clipped
+        if keep <= 1:
+            break
+        keep = max(min(int(keep * max_tokens / used), keep - 1), 1)
+        clipped = assemble(keep)
+
+    # Pathologically dense content can still exceed the cap (the marker itself
+    # costs tokens). Fall back to a hard prefix, halving until it fits.
+    if len_tokens(clipped, model) > max_tokens:
+        cut = max(len(content) * max_tokens // max(total, 1), 1)
+        while cut > 1 and len_tokens(content[:cut], model) > max_tokens:
+            cut //= 2
+        clipped = content[:cut]
+    return clipped
 
 
 def _bound_summarize_input(
@@ -201,22 +236,27 @@ def _bound_summarize_input(
     model: str,
     context_window: int | None,
     keep_head: int = 0,
+    extra_reserve_tokens: int = 0,
 ) -> list[Message]:
     """Bound the summarizer request so summarizing an oversized log cannot itself overflow.
 
-    - The first ``keep_head`` messages (original system prompt) stay verbatim.
-    - Tool-result style (non-assistant) messages are clipped to
-      ``SUMMARY_MAX_TOOL_OUTPUT_TOKENS`` each, keeping head and tail.
-    - If the total still exceeds the window (minus the output cap and prompt
-      overhead), the oldest messages after the head are dropped, so the summary
-      covers the most recent work.
+    - The first ``keep_head`` messages (original system prompt) are kept
+      verbatim when they fit the window.
+    - Tool-result messages (``system`` role after the head) are clipped to
+      ``SUMMARY_MAX_TOOL_OUTPUT_TOKENS`` each, keeping head and tail. User and
+      assistant messages keep their content: a long user request carries
+      requirements the resume must not silently discard.
+    - If the total still exceeds the window (minus the output cap, framing, and
+      ``extra_reserve_tokens`` — the caller's summarizer prompt), the oldest
+      messages are dropped and the oldest surviving message is clipped if it
+      only partly fits, so the final request is guaranteed to be within budget.
     """
     head = msgs[:keep_head]
     body = [
         m.replace(
             content=_clip_middle(m.content, SUMMARY_MAX_TOOL_OUTPUT_TOKENS, model)
         )
-        if m.role != "assistant"
+        if m.role == "system"
         and len_tokens(m.content, model) > SUMMARY_MAX_TOOL_OUTPUT_TOKENS
         else m
         for m in msgs[keep_head:]
@@ -225,23 +265,62 @@ def _bound_summarize_input(
         return head + body
 
     budget = (
-        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+        context_window
+        - SUMMARY_MAX_OUTPUT_TOKENS
+        - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+        - extra_reserve_tokens
     )
-    used = len_tokens(head, model) + len_tokens(body, model)
-    dropped = 0
-    while used > budget and len(body) > 2:
-        used -= len_tokens(body.pop(0), model)
-        dropped += 1
+    head_tokens = len_tokens(head, model)
+    if head_tokens > budget:
+        # The system prompt alone exceeds the summarizer window. Clip it in
+        # place: keeping it verbatim would send a request that cannot be
+        # summarized at all. ``budget`` already excludes the output cap,
+        # provider framing, and the caller's summarizer prompt, so the clipped
+        # head plus that prompt still fits the window.
+        head = [
+            m.replace(
+                content=_clip_middle(
+                    m.content,
+                    max(int(budget * len_tokens(m.content, model) / head_tokens), 1),
+                    model,
+                )
+            )
+            for m in head
+        ]
+        return head
+
+    body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+    if body_budget <= 0:
+        return head
+
+    kept: list[Message] = []
+    used = 0
+    for msg in reversed(body):
+        remaining = body_budget - used
+        tokens = len_tokens(msg.content, model)
+        if tokens <= remaining:
+            kept.append(msg)
+            used += tokens
+        elif remaining >= SUMMARY_MIN_CLIP_TOKENS or not kept:
+            # Clip the boundary message; always keep at least the newest one.
+            kept.append(
+                msg.replace(content=_clip_middle(msg.content, max(remaining, 1), model))
+            )
+            break
+        else:
+            break
+    dropped = len(body) - len(kept)
+    kept.reverse()
     if dropped:
         logger.info("Summarizer input: dropped %d oldest messages to fit", dropped)
-        body.insert(
+        kept.insert(
             0,
             Message(
                 "system",
                 f"[{dropped} older messages omitted to fit the summarization window]",
             ),
         )
-    return head + body
+    return head + kept
 
 
 def _resume_via_llm(
@@ -322,7 +401,11 @@ Format the response as a structured document that could serve as a RESUME.md fil
         n_head += 1
     context_window = m.context if isinstance(m.context, int) else None
     llm_msgs = _bound_summarize_input(
-        prepared_msgs, m.model, context_window, keep_head=n_head
+        prepared_msgs,
+        m.model,
+        context_window,
+        keep_head=n_head,
+        extra_reserve_tokens=len_tokens(resume_request, m.model),
     ) + [resume_request]
     snapshot = None
     file_snapshot = None

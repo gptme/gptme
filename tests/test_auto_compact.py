@@ -3000,6 +3000,8 @@ def test_hook_installs_view_above_min_savings(monkeypatch):
 
 def test_bound_summarize_input_clips_tool_output_and_drops_oldest():
     from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
         SUMMARY_MAX_TOOL_OUTPUT_TOKENS,
         _bound_summarize_input,
     )
@@ -3018,12 +3020,80 @@ def test_bound_summarize_input_clips_tool_output_and_drops_oldest():
     out = _bound_summarize_input(msgs, model, None, keep_head=1)
     assert len(out) == len(msgs)
     assert out[0].content == "System prompt"
-    assert len_tokens(out[2].content, model) <= SUMMARY_MAX_TOOL_OUTPUT_TOKENS + 50
+    assert len_tokens(out[2].content, model) <= SUMMARY_MAX_TOOL_OUTPUT_TOKENS
     assert "characters omitted" in out[2].content
 
-    # Tight window: oldest post-head messages dropped, recent tail + head kept
-    out = _bound_summarize_input(msgs, model, 12500, keep_head=1)
+    # Tight window: oldest post-head messages dropped, recent tail + head kept.
+    # The summarizer prompt is passed as an explicit reserve, matching the caller.
+    resume_request = Message("user", "Summarize the conversation. " * 40)
+    out = _bound_summarize_input(
+        msgs,
+        model,
+        12500,
+        keep_head=1,
+        extra_reserve_tokens=len_tokens(resume_request, model),
+    )
     assert out[0].content == "System prompt"
     assert "older messages omitted" in out[1].content
     assert out[-1].content == "done"
-    assert len(out) < len(msgs) + 1
+    # More than one message was dropped (the single marker absorbs the rest).
+    assert len(out) < len(msgs)
+
+    # The FULL request the caller assembles fits the window.
+    full = out + [resume_request]
+    assert len_tokens(full, model) <= (
+        12500 - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+
+
+def test_bound_summarize_input_preserves_long_user_request():
+    """A long user request carries requirements; it must not be clipped as tool output."""
+    from gptme.tools.autocompact.resume import (
+        SUMMARY_MAX_TOOL_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    request = "Requirement: do the thing.\n" * 2000
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", request),
+        Message("assistant", "done"),
+    ]
+    assert len_tokens(request, model) > SUMMARY_MAX_TOOL_OUTPUT_TOKENS
+
+    out = _bound_summarize_input(msgs, model, None, keep_head=1)
+    assert out[1].content == request, "user requirements must survive verbatim"
+
+
+def test_bound_summarize_input_clips_when_newest_message_exceeds_window():
+    """Even a single oversized newest message is clipped, not sent as-is."""
+    from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "hi"),
+        Message("assistant", "blah " * 60000),
+    ]
+    context_window = 30000
+    out = _bound_summarize_input(msgs, model, context_window, keep_head=1)
+    assert len_tokens(out, model) <= (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+
+
+def test_clip_middle_respects_cap_exactly():
+    from gptme.tools.autocompact.resume import _clip_middle
+
+    model = "gpt-4"
+    content = "dense text with no newlines " * 50000
+    for cap in (2000, 500, 120):
+        clipped = _clip_middle(content, cap, model)
+        assert len_tokens(clipped, model) <= cap
+        assert "characters omitted" in clipped
+        assert clipped is not content
