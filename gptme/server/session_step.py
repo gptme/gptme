@@ -849,7 +849,7 @@ def step(
 
     # Set the model as default before triggering hooks
     # This ensures hooks like token_awareness can access the model
-    from ..llm.models import set_default_model
+    from ..llm.models import get_model, set_default_model
     from ..model_attestation import record_runtime_selection
 
     set_default_model(model)
@@ -1033,9 +1033,11 @@ def step(
         ):
             metadata = stream_wrapper.metadata
 
-        # Persist the assistant message
+        # Persist the assistant message. Anchor the *resolved* model (e.g.
+        # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity
+        # compaction compares against; the raw request name can differ.
         msg = Message("assistant", output, metadata=metadata)
-        anchor_context_usage(msg, input_count, input_digest, model)
+        anchor_context_usage(msg, input_count, input_digest, get_model(model).full)
 
         _append_and_notify(manager, session, msg)
 
