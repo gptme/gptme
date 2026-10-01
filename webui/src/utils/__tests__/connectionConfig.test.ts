@@ -130,7 +130,32 @@ describe('processConnectionFromHash', () => {
       baseUrl: 'https://instance-123.fleet.gptme.ai',
       authToken: 'token-123',
       useAuthToken: true,
+      sseToken: null,
     });
+  });
+
+  it('returns the exchanged sseToken so connect() can apply it to the client', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        userToken: 'token-123',
+        instanceUrl: 'https://instance-123.fleet.gptme.ai',
+        instanceId: 'instance-123',
+        sseToken: 'sse-abc',
+      }),
+    } as Response);
+
+    const result = await processConnectionFromHash('code=has-sse');
+
+    expect(result.sseToken).toBe('sse-abc');
+    expect(mockFindOrCreateServerByUrl).toHaveBeenCalledWith(
+      'https://instance-123.fleet.gptme.ai',
+      {
+        authToken: 'token-123',
+        useAuthToken: true,
+        sseToken: 'sse-abc',
+      }
+    );
   });
 
   it('posts auth-code exchange to explicit browser runtime fleet URL', async () => {
@@ -162,6 +187,7 @@ describe('processConnectionFromHash', () => {
       baseUrl: 'https://instance-123.fleet.gptme.ai',
       authToken: 'token-123',
       useAuthToken: true,
+      sseToken: null,
     });
   });
 

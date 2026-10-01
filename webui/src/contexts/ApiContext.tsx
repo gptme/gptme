@@ -184,6 +184,10 @@ export function ApiProvider({
           ...(config?.baseUrl !== undefined && { baseUrl: config.baseUrl }),
           ...(config?.authToken !== undefined && { authToken: config.authToken }),
           ...(config?.useAuthToken !== undefined && { useAuthToken: config.useAuthToken }),
+          // Thread sseToken the same way as the other connection fields: the auth-code
+          // exchange returns it, and applying it here means the freshly built/cached
+          // client gets the rotated token even when activeServer's render snapshot is stale.
+          ...(config?.sseToken !== undefined && { sseToken: config.sseToken }),
         };
 
         // A manual click can race the effect that copies the Tauri-managed
