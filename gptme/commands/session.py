@@ -247,21 +247,23 @@ def cmd_restart(ctx: CommandContext) -> None:
         print("Restart cancelled.")
         return
 
+    # This session ends here, as with /exit: for a restart the new process
+    # replaces this one, and for the web target the web UI takes over the
+    # conversation. Either way run SESSION_END hooks first, like the TUI does,
+    # so session-scoped cleanup (persistent shell, orphaned subagents, cost
+    # summary) is not lost on the handover.
+    from ..hooks import HookType, trigger_hook
+
+    for msg in trigger_hook(
+        HookType.SESSION_END, logdir=ctx.manager.logdir, manager=ctx.manager
+    ):
+        ctx.manager.append(msg)
+    ctx.manager.write(sync=True)
+
     if target == "web":
         assert web_url is not None
-        from ..hooks import HookType, trigger_hook
-
-        # this session ends here (as with /exit)
-        for msg in trigger_hook(
-            HookType.SESSION_END, logdir=ctx.manager.logdir, manager=ctx.manager
-        ):
-            ctx.manager.append(msg)
-        ctx.manager.write(sync=True)
         open_web(web_url)  # releases the conversation lock first
         sys.exit(0)
-
-    # Ensure everything is synced to disk
-    ctx.manager.write(sync=True)
 
     program = "gptme-tui" if target == "tui" else "gptme"
     print(f"Restarting {program} with conversation: {conversation_name}")
