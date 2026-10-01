@@ -118,6 +118,7 @@ def setup_config_from_cli(
     agent_path: Path | None = None,
     allow_hosts: list[str] | None = None,
     context_budget: float | int | None = None,
+    agent_profile: str | None = None,
 ) -> Config:
     """
     Initialize and return a complete config from CLI arguments and workspace.
@@ -290,6 +291,7 @@ def setup_config_from_cli(
             agent=resolved_agent_path,
             allow_hosts=allow_hosts,
             context_budget=context_budget,
+            agent_profile=agent_profile,
         ),
     )
 

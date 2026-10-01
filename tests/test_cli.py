@@ -2169,3 +2169,24 @@ def test_noninteractive_does_not_seed_prompt_history(monkeypatch, tmp_path: Path
     )
     assert result.exit_code == 0, result.output
     assert calls == [], result.output
+
+
+# ── resume profile resolution ───────────────────────────────────────────
+
+
+def test_resolve_resume_profile_returns_none_without_persisted_name():
+    assert cli._resolve_resume_profile(None) is None
+    assert cli._resolve_resume_profile("") is None
+
+
+def test_resolve_resume_profile_resolves_known_profile():
+    profile = cli._resolve_resume_profile("explorer")
+    assert profile is not None
+    assert profile.name == "explorer"
+
+
+def test_resolve_resume_profile_unknown_name_resumes_without_profile(caplog):
+    """A removed/renamed profile must not block the resume."""
+    with caplog.at_level("WARNING"):
+        assert cli._resolve_resume_profile("definitely-missing-profile") is None
+    assert "no longer available" in caplog.text

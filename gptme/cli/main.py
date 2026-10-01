@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from types import FrameType
 
     from ..logmanager import ConversationMeta
+    from ..profiles import Profile
     from ..prompts import ContextMode
     from ..tools import ToolFormat
 
@@ -544,6 +545,27 @@ Utilities:
 Run 'gptme-util --help' for all utility commands."""
 
 
+def _resolve_resume_profile(persisted_name: str | None) -> Profile | None:
+    """Resolve the agent profile recorded with a conversation, if any.
+
+    Used when resuming without ``--agent-profile``: the profile is part of the
+    conversation's identity, so it is re-applied. A profile that is no longer
+    available (removed or renamed) logs a warning and resumes without one
+    rather than failing the resume.
+    """
+    if not persisted_name:
+        return None
+    from ..profiles import get_profile
+
+    profile = get_profile(persisted_name)
+    if profile is None:
+        logger.warning(
+            f"Persisted agent profile {persisted_name!r} is no longer available; "
+            "resuming without a profile"
+        )
+    return profile
+
+
 @click.command(
     help=docstring,
     context_settings={
@@ -867,6 +889,16 @@ def main(
     # one-chat CLI override.
     if ctx.get_parameter_source("context_budget") != ParameterSource.COMMANDLINE:
         context_budget = None
+
+    # Same rule for --agent-profile: only a profile passed on the command line
+    # becomes the conversation's persisted identity. An ambient
+    # GPTME_AGENT_PROFILE still applies to this run, but must not be written
+    # into the chat config as a one-conversation override.
+    persisted_agent_profile = (
+        agent_profile
+        if ctx.get_parameter_source("agent_profile") == ParameterSource.COMMANDLINE
+        else None
+    )
 
     # Apply agent profile if specified
     selected_profile = None
@@ -1317,6 +1349,7 @@ def main(
             agent_path=Path(agent_path) if agent_path else None,
             allow_hosts=allow_hosts_list,
             context_budget=context_budget,
+            agent_profile=persisted_agent_profile,
         )
     except ValueError as e:
         raise click.UsageError(str(e)) from e
@@ -1415,9 +1448,16 @@ def main(
                 "the persisted system prompt is kept unchanged"
             )
         initial_msgs = []
-        # Re-inject profile system prompt on resume: the persisted log has no profile
-        # message when first created without a profile (or with an older version), so
-        # --agent-profile must still take effect even for existing conversations.
+        # Re-apply the profile's system prompt on resume: the persisted log has no
+        # profile message when first created without a profile (or with an older
+        # version), so the profile must still take effect for existing conversations.
+        # An explicit --agent-profile wins; otherwise fall back to the profile
+        # persisted with the conversation, so a resume or interface switch keeps
+        # the same identity without passing the flag again.
+        if selected_profile is None:
+            selected_profile = _resolve_resume_profile(config.chat.agent_profile)
+            if selected_profile:
+                logger.info(f"Using persisted agent profile: {selected_profile.name}")
         if selected_profile and selected_profile.system_prompt:
             initial_msgs = [
                 Message(

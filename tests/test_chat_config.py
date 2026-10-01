@@ -230,3 +230,51 @@ def test_chat_config_unknown_chat_key_raises_value_error(tmp_path: Path):
     data["chat"]["foobar"] = 1
     with pytest.raises(ValueError, match="Unknown keys in chat config"):
         ChatConfig.from_dict(data)
+
+
+def test_chat_config_agent_profile_roundtrip(tmp_path: Path):
+    """agent_profile survives a save/load round-trip under [chat]."""
+    config = ChatConfig(_logdir=tmp_path, agent_profile="explorer")
+    config.save()
+
+    loaded = ChatConfig.from_logdir(tmp_path)
+    assert loaded.agent_profile == "explorer"
+    assert loaded.to_dict()["chat"]["agent_profile"] == "explorer"
+
+
+def test_chat_config_agent_profile_absent_by_default(tmp_path: Path):
+    """No profile set → the key is omitted from the saved config."""
+    config = ChatConfig(_logdir=tmp_path)
+    config.save()
+
+    assert "agent_profile" not in config.to_dict()["chat"]
+    assert ChatConfig.from_logdir(tmp_path).agent_profile is None
+
+
+def test_chat_config_load_or_create_agent_profile_precedence(tmp_path: Path):
+    """Explicit CLI profile overrides and persists; an omitted one preserves."""
+    # New conversation: CLI profile is stored.
+    created = ChatConfig.load_or_create(
+        tmp_path, ChatConfig(agent_profile="explorer")
+    ).save()
+    assert created.agent_profile == "explorer"
+
+    # Resume with a different explicit profile: it wins.
+    overridden = ChatConfig.load_or_create(
+        tmp_path, ChatConfig(agent_profile="researcher")
+    ).save()
+    assert overridden.agent_profile == "researcher"
+
+    # Resume without a profile: the persisted value is preserved, not cleared.
+    preserved = ChatConfig.load_or_create(tmp_path, ChatConfig()).save()
+    assert preserved.agent_profile == "researcher"
+    assert ChatConfig.from_logdir(tmp_path).agent_profile == "researcher"
+
+
+def test_chat_config_agent_profile_from_dict_validation(tmp_path: Path):
+    """A non-string agent_profile in from_dict raises ValueError."""
+    config = ChatConfig(_logdir=tmp_path)
+    data = config.to_dict()
+    data["chat"]["agent_profile"] = {"nested": "dict"}
+    with pytest.raises(ValueError, match="chat.agent_profile must be a string"):
+        ChatConfig.from_dict(data)
