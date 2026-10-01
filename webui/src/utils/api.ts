@@ -352,6 +352,22 @@ function formatWatchEventContent(event: {
   }
 }
 
+/**
+ * One connection-probe attempt. A superseded probe adopts the result of the
+ * attempt that took over from it, rather than whichever probe happens to be
+ * newest when its response finally lands.
+ */
+interface ProbeAttempt {
+  /** This attempt's own result. Created before the probe starts, so a probe
+   * that adopts it can never observe a null or placeholder promise. */
+  promise: Promise<boolean>;
+  /** Settles `promise` exactly once when the probe finishes. */
+  settle: (value: boolean) => void;
+  /** Result to adopt if this attempt is superseded. Starts as the attempt's own
+   * promise; the next attempt replaces it with its own when it starts. */
+  adopt: Promise<boolean>;
+}
+
 export class ApiClient {
   public baseUrl: string;
   public authHeader: string | null = null;
@@ -381,7 +397,7 @@ export class ApiClient {
   private authCookieSetAt: number | null = null;
   private authCookiePromise: Promise<void> | null = null;
   private _probeNonce = 0;
-  private connectionProbe: Promise<boolean> | null = null;
+  private latestProbe: ProbeAttempt | null = null;
   // Tracks in-flight server-side conversation creation so subscribeToEvents
   // can await server readiness before opening the SSE stream.  This lets
   // createConversationWithPlaceholder return (and the UI navigate) immediately
@@ -779,19 +795,43 @@ export class ApiClient {
   }
 
   checkConnection(): Promise<boolean> {
-    this.connectionProbe = this.probeConnection();
-    return this.connectionProbe;
+    let settle!: (value: boolean) => void;
+    const promise = new Promise<boolean>((resolve) => {
+      settle = resolve;
+    });
+    const probe: ProbeAttempt = { promise, settle, adopt: promise };
+    // Link the attempt this call replaces to us: when it later notices it was
+    // superseded it adopts our promise — not whichever probe is newest by then
+    // — so an unrelated later probe cannot rewrite its verdict. `promise`
+    // already exists, so there is no window where a successor reads null.
+    if (this.latestProbe) this.latestProbe.adopt = promise;
+    this.latestProbe = probe;
+    void this.probeConnection(probe).then(
+      (value) => probe.settle(value),
+      () => probe.settle(false)
+    );
+    return promise;
   }
 
-  private async probeConnection(): Promise<boolean> {
+  private adoptSupersedingProbe(probe: ProbeAttempt): Promise<boolean> {
+    // Reached only once _probeNonce has moved on, which means a newer
+    // checkConnection() already replaced `adopt` with its own promise. Each
+    // attempt is superseded at most once, so following adoptions walks the
+    // takeover chain to the attempt that ultimately owns this result; only
+    // that attempt publishes isConnected$/lastConnectionResult$ (nonce guard).
+    return probe.adopt;
+  }
+
+  private async probeConnection(probe: ProbeAttempt): Promise<boolean> {
     const url = `${this.baseUrl}/api/v2`;
     const nonce = ++this._probeNonce;
     console.log('[ApiClient] Checking connection to', this.baseUrl);
     try {
       const response = await this.fetchWithTimeout(url, {}, 3000);
-      // Superseded callers must share the winning result, not report a failure
-      // that makes an explicit connect() disconnect a successfully probed client.
-      if (this._probeNonce !== nonce) return this.connectionProbe!;
+      // Superseded callers must share the probe that replaced them, not report
+      // a fabricated failure that makes an explicit connect() disconnect a
+      // successfully probed client.
+      if (this._probeNonce !== nonce) return this.adoptSupersedingProbe(probe);
       if (!response.ok) {
         console.error('API endpoint returned non-OK status:', response.status);
         this.isConnected$.set(false);
@@ -811,10 +851,10 @@ export class ApiClient {
       // contract metadata advertised by newer servers.
       try {
         const metadata = (await response.json()) as ApiRootMetadata;
-        if (this._probeNonce !== nonce) return this.connectionProbe!;
+        if (this._probeNonce !== nonce) return this.adoptSupersedingProbe(probe);
         this.compatibilityWarning$.set(getApiCompatibilityWarning(metadata));
       } catch (parseError) {
-        if (this._probeNonce !== nonce) return this.connectionProbe!;
+        if (this._probeNonce !== nonce) return this.adoptSupersedingProbe(probe);
         console.error(`[ApiClient] Failed to parse API response from ${url}:`, parseError);
         this.isConnected$.set(false);
         this.compatibilityWarning$.set(null);
@@ -836,7 +876,7 @@ export class ApiClient {
       // protected route before reporting connected.
       const authUrl = `${this.baseUrl}/api/v2/conversations?limit=1`;
       const authResponse = await this.fetchWithTimeout(authUrl, {}, 3000);
-      if (this._probeNonce !== nonce) return this.connectionProbe!;
+      if (this._probeNonce !== nonce) return this.adoptSupersedingProbe(probe);
       if (authResponse.status === 401) {
         console.error('API accepted the root probe but rejected authenticated routes:', 401);
         this.isConnected$.set(false);
@@ -905,7 +945,7 @@ export class ApiClient {
       } else {
         console.error('[ApiClient] Connection check failed:', error);
       }
-      if (this._probeNonce !== nonce) return this.connectionProbe!;
+      if (this._probeNonce !== nonce) return this.adoptSupersedingProbe(probe);
       this.isConnected$.set(false);
       this.compatibilityWarning$.set(null);
       this.lastConnectionResult$.set({ ok: false, url, reason, message });

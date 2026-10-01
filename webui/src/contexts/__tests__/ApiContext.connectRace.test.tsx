@@ -156,6 +156,9 @@ describe('ApiContext.connect concurrent probe handling', () => {
 
     const queryClient = new QueryClient();
     const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
+    // Pins the exact regression: a superseded explicit connect must not call
+    // setConnected(false) on a client a newer probe already connected.
+    const setConnectedSpy = jest.spyOn(client, 'setConnected');
 
     let connectFromProbe!: (config: {
       baseUrl: string;
@@ -196,8 +199,14 @@ describe('ApiContext.connect concurrent probe handling', () => {
 
     expect(client.isConnected$.get()).toBe(true);
     expect(client.lastConnectionResult$.get()).toMatchObject({ ok: true });
+    // The explicit connect resolved as a success and never disconnected the
+    // client the newer probe had connected.
+    expect(setConnectedSpy).not.toHaveBeenCalledWith(false);
     expect(mockToastError).not.toHaveBeenCalled();
-    expect(mockToastSuccess).toHaveBeenCalled();
+    // Exactly one success toast, from the explicit connect (the newer probe was
+    // started via client.checkConnection() and does not touch ApiContext).
+    expect(mockToastSuccess).toHaveBeenCalledTimes(1);
+    expect(mockToastSuccess).toHaveBeenCalledWith('Connected to gptme server');
     expect(invalidateSpy).toHaveBeenCalled();
   });
 });

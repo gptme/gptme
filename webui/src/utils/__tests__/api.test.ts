@@ -412,6 +412,15 @@ describe('ApiClient API compatibility', () => {
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
+      // Resolves once the older probe has actually reached the gated stage, so
+      // the newer probe starts only while the older one is genuinely suspended.
+      // Without this the first mockImplementationOnce could be consumed by the
+      // newer probe and the older one would resolve immediately — passing
+      // without ever exercising the superseded branch.
+      let reachedGate!: () => void;
+      const olderReachedGate = new Promise<void>((resolve) => {
+        reachedGate = resolve;
+      });
       const root = {
         ok: true,
         status: 200,
@@ -423,13 +432,17 @@ describe('ApiClient API compatibility', () => {
       const client = new ApiClient('https://instance.example.com');
       const fetch = jest.fn().mockImplementationOnce(async () => {
         if (stage === 'root' || stage === 'network-error') {
+          reachedGate();
           await gate;
           if (stage === 'network-error') throw new TypeError('Failed to fetch');
         }
         return {
           ...root,
           json: async () => {
-            if (stage === 'json' || stage === 'parse-error') await gate;
+            if (stage === 'json' || stage === 'parse-error') {
+              reachedGate();
+              await gate;
+            }
             if (stage === 'parse-error') throw new SyntaxError('invalid JSON');
             return root.json();
           },
@@ -437,6 +450,7 @@ describe('ApiClient API compatibility', () => {
       });
       if (stage === 'auth') {
         fetch.mockImplementationOnce(async () => {
+          reachedGate();
           await gate;
           return root;
         });
@@ -447,13 +461,9 @@ describe('ApiClient API compatibility', () => {
       global.fetch = fetch;
 
       const older = client.checkConnection();
-      // Reach the intended suspended stage before starting the newer check.
-      if (stage === 'auth') {
-        for (let i = 0; i < 10 && fetch.mock.calls.length < 2; i++) await Promise.resolve();
-        expect(fetch).toHaveBeenCalledTimes(2);
-      } else if (stage === 'json' || stage === 'parse-error') {
-        for (let i = 0; i < 10; i++) await Promise.resolve();
-      }
+      await olderReachedGate;
+      // The older probe is suspended at the intended stage before the newer
+      // probe starts, so the mock implementations are consumed in order.
       const newer = client.checkConnection();
       await expect(newer).resolves.toBe(connected);
       const winningResult = client.lastConnectionResult$.get();
@@ -494,6 +504,51 @@ describe('ApiClient API compatibility', () => {
 
     await expect(Promise.all([first, second, third])).resolves.toEqual([true, true, true]);
     expect(client.isConnected$.get()).toBe(true);
+  });
+
+  it('adopts the probe that superseded it, not a later unrelated probe', async () => {
+    const deferred = () => {
+      let resolve!: (response: Response) => void;
+      const promise = new Promise<Response>((res) => {
+        resolve = res;
+      });
+      return { promise, resolve };
+    };
+    const rootA = deferred();
+    const rootB = deferred();
+    const authB = deferred();
+    const rootC = deferred();
+    const success = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        api_version: CLIENT_API_VERSION,
+        contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+      }),
+    } as Response;
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(rootA.promise)
+      .mockReturnValueOnce(rootB.promise)
+      .mockReturnValueOnce(authB.promise)
+      .mockReturnValueOnce(rootC.promise);
+    const client = new ApiClient('https://instance.example.com');
+
+    const probeA = client.checkConnection();
+    const probeB = client.checkConnection();
+    // B wins and finishes before C starts.
+    rootB.resolve(success);
+    authB.resolve(success);
+    await expect(probeB).resolves.toBe(true);
+
+    // A later, unrelated probe C starts and fails.
+    const probeC = client.checkConnection();
+    rootC.resolve({ ok: false, status: 401 } as Response);
+    await expect(probeC).resolves.toBe(false);
+
+    // A was superseded by B, so it adopts B's success — not C's later failure.
+    rootA.resolve(success);
+    await expect(probeA).resolves.toBe(true);
   });
 
   it('discards stale probe results when a newer probe finishes first', async () => {
