@@ -79,7 +79,7 @@ For examples of script-based tools, see:
 
 **Standalone Tools** - Independent tool repositories:
 
-- `gptme-rag <https://github.com/gptme/gptme-rag/>`_: Document indexing and retrieval
+- `gptme-rag <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-rag>`_: Document indexing and retrieval
 
 For examples of custom tools, see:
 

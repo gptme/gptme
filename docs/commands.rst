@@ -223,7 +223,7 @@ Tab completion is available for tool names.
 
 Search your RAG index and add the top results to the conversation as context.
 
-Requires `gptme-rag <https://github.com/gptme/gptme-rag>`__ to be installed and an
+Requires `gptme-rag <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-rag>`__ to be installed and an
 indexed workspace. See :ref:`rag`.
 
 .. code-block:: text

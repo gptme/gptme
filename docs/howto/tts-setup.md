@@ -19,7 +19,7 @@ OpenRouter's speech API.
 
 ## Option 2 — gptme-tts server (local, no API key)
 
-[gptme-tts](https://github.com/gptme/gptme-tts) is a standalone TTS server
+[gptme-tts](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-tts) is a standalone TTS server
 that runs locally using Kokoro. No cloud, no API key, ~80 MB model download.
 
 1. Install: `pip install gptme-tts`
