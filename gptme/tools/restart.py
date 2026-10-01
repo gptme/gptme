@@ -318,11 +318,13 @@ def open_web(url: str) -> None:
     import webbrowser
 
     _cleanup_before_handover()
-    display_url = url.split("#", 1)[0]  # don't print the token
+    display_url = url.split("#", 1)[0]  # don't echo the token on the happy path
     if webbrowser.open(url):
         print(f"Opened in the web UI: {display_url}")
     else:
-        print(f"Couldn't open a browser. Open {display_url} in the web UI.")
+        # The browser never opened, so the user has to copy the URL by hand —
+        # that only works with the fragment (base URL + token) the web UI needs.
+        print(f"Couldn't open a browser. Open this URL in the web UI:\n{url}")
 
 
 def _cleanup_before_handover() -> None:
