@@ -3248,3 +3248,16 @@ def test_clip_middle_respects_cap_exactly():
         assert len_tokens(clipped, model) <= cap
         assert "characters omitted" in clipped
         assert clipped is not content
+
+
+def test_clip_middle_never_exceeds_sub_token_cap():
+    """A single character can cost more than a sub-token cap; return empty then.
+
+    Emoji cost >1 token per character, so the hard-prefix fallback can still
+    overshoot a 1-token cap with one character. The cap contract must hold.
+    """
+    from gptme.tools.autocompact.resume import _clip_middle
+
+    model = "gpt-4"
+    clipped = _clip_middle("\U0001f600" * 1000, 1, model)
+    assert len_tokens(clipped, model) <= 1

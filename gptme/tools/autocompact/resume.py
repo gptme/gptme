@@ -228,6 +228,11 @@ def _clip_middle(content: str, max_tokens: int, model: str) -> str:
         while cut > 1 and len_tokens(content[:cut], model) > max_tokens:
             cut //= 2
         clipped = content[:cut]
+    if len_tokens(clipped, model) > max_tokens:
+        # A single character can still exceed a sub-token cap (emoji/dense
+        # scripts cost >1 token per character). An empty string always fits;
+        # never return content that breaks the documented cap contract.
+        clipped = ""
     return clipped
 
 
