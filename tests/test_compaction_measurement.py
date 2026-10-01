@@ -82,14 +82,14 @@ def test_model_change_and_legacy_usage_fall_back():
     )
 
 
-def test_bare_provider_model_name_matches_qualified_anchor():
+def test_qualified_anchor_model_matches_and_provider_switch_invalidates():
     from gptme.util.context_measurement import (
         anchor_context_usage,
         measure_context_tokens,
     )
 
     prefix = [Message("user", "Task")]
-    # Anthropic records the bare model name in response metadata.
+    # The provider reports a bare model name that a sibling provider can share.
     response = Message(
         "assistant",
         "Done",
@@ -103,6 +103,11 @@ def test_bare_provider_model_name_matches_qualified_anchor():
     )
     messages = [*prefix, response]
     assert measure_context_tokens(messages, "anthropic/claude-sonnet-4-5") >= 10000
+    # Serving the same bare model name through another provider must not reuse
+    # the previous provider's count: the usage semantics differ per provider.
+    assert measure_context_tokens(
+        messages, "openrouter/anthropic/claude-sonnet-4-5"
+    ) == len_tokens(messages, "openrouter/anthropic/claude-sonnet-4-5")
     # A genuinely different model must still invalidate the anchor.
     assert measure_context_tokens(messages, "openai/gpt-4") == len_tokens(
         messages, "openai/gpt-4"

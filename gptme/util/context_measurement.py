@@ -48,6 +48,12 @@ def anchor_context_usage(
         response.metadata["input_log_messages"] = count
         response.metadata["input_log_digest"] = digest
         response.metadata.setdefault("model", model)
+        # Record the requested model identity that produced this usage.
+        # ``metadata["model"]`` may be a provider-reported bare name that two
+        # providers share (e.g. ``claude-sonnet-4-5`` for both Anthropic and
+        # OpenRouter), so it cannot guard against a provider switch; compare
+        # the requested qualified name exactly instead.
+        response.metadata["input_log_model"] = model
 
 
 def measure_context_tokens(messages: list[Message], model: str) -> int:
@@ -56,8 +62,10 @@ def measure_context_tokens(messages: list[Message], model: str) -> int:
     UsageData normalizes input_tokens to *uncached* input for every provider,
     so cache reads and writes must be included. The response itself was not in
     that request: count it along with subsequent messages. A prefix digest keeps
-    usage from surviving a compaction view, edit, or switch to a sibling branch.
-    Legacy logs without an anchor use the estimate until a new response arrives.
+    usage from surviving a compaction view, edit, or switch to a sibling branch;
+    the anchored model identity additionally invalidates it on a model or
+    provider change. Legacy logs without an anchor use the estimate until a new
+    response arrives.
     """
     visible = [message for message in messages if not message.ui_only]
     # Single-pass prefix digests: scanning candidate anchors must not
@@ -75,7 +83,8 @@ def measure_context_tokens(messages: list[Message], model: str) -> int:
             continue
         if digests[index] != expected:
             continue
-        if not _model_matches(metadata.get("model"), model):
+        stored_model = metadata.get("input_log_model")
+        if stored_model is not None and stored_model != model:
             continue
         counts = (
             usage.get("input_tokens", 0),
@@ -90,12 +99,3 @@ def measure_context_tokens(messages: list[Message], model: str) -> int:
         tail = [message for message in messages[index:] if not message.ui_only]
         return total + len_tokens(tail, model)
     return len_tokens(visible, model)
-
-
-def _model_matches(stored: str | None, model: str) -> bool:
-    """Anchor model must be the same model; bare provider-reported names match
-    the qualified form used at compare time (e.g. Anthropic records
-    ``claude-sonnet-4-5`` while we compare against ``anthropic/claude-sonnet-4-5``)."""
-    if stored is None:
-        return True
-    return stored == model or model.endswith("/" + stored)
