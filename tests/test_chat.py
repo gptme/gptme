@@ -2077,6 +2077,43 @@ def test_hoist_resume_msgs_moves_into_leading_system_block():
     assert prepared[2].content == "hello"
 
 
+def test_prepare_messages_survives_replacement_prompt_generation():
+    """A resume message hoisted after prompt-generation filtering stays provider-visible.
+
+    prepare_messages runs _active_prompt_generation BEFORE _hoist_resume_msgs, so a
+    /model or /tools replacement prompt must not cause the re-applied profile to be
+    dropped (the legacy block it would have been inserted into is retired).
+    """
+    from gptme.logmanager.manager import (
+        _active_prompt_generation,
+        _hoist_resume_msgs,
+    )
+    from gptme.message import Message
+
+    log = [
+        Message("system", "startup prompt", pinned=True, hide=True),
+        Message("user", "hello"),
+        Message("assistant", "hi"),
+        Message(
+            "system",
+            "replacement prompt",
+            pinned=True,
+            hide=True,
+            metadata={"prompt_generation": "one"},
+        ),
+        _profile_resume_msg(),
+    ]
+
+    # Same order as prepare_messages: generation filter first, then hoist.
+    prepared = _hoist_resume_msgs(_active_prompt_generation(log))
+
+    assert [m.content for m in prepared[:2]] == [
+        "replacement prompt",
+        "# Agent Profile: explorer\n\nRead-only.",
+    ]
+    assert prepared[0].role == "system" and prepared[1].role == "system"
+
+
 def test_hoist_resume_msgs_noop_without_context():
     """A log without resume messages is returned unchanged."""
     from gptme.logmanager.manager import _hoist_resume_msgs
