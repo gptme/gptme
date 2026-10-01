@@ -355,11 +355,152 @@ describe('ApiClient API compatibility', () => {
     expect(client.compatibilityWarning$.get()).toBeNull();
   });
 
+  it.each(['before', 'after'] as const)(
+    'explicit connect joins a successful newer probe when its response arrives %s the winner',
+    async (order) => {
+      let resolveExplicit!: (response: Response) => void;
+      let resolveAuto!: (response: Response) => void;
+      const explicitResponse = new Promise<Response>((resolve) => {
+        resolveExplicit = resolve;
+      });
+      const autoResponse = new Promise<Response>((resolve) => {
+        resolveAuto = resolve;
+      });
+      const success = {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+        }),
+      } as Response;
+      global.fetch = jest
+        .fn()
+        .mockReturnValueOnce(explicitResponse)
+        .mockReturnValueOnce(autoResponse)
+        .mockResolvedValue(success);
+      const client = new ApiClient('https://instance.example.com');
+
+      // ApiContext.connect() treats false as failure and disconnects the client.
+      const explicitConnect = client.checkConnection().then((connected) => {
+        if (!connected) client.setConnected(false);
+        return connected;
+      });
+      const autoConnect = client.checkConnection();
+      if (order === 'before') resolveExplicit(success);
+      resolveAuto(success);
+      await expect(autoConnect).resolves.toBe(true);
+      if (order === 'after') resolveExplicit(success);
+
+      await expect(explicitConnect).resolves.toBe(true);
+      expect(client.isConnected$.get()).toBe(true);
+      expect(client.lastConnectionResult$.get()).toEqual({
+        ok: true,
+        url: 'https://instance.example.com/api/v2',
+      });
+    }
+  );
+
+  it.each(
+    (['root', 'json', 'parse-error', 'auth', 'network-error'] as const).flatMap((stage) =>
+      [true, false].map((connected) => ({ stage, connected }))
+    )
+  )(
+    'defers a superseded $stage result to the newest probe (connected=$connected)',
+    async ({ stage, connected }) => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const root = {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: CLIENT_API_VERSION,
+          contract_revision: CLIENT_MIN_CONTRACT_REVISION,
+        }),
+      } as Response;
+      const client = new ApiClient('https://instance.example.com');
+      const fetch = jest.fn().mockImplementationOnce(async () => {
+        if (stage === 'root' || stage === 'network-error') {
+          await gate;
+          if (stage === 'network-error') throw new TypeError('Failed to fetch');
+        }
+        return {
+          ...root,
+          json: async () => {
+            if (stage === 'json' || stage === 'parse-error') await gate;
+            if (stage === 'parse-error') throw new SyntaxError('invalid JSON');
+            return root.json();
+          },
+        } as Response;
+      });
+      if (stage === 'auth') {
+        fetch.mockImplementationOnce(async () => {
+          await gate;
+          return root;
+        });
+      }
+      fetch
+        .mockResolvedValueOnce(root)
+        .mockResolvedValueOnce(connected ? root : { ok: false, status: 401 });
+      global.fetch = fetch;
+
+      const older = client.checkConnection();
+      // Reach the intended suspended stage before starting the newer check.
+      if (stage === 'auth') {
+        for (let i = 0; i < 10 && fetch.mock.calls.length < 2; i++) await Promise.resolve();
+        expect(fetch).toHaveBeenCalledTimes(2);
+      } else if (stage === 'json' || stage === 'parse-error') {
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+      }
+      const newer = client.checkConnection();
+      await expect(newer).resolves.toBe(connected);
+      const winningResult = client.lastConnectionResult$.get();
+      release();
+      await expect(older).resolves.toBe(connected);
+      expect(client.isConnected$.get()).toBe(connected);
+      expect(winningResult).toMatchObject(connected ? { ok: true } : { ok: false, status: 401 });
+      expect(client.lastConnectionResult$.get()).toEqual(winningResult);
+    }
+  );
+
+  it('follows a chain of overlapping probes to the final winner', async () => {
+    const resolvers: Array<(response: Response) => void> = [];
+    const pending = Array.from(
+      { length: 3 },
+      () => new Promise<Response>((resolve) => resolvers.push(resolve))
+    );
+    const success = {
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    } as Response;
+    global.fetch = jest
+      .fn()
+      .mockReturnValueOnce(pending[0])
+      .mockReturnValueOnce(pending[1])
+      .mockReturnValueOnce(pending[2])
+      .mockResolvedValue(success);
+    const client = new ApiClient('https://instance.example.com');
+    const first = client.checkConnection();
+    const second = client.checkConnection();
+    resolvers[0](success);
+    // Let the first probe adopt the still-pending second probe.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const third = client.checkConnection();
+    resolvers[1](success);
+    resolvers[2](success);
+
+    await expect(Promise.all([first, second, third])).resolves.toEqual([true, true, true]);
+    expect(client.isConnected$.get()).toBe(true);
+  });
+
   it('discards stale probe results when a newer probe finishes first', async () => {
     // Simulate: probe A (older, incompatible) starts first; probe B (newer, compatible) starts
     // second and would finish next. Without a generation guard, probe A's catch-path
     // `compatibilityWarning$.set(null)` or success-path write would overwrite probe B's warning.
-    // With the guard: probe A sees _probeNonce !== nonceA and silently returns false.
+    // With the guard: probe A adopts probe B's result without publishing stale state.
     let resolveOldProbe!: (r: Response) => void;
     let resolveNewProbe!: (r: Response) => void;
 

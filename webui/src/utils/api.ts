@@ -381,6 +381,7 @@ export class ApiClient {
   private authCookieSetAt: number | null = null;
   private authCookiePromise: Promise<void> | null = null;
   private _probeNonce = 0;
+  private connectionProbe: Promise<boolean> | null = null;
   // Tracks in-flight server-side conversation creation so subscribeToEvents
   // can await server readiness before opening the SSE stream.  This lets
   // createConversationWithPlaceholder return (and the UI navigate) immediately
@@ -777,13 +778,20 @@ export class ApiClient {
     return this.isConnected$.get();
   }
 
-  async checkConnection(): Promise<boolean> {
+  checkConnection(): Promise<boolean> {
+    this.connectionProbe = this.probeConnection();
+    return this.connectionProbe;
+  }
+
+  private async probeConnection(): Promise<boolean> {
     const url = `${this.baseUrl}/api/v2`;
     const nonce = ++this._probeNonce;
     console.log('[ApiClient] Checking connection to', this.baseUrl);
     try {
       const response = await this.fetchWithTimeout(url, {}, 3000);
-      if (this._probeNonce !== nonce) return false;
+      // Superseded callers must share the winning result, not report a failure
+      // that makes an explicit connect() disconnect a successfully probed client.
+      if (this._probeNonce !== nonce) return this.connectionProbe!;
       if (!response.ok) {
         console.error('API endpoint returned non-OK status:', response.status);
         this.isConnected$.set(false);
@@ -803,10 +811,10 @@ export class ApiClient {
       // contract metadata advertised by newer servers.
       try {
         const metadata = (await response.json()) as ApiRootMetadata;
-        if (this._probeNonce !== nonce) return false;
+        if (this._probeNonce !== nonce) return this.connectionProbe!;
         this.compatibilityWarning$.set(getApiCompatibilityWarning(metadata));
       } catch (parseError) {
-        if (this._probeNonce !== nonce) return false;
+        if (this._probeNonce !== nonce) return this.connectionProbe!;
         console.error(`[ApiClient] Failed to parse API response from ${url}:`, parseError);
         this.isConnected$.set(false);
         this.compatibilityWarning$.set(null);
@@ -828,7 +836,7 @@ export class ApiClient {
       // protected route before reporting connected.
       const authUrl = `${this.baseUrl}/api/v2/conversations?limit=1`;
       const authResponse = await this.fetchWithTimeout(authUrl, {}, 3000);
-      if (this._probeNonce !== nonce) return false;
+      if (this._probeNonce !== nonce) return this.connectionProbe!;
       if (authResponse.status === 401) {
         console.error('API accepted the root probe but rejected authenticated routes:', 401);
         this.isConnected$.set(false);
@@ -897,7 +905,7 @@ export class ApiClient {
       } else {
         console.error('[ApiClient] Connection check failed:', error);
       }
-      if (this._probeNonce !== nonce) return false;
+      if (this._probeNonce !== nonce) return this.connectionProbe!;
       this.isConnected$.set(false);
       this.compatibilityWarning$.set(null);
       this.lastConnectionResult$.set({ ok: false, url, reason, message });
