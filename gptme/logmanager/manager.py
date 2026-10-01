@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 RoleLiteral = Literal["user", "assistant", "system"]
 
+
 @dataclass
 class _WindowsLockState:
     fd: TextIO
@@ -459,8 +460,18 @@ class LogManager:
                 logger.warning(f"Error releasing lock: {e}")
 
     def __del__(self):
-        """Release the lock on garbage collection"""
-        self._release_lock()
+        """Release the lock on garbage collection.
+
+        During interpreter shutdown, module globals (``os``, the Windows lock
+        registry, ``logger``) may already be cleared to ``None`` before this
+        instance is finalized, which would otherwise crash ``_release_lock``
+        with an ``AttributeError``/``TypeError``. There's nothing meaningful
+        to do at that point, so swallow it.
+        """
+        try:
+            self._release_lock()
+        except (AttributeError, TypeError):
+            pass
 
     @property
     def workspace(self) -> Path:
