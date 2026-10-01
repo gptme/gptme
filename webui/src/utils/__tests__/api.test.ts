@@ -1124,10 +1124,12 @@ describe('ApiClient event stream reconnection', () => {
   });
 
   it('re-uses sseToken when skipSseToken is set but no cookie is available at retry time', async () => {
-    // Mirrors the state after resetAuthCookie clears an expired cookie on reconnect while
-    // skipSseToken is still carried forward from a prior attempt. Cross-origin in jsdom →
-    // authCookieSet is false, so honoring the skip would leave the retry with no credentials
-    // (no cookie, and the JWT fallback is suppressed by the same flag). The sseToken must win.
+    // Unit check of the effective-skip guard: skipSseToken=true must NOT strip the sseToken
+    // when authCookieSet is false (no cookie auth to fall back to). This is the branch that
+    // matters after resetAuthCookie clears an expired cookie on reconnect while skipSseToken
+    // is still carried forward — honoring the skip then would leave the retry with no
+    // credentials (no cookie, and the JWT fallback is suppressed by the same flag).
+    // Cross-origin in jsdom → authCookieSet is false.
     const client = new ApiClient('http://127.0.0.1:5700', 'Bearer jwt-token', 'my-sse-token');
     const callbacks = createSseCallbacks();
 
