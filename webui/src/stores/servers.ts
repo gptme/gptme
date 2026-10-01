@@ -382,10 +382,16 @@ export function findOrCreateServerByUrl(
 
   if (existing) {
     // Update auth if provided
-    if (defaults?.authToken !== undefined) {
+    if (defaults?.authToken !== undefined || defaults?.sseToken !== undefined) {
       updateServer(existing.id, {
-        authToken: defaults.authToken,
-        useAuthToken: defaults.useAuthToken ?? Boolean(defaults.authToken),
+        ...(defaults?.authToken !== undefined && {
+          authToken: defaults.authToken,
+          useAuthToken: defaults.useAuthToken ?? Boolean(defaults.authToken),
+        }),
+        // Allow null to explicitly clear a previously stored sseToken (e.g. when the
+        // server removes INSTANCE_TOKEN_SECRET and re-auth returns no sseToken).
+        // Only undefined (field absent) is treated as "no change".
+        ...(defaults.sseToken !== undefined && { sseToken: defaults.sseToken }),
       });
     }
     return serverRegistry$.get().servers.find((s) => s.id === existing.id)!;
@@ -398,6 +404,7 @@ export function findOrCreateServerByUrl(
     baseUrl,
     authToken: defaults?.authToken ?? null,
     useAuthToken: defaults?.useAuthToken ?? false,
+    ...(defaults?.sseToken != null && { sseToken: defaults.sseToken }),
   });
 }
 

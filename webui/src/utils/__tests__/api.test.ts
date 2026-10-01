@@ -1237,6 +1237,164 @@ describe('ApiClient event stream reconnection', () => {
       })
     );
   });
+
+  it('keeps sseToken on reconnect after initial failure when no cookie fallback exists', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) → authCookieSet stays false.
+    // Bypassing the sseToken here would leave the retry with no credentials at all, so a
+    // transient network failure (onerror carries no status code) must not strip the token.
+    const client = new ApiClient('http://127.0.0.1:5700', null, 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken in the URL query param
+    expect(first.url).toContain('token=my-sse-token');
+    // withCredentials is always true
+    expect(first.init).toMatchObject({ withCredentials: true });
+
+    // Fail before connecting (wasConnected=false, reconnectCount=0)
+    first.emitError();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // No cookie fallback exists, so the retry keeps the sseToken
+    expect(second.url).toContain('token=my-sse-token');
+    expect(second.init).toMatchObject({ withCredentials: true });
+  });
+
+  it('keeps sseToken and never exposes the JWT on reconnect when both are set and initial attempt fails', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) so authCookieSet stays false.
+    const client = new ApiClient('http://127.0.0.1:5700', 'Bearer jwt-token', 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken (preferred over JWT)
+    expect(first.url).toContain('token=my-sse-token');
+    expect(first.url).not.toContain('jwt-token');
+
+    // Fail before connecting (wasConnected=false, reconnectCount=0)
+    first.emitError();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // The retry keeps the sseToken (credential isolation: the JWT is still never in the URL)
+    expect(second.url).toContain('token=my-sse-token');
+    expect(second.url).not.toContain('jwt-token');
+    expect(second.init).toMatchObject({ withCredentials: true });
+  });
+
+  it('bypasses sseToken on reconnect after initial failure when cookie auth is available', async () => {
+    // Same-origin (jsdom origin) + authHeader → the cookie endpoint succeeds, so the retry
+    // can safely fall back to cookie auth instead of re-sending a possibly-bad sseToken.
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 } as Response);
+    try {
+      const client = new ApiClient(window.location.origin, 'Bearer jwt-token', 'my-sse-token');
+      const callbacks = createSseCallbacks();
+
+      await client.subscribeToEvents('conv-1', callbacks);
+
+      const first = MockEventSource.instances[0];
+      expect(first.url).toContain('token=my-sse-token');
+
+      // Fail before connecting (wasConnected=false, reconnectCount=0) with cookie available
+      first.emitError();
+      jest.advanceTimersByTime(1000);
+      await Promise.resolve();
+
+      expect(MockEventSource.instances).toHaveLength(2);
+      const second = MockEventSource.instances[1];
+      // Cookie auth is available, so the sseToken is bypassed (and the JWT is never in the URL)
+      expect(second.url).not.toContain('token=');
+      expect(second.init).toMatchObject({ withCredentials: true });
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('re-uses sseToken when skipSseToken is set but no cookie is available at retry time', async () => {
+    // Unit check of the effective-skip guard: skipSseToken=true must NOT strip the sseToken
+    // when authCookieSet is false (no cookie auth to fall back to). This is the branch that
+    // matters after resetAuthCookie clears an expired cookie on reconnect while skipSseToken
+    // is still carried forward — honoring the skip then would leave the retry with no
+    // credentials (no cookie, and the JWT fallback is suppressed by the same flag).
+    // Cross-origin in jsdom → authCookieSet is false.
+    const client = new ApiClient('http://127.0.0.1:5700', 'Bearer jwt-token', 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks, 1, true);
+
+    const first = MockEventSource.instances[0];
+    expect(first.url).toContain('token=my-sse-token');
+    expect(first.url).not.toContain('jwt-token');
+    expect(first.init).toMatchObject({ withCredentials: true });
+  });
+
+  it('preserves sseToken on session-ID timeout for cross-origin server', async () => {
+    // Cross-origin in jsdom (127.0.0.1 vs localhost origin) → authCookieSet stays false.
+    // Without the authCookieSet guard, a 5s session-ID timeout would set skipSseOnTimeout=true,
+    // leaving the retry with no credentials (no cookie, no sseToken, no JWT).
+    const client = new ApiClient('http://127.0.0.1:5700', null, 'my-sse-token');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    // First attempt uses the sseToken
+    expect(first.url).toContain('token=my-sse-token');
+
+    // Open the EventSource but never emit the session_id — simulates a slow initial handshake
+    first.emitOpen();
+    // Advance past the 5-second session-ID timeout
+    jest.advanceTimersByTime(6000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    const second = MockEventSource.instances[1];
+    // For cross-origin servers, sseToken must be preserved on the retry (authCookieSet=false,
+    // no cookie fallback available — dropping sseToken leaves the stream unauthenticated)
+    expect(second.url).toContain('token=my-sse-token');
+  });
+
+  it('preserves sseToken on session-ID timeout for a same-origin server (timeout is not an auth failure)', async () => {
+    // Same-origin (jsdom origin) with an authHeader → the cookie endpoint succeeds and
+    // authCookieSet=true. A session-ID timeout must still keep the valid instance-scoped
+    // sseToken on the retry: the timeout means the stream connected but no session_id
+    // arrived (or is still connecting), NOT that the token was rejected. Downgrading to
+    // cookie auth here is a credential swap with no evidence of failure.
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 } as Response);
+    try {
+      const client = new ApiClient(window.location.origin, 'Bearer jwt-token', 'my-sse-token');
+      const callbacks = createSseCallbacks();
+
+      await client.subscribeToEvents('conv-1', callbacks);
+
+      const first = MockEventSource.instances[0];
+      expect(first.url).toContain('token=my-sse-token');
+      expect(first.url).not.toContain('jwt-token');
+
+      // Open but never emit the session_id — a slow handshake, not an auth failure.
+      first.emitOpen();
+      jest.advanceTimersByTime(6000);
+      await Promise.resolve();
+
+      expect(MockEventSource.instances).toHaveLength(2);
+      const second = MockEventSource.instances[1];
+      // The sseToken must still be used on the retry, even though cookie auth is available.
+      expect(second.url).toContain('token=my-sse-token');
+      expect(second.url).not.toContain('jwt-token');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });
 
 describe('getApiErrorPresentation', () => {

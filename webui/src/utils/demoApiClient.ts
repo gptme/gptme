@@ -293,6 +293,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
   const client: IApiClient = {
     baseUrl,
     authHeader: null,
+    sseToken: null,
     isConnected$,
     lastConnectionResult$,
     compatibilityWarning$,

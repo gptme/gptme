@@ -134,12 +134,16 @@ export interface ConnectionConfig {
   baseUrl: string;
   authToken: string | null;
   useAuthToken: boolean;
+  /** Instance-scoped SSE token (gptme-cloud#1076); null when the server has none. */
+  sseToken?: string | null;
 }
 
 export interface AuthCodeExchangeResult {
   userToken: string;
   instanceUrl: string;
   instanceId: string;
+  /** Short-lived instance-scoped SSE token (gptme-cloud#1076). Present when INSTANCE_TOKEN_SECRET is configured server-side. */
+  sseToken?: string;
 }
 
 /**
@@ -302,10 +306,13 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
       const exchangeUrl = getExchangeUrl();
       const result = await exchangeAuthCode(authCodeParams.code, exchangeUrl);
 
-      // Register the exchanged server in the registry
+      // Register the exchanged server in the registry.
+      // sseToken (if present) is stored separately so the webui can use it for
+      // EventSource ?token= instead of the Supabase JWT (gptme-cloud#1076).
       const server = findOrCreateServerByUrl(result.instanceUrl, {
         authToken: result.userToken,
         useAuthToken: true,
+        sseToken: result.sseToken ?? null,
       });
       connectServer(server.id);
       setActiveServer(server.id);
@@ -321,6 +328,10 @@ export async function processConnectionFromHash(hash?: string): Promise<Connecti
         baseUrl: result.instanceUrl,
         authToken: result.userToken,
         useAuthToken: true,
+        // Thread the fresh sseToken through the returned config so connect() can
+        // apply it even if the registry update has not propagated to the render
+        // snapshot it reads from (same reason baseUrl/authToken are returned).
+        sseToken: result.sseToken ?? null,
       };
     } catch (error) {
       console.error(`[ConnectionConfig] Auth code exchange failed: ${describeError(error)}`, error);

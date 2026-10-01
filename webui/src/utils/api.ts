@@ -371,6 +371,8 @@ interface ProbeAttempt {
 export class ApiClient {
   public baseUrl: string;
   public authHeader: string | null = null;
+  /** Short-lived instance-scoped token used specifically for EventSource ?token= (gptme-cloud#1076). */
+  public sseToken: string | null = null;
   public readonly isConnected$: Observable<boolean> = observable(false);
   public readonly lastConnectionResult$: Observable<ConnectionProbeResult | null> =
     observable<ConnectionProbeResult | null>(null);
@@ -417,9 +419,14 @@ export class ApiClient {
     }
   }
 
-  constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
+  constructor(
+    baseUrl: string = getApiBaseUrl(),
+    authHeader: string | null = null,
+    sseToken: string | null = null
+  ) {
     this.baseUrl = baseUrl;
     this.authHeader = authHeader;
+    this.sseToken = sseToken;
     this.identifier = crypto.randomUUID();
     console.log(`[ApiClient] Identifier: ${this.identifier}`);
 
@@ -1003,7 +1010,13 @@ export class ApiClient {
         message: string;
       }) => void;
     },
-    reconnectAttempt = 0
+    reconnectAttempt = 0,
+    // When true, skip both sseToken and the JWT-in-URL fallback for this attempt.
+    // Set when a previous attempt used the sseToken and failed, to avoid permanently
+    // downgrading the pooled client (this.sseToken is never cleared — just bypassed
+    // for the current reconnect cycle so the token remains available for future
+    // subscriptions if the failure was transient).
+    skipSseToken = false
   ): Promise<void> {
     const maxReconnects = 5;
 
@@ -1046,13 +1059,15 @@ export class ApiClient {
         : { status: 'connecting' }
     );
 
-    // Function to reconnect to the event stream if it fails, or we fail to get a session ID
-    const reconnect = (attempt: number) => {
+    // Function to reconnect to the event stream if it fails, or we fail to get a session ID.
+    // skipSse: propagated when the sseToken was used and failed, so all retries in this cycle
+    // avoid both the sseToken and the JWT-in-URL fallback (credential isolation is preserved).
+    const reconnect = (attempt: number, skipSse = false) => {
       console.log(`[ApiClient] Attempting reconnection for ${conversationId}`);
       this.teardownEventStream(conversationId);
       // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
       this.resetAuthCookie();
-      this.subscribeToEvents(conversationId, callbacks, attempt).catch((err) => {
+      this.subscribeToEvents(conversationId, callbacks, attempt, skipSse).catch((err) => {
         console.error('[ApiClient] Reconnect failed:', err);
         callbacks.onError?.(String(err));
       });
@@ -1072,7 +1087,14 @@ export class ApiClient {
             maxAttempts: maxReconnects,
             retryInMs: 0,
           });
-          reconnect(nextAttempt);
+          // A session-ID timeout is NOT an auth failure: an auth rejection fires
+          // onerror (which clears this timeout), so reaching here means the stream
+          // either connected (auth already succeeded) or is still connecting with no
+          // response yet. There is no evidence the sseToken was rejected, so keep the
+          // current credential choice and only carry forward an existing skip decision.
+          // (Dropping the sseToken here would downgrade a valid instance-scoped token to
+          // cookie/JWT auth for the rest of the reconnect cycle for no reason.)
+          reconnect(nextAttempt, skipSseToken);
         } else {
           this.teardownEventStream(conversationId);
           this.scheduleDeadStreamRetry(conversationId);
@@ -1111,8 +1133,23 @@ export class ApiClient {
       await this.authCookiePromise;
     }
 
-    if (this.authHeader && !this.authCookieSet) {
-      // Fallback: pass token as query param if cookie endpoint was unavailable
+    // Only bypass the sseToken when cookie auth is actually available right now.
+    // resetAuthCookie (called on reconnect) can clear authCookieSet for an expired
+    // cookie while skipSseToken is still carried forward from a prior attempt; in
+    // that case honoring the skip would leave the retry with no credentials at all
+    // (no cookie, and the JWT fallback is suppressed by the same flag). Retrying
+    // with the sseToken is strictly better than an unauthenticated request.
+    const skipSseTokenEffective = skipSseToken && this.authCookieSet;
+    if (this.sseToken && !skipSseTokenEffective) {
+      // Prefer the instance-scoped SSE token (gptme-cloud#1076): it is bound to
+      // this instance/user/purpose and never exposes the Supabase JWT in the URL.
+      url.searchParams.set('token', this.sseToken);
+      console.log('[ApiClient] Using instance-scoped SSE token for EventSource ?token=');
+    } else if (this.authHeader && !this.authCookieSet && !skipSseToken) {
+      // Fallback: pass token as query param if cookie endpoint was unavailable.
+      // Suppressed when skipSseToken=true (we already tried with the sseToken in this
+      // reconnect cycle and failed) — avoid exposing the broader user token in a URL
+      // when the sseToken failure may have been transient. Try cookie/no-auth instead.
       const token = this.authHeader.split(' ')[1];
       if (!token) {
         console.error('[ApiClient] Invalid auth header format, expected "Bearer <token>"');
@@ -1315,6 +1352,32 @@ export class ApiClient {
       eventSource.close();
       this.eventSources.delete(conversationId);
 
+      // Decide whether to skip the sseToken on the next retry.
+      // Never clear this.sseToken: the ApiClient is pooled and clearing it would
+      // permanently downgrade ALL future subscriptions from this client instance to
+      // JWT-in-URL, even if the failure was a transient network error.
+      //
+      // Only bypass the sseToken when cookie auth is actually available as a fallback.
+      // EventSource.onerror carries no status code, so it cannot distinguish a transient
+      // network failure from an auth rejection. On a cross-origin server authCookieSet is
+      // false and skipping the sseToken leaves the retry with NO credentials at all
+      // (the JWT-in-URL branch is suppressed by the same flag), so a network blip would
+      // permanently drop a valid token for the whole reconnect cycle. Retry with the same
+      // token instead. When a cookie IS set, downgrading to cookie auth is safe.
+      // Note: this.sseToken is set once in the constructor and never cleared, so
+      // the sseToken branch always fires before the JWT-fallback branch when
+      // skipSseToken=false — there is no JWT exposure risk in the cross-origin path.
+      const nextSkipSse =
+        skipSseToken || // already bypassing — keep it bypassed
+        (this.sseToken !== null && this.authCookieSet); // only bypass when cookie auth is available
+      if (nextSkipSse && !skipSseToken && this.sseToken !== null) {
+        console.warn(
+          '[ApiClient] SSE token bypassed for reconnect (may be expired or connection issue). ' +
+            `wasConnected=${wasConnected}, attempt=${reconnectCount}. ` +
+            'Token preserved on client for future subscriptions.'
+        );
+      }
+
       // Attempt retry with exponential backoff regardless of whether
       // we were previously connected (dropped stream) or never connected
       // (initial failure). Both paths use the same retry budget.
@@ -1335,7 +1398,7 @@ export class ApiClient {
         });
 
         const reconnectTimer = window.setTimeout(() => {
-          reconnect(reconnectCount);
+          reconnect(reconnectCount, nextSkipSse);
         }, delay);
         this.eventStreamTimers.set(conversationId, {
           ...this.eventStreamTimers.get(conversationId),
@@ -2199,6 +2262,10 @@ export function getClientGeneration(client: object): number {
   return generation;
 }
 
-export const createApiClient = (baseUrl?: string, authHeader?: string | null): ApiClient => {
-  return new ApiClient(baseUrl, authHeader);
+export const createApiClient = (
+  baseUrl?: string,
+  authHeader?: string | null,
+  sseToken?: string | null
+): ApiClient => {
+  return new ApiClient(baseUrl, authHeader, sseToken);
 };

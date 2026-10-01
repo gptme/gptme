@@ -134,6 +134,10 @@ const updateConfig = (newConfig: Partial<ConnectionConfig>) => {
       ...(newConfig.baseUrl !== undefined && { baseUrl: newConfig.baseUrl }),
       ...(newConfig.authToken !== undefined && { authToken: newConfig.authToken }),
       ...(newConfig.useAuthToken !== undefined && { useAuthToken: newConfig.useAuthToken }),
+      // Thread sseToken like the other connection fields so a caller rotating the
+      // SSE token (e.g. after re-auth) invalidates the pooled client instead of
+      // silently keeping the stale one.
+      ...(newConfig.sseToken !== undefined && { sseToken: newConfig.sseToken }),
     });
   }
 };
@@ -184,6 +188,10 @@ export function ApiProvider({
           ...(config?.baseUrl !== undefined && { baseUrl: config.baseUrl }),
           ...(config?.authToken !== undefined && { authToken: config.authToken }),
           ...(config?.useAuthToken !== undefined && { useAuthToken: config.useAuthToken }),
+          // Thread sseToken the same way as the other connection fields: the auth-code
+          // exchange returns it, and applying it here means the freshly built/cached
+          // client gets the rotated token even when activeServer's render snapshot is stale.
+          ...(config?.sseToken !== undefined && { sseToken: config.sseToken }),
         };
 
         // A manual click can race the effect that copies the Tauri-managed
@@ -217,6 +225,7 @@ export function ApiProvider({
           authToken: updates.authToken !== undefined ? updates.authToken : activeServer.authToken,
           useAuthToken:
             updates.useAuthToken !== undefined ? updates.useAuthToken : activeServer.useAuthToken,
+          sseToken: updates.sseToken !== undefined ? updates.sseToken : activeServer.sseToken,
         });
       } else {
         client = getPrimaryClient();
@@ -480,6 +489,7 @@ export function ApiProvider({
         baseUrl: activeServer.baseUrl,
         authToken: activeServer.authToken,
         useAuthToken: activeServer.useAuthToken,
+        sseToken: activeServer.sseToken,
       }
     : { baseUrl: DEFAULT_LOCAL_SERVER_URL, authToken: null, useAuthToken: false };
 
@@ -562,6 +572,7 @@ export function ApiProvider({
     // something else happens to call connect().
     connectionConfig.authToken,
     connectionConfig.useAuthToken,
+    connectionConfig.sseToken,
     isLoadingTauriStatus,
     isTauri,
     needsTauriServerUrlSync,
