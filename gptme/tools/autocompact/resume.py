@@ -173,6 +173,222 @@ def _logfile_snapshot(path: Path) -> tuple[int, int] | None:
     return (stat.st_size, stat.st_mtime_ns)
 
 
+SUMMARY_MAX_OUTPUT_TOKENS = 8192
+"""Cap on the summary the model may write; a resume is a digest, not a transcript."""
+
+SUMMARY_MAX_TOOL_OUTPUT_TOKENS = 2000
+"""Per-message cap on tool-result (``system`` role) content sent to the summarizer."""
+
+SUMMARY_MIN_CLIP_TOKENS = 200
+"""Smallest partial message worth sending; below this a message is dropped whole."""
+
+_SUMMARY_PROMPT_OVERHEAD_TOKENS = 4000
+"""Reserved for provider-side framing around the summarizer request."""
+
+_OMISSION_MARKER_RESERVE_TOKENS = 64
+"""Reserved for the "[N older messages omitted]" note when messages are dropped."""
+
+
+def _clip_middle(content: str, max_tokens: int, model: str) -> str:
+    """Keep the head and tail of ``content`` so the result fits ``max_tokens``.
+
+    The first estimate slices by character count using the full message's token
+    density, but density varies across the message and the omission marker has
+    its own cost. The *assembled* string is recounted and shrunk until it fits.
+    """
+    if max_tokens <= 0:
+        return content
+    total = len_tokens(content, model)
+    if total <= max_tokens:
+        return content
+
+    def assemble(keep: int) -> str:
+        keep = min(keep, len(content))
+        head_chars = keep * 2 // 3
+        tail_chars = keep - head_chars
+        omitted = max(len(content) - keep, 0)
+        marker = f"\n[... {omitted} characters omitted ...]\n"
+        return f"{content[:head_chars]}{marker}{content[-tail_chars:]}"
+
+    keep = max(int(len(content) * max_tokens / total) - 32, 1)
+    clipped = assemble(keep)
+    for _ in range(8):
+        used = len_tokens(clipped, model)
+        if used <= max_tokens:
+            return clipped
+        if keep <= 1:
+            break
+        keep = max(min(int(keep * max_tokens / used), keep - 1), 1)
+        clipped = assemble(keep)
+
+    # Pathologically dense content can still exceed the cap (the marker itself
+    # costs tokens). Fall back to a hard prefix, halving until it fits.
+    if len_tokens(clipped, model) > max_tokens:
+        cut = max(len(content) * max_tokens // max(total, 1), 1)
+        while cut > 1 and len_tokens(content[:cut], model) > max_tokens:
+            cut //= 2
+        clipped = content[:cut]
+    if len_tokens(clipped, model) > max_tokens:
+        # A single character can still exceed a sub-token cap (emoji/dense
+        # scripts cost >1 token per character). An empty string always fits;
+        # never return content that breaks the documented cap contract.
+        clipped = ""
+    return clipped
+
+
+def _clip_messages_to_budget(
+    msgs: list[Message], budget: int, model: str
+) -> list[Message]:
+    """Clip messages so their combined content fits ``budget`` tokens.
+
+    ``_clip_middle`` guarantees each result is within the cap it is given, but
+    the caps have to be divided so their *sum* cannot exceed ``budget``. A pure
+    proportional split can overrun by a token per message from integer rounding
+    (and the ``max(..., 1)`` floor), which is enough to starve the conversation
+    below when the whole window is already reserved for the system prompt. The
+    running remainder below keeps the sum within ``budget``. When a message's
+    share is smaller than its omission marker (a one-token cap still costs the
+    marker's tokens), the content is dropped rather than overrun the budget.
+    """
+    if not msgs:
+        return msgs
+    total = len_tokens(msgs, model)
+    if total <= budget:
+        return msgs
+    out: list[Message] = []
+    remaining = budget
+    for index, m in enumerate(msgs):
+        tokens = len_tokens(m.content, model)
+        if remaining <= 0:
+            # No room left for this message; drop its content, not the message.
+            out.append(m.replace(content=""))
+            continue
+        share = (
+            remaining
+            if index == len(msgs) - 1
+            else min(max(int(budget * tokens / total), 1), remaining)
+        )
+        clipped = m.replace(content=_clip_middle(m.content, share, model))
+        used = len_tokens(clipped.content, model)
+        # Defensive: if the clip overshot its cap on pathological density,
+        # halve the cap until the result fits the share.
+        while used > share and share > 1:
+            share //= 2
+            clipped = m.replace(content=_clip_middle(m.content, share, model))
+            used = len_tokens(clipped.content, model)
+        if used > share:
+            # _clip_middle cannot go below the cost of its omission marker, so a
+            # one-token share still overshoots. Drop the content rather than
+            # overrun the budget the caller relies on.
+            clipped = m.replace(content="")
+            used = 0
+        out.append(clipped)
+        remaining -= used
+    return out
+
+
+def _bound_summarize_input(
+    msgs: list[Message],
+    model: str,
+    context_window: int | None,
+    keep_head: int = 0,
+    extra_reserve_tokens: int = 0,
+) -> list[Message]:
+    """Bound the summarizer request so summarizing an oversized log cannot itself overflow.
+
+    - The first ``keep_head`` messages (original system prompt) are kept
+      verbatim when they fit the window; if the system prompt alone exceeds the
+      window it is clipped to half the budget so the newest conversation
+      messages still fit alongside it.
+    - Tool-result messages (``system`` role after the head) are clipped to
+      ``SUMMARY_MAX_TOOL_OUTPUT_TOKENS`` each, keeping head and tail. User and
+      assistant messages keep their content: a long user request carries
+      requirements the resume must not silently discard.
+    - If the total still exceeds the window (minus the output cap, framing, and
+      ``extra_reserve_tokens`` — the caller's summarizer prompt), the oldest
+      messages are dropped and the oldest surviving message is clipped if it
+      only partly fits, so the final request is guaranteed to be within budget.
+    """
+    head = msgs[:keep_head]
+    body = [
+        m.replace(
+            content=_clip_middle(m.content, SUMMARY_MAX_TOOL_OUTPUT_TOKENS, model)
+        )
+        if m.role == "system"
+        and len_tokens(m.content, model) > SUMMARY_MAX_TOOL_OUTPUT_TOKENS
+        else m
+        for m in msgs[keep_head:]
+    ]
+    if not context_window:
+        return head + body
+
+    budget = (
+        context_window
+        - SUMMARY_MAX_OUTPUT_TOKENS
+        - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+        - extra_reserve_tokens
+    )
+    head_tokens = len_tokens(head, model)
+    if head_tokens > budget:
+        # The system prompt alone exceeds the summarizer window. Clip it to
+        # half the budget in place — keeping it verbatim would send a request
+        # that cannot be summarized at all — and leave the other half for the
+        # newest conversation messages. ``budget`` already excludes the output
+        # cap, provider framing, and the caller's summarizer prompt, so the
+        # clipped head plus that prompt still fits the window.
+        head = _clip_messages_to_budget(head, max(budget // 2, 1), model)
+        head_tokens = len_tokens(head, model)
+
+    body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+    if body_budget <= 0 and body:
+        # The head fits the window but leaves no room for the conversation: it
+        # is within ``_OMISSION_MARKER_RESERVE_TOKENS`` of the whole budget.
+        # Returning the head alone would make the summarizer build a resume from
+        # system instructions with no task or progress, and that resume then
+        # replaces the working conversation history. Clip the head back to
+        # reserve a minimal slice for the newest conversation messages.
+        head = _clip_messages_to_budget(
+            head,
+            max(budget - _OMISSION_MARKER_RESERVE_TOKENS - SUMMARY_MIN_CLIP_TOKENS, 1),
+            model,
+        )
+        head_tokens = len_tokens(head, model)
+        body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+    if body_budget <= 0:
+        return head
+
+    kept: list[Message] = []
+    used = 0
+    for msg in reversed(body):
+        remaining = body_budget - used
+        tokens = len_tokens(msg.content, model)
+        if tokens <= remaining:
+            kept.append(msg)
+            used += tokens
+        elif remaining >= SUMMARY_MIN_CLIP_TOKENS or not kept:
+            # Clip the boundary message; always keep at least the newest one.
+            # Reuse the defensive single-message clipper so the result is
+            # verified to fit ``remaining`` (it re-counts and drops content if
+            # the omission marker alone cannot fit), keeping the assembled
+            # request inside the summarizer budget.
+            kept.append(_clip_messages_to_budget([msg], max(remaining, 1), model)[0])
+            break
+        else:
+            break
+    dropped = len(body) - len(kept)
+    kept.reverse()
+    if dropped:
+        logger.info("Summarizer input: dropped %d oldest messages to fit", dropped)
+        kept.insert(
+            0,
+            Message(
+                "system",
+                f"[{dropped} older messages omitted to fit the summarization window]",
+            ),
+        )
+    return head + kept
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
@@ -233,9 +449,6 @@ Format the response as a structured document that could serve as a RESUME.md fil
 
     # Create a temporary message for the LLM prompt
     resume_request = Message("user", resume_prompt)
-    # Use full prepared messages for prompt caching friendliness
-    llm_msgs = prepared_msgs + [resume_request]
-
     # Generate the resume using LLM
     m = get_default_model()
     if not m:
@@ -247,6 +460,19 @@ Format the response as a structured document that could serve as a RESUME.md fil
             ui_only=True,
         )
         return
+    n_head = 0
+    for msg in prepared_msgs:
+        if msg.role != "system":
+            break
+        n_head += 1
+    context_window = m.context if isinstance(m.context, int) else None
+    llm_msgs = _bound_summarize_input(
+        prepared_msgs,
+        m.model,
+        context_window,
+        keep_head=n_head,
+        extra_reserve_tokens=len_tokens(resume_request, m.model),
+    ) + [resume_request]
     snapshot = None
     file_snapshot = None
     conv_snapshot = None
@@ -268,7 +494,13 @@ Format the response as a structured document that could serve as a RESUME.md fil
             # conversation.jsonl too so those appends are detected.
             conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
     with llm_unlocked or nullcontext():
-        resume_response = llm.reply(llm_msgs, model=m.full, tools=[], workspace=None)
+        resume_response = llm.reply(
+            llm_msgs,
+            model=m.full,
+            tools=[],
+            workspace=None,
+            max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
+        )
     if snapshot is not None:
         current = (
             manager.current_view,
