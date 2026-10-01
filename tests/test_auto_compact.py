@@ -3087,6 +3087,32 @@ def test_bound_summarize_input_clips_when_newest_message_exceeds_window():
     )
 
 
+def test_bound_summarize_input_boundary_clip_stays_within_budget():
+    """A boundary body message clipped to a small share must still fit the budget.
+
+    The clip runs with only the remaining body budget; if the clipped message
+    overshot it, the assembled request would exceed the window this PR exists
+    to bound.
+    """
+    from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    context_window = 13000
+    budget = (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "requirement line\n" * 40000),
+    ]
+    out = _bound_summarize_input(msgs, model, context_window, keep_head=1)
+    assert len_tokens(out, model) <= budget
+
+
 def test_bound_summarize_input_head_over_budget_keeps_conversation():
     """A system prompt over the window must not starve the conversation.
 

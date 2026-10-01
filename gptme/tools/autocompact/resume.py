@@ -362,9 +362,11 @@ def _bound_summarize_input(
             used += tokens
         elif remaining >= SUMMARY_MIN_CLIP_TOKENS or not kept:
             # Clip the boundary message; always keep at least the newest one.
-            kept.append(
-                msg.replace(content=_clip_middle(msg.content, max(remaining, 1), model))
-            )
+            # Reuse the defensive single-message clipper so the result is
+            # verified to fit ``remaining`` (it re-counts and drops content if
+            # the omission marker alone cannot fit), keeping the assembled
+            # request inside the summarizer budget.
+            kept.append(_clip_messages_to_budget([msg], max(remaining, 1), model)[0])
             break
         else:
             break
