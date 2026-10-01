@@ -231,6 +231,57 @@ def _clip_middle(content: str, max_tokens: int, model: str) -> str:
     return clipped
 
 
+def _clip_messages_to_budget(
+    msgs: list[Message], budget: int, model: str
+) -> list[Message]:
+    """Clip messages so their combined content fits ``budget`` tokens.
+
+    ``_clip_middle`` guarantees each result is within the cap it is given, but
+    the caps have to be divided so their *sum* cannot exceed ``budget``. A pure
+    proportional split can overrun by a token per message from integer rounding
+    (and the ``max(..., 1)`` floor), which is enough to starve the conversation
+    below when the whole window is already reserved for the system prompt. The
+    running remainder below keeps the sum within ``budget``. When a message's
+    share is smaller than its omission marker (a one-token cap still costs the
+    marker's tokens), the content is dropped rather than overrun the budget.
+    """
+    if not msgs:
+        return msgs
+    total = len_tokens(msgs, model)
+    if total <= budget:
+        return msgs
+    out: list[Message] = []
+    remaining = budget
+    for index, m in enumerate(msgs):
+        tokens = len_tokens(m.content, model)
+        if remaining <= 0:
+            # No room left for this message; drop its content, not the message.
+            out.append(m.replace(content=""))
+            continue
+        share = (
+            remaining
+            if index == len(msgs) - 1
+            else min(max(int(budget * tokens / total), 1), remaining)
+        )
+        clipped = m.replace(content=_clip_middle(m.content, share, model))
+        used = len_tokens(clipped.content, model)
+        # Defensive: if the clip overshot its cap on pathological density,
+        # halve the cap until the result fits the share.
+        while used > share and share > 1:
+            share //= 2
+            clipped = m.replace(content=_clip_middle(m.content, share, model))
+            used = len_tokens(clipped.content, model)
+        if used > share:
+            # _clip_middle cannot go below the cost of its omission marker, so a
+            # one-token share still overshoots. Drop the content rather than
+            # overrun the budget the caller relies on.
+            clipped = m.replace(content="")
+            used = 0
+        out.append(clipped)
+        remaining -= used
+    return out
+
+
 def _bound_summarize_input(
     msgs: list[Message],
     model: str,
@@ -241,7 +292,9 @@ def _bound_summarize_input(
     """Bound the summarizer request so summarizing an oversized log cannot itself overflow.
 
     - The first ``keep_head`` messages (original system prompt) are kept
-      verbatim when they fit the window.
+      verbatim when they fit the window; if the system prompt alone exceeds the
+      window it is clipped to half the budget so the newest conversation
+      messages still fit alongside it.
     - Tool-result messages (``system`` role after the head) are clipped to
       ``SUMMARY_MAX_TOOL_OUTPUT_TOKENS`` each, keeping head and tail. User and
       assistant messages keep their content: a long user request carries
@@ -272,22 +325,17 @@ def _bound_summarize_input(
     )
     head_tokens = len_tokens(head, model)
     if head_tokens > budget:
-        # The system prompt alone exceeds the summarizer window. Clip it in
-        # place: keeping it verbatim would send a request that cannot be
-        # summarized at all. ``budget`` already excludes the output cap,
+        # The system prompt alone exceeds the summarizer window. Clip it to
+        # half the budget in place — keeping it verbatim would send a request
+        # that cannot be summarized at all — and leave the other half for the
+        # newest conversation messages. Returning the clipped head alone would
+        # let the summarizer produce a resume from system instructions with no
+        # task or progress in it, and that resume then replaces the working
+        # conversation history. ``budget`` already excludes the output cap,
         # provider framing, and the caller's summarizer prompt, so the clipped
         # head plus that prompt still fits the window.
-        head = [
-            m.replace(
-                content=_clip_middle(
-                    m.content,
-                    max(int(budget * len_tokens(m.content, model) / head_tokens), 1),
-                    model,
-                )
-            )
-            for m in head
-        ]
-        return head
+        head = _clip_messages_to_budget(head, max(budget // 2, 1), model)
+        head_tokens = len_tokens(head, model)
 
     body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
     if body_budget <= 0:

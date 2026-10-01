@@ -3087,6 +3087,85 @@ def test_bound_summarize_input_clips_when_newest_message_exceeds_window():
     )
 
 
+def test_bound_summarize_input_head_over_budget_keeps_conversation():
+    """A system prompt over the window must not starve the conversation.
+
+    Returning the clipped head alone makes the summarizer build a resume from
+    system instructions with no task or progress, and that resume then replaces
+    the working history. The newest conversation messages must survive.
+    """
+    from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    huge_system = "system instruction line\n" * 40000
+    msgs = [
+        Message("system", huge_system),
+        Message("user", "the actual task"),
+        Message("assistant", "working on it"),
+        Message("user", "newest progress"),
+    ]
+    context_window = 30000
+    out = _bound_summarize_input(msgs, model, context_window, keep_head=1)
+
+    assert out[0].content != huge_system, "oversized system prompt must be clipped"
+    assert any(m.content == "newest progress" for m in out), (
+        "newest conversation message must survive a head-over-budget request"
+    )
+    assert len_tokens(out, model) <= (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+
+
+def test_bound_summarize_input_head_over_budget_multiple_head_messages():
+    """Multiple oversized head messages must not overrun the head's share.
+
+    A proportional per-message split can overrun its total by a token per
+    message; if that pushed the clipped head up to the whole budget, the body
+    budget would go non-positive and the conversation would be dropped again.
+    """
+    from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    msgs = [
+        Message("system", "first system block\n" * 20000),
+        Message("system", "second system block\n" * 20000),
+        Message("user", "the actual task"),
+        Message("user", "newest progress"),
+    ]
+    context_window = 30000
+    out = _bound_summarize_input(msgs, model, context_window, keep_head=2)
+
+    assert any(m.content == "newest progress" for m in out), (
+        "newest conversation message must survive a multi-head over-budget request"
+    )
+    assert len_tokens(out, model) <= (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+
+
+def test_clip_messages_to_budget_never_exceeds_budget():
+    """A share below the omission-marker cost must not overrun the budget.
+
+    _clip_middle cannot produce output smaller than its marker, so a message
+    with a one-token share would otherwise overshoot and make the head swallow
+    the body budget.
+    """
+    from gptme.tools.autocompact.resume import _clip_messages_to_budget
+
+    model = "gpt-4"
+    msgs = [Message("system", "long head text " * 5000) for _ in range(3)]
+    out = _clip_messages_to_budget(msgs, 10, model)
+    assert len_tokens(out, model) <= 10
+
+
 def test_clip_middle_respects_cap_exactly():
     from gptme.tools.autocompact.resume import _clip_middle
 
