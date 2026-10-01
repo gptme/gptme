@@ -759,7 +759,11 @@ class TestCmdRestart:
         trigger.assert_called_once()
         assert trigger.call_args.args[0] == HookType.SESSION_END
 
-    def test_session_end_hooks_run_before_restart(self, tmp_path):
+    @pytest.mark.parametrize(
+        "args",
+        [pytest.param([], id="bare"), pytest.param(["cli"], id="cli"), ["tui"]],
+    )
+    def test_session_end_hooks_run_before_restart(self, tmp_path, args):
         """The CLI restart re-execs, so SESSION_END must run first (as the TUI does)."""
         from gptme.commands.session import cmd_restart
 
@@ -778,7 +782,7 @@ class TestCmdRestart:
             patch("gptme.hooks.trigger_hook", side_effect=hook),
             patch("gptme.tools.restart._do_restart", side_effect=do_restart),
         ):
-            cmd_restart(self._ctx(tmp_path, ["tui"]))
+            cmd_restart(self._ctx(tmp_path, args))
         assert order == ["session_end", "restart"]
 
     def test_tui_not_installed_does_not_prompt(self, tmp_path, capsys):
