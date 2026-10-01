@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '@/contexts/ApiContext';
+import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { use$, useObservable } from '@legendapp/state/react';
@@ -73,14 +74,13 @@ export const WelcomeView = () => {
   const [isRestartingServer, setIsRestartingServer] = useState(false);
   const [providerConfigured, setProviderConfigured] = useState<boolean | null>(null);
   const navigate = useNavigate();
-  const { api, isConnected$, isAutoConnecting$, connectionConfig, switchServer, connect } =
-    useApi();
+  const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   const demoMode = isDemoMode();
   const isTauri = isTauriEnvironment();
   const { managesLocalServer } = useTauriServerStatus();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
-  const isAutoConnecting = use$(isAutoConnecting$);
+  const connectionStatus = useConnectionStatus();
   const lastConnectionResult = use$(api.lastConnectionResult$);
   const compatibilityWarning = use$(api.compatibilityWarning$);
   const providerStatusVersion = use$(setupWizard$.providerStatusVersion);
@@ -403,7 +403,7 @@ export const WelcomeView = () => {
               </Alert>
             )}
 
-            {!isConnected && !isAutoConnecting && (
+            {connectionStatus === 'disconnected' && (
               <Alert className="mx-auto w-full max-w-2xl border-amber-500/30 bg-amber-500/10 text-left">
                 <Server className="h-4 w-4 text-amber-700 dark:text-amber-300" />
                 <AlertTitle>

@@ -11,6 +11,7 @@ import { observable } from '@legendapp/state';
 import type { Message } from '@/types/conversation';
 import type { ExecutingTool } from '@/stores/conversations';
 import { ConversationContent } from '../ConversationContent';
+import { CONNECTION_GRACE_MS } from '@/hooks/useConnectionStatus';
 
 // Control how many items the virtualizer "renders" (simulates viewport size).
 // Defaults to Infinity so existing tests see all messages (no change in behaviour).
@@ -331,8 +332,37 @@ describe('server disconnected banner', () => {
 
   it('shows when disconnected and not in demo mode', () => {
     isConnected$.set(false);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://localhost:5700',
+      reason: 'network',
+      message: 'Network error',
+    });
     renderComponent();
     expect(screen.getByText(/server not connected/i)).toBeInTheDocument();
+  });
+
+  // gptme.ai: the banner flashed on every load and hourly token refresh, because
+  // "not connected yet" (nothing probed) rendered the same as "unreachable".
+  it('stays hidden while the first probe has not completed yet', () => {
+    isConnected$.set(false);
+    renderComponent();
+    expect(screen.queryByText(/server not connected/i)).toBeNull();
+  });
+
+  it('shows once the grace period passes without a connection', () => {
+    jest.useFakeTimers();
+    try {
+      isConnected$.set(false);
+      renderComponent();
+      expect(screen.queryByText(/server not connected/i)).toBeNull();
+      act(() => {
+        jest.advanceTimersByTime(CONNECTION_GRACE_MS);
+      });
+      expect(screen.getByText(/server not connected/i)).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('is hidden when disconnected but in intentional demo mode', () => {
@@ -380,6 +410,12 @@ describe('server disconnected banner', () => {
 
   it('shows a Retry button that calls connect()', async () => {
     isConnected$.set(false);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://localhost:5700',
+      reason: 'network',
+      message: 'Network error',
+    });
     renderComponent();
     const btn = screen.getByRole('button', { name: /retry/i });
     btn.click();
@@ -407,12 +443,24 @@ describe('server disconnected banner — serverId (secondary server)', () => {
 
   it('shows when the secondary server is disconnected, even if primary is connected', () => {
     secondaryIsConnected$.set(false);
+    secondaryLastConnectionResult$.set({
+      ok: false,
+      url: 'http://localhost:5700',
+      reason: 'network',
+      message: 'Network error',
+    });
     render(<ConversationContent conversationId="demo/test" serverId="secondary-server" />);
     expect(screen.getByText(/server not connected/i)).toBeInTheDocument();
   });
 
   it('Retry calls checkConnection() on the secondary server, not connect()', async () => {
     secondaryIsConnected$.set(false);
+    secondaryLastConnectionResult$.set({
+      ok: false,
+      url: 'http://localhost:5700',
+      reason: 'network',
+      message: 'Network error',
+    });
     render(<ConversationContent conversationId="demo/test" serverId="secondary-server" />);
     const btn = screen.getByRole('button', { name: /retry/i });
     btn.click();

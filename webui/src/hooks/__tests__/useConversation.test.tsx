@@ -1,7 +1,7 @@
 import { observable } from '@legendapp/state';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useApi } from '@/contexts/ApiContext';
-import { conversations$, initConversation } from '@/stores/conversations';
+import { conversations$, initConversation, setConnectionStatus } from '@/stores/conversations';
 import { useConversation } from '../useConversation';
 
 jest.mock('@/contexts/ApiContext', () => ({
@@ -36,6 +36,22 @@ describe('useConversation', () => {
         onMessageStart?: () => void;
       }
     | undefined;
+  // A pooled client is a stable object for a server's lifetime (the pool keys
+  // clients on the auth header); the mock must return the same object so the
+  // hook's client-generation check is stable across renders.
+  let primaryClient: Record<string, unknown>;
+
+  const makeClient = (subscribeImpl: jest.Mock) => ({
+    subscribeToEvents: subscribeImpl,
+    step,
+    interruptGeneration: interruptGenerationApi,
+    editMessage: editMessageApi,
+    rerunTools,
+    closeEventStream,
+    getConversation: jest.fn(),
+    getChatConfig,
+    waitForConversationCreation: jest.fn().mockResolvedValue(undefined),
+  });
 
   beforeEach(() => {
     conversations$.set(new Map());
@@ -69,19 +85,9 @@ describe('useConversation', () => {
       { needsInitialStep: true, initialStepStream: false }
     );
 
+    primaryClient = makeClient(subscribeToEvents);
     mockedUseApi.mockReturnValue({
-      getClient: () =>
-        ({
-          subscribeToEvents,
-          step,
-          interruptGeneration: interruptGenerationApi,
-          editMessage: editMessageApi,
-          rerunTools,
-          closeEventStream,
-          getConversation: jest.fn(),
-          getChatConfig,
-          waitForConversationCreation: jest.fn().mockResolvedValue(undefined),
-        }) as any,
+      getClient: () => primaryClient,
       isConnected$: observable(true),
     } as any);
   });
@@ -158,6 +164,63 @@ describe('useConversation', () => {
         'initialStepStream'
       )
     ).toBe(false);
+  });
+
+  it('re-subscribes on the replacement client after a credential swap', async () => {
+    const { rerender } = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+
+    // The stream established successfully on the first client.
+    act(() => {
+      setConnectionStatus('chat-placeholder', 'connected');
+    });
+    expect(conversations$.get('chat-placeholder')?.isConnected.get()).toBe(true);
+
+    // A credential refresh swaps the pooled client: serverClients.ts disposes the
+    // old one, closing its event stream, while the conversation still reports
+    // "connected". The hook must re-subscribe on the replacement instead of
+    // returning early and leaving the open chat without events (gptme#4028).
+    const newSubscribeToEvents = jest.fn().mockResolvedValue(undefined);
+    mockedUseApi.mockReturnValue({
+      getClient: () => makeClient(newSubscribeToEvents),
+      isConnected$: observable(true),
+    } as any);
+
+    rerender();
+
+    await waitFor(() => {
+      expect(newSubscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+    // Only the replacement client subscribes; the disposed one is not re-used.
+    expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restart a live stream when a second instance mounts (split view)', async () => {
+    const first = renderHook(() => useConversation('chat-placeholder'));
+
+    await waitFor(() => {
+      expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    });
+    act(() => {
+      setConnectionStatus('chat-placeholder', 'connected');
+    });
+
+    // Split view renders the same conversation twice on one client. The second
+    // instance must see the shared subscription generation and return early
+    // instead of re-subscribing and restarting the live stream.
+    const second = renderHook(() => useConversation('chat-placeholder'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+
+    first.unmount();
+    second.unmount();
   });
 
   it('uses the latest generation settings for the initial step', async () => {
