@@ -5558,3 +5558,57 @@ def test_v2_agents_put_rejects_non_object_mcp_server_entries(
     assert (
         data["error"] == "Invalid project_config: mcp.servers entries must be objects"
     )
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_v2_step_anchors_provider_usage(v2_conv, client: FlaskClient, stream):
+    """Both server generation paths attach usage to the stored input prefix."""
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager
+    from gptme.util.context_measurement import input_log_digest, measure_context_tokens
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Reply briefly"},
+    )
+
+    class UsageStream:
+        metadata = {"usage": {"input_tokens": 1000, "cache_read_tokens": 500}}
+
+        def __iter__(self):
+            yield "ok\n"
+
+    with (
+        unittest.mock.patch(
+            "gptme.server.session_step._stream", return_value=UsageStream()
+        ),
+        unittest.mock.patch(
+            "gptme.server.session_step._chat_complete",
+            return_value=("ok\n", UsageStream.metadata.copy()),
+        ),
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+                "stream": stream,
+            },
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            session = SessionManager.get_session(session_id)
+            if session is not None and not session.generating:
+                break
+            time.sleep(0.01)
+    assert response.status_code == 200
+    messages = LogManager.load(conversation_id, lock=False).log.messages
+    index = next(i for i, message in enumerate(messages) if message.role == "assistant")
+    metadata = messages[index].metadata
+    assert metadata is not None
+    assert metadata["input_log_messages"] == index
+    assert metadata["input_log_digest"] == input_log_digest(messages[:index])
+    assert metadata["usage"]["input_tokens"] == 1000
+    assert measure_context_tokens(messages, "openai/mock-model") >= 1500

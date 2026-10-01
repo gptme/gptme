@@ -199,6 +199,10 @@ class MessageMetadata(TypedDict, total=False):
     served_model: str
     cost: float  # Cost in USD
     usage: UsageData
+    # Anchor provider usage to the stored input prefix. Compaction, edits, or
+    # branch changes invalidate it rather than replaying a stale large count.
+    input_log_messages: int
+    input_log_digest: str
     # Effective reasoning effort level applied to the request (e.g. "high"),
     # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
     # actually shaped the request. Absent means the provider default applied.
