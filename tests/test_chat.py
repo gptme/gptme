@@ -1953,8 +1953,8 @@ def _profile_resume_msg(content: str = "# Agent Profile: explorer\n\nRead-only."
     )
 
 
-def test_apply_resume_msgs_inserts_before_history(tmp_path):
-    """A resume message belongs in the leading system block, not after history."""
+def test_apply_resume_msgs_appends_when_absent(tmp_path):
+    """A resume message is appended to the log (chronology preserved)."""
     import importlib
 
     from gptme.logmanager import LogManager
@@ -1969,9 +1969,9 @@ def test_apply_resume_msgs_inserts_before_history(tmp_path):
     chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
 
     msgs = manager.log.messages
-    assert msgs[1].content.startswith("# Agent Profile: explorer")
-    assert msgs[1].pinned
-    assert msgs[-1].content == "hello"
+    assert msgs[-1].content.startswith("# Agent Profile: explorer")
+    assert msgs[-1].pinned
+    assert (msgs[-1].metadata or {}).get("resume_key") == "agent_profile"
 
 
 def test_apply_resume_msgs_skips_when_already_present(tmp_path):
@@ -2020,11 +2020,11 @@ def test_apply_resume_msgs_user_text_does_not_suppress(tmp_path):
 
     chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
 
-    assert manager.log.messages[1].content.startswith("# Agent Profile: explorer")
+    assert manager.log.messages[-1].content.startswith("# Agent Profile: explorer")
 
 
-def test_apply_resume_msgs_replaces_changed_content(tmp_path):
-    """An edited profile replaces the previously applied copy instead of stacking."""
+def test_apply_resume_msgs_appends_changed_content(tmp_path):
+    """An edited profile appends a fresh copy; the newest is provider-visible."""
     import importlib
 
     from gptme.logmanager import LogManager
@@ -2044,10 +2044,43 @@ def test_apply_resume_msgs_replaces_changed_content(tmp_path):
         manager, [_profile_resume_msg("# Agent Profile: explorer\n\nNew instructions.")]
     )
 
+    assert "New instructions." in manager.log.messages[-1].content
+
+    # Provider context keeps only the newest copy per resume_key.
+    from gptme.logmanager.manager import _hoist_resume_msgs
+
+    prepared = _hoist_resume_msgs(list(manager.log))
     profiles = [
         m
-        for m in manager.log.messages
-        if m.content.startswith("# Agent Profile: explorer")
+        for m in prepared
+        if m.metadata and m.metadata.get("resume_key") == "agent_profile"
     ]
     assert len(profiles) == 1
     assert "New instructions." in profiles[0].content
+
+
+def test_hoist_resume_msgs_moves_into_leading_system_block():
+    """A resume message is provider-visible before history, keeping system authority."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    prepared = _hoist_resume_msgs(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "hello"),
+            Message("assistant", "hi"),
+            _profile_resume_msg(),
+        ]
+    )
+
+    assert prepared[1].content.startswith("# Agent Profile: explorer")
+    assert prepared[2].content == "hello"
+
+
+def test_hoist_resume_msgs_noop_without_context():
+    """A log without resume messages is returned unchanged."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    msgs = [Message("system", "startup prompt"), Message("user", "hello")]
+    assert _hoist_resume_msgs(msgs) == msgs

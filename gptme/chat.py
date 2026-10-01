@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import threading
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterable
 from contextlib import ExitStack
 from contextvars import ContextVar
 from pathlib import Path
@@ -146,76 +146,60 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
         logger.warning("track-tokens failed: %s", e)
 
 
-def _leading_system_block_end(msgs: list[Message]) -> int:
-    """Return the index just after the leading contiguous run of system messages."""
-    index = 0
+def _leading_system_messages(msgs: Iterable[Message]) -> list[Message]:
+    """Return the leading contiguous run of system messages."""
+    leading: list[Message] = []
     for msg in msgs:
         if msg.role != "system":
             break
-        index += 1
-    return index
+        leading.append(msg)
+    return leading
 
 
 def _apply_resume_msgs(manager: LogManager, resume_msgs: list[Message]) -> None:
-    """Apply prompt messages that must take effect when resuming an existing log.
+    """Append prompt messages that must take effect when resuming an existing log.
 
     ``initial_msgs`` only seeds a *new* log — ``LogManager.load`` keeps the
     persisted history when one exists — so a message meant to be (re-)applied on
     resume (e.g. an agent profile) would be discarded.
 
-    Messages are matched by their ``resume_key`` metadata, never by content
-    substring: substring matching over the whole log let any user or assistant
-    message that merely quoted the marker suppress the prompt (and a profile
-    edit kept the stale copy).  A message already embedded in the persisted
-    startup prompt is left alone — re-applying it would duplicate the profile
-    that was captured at conversation creation.
+    Messages are keyed by ``resume_key`` metadata, never by content substring:
+    substring matching over the whole log let any user or assistant message that
+    merely quoted the marker suppress the prompt, and a profile edit kept the
+    stale copy.  A message already embedded in the persisted startup prompt is
+    left alone — re-applying it would duplicate the profile captured at
+    conversation creation.
 
-    New messages are inserted directly after the leading system block instead
-    of being appended.  A system message appended after saved turns is
-    downgraded to a user message by providers without native mid-conversation
-    system-message support, which would strip the profile's system authority.
+    The message is appended (preserving chronology and dual-writing to any
+    restored compacted view), and ``prepare_messages`` hoists the newest message
+    per key into the leading system block so it keeps system authority.
     """
     if not resume_msgs:
         return
-
-    msgs = list(manager.log)
-    insert_at = _leading_system_block_end(msgs)
-    changed = False
 
     for msg in resume_msgs:
         key = msg.metadata.get("resume_key") if msg.metadata else None
         content = msg.content if isinstance(msg.content, str) else ""
 
-        existing = next(
+        latest = next(
             (
-                i
-                for i, m in enumerate(msgs)
+                m
+                for m in reversed(list(manager.log))
                 if key and m.metadata and m.metadata.get("resume_key") == key
             ),
             None,
         )
-        if existing is not None:
-            if msgs[existing].content == content:
-                continue
-            # Same key, new content (e.g. the profile definition changed):
-            # replace the previously applied copy instead of stacking a third.
-            msgs[existing] = msg
-            changed = True
+        if latest is not None and latest.content == content:
             continue
 
         # Already part of the persisted startup prompt?
         if content and any(
             isinstance(m.content, str) and content in m.content
-            for m in msgs[:insert_at]
+            for m in _leading_system_messages(manager.log)
         ):
             continue
 
-        msgs.insert(insert_at, msg)
-        insert_at += 1
-        changed = True
-
-    if changed:
-        manager.edit(msgs)
+        manager.append(msg)
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})

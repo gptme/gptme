@@ -1144,6 +1144,45 @@ def _active_prompt_generation(msgs: list[Message]) -> list[Message]:
     return active + history
 
 
+def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
+    """Move resume-only prompt messages into the leading system block.
+
+    Resume messages (e.g. a re-applied agent profile) are ``append``-ed to the
+    log for a truthful chronology, but a trailing system message is
+    down-converted to user content by providers without native
+    mid-conversation system messages, and it is dropped when a newer
+    replacement prompt generation supersedes the legacy prompt block. Provider
+    context therefore hoists the newest message per ``resume_key`` to just
+    after the leading system block.
+
+    Only the newest message per key survives: a changed profile appends a new
+    copy and the superseded copy must not stay provider-visible.
+    """
+    latest: dict[str, Message] = {}
+    for msg in msgs:
+        key = msg.metadata.get("resume_key") if msg.metadata else None
+        if key:
+            latest[key] = msg
+    if not latest:
+        return msgs
+
+    keys = set(latest)
+    remaining = [
+        m for m in msgs if not (m.metadata and m.metadata.get("resume_key") in keys)
+    ]
+
+    insert_at = 0
+    for msg in remaining:
+        if msg.role != "system" or (
+            msg.metadata and msg.metadata.get("resume_key") in keys
+        ):
+            break
+        insert_at += 1
+
+    hoisted = [latest[key] for key in latest]
+    return remaining[:insert_at] + hoisted + remaining[insert_at:]
+
+
 def prepare_messages(
     msgs: list[Message],
     workspace: Path | None = None,
@@ -1172,6 +1211,10 @@ def prepare_messages(
     # the earlier generation marker) and the provider would see stale + current
     # instructions as one prompt.
     msgs = _active_prompt_generation(filtered)
+
+    # Resume-only prompt messages (e.g. a re-applied agent profile) live at the
+    # end of the log but belong in the leading system block for the provider.
+    msgs = _hoist_resume_msgs(msgs)
 
     # Always merge after the filter/reorder. A length-change guard misses the
     # same-count case: a single tagged prompt sitting between two same-role
