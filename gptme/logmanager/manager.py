@@ -1156,7 +1156,10 @@ def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
     after the leading system block.
 
     Only the newest message per key survives: a changed profile appends a new
-    copy and the superseded copy must not stay provider-visible.
+    copy and the superseded copy must not stay provider-visible. A resume
+    message already embedded in the active prompt generation (e.g. a /model or
+    /tools switch carried the profile into the replacement prompt) is dropped —
+    sending both copies would duplicate the instructions in model context.
     """
     latest: dict[str, Message] = {}
     for msg in msgs:
@@ -1166,10 +1169,32 @@ def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
     if not latest:
         return msgs
 
+    # Drop resume messages whose content is already embedded in a replacement
+    # prompt generation that survived the generation filter (it is in `msgs`).
+    embedded: set[str] = set()
+    embedded_ids: set[int] = set()
+    for key, msg in latest.items():
+        content = msg.content if isinstance(msg.content, str) else ""
+        if content and any(
+            isinstance(m.content, str) and content in m.content
+            for m in msgs
+            if m.metadata and "prompt_generation" in m.metadata
+        ):
+            embedded.add(key)
+            embedded_ids.add(id(msg))
+    for key in embedded:
+        del latest[key]
+
     keys = set(latest)
     remaining = [
-        m for m in msgs if not (m.metadata and m.metadata.get("resume_key") in keys)
+        m
+        for m in msgs
+        if id(m) not in embedded_ids
+        and not (m.metadata and m.metadata.get("resume_key") in keys)
     ]
+    if not latest:
+        # Every resume message was embedded in a prompt generation; drop them all.
+        return remaining
 
     insert_at = 0
     for msg in remaining:

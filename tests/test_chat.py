@@ -2077,6 +2077,46 @@ def test_hoist_resume_msgs_moves_into_leading_system_block():
     assert prepared[2].content == "hello"
 
 
+def test_hoist_resume_msgs_drops_copy_embedded_in_replacement_generation():
+    """A /model switch carrying the profile into the replacement prompt means the
+    separately appended resume copy must not also reach the model (no duplicates)."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    profile = _profile_resume_msg()
+    msgs = [
+        Message(
+            "system",
+            "replacement prompt\n\n" + profile.content,
+            pinned=True,
+            hide=True,
+            metadata={"prompt_generation": "one"},
+        ),
+        Message("user", "hello"),
+        profile,
+    ]
+
+    prepared = _hoist_resume_msgs(msgs)
+    assert prepared == msgs[:2]
+
+
+def test_should_prompt_for_input_ignores_resume_prompt_after_unanswered_user():
+    """A re-applied profile appended after an unanswered user turn must not
+    make the chat loop ask for input instead of answering (crash recovery)."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "fix the bug"),
+            _profile_resume_msg(),
+        ]
+    )
+    assert _should_prompt_for_input(log) is False
+
+
 def test_prepare_messages_survives_replacement_prompt_generation():
     """A resume message hoisted after prompt-generation filtering stays provider-visible.
 

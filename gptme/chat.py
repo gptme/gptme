@@ -801,13 +801,21 @@ def _should_prompt_for_input(log: Log) -> bool:
     # - No messages at all
     # - Last message was from assistant (normal flow)
     # - There was an interrupt, decline, or provider error after the last assistant
-    # - Last message was pinned
+    # - Last message was pinned (except resume-only prompts like a re-applied
+    #   agent profile: those are appended after saved turns, so treating them
+    #   as "needs input" would break crash recovery on an unanswered user turn)
     # - No user messages exist in the entire log
+    last_msg_is_resume_prompt = bool(
+        last_msg
+        and last_msg.pinned
+        and last_msg.metadata
+        and "resume_key" in last_msg.metadata
+    )
     return (
         not last_msg
         or last_msg.role == "assistant"
         or has_recent_return_to_prompt
-        or last_msg.pinned
+        or (last_msg.pinned and not last_msg_is_resume_prompt)
         or not any(role == "user" for role in [m.role for m in log])
     )
 
