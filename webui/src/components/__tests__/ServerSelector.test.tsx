@@ -269,6 +269,36 @@ describe('ServerSelector in non-embedded mode', () => {
     expect(container.firstChild).not.toBeNull();
   });
 
+  it('retries the connection when the already-primary server is clicked while disconnected', async () => {
+    const user = userEvent.setup();
+    const checkConnection = jest.fn().mockResolvedValue(true);
+    const { getClientForServer } =
+      jest.requireMock<typeof import('@/stores/serverClients')>('@/stores/serverClients');
+    const { connectServer } =
+      jest.requireMock<typeof import('@/stores/servers')>('@/stores/servers');
+    (connectServer as jest.Mock).mockClear();
+    // Registry says the Local server is connected, but its live connection is down.
+    (getClientForServer as jest.Mock).mockImplementation(() => ({
+      isConnected$: { get: () => false },
+      checkConnection,
+    }));
+
+    render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+
+    await user.click(screen.getByText('Local'));
+    const row = await screen.findByRole('button', { name: /127\.0\.0\.1:5700/ });
+    await user.click(row);
+
+    await waitFor(() => expect(checkConnection).toHaveBeenCalled());
+    expect(connectServer).toHaveBeenCalledWith('local');
+
+    (getClientForServer as jest.Mock).mockReturnValue(null);
+  });
+
   it('focuses and marks the server URL invalid when submitted empty', async () => {
     const user = userEvent.setup();
     render(

@@ -166,7 +166,9 @@ export const ServerSelector: FC = () => {
     toast.success(`Connected to "${server.name}"`);
   };
 
-  /** Row click: if not connected → connect. If connected but not primary → set primary. */
+  /** Row click: if not connected → connect. If connected but not primary → set
+   *  primary. If the primary's connection has dropped → retry it (previously
+   *  this was a no-op, so the row could not recover a lost connection). */
   const handleServerClick = async (serverId: string) => {
     const isInList = registry.connectedServerIds.includes(serverId);
     const isPrimary = serverId === registry.activeServerId;
@@ -181,6 +183,13 @@ export const ServerSelector: FC = () => {
       } catch {
         const server = registry.servers.find((s) => s.id === serverId);
         toast.error(`Failed to switch to "${server?.name || 'server'}"`);
+      }
+    } else {
+      // Already primary: only re-probe when its connection is down, so a
+      // repeated click retries instead of silently doing nothing.
+      const client = getClientForServer(serverId);
+      if (client && !client.isConnected$.get()) {
+        await handleConnect(serverId);
       }
     }
   };
