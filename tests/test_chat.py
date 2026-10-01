@@ -2117,6 +2117,79 @@ def test_should_prompt_for_input_ignores_resume_prompt_after_unanswered_user():
     assert _should_prompt_for_input(log) is False
 
 
+def test_should_prompt_for_input_prompts_after_completed_assistant_turn():
+    """A resume prompt appended after a completed assistant turn must not make
+    the chat loop auto-generate an unsolicited response; it asks for input."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "hello"),
+            Message("assistant", "done"),
+            _profile_resume_msg(),
+        ]
+    )
+    assert _should_prompt_for_input(log) is True
+    # Two stacked resume prompts (profile changed twice since the turn) behave
+    # the same way.
+    stacked = Log(list(log)[:-1] + [_profile_resume_msg()])
+    assert _should_prompt_for_input(stacked) is True
+    # ...but an unanswered user turn under stacked resume prompts still
+    # auto-generates (crash recovery).
+    stacked_unanswered = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "fix the bug"),
+            _profile_resume_msg(),
+            _profile_resume_msg(),
+        ]
+    )
+    assert _should_prompt_for_input(stacked_unanswered) is False
+
+
+def test_hoist_resume_msgs_drops_old_copies_when_newest_is_embedded():
+    """When the newest resume copy is embedded in a replacement prompt, older
+    saved copies of the same key must not stay provider-visible either."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    old = Message(
+        "system",
+        "# Agent Profile: explorer\nOld instructions.",
+        pinned=True,
+        hide=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+    new = Message(
+        "system",
+        "# Agent Profile: explorer\nNew instructions.",
+        pinned=True,
+        hide=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+    msgs = [
+        Message("system", "startup prompt"),
+        Message("user", "hello"),
+        old,
+        new,
+        Message(
+            "system",
+            "replacement prompt\n\n" + new.content,
+            pinned=True,
+            hide=True,
+            metadata={"prompt_generation": "one"},
+        ),
+    ]
+
+    prepared = _hoist_resume_msgs(msgs)
+    assert all("Old instructions." not in m.content for m in prepared)
+    assert all(not (m.metadata and m.metadata.get("resume_key")) for m in prepared)
+    assert any("New instructions." in m.content for m in prepared)
+
+
 def test_prepare_messages_survives_replacement_prompt_generation():
     """A resume message hoisted after prompt-generation filtering stays provider-visible.
 

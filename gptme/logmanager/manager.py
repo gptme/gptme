@@ -1185,7 +1185,10 @@ def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
     for key in embedded:
         del latest[key]
 
-    keys = set(latest)
+    # Keys whose newest copy is embedded are fully superseded: drop every saved
+    # copy of that key, not just the newest, or an older profile would stay
+    # provider-visible alongside the current instructions in the replacement.
+    keys = set(latest) | embedded
     remaining = [
         m
         for m in msgs
