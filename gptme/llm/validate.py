@@ -37,7 +37,7 @@ PROVIDER_DOCS: dict[str, str] = {
     "xai": "https://console.x.ai/",
     "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
     "nvidia": "https://build.nvidia.com/",
-    "requesty": "https://app.requesty.ai/api-keys",
+    "requesty": "https://app.requesty.ai/",
     "moonshot": "https://platform.moonshot.ai/console/api-keys",
     "local": "https://gptme.org/docs/getting-started.html#local-models",
     "openai-subscription": "https://gptme.org/docs/providers-supported.html#openai-subscription",
