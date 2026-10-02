@@ -531,3 +531,37 @@ def test_stream_records_usage_when_closed_early(monkeypatch):
 
     assert record.call_count == 1
     assert record.call_args.kwargs["output_tokens"] == 1
+
+
+def test_stream_failure_after_usage_records_unsuccessful(monkeypatch):
+    """A stream that errors after reporting usage must not be recorded as a success."""
+
+    usage_chunk = SimpleNamespace(
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=0, total_tokens=10),
+        choices=[],
+    )
+
+    def failing_stream():
+        yield usage_chunk
+        raise RuntimeError("connection reset mid-stream")
+
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=failing_stream()))
+        )
+    )
+    record = Mock()
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "record_llm_request", record)
+
+    # One attempt, without the retry wrapper (a retry would re-run create()).
+    gen = llm_openai.stream.__wrapped__(
+        [Message(role="user", content="Say abc.")], "openai/gpt-4o", None
+    )
+    # _guarded_stream_iter re-raises non-SDK errors as httpx.RemoteProtocolError.
+    with pytest.raises(Exception, match="connection reset mid-stream"):
+        list(gen)
+
+    assert record.call_count == 1
+    assert record.call_args.kwargs["success"] is False

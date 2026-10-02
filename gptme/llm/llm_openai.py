@@ -248,6 +248,7 @@ def _record_usage(
     resolved_model: str | None = None,
     reasoning_effort: str | None = None,
     served_model: str | None = None,
+    success: bool = True,
 ) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata.
 
@@ -297,7 +298,7 @@ def _record_usage(
     record_llm_request(
         provider=provider,
         model=model,
-        success=True,
+        success=success,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_creation_tokens=cache_creation_tokens,
@@ -1810,6 +1811,7 @@ def stream(
     # Model id as the provider reports it on each chunk (last non-empty wins).
     served_model: str | None = None
     last_usage = None
+    stream_failed = False
 
     try:
         for chunk_raw in _guarded_stream_iter(
@@ -1895,6 +1897,11 @@ def stream(
             #         yield "<think>\n"
             #         in_reasoning_block = True
             #     yield delta.text
+    except Exception:
+        # A provider/transport error mid-stream. GeneratorExit (consumer closed
+        # early) is a BaseException and deliberately not caught here.
+        stream_failed = True
+        raise
     finally:
         # Record usage even if the consumer closes this generator early
         # (interrupt/break): some providers attach cumulative usage to every
@@ -1906,6 +1913,7 @@ def stream(
                 resolved_model=_or_resolved,
                 reasoning_effort=reasoning_effort,
                 served_model=served_model,
+                success=not stream_failed,
             )
 
     if in_reasoning_block:
