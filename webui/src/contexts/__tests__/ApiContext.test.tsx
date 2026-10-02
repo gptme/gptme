@@ -404,6 +404,62 @@ describe('ApiProvider mobile auto-connect', () => {
     );
   });
 
+  it('drops a stored sidecar token when connecting to a remote server', async () => {
+    // The registry already holds the sidecar token (synced earlier); connect()
+    // to a remote URL without credentials must not let the client inherit it.
+    setActiveServerBaseUrl('http://127.0.0.1:5712');
+    const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
+      serverRegistry$: { get: () => { servers: Record<string, unknown>[] } };
+    };
+    serverRegistry$.get().servers[0].authToken = 'sidecar-token';
+    serverRegistry$.get().servers[0].useAuthToken = true;
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: (config: { baseUrl: string }) => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    mockUpdateServer.mockClear();
+    mockGetClientForServerConfig.mockClear();
+
+    await connectFromProbe({ baseUrl: 'https://remote.example.com' });
+
+    expect(mockUpdateServer).toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({
+        baseUrl: 'https://remote.example.com',
+        authToken: null,
+        useAuthToken: false,
+      })
+    );
+    expect(mockGetClientForServerConfig).toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ baseUrl: 'https://remote.example.com', authToken: null })
+    );
+    expect(mockGetClientForServerConfig).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
+  });
+
   it('uses the latest rendered server snapshot when an imperative store read lags', async () => {
     setActiveServerBaseUrl('http://127.0.0.1:5712');
     mockGetActiveServer.mockReturnValue({

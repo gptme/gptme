@@ -224,6 +224,23 @@ export function ApiProvider({
           }
         }
 
+        // Moving a sidecar-bound server to a different host without an explicit
+        // credential: drop the stored token, otherwise the client falls back to
+        // activeServer.authToken and sends the sidecar secret to that host.
+        if (
+          managesLocalServer &&
+          tauriServerStatus &&
+          !tauriServerStatus.existing_server_detected &&
+          isTauriSidecarTarget(activeServer.baseUrl, tauriServerStatus.port) &&
+          config?.baseUrl !== undefined &&
+          !isTauriSidecarTarget(config.baseUrl, tauriServerStatus.port) &&
+          config.authToken === undefined &&
+          activeServer.authToken
+        ) {
+          updates.authToken = null;
+          updates.useAuthToken = false;
+        }
+
         if (Object.keys(updates).length > 0) {
           updateServer(activeServer.id, updates);
         }
