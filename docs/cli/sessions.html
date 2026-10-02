@@ -710,9 +710,9 @@ entry point — no workspace auto-detection, no cwd code loading.</p>
 <section id="gptme-resume">
 <h2>gptme-resume<a class="headerlink" href="#gptme-resume" title="Link to this heading">#</a></h2>
 <p>Rehydrate a &lt;&lt;RESUMED SESSION&gt;&gt; prompt from a prior session trajectory.</p>
-<p>Prints the resume prompt to stdout so it can be piped into gptme:</p>
+<p>Prints the resume prompt to stdout so it can be passed to gptme:</p>
 <div class="line-block">
-<div class="line">gptme-resume | gptme -c “$(cat)”</div>
+<div class="line">gptme – “$(gptme-resume)”</div>
 <div class="line">gptme-resume –last 1 –output json</div>
 </div>
 <p class="rubric">Usage</p>
