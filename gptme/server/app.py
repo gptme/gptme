@@ -114,6 +114,7 @@ def create_app(
     webui_dir: str | Path | None = None,
     default_profile: str | None = None,
     allowed_hosts: list[str] | None = None,
+    tool_allowlist: list[str] | None = None,
 ) -> flask.Flask:
     """Create the Flask app.
 
@@ -150,6 +151,13 @@ def create_app(
     # inject the profile's system prompt when the client doesn't set one.
     if default_profile is not None:
         app.config["SERVER_DEFAULT_PROFILE"] = default_profile
+
+    # Server-level tool allowlist (``--tools``). init() stores it in a
+    # ContextVar that request threads don't see, so keep it on the app and use
+    # it as the default (and upper bound) for new conversations. ``[]`` means
+    # "no tools"; ``None`` means unrestricted.
+    if tool_allowlist is not None:
+        app.config["SERVER_TOOL_ALLOWLIST"] = list(tool_allowlist)
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts
