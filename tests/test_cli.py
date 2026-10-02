@@ -1263,6 +1263,14 @@ def test_format_resume_hint_shell_quotes_space_containing_name():
     assert cli._format_resume_hint("foo bar") == "gptme --name 'foo bar'"
 
 
+def test_format_fatal_error_drops_keyerror_quotes():
+    msg = "Environment variable ANTHROPIC_API_KEY not set"
+    assert str(KeyError(msg)) != msg  # the quoting being worked around
+    assert cli._format_fatal_error(KeyError(msg)) == msg
+    assert cli._format_fatal_error(RuntimeError(msg)) == msg
+    assert cli._format_fatal_error(KeyError(1, 2)) == str(KeyError(1, 2))
+
+
 def test_command_exit(args: list[str], runner: CliRunner):
     args.append("/exit")
     result = runner.invoke(cli.main, args)
