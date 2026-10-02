@@ -2159,4 +2159,5 @@ def test_noninteractive_does_not_seed_prompt_history(monkeypatch, tmp_path: Path
     result = CliRunner().invoke(
         cli.main, ["--non-interactive", "--name", "no-history", "hello"]
     )
+    assert result.exit_code == 0, result.output
     assert calls == [], result.output
