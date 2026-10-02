@@ -207,16 +207,39 @@ Choosing a subprovider
 
 Open-weight models are served by many providers on OpenRouter, and the provider matters as much as the model: quality (quantization), latency, uptime, cache pricing, and data policy all differ. Pin a provider with ``model@provider``, or an ordered allowlist with ``model@a,b`` (falls back within the list on rate limits), and set ``OPENROUTER_PROVIDER_ORDER`` to apply a default allowlist to every request. See the configuration options above.
 
-What we have found (verified 2026-09-09; re-check the model's *Providers* tab on OpenRouter, this changes often):
+What we have found (verified 2026-10-02; re-check the model's *Providers* tab and
+OpenRouter's `provider policy table <https://openrouter.ai/providers>`_, because
+these change often):
 
-- **The official model-developer endpoints are the most reliable path** (``@deepseek`` for DeepSeek, ``@z-ai`` for GLM). They have the best uptime, are among the fastest, and have the best cache-read pricing (DeepSeek official charges ~3% of the input price for cached prefixes, which dominates cost in long agent sessions). Both are what gptme's own automation runs on.
-- **Data policy differs.** DeepSeek's official endpoint retains prompts and trains on them, per its policy. Z.AI's official endpoint is listed as *no training, no prompt retention*. Third-party hosts are almost all listed as *no training*, but a handful retain prompts (Alibaba, Baidu, Cloudflare, GMICloud, StreamLake at the time of writing).
+- **An official endpoint is a quality choice, not a privacy default.** Model-developer
+  endpoints are often reliable and fast, and can have excellent cache-read pricing.
+  But DeepSeek's official endpoint is currently listed as training on and retaining
+  prompts, while Z.AI's official endpoint is listed as no-training and zero-retention.
+  gptme's default ``data_collection: "deny"`` therefore excludes the former and
+  permits the latter. The provider's relationship to the model does not override its
+  data policy.
+- **Training and retention are separate controls.** ``data_collection: "deny"``
+  restricts routing to endpoints OpenRouter classifies as not collecting data for
+  training; eligibility under that filter does not prove that prompts are deleted.
+  If prompts must not be retained, require Zero Data Retention (ZDR) in OpenRouter's
+  account-wide privacy settings and use hosts explicitly listed as zero retention.
+  OpenRouter conservatively treats a policy it cannot establish as retaining and
+  training; user-supplied ZDR declarations for private deployments are attestations,
+  not independent verification. See
+  OpenRouter's `ZDR guide
+  <https://openrouter.ai/docs/guides/features/zdr>`_.
 - **Jurisdiction matters for sensitive data.** Hosts operate in different countries, under different laws and levels of oversight. For data you wouldn't want exposed, choose hosts whose location and legal exposure you're comfortable with, not just the cheapest.
-- **You're trusting the host to serve the model it claims.** You generally can't verify which weights, at what precision, answered a request. Hosts have been accused of serving lower-precision quantizations than advertised, and output quality differs between hosts for reasons that aren't always explained. Restricting ``OPENROUTER_QUANTIZATION`` helps only as far as the host reports honestly. For agents with privileged access, a silently swapped or degraded model is a security risk, not just a quality one: prefer the developer's official endpoint or hosts you trust, pinned with ``@``.
+- **Privileged agents need a policy-first allowlist.** First exclude training, then
+  require ZDR when retention is unacceptable, then choose acceptable jurisdictions
+  and hosts you trust for reliability and model fidelity. Pin that allowlist with
+  ``@``; do not prefer an official endpoint merely because it is official. You
+  generally cannot verify which weights or precision a host actually served, and
+  ``OPENROUTER_QUANTIZATION`` only constrains what the host reports.
 - **Third-party hosts are not battle-tested and rate-limit under load.** In a same-day probe of ten DeepSeek V4 Flash hosts and ten GLM 5.3 Flash hosts, a third of them answered ``429 rate-limited upstream`` on a two-request burst, and OpenRouter's default price-first routing lands on the slowest host. Of the no-training hosts, ``together``, ``fireworks``, and ``inceptron`` served DeepSeek V4 Flash correctly with working prompt caching in both probes; ``fireworks``, ``deepinfra``, ``siliconflow``, and ``sail-research`` did the same for GLM 5.3 Flash. Treat these as a starting allowlist, not a recommendation: gptme's own sessions have only exercised the official endpoints (and OpenInference and Baidu for DeepSeek) at volume.
 - **Prompt caching is what makes these models cheap.** All of the hosts above billed cache hits at the discounted rate on the second request, regardless of what OpenRouter's ``supports_implicit_caching`` flag said. Compare *cache-read* prices, not just input prices.
 
-A privacy-preserving DeepSeek setup therefore looks like::
+With account-wide ZDR enabled, a DeepSeek setup pinned to hosts currently listed
+as no-training and zero-retention looks like::
 
     gptme -m "openrouter/deepseek/deepseek-v4-flash-0731@together,fireworks,inceptron"
 
