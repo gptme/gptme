@@ -782,10 +782,15 @@ def server_error_records() -> Iterator[list[logging.LogRecord]]:
     """
     logger = logging.getLogger("gptme.server")
     handler = _SnapshotHandler(logging.ERROR)
-    saved_level, saved_disabled = logger.level, logger.disabled
+    saved_level, saved_disabled, saved_propagate = (
+        logger.level,
+        logger.disabled,
+        logger.propagate,
+    )
     if logger.getEffectiveLevel() > logging.ERROR:
         logger.setLevel(logging.ERROR)
     logger.disabled = False
+    logger.propagate = True
     logger.addHandler(handler)
     try:
         yield handler.records
@@ -793,6 +798,7 @@ def server_error_records() -> Iterator[list[logging.LogRecord]]:
         logger.removeHandler(handler)
         logger.setLevel(saved_level)
         logger.disabled = saved_disabled
+        logger.propagate = saved_propagate
 
 
 @pytest.fixture

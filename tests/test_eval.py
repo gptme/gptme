@@ -530,7 +530,7 @@ def test_eval_cli_restores_root_log_handlers():
         isinstance(h, multiprocessing_logging.MultiProcessingHandler)
         for h in root.handlers
     )
-    assert set(root.handlers) == set(handlers_before)
+    assert root.handlers == handlers_before
 
 
 def test_eval_agent_passes_user_context_flag(monkeypatch, tmp_path):
