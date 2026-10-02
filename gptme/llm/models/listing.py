@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 from ..provider_plugins import discover_provider_plugins, get_provider_plugin
@@ -79,8 +80,11 @@ def _get_models_for_provider(
             from ..llm_gptme import GptmeAuthError  # fmt: skip
 
             if isinstance(e, GptmeAuthError):
-                # Auth error: surface the actionable hint to the user
-                logger.warning("gptme provider: %s", e)
+                # Auth error: one actionable line, not the full multi-line hint
+                logger.warning(
+                    "gptme provider: not logged in "
+                    "(run `gptme-auth login` or set GPTME_CLOUD_API_KEY)"
+                )
             else:
                 # Fall back to static models (only for built-in providers)
                 logger.debug(
@@ -193,13 +197,17 @@ def get_model_list(
         + plugin_providers
     )
 
-    for provider in all_providers:
-        if provider_filter and provider != provider_filter:
-            continue
+    providers = [
+        p for p in all_providers if not provider_filter or p == provider_filter
+    ]
+    # Fetch providers concurrently so one slow/unreachable endpoint does not
+    # serialize the whole listing; map() preserves provider order.
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(providers)))) as pool:
+        provider_models = list(
+            pool.map(lambda p: _get_models_for_provider(p, dynamic_fetch), providers)
+        )
 
-        # Get models for this provider
-        models = _get_models_for_provider(provider, dynamic_fetch)
-
+    for models in provider_models:
         # Apply filters
         filtered_models = _apply_model_filters(
             models, vision_only, reasoning_only, include_deprecated

@@ -3815,7 +3815,7 @@ class TestGetAvailableModels:
         mock_requests_get.assert_called_once_with(
             "https://auth.gptme.ai/functions/v1/models",
             headers={"Authorization": "Bearer gptme-token"},
-            timeout=10,
+            timeout=(3, 10),
         )
         assert len(models) == 1
         assert models[0].provider == "gptme"
@@ -4993,3 +4993,41 @@ def test_openai_retries_408_409(status):
     with patch("gptme.llm.llm_openai.backoff_wait", return_value=False) as w:
         _handle_openai_transient_error(error, attempt=0, max_retries=3, base_delay=0)
     w.assert_called_once()
+
+
+def test_short_request_error_summaries():
+    import requests
+
+    from gptme.llm.llm_openai import _short_request_error
+
+    conn = requests.ConnectionError(
+        "HTTPConnectionPool(host='192.0.2.1', port=8000): Max retries exceeded "
+        'with url: /v1/models (Caused by NewConnectionError("HTTPConnection('
+        "host='192.0.2.1', port=8000): Failed to establish a new connection: "
+        '[Errno 113] No route to host"))'
+    )
+    assert _short_request_error(conn) == "No route to host"
+    assert _short_request_error(requests.ConnectionError("boom")) == (
+        "connection failed"
+    )
+    assert _short_request_error(requests.Timeout("slow")) == "timed out"
+
+    resp = requests.Response()
+    resp.status_code = 401
+    assert _short_request_error(requests.HTTPError(response=resp)) == "HTTP 401"
+
+
+def test_openai_compatible_models_unreachable_logs_one_line(caplog):
+    import requests
+
+    from gptme.llm.llm_openai import _get_openai_compatible_models
+
+    err = requests.ConnectionError("... [Errno 111] Connection refused'))")
+    with patch("gptme.llm.llm_openai.requests.get", side_effect=err) as get:
+        models = _get_openai_compatible_models(
+            None, "myserver", "http://192.0.2.1:8000/v1"
+        )
+    assert models == []
+    assert get.call_args.kwargs["timeout"] == (3, 10)
+    assert "myserver provider: unavailable (Connection refused)" in caplog.text
+    assert "HTTPConnectionPool" not in caplog.text
