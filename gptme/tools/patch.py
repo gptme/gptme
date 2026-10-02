@@ -366,8 +366,15 @@ def execute_patch_impl(
         # Write the patched content, keeping the file's line endings
         newline = file_newline(path)  # before open() truncates the file
         with open(path, "w", encoding="utf-8", newline=newline) as f:
-            # Normalize first: CRLF in model output would otherwise become \r\r\n.
-            f.write(patched_content.replace("\r\n", "\n"))
+            # Only strip \r before \n when writing to a CRLF file: Python translates
+            # every \n → \r\n, so a model-emitted \r\n would become \r\r\n.
+            # On an LF file no translation occurs, so literal \r\n must pass through.
+            text = (
+                patched_content.replace("\r\n", "\n")
+                if newline == "\r\n"
+                else patched_content
+            )
+            f.write(text)
 
         # Return success message with any warnings
         warnings_str = "\n".join(warnings)
