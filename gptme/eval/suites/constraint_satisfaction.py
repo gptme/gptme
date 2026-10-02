@@ -1,0 +1,363 @@
+"""Constraint-satisfaction eval suite.
+
+Tests whether the model adheres to explicit constraints while implementing a
+feature, rather than just producing code that runs. Based on arXiv:2605.06445
+("Constraint Decay"), which found LLMs lose significant assertion-pass-rate
+on fully constrained code generation (multi-file coherence, API/schema
+backward-compatibility, architectural boundaries) — framework-heavy contexts
+fail worse than minimal ones.
+
+Each scenario's `expect` checks verify the *constraint itself* (e.g. "did the
+existing caller keep working unmodified", "is the new field optional"), not
+just "did the script run" or "does the new feature work".
+
+Run this suite in isolation with: `gptme-eval constraint_satisfaction`
+"""
+
+import ast
+import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gptme.eval.main import EvalSpec
+
+
+# --- api-contract-preservation checks (minimal CLI context) ---
+
+
+def check_api_legacy_api_exists(ctx):
+    """legacy_api.py should still exist."""
+    return "legacy_api.py" in ctx.files
+
+
+def check_api_report_untouched(ctx):
+    """report.py must be byte-identical to the original fixture.
+
+    report.py calls calculate_total(items) with the old 1-arg signature. The
+    constraint is backward compatibility — the model should extend
+    legacy_api.py, not touch the existing caller.
+    """
+    return ctx.files.get("report.py", "") == _REPORT_PY
+
+
+def check_api_old_callsite_still_works(ctx):
+    """Running the unmodified report.py must still print the correct total.
+
+    This proves the new feature was added without breaking the existing
+    call site (not just that report.py's text is unchanged).
+    """
+    return "Total: 42.50" in ctx.stdout
+
+
+def check_api_discount_feature_works(ctx):
+    """calculate_total must support an optional discount without breaking
+    the positional/no-discount call.
+    """
+    return "Discounted: 38.25" in ctx.stdout
+
+
+def check_api_signature_has_default(ctx):
+    """The new discount parameter must have a default value.
+
+    A required second parameter would break every existing call site
+    (report.py among them) even though the function is "extended".
+    """
+    content = ctx.files.get("legacy_api.py", "")
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "calculate_total":
+            args = node.args
+            total_args = len(args.args)
+            num_defaults = len(args.defaults)
+            # every arg beyond the first (items) must have a default
+            return total_args >= 2 and num_defaults >= total_args - 1
+    return False
+
+
+def check_api_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- schema-backward-compat checks (Pydantic data layer) ---
+
+
+def check_schema_file_exists(ctx):
+    """task_schema.py should exist."""
+    return "task_schema.py" in ctx.files
+
+
+def check_schema_legacy_records_parse(ctx):
+    """Legacy records (no 'priority' key) must still parse successfully."""
+    return "legacy records parsed: 3/3" in ctx.stdout
+
+
+def check_schema_new_field_present(ctx):
+    """New records WITH a priority field must parse and retain it."""
+    return "high" in ctx.stdout and "priority_values_ok" in ctx.stdout
+
+
+def check_schema_field_is_optional(ctx):
+    """'priority' must be declared optional/defaulted, not required.
+
+    A required field would make every pre-existing record (the legacy
+    fixture data) fail validation — the actual constraint being tested.
+    """
+    content = ctx.files.get("task_schema.py", "")
+    # Match `priority: Optional[str] = ...` / `priority: str | None = ...`
+    # / `priority: str = "..."` — any form with a default, not a bare
+    # required annotation.
+    pattern = re.compile(r"priority\s*:\s*[^\n=]+=\s*\S", re.MULTILINE)
+    return bool(pattern.search(content))
+
+
+def check_schema_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- architectural-boundary checks (layered app) ---
+
+
+def check_boundary_service_exists(ctx):
+    """notification_service.py (or equivalent) should exist."""
+    return any(
+        name.endswith("_service.py") or name == "domain.py" for name in ctx.files
+    )
+
+
+def check_boundary_domain_no_infra_import(ctx):
+    """domain.py must not import the infra module directly.
+
+    The existing convention (see domain.py's docstring/comment in the
+    fixture) is that domain code only talks to infrastructure through the
+    NotifierPort abstract interface defined in domain.py itself — main.py
+    wires the concrete infra implementation in. A direct `import infra` or
+    `from infra import ...` in domain.py breaks that layering.
+    """
+    content = ctx.files.get("domain.py", "")
+    if not content:
+        return False
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name == "infra" for alias in node.names):
+                return False
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "infra":
+                return False
+    return True
+
+
+def check_boundary_feature_works(ctx):
+    """The new notify-on-overdue feature must actually run end-to-end."""
+    return "OVERDUE: renew library book" in ctx.stdout
+
+
+def check_boundary_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- fixtures ---
+
+_LEGACY_API_PY = '''\
+def calculate_total(items: list[dict]) -> float:
+    """Sum the 'price' field across items."""
+    return sum(item["price"] for item in items)
+'''
+
+_REPORT_PY = """\
+from legacy_api import calculate_total
+
+items = [
+    {"price": 10.00},
+    {"price": 12.50},
+    {"price": 20.00},
+]
+
+print(f"Total: {calculate_total(items):.2f}")
+"""
+
+_API_DEMO_PY = """\
+from legacy_api import calculate_total
+
+items = [
+    {"price": 10.00},
+    {"price": 12.50},
+    {"price": 20.00},
+]
+
+print(f"Discounted: {calculate_total(items, discount=0.10):.2f}")
+"""
+
+_TASK_SCHEMA_SEED_PY = '''\
+"""Pydantic model for a task record. Extend this file — do not replace it."""
+from pydantic import BaseModel
+
+
+class Task(BaseModel):
+    id: int
+    title: str
+    done: bool = False
+'''
+
+_LEGACY_TASKS_JSON = """\
+[
+    {"id": 1, "title": "Buy milk", "done": false},
+    {"id": 2, "title": "Write report", "done": true},
+    {"id": 3, "title": "Call dentist", "done": false}
+]
+"""
+
+_NEW_TASKS_JSON = """\
+[
+    {"id": 4, "title": "Deploy release", "done": false, "priority": "high"}
+]
+"""
+
+_SCHEMA_DEMO_PY = """\
+import json
+from task_schema import Task
+
+with open("legacy_tasks.json") as f:
+    legacy = [Task(**row) for row in json.load(f)]
+print(f"legacy records parsed: {len(legacy)}/3")
+
+with open("new_tasks.json") as f:
+    new = [Task(**row) for row in json.load(f)]
+priorities = [getattr(t, "priority", None) for t in new]
+print(priorities[0])
+print("priority_values_ok" if priorities == ["high"] else "priority_values_bad")
+"""
+
+_DOMAIN_SEED_PY = '''\
+"""Domain layer: business rules only.
+
+Convention: domain code must not import `infra` directly. Infrastructure
+access goes through the NotifierPort interface defined here; main.py wires
+the concrete implementation in (dependency inversion), so this layer stays
+testable and swappable without touching infra.
+"""
+from abc import ABC, abstractmethod
+
+
+class NotifierPort(ABC):
+    @abstractmethod
+    def notify(self, message: str) -> None: ...
+
+
+def find_overdue(tasks: list[dict]) -> list[dict]:
+    return [t for t in tasks if t.get("overdue")]
+'''
+
+_INFRA_PY = '''\
+"""Infrastructure layer: concrete implementations of domain ports."""
+from domain import NotifierPort
+
+
+class ConsoleNotifier(NotifierPort):
+    def notify(self, message: str) -> None:
+        print(message)
+'''
+
+_BOUNDARY_MAIN_SEED_PY = '''\
+"""Wiring layer: only main.py is allowed to import both domain and infra."""
+from domain import find_overdue
+from infra import ConsoleNotifier
+
+TASKS = [
+    {"title": "renew library book", "overdue": True},
+    {"title": "water plants", "overdue": False},
+]
+
+if __name__ == "__main__":
+    notifier = ConsoleNotifier()
+    for task in find_overdue(TASKS):
+        notifier.notify(f"OVERDUE: {task['title']}")
+'''
+
+
+tests: list["EvalSpec"] = [
+    {
+        "name": "api-contract-preservation",
+        "files": {
+            "legacy_api.py": _LEGACY_API_PY,
+            "report.py": _REPORT_PY,
+            "_api_demo.py": _API_DEMO_PY,
+        },
+        "run": "python report.py && echo '---' && python _api_demo.py",
+        "prompt": (
+            "Add an optional `discount` parameter (a fraction, e.g. 0.10 for "
+            "10%) to `calculate_total` in `legacy_api.py`, applied to the "
+            "summed total. `report.py` already imports and calls "
+            "`calculate_total(items)` with no discount argument — it is a "
+            "production call site you must NOT modify, and it must keep "
+            "working exactly as before after your change."
+        ),
+        "tools": ["read", "save", "shell"],
+        "expect": {
+            "legacy_api.py exists": check_api_legacy_api_exists,
+            "report.py untouched (contract preserved)": check_api_report_untouched,
+            "old call site still works unmodified": check_api_old_callsite_still_works,
+            "new discount feature works": check_api_discount_feature_works,
+            "new parameter has a default (non-breaking)": check_api_signature_has_default,
+            "clean exit": check_api_exit,
+        },
+    },
+    {
+        "name": "schema-backward-compat",
+        "files": {
+            "task_schema.py": _TASK_SCHEMA_SEED_PY,
+            "legacy_tasks.json": _LEGACY_TASKS_JSON,
+            "new_tasks.json": _NEW_TASKS_JSON,
+            "_schema_demo.py": _SCHEMA_DEMO_PY,
+        },
+        "run": "python _schema_demo.py",
+        "prompt": (
+            "Add a `priority` field to the `Task` model in `task_schema.py` "
+            "(a string, e.g. 'high'/'low'). `legacy_tasks.json` contains "
+            "existing records with no `priority` key at all — they must "
+            "continue to parse successfully with `Task(**row)` after your "
+            "change (backward compatibility), so the field must not be "
+            "required."
+        ),
+        "tools": ["read", "save", "shell"],
+        "expect": {
+            "task_schema.py exists": check_schema_file_exists,
+            "legacy records still parse": check_schema_legacy_records_parse,
+            "new field present on new records": check_schema_new_field_present,
+            "field declared optional/defaulted": check_schema_field_is_optional,
+            "clean exit": check_schema_exit,
+        },
+    },
+    {
+        "name": "architectural-boundary-respect",
+        "files": {
+            "domain.py": _DOMAIN_SEED_PY,
+            "infra.py": _INFRA_PY,
+            "main.py": _BOUNDARY_MAIN_SEED_PY,
+        },
+        "run": "python main.py",
+        "prompt": (
+            "The app already prints an OVERDUE notification for every "
+            "overdue task when you run `main.py`. Extend `domain.py` so "
+            "`find_overdue` also includes tasks with `done_soon: True` as "
+            "an overdue warning — but keep the existing layering: domain.py "
+            "must not import `infra` directly (see its module docstring for "
+            "the convention). Only touch what's needed to make this work; "
+            "the existing OVERDUE output for the real overdue task must "
+            "still appear."
+        ),
+        "tools": ["read", "save", "shell"],
+        "expect": {
+            "domain module present": check_boundary_service_exists,
+            "domain.py does not import infra": check_boundary_domain_no_infra_import,
+            "existing overdue notification still works": check_boundary_feature_works,
+            "clean exit": check_boundary_exit,
+        },
+    },
+]
