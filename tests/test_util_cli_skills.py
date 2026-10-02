@@ -1,5 +1,6 @@
 """Tests for the gptme-util skills CLI commands."""
 
+import shlex
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -300,10 +301,32 @@ def test_skills_show_not_found_hint_portable(tmp_path, mocker):
     # bare token stays unquoted
     result = runner.invoke(main, ["skills", "show", "missing"])
     assert result.exit_code == 1
-    assert "skills search missing'." in result.output
+    assert "Try: gptme-util skills search missing\n" in result.output
     # double quotes group multi-word names in both cmd.exe and POSIX shells
     result = runner.invoke(main, ["skills", "show", "my missing skill"])
-    assert 'skills search "my missing skill"' in result.output
+    assert 'Try: gptme-util skills search "my missing skill"\n' in result.output
+
+
+def test_skills_show_not_found_hint_no_shell_expansion(tmp_path, mocker):
+    """Names with expansion syntax are single-quoted so pasting never runs them."""
+    _create_skill(tmp_path, "other-skill", "Other")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    for name in ["x $(touch pwned)", "x `id`", "$HOME", 'a "b"']:
+        result = runner.invoke(main, ["skills", "show", name])
+        assert result.exit_code == 1
+        hint = next(
+            line for line in result.output.splitlines() if line.startswith("Try: ")
+        )
+        cmd = hint.removeprefix("Try: ")
+        # single-quoted: POSIX shells take it literally, no $(...)/`...`/$VAR
+        assert cmd == "gptme-util skills search " + shlex.quote(name)
+        assert shlex.split(cmd)[-1] == name
 
 
 def test_skills_show_empty_index(tmp_path, mocker):

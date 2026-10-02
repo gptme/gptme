@@ -95,14 +95,16 @@ def skills_list(show_all: bool, json_output: bool):
 
 
 def _quote_for_hint(name: str) -> str:
-    """Quote NAME so the hint pastes correctly into POSIX shells and cmd.exe.
+    """Quote NAME so the suggested command is safe to paste into a shell.
 
-    Double quotes work in both; fall back to shlex quoting when the name
-    itself contains a double quote.
+    Plain double quotes group words in both POSIX shells and cmd.exe, but only
+    when the name has no expansion syntax (``$``, backticks, ``\\``, ``!``,
+    ``%``) and no ``"``. Anything else gets POSIX single quoting via shlex,
+    so ``$(...)`` or backticks are never executed when the hint is pasted.
     """
     if re.fullmatch(r"[A-Za-z0-9_./:@+-]+", name):
         return name
-    if '"' not in name:
+    if not re.search(r'[$`\\!%"]', name):
         return f'"{name}"'
     return shlex.quote(name)
 
@@ -145,7 +147,7 @@ def skills_show(name: str):
 
     if not candidates:
         click.echo(f"Skill or lesson not found: {name}", err=True)
-        click.echo(f"Try 'gptme-util skills search {_quote_for_hint(name)}'.", err=True)
+        click.echo(f"Try: gptme-util skills search {_quote_for_hint(name)}", err=True)
         sys.exit(1)
     if len(candidates) > 1:
         click.echo(f"Multiple skills or lessons match '{name}':\n", err=True)
