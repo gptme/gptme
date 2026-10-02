@@ -651,6 +651,39 @@ def test_display_target_redacts_url_credentials() -> None:
     assert _display_target(plain) == "https://example.com/mcp"
 
 
+def test_display_target_redacts_secret_query_parameters() -> None:
+    """Credentials can ride in the query string; those values must be masked."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://example.com/mcp?api_key=secret&transport=sse",
+    )
+    assert _display_target(server) == (
+        "https://example.com/mcp?api_key=***&transport=sse"
+    )
+
+    # Userinfo and query credentials can appear together; both are masked.
+    both = MCPServerConfig(
+        name="project-http",
+        url="https://user:secret@example.com/mcp?token=topsecret",
+    )
+    assert _display_target(both) == "https://example.com/mcp?token=***"
+
+
+def test_display_target_redacts_secret_fragment_parameter() -> None:
+    """A credential in the fragment must be masked as well."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://example.com/mcp#access_token=secret",
+    )
+    assert _display_target(server) == "https://example.com/mcp#access_token=***"
+
+
 def test_display_target_preserves_ipv6_brackets() -> None:
     """An IPv6 host must stay bracketed or the rebuilt URL is ambiguous/wrong."""
     from gptme.cli.cmd_mcp import _display_target
