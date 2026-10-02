@@ -555,6 +555,17 @@ def get_mcp_server_info(name: str) -> str:
     return format_server_details(server)
 
 
+def _has_loaded_tools_for_server(name: str) -> bool:
+    """Whether any currently loaded tool belongs to MCP server `name`."""
+    try:
+        from ..tools import _get_loaded_tools
+
+        prefix = f"{name}."
+        return any(t.name.startswith(prefix) for t in _get_loaded_tools())
+    except Exception:
+        return False
+
+
 def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     """
     Dynamically load an MCP server during the session.
@@ -570,6 +581,12 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
 
     # Check if server already loaded
     if name in _dynamic_servers:
+        return f"Server '{name}' is already loaded."
+
+    # A server of this name already provides tools in this session (static
+    # config or an ACP host-supplied server). Loading a second one would replace
+    # its ToolSpecs by name and route calls to the wrong server.
+    if name in _mcp_clients or _has_loaded_tools_for_server(name):
         return f"Server '{name}' is already loaded."
 
     # Check if server is in config
@@ -617,6 +634,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         set_config(config)
         config_added = True
 
+    client: MCPClient | None = None
     try:
         from ..mcp.client import MCPClient
 
@@ -669,6 +687,15 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             server_config.enabled = False
             set_config(config)
         _dynamic_servers.pop(name, None)
+        if client is not None:
+            # connect() may have succeeded before a later step (e.g. ToolSpec
+            # construction) failed; don't orphan the open transport.
+            try:
+                client.close()
+            except Exception:
+                logger.debug(
+                    "Failed to close MCP client after failed load", exc_info=True
+                )
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
 

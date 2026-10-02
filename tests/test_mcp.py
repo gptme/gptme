@@ -567,3 +567,81 @@ def test_load_mcp_server_registers_toolspecs():
     finally:
         _dynamic_servers.pop("testserver", None)
         _set_available_tools_cache(None)
+
+
+def _fake_load_env(server_name: str):
+    from unittest.mock import MagicMock
+
+    from gptme.config import MCPConfig, MCPServerConfig
+
+    fake_config = MagicMock()
+    fake_config.mcp = MCPConfig(
+        enabled=True,
+        servers=[MCPServerConfig(name=server_name, command="echo", enabled=True)],
+    )
+    return fake_config
+
+
+def test_load_mcp_server_closes_client_when_toolspec_build_fails():
+    """A connected client must be closed if a later load step fails."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.mcp_adapter as mcp_adapter
+    from gptme.tools.mcp_adapter import _dynamic_servers
+
+    mock_client = MagicMock()
+    mock_client.connect.return_value = (MagicMock(), MagicMock())
+
+    _dynamic_servers.pop("failserver", None)
+    try:
+        with (
+            patch.object(
+                mcp_adapter, "get_config", return_value=_fake_load_env("failserver")
+            ),
+            patch.object(mcp_adapter, "set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_client),
+            patch.object(
+                mcp_adapter,
+                "_build_tool_specs_for_server",
+                side_effect=ValueError("bad schema"),
+            ),
+        ):
+            result = mcp_adapter.load_mcp_server("failserver")
+
+        assert "Failed to load" in result
+        assert "failserver" not in _dynamic_servers
+        mock_client.close.assert_called_once()
+    finally:
+        _dynamic_servers.pop("failserver", None)
+
+
+def test_load_mcp_server_refuses_name_already_provided_by_session():
+    """Loading must not replace tools of a same-named server already in the session
+    (e.g. an ACP host-supplied server) with a different server's specs."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.mcp_adapter as mcp_adapter
+    from gptme.tools import _get_loaded_tools
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.mcp_adapter import _dynamic_servers
+
+    session_spec = ToolSpec(name="acpserver.ping", desc="session tool")
+    loaded = _get_loaded_tools()
+    loaded.append(session_spec)
+    mock_client_cls = MagicMock()
+    try:
+        with (
+            patch.object(
+                mcp_adapter, "get_config", return_value=_fake_load_env("acpserver")
+            ),
+            patch.object(mcp_adapter, "set_config"),
+            patch("gptme.mcp.client.MCPClient", mock_client_cls),
+        ):
+            result = mcp_adapter.load_mcp_server("acpserver")
+
+        assert "already loaded" in result
+        mock_client_cls.assert_not_called()
+        assert "acpserver" not in _dynamic_servers
+        assert session_spec in _get_loaded_tools()
+    finally:
+        loaded[:] = [t for t in loaded if t is not session_spec]
