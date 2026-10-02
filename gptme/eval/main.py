@@ -874,16 +874,17 @@ def _multiprocessing_logging() -> Generator[None, None, None]:
     try:
         yield
     finally:
-        # Stop wrapper threads first (drain their queues, then halt).
-        # MultiProcessingHandler.close() would also close the wrapped handler,
-        # which we don't own; only stop the wrapper's receive thread.
+        # Restore the original handler list first so no new records are routed
+        # to the wrappers while we drain and halt their receive threads.
+        # Replace in-place so references held by e.g. pytest's LogCaptureFixture
+        # remain valid.
+        root.handlers[:] = before
+        # Now stop each wrapper's receive thread.  MultiProcessingHandler.close()
+        # would also close the wrapped handler which we don't own, so only
+        # signal the receive thread and wait for it to drain.
         for wrapper in wrappers:
             wrapper._is_closed = True
             wrapper._receive_thread.join(5.0)
-        # Restore the original handler list exactly — including order — by
-        # replacing the list contents in-place so any reference to root.handlers
-        # held by other code (e.g. pytest's LogCaptureFixture) stays valid.
-        root.handlers[:] = before
 
 
 def _read_case_results(cases_file: Path) -> Generator[CaseResult, None, None]:

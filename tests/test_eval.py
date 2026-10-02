@@ -526,10 +526,9 @@ def test_eval_cli_restores_root_log_handlers():
         result = runner.invoke(main, ["hello", "--model", "anthropic"])
     assert result.exit_code == 0, result.output
     assert seen_during_run == [True]
-    assert not any(
-        isinstance(h, multiprocessing_logging.MultiProcessingHandler)
-        for h in root.handlers
-    )
+    # handlers_before comparison already guarantees no new wrappers remain;
+    # a standalone MultiProcessingHandler check would false-fail if the ambient
+    # environment already had such a handler before the test.
     assert root.handlers == handlers_before
 
 
