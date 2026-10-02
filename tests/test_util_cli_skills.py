@@ -181,8 +181,78 @@ def test_skills_show_not_found(tmp_path, mocker):
 
     runner = CliRunner()
     result = runner.invoke(main, ["skills", "show", "nope"])
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "not found" in result.output
+    assert "skills search" in result.output
+
+
+def test_skills_show_exact_beats_substring(tmp_path, mocker):
+    """An exact name wins over an earlier substring hit."""
+    _create_skill(tmp_path, "git-advanced", "Advanced git")
+    _create_skill(tmp_path, "git", "Plain git")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "git"])
+    assert result.exit_code == 0
+    assert "Plain git" in result.output
+    assert "Advanced git" not in result.output
+
+
+def test_skills_show_exact_lesson_stem(tmp_path, mocker):
+    """An exact lesson filename wins over a skill whose name merely contains it."""
+    _create_skill(tmp_path, "shell-safety-extended", "Extended")
+    _create_lesson(tmp_path, "shell-safety")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills", tmp_path / "lessons"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "shell-safety"])
+    assert result.exit_code == 0
+    assert "# Shell Safety" in result.output
+    assert "Extended" not in result.output
+
+
+def test_skills_show_unique_substring(tmp_path, mocker):
+    """A unique substring still resolves."""
+    _create_skill(tmp_path, "python-repl", "Python REPL skill")
+    _create_skill(tmp_path, "other-skill", "Other")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "repl"])
+    assert result.exit_code == 0
+    assert "Python REPL skill" in result.output
+
+
+def test_skills_show_ambiguous_substring(tmp_path, mocker):
+    """Several substring matches are listed instead of picking the first."""
+    _create_skill(tmp_path, "git-advanced", "Advanced git")
+    _create_skill(tmp_path, "git-basics", "Basic git")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "git"])
+    assert result.exit_code == 1
+    assert "Multiple" in result.output
+    assert "git-advanced" in result.output
+    assert "git-basics" in result.output
+    assert "Skill content" not in result.output
 
 
 def test_skills_search(tmp_path, mocker):
