@@ -711,7 +711,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             return (
                 flask.jsonify(
                     {
-                        "error": f"Tool not found in any session for conversation: {tool_id}"
+                        "error": f"Tool {tool_id} not found in any session for conversation {conversation_id}"
                     }
                 ),
                 404,

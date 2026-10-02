@@ -218,4 +218,7 @@ def test_tool_confirmation_without_session_id_tool_not_found(
         json={"tool_id": "non-existent-tool-id", "action": "confirm"},  # No session_id
     )
     assert resp.status_code == 404
-    assert "Tool not found in any session" in resp.json()["error"]
+    assert resp.json()["error"] == (
+        "Tool non-existent-tool-id not found in any session for conversation "
+        f"{conversation_id}"
+    )
