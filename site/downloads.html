@@ -229,7 +229,13 @@ function assetMeta(name) {
   if (name.endsWith('.rpm')) return { label: '.rpm', recommended: false };
   if (name.endsWith('.AppImage')) return { label: '.AppImage', recommended: true };
   if (name.endsWith('-setup.exe')) return { label: 'Installer (.exe)', recommended: true };
-  if (name.endsWith('.apk')) return { label: '.apk', recommended: true };
+  if (name.endsWith('.apk')) {
+    const isUniversal = name.includes('_universal.apk');
+    const archMatch = name.match(/_([^_]+)\.apk$/);
+    const arch = archMatch ? archMatch[1] : null;
+    const label = isUniversal ? 'Universal (.apk)' : (arch ? `${arch} (.apk)` : '.apk');
+    return { label, recommended: isUniversal };
+  }
   if (name.includes('server-bin') && name.endsWith('.tar.gz')) return { label: 'Server binary (.tar.gz)', recommended: false };
   return { label: name, recommended: false };
 }
