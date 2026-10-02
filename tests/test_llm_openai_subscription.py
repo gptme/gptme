@@ -395,7 +395,7 @@ class _EventThenTimeoutResponse:
         self.closed = True
 
 
-def test_stream_retries_idle_timeout_before_first_event():
+def test_stream_retries_idle_timeout_before_first_event(_backoff_delays):
     """A read timeout during the thinking phase (no events yielded yet) retries
     the request instead of dying — mirrors codex-rs stream_max_retries."""
     auth = _make_auth()
@@ -444,7 +444,7 @@ def test_stream_does_not_retry_after_first_event():
     assert mock_post.call_count == 1
 
 
-def test_stream_retries_exhausted_reraises(monkeypatch):
+def test_stream_retries_exhausted_reraises(monkeypatch, _backoff_delays):
     monkeypatch.setenv("GPTME_SUBSCRIPTION_STREAM_RETRIES", "2")
     auth = _make_auth()
 
@@ -483,7 +483,7 @@ class _Non200Response:
         self.closed = True
 
 
-def test_stream_non_200_raises_http_error():
+def test_stream_non_200_raises_http_error(_backoff_delays):
     """A Codex 429 must surface as requests.HTTPError, not ValueError.
 
     Interactive recovery matches provider errors by defining module
@@ -619,7 +619,7 @@ def test_stream_closes_response_after_done_event():
     assert response.closed, "response.close() must be called after the done event"
 
 
-def test_stream_closes_response_on_retry():
+def test_stream_closes_response_on_retry(_backoff_delays):
     """The old response must be closed before opening the retry request.
 
     Without this, the abandoned SSL socket lingers until interpreter teardown,
@@ -900,7 +900,7 @@ class _ErrorBodyReadFails(_Non200Response):
         pass
 
 
-def test_stream_closes_response_when_error_body_read_fails():
+def test_stream_closes_response_when_error_body_read_fails(_backoff_delays):
     """A failure while reading an error body must not leak the response."""
     broken = _ErrorBodyReadFails(503, "")
     ok = _FakeSSEStreamResponse(
