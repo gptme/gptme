@@ -106,52 +106,29 @@ def skills_show(name: str):
 
     name_lower = name.lower()
 
-    def label(item) -> str:
-        return item.metadata.name or item.title
+    # Search by skill name first, then lesson title/filename
+    for item in index.lessons:
+        if item.metadata.name and name_lower in item.metadata.name.lower():
+            if item.is_stub:
+                item = index.materialize_lesson(item)
+            click.echo(f"# {item.metadata.name}")
+            if item.metadata.description:
+                click.echo(f"\n{item.metadata.description}")
+            click.echo(f"\nPath: {item.path}\n")
+            click.echo(item.body)
+            return
 
-    # Exact matches win over substring matches: skill name, then filename stem,
-    # then lesson title. Only fall back to a substring match if it is unique.
-    exact_keys = [
-        lambda item: (item.metadata.name or "").lower(),
-        lambda item: item.path.stem.lower(),
-        lambda item: item.title.lower(),
-    ]
-    match = None
-    for key in exact_keys:
-        match = next((item for item in index.lessons if key(item) == name_lower), None)
-        if match:
-            break
+    for item in index.lessons:
+        if name_lower in item.title.lower() or name_lower in item.path.stem.lower():
+            if item.is_stub:
+                item = index.materialize_lesson(item)
+            click.echo(f"# {item.title}")
+            click.echo(f"\nPath: {item.path}\n")
+            click.echo(item.body)
+            return
 
-    if match is None:
-        candidates = [
-            item
-            for item in index.lessons
-            if name_lower in (item.metadata.name or "").lower()
-            or name_lower in item.title.lower()
-            or name_lower in item.path.stem.lower()
-        ]
-        if len(candidates) == 1:
-            match = candidates[0]
-        elif candidates:
-            click.echo(f"Multiple skills or lessons match '{name}':\n", err=True)
-            for item in candidates[:20]:
-                click.echo(f"  {label(item)}  ({item.path})", err=True)
-            if len(candidates) > 20:
-                click.echo(f"  ... and {len(candidates) - 20} more", err=True)
-            click.echo("\nUse an exact name or filename.", err=True)
-            sys.exit(1)
-        else:
-            click.echo(f"Skill or lesson not found: {name}", err=True)
-            click.echo(f"Try 'gptme-util skills search {name}'.", err=True)
-            sys.exit(1)
-
-    if match.is_stub:
-        match = index.materialize_lesson(match)
-    click.echo(f"# {label(match)}")
-    if match.metadata.name and match.metadata.description:
-        click.echo(f"\n{match.metadata.description}")
-    click.echo(f"\nPath: {match.path}\n")
-    click.echo(match.body)
+    click.echo(f"Skill or lesson not found: {name}")
+    sys.exit(1)
 
 
 @skills.command("search")
