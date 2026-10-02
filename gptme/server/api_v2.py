@@ -3924,18 +3924,19 @@ def api_user_config_file_put():
     except Exception as exc:
         return flask.jsonify({"error": f"Invalid TOML: {exc}"}), 400
 
-    config_file, _local_path = get_user_config_paths()
-    config_file.parent.mkdir(parents=True, exist_ok=True)
+    with _config_write_lock:
+        config_file, _local_path = get_user_config_paths()
+        config_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # If the submitted content contains redaction sentinels, restore the real
-    # values from the on-disk file so the webui round-trip doesn't wipe secrets.
-    original = config_file.read_text() if config_file.exists() else ""
-    write_content = _restore_redacted_secrets(content, original)
+        # If the submitted content contains redaction sentinels, restore the real
+        # values from the on-disk file so the webui round-trip doesn't wipe secrets.
+        original = config_file.read_text() if config_file.exists() else ""
+        write_content = _restore_redacted_secrets(content, original)
 
-    config_file.write_text(write_content)
-    from gptme.config.core import reload_config
+        config_file.write_text(write_content)
+        from gptme.config.core import reload_config
 
-    reload_config()
+        reload_config()
 
     response = _get_user_config_file_response(write_content)
     response["status"] = "ok"
@@ -3981,7 +3982,8 @@ def api_user_config_file_patch():
         return flask.jsonify({"error": str(exc)}), 400
 
     try:
-        set_config_value(key, value, reload=reload_config)
+        with _config_write_lock:
+            set_config_value(key, value, reload=reload_config)
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
     content = _read_user_config_file_text()
@@ -4032,7 +4034,19 @@ def api_user_mcp_config_put():
 
         # Refuse to overwrite entries the non-strict parser could not represent.
         if "mcp" in doc:
-            raw_servers = doc["mcp"].unwrap().get("servers", [])
+            raw_mcp = (
+                doc["mcp"].unwrap() if hasattr(doc["mcp"], "unwrap") else doc["mcp"]
+            )
+            if not isinstance(raw_mcp, dict):
+                return flask.jsonify(
+                    {
+                        "error": (
+                            "The existing [mcp] section is not a table; "
+                            "fix or remove it in config.toml before using this endpoint"
+                        )
+                    }
+                ), 409
+            raw_servers = raw_mcp.get("servers", [])
             raw_count = len(raw_servers) if isinstance(raw_servers, list) else 0
             if raw_count != len(current.servers):
                 skipped = raw_count - len(current.servers)
@@ -4053,6 +4067,7 @@ def api_user_mcp_config_put():
 
         doc["mcp"] = _mcp_config_to_toml(mcp)
         config_file, _local_path = get_user_config_paths()
+        config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(tomlkit.dumps(doc))
         from gptme.config.core import reload_config
 
