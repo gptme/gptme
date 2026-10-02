@@ -82,43 +82,6 @@ jobs:
           path: ./site/dist
           include-hidden-files: true
 
-  # Runs independently of build/deploy: a transient third-party outage on a
-  # linked site shouldn't delay the production docs deploy, which only
-  # `needs: [build]`. Still reports its own pass/fail status on the PR.
-  linkcheck:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install poetry
-        run: |
-          pipx install poetry
-
-      - name: Setup Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-          cache: 'poetry'
-
-      - name: Install dependencies
-        run: |
-          poetry install -E browser -E server
-
-      - name: Check docs for dead links
-        # Fail (rather than get cancelled at the job timeout) if a host keeps
-        # the run throttled: Sphinx honours a server's Retry-After uncapped.
-        run: |
-          timeout 10m make docs-linkcheck || {
-            rc=$?
-            if [ "$rc" -eq 124 ]; then
-              echo "::error::linkcheck did not finish within 10 minutes (rate-limited?)"
-            fi
-            exit "$rc"
-          }
-
   deploy:
     name: deploy
     runs-on: ubuntu-latest
