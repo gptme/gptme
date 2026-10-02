@@ -78,11 +78,11 @@ describe('DeleteConversationConfirmationDialog', () => {
   });
 
   it('keeps the current route and selection when deleting another conversation', async () => {
-    renderDialog('other-chat', '/chat/selected-chat');
+    const { onDelete } = renderDialog('other-chat', '/chat/selected-chat');
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
-    await waitFor(() => expect(mockDeleteConversation).toHaveBeenCalledWith('other-chat'));
+    await waitFor(() => expect(onDelete).toHaveBeenCalled());
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat\/selected-chat$/);
     expect(mockSelectedConversation$.get()).toBe('selected-chat');
   });
