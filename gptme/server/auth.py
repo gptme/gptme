@@ -18,6 +18,8 @@ from functools import wraps
 import flask
 from flask import jsonify, request
 
+from .openapi_docs import OkMessageResponse, api_doc
+
 logger = logging.getLogger(__name__)
 
 # Token storage (in-memory, generated on startup)
@@ -349,6 +351,15 @@ def init_auth(host: str = "127.0.0.1", display: bool = True) -> str | None:
 
 @auth_api.route("/api/v2/auth/cookie", methods=["POST"])
 @require_auth
+@api_doc(
+    summary="Set auth cookie",
+    description=(
+        "Set an HttpOnly authentication cookie from a valid Bearer token, so "
+        "SSE/EventSource connections need no query-parameter token."
+    ),
+    responses={200: OkMessageResponse},
+    tags=["auth"],
+)
 def set_auth_cookie():
     """Set an HttpOnly authentication cookie.
 
@@ -382,6 +393,12 @@ def set_auth_cookie():
 
 
 @auth_api.route("/api/v2/auth/cookie", methods=["DELETE"])
+@api_doc(
+    summary="Clear auth cookie",
+    description="Clear the authentication cookie (logout).",
+    responses={200: OkMessageResponse},
+    tags=["auth"],
+)
 def clear_auth_cookie():
     """Clear the authentication cookie (logout).
 

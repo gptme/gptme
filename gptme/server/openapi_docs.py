@@ -676,6 +676,64 @@ class ChatConfig(BaseModel):
     )
 
 
+class ConversationConfigResponse(BaseModel):
+    """A conversation's stored chat config (``[chat]``, ``[env]``, ``[mcp]``)."""
+
+    chat: ChatConfig = Field(..., description="Chat settings")
+    env: dict[str, str] | None = Field(None, description="Environment overrides")
+    mcp: dict[str, Any] | None = Field(None, description="MCP server configuration")
+
+
+class ConversationConfigPatchRequest(BaseModel):
+    """Partial update of a conversation's chat config."""
+
+    chat: ChatConfig | None = Field(None, description="Chat settings to update")
+    env: dict[str, str] | None = Field(None, description="Environment overrides")
+    mcp: dict[str, Any] | None = Field(None, description="MCP server configuration")
+
+
+class OkMessageResponse(BaseModel):
+    """Simple success response."""
+
+    ok: bool = Field(..., description="Whether the operation succeeded")
+    message: str = Field(..., description="Human-readable result")
+
+
+class SpeechRequest(BaseModel):
+    """Text-to-speech request."""
+
+    text: str = Field(..., description="Text to speak (max 1000 characters)")
+    model: str | None = Field(None, description="OpenRouter speech model ID")
+    voice: str | None = Field(None, description="Voice name for the model")
+
+
+class JsonRpcRequest(BaseModel):
+    """A2A JSON-RPC 2.0 request."""
+
+    jsonrpc: str = Field("2.0", description="JSON-RPC version")
+    id: str | int | None = Field(None, description="Request ID")
+    method: str = Field(..., description="A2A method, e.g. SendMessage")
+    params: dict[str, Any] | None = Field(None, description="Method parameters")
+
+
+class JsonRpcResponse(BaseModel):
+    """A2A JSON-RPC 2.0 response."""
+
+    jsonrpc: str = Field("2.0", description="JSON-RPC version")
+    id: str | int | None = Field(None, description="Request ID")
+    result: dict[str, Any] | None = Field(None, description="Method result")
+    error: dict[str, Any] | None = Field(None, description="Error object")
+
+
+class ComputerStatusResponse(BaseModel):
+    """Available computer-use backends."""
+
+    screenshot_available: bool = Field(
+        ..., description="True when taking a screenshot will succeed"
+    )
+    system: str = Field(..., description="Platform name (Linux / Darwin / Windows)")
+
+
 # Helper functions for automatic inference
 # ----------------------------------------
 
