@@ -45,7 +45,12 @@ def _display_target(server: MCPServerConfig) -> str:
     diagnostic before the approval prompt is even shown.
     """
     if server.is_http:
-        parts = urlsplit(server.url or "")
+        try:
+            parts = urlsplit(server.url or "")
+        except ValueError:
+            # e.g. an unmatched IPv6 bracket. The URL can't be parsed to
+            # redact it safely, so show nothing from it rather than abort.
+            return "<unparseable URL>"
         if parts.username or parts.password:
             # Strip only the userinfo; keep host:port verbatim so an invalid
             # port or IPv6 brackets still match the URL the client will use.

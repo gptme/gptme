@@ -668,6 +668,15 @@ def test_display_target_redacts_url_credentials() -> None:
     assert _display_target(plain) == "https://example.com/mcp"
 
 
+def test_display_target_survives_malformed_url() -> None:
+    """An unparseable URL (unmatched IPv6 bracket) must not abort diagnostics."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(name="project-http", url="https://[2001:db8::1/mcp")
+    assert _display_target(server) == "<unparseable URL>"
+
+
 def test_display_target_redacts_all_query_parameter_values() -> None:
     """Any query value can be a credential, so every value is masked."""
     from gptme.cli.cmd_mcp import _display_target
