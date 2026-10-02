@@ -51,7 +51,7 @@ def test_tools_internal_error_respects_debug_gate(
         "error": "Cannot read /secret/path" if debug_errors else "Internal server error"
     }
     assert "/secret/path" in caplog.text
-    assert any(record.exc_info for record in caplog.records)
+    assert "Traceback" in caplog.text
 
 
 def test_query_no_filters_returns_all_tools(client: FlaskClient):
