@@ -206,6 +206,12 @@ test.describe('Performance: message list virtualization', () => {
   //
   // These tests guard against regressions that would re-mount all messages.
 
+  test('stress-test fixture is hidden from the default demo list', async ({ page }) => {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Introduction to gptme')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Stress test (200 messages)')).toHaveCount(0);
+  });
+
   test('mounts only a bounded subset of DOM nodes for a 200-message conversation', async ({
     page,
     browserName,
@@ -213,7 +219,7 @@ test.describe('Performance: message list virtualization', () => {
     test.skip(browserName !== 'chromium', 'Virtualization behavior is browser-independent');
     test.setTimeout(30000);
 
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?stress-test', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Stress test (200 messages)')).toBeVisible({ timeout: 10000 });
 
     await page.getByText('Stress test (200 messages)').click();
@@ -237,7 +243,7 @@ test.describe('Performance: message list virtualization', () => {
     test.skip(browserName !== 'chromium', 'Virtualization behavior is browser-independent');
     test.setTimeout(30000);
 
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?stress-test', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Stress test (200 messages)')).toBeVisible({ timeout: 10000 });
 
     await page.getByText('Stress test (200 messages)').click();
@@ -276,7 +282,7 @@ test.describe('Performance: message list virtualization', () => {
     test.skip(browserName !== 'chromium', 'DOM metrics require Chromium');
     test.setTimeout(30000);
 
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?stress-test', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Stress test (200 messages)')).toBeVisible({ timeout: 10000 });
 
     await page.getByText('Stress test (200 messages)').click();

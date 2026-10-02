@@ -111,7 +111,7 @@ test.describe('UI stability: scroll anchoring (gptme#3440)', () => {
   test('scroll position stays at the bottom when a long conversation finishes rendering', async ({
     page,
   }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?stress-test', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Stress test (200 messages)')).toBeVisible({ timeout: 10000 });
 
     await page.getByText('Stress test (200 messages)').click();
@@ -135,7 +135,7 @@ test.describe('UI stability: scroll anchoring (gptme#3440)', () => {
   });
 
   test('scroll position does not jump after settling on a long conversation', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?stress-test', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Stress test (200 messages)')).toBeVisible({ timeout: 10000 });
 
     await page.getByText('Stress test (200 messages)').click();
