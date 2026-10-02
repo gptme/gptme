@@ -265,19 +265,30 @@ def test_mcp_execute_no_parameters_still_errors(mock_config, mock_mcp_client):
     assert "No parameters provided" in messages[0].content
 
 
-def test_mcp_execute_parameterless_tool_format_runs(mock_config, mock_mcp_client):
+def test_mcp_execute_parameterless_tool_format_runs(mock_config):
     """A parameterless tool-format call (`{}`) runs the tool with no arguments."""
-    mock_mcp_client.call_tool.return_value = '{"ok": true}'
-    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+    client = MagicMock()
+    no_params_tool = MagicMock()
+    no_params_tool.name = "no_params_tool"
+    no_params_tool.description = "A tool with no parameters"
+    # No required parameters: this is the call shape Greptile flagged.
+    no_params_tool.inputSchema = {"type": "object", "properties": {}}
+    no_params_tool.annotations = None
+    tools_obj = MagicMock()
+    tools_obj.tools = [no_params_tool]
+    client.connect.return_value = (tools_obj, MagicMock())
+    client.call_tool.return_value = '{"ok": true}'
+
+    with patch("gptme.mcp.client.MCPClient", return_value=client):
         tools = create_mcp_tools(mock_config)
-    tool = next(t for t in tools if t.name == "test-server.test_tool")
+    tool = next(t for t in tools if t.name == "test-server.no_params_tool")
 
     execute = tool.execute
     assert execute is not None
     result = execute(None, None, {})
     messages = list(result) if hasattr(result, "__iter__") else [result]
 
-    mock_mcp_client.call_tool.assert_called_once_with("test_tool", {})
+    client.call_tool.assert_called_once_with("no_params_tool", {})
     assert any("ok" in (m.content or "") for m in messages)
 
 
