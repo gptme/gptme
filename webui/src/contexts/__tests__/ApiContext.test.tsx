@@ -359,6 +359,51 @@ describe('ApiProvider mobile auto-connect', () => {
     );
   });
 
+  it('does not inject sidecar token when connecting to a remote server from a sidecar-port base', async () => {
+    // Active server is on the sidecar port; user calls connect({ baseUrl: remote })
+    // The sidecar token must NOT leak into the remote connection.
+    setActiveServerBaseUrl('http://127.0.0.1:5712');
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: (config: { baseUrl: string }) => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    // The mount effect may have synced the token to the sidecar URL (correct behaviour).
+    // Clear the mock so we only assert on what connect() does for the remote URL.
+    mockUpdateServer.mockClear();
+    mockGetClientForServerConfig.mockClear();
+
+    await connectFromProbe({ baseUrl: 'https://remote.example.com' });
+
+    expect(mockUpdateServer).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
+    expect(mockGetClientForServerConfig).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
+  });
+
   it('uses the latest rendered server snapshot when an imperative store read lags', async () => {
     setActiveServerBaseUrl('http://127.0.0.1:5712');
     mockGetActiveServer.mockReturnValue({

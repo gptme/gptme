@@ -211,7 +211,9 @@ export function ApiProvider({
           managesLocalServer &&
           tauriServerStatus &&
           !tauriServerStatus.existing_server_detected &&
-          isTauriSidecarTarget(activeServer.baseUrl, tauriServerStatus.port)
+          isTauriSidecarTarget(activeServer.baseUrl, tauriServerStatus.port) &&
+          (config?.baseUrl === undefined ||
+            isTauriSidecarTarget(config.baseUrl, tauriServerStatus.port))
         ) {
           if (config?.baseUrl === undefined) {
             updates.baseUrl = `http://127.0.0.1:${tauriServerStatus.port}`;
