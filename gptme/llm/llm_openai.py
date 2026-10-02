@@ -18,6 +18,7 @@ from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools.base import truncate_tool_description
 from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
 from .models import (
+    OPENAI_COMPAT_PROVIDERS,
     CustomProvider,
     ModelMeta,
     Provider,
@@ -2405,19 +2406,16 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
     )
     description = truncate_tool_description(description, spec.name)
 
-    # Custom providers are OpenAI-compatible and support tools API.
-    # grok-subscription routes to xAI's OpenAI-compatible subscription proxy
-    # (cli-chat-proxy.grok.com), which supports function calling — without it
-    # here, `--tool-format tool` raised "Provider doesn't support tools API".
-    if model.provider in [
-        "openai",
-        "azure",
-        "openrouter",
-        "deepseek",
-        "moonshot",
-        "local",
-        "grok-subscription",
-    ] or is_custom_provider(model.model.split("/")[0]):
+    # Custom providers are OpenAI-compatible and support tools API. Reuse the
+    # canonical OPENAI_COMPAT_PROVIDERS set (the same one used to stamp each
+    # model's default_tool_format) so the two cannot drift. Every provider in
+    # it advertises an OpenAI-compatible function-calling API, so a provider
+    # whose models default to the "tool" format must serialize here; otherwise
+    # the default crashes with "Provider doesn't support tools API" — which is
+    # exactly what gemini, groq, and xai did.
+    if model.provider in OPENAI_COMPAT_PROVIDERS or is_custom_provider(
+        model.model.split("/")[0]
+    ):
         all_required = all(p.required for p in spec.parameters)
         supports_strict = model.supports_strict_tools and all_required
         function_def: dict[str, Any] = {

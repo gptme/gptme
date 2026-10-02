@@ -4052,6 +4052,59 @@ class TestSpec2ToolStrictSchema:
         assert result["function"]["strict"] is True
 
 
+class TestSpec2ToolProviderCoverage:
+    """Every provider whose models default to the "tool" format must serialize.
+
+    ``OPENAI_COMPAT_PROVIDERS`` stamps each of its models with
+    ``default_tool_format="tool"``, so if ``_spec2tool`` rejects the provider the
+    default configuration crashes with "Provider doesn't support tools API"
+    before a request is sent. gemini, groq, and xai did exactly that — the two
+    lists had silently drifted (dogfood 2026-10-01).
+    """
+
+    def _spec(self) -> "ToolSpec":
+        from gptme.tools.base import Parameter, ToolSpec
+
+        return ToolSpec(
+            name="test",
+            desc="A test tool",
+            parameters=[
+                Parameter(name="x", type="string", description="arg", required=True)
+            ],
+        )
+
+    def test_all_openai_compat_providers_serialize(self):
+        from typing import cast
+
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.llm.models import OPENAI_COMPAT_PROVIDERS, Provider
+        from gptme.llm.models.types import ModelMeta
+
+        for provider in sorted(OPENAI_COMPAT_PROVIDERS):
+            model = ModelMeta(
+                provider=cast("Provider", provider),
+                model=f"{provider}/test",
+                context=4096,
+            )
+            result = _spec2tool(self._spec(), model)
+            assert result["type"] == "function", provider
+            assert result["function"]["name"] == "test", provider
+
+    def test_registry_gemini_tool_format_matches_serializer(self):
+        """gemini's registry default_tool_format must be serializable.
+
+        Regression: ``gptme -m gemini/… --non-interactive "…"`` with default
+        flags crashed with "Fatal error: Provider doesn't support tools API".
+        """
+        from gptme.llm.llm_openai import _spec2tool
+        from gptme.llm.models import get_model
+
+        model = get_model("gemini/gemini-3-flash-preview")
+        assert model.default_tool_format == "tool"
+        result = _spec2tool(self._spec(), model)
+        assert result["function"]["name"] == "test"
+
+
 class TestSpec2ToolDescription:
     """Tests for the schema description source: a format-specific compact
     summary (``instructions_format["tool"]``) must be used verbatim instead
