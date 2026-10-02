@@ -16,6 +16,7 @@ import tempfile
 import time
 import traceback
 from datetime import datetime, timezone
+from difflib import get_close_matches
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -100,16 +101,16 @@ class _DynamicHelpCommand(click.Command):
     _help_expanded = False
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        """Keep arguments after a mirrored utility command opaque to Click."""
+        """Reject unknown leading options; keep utility arguments opaque to Click."""
         # Build the set of option names that consume a following value token
         # (non-flag options).  These must be skipped over when scanning for
         # the first true positional so that option *values* are not mistaken
         # for subcommands (e.g. `--model gpt-4` must not yield 'gpt-4').
         value_opts: set[str] = set()
         known_opts: set[str] = set()  # all known option names (flags + value-takers)
-        for param in self.params:
+        for param in self.get_params(ctx):
             if isinstance(param, click.Option):
-                known_opts.update(param.opts)
+                known_opts.update(param.opts + param.secondary_opts)
                 if not param.is_flag and param.nargs != 0:
                     value_opts.update(param.opts)
 
@@ -137,11 +138,13 @@ class _DynamicHelpCommand(click.Command):
                     # Long option: --opt=val (inline) or --opt val (next token).
                     opt_name = a.split("=")[0]
                     if opt_name not in known_opts:
-                        # Unknown long option: with ignore_unknown_options=True,
-                        # Click treats it as a positional.  Mirror that here so
-                        # the scan doesn't skip past the real first positional.
-                        first_positional = a
-                        break
+                        raise click.NoSuchOption(
+                            opt_name,
+                            possibilities=get_close_matches(
+                                opt_name, sorted(known_opts)
+                            ),
+                            ctx=ctx,
+                        )
                     if "=" not in a and opt_name in value_opts:
                         skip_next = True
                     continue
@@ -153,12 +156,7 @@ class _DynamicHelpCommand(click.Command):
                 for idx, ch in enumerate(chars):
                     opt_name = f"-{ch}"
                     if opt_name not in known_opts:
-                        # With ignore_unknown_options=True, Click preserves an
-                        # unknown short option as a positional argument.  Stop
-                        # here rather than treating a later utility name as the
-                        # first positional (e.g. `-x chats list --help`).
-                        first_positional = a
-                        break
+                        raise click.NoSuchOption(opt_name, ctx=ctx)
                     if opt_name in value_opts:
                         # No characters after the option means its value is the
                         # next token.  Otherwise the remainder (including an '='
@@ -166,8 +164,6 @@ class _DynamicHelpCommand(click.Command):
                         if idx == len(chars) - 1:
                             skip_next = True
                         break
-                if first_positional is not None:
-                    break
                 continue
             first_positional = a
             break
