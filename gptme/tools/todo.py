@@ -162,13 +162,16 @@ def replay_todo_on_session_start(
     Yields:
         Messages about replay status (hidden)
     """
-    if not initial_msgs:
+    # Only assistant messages are real tool calls. System messages can contain
+    # rendered tool examples (e.g. the todo example in the xml-format system prompt).
+    assistant_msgs = [msg for msg in initial_msgs if msg.role == "assistant"]
+    if not assistant_msgs:
         return
 
     # Check if there are any todo write operations in the log
     has_todo_write = any(
         tooluse.tool == "todo" and tooluse.args and tooluse.args[0] == "write"
-        for msg in initial_msgs
+        for msg in assistant_msgs
         for tooluse in ToolUse.iter_from_content(msg.content)
     )
 
@@ -182,7 +185,7 @@ def replay_todo_on_session_start(
         from ..commands import _replay_tool
 
         # Create a minimal Log object for replay
-        log = Log(initial_msgs)
+        log = Log(assistant_msgs)
 
         # Replay todo operations (the replay will filter to write subcommand)
         _replay_tool(log, "todo")
