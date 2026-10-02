@@ -23,6 +23,7 @@ from ..prompts import get_prompt
 from ..tools import get_toolchain
 from .api_v2_common import _validate_conversation_id, msg2dict
 from .auth import require_auth
+from .openapi_docs import JsonRpcRequest, JsonRpcResponse, api_doc
 from .session_models import ConversationSession, SessionManager
 from .session_step import _start_step_thread
 
@@ -661,6 +662,13 @@ def _handle_get_task(params: dict[str, Any]) -> dict[str, Any]:
 
 @a2a_api.route(A2A_RPC_PATH, methods=["POST"])
 @require_auth
+@api_doc(
+    summary="A2A JSON-RPC endpoint",
+    description="Agent2Agent JSON-RPC 2.0 endpoint (SendMessage, GetTask, ...).",
+    request_body=JsonRpcRequest,
+    responses={200: JsonRpcResponse},
+    tags=["a2a"],
+)
 def a2a_rpc() -> flask.Response:
     req_json = _request_jsonrpc()
     if isinstance(req_json, A2AError):

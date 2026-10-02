@@ -101,9 +101,14 @@ from .openapi_docs import (
     ApiRootResponse,
     ApiVersionResponse,
     AudioTranscriptionResponse,
+    ConversationConfigPatchRequest,
+    ConversationConfigResponse,
+    ConversationConfigUpdateResponse,
     ConversationCreateRequest,
     ConversationListResponse,
     ConversationResponse,
+    DeployStatusResponse,
+    DeployTriggerResponse,
     ErrorResponse,
     ExternalSessionListResponse,
     ExternalSessionResponse,
@@ -935,6 +940,12 @@ def api_config():
 
 @v2_api.route("/api/v2/dev/deploy-staging", methods=["GET"])
 @require_auth
+@api_doc(
+    summary="Get staging deploy status",
+    description="Return whether the web UI staging deploy trigger is configured.",
+    responses={200: DeployStatusResponse},
+    tags=["dev"],
+)
 def api_dev_deploy_staging_status():
     """Return whether the web UI staging deploy trigger is configured."""
     return flask.jsonify(_get_webui_deploy_config())
@@ -942,6 +953,18 @@ def api_dev_deploy_staging_status():
 
 @v2_api.route("/api/v2/dev/deploy-staging", methods=["POST"])
 @require_auth
+@api_doc(
+    summary="Trigger staging deploy",
+    description="Trigger the configured web UI staging deploy workflow.",
+    responses={
+        202: DeployTriggerResponse,
+        403: ErrorResponse,
+        500: ErrorResponse,
+        502: ErrorResponse,
+        503: ErrorResponse,
+    },
+    tags=["dev"],
+)
 def api_dev_deploy_staging_trigger():
     """Trigger the configured web UI staging deploy workflow."""
     config = _get_webui_deploy_config()
@@ -2842,6 +2865,12 @@ def api_commands():
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])
 @require_auth
+@api_doc(
+    summary="Get conversation config",
+    description="Return the stored chat config for a conversation.",
+    responses={200: ConversationConfigResponse, 404: ErrorResponse},
+    tags=["conversations"],
+)
 def api_conversation_config(conversation_id: str):
     """Get the chat config for a conversation."""
     # Validate conversation_id to prevent path traversal
@@ -2863,6 +2892,21 @@ def api_conversation_config(conversation_id: str):
     "/api/v2/conversations/<string:conversation_id>/config", methods=["PATCH"]
 )
 @require_auth
+@api_doc(
+    summary="Update conversation config",
+    description=(
+        "Partially update a conversation's chat config (model, tools, workspace, ...). "
+        "Rejected with 409 while a generation is in progress."
+    ),
+    request_body=ConversationConfigPatchRequest,
+    responses={
+        200: ConversationConfigUpdateResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
+    tags=["conversations"],
+)
 def api_conversation_config_patch(conversation_id: str):
     """Update the chat config for a conversation."""
     # Validate conversation_id to prevent path traversal

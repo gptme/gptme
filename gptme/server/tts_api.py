@@ -14,6 +14,7 @@ import flask
 import requests
 
 from .auth import require_auth
+from .openapi_docs import ErrorResponse, SpeechRequest, api_doc
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,16 @@ def _optional_string(
 
 @tts_api.route("/api/v2/audio/speech", methods=["POST"])
 @require_auth
+@api_doc(
+    summary="Synthesize speech",
+    description=(
+        "Synthesize speech from text via OpenRouter's speech API. "
+        "Returns WAV audio (`audio/wav`); requires OPENROUTER_API_KEY."
+    ),
+    request_body=SpeechRequest,
+    responses={200: "audio/wav", 400: ErrorResponse},
+    tags=["audio"],
+)
 def synthesize_speech():
     """Synthesize speech from text via OpenRouter's speech API.
 

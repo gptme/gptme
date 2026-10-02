@@ -674,6 +674,108 @@ class ChatConfig(BaseModel):
         ge=0.0,
         le=1.0,
     )
+    tool_format: str | None = Field(None, description="Tool format (markdown/xml/tool)")
+    stream: bool | None = Field(None, description="Stream model responses")
+    interactive: bool | None = Field(None, description="Interactive mode")
+    agent: str | None = Field(None, description="Agent path")
+    system_prompt: str | None = Field(None, description="System prompt override")
+
+
+class ConversationConfigResponse(BaseModel):
+    """A conversation's stored chat config (``[chat]``, ``[env]``, ``[mcp]``)."""
+
+    chat: ChatConfig = Field(..., description="Chat settings")
+    env: dict[str, str] | None = Field(None, description="Environment overrides")
+    mcp: dict[str, Any] | None = Field(None, description="MCP server configuration")
+
+
+class ConversationConfigPatchRequest(BaseModel):
+    """Partial update of a conversation's chat config."""
+
+    chat: ChatConfig | None = Field(None, description="Chat settings to update")
+    env: dict[str, str] | None = Field(None, description="Environment overrides")
+    mcp: dict[str, Any] | None = Field(None, description="MCP server configuration")
+
+
+class OkMessageResponse(BaseModel):
+    """Simple success response."""
+
+    ok: bool = Field(..., description="Whether the operation succeeded")
+    message: str = Field(..., description="Human-readable result")
+
+
+class SpeechRequest(BaseModel):
+    """Text-to-speech request."""
+
+    text: str = Field(..., description="Text to speak (max 1000 characters)")
+    model: str | None = Field(None, description="OpenRouter speech model ID")
+    voice: str | None = Field(None, description="Voice name for the model")
+
+
+class JsonRpcRequest(BaseModel):
+    """A2A JSON-RPC 2.0 request."""
+
+    jsonrpc: str = Field("2.0", description="JSON-RPC version")
+    id: str | int | None = Field(None, description="Request ID")
+    method: str = Field(..., description="A2A method, e.g. SendMessage")
+    params: dict[str, Any] | None = Field(None, description="Method parameters")
+
+
+class JsonRpcResponse(BaseModel):
+    """A2A JSON-RPC 2.0 response."""
+
+    jsonrpc: str = Field("2.0", description="JSON-RPC version")
+    id: str | int | None = Field(None, description="Request ID")
+    result: dict[str, Any] | None = Field(None, description="Method result")
+    error: dict[str, Any] | None = Field(None, description="Error object")
+
+
+class ConversationConfigUpdateResponse(BaseModel):
+    """Result of a conversation config update."""
+
+    status: str = Field(..., description="'ok' on success")
+    message: str = Field(..., description="Human-readable result")
+    config: ConversationConfigResponse = Field(..., description="Updated config")
+    tools: list[str] = Field(..., description="Names of the tools now loaded")
+
+
+class DeployStatusResponse(BaseModel):
+    """Web UI staging deploy trigger configuration (never includes the token)."""
+
+    enabled: bool = Field(..., description="Dev deploy trigger enabled")
+    configured: bool = Field(..., description="Everything needed to trigger is set")
+    repository: str = Field(..., description="GitHub owner/repo")
+    workflow: str = Field(..., description="Workflow file name")
+    ref: str = Field(..., description="Branch or tag to deploy")
+    has_token: bool = Field(..., description="Whether a GitHub token is set")
+    actions_url: str = Field(..., description="GitHub Actions URL")
+
+
+class DeployTriggerResponse(BaseModel):
+    """Staging deploy workflow queued."""
+
+    status: str = Field(..., description="'queued'")
+    message: str = Field(..., description="Human-readable result")
+    repository: str = Field(..., description="GitHub owner/repo")
+    workflow: str = Field(..., description="Workflow file name")
+    ref: str = Field(..., description="Branch or tag deployed")
+    actions_url: str = Field(..., description="GitHub Actions URL")
+
+
+class ComputerStatusResponse(BaseModel):
+    """Available computer-use backends."""
+
+    screenshot_available: bool = Field(
+        ..., description="True when taking a screenshot will succeed"
+    )
+    system: str = Field(..., description="Platform name (Linux / Darwin / Windows)")
+    display: str | None = Field(None, description="$DISPLAY on Linux, null elsewhere")
+    backends: dict[str, bool] = Field(
+        ..., description="Availability of each backend tool"
+    )
+    screenshot_error: str | None = Field(
+        None, description="Why the screenshot availability check failed, if it did"
+    )
 
 
 # Helper functions for automatic inference
@@ -758,7 +860,7 @@ def _infer_request_body(func: Callable) -> type[BaseModel] | None:
 
 
 def api_doc_simple(
-    responses: dict[int, type | None] | None = None,
+    responses: dict[int, type | str | list[str] | None] | None = None,
     request_body: type[BaseModel] | None = None,
     parameters: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
@@ -862,7 +964,7 @@ CONVERSATION_ID_PARAM = {
 def api_doc(
     summary: str | None = None,
     description: str | None = None,
-    responses: dict[int, type | None] | None = None,
+    responses: dict[int, type | str | list[str] | None] | None = None,
     request_body: type | None = None,
     parameters: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
@@ -1014,36 +1116,76 @@ def _update_schema_refs(all_schemas: dict[str, Any]) -> dict[str, Any]:
     return updated_schemas
 
 
+def _normalize_numeric_keywords(schema: dict) -> None:
+    """Rewrite Pydantic numeric constraints into OpenAPI 3.0 (draft-04) form.
+
+    Pydantic emits JSON-Schema 2020-12 keywords: numeric ``exclusiveMinimum`` /
+    ``exclusiveMaximum`` and, for unions, the short ``gt``/``ge``/``lt``/``le``
+    forms. OpenAPI 3.0's Schema Object uses draft-04 semantics instead, where
+    ``minimum``/``maximum`` hold the bound and ``exclusiveMinimum`` /
+    ``exclusiveMaximum`` are booleans.
+    """
+    if "ge" in schema:
+        schema.setdefault("minimum", schema.pop("ge"))
+    if "le" in schema:
+        schema.setdefault("maximum", schema.pop("le"))
+
+    lower = schema.pop("gt", schema.get("exclusiveMinimum"))
+    if lower is not None and not isinstance(lower, bool):
+        schema.pop("exclusiveMinimum", None)
+        schema["minimum"] = lower
+        schema["exclusiveMinimum"] = True
+
+    upper = schema.pop("lt", schema.get("exclusiveMaximum"))
+    if upper is not None and not isinstance(upper, bool):
+        schema.pop("exclusiveMaximum", None)
+        schema["maximum"] = upper
+        schema["exclusiveMaximum"] = True
+
+
 def _convert_to_openapi_nullable(schema: dict) -> dict:
     """Recursively convert Pydantic's anyOf nullable patterns to OpenAPI 3.0 format."""
     if isinstance(schema, dict):
-        # Handle anyOf nullable patterns
+        _normalize_numeric_keywords(schema)
+
+        # Handle anyOf nullable patterns. Pydantic emits ``type: null`` members
+        # inside anyOf for optional fields; OpenAPI 3.0 has no ``null`` type, so
+        # strip the null member and mark the schema ``nullable`` instead. This
+        # covers unions of any arity (e.g. ``str | int | None``), not just
+        # two-member type+null patterns.
         if "anyOf" in schema:
             any_of_items = schema["anyOf"]
-            if isinstance(any_of_items, list) and len(any_of_items) == 2:
-                # Check for type + null pattern
-                type_item = None
-                null_item = None
-                for item in any_of_items:
-                    if isinstance(item, dict):
-                        if item.get("type") == "null":
-                            null_item = item
-                        elif "type" in item:
-                            type_item = item
-                        elif "$ref" in item:
-                            type_item = item
-
-                if null_item and type_item:
+            if isinstance(any_of_items, list):
+                non_null_items = [
+                    item
+                    for item in any_of_items
+                    if not (isinstance(item, dict) and item.get("type") == "null")
+                ]
+                if len(non_null_items) < len(any_of_items) and non_null_items:
                     # Convert to OpenAPI 3.0 nullable format
                     new_schema = {k: v for k, v in schema.items() if k != "anyOf"}
-                    new_schema.update(type_item)
-                    new_schema["nullable"] = True
+                    if len(non_null_items) == 1:
+                        new_schema.update(non_null_items[0])
+                        new_schema["nullable"] = True
+                    else:
+                        # OpenAPI 3.0 only honours ``nullable`` next to a
+                        # ``type``, so mark each typed member rather than
+                        # the (typeless) anyOf wrapper.
+                        new_schema["anyOf"] = [
+                            {**item, "nullable": True}
+                            if isinstance(item, dict) and "type" in item
+                            else item
+                            for item in non_null_items
+                        ]
 
                     # If field has enum, add null to the allowed values
                     if "enum" in new_schema and None not in new_schema["enum"]:
                         new_schema["enum"] = new_schema["enum"] + [None]
 
-                    return new_schema
+                    # Recurse so merged/nested members (e.g. a union with its own
+                    # numeric constraints) are normalized too. The null member is
+                    # gone, so this terminates.
+                    return _convert_to_openapi_nullable(new_schema)
 
         # Handle direct nullable patterns (type + default: null)
         elif (
@@ -1108,7 +1250,24 @@ def _create_method_spec(
 
     # Add responses with better descriptions
     for code, response_type in doc["responses"].items():
-        if response_type:
+        if isinstance(response_type, (str, list)):
+            # A MIME type string (or list of strings) documents a raw (non-JSON) body
+            mime_types = (
+                [response_type] if isinstance(response_type, str) else response_type
+            )
+            content = {}
+            for mime in mime_types:
+                if mime.startswith("text/"):
+                    schema: dict[str, Any] = {"type": "string"}
+                else:
+                    schema = {"type": "string", "format": "binary"}
+                content[mime] = {"schema": schema}
+            description = ", ".join(mime_types) + " body"
+            method_spec["responses"][str(code)] = {
+                "description": description,
+                "content": content,
+            }
+        elif response_type:
             # Get description from response model if available
             response_description = (
                 getattr(response_type, "__doc__", None) or f"HTTP {code}"
