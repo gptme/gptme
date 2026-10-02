@@ -118,8 +118,12 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
 
     logger.info(f"Restarting MCP client for server: {server_name}")
 
+    # Dynamic servers (load_mcp_server) own their client in _dynamic_servers;
+    # restart in place so unloading still cuts off the replacement.
+    registry = _dynamic_servers if server_name in _dynamic_servers else _mcp_clients
+
     # Get existing client if any
-    old_client = _mcp_clients.get(server_name)
+    old_client = registry.get(server_name)
 
     # Close old client if it exists
     if old_client is not None:
@@ -139,7 +143,7 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
     tools, session = new_client.connect(server_name)
 
     # Store the new client
-    _mcp_clients[server_name] = new_client
+    registry[server_name] = new_client
 
     logger.info(f"Successfully restarted MCP client for {server_name}")
     return new_client
@@ -320,11 +324,13 @@ def create_mcp_tools(
         try:
             # Reuse an existing live client to avoid double-connecting a server
             # that was already loaded via load_mcp_server().
-            # Only for the global registry: a session-scoped registry (ACP)
-            # must never adopt a same-named global client, which may point at
-            # a different command/url and would be closed with the session.
+            # Only for the global registry built from config: a session-scoped
+            # registry (ACP) must never adopt a same-named global client, and
+            # explicit ``servers`` may differ in command/url from the live one.
             existing = (
-                get_mcp_clients().get(server_config.name) if clients is None else None
+                get_mcp_clients().get(server_config.name)
+                if clients is None and servers is None
+                else None
             )
             if existing is not None and existing.tools is not None:
                 client = existing

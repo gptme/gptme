@@ -645,3 +645,56 @@ def test_load_mcp_server_refuses_name_already_provided_by_session():
         assert session_spec in _get_loaded_tools()
     finally:
         loaded[:] = [t for t in loaded if t is not session_spec]
+
+
+def test_restart_mcp_client_keeps_dynamic_server_in_dynamic_registry():
+    """Restarting a dynamically loaded server must replace it in place so that
+    unloading still cuts off the replacement client."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.mcp_adapter as mcp_adapter
+    from gptme.tools.mcp_adapter import _dynamic_servers, _mcp_clients
+
+    old_client = MagicMock()
+    old_client.stack = None
+    new_client = MagicMock()
+    new_client.connect.return_value = (MagicMock(), MagicMock())
+
+    _dynamic_servers["restartserver"] = old_client
+    try:
+        with patch("gptme.mcp.client.MCPClient", return_value=new_client):
+            mcp_adapter._restart_mcp_client("restartserver", MagicMock())
+
+        assert _dynamic_servers["restartserver"] is new_client
+        assert "restartserver" not in _mcp_clients
+    finally:
+        _dynamic_servers.pop("restartserver", None)
+        _mcp_clients.pop("restartserver", None)
+
+
+def test_create_mcp_tools_explicit_servers_do_not_adopt_live_client():
+    """Explicit ``servers`` may differ from a live same-named client, so the
+    live client must not be reused for them."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.config import MCPServerConfig, get_config
+    from gptme.tools.mcp_adapter import _dynamic_servers, create_mcp_tools
+
+    live = MagicMock()
+    live.tools = MagicMock()
+    fresh = MagicMock()
+    fresh.connect.return_value = (MagicMock(tools=[]), MagicMock())
+
+    _dynamic_servers["samename"] = live
+    try:
+        with patch("gptme.mcp.client.MCPClient", return_value=fresh):
+            create_mcp_tools(
+                get_config(),
+                servers=[MCPServerConfig(name="samename", command="other")],
+            )
+        fresh.connect.assert_called_once_with("samename")
+    finally:
+        _dynamic_servers.pop("samename", None)
+        from gptme.tools.mcp_adapter import _mcp_clients
+
+        _mcp_clients.pop("samename", None)
