@@ -59,16 +59,25 @@ _IMAGE_MIME: dict[str, str] = {
 
 
 def _cap_output(output: str) -> str:
-    """Cap output to a reasonable size (10 MiB) with head+tail truncation."""
-    if len(output) <= _DEFAULT_MAX_OUTPUT_BYTES:
+    """Cap output to a reasonable size (10 MiB) with head+tail truncation.
+
+    The cap is measured in UTF-8 bytes, not characters, so multibyte characters
+    are counted correctly.
+    """
+    encoded = output.encode("utf-8")
+    total_bytes = len(encoded)
+    if total_bytes <= _DEFAULT_MAX_OUTPUT_BYTES:
         return output
 
-    # Output exceeds cap; return head+tail with truncation marker
-    max_len = _DEFAULT_MAX_OUTPUT_BYTES // 2
-    head = output[: max_len // 2]
-    tail = output[-max_len // 2 :]
-    omitted = len(output) - len(head) - len(tail)
-    return f"{head}\n\n[... {omitted:,} bytes omitted ({len(output):,} total) ...]\n\n{tail}"
+    # Output exceeds cap; return head+tail with truncation marker (byte-level slice)
+    half = _DEFAULT_MAX_OUTPUT_BYTES // 2
+    head_bytes = encoded[:half]
+    tail_bytes = encoded[-half:]
+    omitted = total_bytes - len(head_bytes) - len(tail_bytes)
+    # Decode with error replacement so a mid-character split doesn't raise
+    head = head_bytes.decode("utf-8", errors="replace")
+    tail = tail_bytes.decode("utf-8", errors="replace")
+    return f"{head}\n\n[... {omitted:,} bytes omitted ({total_bytes:,} total) ...]\n\n{tail}"
 
 
 def _snapshot_images(cwd: Path) -> dict[Path, float]:
@@ -257,6 +266,7 @@ class TeeIO(io.StringIO):
         super().__init__()
         self.original_stream = original_stream
         self.in_result_block = False
+        self._byte_count = 0
 
     def write(self, s):
         # hack to get rid of ipython result-prompt ("Out[0]: ...") and everything after it
@@ -269,6 +279,10 @@ class TeeIO(io.StringIO):
                 s = ""
         self.original_stream.write(s)
         self.original_stream.flush()  # Ensure immediate display
+        # Stop buffering once the cap is reached to avoid unbounded memory growth
+        self._byte_count += len(s.encode("utf-8"))
+        if self._byte_count > _DEFAULT_MAX_OUTPUT_BYTES:
+            return len(s)
         return super().write(s)
 
 
@@ -335,9 +349,9 @@ def execute_python(
             label = "Wasmtime sandbox"
         output = ""
         if stdout:
-            output += md_codeblock("stdout", stdout.rstrip()) + "\n\n"
+            output += md_codeblock("stdout", _cap_output(stdout).rstrip()) + "\n\n"
         if stderr:
-            output += md_codeblock("stderr", stderr.rstrip()) + "\n\n"
+            output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
         if returncode not in (0, None):
             output += f"Process exited with code {returncode}\n"
         yield Message(
@@ -394,6 +408,8 @@ def execute_python(
         captured_stdout = _cap_output(captured_stdout)
         output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
     if captured_stderr:
+        # Cap large stderr (tracebacks, etc.) the same way stdout is capped
+        captured_stderr = _cap_output(captured_stderr)
         output += md_codeblock("stderr", captured_stderr.rstrip()) + "\n\n"
     if result.error_in_exec:
         tb = result.error_in_exec.__traceback__

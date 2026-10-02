@@ -416,3 +416,15 @@ def test_cap_output_small_output():
 
     small = "short output\n"
     assert _cap_output(small) == small
+
+
+def test_cap_output_multibyte_chars():
+    """Byte cap must count bytes, not characters — 5M four-byte chars = ~20 MiB."""
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    # Each '𝄞' is 4 UTF-8 bytes; 3M of them ≈ 12 MiB, well above the 10 MiB cap.
+    huge_multibyte = "𝄞" * (3 * 1024 * 1024)
+    assert len(huge_multibyte.encode("utf-8")) > _DEFAULT_MAX_OUTPUT_BYTES
+    capped = _cap_output(huge_multibyte)
+    assert len(capped.encode("utf-8")) < len(huge_multibyte.encode("utf-8"))
+    assert "omitted" in capped
