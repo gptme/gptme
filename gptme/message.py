@@ -24,7 +24,7 @@ from typing_extensions import Self
 from .codeblock import Codeblock
 from .constants import role_color
 from .util import console
-from .util.prompt import rich_to_str
+from .util.rich_text import rich_to_str
 from .util.tokens import len_tokens
 from .util.uri import URI, FilePath, parse_file_reference
 

@@ -13,7 +13,6 @@ from ..credentials import (
     set_stored_api_key,
 )
 from ..llm import PROVIDER_DEFAULT_MODELS, list_available_providers
-from ..llm.validate import validate_api_key
 from .base import CommandContext, command
 
 logger = logging.getLogger(__name__)
@@ -142,6 +141,8 @@ def _setup_manual_provider(provider: str) -> None:
     if not api_key:
         print("No API key provided.")
         return
+
+    from ..llm.validate import validate_api_key  # lazy: pulls in requests
 
     is_valid, message = validate_api_key(api_key, provider)
     if not is_valid:

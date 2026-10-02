@@ -165,7 +165,7 @@ def test_setup_manual_provider_validates_and_stores():
     with (
         patch("rich.prompt.Prompt.ask", return_value="sk-ant-test-1234"),
         patch(
-            "gptme.commands.account.validate_api_key",
+            "gptme.llm.validate.validate_api_key",
             return_value=(True, "Validated successfully"),
         ),
         patch(
