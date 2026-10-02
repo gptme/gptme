@@ -550,9 +550,11 @@ class TestOpenShellExecutionEnv:
             try:
 
                 def fake_run(args, **kwargs):
-                    dest = Path(args[7])
-                    dest.mkdir(parents=True, exist_ok=True)
-                    (dest / "fresh.txt").write_text("new")
+                    # Only handle openshell commands; return success for docker cleanup
+                    if args[0] == "openshell":
+                        dest = Path(args[7])
+                        dest.mkdir(parents=True, exist_ok=True)
+                        (dest / "fresh.txt").write_text("new")
                     return subprocess.CompletedProcess(
                         args=args, returncode=0, stdout="", stderr=""
                     )
@@ -571,10 +573,16 @@ class TestOpenShellExecutionEnv:
             try:
 
                 def fake_run(args, **kwargs):
-                    dest = Path(args[7])
-                    dest.mkdir(parents=True, exist_ok=True)
-                    (dest / "partial.txt").write_text("partial")
-                    raise subprocess.TimeoutExpired(cmd="openshell", timeout=60)
+                    # Only handle openshell commands; return success for docker cleanup
+                    if args[0] == "openshell":
+                        dest = Path(args[7])
+                        dest.mkdir(parents=True, exist_ok=True)
+                        (dest / "partial.txt").write_text("partial")
+                        raise subprocess.TimeoutExpired(cmd="openshell", timeout=60)
+                    # docker commands (cleanup) should succeed silently
+                    return subprocess.CompletedProcess(
+                        args=args, returncode=0, stdout="", stderr=""
+                    )
 
                 with patch("gptme.eval.execenv.subprocess.run", side_effect=fake_run):
                     files = env.download()
