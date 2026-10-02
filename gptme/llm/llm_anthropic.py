@@ -210,9 +210,16 @@ def _resolve_thinking_budget() -> int:
     ``GPTME_REASONING_BUDGET`` is parsed as an integer (default 16000).
 
     If both are set, ``GPTME_THINKING_EFFORT`` wins and a warning is logged.
+
+    Reads via ``get_config().get_env()`` (not ``os.environ`` directly) so a
+    subagent's thread-local config override (see ``subagent(reasoning_effort=...)``)
+    takes effect without touching the parent process's or any sibling's setting.
     """
-    effort = os.environ.get(ENV_THINKING_EFFORT)
-    budget_raw = os.environ.get(ENV_REASONING_BUDGET)
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+    effort = config.get_env(ENV_THINKING_EFFORT)
+    budget_raw = config.get_env(ENV_REASONING_BUDGET)
 
     if effort is not None:
         level = _normalize_effort_level(effort)
@@ -275,8 +282,13 @@ def _resolve_effort_level() -> _EffortLevel | None:
 
     Returns ``None`` when the env var is not set (i.e. the budget is driven
     by ``GPTME_REASONING_BUDGET`` instead).
+
+    Reads via ``get_config().get_env()`` for the same thread-scoping reason as
+    ``_resolve_thinking_budget()`` above.
     """
-    effort = os.environ.get(ENV_THINKING_EFFORT)
+    from ..config import get_config  # fmt: skip
+
+    effort = get_config().get_env(ENV_THINKING_EFFORT)
     if effort is None:
         return None
     return _normalize_effort_level(effort)

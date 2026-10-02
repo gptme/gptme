@@ -316,7 +316,7 @@ def _create_subagent_thread(
     prompt: str,
     logdir: Path,
     model: str | None,
-    context_mode: Literal["full", "selective"],
+    context_mode: Literal["full", "selective", "fork"],
     context_include: list[str] | None,
     workspace: Path,
     target: str = "parent",
@@ -326,6 +326,8 @@ def _create_subagent_thread(
     redact_secrets: bool = True,
     context_window: int | None = None,
     parent_messages: list[Message] | None = None,
+    fork_messages: list[Message] | None = None,
+    reasoning_effort: str | None = None,
     prompt_queue_closed: threading.Event | None = None,
     *,
     resume: bool = False,
@@ -342,6 +344,12 @@ def _create_subagent_thread(
         target: Who will review the results ("parent" or "planner")
         profile_name: Optional agent profile to apply (system prompt + hard tool enforcement)
         agent_id: Identifier stored in thread-local so the progress tool can self-identify
+        fork_messages: Full copy of the parent's conversation log, used when
+            context_mode="fork". Falls back to normal "full" context building
+            when None (e.g. planner mode, or no active LogManager at spawn time).
+        reasoning_effort: Per-call reasoning effort override, scoped to this
+            subagent's own thread via a thread-local config context. Never
+            touches the parent's or any sibling's effort level.
         context_window: Limit workspace context messages. None = no limit; 0 = minimal
             context (just agent identity + tools, no workspace files); N > 0 = at most
             N workspace context messages included.
@@ -470,6 +478,28 @@ def _create_subagent_thread(
                 tools=available_tools, tool_format="markdown", examples=include_examples
             )
         )
+    elif context_mode == "fork":
+        # Independent copy of the parent's full log (identity, tools, every
+        # turn so far). The copy is a plain list of the same Message objects —
+        # mutating it (e.g. appending the child's own turns below) never
+        # touches the parent's log, since LogManager holds its own list.
+        if fork_messages is not None:
+            initial_msgs = list(fork_messages)
+        else:
+            # No parent history available (planner mode doesn't forward it;
+            # or no active LogManager at spawn time) — fall back to a normal
+            # fresh "full" context rather than spawning with zero identity.
+            logger.warning(
+                "context_mode='fork' but no parent messages were provided; "
+                "falling back to a fresh 'full' context"
+            )
+            include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
+            initial_msgs = get_prompt(
+                available_tools,
+                interactive=False,
+                workspace=workspace,
+                include_examples=include_examples,
+            )
     elif context_mode == "selective":
         # Selective context — build from specified components.
         # context_window > 0 is not applied in selective mode; the caller
@@ -581,6 +611,17 @@ def _create_subagent_thread(
     # parent's cwd is restored when the subagent ran elsewhere (e.g.
     # isolation="worktree" or an explicit workdir).
     _enter_subagent_cwd(workspace)
+
+    # Scope the reasoning-effort override to this subagent's own thread.
+    # get_config()/set_config() read/write a ContextVar, and a plain
+    # threading.Thread starts with a fresh, empty contextvars context (see the
+    # clear_tools() note above) — so mutating this thread's Config instance
+    # here never touches the parent's or any sibling subagent's effort level.
+    if reasoning_effort:
+        from ...config.core import get_config  # fmt: skip
+
+        get_config().user.env["THINKING_EFFORT"] = reasoning_effort
+
     try:
         chat(
             prompt_msgs,
@@ -625,11 +666,12 @@ def _run_subagent_subprocess(
     logdir: Path,
     model: str | None,
     workspace: Path,
-    context_mode: Literal["full", "selective"] | None = None,
+    context_mode: Literal["full", "selective", "fork"] | None = None,
     context_include: list[str] | None = None,
     output_schema: str | None = None,
     output_schema_dict: dict | None = None,
     profile: str | None = None,
+    reasoning_effort: str | None = None,
     *,
     resume: bool = False,
 ) -> subprocess.Popen:
@@ -655,6 +697,10 @@ def _run_subagent_subprocess(
             Injected into the prompt via ``_get_complete_instruction`` rather than
             the CLI flag, because the CLI only accepts ``module:ClassName`` format.
         profile: Agent profile name to apply via --agent-profile flag
+        reasoning_effort: Per-call reasoning effort override, forwarded to the
+            child process as the ``GPTME_THINKING_EFFORT`` environment variable.
+            Scoped to this subprocess's own environment copy — never touches
+            the parent process's or any sibling's environment.
         resume: Continue the conversation already stored in ``logdir``.
 
     Returns:
@@ -763,6 +809,8 @@ def _run_subagent_subprocess(
     env = os.environ.copy()
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
+    if reasoning_effort:
+        env["GPTME_THINKING_EFFORT"] = reasoning_effort
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
     try:
@@ -1089,7 +1137,7 @@ def _run_planner(
     prompt: str,
     subtasks: "list[SubtaskDef]",
     execution_mode: Literal["parallel", "sequential"] = "parallel",
-    context_mode: Literal["full", "selective"] = "full",
+    context_mode: Literal["full", "selective", "fork"] = "full",
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,

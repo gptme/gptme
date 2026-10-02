@@ -236,6 +236,16 @@ class TestReturnType:
         with pytest.raises(AttributeError):
             rt.status = "success"  # type: ignore[misc]
 
+    def test_tool_uses_and_duration_default_none(self):
+        rt = ReturnType("success", "done")
+        assert rt.tool_uses is None
+        assert rt.duration_s is None
+
+    def test_tool_uses_and_duration_explicit(self):
+        rt = ReturnType("success", "done", tool_uses=3, duration_s=12.5)
+        assert rt.tool_uses == 3
+        assert rt.duration_s == 12.5
+
 
 # ---------------------------------------------------------------------------
 # _get_complete_instruction tests
@@ -7747,3 +7757,526 @@ class TestProfileToolResolution:
         init_tools(allowlist=[str(tool_file)])
         names = {t.name for t in _resolve_profile_tools(["mycustomtool"], "custom")}
         assert "mycustomtool" in names, "file-backed tool dropped by session filter"
+
+
+# ---------------------------------------------------------------------------
+# tool_uses / duration_s usage reporting (_read_log)
+# ---------------------------------------------------------------------------
+
+
+class TestUsageReporting:
+    """ReturnType.tool_uses / duration_s, computed in Subagent._read_log()."""
+
+    def test_tool_uses_counts_across_all_assistant_messages(self, tmp_path):
+        """tool_uses sums ToolUse invocations across every assistant turn, not
+        just the terminal message that contains the complete block."""
+        logdir = tmp_path / "subagent-log"
+        logdir.mkdir()
+        messages = [
+            {
+                "role": "assistant",
+                "content": "```shell\necho one\n```",
+                "timestamp": "2025-01-01T00:00:00+00:00",
+            },
+            {
+                "role": "system",
+                "content": "one",
+                "timestamp": "2025-01-01T00:00:01+00:00",
+            },
+            {
+                "role": "assistant",
+                "content": ("```shell\necho two\n```\n```shell\necho three\n```"),
+                "timestamp": "2025-01-01T00:00:02+00:00",
+            },
+            {
+                "role": "system",
+                "content": "two\nthree",
+                "timestamp": "2025-01-01T00:00:03+00:00",
+            },
+            {
+                "role": "assistant",
+                "content": "```complete\ndone\n```",
+                "timestamp": "2025-01-01T00:00:04+00:00",
+            },
+        ]
+        (logdir / "conversation.jsonl").write_text(
+            "".join(json.dumps(message) + "\n" for message in messages)
+        )
+        from gptme.tools import init_tools
+
+        # ToolUse.iter_from_content only recognizes fences for registered
+        # tools, so make the counted tools ("shell", "complete") available.
+        init_tools(allowlist=["shell", "complete"])
+        sa = Subagent(
+            agent_id="usage-test",
+            prompt="do thing",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        result = sa._read_log()
+        assert result.status == "success"
+        # 1 (echo one) + 2 (echo two, echo three) + 1 (complete) = 4
+        assert result.tool_uses == 4
+
+    def test_duration_s_reflects_elapsed_time(self, tmp_path):
+        """duration_s is wall-clock seconds since the subagent's started_at."""
+        logdir = tmp_path / "subagent-log"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "```complete\ndone\n```",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+        started_at = time.time() - 5.0
+        sa = Subagent(
+            agent_id="duration-test",
+            prompt="do thing",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            started_at=started_at,
+        )
+        result = sa._read_log()
+        assert result.duration_s is not None
+        assert result.duration_s >= 5.0
+
+    def test_duration_s_set_even_on_failure(self, tmp_path):
+        """duration_s is attached to failure results too, not just success."""
+        logdir = tmp_path / "subagent-log"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "no complete block here",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+        sa = Subagent(
+            agent_id="failure-duration-test",
+            prompt="do thing",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        result = sa._read_log()
+        assert result.status == "failure"
+        assert result.duration_s is not None
+        assert result.tool_uses == 0
+
+    def test_update_subagent_result_with_branch_preserves_usage_fields(self):
+        """Amending a cached result with a preserved-branch suffix must not
+        drop tool_uses/duration_s — regression for the branch-amend path."""
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        agent_id = "branch-amend-usage-test"
+        try:
+            set_subagent_result_if_absent(
+                agent_id,
+                ReturnType("success", "did the thing", tool_uses=7, duration_s=3.5),
+            )
+            update_subagent_result_with_branch(agent_id, "subagent-branch-amend-usage")
+            with _subagent_results_lock:
+                amended = _subagent_results[agent_id]
+            assert amended.tool_uses == 7
+            assert amended.duration_s == 3.5
+            assert "subagent-branch-amend-usage" in (amended.result or "")
+        finally:
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
+
+
+# ---------------------------------------------------------------------------
+# context_mode="fork" tests
+# ---------------------------------------------------------------------------
+
+
+class TestForkContextMode:
+    """Tests for context_mode='fork' — copying the parent's full conversation."""
+
+    def test_fork_validation_rejects_context_turns(self):
+        """context_mode='fork' + context_turns is a user error, not a silent override."""
+        with pytest.raises(ValueError, match="context_turns is not compatible"):
+            subagent(
+                "test-fork-turns-conflict",
+                "task",
+                context_mode="fork",
+                context_turns=2,
+            )
+
+    def test_fork_copies_full_parent_log(self, monkeypatch):
+        """context_mode='fork' forwards the ENTIRE parent log, not a slice."""
+        from gptme.logmanager import Log, LogManager
+        from gptme.message import Message
+
+        msgs = [
+            Message("system", "[agent identity]"),
+            Message("user", "turn 1 user"),
+            Message("assistant", "turn 1 assistant"),
+            Message("user", "turn 2 user"),
+            Message("assistant", "turn 2 assistant"),
+        ]
+        mock_log = MagicMock(spec=LogManager)
+        mock_log.log = Log(msgs)
+
+        monkeypatch.setattr(
+            LogManager, "get_current_log", staticmethod(lambda: mock_log)
+        )
+
+        captured: list = []
+
+        def mock_create_thread(**kw):
+            captured.append(kw.get("fork_messages"))
+
+        monkeypatch.setattr(
+            subagent_execution, "_create_subagent_thread", mock_create_thread
+        )
+
+        subagent("test-fork-full", "do something", context_mode="fork")
+
+        for _ in range(20):
+            if captured:
+                break
+            time.sleep(0.05)
+
+        assert len(captured) == 1
+        assert captured[0] is not None
+        # Full log, including the leading system/identity message — unlike
+        # context_turns, fork does not trim to user-turn boundaries.
+        assert len(captured[0]) == len(msgs)
+        assert captured[0][0].content == "[agent identity]"
+        assert captured[0][-1].content == "turn 2 assistant"
+
+        with _subagents_lock:
+            _sa = next((s for s in _subagents if s.agent_id == "test-fork-full"), None)
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
+
+    def test_fork_no_active_log_warns_and_passes_none(self, monkeypatch, caplog):
+        """context_mode='fork' with no active LogManager logs a warning."""
+        import logging
+
+        from gptme.logmanager import LogManager
+
+        monkeypatch.setattr(LogManager, "get_current_log", staticmethod(lambda: None))
+
+        captured: list = []
+
+        def mock_create_thread(**kw):
+            captured.append(kw.get("fork_messages"))
+
+        monkeypatch.setattr(
+            subagent_execution, "_create_subagent_thread", mock_create_thread
+        )
+
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
+            subagent("test-fork-no-log", "do something", context_mode="fork")
+
+        for _ in range(20):
+            if captured:
+                break
+            time.sleep(0.05)
+
+        assert len(captured) == 1
+        assert captured[0] is None
+        assert any("context_mode='fork'" in r.message for r in caplog.records)
+
+        with _subagents_lock:
+            _sa = next(
+                (s for s in _subagents if s.agent_id == "test-fork-no-log"), None
+            )
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
+
+    def test_create_subagent_thread_fork_copies_messages_into_initial_msgs(
+        self, monkeypatch, tmp_path
+    ):
+        """_create_subagent_thread: fork_messages become the base of initial_msgs,
+        with the usual profile/completion-instruction postamble still appended."""
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+
+        from gptme.message import Message
+
+        fork_msgs = [
+            Message("system", "[agent identity]"),
+            Message("user", "parent turn 1"),
+            Message("assistant", "parent reply 1"),
+        ]
+        chat_initial_msgs: list = []
+
+        def mock_chat(prompt_msgs, initial_msgs, **kwargs):
+            chat_initial_msgs.extend(initial_msgs)
+
+        monkeypatch.setattr(gptme_chat, "chat", mock_chat)
+        monkeypatch.setattr(
+            gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(
+            hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
+        )
+        monkeypatch.setattr(
+            subagent_execution, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(subagent_execution, "get_tools", lambda: [])
+
+        subagent_execution._create_subagent_thread(
+            prompt="do the thing",
+            logdir=tmp_path / "logdir",
+            model=None,
+            context_mode="fork",
+            context_include=None,
+            workspace=tmp_path,
+            redact_secrets=False,
+            fork_messages=fork_msgs,
+        )
+
+        contents = [m.content for m in chat_initial_msgs]
+        assert contents[:3] == [
+            "[agent identity]",
+            "parent turn 1",
+            "parent reply 1",
+        ]
+        # Completion instruction still appended after the forked history.
+        assert "done" in contents[-1]
+
+    def test_create_subagent_thread_fork_falls_back_without_messages(
+        self, monkeypatch, tmp_path
+    ):
+        """fork_messages=None (e.g. planner mode) falls back to a fresh 'full'
+        context instead of spawning with zero identity."""
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+
+        from gptme.message import Message
+
+        fallback_msgs = [Message("system", "fallback full context")]
+        chat_initial_msgs: list = []
+
+        def mock_chat(prompt_msgs, initial_msgs, **kwargs):
+            chat_initial_msgs.extend(initial_msgs)
+
+        def mock_get_prompt(*args, **kwargs):
+            return list(fallback_msgs)
+
+        monkeypatch.setattr(gptme_chat, "chat", mock_chat)
+        monkeypatch.setattr(
+            gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(gptme_prompts, "get_prompt", mock_get_prompt)
+        monkeypatch.setattr(
+            hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
+        )
+        monkeypatch.setattr(
+            subagent_execution, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(subagent_execution, "get_tools", lambda: [])
+
+        subagent_execution._create_subagent_thread(
+            prompt="do the thing",
+            logdir=tmp_path / "logdir",
+            model=None,
+            context_mode="fork",
+            context_include=None,
+            workspace=tmp_path,
+            redact_secrets=False,
+            fork_messages=None,
+        )
+
+        contents = [m.content for m in chat_initial_msgs]
+        assert "fallback full context" in contents
+
+
+# ---------------------------------------------------------------------------
+# reasoning_effort tests
+# ---------------------------------------------------------------------------
+
+
+class TestReasoningEffort:
+    """Tests for the per-call reasoning_effort override."""
+
+    def test_reasoning_effort_scoped_to_thread_local_config(
+        self, monkeypatch, tmp_path
+    ):
+        """Thread mode: reasoning_effort is visible via get_config() inside the
+        subagent's own thread, without touching os.environ (process-global)."""
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+
+        from gptme.config.core import get_config
+
+        seen_effort: list[str | None] = []
+
+        def mock_chat(prompt_msgs, initial_msgs, **kwargs):
+            seen_effort.append(get_config().get_env("GPTME_THINKING_EFFORT"))
+
+        monkeypatch.setattr(gptme_chat, "chat", mock_chat)
+        monkeypatch.setattr(
+            gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(gptme_prompts, "get_prompt", lambda *a, **kw: [])
+        monkeypatch.setattr(
+            hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
+        )
+        monkeypatch.setattr(
+            subagent_execution, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(subagent_execution, "get_tools", lambda: [])
+
+        try:
+            subagent_execution._create_subagent_thread(
+                prompt="do the thing",
+                logdir=tmp_path / "logdir",
+                model=None,
+                context_mode="full",
+                context_include=None,
+                workspace=tmp_path,
+                redact_secrets=False,
+                reasoning_effort="low",
+            )
+
+            assert seen_effort == ["low"]
+            # Never leaked into the process-wide environment.
+            import os
+
+            assert "GPTME_THINKING_EFFORT" not in os.environ
+        finally:
+            # This test calls _create_subagent_thread directly in the test's
+            # own thread (not a real spawned subagent thread), so the config
+            # mutation lands on THIS thread's shared Config — clean it up so
+            # it doesn't leak into later tests sharing the same thread.
+            get_config().user.env.pop("THINKING_EFFORT", None)
+
+    def test_reasoning_effort_none_leaves_config_untouched(self, monkeypatch, tmp_path):
+        """reasoning_effort=None (default) does not set a config override."""
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+
+        from gptme.config.core import get_config
+
+        seen_effort: list[str | None] = []
+
+        def mock_chat(prompt_msgs, initial_msgs, **kwargs):
+            seen_effort.append(get_config().get_env("GPTME_THINKING_EFFORT"))
+
+        monkeypatch.setattr(gptme_chat, "chat", mock_chat)
+        monkeypatch.setattr(
+            gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(gptme_prompts, "get_prompt", lambda *a, **kw: [])
+        monkeypatch.setattr(
+            hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
+        )
+        monkeypatch.setattr(
+            subagent_execution, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(subagent_execution, "get_tools", lambda: [])
+
+        subagent_execution._create_subagent_thread(
+            prompt="do the thing",
+            logdir=tmp_path / "logdir",
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            redact_secrets=False,
+            reasoning_effort=None,
+        )
+
+        assert seen_effort == [None]
+
+    def test_reasoning_effort_forwarded_to_subprocess_env(self, monkeypatch, tmp_path):
+        """Subprocess mode: reasoning_effort is forwarded as GPTME_THINKING_EFFORT
+        in the child's own environment copy, not the parent's os.environ."""
+        import os
+
+        captured_env: dict = {}
+        real_popen = subprocess.Popen
+
+        class _FakePopen:
+            def __init__(self, *args, **kwargs):
+                captured_env.update(kwargs.get("env") or {})
+                # Avoid actually spawning a process.
+                raise RuntimeError("stop before spawn")
+
+        monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+        logdir = tmp_path / "subagent-reasoning-effort"
+        logdir.mkdir()
+
+        with pytest.raises(RuntimeError, match="stop before spawn"):
+            subagent_execution._run_subagent_subprocess(
+                prompt="task",
+                logdir=logdir,
+                model=None,
+                workspace=tmp_path,
+                reasoning_effort="high",
+            )
+
+        assert captured_env.get("GPTME_THINKING_EFFORT") == "high"
+        assert "GPTME_THINKING_EFFORT" not in os.environ
+        monkeypatch.setattr(subprocess, "Popen", real_popen)
+
+    def test_reasoning_effort_acp_mode_warns(self, caplog):
+        """ACP mode does not support reasoning_effort; it is ignored with a warning.
+
+        The warning is logged synchronously before the ACP client thread starts,
+        so this doesn't depend on the ``acp`` package being installed or the
+        child thread's eventual (unrelated) success/failure.
+        """
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
+            subagent(
+                "test-acp-effort-warn",
+                "task",
+                use_acp=True,
+                reasoning_effort="medium",
+            )
+
+        assert any(
+            "reasoning_effort" in r.message and "ACP mode" in r.message
+            for r in caplog.records
+        )
+
+        with _subagents_lock:
+            _sa = next(
+                (s for s in _subagents if s.agent_id == "test-acp-effort-warn"), None
+            )
+        if _sa and _sa.thread:
+            _sa.thread.join(timeout=2.0)
