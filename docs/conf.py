@@ -188,7 +188,7 @@ linkcheck_ignore = [
     r"https://(www\.)?github\.com/.*/commit/[a-f0-9]+",  # commit links don't need checking in CI
     r"https://(x|twitter)\.com/.*",  # requires auth to view
     r"https://discord\.(gg|com)/.*",  # invite links, often expire/require auth
-    r"http://localhost.*",  # local dev references, not reachable from CI
+    r"http://localhost(/.*)?$",  # local dev references, not reachable from CI
 ]
 linkcheck_timeout = 10
 linkcheck_retries = 2
