@@ -1,4 +1,3 @@
-import io
 import logging
 import os
 import re
@@ -7,7 +6,6 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -22,10 +20,10 @@ from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
 from pygments.lexer import RegexLexer
 from pygments.token import Name, Text
-from rich.console import Console
 
 from ..dirs import get_pt_history_file
 from .history import LockedFileHistory
+from .rich_text import rich_to_str
 
 # Make cache management functions available at module level
 __all__ = ["clear_path_cache", "check_cwd", "is_valid_path", "PathLexer"]
@@ -646,20 +644,3 @@ def add_history(line: str) -> None:
     """Add a line to the prompt_toolkit history."""
     session = get_prompt_session()
     session.history.append_string(line)
-
-
-def rich_to_str(text: str | Any, **kwargs) -> str:
-    """Convert rich text to ANSI string.
-
-    Args:
-        text: The text to convert, can be any type that rich can print
-        **kwargs: Additional arguments passed to Console
-
-    Returns:
-        str: The text converted to ANSI escape sequences
-    """
-    # kwargs.setdefault("color_system", "256")
-    # kwargs.setdefault("force_terminal", True)  # Ensure ANSI codes are generated
-    console = Console(file=io.StringIO(), **kwargs)
-    console.print(text, end="")
-    return cast(io.StringIO, console.file).getvalue()
