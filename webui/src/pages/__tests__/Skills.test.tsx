@@ -13,6 +13,12 @@ jest.mock('@/contexts/ApiContext', () => ({
   }),
 }));
 
+// The page feeds the sidebar from the tasks query; stub it so these tests
+// never hit /api/v2/tasks on a configured backend.
+jest.mock('@/stores/tasks', () => ({
+  useTasksQuery: () => ({ data: [] }),
+}));
+
 jest.mock('@/components/MenuBar', () => ({
   MenuBar: () => <div data-testid="menu-bar" />,
 }));
