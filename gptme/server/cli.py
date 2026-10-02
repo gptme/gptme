@@ -391,6 +391,7 @@ def serve(
         host=host,
         webui_dir=webui_dir,
         default_profile=default_profile,
+        tool_allowlist=_parse_tools_allowlist(tools),
         allowed_hosts=[h.strip() for h in allowed_hosts.split(",") if h.strip()]
         if allowed_hosts
         else None,

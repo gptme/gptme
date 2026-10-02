@@ -36,6 +36,33 @@ def _validate_conversation_id(
     return None
 
 
+def _default_conversation_tools() -> list[str]:
+    """Tool names a new conversation gets when the client doesn't pick any.
+
+    Honors the server's ``--tools`` allowlist (``SERVER_TOOL_ALLOWLIST``);
+    without one, every available non-MCP tool.
+    """
+    from ..tools import get_toolchain
+
+    allowlist = flask.current_app.config.get("SERVER_TOOL_ALLOWLIST")
+    return [t.name for t in get_toolchain(allowlist, strict=False) if not t.is_mcp]
+
+
+def _tools_outside_server_allowlist(requested: list[str] | None) -> list[str]:
+    """Names in ``requested`` that the server's ``--tools`` allowlist forbids."""
+    from ..tools import get_toolchain
+
+    allowlist = flask.current_app.config.get("SERVER_TOOL_ALLOWLIST")
+    if allowlist is None or not requested:
+        return []
+    allowed = {t.name for t in get_toolchain(allowlist, strict=False)}
+    return [
+        name
+        for name in requested
+        if not {t.name for t in get_toolchain([name], strict=False)} <= allowed
+    ]
+
+
 def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
     """Validate branch name to prevent path traversal attacks and OS errors.
 

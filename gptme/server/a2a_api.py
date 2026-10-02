@@ -21,7 +21,11 @@ from ..logmanager import LogManager
 from ..message import Message
 from ..prompts import get_prompt
 from ..tools import get_toolchain
-from .api_v2_common import _validate_conversation_id, msg2dict
+from .api_v2_common import (
+    _default_conversation_tools,
+    _validate_conversation_id,
+    msg2dict,
+)
 from .auth import require_auth
 from .session_models import ConversationSession, SessionManager
 from .session_step import _start_step_thread
@@ -281,9 +285,7 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
     manager.write()
 
     if not chat_config.tools:
-        chat_config.tools = [
-            tool.name for tool in get_toolchain(None) if not tool.is_mcp
-        ]
+        chat_config.tools = _default_conversation_tools()
     if not chat_config.mcp:
         config = Config.from_workspace(chat_config.workspace)
         chat_config.mcp = config.mcp

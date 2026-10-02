@@ -86,6 +86,8 @@ from ..util.uri import URI, FilePath, is_uri, parse_file_reference
 from .api_v2_agents import agents_api
 from .api_v2_common import (
     _abs_to_rel_workspace,
+    _default_conversation_tools,
+    _tools_outside_server_allowlist,
     _validate_branch,
     _validate_conversation_id,
     msg2dict,
@@ -1772,6 +1774,18 @@ def api_conversation_put(conversation_id: str):
             409,
         )
 
+    if forbidden := _tools_outside_server_allowlist(request_config.tools):
+        shutil.rmtree(logdir, ignore_errors=True)
+        return (
+            flask.jsonify(
+                {
+                    "error": "Tools not permitted by the server --tools allowlist: "
+                    + ", ".join(forbidden)
+                }
+            ),
+            403,
+        )
+
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
     msgs = list(
@@ -1821,7 +1835,7 @@ def api_conversation_put(conversation_id: str):
 
     # Set tool allowlist to available tools if not provided
     if not chat_config.tools:
-        chat_config.tools = [t.name for t in get_toolchain(None) if not t.is_mcp]
+        chat_config.tools = _default_conversation_tools()
 
     if not chat_config.mcp:
         # load from user or project config
