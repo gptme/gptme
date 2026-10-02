@@ -114,9 +114,11 @@ jobs:
 
           echo "CI conclusions (excluding API tests): $CONCLUSIONS"
 
-          # If any required check has failed, skip
-          if echo "$CONCLUSIONS" | grep -qE "failure|action_required|timed_out"; then
-            echo "CI has failures on HEAD — skipping release."
+          # If any required check has failed or was cancelled (possible with the
+          # concurrency coalescing that lets queued master-push runs be superseded),
+          # skip the release — a cancelled check is incomplete validation, not a pass.
+          if echo "$CONCLUSIONS" | grep -qE "failure|action_required|timed_out|cancelled"; then
+            echo "CI has failures or cancelled checks on HEAD — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
