@@ -202,6 +202,69 @@ def test_create_mcp_execute_function(mock_config):
     assert len(messages) > 0
 
 
+def test_mcp_execute_accepts_tool_format_kwargs(mock_config, mock_mcp_client):
+    """Tool-format calls pass args in kwargs with no content.
+
+    Regression for MCP tools failing with "No parameters provided" under
+    ``--tool-format tool``: the adapter's execute() only read ``code``.
+    """
+    mock_mcp_client.call_tool.return_value = '{"datetime": "2026-10-02T00:00:00Z"}'
+    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+        tools = create_mcp_tools(mock_config)
+    tool = next(t for t in tools if t.name == "test-server.test_tool")
+
+    # Tool format: content is None, arguments live in kwargs
+    execute = tool.execute
+    assert execute is not None
+    result = execute(None, None, {"param1": "value"})
+    messages = list(result) if hasattr(result, "__iter__") else [result]
+
+    mock_mcp_client.call_tool.assert_called_once_with("test_tool", {"param1": "value"})
+    assert any("datetime" in (m.content or "") for m in messages)
+
+
+def test_tool_format_tooluse_executes_mcp_tool(mock_config, mock_mcp_client):
+    """A tool-format ToolUse with kwargs and no content runs the MCP tool."""
+    from gptme.tools import set_tools
+    from gptme.tools.base import ToolUse
+
+    mock_mcp_client.call_tool.return_value = '{"datetime": "2026-10-02T00:00:00Z"}'
+    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+        tools = create_mcp_tools(mock_config)
+    tool = next(t for t in tools if t.name == "test-server.test_tool")
+
+    set_tools([tool])
+    try:
+        tool_use = ToolUse(
+            tool.name,
+            None,
+            None,
+            kwargs={"param1": "value"},
+            _format="tool",
+        )
+        messages = list(tool_use.execute())
+    finally:
+        set_tools([])
+
+    mock_mcp_client.call_tool.assert_called_once_with("test_tool", {"param1": "value"})
+    assert any("datetime" in (m.content or "") for m in messages)
+
+
+def test_mcp_execute_no_parameters_still_errors(mock_config, mock_mcp_client):
+    """Empty tool-format calls keep the explicit no-parameters message."""
+    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+        tools = create_mcp_tools(mock_config)
+    tool = next(t for t in tools if t.name == "test-server.test_tool")
+
+    execute = tool.execute
+    assert execute is not None
+    result = execute(None, None, None)
+    messages = list(result) if hasattr(result, "__iter__") else [result]
+
+    assert len(messages) == 1
+    assert "No parameters provided" in messages[0].content
+
+
 def test_search_mcp_servers_all():
     """Test search_mcp_servers with 'all' registry."""
     mock_servers = [

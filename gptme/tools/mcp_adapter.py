@@ -440,6 +440,11 @@ def create_mcp_execute_function(
         kwargs: dict[str, str] | None,
     ):
         """Execute an MCP tool with confirmation"""
+        # Tool-format calls (e.g. ``@time.get_current_time(id): {"timezone": ...}``)
+        # carry their arguments in kwargs with no content. Serialize them to JSON
+        # so the MCP parameter path (and preview/confirmation) sees them.
+        if not code and kwargs:
+            code = json.dumps(kwargs)
         if not code:
             yield Message("system", "No parameters provided")
             return
