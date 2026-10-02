@@ -1087,15 +1087,15 @@ def step(
 
         # A successful retry can race an interrupt or replacement step: the last
         # overflow_guard check finished before this point, so re-verify ownership
-        # under the lock before committing the reply to the shared view. The
+        # and commit the reply under the same lock hold; releasing in between
+        # would let a replacement bump the epoch before the append lands. The
         # smaller view stays active on revocation on purpose: it is the one
         # proven to fit the provider, and the epoch owner (not this step) may
         # already have switched views, so restoring here could clobber it.
         with session.step_lock:
             if session.step_seq != my_step_seq or session.interrupted:
                 raise InterruptedError("Epoch replaced before reply commit")
-
-        _append_and_notify(manager, session, msg)
+            _append_and_notify(manager, session, msg)
 
         # Trigger TURN_POST hook (turn.post - after message processing completes)
         if post_msgs := trigger_hook(
