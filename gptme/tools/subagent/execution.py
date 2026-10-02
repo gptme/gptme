@@ -959,6 +959,16 @@ def _stderr_failure_tail(stderr_path: Path | None) -> str:
     return "\nChild stderr tail:\n" + "\n".join(tail)
 
 
+def _terminate_subprocess(process: subprocess.Popen) -> None:
+    """Give CLI cleanup a grace period before forcing termination, then reap."""
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
 def _monitor_subprocess(
     subagent: "Subagent",
 ) -> None:
@@ -986,7 +996,7 @@ def _monitor_subprocess(
     )
     progress_thread.start()
 
-    # Track whether the process was killed due to our timeout (vs external SIGKILL)
+    # Track our timeout independently of the child's cleanup exit code.
     _timed_out = False
 
     # Wait for process to complete with timeout to prevent indefinite blocking
@@ -994,11 +1004,10 @@ def _monitor_subprocess(
         subagent.process.wait(timeout=subagent.timeout)
     except subprocess.TimeoutExpired:
         logger.warning(
-            f"Subagent {subagent.agent_id} timed out after {subagent.timeout}s, killing"
+            f"Subagent {subagent.agent_id} timed out after {subagent.timeout}s, terminating"
         )
         _timed_out = True
-        subagent.process.kill()
-        subagent.process.wait()  # reap the killed process
+        _terminate_subprocess(subagent.process)
 
     # Stop the progress-poll thread and let it do a final drain.
     progress_stop.set()
@@ -1006,10 +1015,15 @@ def _monitor_subprocess(
 
     input_tokens: int | None = None
     output_tokens: int | None = None
+    result: str | dict[str, object] | None
 
     # Determine status based on return code
-    if subagent.process.returncode == 0:
-        status: Status = "success"
+    if _timed_out:
+        status: Status = "failure"
+        result = f"Process killed after {subagent.timeout}s timeout"
+        result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
+    elif subagent.process.returncode == 0:
+        status = "success"
         # Get result from conversation log (primary source for subprocess mode)
         try:
             log_status = subagent.status()
@@ -1020,11 +1034,6 @@ def _monitor_subprocess(
             output_tokens = log_status.output_tokens
         except Exception:
             result = "Task completed (check log for details)"
-    elif _timed_out:
-        # Process was killed because our timeout expired (not an external SIGKILL)
-        status = "failure"
-        result = f"Process killed after {subagent.timeout}s timeout"
-        result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
     else:
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"

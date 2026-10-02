@@ -9,12 +9,25 @@ from pathlib import Path
 
 import pytest
 
+from gptme.tools.subagent.execution import _monitor_subprocess
+from gptme.tools.subagent.types import Subagent
+
 pytestmark = pytest.mark.skipif(
     os.name == "nt", reason="POSIX signals and process groups"
 )
 
 
-@pytest.mark.parametrize("mode", ["terminate", "default-return", "ignore", "custom"])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "terminate",
+        "subagent-timeout",
+        "subagent-timeout-shell",
+        "default-return",
+        "ignore",
+        "custom",
+    ],
+)
 def test_cli_sigterm_cleans_background_job(tmp_path: Path, mode: str) -> None:
     ready = tmp_path / "ready"
     script = r"""
@@ -51,11 +64,19 @@ elif mode == "custom":
     signal.signal(signal.SIGTERM, lambda signum, frame: None)
 previous_handler = signal.getsignal(signal.SIGTERM)
 def fake_chat(*args, **kwargs):
-    job = start_background_job("exec sleep 120")
+    if mode == "subagent-timeout-shell":
+        from gptme.tools.shell import ShellSession
+        shell = ShellSession()
+        code, stdout, stderr = shell.run("sleep 300 & echo $!", output=False)
+        assert code == 0, stderr
+        child_pid = int(stdout.strip())
+    else:
+        job = start_background_job("exec sleep 300")
+        child_pid = job.process.pid
     temporary = ready.with_suffix(".tmp")
-    temporary.write_text(str(job.process.pid))
+    temporary.write_text(str(child_pid))
     temporary.replace(ready)
-    if mode == "terminate":
+    if mode == "terminate" or mode.startswith("subagent-timeout"):
         signal.pause()
     elif mode == "default-return":
         assert callable(signal.getsignal(signal.SIGTERM))
@@ -103,10 +124,27 @@ assert signal.getsignal(signal.SIGTERM) == previous_handler
             if mode == "terminate":
                 os.kill(child_pid, 0)
                 process.send_signal(signal.SIGTERM)
+            elif mode.startswith("subagent-timeout"):
+                os.kill(child_pid, 0)
+                subagent = Subagent(
+                    agent_id=f"cli-timeout-cleanup-{mode}",
+                    prompt="test",
+                    thread=None,
+                    logdir=tmp_path,
+                    model=None,
+                    process=process,
+                    execution_mode="subprocess",
+                    timeout=2,
+                )
+                _monitor_subprocess(subagent)
             stdout, stderr = process.communicate(timeout=10)
             with pytest.raises(ProcessLookupError):
                 os.kill(child_pid, 0)
-            expected_code = 128 + signal.SIGTERM if mode == "terminate" else 0
+            expected_code = (
+                128 + signal.SIGTERM
+                if mode == "terminate" or mode.startswith("subagent-timeout")
+                else 0
+            )
             assert process.returncode == expected_code, (stdout, stderr)
         finally:
             if child_pid is not None:

@@ -1142,6 +1142,50 @@ class TestSubagentCancel:
         with _subagent_results_lock:
             assert _subagent_results["proc-agent"] == ReturnType("success", "done")
 
+    def test_subprocess_monitor_timeout_remains_failure_after_clean_exit(
+        self, tmp_path
+    ):
+        mock_proc = MagicMock()
+        mock_proc.wait.side_effect = [subprocess.TimeoutExpired("gptme", 2), 0]
+        mock_proc.returncode = 0
+        sa = self._register(
+            "clean-timeout",
+            process=mock_proc,
+            execution_mode="subprocess",
+            logdir=tmp_path,
+        )
+
+        _monitor_subprocess(sa)
+
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_not_called()
+        assert mock_proc.wait.call_args_list[-1].kwargs == {"timeout": 5}
+        assert _subagent_results[sa.agent_id].status == "failure"
+        assert "timeout" in (_subagent_results[sa.agent_id].result or "")
+
+    def test_subprocess_monitor_escalates_unresponsive_timeout(self, tmp_path):
+        mock_proc = MagicMock()
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired("gptme", 2),
+            subprocess.TimeoutExpired("gptme", 5),
+            -9,
+        ]
+        mock_proc.returncode = -9
+        sa = self._register(
+            "stuck-timeout",
+            process=mock_proc,
+            execution_mode="subprocess",
+            logdir=tmp_path,
+        )
+
+        _monitor_subprocess(sa)
+
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+        assert mock_proc.wait.call_args_list[-1].args == ()
+        assert mock_proc.wait.call_args_list[-1].kwargs == {}
+        assert _subagent_results[sa.agent_id].status == "failure"
+
     def test_subprocess_monitor_preserves_cancelled_result(self):
         mock_proc = MagicMock()
         mock_proc.wait.return_value = 0
