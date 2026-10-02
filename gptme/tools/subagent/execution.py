@@ -449,11 +449,14 @@ def _create_subagent_thread(
     # conversations already contain their startup context.
     if resume:
         initial_msgs = []
-    elif context_window == 0:
+    elif context_window == 0 and context_mode != "fork":
         # Minimal context: just agent identity and tools, no workspace files.
         # This is the context isolation mode requested by the --isolate flag.
         # Note: if context_mode="selective" is also set, context_window=0 takes
         # precedence and the context_include list is ignored — agent+tools only.
+        # Note: context_mode="fork" is excluded from this branch — fork requires
+        # the parent history, so context_window=0 is ignored and the fork branch
+        # below handles it (with a warning).
         from ...prompts import prompt_gptme, prompt_tools
 
         if (
@@ -483,6 +486,11 @@ def _create_subagent_thread(
         # turn so far). The copy is a plain list of the same Message objects —
         # mutating it (e.g. appending the child's own turns below) never
         # touches the parent's log, since LogManager holds its own list.
+        if context_window == 0:
+            logger.warning(
+                "context_mode='fork' and context_window=0 are incompatible; "
+                "fork requires parent history — ignoring context_window=0"
+            )
         if fork_messages is not None:
             initial_msgs = list(fork_messages)
         else:

@@ -184,6 +184,8 @@ class BatchJob:
                     result.get("result"),
                     input_tokens=result.get("input_tokens"),
                     output_tokens=result.get("output_tokens"),
+                    tool_uses=result.get("tool_uses"),
+                    duration_s=result.get("duration_s"),
                 )
 
         import time
