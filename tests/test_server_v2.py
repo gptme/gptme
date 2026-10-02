@@ -5718,6 +5718,28 @@ def test_v2_user_mcp_config_get_redacts_secrets(client: FlaskClient, mcp_config_
     assert server["env"] == {"SEARCH_API_KEY": "***", "REGION": "eu"}
 
 
+def test_v2_user_mcp_config_get_waits_for_config_write_lock(
+    client: FlaskClient, mcp_config_file
+):
+    """GET must not read config.toml while a writer holds the config lock."""
+    import threading
+
+    from gptme.server.api_v2 import _config_write_lock
+
+    # A separate client: the fixture's context-managed one is not thread-safe.
+    other = client.application.test_client()
+    results: list[int] = []
+    t = threading.Thread(
+        target=lambda: results.append(other.get("/api/v2/user/config/mcp").status_code)
+    )
+    with _config_write_lock:
+        t.start()
+        t.join(timeout=0.3)
+        assert t.is_alive(), "GET returned while the config write lock was held"
+    t.join(timeout=5)
+    assert results == [200]
+
+
 def test_v2_user_mcp_config_put_round_trip_keeps_secret_and_rest_of_file(
     client: FlaskClient, mcp_config_file
 ):

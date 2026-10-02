@@ -3891,7 +3891,8 @@ def api_user_avatar():
 )
 def api_user_config_file_get():
     """Return raw config.toml contents for the settings UI."""
-    content = _read_user_config_file_text()
+    with _config_write_lock:  # don't read a half-written file
+        content = _read_user_config_file_text()
     return flask.jsonify(_get_user_config_file_response(content))
 
 
@@ -4006,7 +4007,8 @@ def api_user_config_file_patch():
 )
 def api_user_mcp_config_get():
     """Return the global MCP config for the settings UI."""
-    _doc, mcp = _read_user_mcp_config()
+    with _config_write_lock:  # don't read a half-written file
+        _doc, mcp = _read_user_mcp_config()
     return flask.jsonify(_mcp_config_response(mcp))
 
 
