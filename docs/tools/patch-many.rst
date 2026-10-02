@@ -8,8 +8,9 @@ commits them atomically: if any hunk fails validation, no file is written. It is
 meant for cross-cutting edits ("rename this symbol", "add a parameter and update
 its callers") that would otherwise take one ``patch`` call per file.
 
-Patches are validated in-memory before anything lands, so a half-applied
-refactor is impossible.
+Patches are validated in-memory before anything lands, so a failed hunk
+validation leaves files unchanged. If a file write fails, rollback is
+best-effort and a partial refactor may remain on disk.
 
 .. automodule:: gptme.tools.patch_many
     :members:
