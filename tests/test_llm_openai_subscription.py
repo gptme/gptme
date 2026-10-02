@@ -349,7 +349,7 @@ def test_stream_read_timeout_invalid_env_falls_back_to_default(monkeypatch, bad_
     assert mock_post.call_args.kwargs["timeout"] == (30, 600.0)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _backoff_delays(monkeypatch) -> list[float]:
     """Record stream-retry backoff delays instead of sleeping."""
     delays: list[float] = []
