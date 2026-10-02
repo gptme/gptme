@@ -428,3 +428,23 @@ def test_cap_output_multibyte_chars():
     capped = _cap_output(huge_multibyte)
     assert len(capped.encode("utf-8")) < len(huge_multibyte.encode("utf-8"))
     assert "omitted" in capped
+
+
+def test_teeio_truncation_marker():
+    """TeeIO must add an omission marker when it silently drops output past the cap."""
+    import io
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    # Write more than the cap to trigger truncation
+    tee = TeeIO(io.StringIO())  # discard the "original stream" output
+    chunk = "a" * 1024  # 1 KiB per write
+    total_written = 0
+    while total_written <= _DEFAULT_MAX_OUTPUT_BYTES + len(chunk):
+        tee.write(chunk)
+        total_written += len(chunk)
+
+    assert tee._truncated, "TeeIO should have set _truncated after exceeding cap"
+    captured = tee.get_captured()
+    assert "omitted" in captured, "get_captured() must include a truncation marker"
+    assert "bytes omitted" in captured

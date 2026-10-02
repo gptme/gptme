@@ -267,6 +267,7 @@ class TeeIO(io.StringIO):
         self.original_stream = original_stream
         self.in_result_block = False
         self._byte_count = 0
+        self._truncated = False
 
     def write(self, s):
         # hack to get rid of ipython result-prompt ("Out[0]: ...") and everything after it
@@ -282,8 +283,21 @@ class TeeIO(io.StringIO):
         # Stop buffering once the cap is reached to avoid unbounded memory growth
         self._byte_count += len(s.encode("utf-8"))
         if self._byte_count > _DEFAULT_MAX_OUTPUT_BYTES:
+            self._truncated = True
             return len(s)
         return super().write(s)
+
+    def get_captured(self) -> str:
+        """Return buffered output, appending a truncation marker if writes were dropped."""
+        value = self.getvalue()
+        if not self._truncated:
+            return value
+        buffered_bytes = len(value.encode("utf-8"))
+        dropped = self._byte_count - buffered_bytes
+        return (
+            value + f"\n\n[... {dropped:,} bytes omitted "
+            f"({self._byte_count:,} total — capture limit reached, head only) ...]"
+        )
 
 
 @contextmanager
@@ -374,8 +388,8 @@ def execute_python(
             code, silent=False, store_history=False
         )
 
-    captured_stdout = stdout_capture.getvalue()
-    captured_stderr = stderr_capture.getvalue()
+    captured_stdout = stdout_capture.get_captured()
+    captured_stderr = stderr_capture.get_captured()
 
     output = ""
     terminal_output = ""
