@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 import random
 import re
@@ -1290,9 +1291,22 @@ def test_fatal_keyerror_output_strips_repr_quotes(
     result = runner.invoke(cli.main, ["--non-interactive", "hello"])
 
     assert result.exit_code != 0
-    # The plain message must appear; repr-style quotes must not
+    # The plain message must appear; repr-style quotes must not (stdout path)
     assert msg in result.output
     assert f"'{msg}'" not in result.output
+
+    # The conversation.jsonl error event must also strip repr-style quotes
+    jsonl_files = list((tmp_path / "data").glob("**/conversation.jsonl"))
+    assert jsonl_files, "conversation.jsonl not written by non-interactive error path"
+    events = [
+        json.loads(line)
+        for line in jsonl_files[0].read_text().splitlines()
+        if line.strip()
+    ]
+    error_events = [e for e in events if e.get("metadata", {}).get("error")]
+    assert error_events, "No error event written to conversation.jsonl"
+    assert msg in error_events[0]["content"]
+    assert f"'{msg}'" not in error_events[0]["content"]
 
 
 def test_command_exit(args: list[str], runner: CliRunner):
