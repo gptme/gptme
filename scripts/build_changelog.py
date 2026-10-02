@@ -106,10 +106,12 @@ class CommitMsg:
 
 @dataclass
 class Commit:
-    id: str
+    id: str  # full 40-char SHA, used in link URLs
     msg: str
     org: str
     repo: str
+    short_id: str = ""  # abbreviated SHA, used as visible link text
+    tag: str | None = None  # set if this commit is the tagged tip of the range
 
     @property
     def msg_processed(self) -> str:
@@ -159,7 +161,17 @@ class Commit:
         return f"{_type}" + (f"({subtype})" if subtype else "")
 
     def format(self) -> str:
-        commit_link = commit_linkify(self.id, self.org, self.repo) if self.id else ""
+        if self.tag:
+            # The release flow (`make release`, release.yml) generates notes and
+            # then amends the tagged version-bump commit, so its pre-amend SHA
+            # never reaches GitHub. Link the tag instead, which follows the amend.
+            commit_link = tag_linkify(self.tag, self.org, self.repo)
+        elif self.id:
+            commit_link = commit_linkify(
+                self.id, self.org, self.repo, text=self.short_id or None
+            )
+        else:
+            commit_link = ""
 
         return f"{self.msg_processed}" + (f" ({commit_link})" if commit_link else "")
 
@@ -185,8 +197,28 @@ def pr_linkify(prid: str, org: str, repo: str) -> str:
     return f"[#{prid}](https://github.com/{org}/{repo}/pulls/{prid})"
 
 
-def commit_linkify(commitid: str, org: str, repo: str) -> str:
-    return f"[`{commitid}`](https://github.com/{org}/{repo}/commit/{commitid})"
+def commit_linkify(commitid: str, org: str, repo: str, text: str | None = None) -> str:
+    """Link a commit. Pass the full SHA as `commitid`: GitHub 404s abbreviated
+    SHAs that are too short or have become ambiguous, so only the visible
+    `text` should be abbreviated."""
+    return f"[`{text or commitid}`](https://github.com/{org}/{repo}/commit/{commitid})"
+
+
+def tag_linkify(tag: str, org: str, repo: str) -> str:
+    # NOTE: GitHub does not resolve tag names in /commit/ URLs, but does in /tree/
+    return f"[`{tag}`](https://github.com/{org}/{repo}/tree/{tag})"
+
+
+def resolve_tag_commit(ref: str, cwd: str) -> str | None:
+    """Return the full SHA `ref` points at if it is a tag, else None."""
+    if not ref:
+        return None
+    try:
+        return run(
+            f"git rev-parse --verify --quiet refs/tags/{ref}^{{commit}}", cwd=cwd
+        ).strip()
+    except Exception:
+        return None
 
 
 def wrap_details(title, body, wraplines=5):
@@ -226,19 +258,31 @@ def summary_repo(
     misc = ""
     hidden = 0
 
+    # The tagged tip of the range (if any) gets linked by tag, see Commit.format
+    tip_tag = commit_range[1] if any(commit_range) else ""
+    tip_sha = resolve_tag_commit(tip_tag, cwd=path)
+
     # pretty format is modified version of: https://stackoverflow.com/a/1441062/965332
+    # %H (full SHA) is used in link URLs, %h only as the visible link text
     summary_bundle = run(
-        f"git log {'...'.join(commit_range) if any(commit_range) else ''} --no-decorate --pretty=format:'%h%x09%an%x09%ae%x09%s'",
+        f"git log {'...'.join(commit_range) if any(commit_range) else ''} --no-decorate --pretty=format:'%H%x09%h%x09%an%x09%ae%x09%s'",
         cwd=path,
     )
     print(f"Found {len(summary_bundle.splitlines())} commits in {repo}")
     for line in summary_bundle.split("\n"):
         if line:
-            _id, _author, email, msg = line.split("\t")
+            _id, short_id, _author, email, msg = line.split("\t", 4)
             # will add author email to contributor list
             # the `contributor_emails` is global and collected later
             contributor_emails.add(email)
-            commit = Commit(id=_id, msg=msg, org=org, repo=repo)
+            commit = Commit(
+                id=_id,
+                msg=msg,
+                org=org,
+                repo=repo,
+                short_id=short_id,
+                tag=tip_tag if tip_sha and _id == tip_sha else None,
+            )
 
             entry = f"\n - {commit.format()}"
             if commit.type == "feat":
