@@ -6,13 +6,14 @@ for applying configuration changes, reloading tools, or recovering from state is
 """
 
 import importlib.util
+import ipaddress
 import logging
 import os
 import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from ..hooks.confirm import confirm
 from ..message import Message
@@ -258,6 +259,14 @@ def _http_status(
         return None
 
 
+def _is_loopback_url(url: str) -> bool:
+    host = urlsplit(url).hostname or ""
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
 def prepare_web_switch(conversation_name: str) -> str:
     """Check the web UI can open this conversation and return its URL.
 
@@ -281,7 +290,10 @@ def prepare_web_switch(conversation_name: str) -> str:
     # will get: it must find the conversation (same logs dir) and accept them.
     conv = quote(conversation_name, safe="")
     # Fall back to the token a local gptme-server shares when it generated one.
-    token = os.environ.get("GPTME_SERVER_TOKEN") or read_token_file()
+    # Only send it to a loopback server: GPTME_SERVER_URL may point elsewhere.
+    token = os.environ.get("GPTME_SERVER_TOKEN") or (
+        read_token_file() if _is_loopback_url(base) else None
+    )
     status = _http_status(f"{base}/api/v2/conversations/{conv}?limit=1", token=token)
     if status in (401, 403):
         if not token:

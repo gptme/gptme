@@ -378,8 +378,6 @@ def serve(
     # Share an auto-generated token with local clients (`/restart web`,
     # `gptme-server token`); a token from the environment is already known.
     shared_token = token if token and not os.environ.get("GPTME_SERVER_TOKEN") else None
-    if shared_token:
-        write_token_file(shared_token)
     if token:
         # Fragment (not query) so the token is not sent to the server or logged
         # as a request URL. The bundled UI reads #userToken= and then strips it.
@@ -403,6 +401,9 @@ def serve(
     )
 
     try:
+        # Written inside the try so a failed startup still removes it.
+        if shared_token:
+            write_token_file(shared_token)
         app.run(debug=debug, host=host, port=port)
     finally:
         if shared_token:

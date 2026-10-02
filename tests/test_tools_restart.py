@@ -910,3 +910,39 @@ class TestServerTokenFile:
         TestWebSwitch._mock_http(monkeypatch, {"/conversations/": 401})
         with pytest.raises(RestartError, match="rejected the token in"):
             prepare_web_switch("my-conv")
+
+    def test_token_file_not_sent_to_remote_server(self, monkeypatch):
+        from gptme.server.token_file import write_token_file
+
+        write_token_file("local-only")
+        monkeypatch.setenv("GPTME_SERVER_URL", "https://remote.example:5700")
+        requests = TestWebSwitch._mock_http(monkeypatch)
+        url = prepare_web_switch("my-conv")
+        assert "userToken" not in url
+        assert all(token is None for _, token in requests)
+
+    def test_write_replaces_symlink_instead_of_following(self, tmp_path):
+        from gptme.server.token_file import get_token_file, write_token_file
+
+        target = tmp_path / "victim"
+        target.write_text("keep")
+        get_token_file().parent.mkdir(parents=True, exist_ok=True)
+        get_token_file().symlink_to(target)
+        write_token_file("tok")
+        assert target.read_text() == "keep"
+        assert not get_token_file().is_symlink()
+        assert get_token_file().read_text() == "tok"
+        assert get_token_file().stat().st_mode & 0o777 == 0o600
+
+    def test_remove_never_raises(self, monkeypatch):
+        from pathlib import Path
+
+        from gptme.server.token_file import remove_token_file, write_token_file
+
+        write_token_file("tok")
+
+        def boom(self, missing_ok=False):
+            raise PermissionError("denied")
+
+        monkeypatch.setattr(Path, "unlink", boom)
+        remove_token_file("tok")  # logs, does not raise
