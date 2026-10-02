@@ -135,7 +135,7 @@ def _generate_llm_name(
                 context += f"{msg.role.title()}: {content}\n"
 
         if not context.strip():
-            logger.warning("no context for auto-name")
+            logger.debug("no context for auto-name")
             return None
 
         # Check if context has enough substance for meaningful naming

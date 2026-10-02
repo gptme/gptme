@@ -1090,8 +1090,9 @@ def main(
                 # contaminate JSON stdout.
                 init_logging(verbose, stderr=True)
 
-    # add prompts to prompt-toolkit history
-    for prompt in prompts:
+    # add prompts to prompt-toolkit history (only useful, and only safe: it
+    # creates a PromptSession that warns on non-TTY input, when interactive)
+    for prompt in prompts if interactive else []:
         if prompt and len(prompt) > 1000:
             # skip adding long prompts to history (slows down startup, unlikely to be useful)
             continue

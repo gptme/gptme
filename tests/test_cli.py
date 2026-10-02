@@ -2142,3 +2142,21 @@ def test_resume_selection_loads_complete_history(
     assert seen == [(expected_dir, histories[expected_dir], expected_prompts)]
     for path, before in snapshots.items():
         assert (path / "conversation.jsonl").read_bytes() == before
+
+
+def test_noninteractive_does_not_seed_prompt_history(monkeypatch, tmp_path: Path):
+    """--non-interactive must not create a prompt_toolkit session (it warns on non-TTY)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    calls: list[str] = []
+    monkeypatch.setattr("gptme.util.prompt.add_history", calls.append)
+    monkeypatch.setattr(
+        importlib.import_module("gptme.chat"), "chat", lambda *a, **k: None
+    )
+
+    result = CliRunner().invoke(
+        cli.main, ["--non-interactive", "--name", "no-history", "hello"]
+    )
+    assert calls == [], result.output
