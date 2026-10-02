@@ -32,6 +32,7 @@ def test_cli_sigterm_cleans_background_job(tmp_path: Path, mode: str) -> None:
     ready = tmp_path / "ready"
     script = r"""
 import importlib
+import os
 import signal
 import socket
 import sys
@@ -74,7 +75,7 @@ def fake_chat(*args, **kwargs):
         job = start_background_job("exec sleep 300")
         child_pid = job.process.pid
     temporary = ready.with_suffix(".tmp")
-    temporary.write_text(str(child_pid))
+    temporary.write_text(f"{child_pid} {os.getpgid(child_pid)}")
     temporary.replace(ready)
     if mode == "terminate" or mode.startswith("subagent-timeout"):
         signal.pause()
@@ -103,6 +104,7 @@ assert signal.getsignal(signal.SIGTERM) == previous_handler
         XDG_STATE_HOME=str(tmp_path / "state"),
     )
     child_pid = None
+    child_pgid = None
     with subprocess.Popen(
         [sys.executable, "-c", script, str(ready), mode],
         cwd=tmp_path,
@@ -120,7 +122,7 @@ assert signal.getsignal(signal.SIGTERM) == previous_handler
             if not ready.exists():
                 stdout, stderr = process.communicate(timeout=5)
                 pytest.fail(f"CLI failed before job start: {stdout}\n{stderr}")
-            child_pid = int(ready.read_text())
+            child_pid, child_pgid = map(int, ready.read_text().split())
             if mode == "terminate":
                 os.kill(child_pid, 0)
                 process.send_signal(signal.SIGTERM)
@@ -147,9 +149,9 @@ assert signal.getsignal(signal.SIGTERM) == previous_handler
             )
             assert process.returncode == expected_code, (stdout, stderr)
         finally:
-            if child_pid is not None:
+            if child_pgid is not None:
                 try:
-                    os.killpg(child_pid, signal.SIGKILL)
+                    os.killpg(child_pgid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
             if process.poll() is None:
