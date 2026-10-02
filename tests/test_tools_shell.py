@@ -86,6 +86,35 @@ EOF
     assert ret == 0
 
 
+@pytest.mark.parametrize("windows_reader", [False, True])
+@pytest.mark.parametrize("fd", [1, 2])
+@pytest.mark.parametrize("text", ["é", "€", "😀"])
+def test_output_split_utf8_reads(shell, monkeypatch, windows_reader, fd, text):
+    """A subprocess can flush in the middle of a multibyte character."""
+    monkeypatch.setattr(shell_module, "_is_windows", windows_reader)
+    raw = text.encode("utf-8")
+    code = (
+        "import os,time;"
+        f"os.write({fd},{raw[:1]!r});time.sleep(.1);"
+        f"os.write({fd},{raw[1:]!r})"
+    )
+    rc, out, err = shell.run("python3 -c " + shlex.quote(code), output=False)
+    assert rc == 0
+    assert (out, err) == ((text, "") if fd == 1 else ("", text))
+
+
+@pytest.mark.parametrize("fd", [1, 2])
+def test_output_incomplete_utf8_does_not_leak_between_commands(shell, fd):
+    code = f"import os;os.write({fd},b'\\xc3')"
+    rc, out, err = shell.run("python3 -c " + shlex.quote(code), output=False)
+    assert rc == 0
+    assert (out, err) == (("�", "") if fd == 1 else ("", "�"))
+    rc, out, err = shell.run("printf '\\251'", output=False)
+    assert rc == 0
+    assert out == "�"
+    assert err == ""
+
+
 def test_cd(shell):
     # Run a cd command
     ret, out, err = shell.run("cd /tmp")
