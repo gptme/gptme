@@ -209,8 +209,9 @@ def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
 def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep interrupted or unexecuted tool calls replayable without inventing results.
 
-    Results are matched to call occurrences (in order), not just call IDs, so a
-    reused ID cannot make a later orphaned call look paired.
+    A result belongs to the nearest preceding unpaired call with its ID, so a
+    reused ID can neither hide a later orphaned call nor steal an earlier
+    call's result.
     """
     pending: dict[str, list[int]] = {}
     for idx, item in enumerate(items):
@@ -219,7 +220,7 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
         elif item.get("type") == "function_call_output":
             calls = pending.get(item["call_id"])
             if calls:
-                calls.pop(0)
+                calls.pop()
     orphans = {idx for calls in pending.values() for idx in calls}
 
     paired_items: list[dict[str, Any]] = []
