@@ -151,6 +151,7 @@ _tool_counter = None
 _tool_duration_histogram = None
 _active_conversations_gauge = None
 _llm_request_counter = None
+_llm_cost_counter = None
 _skill_invocation_counter = None
 _skill_completion_counter = None
 _skill_duration_histogram = None
@@ -188,6 +189,7 @@ def get_telemetry_objects():
         "tool_duration_histogram": _tool_duration_histogram,
         "active_conversations_gauge": _active_conversations_gauge,
         "llm_request_counter": _llm_request_counter,
+        "llm_cost_counter": _llm_cost_counter,
         "skill_invocation_counter": _skill_invocation_counter,
         "skill_completion_counter": _skill_completion_counter,
         "skill_duration_histogram": _skill_duration_histogram,
@@ -346,7 +348,8 @@ def init_telemetry(
         _tool_counter, \
         _tool_duration_histogram, \
         _active_conversations_gauge, \
-        _llm_request_counter
+        _llm_request_counter, \
+        _llm_cost_counter
     global \
         _skill_invocation_counter, \
         _skill_completion_counter, \
@@ -574,6 +577,12 @@ def init_telemetry(
             name="gptme_llm_requests",
             description="Number of LLM API requests made",
             unit="requests",
+        )
+
+        _llm_cost_counter = _meter.create_counter(
+            name="gptme_llm_cost_usd",
+            description="Cost of LLM API requests",
+            unit="USD",
         )
 
         _skill_invocation_counter = _meter.create_counter(

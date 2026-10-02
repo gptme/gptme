@@ -432,3 +432,122 @@ def test_otlp_timeout_seconds_overflow_falls_back(monkeypatch):
 
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "inf")
     assert _otlp_timeout_seconds(default=10.0) == 10.0
+
+
+def test_record_llm_request_keeps_values_out_of_labels(monkeypatch):
+    """Token counts and cost must be counter values, not metric labels."""
+    from unittest.mock import MagicMock
+
+    from gptme import telemetry
+
+    request_counter, cost_counter, token_counter = (
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+    )
+    objects = {
+        "tracer": None,
+        "llm_request_counter": request_counter,
+        "llm_cost_counter": cost_counter,
+        "token_counter": token_counter,
+    }
+    monkeypatch.setattr(telemetry, "is_telemetry_enabled", lambda: True)
+    monkeypatch.setattr(telemetry, "get_telemetry_objects", lambda: objects)
+    monkeypatch.setattr(telemetry, "_calculate_llm_cost", lambda **_: 0.0123)
+
+    telemetry.record_llm_request(
+        "anthropic",
+        "claude-haiku-4-5",
+        input_tokens=1000,
+        output_tokens=100,
+        total_tokens=1100,
+    )
+
+    request_counter.add.assert_called_once_with(
+        1, {"provider": "anthropic", "model": "claude-haiku-4-5", "success": "true"}
+    )
+    cost_counter.add.assert_called_once_with(
+        0.0123, {"provider": "anthropic", "model": "claude-haiku-4-5"}
+    )
+    token_counter.add.assert_any_call(1000, {"token_type": "input"})
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not _has_telemetry_deps(),
+    reason="Requires telemetry dependencies (opentelemetry, prometheus_client)",
+)
+def test_llm_cost_exported_by_real_meter():
+    """init_telemetry registers gptme_llm_cost_usd and a real meter exports it.
+
+    Catches what the mock-counter test cannot: a missing registration, a wrong
+    metric name, or a lost fractional value.
+    """
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.metric_exporter")
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+    code = """
+import json
+from unittest.mock import patch
+from opentelemetry import metrics
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+# Install our provider first; init_telemetry's later set_meter_provider is
+# ignored by OpenTelemetry, so its instruments land on this in-memory reader.
+reader = InMemoryMetricReader()
+metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
+
+from gptme import telemetry
+from gptme.util._telemetry import init_telemetry, shutdown_telemetry
+
+with (
+    patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"),
+    patch("opentelemetry.exporter.otlp.proto.http.metric_exporter.OTLPMetricExporter.export"),
+    patch.object(telemetry, "_calculate_llm_cost", lambda **_: 0.0123),
+):
+    init_telemetry(
+        enable_flask_instrumentation=False,
+        enable_requests_instrumentation=False,
+        enable_openai_instrumentation=False,
+        enable_anthropic_instrumentation=False,
+        interactive=False,
+    )
+    telemetry.record_llm_request(
+        "anthropic", "claude-haiku-4-5", input_tokens=1000, output_tokens=100
+    )
+    points = {}
+    for rm in reader.get_metrics_data().resource_metrics:
+        for sm in rm.scope_metrics:
+            for m in sm.metrics:
+                points[m.name] = [
+                    (dict(p.attributes), p.value) for p in m.data.data_points
+                ]
+    print(json.dumps(points))
+    shutdown_telemetry()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        env={
+            **os.environ,
+            "GPTME_TELEMETRY_ENABLED": "true",
+            "OTLP_ENDPOINT": "http://localhost:4318",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    points = json.loads(result.stdout.strip().splitlines()[-1])
+    assert points["gptme_llm_cost_usd"] == [
+        [{"provider": "anthropic", "model": "claude-haiku-4-5"}, 0.0123]
+    ]
+    # the request counter carries no token/cost labels
+    [[labels, value]] = points["gptme_llm_requests"]
+    assert labels == {
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5",
+        "success": "true",
+    }
+    assert value == 1
