@@ -104,12 +104,14 @@ jobs:
 
           # Check individual check runs (not suites) to avoid blocking on
           # flaky/optional checks like external API tests.
-          # Exclude: API tests (external, flaky), and this workflow's own runs.
+          # Exclude: API tests (external, flaky), the report-only Dependency
+          # Advisory Scan (continue-on-error; a coalesced/cancelled run of it
+          # must not block a release), and this workflow's own runs.
           CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
             --paginate \
             --jq '[.check_runs[] | select(
               .app.slug == "github-actions" and
-              (.name | test("API tests|^Pre-flight checks$|^Create release$|^Publish release$") | not)
+              (.name | test("API tests|^Dependency Advisory Scan$|^Pre-flight checks$|^Create release$|^Publish release$") | not)
             )] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
 
           echo "CI conclusions (excluding API tests): $CONCLUSIONS"
