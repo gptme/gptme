@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -595,10 +596,19 @@ def test_mcp_commands_load_workspace_config(
     )
     monkeypatch.chdir(workspace)
     connected = []
+    events: list[str] = []
+    real_confirm = click.confirm
+
+    def track_confirm(*args, **kwargs):
+        events.append("confirm")
+        return real_confirm(*args, **kwargs)
+
+    monkeypatch.setattr("gptme.cli.cmd_mcp.click.confirm", track_confirm)
 
     def connect(client: MCPClient, server_name: str) -> tuple[SimpleNamespace, None]:
         assert client.config.project is not None
         assert client.config.mcp.enabled
+        events.append("connect")
         connected.append(server_name)
         return SimpleNamespace(tools=[]), None
 
@@ -615,9 +625,36 @@ def test_mcp_commands_load_workspace_config(
     )
     assert "project-time" in result.output
     assert "project-server" in result.output
+    assert "Connect to project MCP server" in result.output
     if approve:
         assert "Connected" in result.output
         assert connected == ["project-time"]
+        # The prompt must precede the connection, not just appear somewhere.
+        assert events == ["confirm", "connect"]
     else:
         assert "not approved" in result.output
         assert connected == []
+        assert events == ["confirm"]
+
+
+def test_display_target_redacts_url_credentials() -> None:
+    """Confirmation targets must not echo credentials embedded in a URL."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    with_creds = MCPServerConfig(
+        name="project-http", url="https://user:secret@example.com:8443/mcp"
+    )
+    assert _display_target(with_creds) == "https://example.com:8443/mcp"
+
+    plain = MCPServerConfig(name="project-http", url="https://example.com/mcp")
+    assert _display_target(plain) == "https://example.com/mcp"
+
+
+def test_display_target_shows_stdio_command() -> None:
+    """Stdio targets are shown verbatim so the approved command is visible."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(name="project-stdio", command="python", args=["-m", "srv"])
+    assert _display_target(server) == "python -m srv"

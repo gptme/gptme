@@ -3,6 +3,7 @@
 import shlex
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import click
 
@@ -15,17 +16,31 @@ def mcp():
     """Commands for managing MCP servers."""
 
 
+def _display_target(server: MCPServerConfig) -> str:
+    """Render a server target for confirmation, hiding URL credentials."""
+    if server.is_http:
+        parts = urlsplit(server.url or "")
+        if parts.username or parts.password:
+            host = parts.hostname or ""
+            if parts.port:
+                host = f"{host}:{parts.port}"
+            parts = parts._replace(netloc=host)
+        return urlunsplit(parts)
+    return shlex.join([server.command or "", *server.args])
+
+
 def _confirm_project_connection(config: Config, server: MCPServerConfig) -> bool:
-    """Require consent before connecting to a workspace-supplied server."""
+    """Require consent before connecting to a workspace-supplied server.
+
+    The target is shown so the user can inspect what will run. URL credentials
+    are redacted; command arguments are shown verbatim because they define the
+    command being approved.
+    """
     if not config.project or not config.project.mcp:
         return True
     if server.name not in {s.name for s in config.project.mcp.servers}:
         return True
-    target = (
-        server.url
-        if server.is_http
-        else shlex.join([server.command or "", *server.args])
-    )
+    target = _display_target(server)
     try:
         return click.confirm(
             f"Connect to project MCP server {server.name!r} ({target!r})?",
