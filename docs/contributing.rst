@@ -229,8 +229,8 @@ To enable telemetry during development:
    .. code-block:: bash
 
       poetry run gptme 'hello'
-      # or gptme-server
-      poetry run gptme-server
+      # or gptme-server (use --host 0.0.0.0 so the Prometheus container can reach it)
+      poetry run gptme-server --host 0.0.0.0
 
 6. View data:
 
