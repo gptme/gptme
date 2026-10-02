@@ -8,7 +8,6 @@ import pytest
 from click.testing import CliRunner
 
 from gptme.cli.util import main
-from gptme.config import Config, get_config, set_config
 from gptme.mcp.client import MCPClient
 
 
@@ -16,6 +15,7 @@ from gptme.mcp.client import MCPClient
 def mock_config(mocker):
     """Mock configuration with MCP settings."""
     config = Mock()
+    config.project = None
     config.mcp.enabled = True
     config.mcp.servers = []
     mocker.patch("gptme.cli.cmd_mcp.Config.from_workspace", return_value=config)
@@ -573,8 +573,12 @@ class TestMCPServe:
 @pytest.mark.parametrize(
     "command", [["list"], ["test", "project-time"], ["info", "project-time"]]
 )
+@pytest.mark.parametrize("approve", [True, False, None])
 def test_mcp_commands_load_workspace_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: list[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: list[str],
+    approve: bool | None,
 ) -> None:
     """Load real user/project TOML, mocking only the external connection."""
     user_dir = tmp_path / "user"
@@ -589,8 +593,6 @@ def test_mcp_commands_load_workspace_config(
         'name = "project-time"\ncommand = "project-server"\n',
         encoding="utf-8",
     )
-    prior_config = get_config()
-    set_config(Config.from_workspace(user_dir))
     monkeypatch.chdir(workspace)
     connected = []
 
@@ -606,11 +608,16 @@ def test_mcp_commands_load_workspace_config(
         "gptme.mcp.registry.MCPRegistry.get_server_details",
         lambda *_: pytest.fail("project server was mistaken for a registry server"),
     )
-    try:
-        result = CliRunner().invoke(main, ["mcp", *command])
-        assert result.exit_code == 0, result.output
-        assert "project-time" in result.output
+    answer = "" if approve is None else ("y\n" if approve else "n\n")
+    result = CliRunner().invoke(main, ["mcp", *command], input=answer)
+    assert result.exit_code == (1 if command[0] == "test" and not approve else 0), (
+        result.output
+    )
+    assert "project-time" in result.output
+    assert "project-server" in result.output
+    if approve:
         assert "Connected" in result.output
         assert connected == ["project-time"]
-    finally:
-        set_config(prior_config)
+    else:
+        assert "not approved" in result.output
+        assert connected == []

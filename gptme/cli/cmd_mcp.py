@@ -1,17 +1,38 @@
 """CLI commands for MCP (Model Context Protocol) server management."""
 
+import shlex
 import sys
 from pathlib import Path
 
 import click
 
-from ..config import Config
+from ..config import Config, MCPServerConfig
 from ..mcp.client import MCPClient
 
 
 @click.group()
 def mcp():
     """Commands for managing MCP servers."""
+
+
+def _confirm_project_connection(config: Config, server: MCPServerConfig) -> bool:
+    """Require consent before connecting to a workspace-supplied server."""
+    if not config.project or not config.project.mcp:
+        return True
+    if server.name not in {s.name for s in config.project.mcp.servers}:
+        return True
+    target = (
+        server.url
+        if server.is_http
+        else shlex.join([server.command or "", *server.args])
+    )
+    try:
+        return click.confirm(
+            f"Connect to project MCP server {server.name!r} ({target!r})?",
+            default=False,
+        )
+    except click.Abort:
+        return False
 
 
 @mcp.command("list")
@@ -39,6 +60,11 @@ def mcp_list():
 
         if not server.enabled:
             click.echo("   Status: Disabled")
+            click.echo()
+            continue
+
+        if not _confirm_project_connection(config, server):
+            click.echo("   Status: Connection skipped (not approved)")
             click.echo()
             continue
 
@@ -83,6 +109,8 @@ def mcp_test(server_name: str):
 
     server_type = "HTTP" if server.is_http else "stdio"
     click.echo(f"🔌 Testing {server_name} ({server_type})...")
+    if not _confirm_project_connection(config, server):
+        raise click.ClickException("Project server connection was not approved")
 
     try:
         client = MCPClient(config)
@@ -133,6 +161,9 @@ def mcp_info(server_name: str):
         # Try to test connection if enabled
         if server.enabled:
             click.echo()
+            if not _confirm_project_connection(config, server):
+                click.echo("Connection skipped (not approved).")
+                return
             click.echo("Testing connection...")
             try:
                 client = MCPClient(config)

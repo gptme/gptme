@@ -53,7 +53,11 @@ follow the same precedence.
 
 Run ``gptme-util mcp list``, ``gptme-util mcp test project-server``, or
 ``gptme-util mcp info project-server`` from the workspace directory to inspect
-and test the merged global and project configuration.
+and test the merged global and project configuration. Before connecting to a
+project-defined server, these commands ask for confirmation and show the target
+command or URL. Declining or supplying no input skips the connection; ``mcp test``
+exits unsuccessfully. Connecting to a stdio server runs its configured command,
+so approve only project servers you trust.
 
 Management Tool
 ---------------
