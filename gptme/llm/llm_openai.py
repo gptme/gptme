@@ -1809,6 +1809,7 @@ def stream(
 
     # Model id as the provider reports it on each chunk (last non-empty wins).
     served_model: str | None = None
+    last_usage = None
 
     for chunk_raw in _guarded_stream_iter(_stream_obj, model=model, provider=provider):
         from openai.types.chat import ChatCompletionChunk  # fmt: skip
@@ -1839,16 +1840,11 @@ def stream(
         if chunk_served := served_model_from(chunk):
             served_model = chunk_served
 
-        # Record usage if available (typically in final chunk)
-        # and capture metadata for message attachment
+        # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
+        # endpoint) attach it to every chunk. Keep the latest and record once
+        # after the stream, so one response is one request/turn.
         if hasattr(chunk, "usage") and chunk.usage:
-            captured_metadata = _record_usage(
-                chunk.usage,
-                model,
-                resolved_model=_or_resolved,
-                reasoning_effort=reasoning_effort,
-                served_model=served_model,
-            )
+            last_usage = chunk.usage
 
         if not chunk.choices:
             continue
@@ -1898,6 +1894,15 @@ def stream(
         yield "\n</think>\n"
 
     logger.debug(f"Stop reason: {stop_reason}")
+
+    if last_usage is not None:
+        captured_metadata = _record_usage(
+            last_usage,
+            model,
+            resolved_model=_or_resolved,
+            reasoning_effort=reasoning_effort,
+            served_model=served_model,
+        )
 
     if captured_metadata is None and (
         reasoning_effort is not None or served_model is not None

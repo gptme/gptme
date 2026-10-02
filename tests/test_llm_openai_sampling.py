@@ -435,3 +435,50 @@ def test_openrouter_provider_from_ignores_non_string_values():
         llm_openai._openrouter_provider_from(SimpleNamespace(provider=" Together "))
         == "Together"
     )
+
+
+def test_stream_records_cumulative_usage_once(monkeypatch):
+    """Providers like Gemini attach cumulative usage to every chunk; count one request."""
+
+    def chunk(content, completion_tokens):
+        return SimpleNamespace(
+            usage=SimpleNamespace(
+                prompt_tokens=10,
+                completion_tokens=completion_tokens,
+                total_tokens=10 + completion_tokens,
+            ),
+            choices=[
+                SimpleNamespace(
+                    finish_reason=None,
+                    delta=SimpleNamespace(
+                        reasoning_content=None,
+                        reasoning=None,
+                        content=content,
+                        tool_calls=None,
+                    ),
+                )
+            ],
+        )
+
+    chunks = [chunk("a", 1), chunk("b", 2), chunk("c", 3)]
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=chunks))
+        )
+    )
+    record = Mock()
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "record_llm_request", record)
+
+    text, metadata = _collect_stream_result(
+        llm_openai.stream(
+            [Message(role="user", content="Say abc.")], "openai/gpt-4o", None
+        )
+    )
+
+    assert text == "abc"
+    assert record.call_count == 1
+    assert record.call_args.kwargs["output_tokens"] == 3
+    assert metadata is not None
+    assert metadata["usage"] == {"input_tokens": 10, "output_tokens": 3}
