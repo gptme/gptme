@@ -1,16 +1,5 @@
-import {
-  MessageSquare,
-  Kanban,
-  History,
-  Settings,
-  Bot,
-  FolderOpen,
-  Search,
-  Layers,
-  ChevronRight,
-  ChevronLeft,
-  Shield,
-} from 'lucide-react';
+import { Settings, Search, ChevronRight, ChevronLeft } from 'lucide-react';
+import { NAV_ITEMS, type NavSection } from './navItems';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -25,13 +14,6 @@ import type { FC } from 'react';
 import { useState, useEffect } from 'react';
 
 const NAV_SIDEBAR_KEY = 'nav-sidebar-expanded';
-
-interface NavItem {
-  id: string;
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions' | 'admin';
-}
 
 interface Props {
   tasks: Task[];
@@ -80,19 +62,19 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
       ? 'history'
       : location.pathname.startsWith('/agents')
         ? 'agents'
-        : location.pathname.startsWith('/workspaces')
-          ? 'workspaces'
-          : location.pathname.startsWith('/external-sessions')
-            ? 'external-sessions'
-            : location.pathname.startsWith('/admin')
-              ? 'admin'
-              : location.pathname.startsWith('/settings')
-                ? 'settings'
-                : 'chat';
+        : location.pathname.startsWith('/skills')
+          ? 'skills'
+          : location.pathname.startsWith('/workspaces')
+            ? 'workspaces'
+            : location.pathname.startsWith('/external-sessions')
+              ? 'external-sessions'
+              : location.pathname.startsWith('/admin')
+                ? 'admin'
+                : location.pathname.startsWith('/settings')
+                  ? 'settings'
+                  : 'chat';
 
-  const handleNavigateToSection = (
-    section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions' | 'admin'
-  ) => {
+  const handleNavigateToSection = (section: NavSection) => {
     // Clicking the already-active Chat button toggles the conversation sidebar
     // (VS Code activity-bar pattern) instead of being a no-op re-navigation.
     if (section === 'chat' && currentSection === 'chat') {
@@ -107,15 +89,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   const { data: providerHealthData } = useProviderHealth();
   const hasProviderError = allProvidersDown(providerHealthData);
 
-  const navItems: NavItem[] = [
-    { id: 'chat', icon: MessageSquare, label: 'Chat', section: 'chat' },
-    { id: 'agents', icon: Bot, label: 'Agents', section: 'agents' },
-    { id: 'workspaces', icon: FolderOpen, label: 'Workspaces', section: 'workspaces' },
-    { id: 'tasks', icon: Kanban, label: 'Tasks', section: 'tasks' },
-    { id: 'history', icon: History, label: 'History', section: 'history' },
-    { id: 'external-sessions', icon: Layers, label: 'External', section: 'external-sessions' },
-    { id: 'admin', icon: Shield, label: 'Admin', section: 'admin' },
-  ];
+  const navItems = NAV_ITEMS;
 
   return (
     <div
