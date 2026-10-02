@@ -1109,7 +1109,7 @@ for the concrete support levels in the public template.</p>
 <ul class="simple">
 <li><p><strong>Core files</strong> - <code class="docutils literal notranslate"><span class="pre">README.md</span></code>, <code class="docutils literal notranslate"><span class="pre">ABOUT.md</span></code>, <code class="docutils literal notranslate"><span class="pre">ARCHITECTURE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">journal/</span></code> - Daily activity logs (YYYY-MM-DD.md format)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">tasks/</span></code> - Individual task files with YAML metadata</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tasks/</span></code> - Individual task files with YAML metadata (managed with <code class="docutils literal notranslate"><span class="pre">gptodo</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">knowledge/</span></code> - Long-term documentation and insights</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lessons/</span></code> - Learned lessons and best practices</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">people/</span></code> - Contact profiles and relationship management</p></li>
@@ -1134,12 +1134,30 @@ for the concrete support levels in the public template.</p>
 </ul>
 <p><strong>Task Management:</strong></p>
 <ul class="simple">
-<li><p>Individual Markdown files with YAML frontmatter metadata</p></li>
-<li><p>States: new, active, paused, done, cancelled</p></li>
+<li><p>Individual Markdown files with YAML frontmatter metadata in <code class="docutils literal notranslate"><span class="pre">tasks/</span></code></p></li>
+<li><p>States such as <code class="docutils literal notranslate"><span class="pre">backlog</span></code>, <code class="docutils literal notranslate"><span class="pre">todo</span></code>, <code class="docutils literal notranslate"><span class="pre">active</span></code>, <code class="docutils literal notranslate"><span class="pre">waiting</span></code>, <code class="docutils literal notranslate"><span class="pre">done</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">cancelled</span></code></p></li>
 <li><p>Priority levels, tags, and dependencies</p></li>
-<li><p>CLI tools for management and status tracking</p></li>
+<li><p>Managed with <a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo">gptodo</a>,
+which the template is set up for: <code class="docutils literal notranslate"><span class="pre">gptodo</span> <span class="pre">ready</span></code> and <code class="docutils literal notranslate"><span class="pre">gptodo</span> <span class="pre">next</span></code> pick
+unblocked work, <code class="docutils literal notranslate"><span class="pre">gptodo</span> <span class="pre">claim</span></code> marks it taken, and <code class="docutils literal notranslate"><span class="pre">gptodo</span> <span class="pre">lint</span></code> catches
+malformed tasks</p></li>
 <li><p>Integrated with journal entries for progress updates</p></li>
 </ul>
+<p><strong>Communication:</strong></p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail">gptmail</a>
+stores email and agent-to-agent messages as Markdown files in the workspace and
+tracks which ones have been answered. See <a class="reference internal" href="../channels/email.html"><span class="doc">Email</span></a> and
+<a class="reference internal" href="../channels/agent-messaging.html"><span class="doc">Agent Messaging</span></a>.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>gptodo and gptmail are optional. gptme itself does not depend on them, and an
+agent can just as well track work in GitHub Issues, Linear, or a single
+<code class="docutils literal notranslate"><span class="pre">TODO.md</span></code>, and talk to people through whatever channel you already use.
+Point the agent at your system in its identity files and <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code>.</p>
+</div>
 <p><strong>Knowledge Base:</strong></p>
 <ul class="simple">
 <li><p>Long-term information storage organized by topic</p></li>

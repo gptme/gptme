@@ -772,8 +772,10 @@ See :doc:`mcp`.
 📦 Community Extensions
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ hosts community-contributed plugins, scripts, and lessons:
+`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ hosts community-contributed plugins, packages, scripts, and lessons:
 
+- **gptodo** — file-based task manager and work queue for agents
+- **gptmail** — email and agent-to-agent messaging for agents
 - **gptme-consortium** — multi-model consensus decision-making
 - **gptme-imagen** — multi-provider image generation
 - **gptme-lsp** — Language Server Protocol integration
@@ -794,10 +796,10 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 
 - **Persistent workspace** — git-tracked "brain" with journal, tasks, knowledge base, and lessons
 - **Run loops** — scheduled (systemd/launchd) or event-driven autonomous operation
-- **Task management** — structured task queue with YAML metadata and GTD-style workflows
+- **Task management** — structured task queue with YAML metadata, managed with `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__ (or bring your own tracker)
 - **Meta-learning** — lessons system captures behavioral patterns and improves over time
 - **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
-- **External integrations** — GitHub, email, Discord, Twitter, RSS, and more (see :doc:`channels`)
+- **External integrations** — GitHub, email and agent-to-agent messaging via `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__, Discord, Twitter, RSS, and more (see :doc:`channels`)
 
 .. code-block:: bash
 
@@ -9098,8 +9100,10 @@ Email
 =====
 
 `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__
-lets an agent read and answer email over Gmail IMAP/SMTP. The same package also
-provides :doc:`agent-messaging`.
+lets an agent read and answer email through your existing mail setup: ``mbsync``
+fetches mail into a local Maildir and ``msmtp`` sends it. Every message is stored
+as a Markdown file in the agent's workspace, and replies are tracked so each email
+is answered once. The same package also provides :doc:`agent-messaging`.
 
 Install
 -------
@@ -9107,6 +9111,9 @@ Install
 .. code-block:: bash
 
     uv tool install git+https://github.com/gptme/gptme-contrib#subdirectory=packages/gptmail
+
+Run ``gptmail`` from inside the agent's git workspace; it keeps mail under the
+repository root and loads ``<workspace>/.env`` at startup.
 
 Read and reply
 --------------
@@ -9117,22 +9124,36 @@ Read and reply
     gptmail read <MESSAGE_ID> --thread
     gptmail reply <MESSAGE_ID> "Your reply"
     gptmail send <REPLY_MESSAGE_ID>
+    gptmail mark-no-reply <MESSAGE_ID>      # handled, no reply needed
     gptmail --help                          # all commands
 
 Handle incoming email
 ---------------------
 
-To process incoming email continuously, run the watcher with
-``python -m gptmail.watcher`` (or ``--mode one`` to handle a single email and
-exit). Configure it with:
+To process incoming email unattended, run this on a schedule (cron, a systemd
+timer, or the agent's own run loop):
 
-- ``AGENT_EMAIL``: the sender address.
-- ``EMAIL_ALLOWLIST``: comma-separated senders the agent responds to. Anyone who
-  can email the agent can try to steer it, so keep this list tight.
-- ``EMAIL_WORKSPACE``: the email workspace directory.
+.. code-block:: bash
 
-Keep email credentials out of plaintext files. The gptmail README shows how to use
-``pass`` with ``mbsync`` and ``msmtp``.
+    mbsync -a && gptmail sync-maildir && gptmail process-unreplied
+
+``process-unreplied`` starts a gptme session for each unreplied email and takes a
+per-message lock, so overlapping runs never handle the same email twice. Add
+``--dry-run`` to preview. Configure it with:
+
+- ``AGENT_EMAIL`` (required): the agent's address.
+- ``EMAIL_ALLOWLIST``: comma-separated senders or domains the agent answers.
+  Anyone who can email the agent can try to steer it, so keep this list tight.
+- ``EMAIL_SEND_ALLOWLIST``: comma-separated recipients or domains the agent may
+  send to.
+
+A continuous watcher (``python -m gptmail.watcher``) also exists but is
+experimental; see the gptmail README before relying on it.
+
+Keep email credentials out of plaintext files. The
+`gptmail README <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__
+shows how to use ``pass`` with ``mbsync`` and ``msmtp``, and lists every
+configuration variable.
 
 
 :audience: power-user
@@ -9151,7 +9172,7 @@ Install
 
 .. code-block:: bash
 
-    uv tool install --with pyyaml git+https://github.com/gptme/gptme-contrib#subdirectory=packages/gptmail
+    uv tool install git+https://github.com/gptme/gptme-contrib#subdirectory=packages/gptmail
 
 Set up the registry
 -------------------
@@ -9906,6 +9927,28 @@ Read more:
     and history live in files you own, and it reaches people through whichever
     :doc:`channels <channels>` you connect.
 
+Tasks and communication
+-----------------------
+
+A long-running agent needs a task queue it can pick work from and a way to
+answer messages exactly once. gptme's own agents use two packages from
+`gptme-contrib <https://github.com/gptme/gptme-contrib>`__ for this:
+
+- `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__
+  — a file-based task manager and work queue. Tasks are Markdown files with YAML
+  frontmatter in the agent's repository; ``gptodo ready`` and ``gptodo next``
+  return only unblocked work, and claims and locks keep concurrent sessions from
+  picking the same task. The agent template's ``tasks/`` directory follows its
+  conventions.
+- `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__
+  — email and SSH agent-to-agent messaging. Every message is a Markdown file in
+  the workspace, and replies are tracked so nothing is answered twice. See
+  :doc:`channels/email` and :doc:`channels/agent-messaging`.
+
+Both are optional. An agent can bring its own task and communication systems —
+GitHub Issues, Linear, a plain ``TODO.md``, chat — as long as its prompt and
+context tell it where to look.
+
 Why personify agents?
 ---------------------
 
@@ -9944,6 +9987,8 @@ For more details, see the following resources:
 
 - `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ - Template for creating new agents
 - `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ - Community-contributed tools and scripts for agents
+- `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`_ - Task manager and work queue for agents
+- `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`_ - Email and agent-to-agent messaging
 
 .. toctree::
    :hidden:
@@ -10074,7 +10119,7 @@ Architecture
 
 - **Core files** - ``README.md``, ``ABOUT.md``, ``ARCHITECTURE.md``, ``gptme.toml``
 - ``journal/`` - Daily activity logs (YYYY-MM-DD.md format)
-- ``tasks/`` - Individual task files with YAML metadata
+- ``tasks/`` - Individual task files with YAML metadata (managed with ``gptodo``)
 - ``knowledge/`` - Long-term documentation and insights
 - ``lessons/`` - Learned lessons and best practices
 - ``people/`` - Contact profiles and relationship management
@@ -10099,11 +10144,29 @@ Key Systems
 
 **Task Management:**
 
-- Individual Markdown files with YAML frontmatter metadata
-- States: new, active, paused, done, cancelled
+- Individual Markdown files with YAML frontmatter metadata in ``tasks/``
+- States such as ``backlog``, ``todo``, ``active``, ``waiting``, ``done``, and
+  ``cancelled``
 - Priority levels, tags, and dependencies
-- CLI tools for management and status tracking
+- Managed with `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__,
+  which the template is set up for: ``gptodo ready`` and ``gptodo next`` pick
+  unblocked work, ``gptodo claim`` marks it taken, and ``gptodo lint`` catches
+  malformed tasks
 - Integrated with journal entries for progress updates
+
+**Communication:**
+
+- `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__
+  stores email and agent-to-agent messages as Markdown files in the workspace and
+  tracks which ones have been answered. See :doc:`../channels/email` and
+  :doc:`../channels/agent-messaging`.
+
+.. note::
+
+    gptodo and gptmail are optional. gptme itself does not depend on them, and an
+    agent can just as well track work in GitHub Issues, Linear, or a single
+    ``TODO.md``, and talk to people through whatever channel you already use.
+    Point the agent at your system in its identity files and ``context_cmd``.
 
 **Knowledge Base:**
 
@@ -10233,7 +10296,10 @@ a separate question, and in practice two loop shapes show up:
 
 The `gptme-runloops <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-runloops>`__
 package in gptme-contrib implements both, plus email and multi-agent
-coordination loops:
+coordination loops. Its ``email`` loop answers mail through
+`gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__,
+and its ``team`` loop delegates tasks through
+`gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__:
 
 .. code-block:: bash
 

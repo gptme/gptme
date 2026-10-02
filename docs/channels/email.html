@@ -640,13 +640,17 @@
   <section id="email">
 <h1>Email<a class="headerlink" href="#email" title="Link to this heading">#</a></h1>
 <p><a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail">gptmail</a>
-lets an agent read and answer email over Gmail IMAP/SMTP. The same package also
-provides <a class="reference internal" href="agent-messaging.html"><span class="doc">Agent Messaging</span></a>.</p>
+lets an agent read and answer email through your existing mail setup: <code class="docutils literal notranslate"><span class="pre">mbsync</span></code>
+fetches mail into a local Maildir and <code class="docutils literal notranslate"><span class="pre">msmtp</span></code> sends it. Every message is stored
+as a Markdown file in the agent’s workspace, and replies are tracked so each email
+is answered once. The same package also provides <a class="reference internal" href="agent-messaging.html"><span class="doc">Agent Messaging</span></a>.</p>
 <section id="install">
 <h2>Install<a class="headerlink" href="#install" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>git+https://github.com/gptme/gptme-contrib#subdirectory<span class="o">=</span>packages/gptmail
 </pre></div>
 </div>
+<p>Run <code class="docutils literal notranslate"><span class="pre">gptmail</span></code> from inside the agent’s git workspace; it keeps mail under the
+repository root and loads <code class="docutils literal notranslate"><span class="pre">&lt;workspace&gt;/.env</span></code> at startup.</p>
 </section>
 <section id="read-and-reply">
 <h2>Read and reply<a class="headerlink" href="#read-and-reply" title="Link to this heading">#</a></h2>
@@ -654,23 +658,34 @@ provides <a class="reference internal" href="agent-messaging.html"><span class="
 gptmail<span class="w"> </span><span class="nb">read</span><span class="w"> </span>&lt;MESSAGE_ID&gt;<span class="w"> </span>--thread
 gptmail<span class="w"> </span>reply<span class="w"> </span>&lt;MESSAGE_ID&gt;<span class="w"> </span><span class="s2">&quot;Your reply&quot;</span>
 gptmail<span class="w"> </span>send<span class="w"> </span>&lt;REPLY_MESSAGE_ID&gt;
+gptmail<span class="w"> </span>mark-no-reply<span class="w"> </span>&lt;MESSAGE_ID&gt;<span class="w">      </span><span class="c1"># handled, no reply needed</span>
 gptmail<span class="w"> </span>--help<span class="w">                          </span><span class="c1"># all commands</span>
 </pre></div>
 </div>
 </section>
 <section id="handle-incoming-email">
 <h2>Handle incoming email<a class="headerlink" href="#handle-incoming-email" title="Link to this heading">#</a></h2>
-<p>To process incoming email continuously, run the watcher with
-<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">gptmail.watcher</span></code> (or <code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">one</span></code> to handle a single email and
-exit). Configure it with:</p>
+<p>To process incoming email unattended, run this on a schedule (cron, a systemd
+timer, or the agent’s own run loop):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mbsync<span class="w"> </span>-a<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptmail<span class="w"> </span>sync-maildir<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptmail<span class="w"> </span>process-unreplied
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">process-unreplied</span></code> starts a gptme session for each unreplied email and takes a
+per-message lock, so overlapping runs never handle the same email twice. Add
+<code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> to preview. Configure it with:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">AGENT_EMAIL</span></code>: the sender address.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">EMAIL_ALLOWLIST</span></code>: comma-separated senders the agent responds to. Anyone who
-can email the agent can try to steer it, so keep this list tight.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">EMAIL_WORKSPACE</span></code>: the email workspace directory.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">AGENT_EMAIL</span></code> (required): the agent’s address.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">EMAIL_ALLOWLIST</span></code>: comma-separated senders or domains the agent answers.
+Anyone who can email the agent can try to steer it, so keep this list tight.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">EMAIL_SEND_ALLOWLIST</span></code>: comma-separated recipients or domains the agent may
+send to.</p></li>
 </ul>
-<p>Keep email credentials out of plaintext files. The gptmail README shows how to use
-<code class="docutils literal notranslate"><span class="pre">pass</span></code> with <code class="docutils literal notranslate"><span class="pre">mbsync</span></code> and <code class="docutils literal notranslate"><span class="pre">msmtp</span></code>.</p>
+<p>A continuous watcher (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">gptmail.watcher</span></code>) also exists but is
+experimental; see the gptmail README before relying on it.</p>
+<p>Keep email credentials out of plaintext files. The
+<a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail">gptmail README</a>
+shows how to use <code class="docutils literal notranslate"><span class="pre">pass</span></code> with <code class="docutils literal notranslate"><span class="pre">mbsync</span></code> and <code class="docutils literal notranslate"><span class="pre">msmtp</span></code>, and lists every
+configuration variable.</p>
 </section>
 </section>
 

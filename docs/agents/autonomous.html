@@ -683,7 +683,10 @@ conflicted after something else merged.</p></li>
 </ul>
 <p>The <a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-runloops">gptme-runloops</a>
 package in gptme-contrib implements both, plus email and multi-agent
-coordination loops:</p>
+coordination loops. Its <code class="docutils literal notranslate"><span class="pre">email</span></code> loop answers mail through
+<a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail">gptmail</a>,
+and its <code class="docutils literal notranslate"><span class="pre">team</span></code> loop delegates tasks through
+<a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo">gptodo</a>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-runloops<span class="w"> </span>autonomous<span class="w"> </span>--workspace<span class="w"> </span>~/ada<span class="w">   </span><span class="c1"># cadence-driven run</span>
 gptme-runloops<span class="w"> </span>monitoring<span class="w"> </span>--workspace<span class="w"> </span>~/ada<span class="w">   </span><span class="c1"># react to GitHub activity</span>
 gptme-runloops<span class="w"> </span>email<span class="w"> </span>--workspace<span class="w"> </span>~/ada<span class="w">        </span><span class="c1"># react to incoming mail</span>

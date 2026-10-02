@@ -626,6 +626,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-it-does-for-you">What it does for you</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#get-started">Get started</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How it works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tasks-and-communication">Tasks and communication</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-personify-agents">Why personify agents?</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#links">Links</a></li>
@@ -741,6 +742,27 @@ and history live in files you own, and it reaches people through whichever
 <a class="reference internal" href="channels.html"><span class="doc">channels</span></a> you connect.</p>
 </div>
 </section>
+<section id="tasks-and-communication">
+<h2>Tasks and communication<a class="headerlink" href="#tasks-and-communication" title="Link to this heading">#</a></h2>
+<p>A long-running agent needs a task queue it can pick work from and a way to
+answer messages exactly once. gptme’s own agents use two packages from
+<a class="reference external" href="https://github.com/gptme/gptme-contrib">gptme-contrib</a> for this:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo">gptodo</a>
+— a file-based task manager and work queue. Tasks are Markdown files with YAML
+frontmatter in the agent’s repository; <code class="docutils literal notranslate"><span class="pre">gptodo</span> <span class="pre">ready</span></code> and <code class="docutils literal notranslate"><span class="pre">gptodo</span> <span class="pre">next</span></code>
+return only unblocked work, and claims and locks keep concurrent sessions from
+picking the same task. The agent template’s <code class="docutils literal notranslate"><span class="pre">tasks/</span></code> directory follows its
+conventions.</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail">gptmail</a>
+— email and SSH agent-to-agent messaging. Every message is a Markdown file in
+the workspace, and replies are tracked so nothing is answered twice. See
+<a class="reference internal" href="channels/email.html"><span class="doc">Email</span></a> and <a class="reference internal" href="channels/agent-messaging.html"><span class="doc">Agent Messaging</span></a>.</p></li>
+</ul>
+<p>Both are optional. An agent can bring its own task and communication systems —
+GitHub Issues, Linear, a plain <code class="docutils literal notranslate"><span class="pre">TODO.md</span></code>, chat — as long as its prompt and
+context tell it where to look.</p>
+</section>
 <section id="why-personify-agents">
 <h2>Why personify agents?<a class="headerlink" href="#why-personify-agents" title="Link to this heading">#</a></h2>
 <p>While personifying agents might seem unnecessary for professional use, it provides several benefits:</p>
@@ -775,6 +797,8 @@ shared knowledge bases.</p>
 <ul class="simple">
 <li><p><a class="reference external" href="https://github.com/gptme/gptme-agent-template/">gptme-agent-template</a> - Template for creating new agents</p></li>
 <li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib">gptme-contrib</a> - Community-contributed tools and scripts for agents</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo">gptodo</a> - Task manager and work queue for agents</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail">gptmail</a> - Email and agent-to-agent messaging</p></li>
 </ul>
 <div class="toctree-wrapper compound">
 </div>
@@ -831,6 +855,7 @@ shared knowledge bases.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-it-does-for-you">What it does for you</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#get-started">Get started</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How it works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tasks-and-communication">Tasks and communication</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-personify-agents">Why personify agents?</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#links">Links</a></li>
