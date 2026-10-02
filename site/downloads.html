@@ -204,8 +204,9 @@ const API = `https://api.github.com/repos/${REPO}/releases`;
 
 // Classify assets into platforms
 function classifyAsset(name) {
-  // Skip updater artifacts and source tarballs
-  if (name.endsWith('.app.tar.gz') || name.endsWith('.app.tar.gz.sig')) return null;
+  // Skip updater artifacts, signatures, and source tarballs
+  if (name.endsWith('.sig') || name === 'latest.json') return null;
+  if (name.endsWith('.app.tar.gz')) return null;
   if (name.match(/^gptme-\d.*\.tar\.gz$/) && !name.includes('server-bin')) return null;
   if (name.endsWith('.whl')) return null;
 
@@ -216,6 +217,8 @@ function classifyAsset(name) {
     return { platform: 'Linux', icon: '\u{1F427}' };
   if (lower.includes('windows') || lower.includes('x64-setup.exe') || lower.endsWith('.exe') || lower.endsWith('.msi'))
     return { platform: 'Windows', icon: '\u{1FA9F}' };
+  if (lower.endsWith('.apk'))
+    return { platform: 'Android', icon: '\u{1F4F1}' };
   return null;
 }
 
@@ -226,6 +229,13 @@ function assetMeta(name) {
   if (name.endsWith('.rpm')) return { label: '.rpm', recommended: false };
   if (name.endsWith('.AppImage')) return { label: '.AppImage', recommended: true };
   if (name.endsWith('-setup.exe')) return { label: 'Installer (.exe)', recommended: true };
+  if (name.endsWith('.apk')) {
+    const isUniversal = name.includes('_universal.apk');
+    const archMatch = name.match(/_([^_]+)\.apk$/);
+    const arch = archMatch ? archMatch[1] : null;
+    const label = isUniversal ? 'Universal (.apk)' : (arch ? `${arch} (.apk)` : '.apk');
+    return { label, recommended: isUniversal };
+  }
   if (name.includes('server-bin') && name.endsWith('.tar.gz')) return { label: 'Server binary (.tar.gz)', recommended: false };
   return { label: name, recommended: false };
 }
@@ -267,7 +277,7 @@ function renderRelease(release, isStable) {
     p.assets.sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
   }
 
-  const platformOrder = ['macOS', 'Linux', 'Windows'];
+  const platformOrder = ['macOS', 'Linux', 'Windows', 'Android'];
   const tag = release.tag_name;
   const label = isStable ? 'Stable' : 'Pre-release';
 
