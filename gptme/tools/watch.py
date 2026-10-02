@@ -784,6 +784,71 @@ def watch_allowlist_hook(
     return None
 
 
+# Shortest sleep treated as a poll: shorter sleeps are settle delays, not waits.
+_SLEEP_POLL_MIN_SECONDS = 5.0
+_SLEEP_RE = re.compile(r"^sleep\s+(\d+(?:\.\d+)?)([smhd]?)$")
+# Shell keywords that are loop/condition scaffolding, not the polled check.
+_CHAIN_FILLER = {"do", "done", "then", "fi", "else", "true", ":", "{", "}"}
+
+
+def _find_sleep_poll(command: str) -> tuple[float, str] | None:
+    """Return ``(seconds, check)`` if ``command`` is a ``sleep N; check`` chain.
+
+    A chain is a sleep of at least ``_SLEEP_POLL_MIN_SECONDS`` combined with
+    another command, in either order or inside a loop. A bare ``sleep`` is
+    allowed: there is nothing to poll, so a watch has nothing to replace.
+    """
+    segments = [
+        seg.strip()
+        for seg in re.split(r"&&|\|\||;|\n|\bdo\b|\bthen\b", command)
+        if seg.strip()
+    ]
+    seconds = 0.0
+    others: list[str] = []
+    for seg in segments:
+        # `while ! X; do sleep` waits for X to succeed, same as `until X`.
+        seg = re.sub(r"^(while\s+!|while|until|if)\s+", "", seg)
+        m = _SLEEP_RE.match(seg)
+        if m:
+            unit = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(m.group(2) or "s", 1)
+            seconds = max(seconds, float(m.group(1)) * unit)
+        elif seg not in _CHAIN_FILLER and not seg.startswith("for "):
+            others.append(seg)
+    if seconds < _SLEEP_POLL_MIN_SECONDS or not others:
+        return None
+    return seconds, others[-1]
+
+
+def sleep_poll_guard_hook(
+    tool_use,
+    preview: str | None = None,
+    workspace: Path | None = None,
+):
+    """Refuse ``sleep N; check`` polling in the shell when watches are available.
+
+    Registered only while the watch tool is loaded, so the refusal always
+    points at a tool the model can actually call.
+    """
+    from ..hooks.confirm import ConfirmationResult
+
+    if getattr(tool_use, "tool", None) != "shell":
+        return None
+    command = (getattr(tool_use, "content", None) or preview or "").strip()
+    found = _find_sleep_poll(command)
+    if found is None:
+        return None
+    seconds, check = found
+    every = f"{seconds:g}s"
+    logger.info("Refusing sleep-poll chain (%s): %s", every, command[:80])
+    return ConfirmationResult.skip(
+        f"Refused a `sleep {every}` polling chain. Arm a watch and keep working "
+        f"instead of blocking:\n"
+        f"```watch\nuntil {check} --every {every} --timeout 30m\n```\n"
+        f"(or `watch timer {every}` for a plain delay). You will be woken by a "
+        f"system message when it fires."
+    )
+
+
 def _get_path_fn(
     code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
 ) -> Path | None:
@@ -1004,7 +1069,8 @@ tool = ToolSpec(
         "Use watch whenever you would otherwise poll (`sleep N; check`) or "
         "block on a slow command: arm it, keep working, and get woken by a "
         "system message when the event fires. Prefer keep-working; never "
-        "poll with `sleep N; check`.\n"
+        "poll with `sleep N; check` (the shell refuses such chains while watch "
+        "is loaded).\n"
         "Arming a source:\n"
         "- `watch until <cmd> --every 30s`: fire once when cmd exits 0 (e.g. `gh pr checks`)\n"
         "- `watch run <cmd>`: fire when the process exits, with rc + output tail\n"
@@ -1041,6 +1107,9 @@ tool = ToolSpec(
     hooks={
         "drain_step_pre": ("step.pre", _watch_drain_hook, 940),
         "allowlist": ("tool.confirm", watch_allowlist_hook, 10),
+        # Above server_confirm (100)/cli_confirm (0) so the refusal lands
+        # before any prompt; below guardrails (200).
+        "sleep_poll_guard": ("tool.confirm", sleep_poll_guard_hook, 150),
     },
 )
 
