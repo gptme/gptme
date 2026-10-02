@@ -880,6 +880,8 @@ def _has_unquoted_pipe(s: str) -> bool:
     """Return True if ``s`` contains a ``|`` outside quoted strings.
 
     ``||`` (logical-OR) is not a pipe and is excluded.
+    Backslash-escaped ``\\|`` is also excluded (it is a literal character,
+    not a pipeline operator).
     """
     quote = ""
     i = 0
@@ -888,6 +890,8 @@ def _has_unquoted_pipe(s: str) -> bool:
         if quote:
             if ch == quote:
                 quote = ""
+        elif ch == "\\" and not quote:
+            i += 1  # skip the escaped character — it is a literal, not an operator
         elif ch in ('"', "'"):
             quote = ch
         elif ch == "|":
@@ -919,9 +923,9 @@ def sleep_poll_guard_hook(
     if found is None:
         return None
     seconds, check = found
-    # Use integer seconds to avoid scientific notation (e.g. 1.0368e+06s) for
-    # long durations — watch's duration parser rejects that format.
-    every = f"{int(seconds)}s"
+    # Preserve fractional seconds (e.g. 5.5s); use int only for whole-second
+    # values to avoid scientific notation on large durations (e.g. 1.0368e+06s).
+    every = f"{int(seconds)}s" if seconds == int(seconds) else f"{seconds}s"
     logger.debug("Refusing sleep-poll chain (%s): %s", every, command[:80])
     # timeout must exceed every so the watch can retry at least once.
     timeout_s = max(int(seconds) * 2, 30 * 60)
