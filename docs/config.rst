@@ -338,7 +338,7 @@ This file currently supports a few options:
 
 - ``files``, a list of paths that gptme will always include in the context. If no ``gptme.toml`` is present or if the ``files`` option is unset, gptme will automatically look for common project files, such as: ``README.md``, ``pyproject.toml``, ``package.json``, ``Cargo.toml``, ``Makefile``, ``.cursor/rules/**.mdc``, ``CLAUDE.md``, ``GEMINI.md``.
 - ``prompt``, a string that will be included in the system prompt with a ``# Current Project`` header.
-- ``exclude``, a list of glob patterns for files to drop from the context file list. Each pattern is matched against both the file name and its path relative to the workspace, and applies to files from every source (``files``, auto-detected project files, and user-configured files).
+- ``exclude``, a list of glob patterns for files to drop from the context file list. Each pattern is matched against both the file name and its path relative to the workspace, and applies to context files from ``files``, auto-detected project files, and user-configured files. :ref:`Agent instruction files <agent-instruction-files>` such as ``AGENTS.md`` are loaded separately and are not filtered.
 - ``system``, the system prompt variant: ``"full"`` (default) or ``"short"`` (a compact prompt with roughly 60% fewer tokens). An explicitly passed ``--system`` CLI flag takes precedence.
 
   ``exclude`` and ``system`` are only read from the ``[prompt]`` table form of the
@@ -408,12 +408,12 @@ This file currently supports a few options:
 
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.
-- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the directory gptme is started from (normally the workspace root); missing directories are skipped. See :doc:`lessons` for the lesson format. Example:
+- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the directory gptme is started from (normally the workspace root). ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
 
   .. code-block:: toml
 
       [lessons]
-      dirs = ["lessons", "~/shared-lessons"]
+      dirs = ["lessons", "/opt/shared-lessons"]
 
 - ``subagent``, subagent execution settings. ``max_concurrent`` caps how many subagents run at once; excess subagents queue until a slot frees up. Resolution order: the ``GPTME_SUBAGENT_MAX_CONCURRENT`` environment variable, then this setting, then ``min(8, cpu_count)``. Example:
 
