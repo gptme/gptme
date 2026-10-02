@@ -967,8 +967,10 @@ def step(
         def overflow_guard(restoring: bool) -> Iterator[None]:
             # Serialize view activation with interrupt/replacement admission.
             with session.step_lock:
-                if session.step_seq != my_step_seq or (
-                    not restoring and not retry_allowed()
+                if (
+                    session.step_seq != my_step_seq
+                    or session.interrupted
+                    or (not restoring and not retry_allowed())
                 ):
                     raise InterruptedError("Step no longer owns generation")
                 yield
