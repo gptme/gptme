@@ -206,6 +206,39 @@ def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
     }
 
 
+def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep interrupted or unexecuted tool calls replayable without inventing results.
+
+    A result belongs to the nearest preceding unpaired call with its ID, so a
+    reused ID can neither hide a later orphaned call nor steal an earlier
+    call's result.
+    """
+    pending: dict[str, list[int]] = {}
+    for idx, item in enumerate(items):
+        if item.get("type") == "function_call":
+            pending.setdefault(item["call_id"], []).append(idx)
+        elif item.get("type") == "function_call_output":
+            calls = pending.get(item["call_id"])
+            if calls:
+                calls.pop()
+    orphans = {idx for calls in pending.values() for idx in calls}
+
+    paired_items: list[dict[str, Any]] = []
+    for idx, item in enumerate(items):
+        paired_items.append(item)
+        if idx in orphans:
+            logger.warning("No tool result recorded for call_id %s", item["call_id"])
+            paired_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": item["call_id"],
+                    "output": "Error: No tool result was recorded for this call. "
+                    "Execution may have been skipped or interrupted; do not assume it succeeded.",
+                }
+            )
+    return paired_items
+
+
 def _messages_dicts_to_responses_input(
     messages_dicts: list[MessageDict],
 ) -> tuple[str | None, list[dict[str, Any]]]:
@@ -266,7 +299,7 @@ def _messages_dicts_to_responses_input(
         )
 
     instructions = "\n\n".join(instructions_parts).strip() or None
-    return instructions, items
+    return instructions, _pair_missing_tool_results(items)
 
 
 def _messages_to_responses_input(
@@ -324,7 +357,7 @@ def _messages_to_responses_input(
         )
 
     instructions = "\n\n".join(instructions_parts).strip() or None
-    return instructions, items
+    return instructions, _pair_missing_tool_results(items)
 
 
 def _stream_responses_events(
