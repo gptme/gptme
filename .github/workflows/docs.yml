@@ -72,9 +72,6 @@ jobs:
       - name: Build docs
         run: make docs
 
-      - name: Check docs for dead links
-        run: make docs-linkcheck
-
       - name: Build site
         run: make site
 
@@ -84,6 +81,34 @@ jobs:
           name: site-dist
           path: ./site/dist
           include-hidden-files: true
+
+  # Runs independently of build/deploy: a transient third-party outage on a
+  # linked site shouldn't delay the production docs deploy, which only
+  # `needs: [build]`. Still reports its own pass/fail status on the PR.
+  linkcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install poetry
+        run: |
+          pipx install poetry
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'poetry'
+
+      - name: Install dependencies
+        run: |
+          poetry install -E browser -E server
+
+      - name: Check docs for dead links
+        run: make docs-linkcheck
 
   deploy:
     name: deploy

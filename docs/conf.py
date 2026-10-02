@@ -180,18 +180,22 @@ napoleon_attr_annotations = False
 # -- linkcheck builder --------------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-the-linkcheck-builder
 #
-# Sites that block automated/headless requests (bot protection, auth walls) —
-# these return non-2xx to the linkcheck crawler even though the links are fine
-# for a real browser. Match by regex so query strings/anchors don't matter.
+# Sites that block automated/headless requests (auth walls) — these return
+# non-2xx to the linkcheck crawler even though the links are fine for a real
+# browser. Match by regex so query strings/anchors don't matter. GitHub
+# issue/PR/discussion links are deliberately NOT ignored here: they're common
+# in these docs and worth validating (a mistyped number is a real bug).
+# Instead, let linkcheck_rate_limit_timeout + linkcheck_retries ride out
+# GitHub's 429s via its Retry-After header.
 linkcheck_ignore = [
-    r"https://(www\.)?github\.com/.*/(issues|pull|discussions)/\d+",  # anti-bot rate limiting
     r"https://(x|twitter)\.com/.*",  # requires auth to view
     r"https://discord\.(gg|com)/.*",  # invite links, often expire/require auth
     r"http://localhost.*",  # local dev references, not reachable from CI
 ]
 linkcheck_timeout = 10
 linkcheck_retries = 2
-linkcheck_workers = 8
+linkcheck_rate_limit_timeout = 300
+linkcheck_workers = 4
 
 nitpicky = True
 nitpick_ignore = [
