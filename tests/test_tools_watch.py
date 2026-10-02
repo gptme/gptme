@@ -565,6 +565,62 @@ def test_watch_allowlist_hook_ignores_timer_and_other_tools():
     assert watch_allowlist_hook(ToolUse(tool="shell", args=[], content="ls")) is None
 
 
+@pytest.mark.parametrize(
+    ("command", "check"),
+    [
+        ("sleep 30; gh pr checks 42", "gh pr checks 42"),
+        ("sleep 1m && make test", "make test"),
+        ("gh pr checks 1; sleep 30", "gh pr checks 1"),
+        ("while ! curl -s localhost:5700; do sleep 5; done", "curl -s localhost:5700"),
+        ("until grep -q done f.log; do sleep 10; done", "grep -q done f.log"),
+        ("for i in 1 2 3; do sleep 10; tail -5 x.log; done", "tail -5 x.log"),
+    ],
+)
+def test_find_sleep_poll_detects_chains(command: str, check: str):
+    from gptme.tools.watch import _find_sleep_poll
+
+    found = _find_sleep_poll(command)
+    assert found is not None
+    assert found[1] == check
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sleep 30",  # bare delay: nothing to poll
+        "sleep 2; ls",  # short settle delay
+        "echo sleep 30; ls",  # sleep is an argument, not a command
+        'git commit -m "sleep 30; fix"',
+        "pytest tests/",
+    ],
+)
+def test_find_sleep_poll_allows_non_polls(command: str):
+    from gptme.tools.watch import _find_sleep_poll
+
+    assert _find_sleep_poll(command) is None
+
+
+def test_sleep_poll_guard_hook_refuses_with_watch_suggestion():
+    from gptme.hooks.confirm import ConfirmAction
+    from gptme.tools.base import ToolUse
+    from gptme.tools.watch import sleep_poll_guard_hook
+
+    tool_use = ToolUse(tool="shell", args=[], content="sleep 30; gh pr checks 42")
+    result = sleep_poll_guard_hook(tool_use)
+    assert result is not None
+    assert result.action == ConfirmAction.SKIP
+    assert "until gh pr checks 42 --every 30s" in (result.message or "")
+
+
+def test_sleep_poll_guard_hook_ignores_other_tools_and_plain_commands():
+    from gptme.tools.base import ToolUse
+    from gptme.tools.watch import sleep_poll_guard_hook
+
+    watch = ToolUse(tool="watch", args=[], content="until ls --every 30s")
+    assert sleep_poll_guard_hook(watch) is None
+    assert sleep_poll_guard_hook(ToolUse(tool="shell", args=[], content="ls")) is None
+
+
 def test_execute_watch_skip_does_not_arm(tmp_path: Path):
     from gptme.hooks import HookType, register_hook, unregister_hook
     from gptme.hooks.confirm import ConfirmationResult
