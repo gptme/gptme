@@ -274,9 +274,10 @@ describe('ServerSelector in non-embedded mode', () => {
     const checkConnection = jest.fn().mockResolvedValue(true);
     const { getClientForServer } =
       jest.requireMock<typeof import('@/stores/serverClients')>('@/stores/serverClients');
-    const { connectServer } =
+    const { connectServer, disconnectServer } =
       jest.requireMock<typeof import('@/stores/servers')>('@/stores/servers');
     (connectServer as jest.Mock).mockClear();
+    (disconnectServer as jest.Mock).mockClear();
     // Registry says the Local server is connected, but its live connection is down.
     (getClientForServer as jest.Mock).mockImplementation(() => ({
       isConnected$: { get: () => false },
@@ -294,7 +295,10 @@ describe('ServerSelector in non-embedded mode', () => {
     await user.click(row);
 
     await waitFor(() => expect(checkConnection).toHaveBeenCalled());
-    expect(connectServer).toHaveBeenCalledWith('local');
+    // A failed or successful retry must not mutate the registry: dropping the
+    // already-primary server would silently switch the primary to another server.
+    expect(connectServer).not.toHaveBeenCalled();
+    expect(disconnectServer).not.toHaveBeenCalled();
 
     (getClientForServer as jest.Mock).mockReturnValue(null);
   });

@@ -186,10 +186,18 @@ export const ServerSelector: FC = () => {
       }
     } else {
       // Already primary: only re-probe when its connection is down, so a
-      // repeated click retries instead of silently doing nothing.
+      // repeated click retries instead of silently doing nothing. Re-probe
+      // directly rather than via handleConnect: a failed retry must not drop
+      // the server from the registry, which would silently switch the primary.
       const client = getClientForServer(serverId);
       if (client && !client.isConnected$.get()) {
-        await handleConnect(serverId);
+        const name = registry.servers.find((s) => s.id === serverId)?.name ?? 'server';
+        const ok = await client.checkConnection();
+        if (ok) {
+          toast.success(`Connected to "${name}"`);
+        } else {
+          toast.error(`Still unable to connect to "${name}"`);
+        }
       }
     }
   };
