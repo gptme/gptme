@@ -42,6 +42,9 @@ if TYPE_CHECKING:
 
 logger = getLogger(__name__)
 
+# Default byte cap for python tool output (10 MiB)
+_DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
+
 _IMAGE_EXTS: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".svg", ".gif", ".pdf"}
 )
@@ -53,6 +56,19 @@ _IMAGE_MIME: dict[str, str] = {
     ".gif": "image/gif",
     ".pdf": "application/pdf",
 }
+
+
+def _cap_output(output: str) -> str:
+    """Cap output to a reasonable size (10 MiB) with head+tail truncation."""
+    if len(output) <= _DEFAULT_MAX_OUTPUT_BYTES:
+        return output
+
+    # Output exceeds cap; return head+tail with truncation marker
+    max_len = _DEFAULT_MAX_OUTPUT_BYTES // 2
+    head = output[: max_len // 2]
+    tail = output[-max_len // 2 :]
+    omitted = len(output) - len(head) - len(tail)
+    return f"{head}\n\n[... {omitted:,} bytes omitted ({len(output):,} total) ...]\n\n{tail}"
 
 
 def _snapshot_images(cwd: Path) -> dict[Path, float]:
@@ -363,12 +379,19 @@ def execute_python(
     if result.result is not None:
         # show stdout before result if both exist
         if captured_stdout:
+            # Cap large stdout
+            captured_stdout = _cap_output(captured_stdout)
             output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
-        result_output = f"Result:\n{md_codeblock('', str(result.result))}\n\n"
+        result_str = str(result.result)
+        # Cap large result representations
+        result_str = _cap_output(result_str)
+        result_output = f"Result:\n{md_codeblock('', result_str)}\n\n"
         output += result_output
         terminal_output += result_output
 
     elif captured_stdout:
+        # Cap large stdout
+        captured_stdout = _cap_output(captured_stdout)
         output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
     if captured_stderr:
         output += md_codeblock("stderr", captured_stderr.rstrip()) + "\n\n"

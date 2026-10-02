@@ -393,3 +393,26 @@ from gptme.message import Message
     # Should fall through to repr output, not yield 2 items of mixed type
     assert len(msgs) == 1, f"Expected 1 repr output message, got {len(msgs)}: {msgs}"
     assert "not-a-message" in msgs[0].content
+
+
+def test_cap_output_large_stdout():
+    """Test that huge stdout is truncated with head+tail shown."""
+    from gptme.tools.python import _cap_output
+
+    # Create output larger than the cap (10 MiB default)
+    huge_output = "x" * (15 * 1024 * 1024)  # 15 MiB
+    capped = _cap_output(huge_output)
+
+    # Should be smaller than original (about 50% due to head+tail)
+    assert len(capped) < len(huge_output)
+    assert "omitted" in capped
+    assert capped.startswith("xxx")  # head preserved
+    assert capped.endswith("xxx")  # tail preserved
+
+
+def test_cap_output_small_output():
+    """Test that small output is not truncated."""
+    from gptme.tools.python import _cap_output
+
+    small = "short output\n"
+    assert _cap_output(small) == small
