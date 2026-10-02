@@ -194,7 +194,7 @@ def mcp_info(server_name: str):
         click.echo()
 
         if server.is_http:
-            click.echo(f"   URL: {server.url}")
+            click.echo(f"   URL: {_display_target(server)}")
             if server.headers:
                 click.echo(f"   Headers: {len(server.headers)} configured")
         else:

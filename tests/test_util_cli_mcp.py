@@ -336,6 +336,23 @@ class TestMCPInfo:
         assert "Headers: 1 configured" in result.output
         server.env = {}
 
+    def test_http_server_url_is_redacted(self, mock_config, mock_mcp_client):
+        """Info must not echo URL credentials or query values to the terminal."""
+        server = Mock()
+        server.name = "http-server"
+        server.enabled = False
+        server.is_http = True
+        server.url = "https://user:secret@example.com/mcp?token=hunter2"
+        server.headers = {}
+        mock_config.mcp.servers = [server]
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp", "info", "http-server"])
+        assert result.exit_code == 0
+        assert "URL: https://example.com/mcp?token=" in result.output
+        assert "secret" not in result.output
+        assert "hunter2" not in result.output
+
     def test_local_disabled_server(self, mock_config):
         """Test info for disabled local server."""
         server = Mock()
