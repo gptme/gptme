@@ -134,6 +134,15 @@ class TestExecuteMorphImpl:
         list(execute_morph_impl("def foo():\n    return 42\n", f, original))
         assert f.read_bytes() == b"def foo():\r\n    return 42\r\n"
 
+    def test_crlf_in_morph_output_normalized_for_lf_file(self, tmp_path: Path):
+        """CRLF in morph output is normalized for an LF file (no mixed endings)."""
+        f = tmp_path / "lf.py"
+        f.write_bytes(b"def foo():\n    pass\n")
+        original = "def foo():\n    pass\n"
+
+        list(execute_morph_impl("def foo():\r\n    return 42\r\n", f, original))
+        assert f.read_bytes() == b"def foo():\n    return 42\n"
+
     def test_concurrent_modification_detected(self, tmp_path: Path):
         """Refuses edit when file was modified since patch generation."""
         f = tmp_path / "race.py"

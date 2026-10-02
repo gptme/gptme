@@ -226,10 +226,12 @@ def execute_morph_impl(
         # Write the edited content back to file, keeping its line endings
         newline = file_newline(path)  # before open() truncates the file
         with open(path, "w", encoding="utf-8", newline=newline) as f:
-            # Only strip \r before \n when writing to a CRLF file: Python translates
-            # every \n → \r\n, so a model-emitted \r\n would become \r\r\n.
-            # On an LF file no translation occurs, so literal \r\n must pass through.
-            text = content.replace("\r\n", "\n") if newline == "\r\n" else content
+            # Normalize \r\n → \n unconditionally: files are read in universal-newline
+            # mode so the content model is always LF-only. Python's newline= then
+            # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
+            # for LF). Skipping this on LF files would let model-emitted \r\n create
+            # mixed line endings.
+            text = content.replace("\r\n", "\n")
             f.write(text)
 
         # Provide detailed success message with diff

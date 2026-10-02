@@ -538,3 +538,14 @@ def test_execute_patch_crlf_in_updated_block_not_doubled(tmp_path):
     next(execute_patch(crlf_patch, [str(f)], None))
 
     assert f.read_bytes() == b"first\r\nnew one\r\nnew two\r\nlast\r\n"
+
+
+def test_execute_patch_crlf_in_updated_block_normalized_for_lf(tmp_path):
+    """CRLF in UPDATED block is normalized for an LF file (no mixed endings)."""
+    f = tmp_path / "lf.txt"
+    f.write_bytes(b"first\noriginal lines\nlast\n")
+    crlf_patch = "<<<<<<< ORIGINAL\noriginal lines\n=======\nnew one\r\nnew two\n>>>>>>> UPDATED\n"
+
+    next(execute_patch(crlf_patch, [str(f)], None))
+
+    assert f.read_bytes() == b"first\nnew one\nnew two\nlast\n"
