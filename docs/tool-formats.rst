@@ -226,7 +226,7 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set to ``tool`` on 108 of the 127 models in the
+- ``default_tool_format`` is set to ``tool`` on 108 of the 131 models in the
   bundled registry. This is stamped **per provider**, not per model: every
   provider that talks the OpenAI-compatible function-calling API gets it
   (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
@@ -240,8 +240,8 @@ behaviour silently:
   the same ``tool`` default applied at resolution time instead, including on
   dynamic-fetch fallbacks.
 
-- ``supports_parallel_tool_calls`` is set on 67 entries: the Claude Opus/Sonnet
-  4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5/GPT-6
+- ``supports_parallel_tool_calls`` is set on 71 entries: the Claude Fable 5.x
+  and Opus/Sonnet 4.x/5.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5/GPT-6
   families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
   lite and experimental Gemini variants are excluded via
   ``PARALLEL_TOOL_CALL_EXCEPTIONS``), xAI Grok (excluding the older
