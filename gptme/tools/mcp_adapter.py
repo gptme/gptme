@@ -575,6 +575,12 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # Check if server is in config
     server_config = next((s for s in config.mcp.servers if s.name == name), None)
 
+    # Re-enable if the server was previously unloaded (disabled in config).
+    # Without this, create_mcp_tools() skips the server on the next cache rebuild.
+    if server_config and not server_config.enabled:
+        server_config.enabled = True
+        set_config(config)
+
     # If not in config, try to find in registry
     if not server_config:
         server_info = _get_registry().get_server_details(name)
@@ -656,6 +662,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if config_added:
             config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
             set_config(config)
+        _dynamic_servers.pop(name, None)
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
 
