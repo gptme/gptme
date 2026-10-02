@@ -484,6 +484,7 @@ def test_llm_cost_exported_by_real_meter():
     metric name, or a lost fractional value.
     """
     pytest.importorskip("opentelemetry.exporter.otlp.proto.http.metric_exporter")
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
     code = """
 import json
 from unittest.mock import patch
