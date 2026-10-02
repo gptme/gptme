@@ -110,3 +110,32 @@ def test_authorize_timeout_exits_cleanly():
     assert result.exit_code == 1
     assert "Timed out" in result.output
     assert not isinstance(result.exception, requests.exceptions.Timeout)
+
+
+def test_persistent_network_error_stops_at_deadline_and_reports_cause():
+    """Repeated transient failures end at the device-code deadline, nonzero, with the cause."""
+    clock = {"t": 0.0}
+
+    def fake_sleep(seconds):
+        clock["t"] += seconds
+
+    posts = [_resp(200, AUTHORIZE)] + [
+        requests.exceptions.ConnectionError("net down")
+    ] * 500
+    runner = CliRunner()
+    with (
+        patch("gptme.cli.auth.requests.post", side_effect=posts) as post,
+        patch("gptme.cli.auth.time.sleep", side_effect=fake_sleep),
+        patch("gptme.cli.auth.time.monotonic", side_effect=lambda: clock["t"]),
+        patch("gptme.cli.auth.webbrowser.open"),
+        patch("gptme.llm.llm_gptme._save_token") as save,
+    ):
+        result = runner.invoke(
+            main, ["login", "--url", "https://svc.test", "--no-browser"]
+        )
+    assert result.exit_code == 1
+    assert "Timed out" in result.output
+    assert "net down" in result.output
+    # 900s deadline / 5s interval = 180 polls (+1 authorize call)
+    assert post.call_count == 181
+    save.assert_not_called()
