@@ -1072,36 +1072,68 @@ def _update_schema_refs(all_schemas: dict[str, Any]) -> dict[str, Any]:
     return updated_schemas
 
 
+def _normalize_numeric_keywords(schema: dict) -> None:
+    """Rewrite Pydantic numeric constraints into OpenAPI 3.0 (draft-04) form.
+
+    Pydantic emits JSON-Schema 2020-12 keywords: numeric ``exclusiveMinimum`` /
+    ``exclusiveMaximum`` and, for unions, the short ``gt``/``ge``/``lt``/``le``
+    forms. OpenAPI 3.0's Schema Object uses draft-04 semantics instead, where
+    ``minimum``/``maximum`` hold the bound and ``exclusiveMinimum`` /
+    ``exclusiveMaximum`` are booleans.
+    """
+    if "ge" in schema:
+        schema.setdefault("minimum", schema.pop("ge"))
+    if "le" in schema:
+        schema.setdefault("maximum", schema.pop("le"))
+
+    lower = schema.pop("gt", schema.get("exclusiveMinimum"))
+    if lower is not None and not isinstance(lower, bool):
+        schema.pop("exclusiveMinimum", None)
+        schema["minimum"] = lower
+        schema["exclusiveMinimum"] = True
+
+    upper = schema.pop("lt", schema.get("exclusiveMaximum"))
+    if upper is not None and not isinstance(upper, bool):
+        schema.pop("exclusiveMaximum", None)
+        schema["maximum"] = upper
+        schema["exclusiveMaximum"] = True
+
+
 def _convert_to_openapi_nullable(schema: dict) -> dict:
     """Recursively convert Pydantic's anyOf nullable patterns to OpenAPI 3.0 format."""
     if isinstance(schema, dict):
-        # Handle anyOf nullable patterns
+        _normalize_numeric_keywords(schema)
+
+        # Handle anyOf nullable patterns. Pydantic emits ``type: null`` members
+        # inside anyOf for optional fields; OpenAPI 3.0 has no ``null`` type, so
+        # strip the null member and mark the schema ``nullable`` instead. This
+        # covers unions of any arity (e.g. ``str | int | None``), not just
+        # two-member type+null patterns.
         if "anyOf" in schema:
             any_of_items = schema["anyOf"]
-            if isinstance(any_of_items, list) and len(any_of_items) == 2:
-                # Check for type + null pattern
-                type_item = None
-                null_item = None
-                for item in any_of_items:
-                    if isinstance(item, dict):
-                        if item.get("type") == "null":
-                            null_item = item
-                        elif "type" in item:
-                            type_item = item
-                        elif "$ref" in item:
-                            type_item = item
-
-                if null_item and type_item:
+            if isinstance(any_of_items, list):
+                non_null_items = [
+                    item
+                    for item in any_of_items
+                    if not (isinstance(item, dict) and item.get("type") == "null")
+                ]
+                if len(non_null_items) < len(any_of_items) and non_null_items:
                     # Convert to OpenAPI 3.0 nullable format
                     new_schema = {k: v for k, v in schema.items() if k != "anyOf"}
-                    new_schema.update(type_item)
+                    if len(non_null_items) == 1:
+                        new_schema.update(non_null_items[0])
+                    else:
+                        new_schema["anyOf"] = non_null_items
                     new_schema["nullable"] = True
 
                     # If field has enum, add null to the allowed values
                     if "enum" in new_schema and None not in new_schema["enum"]:
                         new_schema["enum"] = new_schema["enum"] + [None]
 
-                    return new_schema
+                    # Recurse so merged/nested members (e.g. a union with its own
+                    # numeric constraints) are normalized too. The null member is
+                    # gone, so this terminates.
+                    return _convert_to_openapi_nullable(new_schema)
 
         # Handle direct nullable patterns (type + default: null)
         elif (
