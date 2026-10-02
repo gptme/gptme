@@ -82,6 +82,9 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
     try:
         resp = requests.post(authorize_url, json={"client_id": "gptme-cli"}, timeout=15)
         resp.raise_for_status()
+    except requests.exceptions.Timeout:
+        console.print(f"[red]✗ Timed out connecting to {auth_base}[/red]")
+        sys.exit(1)
     except requests.exceptions.ConnectionError:
         console.print(f"[red]✗ Could not connect to {auth_base}[/red]")
         console.print("  Check your --auth-url argument.")
@@ -140,9 +143,11 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
                 },
                 timeout=15,
             )
-        except requests.exceptions.ConnectionError:
-            console.print("\n[red]✗ Lost connection to service[/red]")
-            sys.exit(1)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            # The device code stays valid until the deadline; a network blip
+            # during browser approval shouldn't abort the whole login.
+            console.print("[dim]![/dim]", end="")
+            continue
 
         if poll_resp.status_code == 200:
             try:
