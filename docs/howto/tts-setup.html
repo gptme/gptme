@@ -679,18 +679,15 @@ no separate install beyond <code class="docutils literal notranslate"><span clas
 </pre></div>
 </div>
 </li>
-<li><p>Start the server: <code class="docutils literal notranslate"><span class="pre">./tts_server.py</span> <span class="pre">--backend</span> <span class="pre">kokoro</span></code> (listens on
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8765</span></code>; <code class="docutils literal notranslate"><span class="pre">--list-voices</span></code> and <code class="docutils literal notranslate"><span class="pre">--voice</span></code> pick a voice).</p></li>
-</ol>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">tts_server.py</span></code> does not currently send CORS headers. A webui served from a
-different origin (another host or port) cannot read its responses and silently
-falls back to the browser engine. Until that changes, put the server behind a
-reverse proxy that adds <code class="docutils literal notranslate"><span class="pre">Access-Control-Allow-Origin</span></code> before wiring it to the
-webui — or skip steps 3–4 and use it from the terminal plugin below instead.</p>
+<li><p>Start the server, allowing the origin your webui is served from
+(<code class="docutils literal notranslate"><span class="pre">http://localhost:5701</span></code> by default):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>tts_server.py<span class="w"> </span>--backend<span class="w"> </span>kokoro<span class="w"> </span>--cors-origin<span class="w"> </span>http://localhost:5701
+</pre></div>
 </div>
-<ol class="arabic simple" start="3">
+<p>It listens on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8765</span></code>; <code class="docutils literal notranslate"><span class="pre">--list-voices</span></code> and <code class="docutils literal notranslate"><span class="pre">--voice</span></code> pick a
+voice. Without a matching <code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code>, the browser blocks the server’s
+responses and the webui silently falls back to the browser engine.</p>
+</li>
 <li><p>In the webui, open <strong>Settings → TTS engine</strong> and select <strong>gptme-tts server</strong>.</p></li>
 <li><p>Set the <strong>gptme-tts server URL</strong> to <code class="docutils literal notranslate"><span class="pre">http://localhost:8765</span></code>.</p></li>
 </ol>

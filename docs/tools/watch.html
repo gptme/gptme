@@ -646,7 +646,7 @@ are delivered through the server wake path (<code class="docutils literal notran
 server session exists, else queued and drained at STEP_PRE.</p>
 <p>Design: knowledge/design/2026-09-10-gptme-monitors-and-completion-events.md</p>
 <p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use watch whenever you would otherwise poll (<span class="sb">`sleep N; check`</span>) or block on a slow command: arm it, keep working, and get woken by a system message when the event fires. Prefer keep-working; never poll with <span class="sb">`sleep N; check`</span>.
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use watch whenever you would otherwise poll (<span class="sb">`sleep N; check`</span>) or block on a slow command: arm it, keep working, and get woken by a system message when the event fires. Prefer keep-working; never poll with <span class="sb">`sleep N; check`</span> (the shell refuses such chains while watch is loaded).
 Arming a source:
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch until &lt;cmd&gt; --every 30s`</span>: fire once when cmd exits 0 (e.g. <span class="sb">`gh pr checks`</span>)
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch run &lt;cmd&gt;`</span>: fire when the process exits, with rc + output tail
