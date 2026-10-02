@@ -499,7 +499,12 @@ class SessionManager:
 
     @classmethod
     def clean_inactive_sessions(cls, max_age_minutes: int = 60) -> None:
-        """Clean up inactive sessions.
+        """Clean up inactive, client-less sessions.
+
+        A session with connected SSE clients is never evicted, even if its
+        ``last_activity`` is old: the stream keeps the session alive and
+        evicting it would drop a live client. Sessions whose clients have all
+        disconnected (``clients`` empty) are evicted once idle past the cutoff.
 
         Also detects sessions stuck in generating=True state: if a session has
         been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, it is
@@ -523,7 +528,11 @@ class SessionManager:
         with cls._lock:
             to_remove: list[str] = []
             for session_id, session in list(cls._sessions.items()):
-                if session.last_activity < cutoff and not session.generating:
+                if (
+                    session.last_activity < cutoff
+                    and not session.generating
+                    and not session.clients
+                ):
                     to_remove.append(session_id)
                 elif (
                     session.generating

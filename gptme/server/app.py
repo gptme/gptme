@@ -319,4 +319,13 @@ def create_app(
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py
 
+    # Start the session health monitor unconditionally. It evicts idle
+    # client-less sessions and reaps dead ACP subprocesses. Previously it only
+    # started on the first use_acp step, so a plain webui/server deployment
+    # never evicted sessions — each SSE connect without a session_id leaked a
+    # session holding up to 10K events for the process lifetime.
+    from .session_step import start_session_health_monitor  # fmt: skip
+
+    start_session_health_monitor()
+
     return app

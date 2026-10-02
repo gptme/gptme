@@ -1044,17 +1044,17 @@ def test_health_check_skips_generating_sessions(monkeypatch, tmp_path):
 
 
 def test_health_monitor_start_stop():
-    """start/stop_acp_health_monitor should be safe to call."""
+    """start/stop_session_health_monitor should be safe to call."""
     from gptme.server.api_v2_sessions import (
-        start_acp_health_monitor,
-        stop_acp_health_monitor,
+        start_session_health_monitor,
+        stop_session_health_monitor,
     )
 
     # Start with short interval for testing
-    start_acp_health_monitor(interval=1)
+    start_session_health_monitor(interval=1)
     try:
         # Starting again should be a no-op
-        start_acp_health_monitor(interval=1)
+        start_session_health_monitor(interval=1)
     finally:
         # Stop should clean up; always run so the thread never leaks on failure
-        stop_acp_health_monitor()
+        stop_session_health_monitor()

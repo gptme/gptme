@@ -68,9 +68,9 @@ from .session_step import (  # noqa: F401
     close_acp_runtime_bg,
     resolve_hook_confirmation,
     resolve_hook_elicitation,
-    start_acp_health_monitor,
+    start_session_health_monitor,
     start_tool_execution,
-    stop_acp_health_monitor,
+    stop_session_health_monitor,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,8 +156,8 @@ __all__ = [
     "ConversationSession",
     "SessionManager",
     # Step execution
-    "start_acp_health_monitor",
-    "stop_acp_health_monitor",
+    "start_session_health_monitor",
+    "stop_session_health_monitor",
     "close_acp_runtime_bg",
     "start_tool_execution",
     # Blueprint
@@ -473,8 +473,6 @@ def api_conversation_step(conversation_id: str):
 
             session.use_acp = True
             session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
-            # Lazy-start the health monitor on first ACP session.
-            start_acp_health_monitor()
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
         # Claim a new generation epoch before dispatch. If later setup fails,

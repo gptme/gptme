@@ -572,6 +572,36 @@ class TestSessionManagerCleanInactive:
         # Still present because generating=True
         assert SessionManager.get_session(session.id) is not None
 
+    def test_does_not_remove_sessions_with_connected_clients(self):
+        """A session with an open SSE client is not evicted even when idle.
+
+        SSE ping frames do not update ``last_activity``, so a client that keeps
+        the stream open without sending events would otherwise be evicted after
+        the max age — dropping a live client.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-clients")
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        session.clients.add("client-1")
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+        assert SessionManager.get_session(session.id) is not None
+
+    def test_removes_session_after_last_client_disconnects(self):
+        """Once the last client disconnects, an idle session becomes evictable."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-clients")
+        session.clients.add("client-1")
+        session.clients.discard("client-1")
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+        assert SessionManager.get_session(session.id) is None
+
     def test_selective_cleanup(self):
         """Only old, non-generating sessions are removed; recent ones survive."""
         from datetime import datetime, timedelta, timezone
@@ -785,3 +815,22 @@ class TestSessionManagerThreadSafety:
             t.join(timeout=10)
 
         assert not errors, f"Thread errors: {errors}"
+
+
+class TestSessionHealthMonitorStartup:
+    """The session health monitor must start with the app, not only on ACP use."""
+
+    def test_create_app_starts_session_health_monitor(self):
+        """create_app() starts the session cleanup thread unconditionally."""
+        from gptme.server import session_step  # fmt: skip
+        from gptme.server.app import create_app  # fmt: skip
+
+        session_step.stop_session_health_monitor()
+        assert session_step._health_monitor_thread is None
+
+        create_app()
+        try:
+            assert session_step._health_monitor_thread is not None
+            assert session_step._health_monitor_thread.is_alive()
+        finally:
+            session_step.stop_session_health_monitor()
