@@ -237,8 +237,17 @@ class HookRegistry:
                     and hasattr(result, "__iter__")
                     and not isinstance(result, str | bytes)
                 ):
+                    # Only iter() is guarded here: wrapping the iteration loop
+                    # too would swallow TypeErrors raised inside the hook body
+                    # (e.g. `None + 1`), turning a real bug into a silent no-op.
+                    # Errors from next() reach the except Exception below, which
+                    # logs them and records the hook call as failed.
                     try:
                         iterator = iter(result)
+                    except TypeError:
+                        # Not actually iterable, continue
+                        pass
+                    else:
                         while True:
                             t_next_start = time()
                             try:
@@ -267,9 +276,6 @@ class HookRegistry:
                                 return  # Stop processing remaining hooks
                             elif isinstance(msg, Message):
                                 yield msg
-                    except TypeError:
-                        # Not actually iterable, continue
-                        pass
                 # If hook returns a Message, yield it
                 elif isinstance(result, Message):
                     yield result
