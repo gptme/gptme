@@ -24,7 +24,7 @@ For API-key use we recommend **Claude Sonnet 5.5** (``anthropic/claude-sonnet-5-
 
 Claude Sonnet 4.6 (``anthropic/claude-sonnet-4-6``), the previous recommendation, was a strong and dependable workhorse and still works well. The 5.5 pair is now the easier recommendation over Sonnet 4.6 and the intermediate releases in between.
 
-If you already pay for a frontier subscription, use it instead of an API key (see :ref:`providers-subscriptions`): **GPT-6 Astra** via ChatGPT Plus/Pro (``openai-subscription/gpt-6-astra``) and **Grok 4.6** via SuperGrok (``grok-subscription/grok-4.6``) are both frontier-class and cost nothing per token.
+If you already pay for a frontier subscription, use it instead of an API key (see :ref:`providers-subscriptions`): **GPT-6 Astra** (``openai-subscription/gpt-6-astra``, OpenAI's frontier flagship), **GPT-6.1 Sol** (``openai-subscription/gpt-6.1-sol``, the newer workhorse tier, near-Astra performance at a lower cost) and **Grok 4.6** via SuperGrok (``grok-subscription/grok-4.6``) are all frontier-class and cost nothing per token. Prefer GPT-6.1 Sol over GPT-5.6 Sol for everyday work, and reach for Astra on the hardest tasks.
 
 For high-volume or cost-sensitive work, two open-weight "flash" models hold up well in agentic use for a small fraction of the price:
 
@@ -42,7 +42,8 @@ Without a pin, OpenRouter picks among all hosts that pass gptme's privacy defaul
 
 Decent alternatives include:
 
-- GPT-5.6 Sol / Terra / Luna (``openai/gpt-5.6-sol``, ``openai-subscription/gpt-5.6-sol``)
+- GPT-6.1 Sol (``openai/gpt-6.1-sol``, ``openai-subscription/gpt-6.1-sol``): the current OpenAI workhorse, preferred over GPT-5.6 Sol at the same API price ($2/$10 per 1M tokens); GPT-6 Astra (``openai/gpt-6-astra``) is the pricier flagship above it ($10/$50 per 1M tokens)
+- GPT-5.6 Sol / Terra / Luna (``openai/gpt-5.6-sol``, ``openai-subscription/gpt-5.6-sol``), the previous generation
 - Gemini 3.1 Pro (``gemini/gemini-3.1-pro-preview``, ``openrouter/google/gemini-3.1-pro-preview``)
 - Grok 4.6 via the API (``xai/grok-4.6``, ``openrouter/x-ai/grok-4.6``)
 - DeepSeek V4 Pro (``openrouter/deepseek/deepseek-v4-pro-0813``; DeepSeek's own API now serves ``deepseek-v4-pro`` requests with V4.1 Flash)

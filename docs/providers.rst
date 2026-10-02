@@ -138,7 +138,7 @@ Subscriptions
 
 Several frontier models are reachable through a consumer subscription instead of a metered API key, which is usually the cheapest way to run gptme on a frontier model:
 
-- **ChatGPT Plus/Pro (Codex)** — ``openai-subscription/gpt-6-astra`` (and the GPT-5.6 family). Authenticate once with ``gptme-auth openai-subscription``.
+- **ChatGPT Plus/Pro (Codex)** — ``openai-subscription/gpt-6-astra`` and ``openai-subscription/gpt-6.1-sol`` (and the GPT-5.6 family). Authenticate once with ``gptme-auth openai-subscription``.
 - **SuperGrok (Grok Build)** — ``grok-subscription/grok-4.6``. Reuses the grok CLI's login, or ``gptme-auth grok-subscription``.
 - **Claude Max** — not available: Anthropic does not permit third-party tools on the consumer subscription; use the ``anthropic`` provider with an API key.
 - **Cursor** — not supported. Cursor exposes no sanctioned endpoint for using a personal subscription from third-party tools (its Cloud Agents API is separately metered and is not a chat-completions API). Unofficial proxies that reuse the Cursor CLI's login state exist, but gptme does not integrate them.
