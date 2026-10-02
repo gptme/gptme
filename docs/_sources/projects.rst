@@ -17,7 +17,7 @@ Official Projects
 * `Bob <https://github.com/TimeToBuildBob>`_
     The first agent built using the gptme agent architecture.
 
-* `gptme-rag <https://github.com/gptme/gptme-rag>`_
+* `gptme-rag <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-rag>`_
     RAG (Retrieval-Augmented Generation) implementation for gptme context management.
 
 * `gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_

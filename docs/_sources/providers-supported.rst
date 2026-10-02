@@ -264,7 +264,7 @@ Requesty
     [env]
     REQUESTY_API_KEY = "your-api-key"
 
-Get an API key at https://app.requesty.ai/api-keys. See https://docs.requesty.ai for details.
+Get an API key at https://app.requesty.ai/ (navigate to API Keys). See https://docs.requesty.ai for details.
 
 .. _groq:
 
