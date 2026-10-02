@@ -1607,7 +1607,7 @@ dependencies = [
 name = "gptme-tauri"
 version = "0.31.0"
 dependencies = [
- "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "local-ip-address",
  "log",
  "qrcode",
