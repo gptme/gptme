@@ -124,3 +124,37 @@ def test_use_acp_rejected_on_restricted_server():
         json={"session_id": put_resp.get_json()["session_id"], "use_acp": True},
     )
     assert resp.status_code == 403
+
+
+def test_request_may_narrow_with_preset():
+    client = _client(["read"])
+    _, resp = _put(client, {"config": {"chat": {"tools": ["read-only"]}}})
+    assert resp.status_code == 200
+
+
+def test_request_may_narrow_with_glob():
+    client = _client(["read", "save"])
+    _, resp = _put(client, {"config": {"chat": {"tools": ["read*"]}}})
+    assert resp.status_code == 200
+
+
+def test_request_may_narrow_with_hint_pattern():
+    client = _client(["read"])
+    _, resp = _put(client, {"config": {"chat": {"tools": ["hint:read-only"]}}})
+    assert resp.status_code == 200
+
+
+def test_request_glob_escalation_rejected():
+    client = _client(["read"])
+    _, resp = _put(client, {"config": {"chat": {"tools": ["*"]}}})
+    assert resp.status_code == 403
+
+
+def test_patch_may_narrow_with_preset():
+    client = _client(["read"])
+    conv_id, _ = _put(client)
+    resp = client.patch(
+        f"/api/v2/conversations/{conv_id}/config",
+        json={"chat": {"tools": ["read-only"]}},
+    )
+    assert resp.status_code == 200

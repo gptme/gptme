@@ -74,10 +74,15 @@ def _default_conversation_tools() -> list[str]:
 
 
 def _tools_outside_server_allowlist(requested: list[str] | None) -> list[str]:
-    """Names in ``requested`` that the server's ``--tools`` allowlist forbids.
+    """Entries in ``requested`` that the server's ``--tools`` allowlist forbids.
 
-    A request entry is permitted only if it is a tool the allowlist selects, or
-    appears literally in the allowlist (file-path entries).
+    An entry is permitted when it resolves to tools the allowlist selects, or
+    when it appears literally in the allowlist (file-path entries). Resolving
+    through :func:`get_toolchain` lets clients narrow with presets, globs, and
+    hint patterns (``read-only``, ``read*``, ``hint:read-only``) instead of
+    having to repeat the server's exact spelling. An entry that resolves to
+    nothing is rejected unless literal, so unknown, unavailable, or non-allowlisted
+    file-path entries cannot slip through.
     """
     from ..tools import get_toolchain
 
@@ -86,7 +91,16 @@ def _tools_outside_server_allowlist(requested: list[str] | None) -> list[str]:
         return []
     allowed = {t.name for t in get_toolchain(allowlist, strict=False)}
     allowed.update(allowlist)
-    return [name for name in requested if name not in allowed]
+
+    outside: list[str] = []
+    for entry in requested:
+        if entry in allowed:
+            continue
+        resolved = {t.name for t in get_toolchain([entry], strict=False)}
+        if resolved and resolved <= allowed:
+            continue
+        outside.append(entry)
+    return outside
 
 
 def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
