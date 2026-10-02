@@ -795,8 +795,10 @@ def _split_shell_commands(command: str) -> list[str]:
     """Split a shell command on operators outside quoted strings.
 
     Handles ``&&``, ``||``, ``;``, and newlines without treating quoted
-    semicolons (e.g. inside ``echo "a; b"``) as separators. Word-level
-    ``do`` / ``then`` within the resulting segments are split afterwards.
+    semicolons (e.g. inside ``echo "a; b"``) as separators. A leading
+    ``do`` / ``then`` keyword is stripped from each segment (quote-safe);
+    splitting on those words mid-segment is avoided to protect quoted args
+    such as ``grep -q "ready then active" status``.
     """
     segments: list[str] = []
     current: list[str] = []
@@ -825,10 +827,12 @@ def _split_shell_commands(command: str) -> list[str]:
         segments.append("".join(current).strip())
     result = []
     for seg in segments:
-        for sub in re.split(r"\bdo\b|\bthen\b", seg):
-            sub = sub.strip()
-            if sub:
-                result.append(sub)
+        # Strip a leading `do` / `then` keyword from loop/conditional bodies.
+        # Using re.split on the whole segment would break quoted arguments like
+        # grep -q "ready then active" status — strip only the leading keyword.
+        cleaned = re.sub(r"^(do|then)\s+", "", seg).strip()
+        if cleaned:
+            result.append(cleaned)
     return result
 
 
@@ -859,15 +863,40 @@ def _find_sleep_poll(command: str) -> tuple[float, str] | None:
         return None
     # Prefer the last segment that is not a trailing message command (e.g.
     # `echo done`), falling back to the last segment if all are message-like.
+    # Use exact first-word match, not startswith, so `print` doesn't filter
+    # out `printenv READY` as if it were a print/echo call.
     check = next(
         (
             s
             for s in reversed(others)
-            if not any(s.startswith(f) for f in _TRAILING_FILLERS)
+            if (s.split()[:1] or [""])[0] not in _TRAILING_FILLERS
         ),
         others[-1],
     )
     return seconds, check
+
+
+def _has_unquoted_pipe(s: str) -> bool:
+    """Return True if ``s`` contains a ``|`` outside quoted strings.
+
+    ``||`` (logical-OR) is not a pipe and is excluded.
+    """
+    quote = ""
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in ('"', "'"):
+            quote = ch
+        elif ch == "|":
+            if s[i : i + 2] == "||":
+                i += 1  # skip the second `|` so we don't re-examine it
+            else:
+                return True
+        i += 1
+    return False
 
 
 def sleep_poll_guard_hook(
@@ -890,14 +919,16 @@ def sleep_poll_guard_hook(
     if found is None:
         return None
     seconds, check = found
-    every = f"{seconds:g}s"
+    # Use integer seconds to avoid scientific notation (e.g. 1.0368e+06s) for
+    # long durations — watch's duration parser rejects that format.
+    every = f"{int(seconds)}s"
     logger.debug("Refusing sleep-poll chain (%s): %s", every, command[:80])
     # timeout must exceed every so the watch can retry at least once.
     timeout_s = max(int(seconds) * 2, 30 * 60)
     timeout = f"{timeout_s // 60}m" if timeout_s % 60 == 0 else f"{timeout_s}s"
     # Watches cannot run piped commands; omit the specific suggestion when the
     # check contains an unquoted pipe and fall back to the generic timer hint.
-    has_pipe = "|" in check and not (check.count('"') % 2 or check.count("'") % 2)
+    has_pipe = _has_unquoted_pipe(check)
     if has_pipe:
         watch_hint = f"`watch timer {every}`"
     else:
