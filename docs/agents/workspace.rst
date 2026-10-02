@@ -119,7 +119,7 @@ Architecture
 
 - **Core files** - ``README.md``, ``ABOUT.md``, ``ARCHITECTURE.md``, ``gptme.toml``
 - ``journal/`` - Daily activity logs (YYYY-MM-DD.md format)
-- ``tasks/`` - Individual task files with YAML metadata
+- ``tasks/`` - Individual task files with YAML metadata (managed with ``gptodo``)
 - ``knowledge/`` - Long-term documentation and insights
 - ``lessons/`` - Learned lessons and best practices
 - ``people/`` - Contact profiles and relationship management
@@ -144,11 +144,29 @@ Key Systems
 
 **Task Management:**
 
-- Individual Markdown files with YAML frontmatter metadata
-- States: new, active, paused, done, cancelled
+- Individual Markdown files with YAML frontmatter metadata in ``tasks/``
+- States such as ``backlog``, ``todo``, ``active``, ``waiting``, ``done``, and
+  ``cancelled``
 - Priority levels, tags, and dependencies
-- CLI tools for management and status tracking
+- Managed with `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__,
+  which the template is set up for: ``gptodo ready`` and ``gptodo next`` pick
+  unblocked work, ``gptodo claim`` marks it taken, and ``gptodo lint`` catches
+  malformed tasks
 - Integrated with journal entries for progress updates
+
+**Communication:**
+
+- `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__
+  stores email and agent-to-agent messages as Markdown files in the workspace and
+  tracks which ones have been answered. See :doc:`../channels/email` and
+  :doc:`../channels/agent-messaging`.
+
+.. note::
+
+    gptodo and gptmail are optional. gptme itself does not depend on them, and an
+    agent can just as well track work in GitHub Issues, Linear, or a single
+    ``TODO.md``, and talk to people through whatever channel you already use.
+    Point the agent at your system in its identity files and ``context_cmd``.
 
 **Knowledge Base:**
 
