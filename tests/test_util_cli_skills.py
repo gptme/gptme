@@ -284,7 +284,26 @@ def test_skills_show_not_found_quotes_hint(tmp_path, mocker):
     runner = CliRunner()
     result = runner.invoke(main, ["skills", "show", "my missing skill"])
     assert result.exit_code == 1
-    assert "skills search 'my missing skill'" in result.output
+    assert 'skills search "my missing skill"' in result.output
+
+
+def test_skills_show_not_found_hint_portable(tmp_path, mocker):
+    """The hint quotes so it pastes correctly into cmd.exe and POSIX shells."""
+    _create_skill(tmp_path, "other-skill", "Other")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    # bare token stays unquoted
+    result = runner.invoke(main, ["skills", "show", "missing"])
+    assert result.exit_code == 1
+    assert "skills search missing'." in result.output
+    # double quotes group multi-word names in both cmd.exe and POSIX shells
+    result = runner.invoke(main, ["skills", "show", "my missing skill"])
+    assert 'skills search "my missing skill"' in result.output
 
 
 def test_skills_show_empty_index(tmp_path, mocker):

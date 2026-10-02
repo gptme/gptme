@@ -1,5 +1,6 @@
 """CLI commands for skills and lessons management."""
 
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -93,6 +94,19 @@ def skills_list(show_all: bool, json_output: bool):
             click.echo()
 
 
+def _quote_for_hint(name: str) -> str:
+    """Quote NAME so the hint pastes correctly into POSIX shells and cmd.exe.
+
+    Double quotes work in both; fall back to shlex quoting when the name
+    itself contains a double quote.
+    """
+    if re.fullmatch(r"[A-Za-z0-9_./:@+-]+", name):
+        return name
+    if '"' not in name:
+        return f'"{name}"'
+    return shlex.quote(name)
+
+
 @skills.command("show")
 @click.argument("name")
 def skills_show(name: str):
@@ -131,7 +145,7 @@ def skills_show(name: str):
 
     if not candidates:
         click.echo(f"Skill or lesson not found: {name}", err=True)
-        click.echo(f"Try 'gptme-util skills search {shlex.quote(name)}'.", err=True)
+        click.echo(f"Try 'gptme-util skills search {_quote_for_hint(name)}'.", err=True)
         sys.exit(1)
     if len(candidates) > 1:
         click.echo(f"Multiple skills or lessons match '{name}':\n", err=True)
