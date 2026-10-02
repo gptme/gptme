@@ -6,6 +6,34 @@ import pytest
 from gptme.util.context import _find_potential_paths
 
 
+def test_prompt_input_uses_prompt_toolkit(monkeypatch):
+    from gptme.chat import prompt_input
+
+    prompts: list[str] = []
+
+    def get_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return "hello"
+
+    monkeypatch.setattr("gptme.util.prompt.get_input", get_input)
+    assert prompt_input(" User ") == "hello"
+    assert prompts == ["User: "]
+
+
+def test_prompt_user_records_history(monkeypatch):
+    import importlib
+
+    chat = importlib.import_module("gptme.chat")
+    history: list[str] = []
+    monkeypatch.setattr(chat, "prompt_input", lambda *args: "hello")
+    monkeypatch.setattr(chat, "print_bell", lambda: None)
+    monkeypatch.setattr(chat, "flush_stdin", lambda: None)
+    monkeypatch.setattr("gptme.util.prompt.add_history", history.append)
+
+    assert chat.prompt_user() == "hello"
+    assert history == ["hello"]
+
+
 def test_find_potential_paths(tmp_path, monkeypatch):
     # Create some test files
     (tmp_path / "test.txt").touch()

@@ -57,7 +57,6 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
-from .util.prompt import add_history, get_input
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
 
@@ -1039,6 +1038,8 @@ def step(
 
 
 def prompt_user(value=None) -> str:  # pragma: no cover
+    from .util.prompt import add_history
+
     print_bell()
     flush_stdin()
     response = ""
@@ -1066,5 +1067,7 @@ def prompt_input(prompt: str, value=None) -> str:  # pragma: no cover
     if value:
         console.print(prompt + value)
         return value
+
+    from .util.prompt import get_input
 
     return get_input(prompt)
