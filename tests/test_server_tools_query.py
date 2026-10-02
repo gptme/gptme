@@ -31,6 +31,7 @@ def _query(client: FlaskClient, body: dict | None = None):
 def test_tools_internal_error_respects_debug_gate(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     server_error_records: list[logging.LogRecord],
     debug_errors: bool,
     method: str,
@@ -44,14 +45,18 @@ def test_tools_internal_error_respects_debug_gate(
         raise RuntimeError("Cannot read /secret/path")
 
     monkeypatch.setattr("gptme.server.tools_api.get_available_tools", fail)
-    response = client.open("/api/v2/tools", method=method, json={})
+    with caplog.at_level(logging.ERROR):
+        response = client.open("/api/v2/tools", method=method, json={})
 
     assert response.status_code == 500
     assert response.get_json() == {
         "error": "Cannot read /secret/path" if debug_errors else "Internal server error"
     }
     # Internal details must still reach the server log, with the traceback
-    # attached, even when they are hidden from the client.
+    # attached, even when they are hidden from the client. Root-level capture
+    # (caplog) proves the record propagates; exc_info is checked on the
+    # emit-time snapshot because root handlers may mutate records in place.
+    assert "/secret/path" in caplog.text
     assert any(
         record.exc_info and "/secret/path" in str(record.exc_info[1])
         for record in server_error_records
