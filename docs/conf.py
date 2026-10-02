@@ -246,6 +246,10 @@ html_title = "gptme"
 html_logo = "../media/logo.png"
 html_favicon = "../media/logo.png"
 
+# pydata-sphinx-theme seeds the page's theme mode from this; left unset it is "",
+# which logs "Got invalid theme mode" on every first page load.
+html_context = {"default_mode": "auto"}
+
 html_theme_options = {
     "repository_url": "https://github.com/gptme/gptme",
     "path_to_docs": "docs",
