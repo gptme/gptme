@@ -5,7 +5,7 @@ import { appRoute } from '@/utils/routes';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { NAV_ITEMS, type NavSection } from './navItems';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 
 const itemClass =
@@ -16,6 +16,18 @@ const sectionPath = (section: NavSection) => `/${section}`;
 export const MobileBottomNav: FC = () => {
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // The nav itself hides at the md breakpoint, but an open sheet does not.
+  // Close it when the viewport crosses into desktop so the overlay cannot
+  // survive a resize/rotation onto a page that keeps this component mounted.
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setMoreOpen(false);
+    };
+    mq.addEventListener('change', handleChange);
+    return () => mq.removeEventListener('change', handleChange);
+  }, []);
 
   const isActive = (section: NavSection) => {
     // Workspaces tab must also activate on /workspace/:id (singular) detail pages.
@@ -71,7 +83,10 @@ export const MobileBottomNav: FC = () => {
         </button>
       </nav>
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom,0px)]">
+        <SheetContent
+          side="bottom"
+          className="max-h-[85dvh] overflow-y-auto pb-[env(safe-area-inset-bottom,0px)]"
+        >
           <SheetHeader>
             <SheetTitle>More</SheetTitle>
           </SheetHeader>

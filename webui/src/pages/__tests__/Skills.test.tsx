@@ -21,6 +21,13 @@ jest.mock('@/components/MobileBottomNav', () => ({
   MobileBottomNav: () => <div data-testid="mobile-bottom-nav" />,
 }));
 
+// The Skills route is a standalone page (not wrapped by MainLayout), so it must
+// render the desktop section nav itself — otherwise adding Skills to the desktop
+// sidebar strands users on a page with no navigation.
+jest.mock('@/components/SidebarIcons', () => ({
+  SidebarIcons: () => <div data-testid="nav-sidebar" />,
+}));
+
 import Skills from '../Skills';
 
 function renderSkills() {
@@ -37,6 +44,12 @@ function renderSkills() {
 }
 
 describe('Skills page', () => {
+  it('renders the desktop section nav', () => {
+    getSkills.mockResolvedValueOnce({ skills: [] });
+    renderSkills();
+    expect(screen.getByTestId('nav-sidebar')).toBeInTheDocument();
+  });
+
   it('renders reputation badges, install count, and descriptions', async () => {
     getSkills.mockResolvedValueOnce({
       skills: [
