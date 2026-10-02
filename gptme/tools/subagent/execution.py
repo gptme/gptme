@@ -962,12 +962,32 @@ def _stderr_failure_tail(stderr_path: Path | None) -> str:
     return "\nChild stderr tail:\n" + "\n".join(tail)
 
 
+def _killable_group(pgid: int) -> bool:
+    """True if ``pgid`` is a live group we may safely SIGKILL.
+
+    A recorded shell's pgid equals its own session id while its leader is
+    alive. Once the leader exits, the pid lookup fails but the group can still
+    hold processes the shell started, so fall back to probing the group
+    itself. A reused pid shows up as a session that no longer matches, and is
+    skipped rather than signalled.
+    """
+    try:
+        return os.getsid(pgid) == pgid
+    except ProcessLookupError:
+        pass
+    try:
+        os.killpg(pgid, 0)  # signal 0 probes existence without sending
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
 def _kill_recorded_shell_groups(pgid_file: Path) -> None:
     """SIGKILL the persistent-shell process groups a child CLI recorded.
 
     Each persistent shell is its own session leader, so its pgid equals its
-    sid. Skipping groups where that no longer holds avoids signalling an
-    unrelated group that reused a dead shell's pid.
+    sid. Groups that are no longer recognisable, or that are the killing
+    process's own group/session, are skipped.
     """
     if sys.platform == "win32":
         return
@@ -975,13 +995,18 @@ def _kill_recorded_shell_groups(pgid_file: Path) -> None:
         lines = pgid_file.read_text().split()
     except OSError:
         return
+    own_pgid = os.getpgid(0)
+    own_sid = os.getsid(0)
     for line in lines:
         try:
             pgid = int(line)
-            if pgid <= 1 or os.getsid(pgid) != pgid:
-                continue
+        except ValueError:
+            continue
+        if pgid <= 1 or pgid in (own_pgid, own_sid) or not _killable_group(pgid):
+            continue
+        try:
             os.killpg(pgid, signal.SIGKILL)
-        except (ValueError, ProcessLookupError, PermissionError):
+        except (ProcessLookupError, PermissionError):
             continue
 
 

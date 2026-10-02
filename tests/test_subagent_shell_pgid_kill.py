@@ -25,9 +25,12 @@ def _alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    # A zombie still answers kill(pid, 0); treat it as dead.
+    # A zombie still answers kill(pid, 0); treat it as dead when procfs can
+    # tell us. Platforms without /proc (macOS) fall back to the signal probe.
     stat = Path(f"/proc/{pid}/stat")
-    return not (stat.exists() and stat.read_text().split()[2] == "Z")
+    if not stat.exists():
+        return True
+    return stat.read_text().split()[2] != "Z"
 
 
 def _wait_dead(pid: int, timeout: float = 5.0) -> bool:
@@ -68,6 +71,27 @@ def test_sigkill_escalation_kills_recorded_shell_and_detached_child(tmp_path: Pa
     assert cli.returncode is not None
     assert _wait_dead(detached), "detached grandchild survived the escalation"
     shell.wait(timeout=5)
+
+
+def test_kill_recorded_groups_reaches_group_with_dead_leader(tmp_path: Path):
+    pgid_file = tmp_path / "shell-pgids"
+    pid_file = tmp_path / "detached.pid"
+    # Session leader exits at once, leaving `sleep` in its leaderless group.
+    leader = subprocess.Popen(
+        ["bash", "-c", f"sleep 300 & echo $! > {pid_file}"],
+        start_new_session=True,
+    )
+    leader.wait(timeout=5)
+    for _ in range(100):
+        if pid_file.exists() and pid_file.read_text().strip():
+            break
+        time.sleep(0.05)
+    detached = int(pid_file.read_text())
+    pgid_file.write_text(f"{leader.pid}\n")
+
+    _kill_recorded_shell_groups(pgid_file)
+
+    assert _wait_dead(detached), "group with a dead leader survived the kill"
 
 
 def test_kill_recorded_groups_skips_non_session_leaders_and_garbage(tmp_path: Path):
