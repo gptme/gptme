@@ -10,6 +10,7 @@ subagent() function in api.py.
 import logging
 import os
 import random
+import signal
 import string
 import subprocess
 import sys
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
+_SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
 _SUBPROCESS_STDERR_TAIL_BYTES = 16 * 1024
 _SUBPROCESS_STDERR_TAIL_LINES = 20
@@ -763,6 +765,7 @@ def _run_subagent_subprocess(
     env = os.environ.copy()
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
+    env["GPTME_SHELL_PGID_FILE"] = str(logdir / _SHELL_PGIDS_FILENAME)
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
     try:
@@ -959,14 +962,45 @@ def _stderr_failure_tail(stderr_path: Path | None) -> str:
     return "\nChild stderr tail:\n" + "\n".join(tail)
 
 
-def _terminate_subprocess(process: subprocess.Popen) -> None:
-    """Give CLI cleanup a grace period before forcing termination, then reap."""
+def _kill_recorded_shell_groups(pgid_file: Path) -> None:
+    """SIGKILL the persistent-shell process groups a child CLI recorded.
+
+    Each persistent shell is its own session leader, so its pgid equals its
+    sid. Skipping groups where that no longer holds avoids signalling an
+    unrelated group that reused a dead shell's pid.
+    """
+    if sys.platform == "win32":
+        return
+    try:
+        lines = pgid_file.read_text().split()
+    except OSError:
+        return
+    for line in lines:
+        try:
+            pgid = int(line)
+            if pgid <= 1 or os.getsid(pgid) != pgid:
+                continue
+            os.killpg(pgid, signal.SIGKILL)
+        except (ValueError, ProcessLookupError, PermissionError):
+            continue
+
+
+def _terminate_subprocess(
+    process: subprocess.Popen, shell_pgid_file: Path | None = None
+) -> None:
+    """Give CLI cleanup a grace period before forcing termination, then reap.
+
+    If the CLI ignores SIGTERM, its persistent shells (separate sessions) are
+    killed too, so nothing they detached outlives the subagent.
+    """
     process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
+        if shell_pgid_file is not None:
+            _kill_recorded_shell_groups(shell_pgid_file)
 
 
 def _monitor_subprocess(
@@ -1007,7 +1041,7 @@ def _monitor_subprocess(
             f"Subagent {subagent.agent_id} timed out after {subagent.timeout}s, terminating"
         )
         _timed_out = True
-        _terminate_subprocess(subagent.process)
+        _terminate_subprocess(subagent.process, subagent.logdir / _SHELL_PGIDS_FILENAME)
 
     # Stop the progress-poll thread and let it do a final drain.
     progress_stop.set()

@@ -561,6 +561,25 @@ class PromotedJobProcess:
             self._done.set()
 
 
+def _record_shell_pgid(pid: int) -> None:
+    """Append this shell's process group to ``$GPTME_SHELL_PGID_FILE``.
+
+    A subprocess subagent's parent sets the variable so that, when it has to
+    SIGKILL a CLI that ignored SIGTERM, it can also kill the persistent shells
+    and whatever they detached. Each shell runs in its own session
+    (``start_new_session``), so its pid is its pgid, and killing the CLI's own
+    group would miss it.
+    """
+    path = os.environ.get("GPTME_SHELL_PGID_FILE")
+    if not path or _is_windows:
+        return
+    try:
+        with open(path, "a") as f:
+            f.write(f"{pid}\n")
+    except OSError:
+        logger.debug("could not record shell pgid in %s", path, exc_info=True)
+
+
 class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
@@ -673,6 +692,7 @@ class ShellSession:
             env=sandbox_env,  # None → inherit; dict → sanitized env
             **popen_kwargs,
         )
+        _record_shell_pgid(self.process.pid)
         assert self.process.stdout is not None
         assert self.process.stderr is not None
         self.stdout_fd = self.process.stdout.fileno()
