@@ -852,9 +852,11 @@ def chat(
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
         **output_config_kwargs,
         **_fast_mode_kwargs(),
-        # We set a timeout for non-streaming requests to prevent Anthropic's
-        # "Streaming is strongly recommended" warning/error.
-        timeout=60,
+        # Use NOT_GIVEN to inherit the client-level timeout (set from
+        # LLM_API_TIMEOUT or the SDK default of 600s).  The old hardcoded 60s
+        # cap caused APITimeoutError on long Opus/thinking responses and for
+        # subagent calls that use stream=False.
+        timeout=NOT_GIVEN,
     )
     content = response.content
     metadata = _stamp_served_model(
