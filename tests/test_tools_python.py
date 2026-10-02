@@ -393,3 +393,112 @@ from gptme.message import Message
     # Should fall through to repr output, not yield 2 items of mixed type
     assert len(msgs) == 1, f"Expected 1 repr output message, got {len(msgs)}: {msgs}"
     assert "not-a-message" in msgs[0].content
+
+
+def test_cap_output_large_stdout():
+    """Test that huge stdout is truncated with head+tail shown."""
+    from gptme.tools.python import _cap_output
+
+    # Create output larger than the cap (10 MiB default)
+    huge_output = "x" * (15 * 1024 * 1024)  # 15 MiB
+    capped = _cap_output(huge_output)
+
+    # Should be smaller than original (about 50% due to head+tail)
+    assert len(capped) < len(huge_output)
+    assert "omitted" in capped
+    assert capped.startswith("xxx")  # head preserved
+    assert capped.endswith("xxx")  # tail preserved
+
+
+def test_cap_output_small_output():
+    """Test that small output is not truncated."""
+    from gptme.tools.python import _cap_output
+
+    small = "short output\n"
+    assert _cap_output(small) == small
+
+
+def test_cap_output_multibyte_chars():
+    """Byte cap must count bytes, not characters — 5M four-byte chars = ~20 MiB."""
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    # Each '𝄞' is 4 UTF-8 bytes; 3M of them ≈ 12 MiB, well above the 10 MiB cap.
+    huge_multibyte = "𝄞" * (3 * 1024 * 1024)
+    assert len(huge_multibyte.encode("utf-8")) > _DEFAULT_MAX_OUTPUT_BYTES
+    capped = _cap_output(huge_multibyte)
+    assert len(capped.encode("utf-8")) < len(huge_multibyte.encode("utf-8"))
+    assert "omitted" in capped
+
+
+def test_teeio_truncation_marker():
+    """TeeIO must add an omission marker when it silently drops output past the cap."""
+    import io
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO, _cap_output
+
+    # Write more than the cap to trigger truncation
+    tee = TeeIO(io.StringIO())  # discard the "original stream" output
+    chunk = "a" * 1024  # 1 KiB per write
+    total_written = 0
+    while total_written <= _DEFAULT_MAX_OUTPUT_BYTES + len(chunk):
+        tee.write(chunk)
+        total_written += len(chunk)
+
+    assert tee._truncated, "TeeIO should have set _truncated after exceeding cap"
+    captured = tee.get_captured()
+    assert "omitted" in captured, "get_captured() must include a truncation marker"
+    assert "bytes omitted" in captured
+    assert len(captured.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert _cap_output(captured) == captured, (
+        "marker must not trigger a second truncation"
+    )
+
+
+def test_teeio_single_oversized_write_keeps_head():
+    """One write crossing the cap must keep the part that fits, not drop it all."""
+    import io
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO, _cap_output
+
+    tee = TeeIO(io.StringIO())
+    tee.write("x" * (15 * 1024 * 1024))
+
+    captured = tee.get_captured()
+    assert captured.startswith("xxx"), "head of a crossing write must be retained"
+    assert "bytes omitted" in captured
+    assert len(captured.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert _cap_output(captured) == captured
+
+
+def test_cap_output_and_teeio_accept_lone_surrogates():
+    """Lone surrogates (e.g. surrogateescape filenames) must not raise."""
+    import io
+
+    from gptme.tools.python import TeeIO, _cap_output
+
+    s = "a" + chr(0xDCFF) + "b"
+    assert _cap_output(s) == s
+    tee = TeeIO(io.StringIO())
+    tee.write(s)
+    assert tee.get_captured() == s
+
+
+def test_cap_output_result_within_cap():
+    """Truncated output (marker included) must not exceed the byte cap."""
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    for s in ("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 1), chr(0xDCFF) * (4 * 1024 * 1024)):
+        capped = _cap_output(s)
+        assert len(capped.encode("utf-8", errors="surrogatepass")) <= (
+            _DEFAULT_MAX_OUTPUT_BYTES
+        )
+
+
+def test_teeio_write_reports_full_length_when_truncating():
+    import io
+
+    from gptme.tools.python import TeeIO
+
+    tee = TeeIO(io.StringIO())
+    data = "x" * (15 * 1024 * 1024)
+    assert tee.write(data) == len(data)
