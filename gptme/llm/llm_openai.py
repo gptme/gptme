@@ -2252,7 +2252,9 @@ def stream(
                             func = tool_call.function
                             if isinstance(func, ChoiceDeltaToolCallFunction):
                                 if func.name:
-                                    yield from _emit(f"\n@{func.name}({tool_call.id}): ")
+                                    yield from _emit(
+                                        f"\n@{func.name}({tool_call.id}): "
+                                    )
                                 if func.arguments:
                                     yield from _emit(func.arguments)
 
