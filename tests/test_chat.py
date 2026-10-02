@@ -1131,6 +1131,72 @@ def test_interactive_does_not_swallow_untagged_sdk_errors():
         )
 
 
+def test_interactive_recovers_from_detected_degeneration(tmp_path):
+    """A failed degenerate response returns control to the interactive prompt.
+
+    Must not patch ``_should_prompt_for_input``: patching it masks a retry
+    loop if the failure marker doesn't return control to the prompt.
+    Regression for AI-review P2 bed8f1f13089.
+    """
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.constants import LLM_REQUEST_FAILED_PREFIX
+    from gptme.llm import mark_llm_reply_origin
+    from gptme.llm.llm_openai import DegenerationDetected
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    manager = MagicMock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+
+    def _append(msg: Message) -> None:
+        manager.log = manager.log.append(msg)
+
+    manager.append.side_effect = _append
+
+    process_calls = 0
+
+    def _process(*args, **kwargs):
+        nonlocal process_calls
+        process_calls += 1
+        if process_calls > 3:
+            raise RuntimeError("degeneration recovery re-entered the LLM call")
+        error = DegenerationDetected("together", 0.95)
+        mark_llm_reply_origin(error, output_emitted=True, visible_output_emitted=True)
+        raise error
+
+    with (
+        patch.object(_chat_mod, "_process_message_conversation", side_effect=_process),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+        # After the failure the loop asks the user for input; simulate exit.
+        # Do NOT patch _should_prompt_for_input — that was masking the retry loop.
+        patch.object(_chat_mod, "_get_user_input", return_value=None),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "hello")],
+            stream=True,
+            tool_format="markdown",
+            model=None,
+            interactive=True,
+        )
+
+    assert process_calls == 1, (
+        f"expected one LLM call then a user prompt, got {process_calls}"
+    )
+    assert any(
+        msg.role == "system" and LLM_REQUEST_FAILED_PREFIX in msg.content
+        for msg in manager.log
+    ), "expected a system failure message in the log"
+
+
 def test_interactive_does_not_swallow_tool_httpx_errors():
     """httpx errors from tools/hooks must not be recovered as LLM failures."""
     import sys
