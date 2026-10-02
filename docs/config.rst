@@ -342,7 +342,11 @@ This file currently supports a few options:
 - ``system``, the system prompt variant: ``"full"`` (default) or ``"short"`` (a compact prompt with roughly 60% fewer tokens). An explicitly passed ``--system`` CLI flag takes precedence.
 
   ``exclude`` and ``system`` are only read from the ``[prompt]`` table form of the
-  config, which nests the prompt options instead of placing them at the top level:
+  config. That form nests *all* prompt options instead of placing them at the top
+  level, and the two forms are mutually exclusive: when a ``[prompt]`` table is
+  present, ``files``, ``prompt``, ``base_prompt``, and ``context_cmd`` must be
+  nested inside it too. A top-level ``files`` alongside a ``[prompt]`` table is
+  ignored with an "Unknown keys" warning.
 
   .. code-block:: toml
 
