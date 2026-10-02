@@ -452,3 +452,32 @@ def test_teeio_truncation_marker():
     assert _cap_output(captured) == captured, (
         "marker must not trigger a second truncation"
     )
+
+
+def test_teeio_single_oversized_write_keeps_head():
+    """One write crossing the cap must keep the part that fits, not drop it all."""
+    import io
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO, _cap_output
+
+    tee = TeeIO(io.StringIO())
+    tee.write("x" * (15 * 1024 * 1024))
+
+    captured = tee.get_captured()
+    assert captured.startswith("xxx"), "head of a crossing write must be retained"
+    assert "bytes omitted" in captured
+    assert len(captured.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert _cap_output(captured) == captured
+
+
+def test_cap_output_and_teeio_accept_lone_surrogates():
+    """Lone surrogates (e.g. surrogateescape filenames) must not raise."""
+    import io
+
+    from gptme.tools.python import TeeIO, _cap_output
+
+    s = "a" + chr(0xDCFF) + "b"
+    assert _cap_output(s) == s
+    tee = TeeIO(io.StringIO())
+    tee.write(s)
+    assert tee.get_captured() == s

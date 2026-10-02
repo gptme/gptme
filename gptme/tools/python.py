@@ -44,6 +44,8 @@ logger = getLogger(__name__)
 
 # Default byte cap for python tool output (10 MiB)
 _DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
+# Headroom reserved in the capture buffer for the omission marker
+_CAPTURE_MARKER_RESERVE = 256
 
 _IMAGE_EXTS: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".svg", ".gif", ".pdf"}
@@ -64,7 +66,9 @@ def _cap_output(output: str) -> str:
     The cap is measured in UTF-8 bytes, not characters, so multibyte characters
     are counted correctly.
     """
-    encoded = output.encode("utf-8")
+    # surrogatepass: valid Python strings may hold lone surrogates (e.g. from
+    # surrogateescape-decoded filenames) that strict UTF-8 encoding rejects
+    encoded = output.encode("utf-8", errors="surrogatepass")
     total_bytes = len(encoded)
     if total_bytes <= _DEFAULT_MAX_OUTPUT_BYTES:
         return output
@@ -267,6 +271,7 @@ class TeeIO(io.StringIO):
         self.original_stream = original_stream
         self.in_result_block = False
         self._byte_count = 0
+        self._buffered_bytes = 0
         self._truncated = False
 
     def write(self, s):
@@ -280,11 +285,22 @@ class TeeIO(io.StringIO):
                 s = ""
         self.original_stream.write(s)
         self.original_stream.flush()  # Ensure immediate display
-        # Stop buffering once the cap is reached to avoid unbounded memory growth
-        self._byte_count += len(s.encode("utf-8"))
-        if self._byte_count > _DEFAULT_MAX_OUTPUT_BYTES:
+        # Stop buffering once the cap is reached to avoid unbounded memory growth,
+        # but keep the part of a crossing write that still fits.
+        encoded = s.encode("utf-8", errors="surrogatepass")
+        self._byte_count += len(encoded)
+        limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
+        room = limit - self._buffered_bytes
+        if len(encoded) > room:
             self._truncated = True
+            if room <= 0:
+                return len(s)
+            encoded = encoded[:room]
+            s = encoded.decode("utf-8", errors="ignore")
+            self._buffered_bytes += len(s.encode("utf-8", errors="surrogatepass"))
+            super().write(s)
             return len(s)
+        self._buffered_bytes += len(encoded)
         return super().write(s)
 
     def get_captured(self) -> str:
@@ -292,13 +308,11 @@ class TeeIO(io.StringIO):
         value = self.getvalue()
         if not self._truncated:
             return value
-        # Trim the head so head + marker stays within the cap; otherwise the
-        # downstream _cap_output() would truncate again and add a second marker.
-        head_bytes = value.encode("utf-8")[: _DEFAULT_MAX_OUTPUT_BYTES - 256]
-        head = head_bytes.decode("utf-8", errors="ignore")
-        dropped = self._byte_count - len(head.encode("utf-8"))
+        # The buffer never exceeds cap - marker reserve, so head + marker stays
+        # within the cap and downstream _cap_output() will not truncate again.
+        dropped = self._byte_count - self._buffered_bytes
         return (
-            head + f"\n\n[... {dropped:,} bytes omitted "
+            value + f"\n\n[... {dropped:,} bytes omitted "
             f"({self._byte_count:,} total — capture limit reached, head only) ...]"
         )
 
