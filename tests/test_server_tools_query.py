@@ -27,6 +27,7 @@ def _query(client: FlaskClient, body: dict | None = None):
 
 @pytest.mark.parametrize("debug_errors", [False, True])
 @pytest.mark.parametrize("method", ["GET", "QUERY"])
+@pytest.mark.serial
 def test_tools_internal_error_respects_debug_gate(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
