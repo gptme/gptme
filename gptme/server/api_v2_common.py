@@ -69,6 +69,12 @@ def _is_debug_errors_enabled() -> bool:
     return os.environ.get("GPTME_DEBUG_ERRORS", "").lower() in ("1", "true", "yes")
 
 
+def server_error(error: Exception) -> tuple[flask.Response, int]:
+    """Build a 500 response; callers log the traceback before returning it."""
+    message = str(error) if _is_debug_errors_enabled() else "Internal server error"
+    return flask.jsonify({"error": message}), 500
+
+
 def _abs_to_rel_workspace(
     path: str | Path | URI, workspace: Path, logdir: Path | None = None
 ) -> str:

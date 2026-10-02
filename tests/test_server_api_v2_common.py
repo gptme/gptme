@@ -11,6 +11,8 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
+from flask.testing import FlaskClient  # fmt: skip
+
 from gptme.message import Message
 from gptme.server.api_v2_common import (
     _abs_to_rel_workspace,
@@ -18,6 +20,57 @@ from gptme.server.api_v2_common import (
     msg2dict,
 )
 from gptme.util.uri import URI
+
+
+@pytest.mark.parametrize("debug_errors", [False, True])
+@pytest.mark.parametrize(
+    ("endpoint", "method", "error_type"),
+    [
+        ("artifacts", "GET", RuntimeError),
+        ("artifacts/example", "GET", RuntimeError),
+        ("panels", "GET", RuntimeError),
+        ("workspace", "GET", RuntimeError),
+        ("workspace", "GET", OSError),
+        ("workspace/upload", "POST", RuntimeError),
+        ("workspace/upload", "POST", OSError),
+        ("files/example.txt", "GET", RuntimeError),
+        ("files/example.txt", "GET", OSError),
+        ("workspace/example.txt/preview", "GET", RuntimeError),
+        ("workspace/example.txt/preview", "GET", OSError),
+        ("workspace/example.txt/download", "GET", RuntimeError),
+        ("workspace/example.txt/download", "GET", OSError),
+    ],
+)
+def test_conversation_internal_error_respects_debug_gate(
+    client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    debug_errors: bool,
+    endpoint: str,
+    method: str,
+    error_type: type[Exception],
+) -> None:
+    if debug_errors:
+        monkeypatch.setenv("GPTME_DEBUG_ERRORS", "true")
+    else:
+        monkeypatch.delenv("GPTME_DEBUG_ERRORS", raising=False)
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise error_type("Cannot read /secret/path")
+
+    monkeypatch.setattr("gptme.logmanager.LogManager.load", fail)
+    with caplog.at_level("ERROR"):
+        response = client.open(
+            f"/api/v2/conversations/example/{endpoint}", method=method
+        )
+
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "error": "Cannot read /secret/path" if debug_errors else "Internal server error"
+    }
+    assert "/secret/path" in caplog.text
+    assert any(record.exc_info for record in caplog.records)
+
 
 # ---------------------------------------------------------------------------
 # _is_debug_errors_enabled

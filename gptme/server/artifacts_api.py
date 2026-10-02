@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from ..codeblock import Codeblock
 from ..logmanager import LogManager
-from .api_v2_common import _validate_conversation_id
+from .api_v2_common import _validate_conversation_id, server_error
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 
@@ -721,7 +721,7 @@ def list_artifacts(conversation_id: str):
         return flask.jsonify({"artifacts": [a.model_dump() for a in artifacts]})
     except Exception as e:
         logger.exception("Error listing artifacts")
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)
 
 
 @artifacts_api.route(
@@ -752,4 +752,4 @@ def get_artifact(conversation_id: str, artifact_id: str):
         return flask.jsonify({"error": "Artifact not found"}), 404
     except Exception as e:
         logger.exception("Error getting artifact")
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)
