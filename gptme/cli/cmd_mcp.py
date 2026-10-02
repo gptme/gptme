@@ -25,16 +25,9 @@ def _display_target(server: MCPServerConfig) -> str:
     if server.is_http:
         parts = urlsplit(server.url or "")
         if parts.username or parts.password:
-            host = parts.hostname or ""
-            if ":" in host:
-                host = f"[{host}]"
-            try:
-                port = parts.port
-            except ValueError:
-                port = None
-            if port:
-                host = f"{host}:{port}"
-            parts = parts._replace(netloc=host)
+            # Strip only the userinfo; keep host:port verbatim so an invalid
+            # port or IPv6 brackets still match the URL the client will use.
+            parts = parts._replace(netloc=parts.netloc.rpartition("@")[2])
         return urlunsplit(parts)
     return shlex.join([server.command or "", *server.args])
 

@@ -664,7 +664,11 @@ def test_display_target_preserves_ipv6_brackets() -> None:
 
 
 def test_display_target_handles_invalid_port() -> None:
-    """A non-numeric port must not raise before the approval prompt is shown."""
+    """A non-numeric port must not raise and must stay in the displayed target.
+
+    The user is approving the exact URL the client will use, so the malformed
+    port text must not silently disappear from the confirmation prompt.
+    """
     from gptme.cli.cmd_mcp import _display_target
     from gptme.config import MCPServerConfig
 
@@ -672,7 +676,7 @@ def test_display_target_handles_invalid_port() -> None:
         name="project-http",
         url="https://user:secret@example.com:abc/mcp",
     )
-    assert _display_target(server) == "https://example.com/mcp"
+    assert _display_target(server) == "https://example.com:abc/mcp"
 
 
 def test_display_target_shows_stdio_command() -> None:
