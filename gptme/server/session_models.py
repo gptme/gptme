@@ -535,8 +535,10 @@ class SessionManager:
         invocation is marked abandoned rather than pinning the session forever.
 
         Also detects sessions stuck in generating=True state: if a session has
-        been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, it is
-        force-cleaned to prevent permanent resource leaks.
+        been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, its
+        generating flag is forcibly reset. If no clients are connected the
+        session is also evicted; if clients are present the session is kept so
+        the live stream can observe the cleared state.
 
         Removal is performed atomically under a single lock acquisition to
         prevent a TOCTOU race where a concurrent ``/step`` could start
@@ -575,7 +577,8 @@ class SessionManager:
                         cls._STUCK_GENERATING_TIMEOUT_MINUTES,
                     )
                     session.generating = False
-                    to_remove.append(session_id)
+                    if not session.clients:
+                        to_remove.append(session_id)
 
             # Remove all identified sessions while still holding the lock.
             for session_id in to_remove:

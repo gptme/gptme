@@ -705,6 +705,22 @@ class TestSessionManagerCleanInactive:
         # generating flag is reset to False before removal (the key invariant this test verifies)
         assert session.generating is False
 
+    def test_stuck_session_with_clients_resets_but_not_evicted(self):
+        """Stuck-generating sessions with connected clients have generating reset but stay alive."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-stuck-with-client")
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        session.last_activity = datetime.now(tz=timezone.utc)
+        session.clients.add("client-1")
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        # Session is NOT removed — a live SSE client is connected
+        assert SessionManager.get_session(session.id) is not None
+        # generating is reset so the session is no longer considered stuck
+        assert session.generating is False
+
     def test_atomic_cleanup_removes_multiple_sessions(self):
         """clean_inactive_sessions removes multiple stale sessions atomically."""
         from datetime import datetime, timedelta, timezone
