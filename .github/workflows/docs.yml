@@ -72,6 +72,9 @@ jobs:
       - name: Build docs
         run: make docs
 
+      - name: Check docs for dead links
+        run: make docs-linkcheck
+
       - name: Build site
         run: make site
 

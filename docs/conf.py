@@ -177,6 +177,22 @@ autodoc_typehints_format = "short"
 autodoc_class_signature = "separated"
 napoleon_attr_annotations = False
 
+# -- linkcheck builder --------------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-the-linkcheck-builder
+#
+# Sites that block automated/headless requests (bot protection, auth walls) —
+# these return non-2xx to the linkcheck crawler even though the links are fine
+# for a real browser. Match by regex so query strings/anchors don't matter.
+linkcheck_ignore = [
+    r"https://(www\.)?github\.com/.*/(issues|pull|discussions)/\d+",  # anti-bot rate limiting
+    r"https://(x|twitter)\.com/.*",  # requires auth to view
+    r"https://discord\.(gg|com)/.*",  # invite links, often expire/require auth
+    r"http://localhost.*",  # local dev references, not reachable from CI
+]
+linkcheck_timeout = 10
+linkcheck_retries = 2
+linkcheck_workers = 8
+
 nitpicky = True
 nitpick_ignore = [
     ("py:class", "collections.abc.Generator"),
