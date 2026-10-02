@@ -631,7 +631,10 @@
                 <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-models">Recommended models</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-a-model-per-session">Pick a model per session</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-key-many-models-openrouter">One key, many models: OpenRouter</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-key-many-models-openrouter">One key, many models: OpenRouter</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#data-policy">Data policy</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#set-a-default-model">Set a default model</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#per-agent-models">Per-agent models</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>
@@ -656,7 +659,7 @@ formats, or workflow.</p>
 subscriptions, local servers — see <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>.</p>
 <section id="recommended-models">
 <h2>Recommended models<a class="headerlink" href="#recommended-models" title="Link to this heading">#</a></h2>
-<p>The recommended model for API-key use is <strong>Claude Sonnet 4.6</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-6</span></code>, or <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-4-6</span></code>) for its:</p>
+<p>For API-key use we recommend <strong>Claude Sonnet 5.5</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-5-5</span></code>, or <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-5.5</span></code>) as the everyday model, and <strong>Claude Opus 5.5</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-opus-5-5</span></code>, or <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-opus-5.5</span></code>) for the hardest tasks. Both IDs work today; gptme currently inherits context-length and pricing metadata from the closest 4.x catalog entry until 5.5-specific entries land. Both offer:</p>
 <ul class="simple">
 <li><p>Strong agentic capabilities</p></li>
 <li><p>Strong coder capabilities</p></li>
@@ -664,25 +667,31 @@ subscriptions, local servers — see <a class="reference internal" href="provide
 <li><p>Reasoning capabilities</p></li>
 <li><p>Vision &amp; computer use capabilities</p></li>
 </ul>
+<p>Claude Sonnet 4.6 (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-6</span></code>), the previous recommendation, was a strong and dependable workhorse and still works well. The 5.5 pair is now the easier recommendation over Sonnet 4.6 and the intermediate releases in between.</p>
 <p>If you already pay for a frontier subscription, use it instead of an API key (see <a class="reference internal" href="providers.html#providers-subscriptions"><span class="std std-ref">Subscriptions</span></a>): <strong>GPT-6 Astra</strong> via ChatGPT Plus/Pro (<code class="docutils literal notranslate"><span class="pre">openai-subscription/gpt-6-astra</span></code>) and <strong>Grok 4.6</strong> via SuperGrok (<code class="docutils literal notranslate"><span class="pre">grok-subscription/grok-4.6</span></code>) are both frontier-class and cost nothing per token.</p>
 <p>For high-volume or cost-sensitive work, two open-weight “flash” models hold up well in agentic use for a small fraction of the price:</p>
 <ul class="simple">
-<li><p><strong>DeepSeek V4.1 Flash</strong> (<code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4.1-flash</span></code>, or <code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-flash</span></code> on the official API; the earlier <code class="docutils literal notranslate"><span class="pre">deepseek-v4-flash-0731</span></code> is still hosted by third parties on OpenRouter but no longer by the official endpoint)</p></li>
+<li><p><strong>DeepSeek V4.1 Flash</strong> (<code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4.1-flash</span></code>, or <code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-flash</span></code> on DeepSeek’s own API). It is the default model on <a class="reference external" href="https://gptme.ai">gptme.ai</a> and what <code class="docutils literal notranslate"><span class="pre">-m</span> <span class="pre">openrouter</span></code> resolves to.</p></li>
 <li><p><strong>GLM 5.3 Flash</strong> (<code class="docutils literal notranslate"><span class="pre">openrouter/z-ai/glm-5.3-flash</span></code>)</p></li>
 </ul>
-<p>When a model has multiple OpenRouter hosts, their reliability, speed, and data policies can vary widely; see <a class="reference internal" href="providers-supported.html#openrouter-hosts"><span class="std std-ref">Choosing a subprovider</span></a> before picking one. V4.1 Flash currently has only the official DeepSeek host.</p>
+<p>DeepSeek V4.1 Flash is not limited to DeepSeek’s own API: OpenRouter routes it to around 30 third-party hosts as well (Together, Fireworks, DeepInfra, and others). Pin one host, or an ordered list that falls back within itself, by appending <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> and OpenRouter provider slugs to the model:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash@together&quot;</span>
+gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash@together,fireworks,deepinfra&quot;</span>
+</pre></div>
+</div>
+<p>Without a pin, OpenRouter picks among all hosts that pass gptme’s privacy defaults (see <a class="reference internal" href="#models-data-policy"><span class="std std-ref">Data policy</span></a>). Hosts differ in reliability, speed, cache pricing, and data policy; see <a class="reference internal" href="providers-supported.html#openrouter-hosts"><span class="std std-ref">Choosing a subprovider</span></a> before picking one. The earlier <code class="docutils literal notranslate"><span class="pre">deepseek-v4-flash-0731</span></code> is still served by third-party hosts on OpenRouter, but DeepSeek’s own API has retired it.</p>
 <p>Decent alternatives include:</p>
 <ul class="simple">
 <li><p>GPT-5.6 Sol / Terra / Luna (<code class="docutils literal notranslate"><span class="pre">openai/gpt-5.6-sol</span></code>, <code class="docutils literal notranslate"><span class="pre">openai-subscription/gpt-5.6-sol</span></code>)</p></li>
-<li><p>Gemini 3.1 Pro (<code class="docutils literal notranslate"><span class="pre">gemini/gemini-3.1-pro-preview</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/google/gemini-3-pro-preview</span></code>)</p></li>
+<li><p>Gemini 3.1 Pro (<code class="docutils literal notranslate"><span class="pre">gemini/gemini-3.1-pro-preview</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/google/gemini-3.1-pro-preview</span></code>)</p></li>
 <li><p>Grok 4.6 via the API (<code class="docutils literal notranslate"><span class="pre">xai/grok-4.6</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/x-ai/grok-4.6</span></code>)</p></li>
-<li><p>DeepSeek V4 Pro (<code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4-pro-0813</span></code>, <code class="docutils literal notranslate"><span class="pre">deepseek/deepseek-v4-pro</span></code>)</p></li>
+<li><p>DeepSeek V4 Pro (<code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4-pro-0813</span></code>; DeepSeek’s own API now serves <code class="docutils literal notranslate"><span class="pre">deepseek-v4-pro</span></code> requests with V4.1 Flash)</p></li>
 <li><p>Kimi K3 / K2.6 (<code class="docutils literal notranslate"><span class="pre">moonshot/kimi-k3</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/moonshotai/kimi-k2.6</span></code>)</p></li>
 <li><p>Qwen3 Max (<code class="docutils literal notranslate"><span class="pre">openrouter/qwen/qwen3-max</span></code>)</p></li>
 <li><p>MiniMax M2 (<code class="docutils literal notranslate"><span class="pre">openrouter/minimax/minimax-m2</span></code>)</p></li>
 </ul>
 <p>Some models perform better or worse with different <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> options (<code class="docutils literal notranslate"><span class="pre">markdown</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">tool</span></code> for native tool-calling); see <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a>.</p>
-<p>To see how models actually perform on gptme’s eval suites, check the <a class="reference internal" href="evals.html#model-leaderboard"><span class="std std-ref">model leaderboard</span></a>. For an overview of model usage in the wild, see the <a class="reference external" href="https://openrouter.ai/apps?url=https://github.com/gptme/gptme">OpenRouter app analytics for gptme</a>. When you pass only a provider name (<code class="docutils literal notranslate"><span class="pre">-m</span> <span class="pre">anthropic</span></code>), gptme uses that provider’s <a class="reference internal" href="providers.html#default-models"><span class="std std-ref">default model</span></a>.</p>
+<p>To see how models actually perform on gptme’s eval suites, check the <a class="reference internal" href="evals.html#model-leaderboard"><span class="std std-ref">model leaderboard</span></a>. For an overview of model usage in the wild, see the <a class="reference external" href="https://openrouter.ai/apps?url=https://github.com/gptme/gptme">OpenRouter app analytics for gptme</a>. When you pass only a provider name (<code class="docutils literal notranslate"><span class="pre">-m</span> <span class="pre">anthropic</span></code>), gptme uses that provider’s <a class="reference internal" href="providers.html#default-models"><span class="std std-ref">default model</span></a> (currently Sonnet 4.6 — not the recommended 5.5). Use the full model ID to target the recommended version.</p>
 </section>
 <section id="pick-a-model-per-session">
 <h2>Pick a model per session<a class="headerlink" href="#pick-a-model-per-session" title="Link to this heading">#</a></h2>
@@ -691,7 +700,7 @@ subscriptions, local servers — see <a class="reference internal" href="provide
 gptme<span class="w"> </span><span class="s2">&quot;what does this regex match?&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/qwen/qwen3-max
 
 <span class="c1"># Complex coding — powerful reasoning model</span>
-gptme<span class="w"> </span><span class="s2">&quot;refactor this module for testability&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-4-6
+gptme<span class="w"> </span><span class="s2">&quot;refactor this module for testability&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-5-5
 
 <span class="c1"># Use a provider default (no model specified)</span>
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic
@@ -711,14 +720,38 @@ from a frontier model. Picking per task keeps cost down without capping capabili
 without managing a separate API key for each provider. With one
 <code class="docutils literal notranslate"><span class="pre">OPENROUTER_API_KEY</span></code> you can route to 100+ models from Anthropic, OpenAI, Google,
 DeepSeek, xAI, and more:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/anthropic/claude-sonnet-4-6
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4-pro
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/anthropic/claude-sonnet-5.5
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4.1-flash
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4.6
 </pre></div>
 </div>
 <p>gptme applies privacy-first defaults for OpenRouter (data collection denied,
 provider routing requires full parameter support). See <a class="reference internal" href="providers-supported.html#openrouter"><span class="std std-ref">OpenRouter</span></a> for
 configuration details, quantization controls, and provider pinning.</p>
+<section id="data-policy">
+<span id="models-data-policy"></span><h3>Data policy<a class="headerlink" href="#data-policy" title="Link to this heading">#</a></h3>
+<p><strong>On gptme.ai</strong>, prompts are never routed to a provider that trains on them. The
+gptme.ai gateway forces OpenRouter’s no-training filter
+(<code class="docutils literal notranslate"><span class="pre">data_collection:</span> <span class="pre">&quot;deny&quot;</span></code>) on every request, also excludes every provider
+OpenRouter lists as training on prompts, including DeepSeek’s first-party API,
+and serves the default DeepSeek V4.1 Flash only from a vetted allowlist of
+no-training, zero-data-retention hosts. A request pinned to a training provider
+is rejected rather than silently rerouted.</p>
+<p><strong>When self-hosting</strong>, gptme already sends <code class="docutils literal notranslate"><span class="pre">data_collection:</span> <span class="pre">&quot;deny&quot;</span></code> to
+OpenRouter by default (<code class="docutils literal notranslate"><span class="pre">OPENROUTER_DATA_COLLECTION</span></code>), which skips hosts that
+train on prompts, DeepSeek’s official endpoint among them. To go further:</p>
+<ul class="simple">
+<li><p>Enforce it account-wide in OpenRouter’s <a class="reference external" href="https://openrouter.ai/settings/privacy">privacy settings</a>, so it holds for every client using
+your key: turn off providers that may train on inputs, optionally require
+Zero Data Retention endpoints, and add providers to the account-wide ignore list.</p></li>
+<li><p>Restrict gptme to hosts you have vetted with an <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> pin, or set
+<code class="docutils literal notranslate"><span class="pre">OPENROUTER_PROVIDER_ORDER</span></code> to apply the same allowlist to every request
+(see <a class="reference internal" href="providers-supported.html#openrouter"><span class="std std-ref">OpenRouter</span></a>).</p></li>
+<li><p>Keep in mind that a direct provider such as <code class="docutils literal notranslate"><span class="pre">deepseek/...</span></code> bypasses
+OpenRouter, so only that provider’s own data policy applies; DeepSeek’s allows
+training on API inputs.</p></li>
+</ul>
+</section>
 </section>
 <section id="set-a-default-model">
 <h2>Set a default model<a class="headerlink" href="#set-a-default-model" title="Link to this heading">#</a></h2>
@@ -745,7 +778,7 @@ without per-call flags:</p>
 </div>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># coder-agent/gptme.toml — frontier model for complex implementation</span>
 <span class="k">[env]</span>
-<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-5-5&quot;</span>
 </pre></div>
 </div>
 <p>A model set this way wins over a global <code class="docutils literal notranslate"><span class="pre">[models].default</span></code>: the project’s
@@ -817,7 +850,10 @@ model. No vendor lock-in, no format changes.</p>
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-models">Recommended models</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-a-model-per-session">Pick a model per session</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-key-many-models-openrouter">One key, many models: OpenRouter</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-key-many-models-openrouter">One key, many models: OpenRouter</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#data-policy">Data policy</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#set-a-default-model">Set a default model</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#per-agent-models">Per-agent models</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>

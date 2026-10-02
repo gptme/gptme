@@ -630,7 +630,10 @@
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-openrouter-cloud-highest-quality">Option 1 — OpenRouter (cloud, highest quality)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-gptme-tts-server-local-no-api-key">Option 2 — gptme-tts server (local, no API key)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-gptme-tts-server-local-no-api-key">Option 2 — gptme-tts server (local, no API key)</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#read-replies-aloud-in-the-terminal">Read replies aloud in the terminal</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-3-browser-always-available">Option 3 — Browser (always available)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-engine">Choosing an engine</a></li>
 </ul>
@@ -663,13 +666,54 @@ OpenRouter’s speech API.</p>
 <h2>Option 2 — gptme-tts server (local, no API key)<a class="headerlink" href="#option-2-gptme-tts-server-local-no-api-key" title="Link to this heading">#</a></h2>
 <p><a class="reference external" href="https://github.com/gptme/gptme-tts">gptme-tts</a> is a standalone TTS server
 that runs locally using Kokoro. No cloud, no API key, ~80 MB model download.</p>
-<ol class="arabic simple">
-<li><p>Install: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">gptme-tts</span></code></p></li>
-<li><p>Start the server: <code class="docutils literal notranslate"><span class="pre">gptme-tts</span></code> (defaults to <code class="docutils literal notranslate"><span class="pre">http://localhost:5001</span></code>)</p></li>
-<li><p>In the webui, open <strong>Settings → TTS engine</strong> and select <strong>gptme-tts server</strong>.</p></li>
-<li><p>Set the <strong>gptme-tts server URL</strong> to <code class="docutils literal notranslate"><span class="pre">http://localhost:5001</span></code>.</p></li>
+<p>gptme-tts is not published on PyPI. The server is a single script,
+<code class="docutils literal notranslate"><span class="pre">tts_server.py</span></code>, in the gptme-contrib repo. It is a self-contained
+<a class="reference external" href="https://docs.astral.sh/uv/">uv</a> script with inline dependencies, so it needs
+no separate install beyond <code class="docutils literal notranslate"><span class="pre">uv</span></code>.</p>
+<ol class="arabic">
+<li><p>Get the script:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme-contrib
+<span class="nb">cd</span><span class="w"> </span>gptme-contrib/plugins/gptme-tts
+</pre></div>
+</div>
+</li>
+<li><p>Start the server: <code class="docutils literal notranslate"><span class="pre">./tts_server.py</span> <span class="pre">--backend</span> <span class="pre">kokoro</span></code> (listens on
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8765</span></code>; <code class="docutils literal notranslate"><span class="pre">--list-voices</span></code> and <code class="docutils literal notranslate"><span class="pre">--voice</span></code> pick a voice).</p></li>
 </ol>
-<p>Kokoro models are downloaded automatically on first use.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">tts_server.py</span></code> does not currently send CORS headers. A webui served from a
+different origin (another host or port) cannot read its responses and silently
+falls back to the browser engine. Until that changes, put the server behind a
+reverse proxy that adds <code class="docutils literal notranslate"><span class="pre">Access-Control-Allow-Origin</span></code> before wiring it to the
+webui — or skip steps 3–4 and use it from the terminal plugin below instead.</p>
+</div>
+<ol class="arabic simple" start="3">
+<li><p>In the webui, open <strong>Settings → TTS engine</strong> and select <strong>gptme-tts server</strong>.</p></li>
+<li><p>Set the <strong>gptme-tts server URL</strong> to <code class="docutils literal notranslate"><span class="pre">http://localhost:8765</span></code>.</p></li>
+</ol>
+<p>Kokoro models are downloaded automatically on first use. The server also
+supports <code class="docutils literal notranslate"><span class="pre">kittentts</span></code> and <code class="docutils literal notranslate"><span class="pre">chatterbox</span></code> backends; see the
+<a class="reference external" href="https://github.com/gptme/gptme-contrib/blob/master/plugins/gptme-tts/README.md">gptme-tts README</a>
+for all options.</p>
+<section id="read-replies-aloud-in-the-terminal">
+<h3>Read replies aloud in the terminal<a class="headerlink" href="#read-replies-aloud-in-the-terminal" title="Link to this heading">#</a></h3>
+<p>The same server also powers the <code class="docutils literal notranslate"><span class="pre">gptme-tts</span></code> plugin, which reads the agent’s
+replies aloud in the gptme CLI as they stream. Install it into the same Python
+environment as gptme:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme-contrib#subdirectory=plugins/gptme-tts&quot;</span>
+<span class="c1"># or, for a pipx-installed gptme:</span>
+pipx<span class="w"> </span>inject<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme-contrib#subdirectory=plugins/gptme-tts&quot;</span>
+</pre></div>
+</div>
+<p>The package registers itself through the <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> entry point, so no
+<code class="docutils literal notranslate"><span class="pre">[plugins]</span> <span class="pre">paths</span></code> entry is needed. If your config sets a <code class="docutils literal notranslate"><span class="pre">[plugins]</span> <span class="pre">enabled</span></code>
+allowlist, add <code class="docutils literal notranslate"><span class="pre">&quot;gptme-tts&quot;</span></code> to it. With the server running on
+<code class="docutils literal notranslate"><span class="pre">localhost:8765</span></code> (the plugin always connects to that port), gptme enables the
+<code class="docutils literal notranslate"><span class="pre">tts</span></code> tool at startup. It needs a working audio output device.</p>
+<p>To use OpenRouter speech models instead of a local server, set
+<code class="docutils literal notranslate"><span class="pre">GPTME_TTS_BACKEND=openrouter</span></code> along with <code class="docutils literal notranslate"><span class="pre">OPENROUTER_API_KEY</span></code>.</p>
+</section>
 </section>
 <section id="option-3-browser-always-available">
 <h2>Option 3 — Browser (always available)<a class="headerlink" href="#option-3-browser-always-available" title="Link to this heading">#</a></h2>
@@ -706,7 +750,7 @@ above is configured.</p>
 </tr>
 <tr class="row-odd"><td><p>Setup</p></td>
 <td><p>API key</p></td>
-<td><p>pip install</p></td>
+<td><p>uv + local server</p></td>
 <td><p>None</p></td>
 </tr>
 </tbody>
@@ -765,7 +809,10 @@ above is configured.</p>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-1-openrouter-cloud-highest-quality">Option 1 — OpenRouter (cloud, highest quality)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-gptme-tts-server-local-no-api-key">Option 2 — gptme-tts server (local, no API key)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-2-gptme-tts-server-local-no-api-key">Option 2 — gptme-tts server (local, no API key)</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#read-replies-aloud-in-the-terminal">Read replies aloud in the terminal</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-3-browser-always-available">Option 3 — Browser (always available)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-an-engine">Choosing an engine</a></li>
 </ul>
