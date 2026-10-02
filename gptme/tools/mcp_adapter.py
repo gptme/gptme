@@ -320,21 +320,38 @@ def create_mcp_tools(
         try:
             # Reuse an existing live client to avoid double-connecting a server
             # that was already loaded via load_mcp_server().
-            existing = get_mcp_clients().get(server_config.name)
+            # Only for the global registry: a session-scoped registry (ACP)
+            # must never adopt a same-named global client, which may point at
+            # a different command/url and would be closed with the session.
+            existing = (
+                get_mcp_clients().get(server_config.name) if clients is None else None
+            )
             if existing is not None and existing.tools is not None:
                 client = existing
                 client_is_reused = True
                 tools = existing.tools
-                client_registry[server_config.name] = client
-            else:
-                client = MCPClient(config=client_config)
+                # Dynamic clients stay owned by _dynamic_servers so unloading
+                # them really cuts off execution; don't copy into _mcp_clients.
+                reused_dynamic = server_config.name in _dynamic_servers
+                if not reused_dynamic:
+                    client_registry[server_config.name] = client
+                tool_specs.extend(
+                    _build_tool_specs_for_server(
+                        server_config,
+                        tools,
+                        client_config,
+                        clients=None if reused_dynamic else client_registry,
+                    )
+                )
+                continue
+            client = MCPClient(config=client_config)
 
-                # Connect to server
-                tools, session = client.connect(server_config.name)
+            # Connect to server
+            tools, session = client.connect(server_config.name)
 
-                # Store the client in the caller-selected registry for execution/restart.
-                client_registry[server_config.name] = client
-                owned_this_call.append(server_config.name)
+            # Store the client in the caller-selected registry for execution/restart.
+            client_registry[server_config.name] = client
+            owned_this_call.append(server_config.name)
 
             tool_specs.extend(
                 _build_tool_specs_for_server(
@@ -610,11 +627,22 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # Append to the live cache if it exists; otherwise the next
         # get_available_tools() call will rebuild (and reuse this client).
         try:
-            from ..tools import _get_available_tools_cache, _set_available_tools_cache
+            from ..tools import (
+                _get_available_tools_cache,
+                _get_loaded_tools,
+                _set_available_tools_cache,
+            )
 
+            new_names = {spec.name for spec in new_specs}
             cached = _get_available_tools_cache()
             if cached is not None:
-                _set_available_tools_cache(cached + new_specs)
+                _set_available_tools_cache(
+                    [t for t in cached if t.name not in new_names] + new_specs
+                )
+            # Make the tools invocable now: dispatch and the model's tool list
+            # use the loaded set, not the available-tools cache.
+            loaded = _get_loaded_tools()
+            loaded[:] = [t for t in loaded if t.name not in new_names] + new_specs
         except Exception:
             logger.debug(
                 "Failed to update available-tools cache after MCP load", exc_info=True
@@ -658,8 +686,11 @@ def unload_mcp_server(name: str) -> str:
     # Invalidate the available-tools cache so the unloaded server's ToolSpecs
     # are dropped. The next get_available_tools() call will rebuild without it.
     try:
-        from ..tools import _set_available_tools_cache
+        from ..tools import _get_loaded_tools, _set_available_tools_cache
 
+        prefix = f"{name}."
+        loaded = _get_loaded_tools()
+        loaded[:] = [t for t in loaded if not t.name.startswith(prefix)]
         _set_available_tools_cache(None)
     except Exception:
         logger.debug(

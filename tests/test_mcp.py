@@ -540,6 +540,16 @@ def test_load_mcp_server_registers_toolspecs():
         spec = next(t for t in cached if t.name == "testserver.ping")
         assert spec.execute is not None
 
+        # tool must be in the loaded set (what dispatch / the model tool list use),
+        # exactly once even if the load is repeated against a primed cache
+        from gptme.tools import _get_loaded_tools, get_tool
+
+        assert get_tool("testserver.ping") is not None
+        assert [t.name for t in _get_loaded_tools()].count("testserver.ping") == 1
+        assert names.count("testserver.ping") == 1
+        # dynamic clients must not leak into the global execution registry
+        assert "testserver" not in mcp_adapter._mcp_clients
+
         # --- unload ---
         with (
             patch.object(mcp_adapter, "get_config", return_value=fake_config),
@@ -551,6 +561,8 @@ def test_load_mcp_server_registers_toolspecs():
         assert "testserver" not in _dynamic_servers
         # cache must be cleared so the next get_available_tools() rebuilds without the server
         assert _get_available_tools_cache() is None
+        # unloaded tools must stop being invocable in the current context
+        assert get_tool("testserver.ping") is None
 
     finally:
         _dynamic_servers.pop("testserver", None)
