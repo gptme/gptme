@@ -367,7 +367,7 @@ def _calculate_llm_cost(
 
     lookup_model = model if "/" in model else f"{provider}/{model}"
     meta = get_model(lookup_model)
-    if not (meta and input_tokens and output_tokens):
+    if not meta:
         return 0.0
 
     if meta.pricing_type == "subscription":
@@ -375,21 +375,28 @@ def _calculate_llm_cost(
 
     price_in = (meta.price_input or 0.0) / 1e6
     price_out = (meta.price_output or 0.0) / 1e6
-    cost = input_tokens * price_in + output_tokens * price_out
+    cost = (input_tokens or 0) * price_in + (output_tokens or 0) * price_out
 
     # Cache pricing per provider
     caching_cost = 0.0
     if provider == "anthropic":
-        # anthropic charges 1.25x for cache writes + 0.1x for cache reads
-        # cache reads use input pricing (cached input tokens being read)
-        price_cache_read = 0.1 * price_in
+        # Default Anthropic rates: 1.25x cache writes + 0.1x cache reads.
+        price_cache_read = (
+            meta.price_input_cached / 1e6
+            if meta.price_input_cached is not None
+            else 0.1 * price_in
+        )
         price_cache_write = 1.25 * price_in
         cost_cache_read = price_cache_read * (cache_read_tokens or 0)
         cost_cache_write = price_cache_write * (cache_creation_tokens or 0)
         caching_cost = cost_cache_read + cost_cache_write
     elif provider == "openai":
         # openai charges 0.5x for cache reads (based on input pricing)
-        price_cache_read = 0.5 * price_in
+        price_cache_read = (
+            meta.price_input_cached / 1e6
+            if meta.price_input_cached is not None
+            else 0.5 * price_in
+        )
         caching_cost = price_cache_read * (cache_read_tokens or 0)
 
     return cost + caching_cost

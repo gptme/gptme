@@ -173,9 +173,13 @@ class ModelMeta:
     pricing_type: Literal["per_token", "subscription"] = "per_token"
 
     # Explicit default compaction budget for models validated near their full
-    # window. None applies the conservative long-window cap. Kept last to avoid
+    # window. None applies the conservative long-window cap. Appended to avoid
     # shifting the existing positional constructor fields.
     context_budget: float | int | None = None
+
+    # USD per 1M cached input tokens; None uses the provider's default rate.
+    # Appended to preserve positional constructor compatibility.
+    price_input_cached: float | None = None
 
     @property
     def full(self) -> str:
@@ -297,6 +301,7 @@ class _ModelDictMeta(TypedDict):
     # price in USD per 1M tokens
     price_input: NotRequired[float]
     price_output: NotRequired[float]
+    price_input_cached: NotRequired[float]
 
     supports_streaming: NotRequired[bool]
     supports_vision: NotRequired[bool]
