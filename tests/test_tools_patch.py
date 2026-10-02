@@ -474,3 +474,38 @@ short
         result = next(execute_patch(patch, [f], None)).content
 
     assert "Note: The patch was big" in result
+
+
+def test_execute_patch_non_utf8_file_mentions_encoding(tmp_path):
+    f = tmp_path / "latin1.txt"
+    f.write_bytes(b"caf\xe9\noriginal lines\n")
+
+    msg = next(execute_patch(example_patch, [str(f)], None)).content
+
+    assert "not valid UTF-8" in msg
+    assert "0xe9" in msg
+    assert f.read_bytes() == b"caf\xe9\noriginal lines\n"
+
+
+def test_execute_patch_multi_hunk_failure_says_nothing_written(tmp_path):
+    f = tmp_path / "two.txt"
+    f.write_text("first\nsecond\n")
+    two_hunks = """
+<<<<<<< ORIGINAL
+first
+=======
+FIRST
+>>>>>>> UPDATED
+<<<<<<< ORIGINAL
+missing
+=======
+MISSING
+>>>>>>> UPDATED
+"""
+
+    msg = next(execute_patch(two_hunks, [str(f)], None)).content
+
+    assert "Hunk 2/2 failed" in msg
+    assert "applied successfully" not in msg
+    assert "no changes were written" in msg
+    assert f.read_text() == "first\nsecond\n"
