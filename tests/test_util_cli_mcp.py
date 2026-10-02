@@ -651,6 +651,30 @@ def test_display_target_redacts_url_credentials() -> None:
     assert _display_target(plain) == "https://example.com/mcp"
 
 
+def test_display_target_preserves_ipv6_brackets() -> None:
+    """An IPv6 host must stay bracketed or the rebuilt URL is ambiguous/wrong."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://user:secret@[2001:db8::1]:8443/mcp",
+    )
+    assert _display_target(server) == "https://[2001:db8::1]:8443/mcp"
+
+
+def test_display_target_handles_invalid_port() -> None:
+    """A non-numeric port must not raise before the approval prompt is shown."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://user:secret@example.com:abc/mcp",
+    )
+    assert _display_target(server) == "https://example.com/mcp"
+
+
 def test_display_target_shows_stdio_command() -> None:
     """Stdio targets are shown verbatim so the approved command is visible."""
     from gptme.cli.cmd_mcp import _display_target

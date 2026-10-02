@@ -17,13 +17,23 @@ def mcp():
 
 
 def _display_target(server: MCPServerConfig) -> str:
-    """Render a server target for confirmation, hiding URL credentials."""
+    """Render a server target for confirmation, hiding URL credentials.
+
+    Never raises: a malformed port or an IPv6 host must not abort the
+    diagnostic before the approval prompt is even shown.
+    """
     if server.is_http:
         parts = urlsplit(server.url or "")
         if parts.username or parts.password:
             host = parts.hostname or ""
-            if parts.port:
-                host = f"{host}:{parts.port}"
+            if ":" in host:
+                host = f"[{host}]"
+            try:
+                port = parts.port
+            except ValueError:
+                port = None
+            if port:
+                host = f"{host}:{port}"
             parts = parts._replace(netloc=host)
         return urlunsplit(parts)
     return shlex.join([server.command or "", *server.args])
