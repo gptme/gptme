@@ -966,11 +966,12 @@ def step(
         @contextmanager
         def overflow_guard(restoring: bool) -> Iterator[None]:
             # Serialize view activation with interrupt/replacement admission.
+            # Interrupt and replacement both bump step_seq under step_lock, so
+            # ownership of the view reduces to the epoch check; only retry
+            # admission additionally needs a live, uninterrupted generation.
             with session.step_lock:
-                if (
-                    session.step_seq != my_step_seq
-                    or session.interrupted
-                    or (not restoring and not retry_allowed())
+                if session.step_seq != my_step_seq or (
+                    not restoring and not retry_allowed()
                 ):
                     raise InterruptedError("Step no longer owns generation")
                 yield
@@ -1086,7 +1087,10 @@ def step(
 
         # A successful retry can race an interrupt or replacement step: the last
         # overflow_guard check finished before this point, so re-verify ownership
-        # under the lock before committing the reply to the shared view.
+        # under the lock before committing the reply to the shared view. The
+        # smaller view stays active on revocation on purpose: it is the one
+        # proven to fit the provider, and the epoch owner (not this step) may
+        # already have switched views, so restoring here could clobber it.
         with session.step_lock:
             if session.step_seq != my_step_seq or session.interrupted:
                 raise InterruptedError("Epoch replaced before reply commit")
