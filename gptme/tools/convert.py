@@ -4,6 +4,7 @@ Provides offline, multi-format file conversion with auto-detection and
 graceful degradation when specific converters are unavailable.
 
 Supported conversions:
+
   - PDF → PNG/JPEG (Poppler/pdftoppm, ImageMagick fallback)
   - Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback)
   - DOCX → text/markdown (python-docx, LibreOffice headless fallback)

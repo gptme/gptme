@@ -196,6 +196,10 @@ nitpick_ignore = [
     ("py:class", "gptme.tools.subagent.SubtaskDef"),
     ("py:class", "gptme.tools.shell.BackgroundJob"),
     ("py:class", "gptme.tools.shell.ShellSession"),
+    # convert/patch_many docstrings: ConversionResult is an undocumented
+    # dataclass in the same module, and Patch is re-exported from patch.py.
+    ("py:class", "gptme.tools.convert.ConversionResult"),
+    ("py:class", "Patch"),
     # Phase 1 async subagent types
     ("py:class", "gptme.tools.subagent.ReturnType"),
     ("py:class", "gptme.tools.subagent.BatchJob"),
