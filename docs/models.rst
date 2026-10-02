@@ -42,7 +42,7 @@ Without a pin, OpenRouter picks among all hosts that pass gptme's privacy defaul
 
 Decent alternatives include:
 
-- GPT-6.1 Sol (``openai/gpt-6.1-sol``, ``openai-subscription/gpt-6.1-sol``): the current OpenAI workhorse, preferred over GPT-5.6 Sol at the same API price ($2/$10 per 1M tokens); GPT-6 Astra (``openai/gpt-6-astra``) is the pricier flagship above it ($10/$50 per 1M tokens)
+- GPT-6.1 Sol (``openai/gpt-6.1-sol``, ``openai-subscription/gpt-6.1-sol``): the current OpenAI workhorse, preferred over GPT-5.6 Sol ($5/$30 per 1M tokens) at a lower API price ($2/$10 per 1M tokens); GPT-6 Astra (``openai/gpt-6-astra``) is the pricier flagship above it ($10/$50 per 1M tokens)
 - GPT-5.6 Sol / Terra / Luna (``openai/gpt-5.6-sol``, ``openai-subscription/gpt-5.6-sol``), the previous generation
 - Gemini 3.1 Pro (``gemini/gemini-3.1-pro-preview``, ``openrouter/google/gemini-3.1-pro-preview``)
 - Grok 4.6 via the API (``xai/grok-4.6``, ``openrouter/x-ai/grok-4.6``)

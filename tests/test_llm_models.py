@@ -265,7 +265,7 @@ def test_get_recommended_model(provider, expected_model):
 
 @pytest.mark.parametrize("provider", ["openai", "openai-subscription"])
 def test_gpt_6_1_sol_registered(provider):
-    """GPT-6.1 Sol is in the static registry, priced like GPT-5.6 Sol on the API."""
+    """GPT-6.1 Sol is in the static registry, priced at $2/$10 per 1M (below GPT-5.6 Sol's $5/$30)."""
     meta = MODELS[provider]["gpt-6.1-sol"]
     assert meta["context"] == 1_050_000
     assert meta["price_input"] == 2
