@@ -265,6 +265,22 @@ def test_mcp_execute_no_parameters_still_errors(mock_config, mock_mcp_client):
     assert "No parameters provided" in messages[0].content
 
 
+def test_mcp_execute_parameterless_tool_format_runs(mock_config, mock_mcp_client):
+    """A parameterless tool-format call (`{}`) runs the tool with no arguments."""
+    mock_mcp_client.call_tool.return_value = '{"ok": true}'
+    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+        tools = create_mcp_tools(mock_config)
+    tool = next(t for t in tools if t.name == "test-server.test_tool")
+
+    execute = tool.execute
+    assert execute is not None
+    result = execute(None, None, {})
+    messages = list(result) if hasattr(result, "__iter__") else [result]
+
+    mock_mcp_client.call_tool.assert_called_once_with("test_tool", {})
+    assert any("ok" in (m.content or "") for m in messages)
+
+
 def test_search_mcp_servers_all():
     """Test search_mcp_servers with 'all' registry."""
     mock_servers = [
