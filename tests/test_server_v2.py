@@ -5674,3 +5674,99 @@ def test_v2_step_resolves_model_once(v2_conv, client: FlaskClient):
     assistant = next(m for m in messages if m.role == "assistant")
     assert assistant.metadata is not None
     assert "input_log_messages" in assistant.metadata
+
+
+_MCP_CONFIG_TOML = """\
+[env]
+MODEL = "anthropic/claude-sonnet-4-7"
+
+[mcp]
+enabled = true
+auto_start = false
+
+[[mcp.servers]]
+name = "search"
+enabled = true
+command = "uvx"
+args = ["mcp-search"]
+env = { SEARCH_API_KEY = "sk-real", REGION = "eu" }
+"""
+
+
+@pytest.fixture
+def mcp_config_file(tmp_path, monkeypatch):
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_MCP_CONFIG_TOML)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    return config_file
+
+
+def test_v2_user_mcp_config_get_redacts_secrets(client: FlaskClient, mcp_config_file):
+    """GET /api/v2/user/config/mcp returns typed [mcp] with secrets redacted."""
+    response = client.get("/api/v2/user/config/mcp")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["enabled"] is True
+    assert data["path"] == str(mcp_config_file)
+    [server] = data["servers"]
+    assert server["name"] == "search"
+    assert server["args"] == ["mcp-search"]
+    assert server["env"] == {"SEARCH_API_KEY": "***", "REGION": "eu"}
+
+
+def test_v2_user_mcp_config_put_round_trip_keeps_secret_and_rest_of_file(
+    client: FlaskClient, mcp_config_file
+):
+    """PUT of the redacted GET body keeps the saved secret and other sections."""
+    body = client.get("/api/v2/user/config/mcp").get_json()
+    body["servers"][0]["env"]["REGION"] = "us"
+    body["servers"].append({"name": "remote", "url": "https://mcp.example/sse"})
+
+    response = client.put("/api/v2/user/config/mcp", json=body)
+
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()["status"] == "ok"
+    saved = tomlkit.loads(mcp_config_file.read_text()).unwrap()
+    assert saved["env"]["MODEL"] == "anthropic/claude-sonnet-4-7"
+    search, remote = saved["mcp"]["servers"]
+    assert search["env"] == {"SEARCH_API_KEY": "sk-real", "REGION": "us"}
+    assert remote == {
+        "name": "remote",
+        "enabled": True,
+        "url": "https://mcp.example/sse",
+    }
+    # The written file still loads through the user-config parser.
+    from gptme.config.user import _parse_mcp_config
+
+    assert len(_parse_mcp_config(saved["mcp"], strict=True).servers) == 2
+
+
+@pytest.mark.parametrize(
+    ("servers", "error"),
+    [
+        ([{"name": "x"}], "set either command or url"),
+        ([{"name": "", "command": "a"}], "non-empty name"),
+        (
+            [{"name": "a", "command": "a"}, {"name": "a", "url": "http://b"}],
+            "duplicate",
+        ),
+        ([{"name": "a", "command": "a", "args": "notalist"}], "args must be"),
+        ([{"name": "a", "command": "a", "bogus": 1}], "entry invalid"),
+        ([{"name": "new", "command": "a", "env": {"TOKEN": "***"}}], "redacted"),
+    ],
+)
+def test_v2_user_mcp_config_put_rejects_invalid(
+    client: FlaskClient, mcp_config_file, servers, error
+):
+    """Invalid structured config is rejected with 400 and nothing is written."""
+    response = client.put(
+        "/api/v2/user/config/mcp", json={"enabled": True, "servers": servers}
+    )
+
+    assert response.status_code == 400
+    assert error in response.get_json()["error"]
+    assert mcp_config_file.read_text() == _MCP_CONFIG_TOML
