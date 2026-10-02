@@ -671,20 +671,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-      70246 |                 prompt_toolkit
-      71845 |               gptme.util.prompt
-      93923 |             gptme.message
-     112575 | gptme.cli.main
-     118580 |           gptme.tools
-     119658 |         gptme.config.cli_setup
-     147292 |       gptme.config
-     155735 |     gptme.llm
-     215571 |   gptme.commands
-     307505 | gptme.chat
+      50287 |               gptme.util.prompt
+      52669 |   gptme.init
+      66370 |             gptme.message
+      82395 | gptme.cli.main
+      83915 |           gptme.tools
+      84659 |         gptme.config.cli_setup
+     104692 |       gptme.config
+     110569 |     gptme.llm
+     152092 |   gptme.commands
+     233546 | gptme.chat
 
-real	0m1.316s
-user	0m1.152s
-sys	0m0.181s
+real	0m2.321s
+user	0m0.819s
+sys	0m0.149s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -692,23 +692,21 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     139.7 ms ±   2.4 ms    [User: 119.3 ms, System: 20.3 ms]
-  Range (min … max):   137.1 ms … 145.4 ms    10 runs
- 
-  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the &#39;--warmup&#39; or &#39;--prepare&#39; options.
+  Time (mean ± σ):     108.8 ms ±   1.7 ms    [User: 92.6 ms, System: 16.1 ms]
+  Range (min … max):   106.3 ms … 110.7 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     589.1 ms ±   8.4 ms    [User: 520.0 ms, System: 68.9 ms]
-  Range (min … max):   580.7 ms … 606.9 ms    10 runs
+  Time (mean ± σ):     445.1 ms ±   7.3 ms    [User: 386.7 ms, System: 58.2 ms]
+  Range (min … max):   436.1 ms … 458.5 ms    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      1.059 s ±  0.023 s    [User: 0.838 s, System: 0.575 s]
-  Range (min … max):    1.027 s …  1.090 s    10 runs
+  Time (mean ± σ):     922.6 ms ±  75.3 ms    [User: 634.1 ms, System: 533.1 ms]
+  Range (min … max):   837.5 ms … 1037.7 ms    10 runs
  
 Summary
   import gptme.cli.main ran
-    4.22 ± 0.09 times faster than gptme --help
-    7.58 ± 0.21 times faster than full start/exit cycle
+    4.09 ± 0.09 times faster than gptme --help
+    8.48 ± 0.70 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -3012,6 +3010,7 @@ Largest Files (&gt;300 SLOC):
 
 make[3]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Most Duplicated Files:
+npm warn exec The following package was not found and will be installed: jscpd@5.4.0
 Clone found (python)
  - __init__.py [29:47 - 40:30] (12 lines, 54 tokens)
    context/__init__.py [36:55 - 47:30]
@@ -3606,7 +3605,7 @@ Clone found (python)
 │ Total:     │ 523            │ 206010      │ 996584       │ 190          │ 2492 (1.21%)     │ 13155 (1.32%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 190 clones.
-time: 473.359ms
+time: 392.227ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
