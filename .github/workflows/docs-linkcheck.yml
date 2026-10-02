@@ -15,7 +15,6 @@ on:
       - master
     paths:
       - 'docs/**'
-      - 'README.md'
       - '.github/workflows/docs-linkcheck.yml'
 
 permissions:
