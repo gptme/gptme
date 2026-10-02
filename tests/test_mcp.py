@@ -475,3 +475,83 @@ def test_mcp_client_close_interrupts_stalled_call():
     assert client.loop.is_closed()
     assert call_error
     assert any("closed" in str(exc).lower() for exc in call_error)
+
+
+def test_load_mcp_server_registers_toolspecs():
+    """load_mcp_server() must register ToolSpecs so dynamically loaded tools are invocable.
+
+    Regression test: previously load_mcp_server() stored the client in _dynamic_servers
+    but never called _build_tool_specs_for_server() or invalidated the available-tools cache,
+    so the loaded server's tools were silently not invocable.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.mcp_adapter as mcp_adapter
+    from gptme.config import MCPConfig, MCPServerConfig, UserConfig
+    from gptme.tools import _get_available_tools_cache, _set_available_tools_cache
+    from gptme.tools.mcp_adapter import _dynamic_servers
+
+    # Build a fake ListToolsResult with one tool
+    fake_tool = MagicMock()
+    fake_tool.name = "ping"
+    fake_tool.description = "A test ping tool"
+    fake_tool.inputSchema = {}
+    fake_tool.annotations = None
+
+    fake_tools_result = MagicMock()
+    fake_tools_result.tools = [fake_tool]
+
+    mock_client = MagicMock()
+    mock_client.connect.return_value = (fake_tools_result, MagicMock())
+    mock_client.tools = fake_tools_result
+
+    server_cfg = MCPServerConfig(name="testserver", command="echo", enabled=True)
+    fake_user_config = UserConfig(mcp=MCPConfig(enabled=True, servers=[server_cfg]))
+    fake_config = MagicMock()
+    fake_config.mcp = fake_user_config.mcp
+
+    _dynamic_servers.pop("testserver", None)
+    _set_available_tools_cache([])  # prime the cache so the append path is exercised
+
+    try:
+        with (
+            patch.object(mcp_adapter, "get_config", return_value=fake_config),
+            patch.object(mcp_adapter, "set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_client),
+        ):
+            result = mcp_adapter.load_mcp_server("testserver")
+
+        # load must report success
+        assert "testserver" in result
+        assert "ping" in result
+
+        # client must be in _dynamic_servers
+        assert "testserver" in _dynamic_servers
+
+        # ToolSpec must appear in the available-tools cache
+        cached = _get_available_tools_cache()
+        assert cached is not None, "cache must not be None after load"
+        names = [t.name for t in cached]
+        assert "testserver.ping" in names, (
+            f"testserver.ping missing from cache: {names}"
+        )
+
+        # execute function must use _get_mcp_client (clients=None path)
+        spec = next(t for t in cached if t.name == "testserver.ping")
+        assert spec.execute is not None
+
+        # --- unload ---
+        with (
+            patch.object(mcp_adapter, "get_config", return_value=fake_config),
+            patch.object(mcp_adapter, "set_config"),
+        ):
+            unload_result = mcp_adapter.unload_mcp_server("testserver")
+
+        assert "Successfully unloaded" in unload_result
+        assert "testserver" not in _dynamic_servers
+        # cache must be cleared so the next get_available_tools() rebuilds without the server
+        assert _get_available_tools_cache() is None
+
+    finally:
+        _dynamic_servers.pop("testserver", None)
+        _set_available_tools_cache(None)
