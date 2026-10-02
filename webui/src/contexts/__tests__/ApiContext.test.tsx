@@ -325,6 +325,40 @@ describe('ApiProvider mobile auto-connect', () => {
     expect(mockCheckConnection).toHaveBeenCalledTimes(1);
   });
 
+  it('does not overwrite an independent server credential on manual connect', async () => {
+    setActiveServerBaseUrl('http://127.0.0.1:5712');
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: false,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: true,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: () => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    await connectFromProbe();
+
+    expect(mockUpdateServer).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
+  });
+
   it('uses the latest rendered server snapshot when an imperative store read lags', async () => {
     setActiveServerBaseUrl('http://127.0.0.1:5712');
     mockGetActiveServer.mockReturnValue({

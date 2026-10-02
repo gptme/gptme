@@ -210,6 +210,7 @@ export function ApiProvider({
         if (
           managesLocalServer &&
           tauriServerStatus &&
+          !tauriServerStatus.existing_server_detected &&
           isTauriSidecarTarget(activeServer.baseUrl, tauriServerStatus.port)
         ) {
           if (config?.baseUrl === undefined) {
