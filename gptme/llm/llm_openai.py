@@ -1275,21 +1275,22 @@ def chat(
         raise ValueError("OpenAI API returned empty choices list")
     choice = response.choices[0]
     result = []
-    if choice.finish_reason == "tool_calls":
-        for tool_call in choice.message.tool_calls or []:
-            assert isinstance(tool_call, ChatCompletionMessageToolCall)
-            result.append(
-                f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
-            )
-    else:
-        if reasoning_content := (
-            getattr(choice.message, "reasoning_content", None)
-            or getattr(choice.message, "reasoning", None)
-        ):
-            logger.debug("Reasoning content: %s", reasoning_content)
-            result.append(f"<think>\n{reasoning_content}\n</think>\n")
-        if choice.message.content:
-            result.append(choice.message.content)
+    # Don't gate on finish_reason: some OpenAI-compatible backends return tool
+    # calls with finish_reason="stop", and a "tool_calls" response can carry
+    # assistant text. Keep both, matching the streaming path.
+    if reasoning_content := (
+        getattr(choice.message, "reasoning_content", None)
+        or getattr(choice.message, "reasoning", None)
+    ):
+        logger.debug("Reasoning content: %s", reasoning_content)
+        result.append(f"<think>\n{reasoning_content}\n</think>\n")
+    if choice.message.content:
+        result.append(choice.message.content)
+    for tool_call in choice.message.tool_calls or []:
+        assert isinstance(tool_call, ChatCompletionMessageToolCall)
+        result.append(
+            f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
+        )
 
     if not result:
         raise ValueError(

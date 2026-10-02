@@ -4336,3 +4336,70 @@ def test_handle_tools_demotes_orphan_tool_result_to_user_text():
         text = content
     assert isinstance(text, str)
     assert "stale output" in text
+
+
+class TestNonStreamToolCalls:
+    """Non-stream chat() must keep tool calls and text regardless of finish_reason.
+
+    Some OpenAI-compatible backends (Gemini compat, some vLLM/Ollama builds)
+    return tool calls with finish_reason="stop", and a "tool_calls" response can
+    carry assistant text. The streaming path keeps both; non-stream must too.
+    """
+
+    @staticmethod
+    def _completion(finish_reason: str, content: str | None):
+        from openai.types.chat import ChatCompletionMessageToolCall
+        from openai.types.completion_usage import CompletionUsage
+
+        tool_call = ChatCompletionMessageToolCall.model_validate(
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "shell", "arguments": '{"command": "ls"}'},
+            }
+        )
+        return SimpleNamespace(
+            usage=CompletionUsage.model_validate(
+                {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+            ),
+            choices=[
+                SimpleNamespace(
+                    finish_reason=finish_reason,
+                    message=SimpleNamespace(
+                        content=content,
+                        tool_calls=[tool_call],
+                        reasoning_content=None,
+                    ),
+                )
+            ],
+        )
+
+    @pytest.mark.parametrize("finish_reason", ["stop", "tool_calls"])
+    @pytest.mark.parametrize("content", [None, "Let me check."])
+    def test_chat_keeps_tool_calls_and_content(
+        self, monkeypatch, finish_reason, content
+    ):
+        completion = self._completion(finish_reason, content)
+        raw = SimpleNamespace(parse=lambda: completion, headers={})
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    with_raw_response=SimpleNamespace(create=Mock(return_value=raw))
+                )
+            )
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+        monkeypatch.setattr(
+            llm_openai, "_should_use_responses_api", lambda *args: False
+        )
+
+        result, _ = llm_openai.chat(
+            [Message(role="user", content="Hi")],
+            "openrouter/deepseek/deepseek-v4-flash-0731",
+            None,
+        )
+
+        tool_line = '@shell(call_1): {"command": "ls"}'
+        expected = f"{content}\n{tool_line}" if content else tool_line
+        assert result == expected
