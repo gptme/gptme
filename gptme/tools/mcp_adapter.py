@@ -73,8 +73,13 @@ def clear_mcp_clients() -> None:
 
 
 def _get_mcp_client(server_name: str) -> MCPClient | None:
-    """Get MCP client from either pre-configured or dynamically loaded servers."""
-    return _mcp_clients.get(server_name) or _dynamic_servers.get(server_name)
+    """Get MCP client from either pre-configured or dynamically loaded servers.
+
+    Dynamic servers win: their ToolSpecs resolve through here, and a same-named
+    entry added to ``_mcp_clients`` later (explicit ``servers=``) must not
+    hijack calls to the dynamically loaded server.
+    """
+    return _dynamic_servers.get(server_name) or _mcp_clients.get(server_name)
 
 
 def _extract_content_text(
@@ -365,6 +370,12 @@ def create_mcp_tools(
                     client.close()
                 except Exception:
                     logger.debug("Failed to close rejected MCP client", exc_info=True)
+                # Don't leave a closed client registered (it would make
+                # load_mcp_server() report "already loaded" for a dead server).
+                if client_registry.get(server_config.name) is client:
+                    del client_registry[server_config.name]
+                    if server_config.name in owned_this_call:
+                        owned_this_call.remove(server_config.name)
             if strict:
                 for name in owned_this_call:
                     leftover = client_registry.pop(name, None)
@@ -713,8 +724,13 @@ def unload_mcp_server(name: str) -> str:
     if name not in _dynamic_servers:
         return f"Server '{name}' is not loaded."
 
-    # Remove from dynamic servers
-    del _dynamic_servers[name]
+    # Remove from dynamic servers and close the transport so the subprocess
+    # and its event loop aren't leaked for the rest of the session.
+    client = _dynamic_servers.pop(name)
+    try:
+        client.close()
+    except Exception:
+        logger.debug("Failed to close MCP client on unload", exc_info=True)
 
     # Optionally disable in config (but don't remove)
     config = get_config()

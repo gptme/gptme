@@ -728,3 +728,63 @@ def test_create_mcp_tools_reconnects_static_client_on_config_rebuild():
         fresh.connect.assert_called_once_with("staticsrv")
     finally:
         _mcp_clients.pop("staticsrv", None)
+
+
+def test_dynamic_client_wins_lookup_over_same_named_static_client():
+    """A same-named client added to _mcp_clients later must not hijack calls
+    to a dynamically loaded server."""
+    from unittest.mock import MagicMock
+
+    from gptme.tools.mcp_adapter import _dynamic_servers, _get_mcp_client, _mcp_clients
+
+    dynamic, other = MagicMock(), MagicMock()
+    _dynamic_servers["dupname"] = dynamic
+    _mcp_clients["dupname"] = other
+    try:
+        assert _get_mcp_client("dupname") is dynamic
+    finally:
+        _dynamic_servers.pop("dupname", None)
+        _mcp_clients.pop("dupname", None)
+
+
+def test_unload_mcp_server_closes_client():
+    from unittest.mock import MagicMock
+
+    from gptme.tools.mcp_adapter import _dynamic_servers, unload_mcp_server
+
+    client = MagicMock()
+    _dynamic_servers["closeme"] = client
+    try:
+        assert "Successfully unloaded" in unload_mcp_server("closeme")
+        client.close.assert_called_once()
+        assert "closeme" not in _dynamic_servers
+    finally:
+        _dynamic_servers.pop("closeme", None)
+
+
+def test_failed_tool_construction_does_not_leave_dead_client_registered():
+    """A server whose ToolSpec construction fails must not stay in _mcp_clients
+    (it is closed, and would make load_mcp_server() say 'already loaded')."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.config import MCPServerConfig, get_config
+    from gptme.tools.mcp_adapter import _mcp_clients, create_mcp_tools
+
+    fresh = MagicMock()
+    fresh.connect.return_value = (MagicMock(tools=[]), MagicMock())
+    try:
+        with (
+            patch("gptme.mcp.client.MCPClient", return_value=fresh),
+            patch(
+                "gptme.tools.mcp_adapter._build_tool_specs_for_server",
+                side_effect=ValueError("bad schema"),
+            ),
+        ):
+            specs = create_mcp_tools(
+                get_config(), servers=[MCPServerConfig(name="deadsrv", command="x")]
+            )
+        assert specs == []
+        fresh.close.assert_called_once()
+        assert "deadsrv" not in _mcp_clients
+    finally:
+        _mcp_clients.pop("deadsrv", None)
