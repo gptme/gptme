@@ -25,6 +25,35 @@ def _query(client: FlaskClient, body: dict | None = None):
     )
 
 
+@pytest.mark.parametrize("debug_errors", [False, True])
+@pytest.mark.parametrize("method", ["GET", "QUERY"])
+def test_tools_internal_error_respects_debug_gate(
+    client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    debug_errors: bool,
+    method: str,
+) -> None:
+    if debug_errors:
+        monkeypatch.setenv("GPTME_DEBUG_ERRORS", "1")
+    else:
+        monkeypatch.delenv("GPTME_DEBUG_ERRORS", raising=False)
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("Cannot read /secret/path")
+
+    monkeypatch.setattr("gptme.server.tools_api.get_available_tools", fail)
+    with caplog.at_level("ERROR"):
+        response = client.open("/api/v2/tools", method=method, json={})
+
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "error": "Cannot read /secret/path" if debug_errors else "Internal server error"
+    }
+    assert "/secret/path" in caplog.text
+    assert any(record.exc_info for record in caplog.records)
+
+
 def test_query_no_filters_returns_all_tools(client: FlaskClient):
     """Empty QUERY body returns the same tools as GET."""
     get_resp = client.get("/api/v2/tools")
