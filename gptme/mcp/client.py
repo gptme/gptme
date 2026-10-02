@@ -304,7 +304,8 @@ class MCPClient:
 
         # Create a per-server circuit breaker (default: 5 failures / 30s cooldown).
         self._circuit_breaker = CircuitBreaker(name=f"mcp:{server_name}")
-        logger.info(f"Tools: {tools}")
+        logger.info(f"{server_name}: {len(tools.tools)} tools")
+        logger.debug(f"Tools: {tools}")
         return tools, session
 
     def close(self) -> None:

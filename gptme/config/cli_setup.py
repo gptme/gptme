@@ -95,7 +95,8 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
                 seen.add(normalized_item)
             continue
 
-        for tool in get_toolchain([item]):
+        # Per-item resolution would warn about "excluded" MCP tools once per item
+        for tool in get_toolchain([item], warn_skipped_mcp=False):
             if tool.name in seen:
                 continue
             normalized.append(tool.name)

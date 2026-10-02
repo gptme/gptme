@@ -530,7 +530,11 @@ def _unavailable_message(tool_name: str, matched_tools: list[ToolSpec]) -> str:
 
 
 def get_toolchain(
-    allowlist: list[str] | None, *, strict: bool = True, include_mcp: bool = True
+    allowlist: list[str] | None,
+    *,
+    strict: bool = True,
+    include_mcp: bool = True,
+    warn_skipped_mcp: bool = True,
 ) -> list[ToolSpec]:
     allowlist = expand_tool_allowlist_presets(allowlist)
 
@@ -595,7 +599,7 @@ def get_toolchain(
             available_tools,
             allowlist=allowlist,
         )
-    if skipped_mcp_tools:
+    if skipped_mcp_tools and warn_skipped_mcp:
         allowlist_key = tuple(allowlist or [])
         with _warned_mcp_allowlists_lock:
             should_warn = allowlist_key not in _warned_mcp_allowlists
