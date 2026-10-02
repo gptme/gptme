@@ -536,9 +536,10 @@ class SessionManager:
 
         Also detects sessions stuck in generating=True state: if a session has
         been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, its
-        generating flag is forcibly reset. If no clients are connected the
-        session is also evicted; if clients are present the session is kept so
-        the live stream can observe the cleared state.
+        generating flag is forcibly reset. If no clients are connected, or the
+        session runs on an ACP runtime, the session is also evicted (closing
+        the subprocess); otherwise it is kept so the live stream can observe
+        the cleared state.
 
         Removal is performed atomically under a single lock acquisition to
         prevent a TOCTOU race where a concurrent ``/step`` could start
@@ -577,7 +578,10 @@ class SessionManager:
                         cls._STUCK_GENERATING_TIMEOUT_MINUTES,
                     )
                     session.generating = False
-                    if not session.clients:
+                    # An ACP session is always evicted: removal closes the
+                    # (possibly still-running) subprocess, and keeping it would
+                    # let the next /step overlap the stuck prompt.
+                    if not session.clients or session.acp_runtime is not None:
                         to_remove.append(session_id)
 
             # Remove all identified sessions while still holding the lock.

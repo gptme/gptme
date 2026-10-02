@@ -721,6 +721,27 @@ class TestSessionManagerCleanInactive:
         # generating is reset so the session is no longer considered stuck
         assert session.generating is False
 
+    def test_stuck_acp_session_with_clients_is_evicted_and_runtime_closed(self):
+        """A stuck ACP session is evicted even with clients, so the next /step
+        cannot overlap the still-running prompt on the old runtime."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import MagicMock, patch
+
+        session = SessionManager.create_session("conv-stuck-acp-client")
+        runtime = MagicMock()
+        session.acp_runtime = runtime
+        session.use_acp = True
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        session.last_activity = datetime.now(tz=timezone.utc)
+        session.clients.add("client-1")
+
+        with patch("gptme.server.session_step.close_acp_runtime_bg") as close_bg:
+            SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+        assert SessionManager.get_session(session.id) is None
+        close_bg.assert_called_once_with(runtime)
+
     def test_atomic_cleanup_removes_multiple_sessions(self):
         """clean_inactive_sessions removes multiple stale sessions atomically."""
         from datetime import datetime, timedelta, timezone
