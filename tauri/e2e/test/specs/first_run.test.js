@@ -125,6 +125,9 @@ describe("Real first-run flow", () => {
     }
     await getStartedBtn.click();
 
+    // Give the wizard state time to update and the next step to render
+    await new Promise((r) => setTimeout(r, 100));
+
     // 5. In "Choose your setup", click the Local option through its stable
     //    test contract rather than matching user-facing copy.
     const localBtn = await $("[data-testid='setup-wizard-local']");
