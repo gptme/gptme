@@ -81,6 +81,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "grok-subscription",
         "moonshot",
         "requesty",
+        "y-api",
         "openrouter",
         "nvidia",
         "azure",
@@ -809,6 +810,10 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "preferred_edit_format": "whole",
         },
     },
+    # Y-API — OpenAI-compatible LLM gateway using vendor/model paths
+    # (e.g. "y-api/anthropic/claude-sonnet-5"), like requesty/openrouter.
+    # Empty dict = models fetched dynamically or specified by user
+    "y-api": {},
     # gptme managed service — proxies to multiple providers
     # Models are pass-through: gptme/claude-sonnet-4-6 → proxied to backend
     # Empty dict = models fetched dynamically or specified by user
