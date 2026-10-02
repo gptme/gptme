@@ -785,14 +785,26 @@ gptme<span class="w"> </span>--tool<span class="w"> </span>autocompact
 </pre></div>
 </div>
 <p>Two strategies are available:</p>
-<ul class="simple">
+<ul>
 <li><p><strong>trim</strong> (default) — rule-based: stubs stale tool outputs, truncates massive tool
 results, and compresses eligible assistant messages without rewriting thinking.
 Fast and deterministic; no LLM call.
 If savings would be low, gptme will suggest <code class="docutils literal notranslate"><span class="pre">/compact</span> <span class="pre">summarize</span></code> instead.</p></li>
-<li><p><strong>summarize</strong> — LLM-powered: asks the model to produce a <code class="docutils literal notranslate"><span class="pre">RESUME.md</span></code> capturing
-key decisions, open tasks, and relevant file paths, then starts a fresh context
-from that summary. More thorough but requires a model call and restarts context.</p></li>
+<li><p><strong>summarize</strong> — LLM-powered: produces a structured checkpoint (objective,
+decisions, current state, open items, files to reload), then rebuilds context
+from that checkpoint plus the most recent <code class="docutils literal notranslate"><span class="pre">keep_recent_tokens</span></code> of history
+(default 20k). More thorough but requires a model call.</p>
+<p>Optional instructions can be passed inline:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">/</span><span class="n">compact</span> <span class="n">summarize</span> <span class="n">focus</span> <span class="n">on</span> <span class="n">the</span> <span class="n">failing</span> <span class="n">test</span> <span class="n">suite</span>
+</pre></div>
+</div>
+<p>Or set project-wide via <code class="docutils literal notranslate"><span class="pre">[context]</span> <span class="pre">compact_instructions</span></code> in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">context</span><span class="p">]</span>
+<span class="n">compact_instructions</span> <span class="o">=</span> <span class="s2">&quot;Always note the current task ID and git branch.&quot;</span>
+<span class="n">keep_recent_tokens</span> <span class="o">=</span> <span class="mi">15000</span>   <span class="c1"># tokens of history to keep after checkpoint</span>
+</pre></div>
+</div>
+</li>
 </ul>
 <div class="deprecated">
 <p><span class="versionmodified deprecated">Deprecated since version ``/compact: </span>auto`` and <code class="docutils literal notranslate"><span class="pre">/compact</span> <span class="pre">resume</span></code> are deprecated aliases for <code class="docutils literal notranslate"><span class="pre">trim</span></code> and
