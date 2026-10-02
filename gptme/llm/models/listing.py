@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any, cast
 
 from ..provider_plugins import discover_provider_plugins, get_provider_plugin
@@ -134,6 +135,28 @@ _model_list_cache_time: float = 0
 _MODEL_LIST_CACHE_TTL = 300  # 5 minutes
 
 
+def _fetch_models_parallel(
+    providers: list[Provider], dynamic_fetch: bool
+) -> list[list[ModelMeta]]:
+    """Fetch each provider's models concurrently, preserving provider order.
+
+    One slow or unreachable endpoint then does not serialize the whole listing.
+    Each worker runs in a copy of the caller's context so ContextVar-backed
+    state (notably the project/chat config from ``get_config()``) is visible
+    there; otherwise custom providers would be unknown in the worker.
+    """
+    if not providers:
+        return []
+    tasks = [(copy_context(), p) for p in providers]
+    with ThreadPoolExecutor(max_workers=min(8, len(providers))) as pool:
+        return list(
+            pool.map(
+                lambda t: t[0].run(_get_models_for_provider, t[1], dynamic_fetch),
+                tasks,
+            )
+        )
+
+
 def get_model_list(
     provider_filter: str | None = None,
     vision_only: bool = False,
@@ -200,14 +223,7 @@ def get_model_list(
     providers = [
         p for p in all_providers if not provider_filter or p == provider_filter
     ]
-    # Fetch providers concurrently so one slow/unreachable endpoint does not
-    # serialize the whole listing; map() preserves provider order.
-    with ThreadPoolExecutor(max_workers=min(8, max(1, len(providers)))) as pool:
-        provider_models = list(
-            pool.map(lambda p: _get_models_for_provider(p, dynamic_fetch), providers)
-        )
-
-    for models in provider_models:
+    for models in _fetch_models_parallel(providers, dynamic_fetch):
         # Apply filters
         filtered_models = _apply_model_filters(
             models, vision_only, reasoning_only, include_deprecated
@@ -374,14 +390,16 @@ def list_models(
             + plugin_providers_detail
         )
 
-        for provider in all_providers:
-            if provider_filter and provider != provider_filter:
-                continue
+        selected = [
+            provider
+            for provider in all_providers
+            if (not provider_filter or provider == provider_filter)
+            and (not available_only or provider in configured_set)
+        ]
 
-            if available_only and provider not in configured_set:
-                continue
-
-            models = _get_models_for_provider(provider, dynamic_fetch)
+        for provider, models in zip(
+            selected, _fetch_models_parallel(selected, dynamic_fetch), strict=True
+        ):
             filtered_models = _apply_model_filters(
                 models, vision_only, reasoning_only, include_deprecated
             )

@@ -2708,8 +2708,14 @@ def _short_request_error(e: requests.RequestException) -> str:
         return f"HTTP {e.response.status_code}"
     if isinstance(e, requests.Timeout):
         return "timed out"
+    if isinstance(e, requests.exceptions.SSLError):
+        # Keep the certificate reason; it is what the user needs to fix it.
+        m = re.search(r"certificate verify failed: ([^('\")]+)", str(e))
+        if m:
+            return f"SSL certificate verify failed: {m.group(1).strip()}"
+        return "SSL error"
     if isinstance(e, requests.ConnectionError):
-        m = re.search(r"\[Errno -?\d+\] ([^'\")]+)", str(e))
+        m = re.search(r"\[Errno -?\d+\] ([^('\")]+)", str(e))
         return m.group(1).strip() if m else "connection failed"
     return type(e).__name__
 

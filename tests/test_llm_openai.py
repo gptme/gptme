@@ -5011,6 +5011,24 @@ def test_short_request_error_summaries():
         "connection failed"
     )
     assert _short_request_error(requests.Timeout("slow")) == "timed out"
+    # stray parens after the errno reason do not leak into the summary
+    assert (
+        _short_request_error(
+            requests.ConnectionError("[Errno 113] No route to host (eth0)')")
+        )
+        == "No route to host"
+    )
+    # certificate failures keep their reason instead of "connection failed"
+    ssl = requests.exceptions.SSLError(
+        "HTTPSConnectionPool(host='llm.local', port=443): Max retries exceeded "
+        "with url: /v1/models (Caused by SSLError(SSLCertVerificationError(1, "
+        "'[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+        "self-signed certificate in certificate chain (_ssl.c:1006)')))"
+    )
+    assert _short_request_error(ssl) == (
+        "SSL certificate verify failed: self-signed certificate in certificate chain"
+    )
+    assert _short_request_error(requests.exceptions.SSLError("x")) == "SSL error"
 
     resp = requests.Response()
     resp.status_code = 401

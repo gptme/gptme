@@ -737,3 +737,41 @@ def test_model_to_dict_serializes_default_tool_format():
 
     unstamped = ModelMeta(provider=CustomProvider("test"), model="m2", context=8192)
     assert "default_tool_format" not in model_to_dict(unstamped)
+
+
+def test_fetch_models_parallel_propagates_config_context():
+    """Workers see the caller's ContextVar config (e.g. custom providers)."""
+    import contextvars
+
+    from gptme.config import get_config
+    from gptme.config.core import _config_var
+    from gptme.llm.models.listing import _fetch_models_parallel
+
+    sentinel = object()
+    seen: list = []
+
+    def fake_fetch(provider, dynamic_fetch):
+        seen.append(get_config())
+        return [provider]
+
+    def run():
+        _config_var.set(sentinel)  # type: ignore[arg-type]
+        with patch(
+            "gptme.llm.models.listing._get_models_for_provider", side_effect=fake_fetch
+        ):
+            return _fetch_models_parallel(["openai", "anthropic", "local"], False)
+
+    result = contextvars.copy_context().run(run)
+    assert result == [["openai"], ["anthropic"], ["local"]]
+    assert seen == [sentinel] * 3
+
+
+@patch("gptme.llm.models.listing._fetch_models_parallel")
+def test_list_models_detailed_uses_parallel_fetch(mock_fetch, capsys):
+    """The default detailed output fetches providers concurrently too."""
+    from gptme.llm.models import list_models
+
+    mock_fetch.side_effect = lambda providers, dynamic_fetch: [[] for _ in providers]
+    list_models(dynamic_fetch=False)
+    assert mock_fetch.call_count == 1
+    assert "openai" in mock_fetch.call_args.args[0]
