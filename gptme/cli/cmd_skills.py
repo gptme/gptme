@@ -100,8 +100,11 @@ def _search_hint(name: str) -> str:
     (POSIX sh, cmd.exe, PowerShell) treats specially: bare if it is one token,
     double-quoted if it has spaces. Anything else (``$``, ``%``, ``&``, quotes,
     backticks, ...) gets a placeholder, because no single quoting is safe in
-    every shell.
+    every shell. A leading ``-`` would be parsed as an option, so it also
+    gets the placeholder.
     """
+    if name.startswith("-"):
+        return "gptme-util skills search <query>"
     if re.fullmatch(r"[A-Za-z0-9_./:+-]+", name):
         return f"gptme-util skills search {name}"
     if re.fullmatch(r"[A-Za-z0-9_./:+ -]+", name):

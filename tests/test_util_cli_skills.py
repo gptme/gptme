@@ -316,8 +316,16 @@ def test_skills_show_not_found_hint_no_shell_metacharacters(tmp_path, mocker):
     )
 
     runner = CliRunner()
-    for name in ["x $(touch pwned)", "x `id`", "$HOME", 'a "b"', "x %PATH% & calc"]:
-        result = runner.invoke(main, ["skills", "show", name])
+    for name in [
+        "x $(touch pwned)",
+        "x `id`",
+        "$HOME",
+        'a "b"',
+        "x %PATH% & calc",
+        "--help",
+        "-n 5",
+    ]:
+        result = runner.invoke(main, ["skills", "show", "--", name])
         assert result.exit_code == 1
         assert "Try: gptme-util skills search <query>\n" in result.output
 
