@@ -276,11 +276,11 @@ def api_conversation_events(conversation_id: str):
 
             while True:
                 # Check if there are new events
-                if last_event_index < (new_index := session.events_count):
-                    # Send any new events
-                    for event in session.get_events_since(last_event_index):
-                        yield f"data: {flask.json.dumps(event)}\n\n"
-                    last_event_index = new_index
+                # Atomic read: batch and next index come from one lock hold, so a
+                # concurrent trim can't desync them.
+                new_events, last_event_index = session.read_events(last_event_index)
+                for event in new_events:
+                    yield f"data: {flask.json.dumps(event)}\n\n"
 
                 # Wait a bit before checking again
                 yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
@@ -606,7 +606,7 @@ def api_conversation_step(conversation_id: str):
     deadline = time.monotonic() + _STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         # Check new events since we started
-        new_events = session.get_events_since(initial_event_count)
+        new_events, _ = session.read_events(initial_event_count)
         for event in new_events:
             event_type = event.get("type") if isinstance(event, dict) else None
             if event_type == "error":

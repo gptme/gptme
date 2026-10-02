@@ -435,8 +435,7 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
 
     try:
         while time.monotonic() < deadline:
-            events = session.get_events_since(event_index)
-            event_index += len(events)
+            events, event_index = session.read_events(event_index)
             for event in events:
                 event_type = event.get("type") if isinstance(event, dict) else None
                 if event_type == "step_complete":
