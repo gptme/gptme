@@ -185,6 +185,7 @@ napoleon_attr_annotations = False
 # for a real browser. Match by regex so query strings/anchors don't matter.
 linkcheck_ignore = [
     r"https://(www\.)?github\.com/.*/(issues|pull|discussions)/\d+",  # anti-bot rate limiting
+    r"https://(www\.)?github\.com/.*/commit/[a-f0-9]+",  # commit links don't need checking in CI
     r"https://(x|twitter)\.com/.*",  # requires auth to view
     r"https://discord\.(gg|com)/.*",  # invite links, often expire/require auth
     r"http://localhost.*",  # local dev references, not reachable from CI
