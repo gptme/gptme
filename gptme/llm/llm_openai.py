@@ -248,8 +248,13 @@ def _record_usage(
     resolved_model: str | None = None,
     reasoning_effort: str | None = None,
     served_model: str | None = None,
+    success: bool = True,
 ) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata.
+
+    ``success`` is False for a response that ended incomplete (e.g. hit the
+    output token limit): its usage and cost still count, but it is not
+    recorded as a completed generation.
 
     ``reasoning_effort`` is the effective level applied to the request (from
     ``GPTME_THINKING_EFFORT``); it is stamped on the metadata so session logs
@@ -297,7 +302,7 @@ def _record_usage(
     record_llm_request(
         provider=provider,
         model=model,
-        success=True,
+        success=success,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_creation_tokens=cache_creation_tokens,
@@ -1605,6 +1610,13 @@ def _stream_responses(
         nonlocal served_model
         served_model = served
 
+    incomplete = False
+
+    def _capture_incomplete() -> None:
+        # Fires before usage on response.incomplete.
+        nonlocal incomplete
+        incomplete = True
+
     def _capture_usage(usage: Any) -> None:
         nonlocal captured_metadata
         captured_metadata = _record_usage(
@@ -1612,6 +1624,7 @@ def _stream_responses(
             model,
             reasoning_effort=reasoning_effort,
             served_model=served_model,
+            success=not incomplete,
         )
 
     stream = client.responses.create(**kwargs)
@@ -1619,6 +1632,7 @@ def _stream_responses(
         _guarded_stream_iter(stream, model=model, provider=provider),
         usage_callback=_capture_usage,
         model_callback=_capture_model,
+        incomplete_callback=_capture_incomplete,
     )
 
     if captured_metadata is None and (

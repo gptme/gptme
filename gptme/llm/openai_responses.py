@@ -332,6 +332,7 @@ def _stream_responses_events(
     *,
     usage_callback: Callable[[Any], None] | None = None,
     model_callback: Callable[[str], None] | None = None,
+    incomplete_callback: Callable[[], None] | None = None,
 ) -> Generator[str, None, None]:
     """Process a Responses API event stream, yielding formatted text chunks.
 
@@ -455,6 +456,8 @@ def _stream_responses_events(
                     "output may be truncated",
                     _obj_get(details, "reason", None) or "unknown",
                 )
+                if incomplete_callback is not None:
+                    incomplete_callback()
             if model_callback is not None:
                 served = served_model_from(response_obj)
                 if served is not None:
