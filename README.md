@@ -111,7 +111,7 @@ development.
 - **2025-03** - [v0.27.0](https://github.com/gptme/gptme/releases/tag/v0.27.0): Pre-commit integration, macOS computer use, Claude 3.7 Sonnet, DeepSeek R1, local TTS with Kokoro
 - **2025-01** - [gptme-contrib](https://github.com/gptme/gptme-contrib) created: community plugins including Twitter/X, Discord bot, email tools, consortium (multi-agent)
 - **2024-12** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.3: Template for persistent agents
-- **2024-11** - Ecosystem expansion: [gptme-webui](https://github.com/gptme/gptme-webui), [gptme-rag](https://github.com/gptme/gptme-rag), [gptme.vim](https://github.com/gptme/gptme.vim), [Bob](https://github.com/TimeToBuildBob) created (first autonomous agent)
+- **2024-11** - Ecosystem expansion: [gptme-webui](https://github.com/gptme/gptme-webui), [gptme-rag](https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-rag), [gptme.vim](https://github.com/gptme/gptme.vim), [Bob](https://github.com/TimeToBuildBob) created (first autonomous agent)
 - **2024-10** - [First viral tweet](https://x.com/rohanpaul_ai/status/1841999030999470326) bringing widespread attention
 - **2024-08** - [Show HN](https://news.ycombinator.com/item?id=41204256), Anthropic Claude support, tmux tool
 - **2023-09** - [Initial public release](https://news.ycombinator.com/item?id=37394845) on HN, [Reddit](https://www.reddit.com/r/LocalLLaMA/comments/16atlia/), [Twitter](https://x.com/ErikBjare/status/1699097896451289115)
