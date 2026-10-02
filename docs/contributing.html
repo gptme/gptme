@@ -868,14 +868,14 @@ duplicate headings, and content-heavy pages with a lone subpage.</p>
 <li><p>Set the telemetry environment variables:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4318<span class="w">  </span><span class="c1"># HTTP OTLP (port 4318)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OTLP_METRICS</span><span class="o">=</span><span class="nb">true</span><span class="w">  </span><span class="c1"># Send metrics via OTLP</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OTEL_EXPORTER_OTLP_TIMEOUT</span><span class="o">=</span><span class="m">5000</span><span class="w">  </span><span class="c1"># ms; optional, default is 10s</span>
 </pre></div>
 </div>
 </li>
 <li><p>Run gptme:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span>
-<span class="c1"># or gptme-server</span>
-poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
+<span class="c1"># or gptme-server (use --host 0.0.0.0 so the Prometheus container can reach it)</span>
+poetry<span class="w"> </span>run<span class="w"> </span>gptme-server<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0
 </pre></div>
 </div>
 </li>
@@ -892,7 +892,7 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <li><p>Record token processing metrics</p></li>
 <li><p>Monitor request durations</p></li>
 <li><p>Instrument Flask and HTTP requests</p></li>
-<li><p>Expose Prometheus metrics at <cite>/metrics</cite> endpoint</p></li>
+<li><p>Expose Prometheus metrics at <code class="docutils literal notranslate"><span class="pre">/api/v0/metrics</span></code> endpoint (requires <code class="docutils literal notranslate"><span class="pre">prometheus_client</span></code>)</p></li>
 </ul>
 <p>The telemetry data helps identify:</p>
 <ul class="simple">
@@ -956,7 +956,7 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TELEMETRY_ENABLED</span></code>: Enable/disable telemetry (default: false)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">OTLP_ENDPOINT</span></code>: OTLP endpoint for traces and metrics (default: <a class="reference external" href="http://localhost:4318">http://localhost:4318</a>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_OTLP_METRICS</span></code>: Send metrics via OTLP instead of Prometheus HTTP (default: true)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OTEL_EXPORTER_OTLP_TIMEOUT</span></code>: OTLP exporter timeout in milliseconds (default: 10000)</p></li>
 </ul>
 </section>
 <section id="multiple-instances">
@@ -965,7 +965,6 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># All instances use the same configuration</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_TELEMETRY_ENABLED</span><span class="o">=</span><span class="nb">true</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">OTLP_ENDPOINT</span><span class="o">=</span>http://your-collector:4318
-<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OTLP_METRICS</span><span class="o">=</span><span class="nb">true</span>
 </pre></div>
 </div>
 <p>The OpenTelemetry Collector aggregates metrics from all instances and exports them to Prometheus on a single port that Prometheus can scrape.</p>

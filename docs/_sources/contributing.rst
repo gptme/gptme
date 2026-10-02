@@ -222,15 +222,15 @@ To enable telemetry during development:
 
       export GPTME_TELEMETRY_ENABLED=true
       export OTLP_ENDPOINT=http://localhost:4318  # HTTP OTLP (port 4318)
-      export GPTME_OTLP_METRICS=true  # Send metrics via OTLP
+      export OTEL_EXPORTER_OTLP_TIMEOUT=5000  # ms; optional, default is 10s
 
 5. Run gptme:
 
    .. code-block:: bash
 
       poetry run gptme 'hello'
-      # or gptme-server
-      poetry run gptme-server
+      # or gptme-server (use --host 0.0.0.0 so the Prometheus container can reach it)
+      poetry run gptme-server --host 0.0.0.0
 
 6. View data:
 
@@ -243,7 +243,7 @@ Once enabled, gptme will automatically:
 - Record token processing metrics
 - Monitor request durations
 - Instrument Flask and HTTP requests
-- Expose Prometheus metrics at `/metrics` endpoint
+- Expose Prometheus metrics at ``/api/v0/metrics`` endpoint (requires ``prometheus_client``)
 
 The telemetry data helps identify:
 
@@ -308,7 +308,7 @@ Environment Variables
 
 - ``GPTME_TELEMETRY_ENABLED``: Enable/disable telemetry (default: false)
 - ``OTLP_ENDPOINT``: OTLP endpoint for traces and metrics (default: http://localhost:4318)
-- ``GPTME_OTLP_METRICS``: Send metrics via OTLP instead of Prometheus HTTP (default: true)
+- ``OTEL_EXPORTER_OTLP_TIMEOUT``: OTLP exporter timeout in milliseconds (default: 10000)
 
 Multiple Instances
 ~~~~~~~~~~~~~~~~~~
@@ -320,7 +320,6 @@ When running multiple gptme instances with telemetry enabled, they can all send 
    # All instances use the same configuration
    export GPTME_TELEMETRY_ENABLED=true
    export OTLP_ENDPOINT=http://your-collector:4318
-   export GPTME_OTLP_METRICS=true
 
 The OpenTelemetry Collector aggregates metrics from all instances and exports them to Prometheus on a single port that Prometheus can scrape.
 
