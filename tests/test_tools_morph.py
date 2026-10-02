@@ -125,6 +125,15 @@ class TestExecuteMorphImpl:
         assert "+    return 42" in msgs[0].content
         assert f.read_text() == "def foo():\n    return 42\n"
 
+    def test_successful_edit_preserves_crlf(self, tmp_path: Path):
+        """A CRLF file keeps CRLF line endings after an edit."""
+        f = tmp_path / "crlf.py"
+        f.write_bytes(b"def foo():\r\n    pass\r\n")
+        original = "def foo():\n    pass\n"  # as read in universal-newline mode
+
+        list(execute_morph_impl("def foo():\n    return 42\n", f, original))
+        assert f.read_bytes() == b"def foo():\r\n    return 42\r\n"
+
     def test_concurrent_modification_detected(self, tmp_path: Path):
         """Refuses edit when file was modified since patch generation."""
         f = tmp_path / "race.py"

@@ -509,3 +509,32 @@ MISSING
     assert "applied successfully" not in msg
     assert "no changes were written" in msg
     assert f.read_text() == "first\nsecond\n"
+
+
+def test_execute_patch_preserves_crlf(tmp_path):
+    f = tmp_path / "crlf.txt"
+    f.write_bytes(b"first\r\noriginal lines\r\nlast\r\n")
+
+    result = next(execute_patch(example_patch, [str(f)], None)).content
+
+    assert "successfully" in result
+    assert f.read_bytes() == b"first\r\nmodified lines\r\nlast\r\n"
+
+
+def test_execute_patch_keeps_lf(tmp_path):
+    f = tmp_path / "lf.txt"
+    f.write_bytes(b"first\noriginal lines\nlast\n")
+
+    next(execute_patch(example_patch, [str(f)], None))
+
+    assert f.read_bytes() == b"first\nmodified lines\nlast\n"
+
+
+def test_execute_patch_crlf_in_updated_block_not_doubled(tmp_path):
+    f = tmp_path / "crlf.txt"
+    f.write_bytes(b"first\r\noriginal lines\r\nlast\r\n")
+    crlf_patch = "<<<<<<< ORIGINAL\noriginal lines\n=======\nnew one\r\nnew two\n>>>>>>> UPDATED\n"
+
+    next(execute_patch(crlf_patch, [str(f)], None))
+
+    assert f.read_bytes() == b"first\r\nnew one\r\nnew two\r\nlast\r\n"
