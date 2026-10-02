@@ -1,7 +1,10 @@
+import json
 import logging
 import os
 
+import httpx
 import pytest
+from anthropic import Anthropic
 
 import gptme.llm.llm_anthropic as llm_anthropic
 from gptme.llm.llm_anthropic import (
@@ -777,6 +780,11 @@ class TestRequiresAdaptiveThinking:
             "claude-opus-4-8",
             "anthropic/claude-opus-4-8",
             "openrouter/anthropic/claude-opus-4-8",
+            "claude-sonnet-5-5",
+            "anthropic/claude-sonnet-5-5-20260928",
+            "claude-opus-5-5",
+            "claude-fable-5",
+            "claude-fable-5-1",
         ],
     )
     def test_adaptive_required(self, model):
@@ -807,6 +815,75 @@ class TestBuildThinkingParam:
             )
             is None
         )
+
+    def test_sonnet_55_disabled_uses_between_tools(self):
+        assert _build_thinking_param(
+            "anthropic/claude-sonnet-5-5", use_thinking=False, thinking_budget=8000
+        ) == {"type": "between_tools"}
+
+    @pytest.mark.parametrize(
+        "model",
+        ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"],
+    )
+    def test_claude_5_uses_adaptive_with_visible_summaries(self, model):
+        assert _build_thinking_param(
+            model, use_thinking=True, thinking_budget=8000
+        ) == {"type": "adaptive", "display": "summarized"}
+
+
+@pytest.mark.parametrize("reasoning", ["0", "1"])
+@pytest.mark.parametrize(
+    "model",
+    ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"],
+)
+def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
+    """The real SDK sends supported thinking fields, including reasoning-off mode."""
+    payloads = []
+
+    def serve(request):
+        payloads.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": [
+                    {"type": "thinking", "thinking": "", "signature": "opaque-sig=="},
+                    {"type": "text", "text": "Hello"},
+                ],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+
+    monkeypatch.setenv("GPTME_REASONING", reasoning)
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
+    monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
+    with httpx.Client(transport=httpx.MockTransport(serve)) as http_client:
+        client = Anthropic(api_key="test-key", http_client=http_client)
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        answer, _ = llm_anthropic.chat(
+            [Message("system", "Be helpful."), Message("user", "Hello")],
+            model,
+            tools=None,
+        )
+
+    payload = payloads[0]
+    if model == "claude-sonnet-5-5" and reasoning == "0":
+        assert payload["thinking"] == {"type": "between_tools"}
+    else:
+        assert payload["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert payload["output_config"] == {"effort": "high"}
+    assert "top_p" not in payload
+    assert payload["max_tokens"] == 128_000
+    # Empty signed thinking must survive conversion back into the next request.
+    blocks, text = llm_anthropic._extract_thinking_content(answer)
+    assert blocks == [("", "opaque-sig==")]
+    assert text == "Hello"
 
     def test_opus_47_returns_adaptive(self):
         # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.

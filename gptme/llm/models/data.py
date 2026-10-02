@@ -126,6 +126,52 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     # https://docs.anthropic.com/en/docs/about-claude/models
     # Active models here; deprecated models in llm_anthropic_models_deprecated.py
     "anthropic": {
+        # Specs verified 2026-10-02 against https://platform.claude.com/docs/en/models/overview
+        "claude-sonnet-5-5": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            "price_input": 2,
+            "price_output": 10,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+            "knowledge_cutoff": datetime(2026, 6, 1, tzinfo=timezone.utc),
+        },
+        "claude-opus-5-5": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            "price_input": 4,
+            "price_output": 20,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+            "knowledge_cutoff": datetime(2026, 6, 1, tzinfo=timezone.utc),
+        },
+        "claude-fable-5-1": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            "price_input": 10,
+            "price_output": 50,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+            "knowledge_cutoff": datetime(2026, 6, 1, tzinfo=timezone.utc),
+        },
+        # Legacy, still active: https://platform.claude.com/docs/en/models/fable-5/overview
+        "claude-fable-5": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            "price_input": 10,
+            "price_output": 50,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+            "knowledge_cutoff": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        },
         "claude-opus-4-8": {
             "context": 1_000_000,
             "max_output": 128_000,
