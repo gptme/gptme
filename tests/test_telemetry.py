@@ -432,3 +432,41 @@ def test_otlp_timeout_seconds_overflow_falls_back(monkeypatch):
 
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "inf")
     assert _otlp_timeout_seconds(default=10.0) == 10.0
+
+
+def test_record_llm_request_keeps_values_out_of_labels(monkeypatch):
+    """Token counts and cost must be counter values, not metric labels."""
+    from unittest.mock import MagicMock
+
+    from gptme import telemetry
+
+    request_counter, cost_counter, token_counter = (
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+    )
+    objects = {
+        "tracer": None,
+        "llm_request_counter": request_counter,
+        "llm_cost_counter": cost_counter,
+        "token_counter": token_counter,
+    }
+    monkeypatch.setattr(telemetry, "is_telemetry_enabled", lambda: True)
+    monkeypatch.setattr(telemetry, "get_telemetry_objects", lambda: objects)
+    monkeypatch.setattr(telemetry, "_calculate_llm_cost", lambda **_: 0.0123)
+
+    telemetry.record_llm_request(
+        "anthropic",
+        "claude-haiku-4-5",
+        input_tokens=1000,
+        output_tokens=100,
+        total_tokens=1100,
+    )
+
+    request_counter.add.assert_called_once_with(
+        1, {"provider": "anthropic", "model": "claude-haiku-4-5", "success": "true"}
+    )
+    cost_counter.add.assert_called_once_with(
+        0.0123, {"provider": "anthropic", "model": "claude-haiku-4-5"}
+    )
+    token_counter.add.assert_any_call(1000, {"token_type": "input"})
