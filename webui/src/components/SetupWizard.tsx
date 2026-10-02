@@ -981,8 +981,8 @@ export function SetupWizard() {
                     }}
                   />
                   <p className="text-xs text-muted-foreground">
-                    After gptme#3430 the local server requires the bearer token it prints on
-                    startup. Paste it here if the UI cannot connect.
+                    The local server requires the bearer token it prints on startup (also available
+                    via <code>gptme-server token</code>). Paste it here if the UI cannot connect.
                   </p>
                 </div>
               )}

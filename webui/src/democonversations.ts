@@ -160,6 +160,12 @@ const demoMessages: Record<string, Message[]> = {
   })),
 };
 
+function showStressTest(): boolean {
+  return (
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('stress-test')
+  );
+}
+
 // Demo conversations (as ConversationSummary objects)
 export const demoConversations: ConversationSummary[] = [
   {
@@ -170,14 +176,20 @@ export const demoConversations: ConversationSummary[] = [
     readonly: true,
     workspace: '/demo/workspace',
   },
-  {
-    id: 'stress-test',
-    name: 'Stress test (200 messages)',
-    modified: DEMO_EPOCH_UNIX,
-    messages: demoMessages['stress-test'].length,
-    readonly: true,
-    workspace: '/demo/workspace',
-  },
+  // e2e fixture only: listed when the app is loaded with `?stress-test`, so
+  // users browsing the offline demo never see it.
+  ...(showStressTest()
+    ? [
+        {
+          id: 'stress-test',
+          name: 'Stress test (200 messages)',
+          modified: DEMO_EPOCH_UNIX,
+          messages: demoMessages['stress-test'].length,
+          readonly: true,
+          workspace: '/demo/workspace',
+        },
+      ]
+    : []),
 ];
 
 // Helper function to get demo conversation messages
