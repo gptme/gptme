@@ -417,18 +417,27 @@ def _get_recent_tail(
     # (e.g. system/user role in some provider formats).
     while tail and (tail[0].role == "tool" or tail[0].call_id):
         tail = tail[1:]
-    # Drop a trailing assistant tool-call whose result is not in the tail
-    # (e.g. the conversation ends mid-turn). An unmatched tool call at the
-    # end of the compacted view breaks strict providers.
-    while (
-        tail
-        and tail[-1].role == "assistant"
-        and any(
+
+    # Drop an assistant tool-call whose result never follows it: either the
+    # conversation ends mid-turn, or the user interrupted before the result
+    # (the call is followed directly by a user message). An unmatched tool
+    # call in the compacted view breaks strict providers.
+    def _unmatched_call(i: int) -> bool:
+        if tail[i].role != "assistant" or not any(
             tooluse.is_runnable
-            for tooluse in ToolUse.iter_from_content(tail[-1].content)
-        )
-    ):
-        tail = tail[:-1]
+            for tooluse in ToolUse.iter_from_content(tail[i].content)
+        ):
+            return False
+        return i == len(tail) - 1 or tail[i + 1].role == "user"
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(tail) - 1, -1, -1):
+            if _unmatched_call(i):
+                tail = tail[:i] + tail[i + 1 :]
+                changed = True
+                break
     return tail
 
 

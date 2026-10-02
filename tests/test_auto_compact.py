@@ -3405,6 +3405,40 @@ def test_get_recent_tail_drops_trailing_unmatched_tool_call():
     )
 
 
+def test_get_recent_tail_drops_interrupted_tool_call():
+    """An assistant tool-call followed directly by a user message (the user
+    interrupted before the result) is unmatched too and must be dropped."""
+    from gptme.tools.autocompact.resume import _get_recent_tail
+
+    call = Message("assistant", "```shell\necho hi\n```")
+    msgs = [
+        Message("user", "run the thing"),
+        call,
+        Message("user", "stop, do something else"),
+        Message("assistant", "ok"),
+    ]
+    tail = _get_recent_tail(msgs, 10_000)
+    assert call not in tail
+    assert [m.content for m in tail] == [
+        "run the thing",
+        "stop, do something else",
+        "ok",
+    ]
+
+
+def test_get_recent_tail_keeps_answered_tool_call():
+    """A tool call followed by its result stays in the tail."""
+    from gptme.tools.autocompact.resume import _get_recent_tail
+
+    msgs = [
+        Message("user", "run the thing"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "Ran command: echo hi\nhi"),
+        Message("user", "thanks"),
+    ]
+    assert _get_recent_tail(msgs, 10_000) == msgs
+
+
 def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
     """The file-dropping loop must compare total fixed tokens (essential +
     files) against the budget, not subtract file tokens from the essential
