@@ -231,6 +231,8 @@ linkcheck_ignore = [
     r"https://(console\.)?x\.ai/?.*",  # Cloudflare bot protection (403)
     r"https://lovable\.dev/?.*",  # Cloudflare bot protection (403)
     r"https://news\.ycombinator\.com/.*",  # throttles crawlers (419/429)
+    r"https://mcp\.so/?.*",  # bot protection 403s CI runners
+    r"https://(www\.)?reddit\.com/.*",  # blocks datacenter IPs (403)
     r"https://app\.requesty\.ai/.*",  # SPA dashboard: server 404s client-side routes
     r"llms(-full)?\.txt$",  # generated into the build output by sphinx-llms-txt
 ]
