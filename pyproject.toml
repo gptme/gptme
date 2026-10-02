@@ -65,17 +65,18 @@ gptme-dataset = "gptme.cli.cmd_dataset:dataset"
 packages = [
     { include = "gptme" },
 ]
+# Keep entries as tables: Dependabot corrupts mixed string/table arrays.
 include = [
-    "gptme/server/computer_view/**/*",
-    "gptme/util/export_templates/**/*",
+    { path = "gptme/server/computer_view/**/*" },
+    { path = "gptme/util/export_templates/**/*" },
     # webui-dist is generated and gitignored; an explicit path include is
     # required so Poetry does not silently omit it from release artifacts.
     { path = "gptme/server/webui-dist", format = ["sdist", "wheel"] },
     { path = "gptme/data/faq.yaml", format = ["sdist", "wheel"] },
-    "gptme/eval/tbench/setup.sh",
-    "media/*.png",
+    { path = "gptme/eval/tbench/setup.sh" },
+    { path = "media/*.png" },
     { path = "media/*.svg", format = ["sdist", "wheel"] },
-    "media/*.wav",
+    { path = "media/*.wav" },
 ]
 
 [tool.poetry.dependencies]
@@ -91,7 +92,7 @@ tomlkit = "*"
 typing-extensions = "*"
 platformdirs = "^4.11"
 lxml = {version = "*", optional = true}  # HTML/XML parsing; optional — falls back to stdlib xml.etree.ElementTree
-pypdf = {version = ">=6.14.2", optional = true}  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
+pypdf = {version = ">=6.19.0", optional = true}  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
 json-repair = "^0.61.7"
 mcp = "^1.28.1"
