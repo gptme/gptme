@@ -882,7 +882,7 @@ def _handle_openai_transient_error(
         should_retry = True
     elif isinstance(e, APIStatusError):
         # Retry on all 5xx server errors (transient)
-        if 500 <= e.status_code < 600:
+        if 500 <= e.status_code < 600 or e.status_code in (408, 409):
             should_retry = True
         else:
             # Check for known transient issues in error message, body, or string repr
