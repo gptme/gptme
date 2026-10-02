@@ -207,14 +207,25 @@ def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
 
 
 def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep interrupted or unexecuted tool calls replayable without inventing results."""
-    output_ids = {
-        item["call_id"] for item in items if item.get("type") == "function_call_output"
-    }
+    """Keep interrupted or unexecuted tool calls replayable without inventing results.
+
+    Results are matched to call occurrences (in order), not just call IDs, so a
+    reused ID cannot make a later orphaned call look paired.
+    """
+    pending: dict[str, list[int]] = {}
+    for idx, item in enumerate(items):
+        if item.get("type") == "function_call":
+            pending.setdefault(item["call_id"], []).append(idx)
+        elif item.get("type") == "function_call_output":
+            calls = pending.get(item["call_id"])
+            if calls:
+                calls.pop(0)
+    orphans = {idx for calls in pending.values() for idx in calls}
+
     paired_items: list[dict[str, Any]] = []
-    for item in items:
+    for idx, item in enumerate(items):
         paired_items.append(item)
-        if item.get("type") == "function_call" and item["call_id"] not in output_ids:
+        if idx in orphans:
             logger.warning("No tool result recorded for call_id %s", item["call_id"])
             paired_items.append(
                 {

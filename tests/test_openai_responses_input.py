@@ -73,6 +73,28 @@ def test_missing_tool_results_are_paired_without_replacing_real_results(
             assert "No tool result was recorded" in output["output"]
 
 
+def test_reused_call_id_does_not_hide_a_later_orphaned_call() -> None:
+    _, items = _messages_to_responses_input(
+        [
+            Message("user", "Run twice."),
+            Message("assistant", '@shell(call_dup): {"command": "echo 1"}'),
+            Message("system", "result 1", call_id="call_dup"),
+            Message("assistant", '@shell(call_dup): {"command": "echo 2"}'),
+            Message("user", "Continue."),
+        ]
+    )
+    types = [i["type"] for i in items if i.get("type", "message") != "message"]
+    assert types == [
+        "function_call",
+        "function_call_output",
+        "function_call",
+        "function_call_output",
+    ]
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert outputs[0]["output"] == "result 1"
+    assert "No tool result was recorded" in outputs[1]["output"]
+
+
 def test_markdown_execution_can_miss_a_call_that_responses_replay_recognizes() -> None:
     content = '@shell(call_missing): {"command": "echo hello"}'
     assert list(ToolUse.iter_from_content(content, "markdown")) == []
