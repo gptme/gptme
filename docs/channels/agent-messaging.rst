@@ -14,7 +14,7 @@ Install
 
 .. code-block:: bash
 
-    uv tool install --with pyyaml git+https://github.com/gptme/gptme-contrib#subdirectory=packages/gptmail
+    uv tool install git+https://github.com/gptme/gptme-contrib#subdirectory=packages/gptmail
 
 Set up the registry
 -------------------
