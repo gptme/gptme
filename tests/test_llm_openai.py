@@ -1891,6 +1891,46 @@ class TestOpenAIRetryLogic:
             # On last attempt, should not back off (no retry)
             mock_wait.assert_not_called()
 
+    def test_handle_openai_transient_error_plain_apierror_retried(self):
+        """A plain openai.APIError from an in-stream error event is retried.
+
+        OpenAI-compatible providers can send an error inside an HTTP-200 stream
+        body ({"error": {...}}); the SDK raises openai.APIError rather than
+        APIStatusError, so it must still hit the transient keyword check.
+        """
+        from unittest.mock import patch
+
+        import httpx
+        from openai import APIError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        request = httpx.Request("POST", "https://example.test/v1/chat")
+        error = APIError("Overloaded", request=request, body={"code": 502})
+
+        with patch(
+            "gptme.llm.llm_openai.backoff_wait", return_value=False
+        ) as mock_wait:
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+        mock_wait.assert_called_once()
+
+    def test_handle_openai_transient_error_plain_apierror_non_transient(self):
+        """A non-transient plain openai.APIError is raised immediately."""
+        import httpx
+        from openai import APIError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        request = httpx.Request("POST", "https://example.test/v1/chat")
+        error = APIError("Invalid request", request=request, body={"code": 400})
+
+        with pytest.raises(APIError):
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+
     def test_handle_openai_transient_error_openrouter_402_diagnostic(self, caplog):
         """Test that OpenRouter 402 'insufficient credits' errors surface an
         actionable diagnostic before re-raising.
