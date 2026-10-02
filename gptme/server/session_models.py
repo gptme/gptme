@@ -298,6 +298,32 @@ class SessionManager:
         return session
 
     @classmethod
+    def attach_client(
+        cls, session: ConversationSession, client_id: str
+    ) -> ConversationSession:
+        """Register an SSE client on ``session`` atomically with eviction.
+
+        The client is added under ``_lock``, so ``clean_inactive_sessions``
+        cannot evict the session between the events route looking it up and the
+        stream registering its client. If the session was evicted before this
+        call, a fresh session for the same conversation is created and returned
+        instead, so the ``connected`` event never announces an ID the manager no
+        longer holds.
+        """
+        conversation_id = session.conversation_id
+        if conversation_id is None:
+            raise ValueError("Server sessions must have conversation_id")
+        with cls._lock:
+            if cls._sessions.get(session.id) is not session:
+                session = ConversationSession(
+                    id=str(uuid.uuid4()), conversation_id=conversation_id
+                )
+                cls._sessions[session.id] = session
+                cls._conversation_sessions[conversation_id].add(session.id)
+            session.clients.add(client_id)
+        return session
+
+    @classmethod
     def get_session(cls, session_id: str) -> ConversationSession | None:
         """Get a session by ID."""
         with cls._lock:
@@ -503,8 +529,10 @@ class SessionManager:
 
         A session with connected SSE clients is never evicted, even if its
         ``last_activity`` is old: the stream keeps the session alive and
-        evicting it would drop a live client. Sessions whose clients have all
-        disconnected (``clients`` empty) are evicted once idle past the cutoff.
+        evicting it would drop a live client. Nor is a session holding a tool
+        that awaits confirmation: a user may disconnect and return later to
+        confirm it, which needs the original session. Other sessions whose
+        clients have all disconnected are evicted once idle past the cutoff.
 
         Also detects sessions stuck in generating=True state: if a session has
         been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, it is
@@ -532,6 +560,10 @@ class SessionManager:
                     session.last_activity < cutoff
                     and not session.generating
                     and not session.clients
+                    and not any(
+                        te.status == ToolStatus.PENDING
+                        for te in session.pending_tools.values()
+                    )
                 ):
                     to_remove.append(session_id)
                 elif (

@@ -228,7 +228,6 @@ def api_conversation_events(conversation_id: str):
                 conversation_id,
             )
         session = SessionManager.create_session(conversation_id)
-        session_id = session.id
     else:
         if session_obj.conversation_id != conversation_id:
             return flask.jsonify(
@@ -240,16 +239,19 @@ def api_conversation_events(conversation_id: str):
 
     # Generate event stream
     def generate_events() -> Generator[str, None, None]:
+        nonlocal session
         client_id = str(uuid.uuid4())
         sse_connection_open()
         try:
-            # Add this client to the session
-            session.clients.add(client_id)
+            # Add this client to the session atomically with idle eviction. If
+            # the session was evicted since the lookup above, this swaps in a
+            # fresh one, whose ID the `connected` event then announces.
+            session = SessionManager.attach_client(session, client_id)
 
             # Send initial connection event with pending tool state
             connected_event = {
                 "type": "connected",
-                "session_id": session_id,
+                "session_id": session.id,
                 "generating": session.generating,
                 "last_error": session.last_error,
                 "pending_tools": [

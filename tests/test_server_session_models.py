@@ -594,13 +594,62 @@ class TestSessionManagerCleanInactive:
         from datetime import datetime, timedelta, timezone
 
         session = SessionManager.create_session("conv-clients")
-        session.clients.add("client-1")
-        session.clients.discard("client-1")
         session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        session.clients.add("client-1")
+
+        # Connected during the first sweep: the client set alone keeps it.
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is session
+
+        session.clients.discard("client-1")
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is None
+
+    def test_does_not_remove_session_with_pending_confirmation(self):
+        """A tool awaiting confirmation keeps an idle, client-less session.
+
+        The user may disconnect and come back later to confirm; evicting the
+        session would make that confirmation 404.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-pending")
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        execution = ToolExecution(tool_id="t1", tooluse=make_tooluse())
+        session.pending_tools["t1"] = execution
 
         SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is session
 
+        # Once resolved, the session is evictable again.
+        execution.status = ToolStatus.COMPLETED
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
         assert SessionManager.get_session(session.id) is None
+
+    def test_attach_client_registers_on_live_session(self):
+        session = SessionManager.create_session("conv-attach")
+
+        attached = SessionManager.attach_client(session, "client-1")
+
+        assert attached is session
+        assert session.clients == {"client-1"}
+
+    def test_attach_client_replaces_evicted_session(self):
+        """Attaching to a session evicted after lookup yields a fresh, live one."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-attach")
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is None
+
+        attached = SessionManager.attach_client(session, "client-1")
+
+        assert attached is not session
+        assert attached.conversation_id == "conv-attach"
+        assert attached.clients == {"client-1"}
+        assert SessionManager.get_session(attached.id) is attached
+        assert attached.id in SessionManager._conversation_sessions["conv-attach"]
 
     def test_selective_cleanup(self):
         """Only old, non-generating sessions are removed; recent ones survive."""
