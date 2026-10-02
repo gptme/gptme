@@ -36,31 +36,57 @@ def _validate_conversation_id(
     return None
 
 
+def _is_tool_file_entry(item: str) -> bool:
+    """Mirror init_tools(): allowlist items that are file paths, not tool names."""
+    return item.endswith(".py") or "/" in item or "\\" in item
+
+
+def _server_tool_allowlist() -> list[str] | None:
+    """The server's ``--tools`` allowlist, or None when unrestricted."""
+    return flask.current_app.config.get("SERVER_TOOL_ALLOWLIST")
+
+
+def _tools_unset(tools: list[str] | None) -> bool:
+    """Whether a conversation's tools still need a default.
+
+    On a restricted server only ``None`` means "omitted", so an explicit ``[]``
+    stays "no tools"; unrestricted servers keep treating ``[]`` as omitted.
+    """
+    if _server_tool_allowlist() is None:
+        return not tools
+    return tools is None
+
+
 def _default_conversation_tools() -> list[str]:
     """Tool names a new conversation gets when the client doesn't pick any.
 
     Honors the server's ``--tools`` allowlist (``SERVER_TOOL_ALLOWLIST``);
-    without one, every available non-MCP tool.
+    without one, every available non-MCP tool. File-path entries from the
+    allowlist are kept verbatim (get_toolchain() skips them).
     """
     from ..tools import get_toolchain
 
-    allowlist = flask.current_app.config.get("SERVER_TOOL_ALLOWLIST")
-    return [t.name for t in get_toolchain(allowlist, strict=False) if not t.is_mcp]
+    allowlist = _server_tool_allowlist()
+    names = [t.name for t in get_toolchain(allowlist, strict=False) if not t.is_mcp]
+    if allowlist:
+        names += [a for a in allowlist if _is_tool_file_entry(a) and a not in names]
+    return names
 
 
 def _tools_outside_server_allowlist(requested: list[str] | None) -> list[str]:
-    """Names in ``requested`` that the server's ``--tools`` allowlist forbids."""
+    """Names in ``requested`` that the server's ``--tools`` allowlist forbids.
+
+    A request entry is permitted only if it is a tool the allowlist selects, or
+    appears literally in the allowlist (file-path entries).
+    """
     from ..tools import get_toolchain
 
-    allowlist = flask.current_app.config.get("SERVER_TOOL_ALLOWLIST")
+    allowlist = _server_tool_allowlist()
     if allowlist is None or not requested:
         return []
     allowed = {t.name for t in get_toolchain(allowlist, strict=False)}
-    return [
-        name
-        for name in requested
-        if not {t.name for t in get_toolchain([name], strict=False)} <= allowed
-    ]
+    allowed.update(allowlist)
+    return [name for name in requested if name not in allowed]
 
 
 def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:

@@ -88,6 +88,7 @@ from .api_v2_common import (
     _abs_to_rel_workspace,
     _default_conversation_tools,
     _tools_outside_server_allowlist,
+    _tools_unset,
     _validate_branch,
     _validate_conversation_id,
     msg2dict,
@@ -1788,6 +1789,11 @@ def api_conversation_put(conversation_id: str):
 
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
+    # Default tools before building the prompt so it only advertises tools the
+    # conversation will actually have.
+    if _tools_unset(chat_config.tools):
+        chat_config.tools = _default_conversation_tools()
+
     msgs = list(
         get_prompt(
             tools=list(get_toolchain(chat_config.tools, strict=False)),
@@ -1832,10 +1838,6 @@ def api_conversation_put(conversation_id: str):
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
-
-    # Set tool allowlist to available tools if not provided
-    if not chat_config.tools:
-        chat_config.tools = _default_conversation_tools()
 
     if not chat_config.mcp:
         # load from user or project config
@@ -2908,6 +2910,17 @@ def api_conversation_config_patch(conversation_id: str):
                     "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
                 }
             ), 400
+
+    if forbidden := _tools_outside_server_allowlist(tool_allowlist):
+        return (
+            flask.jsonify(
+                {
+                    "error": "Tools not permitted by the server --tools allowlist: "
+                    + ", ".join(forbidden)
+                }
+            ),
+            403,
+        )
 
     logdir = get_logs_dir() / conversation_id
 

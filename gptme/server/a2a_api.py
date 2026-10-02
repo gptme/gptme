@@ -23,6 +23,7 @@ from ..prompts import get_prompt
 from ..tools import get_toolchain
 from .api_v2_common import (
     _default_conversation_tools,
+    _tools_unset,
     _validate_conversation_id,
     msg2dict,
 )
@@ -268,6 +269,8 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
     logdir.mkdir(parents=True, exist_ok=False)
     _write_origin_marker(task_id)
     chat_config = ChatConfig.load_or_create(logdir, request_config)
+    if _tools_unset(chat_config.tools):
+        chat_config.tools = _default_conversation_tools()
 
     msgs = get_prompt(
         tools=list(get_toolchain(chat_config.tools, strict=False)),
@@ -284,8 +287,6 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
     manager = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     manager.write()
 
-    if not chat_config.tools:
-        chat_config.tools = _default_conversation_tools()
     if not chat_config.mcp:
         config = Config.from_workspace(chat_config.workspace)
         chat_config.mcp = config.mcp
