@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { BadgeCheck, ShieldAlert, ShieldCheck, ShieldQuestion, ShieldX } from 'lucide-react';
 import { MenuBar } from '@/components/MenuBar';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { SidebarIcons } from '@/components/SidebarIcons';
+import { useTasksQuery } from '@/stores/tasks';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useApi } from '@/contexts/ApiContext';
@@ -70,6 +72,7 @@ const SkillCard: FC<{ skill: SkillRegistryItem }> = ({ skill }) => (
 const Skills: FC = () => {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
+  const { data: tasks = [] } = useTasksQuery();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['skills', api.baseUrl],
     queryFn: () => api.getSkills(),
@@ -82,42 +85,45 @@ const Skills: FC = () => {
   return (
     <div className="flex h-dvh flex-col bg-background">
       <MenuBar />
-      <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:px-6">
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-normal">Skills</h1>
-              <p className="text-sm text-muted-foreground">
-                {skills.length} discoverable {skills.length === 1 ? 'skill' : 'skills'}
-              </p>
+      <div className="flex min-h-0 flex-1">
+        <SidebarIcons tasks={tasks} />
+        <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:px-6">
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <h1 className="text-xl font-semibold tracking-normal">Skills</h1>
+                <p className="text-sm text-muted-foreground">
+                  {skills.length} discoverable {skills.length === 1 ? 'skill' : 'skills'}
+                </p>
+              </div>
             </div>
+
+            {!isConnected && (
+              <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                Connect to a gptme server to browse skills.
+              </div>
+            )}
+            {isConnected && isLoading && (
+              <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                Loading skills...
+              </div>
+            )}
+            {isError && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                {error instanceof Error ? error.message : 'Failed to load skills'}
+              </div>
+            )}
+
+            {skills.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {skills.map((skill) => (
+                  <SkillCard key={skill.name} skill={skill} />
+                ))}
+              </div>
+            )}
           </div>
-
-          {!isConnected && (
-            <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-              Connect to a gptme server to browse skills.
-            </div>
-          )}
-          {isConnected && isLoading && (
-            <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-              Loading skills...
-            </div>
-          )}
-          {isError && (
-            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-              {error instanceof Error ? error.message : 'Failed to load skills'}
-            </div>
-          )}
-
-          {skills.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {skills.map((skill) => (
-                <SkillCard key={skill.name} skill={skill} />
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
+        </main>
+      </div>
       <MobileBottomNav />
     </div>
   );
