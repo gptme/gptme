@@ -300,17 +300,47 @@ class TestConversationSession:
         assert len(result) == 1
         assert result[0]["n"] == total - 1  # type: ignore[typeddict-item]
 
-    def test_trim_events_skipped_when_clients_connected(self):
-        """trim_events does not trim when clients are connected."""
+    def test_add_event_trims_with_clients_connected(self):
+        """An open client must not stop trimming (unbounded growth otherwise)."""
         session = SessionManager.create_session("conv-1")
         session.clients.add("client-1")
-        for i in range(session._MAX_EVENTS + 500):
-            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        total = 2 * session._MAX_EVENTS
+        for i in range(total):
+            SessionManager.add_event("conv-1", {"type": "ping", "n": i})  # type: ignore[arg-type]
 
-        session.trim_events()
-        # No trimming because a client is connected
-        assert len(session.events) == session._MAX_EVENTS + 500
-        assert session._events_offset == 0
+        assert len(session.events) <= session._MAX_EVENTS
+        assert session.events_count == total
+
+    def test_read_events_resumes_from_oldest_kept_after_trim(self):
+        session = SessionManager.create_session("conv-1")
+        total = session._MAX_EVENTS + 1
+        for i in range(total):
+            session.append_event({"type": "ping", "n": i})  # type: ignore[arg-type]
+
+        events, next_index = session.read_events(0)
+        assert events[0]["n"] == total - session._KEEP_EVENTS  # type: ignore[typeddict-item]
+        assert next_index == total
+        assert session.read_events(next_index) == ([], total)
+
+    def test_concurrent_append_and_trim_loses_no_events(self):
+        import threading
+
+        session = SessionManager.create_session("conv-1")
+        per_thread, n_threads = 5_000, 4
+
+        def _append(t: int) -> None:
+            for i in range(per_thread):
+                session.append_event({"type": "ping", "n": t * per_thread + i})  # type: ignore[arg-type]
+
+        threads = [
+            threading.Thread(target=_append, args=(t,)) for t in range(n_threads)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert session.events_count == per_thread * n_threads
 
     def test_trim_events_skipped_below_threshold(self):
         """trim_events does nothing when below _MAX_EVENTS."""
