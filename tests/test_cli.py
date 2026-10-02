@@ -1271,6 +1271,30 @@ def test_format_fatal_error_drops_keyerror_quotes():
     assert cli._format_fatal_error(KeyError(1, 2)) == str(KeyError(1, 2))
 
 
+def test_fatal_keyerror_output_strips_repr_quotes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, runner: CliRunner
+) -> None:
+    """KeyError from chat() must reach the user without repr-style single quotes."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    msg = "Environment variable ANTHROPIC_API_KEY not set"
+
+    def _raise_keyerror(*args, **kwargs):
+        raise KeyError(msg)
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", _raise_keyerror)
+
+    result = runner.invoke(cli.main, ["--non-interactive", "hello"])
+
+    assert result.exit_code != 0
+    # The plain message must appear; repr-style quotes must not
+    assert msg in result.output
+    assert f"'{msg}'" not in result.output
+
+
 def test_command_exit(args: list[str], runner: CliRunner):
     args.append("/exit")
     result = runner.invoke(cli.main, args)
