@@ -14,7 +14,7 @@ subscriptions, local servers — see :doc:`providers`.
 Recommended models
 ------------------
 
-For API-key use we recommend **Claude Sonnet 5.5** (``anthropic/claude-sonnet-5-5``, or ``openrouter/anthropic/claude-sonnet-5.5``) as the everyday model, and **Claude Opus 5.5** (``anthropic/claude-opus-5-5``, or ``openrouter/anthropic/claude-opus-5.5``) for the hardest tasks. Both offer:
+For API-key use we recommend **Claude Sonnet 5.5** (``anthropic/claude-sonnet-5-5``, or ``openrouter/anthropic/claude-sonnet-5.5``) as the everyday model, and **Claude Opus 5.5** (``anthropic/claude-opus-5-5``, or ``openrouter/anthropic/claude-opus-5.5``) for the hardest tasks. Both IDs work today; gptme currently inherits context-length and pricing metadata from the closest 4.x catalog entry until 5.5-specific entries land. Both offer:
 
 - Strong agentic capabilities
 - Strong coder capabilities
@@ -52,7 +52,7 @@ Decent alternatives include:
 
 Some models perform better or worse with different ``--tool-format`` options (``markdown``, ``xml``, or ``tool`` for native tool-calling); see :doc:`tool-formats`.
 
-To see how models actually perform on gptme's eval suites, check the :ref:`model leaderboard <model-leaderboard>`. For an overview of model usage in the wild, see the `OpenRouter app analytics for gptme <https://openrouter.ai/apps?url=https://github.com/gptme/gptme>`_. When you pass only a provider name (``-m anthropic``), gptme uses that provider's :ref:`default model <default-models>`.
+To see how models actually perform on gptme's eval suites, check the :ref:`model leaderboard <model-leaderboard>`. For an overview of model usage in the wild, see the `OpenRouter app analytics for gptme <https://openrouter.ai/apps?url=https://github.com/gptme/gptme>`_. When you pass only a provider name (``-m anthropic``), gptme uses that provider's :ref:`default model <default-models>` (currently Sonnet 4.6 — not the recommended 5.5). Use the full model ID to target the recommended version.
 
 Pick a model per session
 ------------------------
