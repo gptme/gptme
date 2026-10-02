@@ -330,14 +330,19 @@ def xml_format():
 
 
 def test_replay_ignores_system_prompt_examples(xml_format):
-    """Tool examples rendered in the (xml) system prompt must not restore phantom todos."""
+    """Tool examples rendered in the (xml) system prompt must not restore phantom todos.
+
+    Build the example with the real ToolUse XML serializer so the test pins the
+    exact format the code parses: if system-message filtering were removed, the
+    example would parse as a genuine todo write and this assertion would fail.
+    """
     from gptme.message import Message
+    from gptme.tools.base import ToolUse
     from gptme.tools.todo import replay_todo_on_session_start
 
-    example = (
-        '<tool-use>\n<todo args="write">\nadd "Implement core functionality"\n'
-        "</todo>\n</tool-use>"
-    )
+    example = ToolUse(
+        "todo", ["write"], 'add "Implement core functionality"'
+    ).to_output("xml")
     msgs = [Message("system", example), Message("user", "hi")]
     assert list(replay_todo_on_session_start(None, None, msgs)) == []
     assert not _current_todos
@@ -354,3 +359,4 @@ def test_replay_restores_assistant_todos(xml_format):
         )
     )
     assert out and "Restored todo state" in out[0].content
+    assert _current_todos["1"]["text"] == "Real task"
