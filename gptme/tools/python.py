@@ -292,10 +292,13 @@ class TeeIO(io.StringIO):
         value = self.getvalue()
         if not self._truncated:
             return value
-        buffered_bytes = len(value.encode("utf-8"))
-        dropped = self._byte_count - buffered_bytes
+        # Trim the head so head + marker stays within the cap; otherwise the
+        # downstream _cap_output() would truncate again and add a second marker.
+        head_bytes = value.encode("utf-8")[: _DEFAULT_MAX_OUTPUT_BYTES - 256]
+        head = head_bytes.decode("utf-8", errors="ignore")
+        dropped = self._byte_count - len(head.encode("utf-8"))
         return (
-            value + f"\n\n[... {dropped:,} bytes omitted "
+            head + f"\n\n[... {dropped:,} bytes omitted "
             f"({self._byte_count:,} total — capture limit reached, head only) ...]"
         )
 
@@ -432,7 +435,8 @@ def execute_python(
         if tb:
             exception_output = (
                 f"Exception during execution on line {tb.tb_lineno}:\n"
-                f"  {result.error_in_exec.__class__.__name__}: {result.error_in_exec}"
+                f"  {result.error_in_exec.__class__.__name__}: "
+                f"{_cap_output(str(result.error_in_exec))}"
             )
             output += exception_output
             # Do NOT add to terminal_output: the live IPython stream already
