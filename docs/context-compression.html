@@ -733,6 +733,13 @@
 can opt out through model metadata (Anthropic’s native 1M models currently use
 <code class="docutils literal notranslate"><span class="pre">context_budget</span> <span class="pre">=</span> <span class="pre">0.9</span></code>). Explicit budgets remain clamped to the output/headroom
 ceiling so they cannot make provider requests overflow.</p>
+<p>The trigger uses the last response’s provider-reported input count (uncached
+input plus cache reads and cache writes), then adds a tokenizer estimate for
+that response and subsequent messages. This includes provider overhead such as
+tool schemas that a stored-text estimate misses. Usage is anchored to the stored
+input prefix and model: edits, compaction views, and model changes invalidate
+it. Conversations without a valid usage anchor fall back to tokenizer estimates
+until a new response arrives. UI-only status messages do not count as growth.</p>
 </section>
 <section id="configuring-the-context-budget">
 <h2>Configuring the Context Budget<a class="headerlink" href="#configuring-the-context-budget" title="Link to this heading">#</a></h2>
@@ -752,13 +759,14 @@ ceiling so they cannot make provider requests overflow.</p>
 </section>
 <section id="built-in-compression-strategy">
 <h2>Built-in Compression Strategy<a class="headerlink" href="#built-in-compression-strategy" title="Link to this heading">#</a></h2>
-<p>By default, gptme uses a 3-phase compression algorithm:</p>
-<ol class="arabic simple">
-<li><p><strong>Reasoning Stripping</strong> - Remove reasoning tags from older messages (age-based)</p></li>
-<li><p><strong>Tool Result Truncation</strong> - Truncate largest tool results first</p></li>
-<li><p><strong>Extractive Compression</strong> - Summarize long assistant messages</p></li>
-</ol>
-<p>This approach intelligently prioritizes the largest messages for removal to achieve target reduction with minimal information loss.</p>
+<p>The default trim path stubs stale tool outputs, truncates large tool results,
+and applies extractive compression to eligible older assistant messages.
+Age-based reasoning stripping is disabled: retained thinking blocks are not
+rewritten. Compaction waits until pending tool calls have their results.</p>
+<p>Budget-triggered trims target 70% of the budget and reject views saving less
+than 10% of the estimated stored text. If estimated trim savings are too small,
+the automatic path requests an LLM summary instead. A failed summary latches
+the conversation to trim-only until sufficient message growth permits a retry.</p>
 </section>
 <section id="using-compaction">
 <h2>Using Compaction<a class="headerlink" href="#using-compaction" title="Link to this heading">#</a></h2>
@@ -778,8 +786,9 @@ gptme<span class="w"> </span>--tool<span class="w"> </span>autocompact
 </div>
 <p>Two strategies are available:</p>
 <ul class="simple">
-<li><p><strong>trim</strong> (default) — rule-based: strips old reasoning blocks, truncates massive tool
-results, and compresses long assistant messages. Fast and deterministic; no LLM call.
+<li><p><strong>trim</strong> (default) — rule-based: stubs stale tool outputs, truncates massive tool
+results, and compresses eligible assistant messages without rewriting thinking.
+Fast and deterministic; no LLM call.
 If savings would be low, gptme will suggest <code class="docutils literal notranslate"><span class="pre">/compact</span> <span class="pre">summarize</span></code> instead.</p></li>
 <li><p><strong>summarize</strong> — LLM-powered: asks the model to produce a <code class="docutils literal notranslate"><span class="pre">RESUME.md</span></code> capturing
 key decisions, open tasks, and relevant file paths, then starts a fresh context
