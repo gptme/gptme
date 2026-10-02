@@ -88,3 +88,57 @@ def test_summary_repo_links_full_shas(tmp_path: Path, monkeypatch):
         "chore: bump version to 0.2.0 "
         "([`v0.2.0`](https://github.com/gptme/gptme/tree/v0.2.0))"
     ) in out
+
+
+def test_summary_repo_tag_link_survives_amend(tmp_path: Path, monkeypatch):
+    """The bump commit gets amended during the real release flow; the tag link must survive.
+
+    The release flow: commit bump → tag → generate changelog → amend (embed notes) →
+    force-move tag. The original SHA is orphaned. The changelog (already generated)
+    must still have a live link — which it does because it links the *tag*, not the SHA.
+    """
+    _git(tmp_path, "init", "-q", "-b", "master")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    _git(tmp_path, "config", "commit.gpgsign", "false")
+    _git(tmp_path, "config", "tag.gpgsign", "false")
+    (tmp_path / ".nohooks").mkdir()
+    _git(tmp_path, "config", "core.hooksPath", str(tmp_path / ".nohooks"))
+
+    def commit(msg: str) -> str:
+        _git(tmp_path, "commit", "-q", "--allow-empty", "-m", msg)
+        return _git(tmp_path, "rev-parse", "HEAD")
+
+    commit("chore: initial")
+    _git(tmp_path, "tag", "v0.1.0")
+    commit("feat: add thing")
+
+    # Step 1: commit the bump and tag it (pre-amend state)
+    bump_sha_before = commit("chore: bump version to 0.2.0")
+    _git(tmp_path, "tag", "v0.2.0", bump_sha_before)
+
+    # Step 2: generate the changelog (this is what the release flow does before amending)
+    monkeypatch.chdir(tmp_path)
+    out = build_changelog.summary_repo(
+        "gptme",
+        "gptme",
+        str(tmp_path),
+        commit_range=("v0.1.0", "v0.2.0"),
+        filter_types=[],
+        repo_order=[],
+    )
+    tag_link = "([`v0.2.0`](https://github.com/gptme/gptme/tree/v0.2.0))"
+    assert tag_link in out, f"bump commit must link via tag before amend:\n{out}"
+
+    # Step 3: amend (embed release notes into the bump commit) + force-move the tag
+    (tmp_path / "RELEASE.md").write_text(out)
+    _git(tmp_path, "add", "RELEASE.md")
+    _git(tmp_path, "commit", "--amend", "--no-edit")
+    bump_sha_after = _git(tmp_path, "rev-parse", "HEAD")
+    assert bump_sha_after != bump_sha_before, "amend must produce a new SHA"
+    _git(tmp_path, "tag", "-f", "v0.2.0", bump_sha_after)
+
+    # The original SHA is now orphaned.  The tag-based link must still be valid:
+    # the tag moved to the new commit and the link text is unchanged.
+    assert _git(tmp_path, "rev-parse", "v0.2.0^{commit}") == bump_sha_after
+    assert tag_link in out  # the already-generated changelog still has a live link
