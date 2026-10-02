@@ -554,6 +554,8 @@ class SessionManager:
         deferred: list[
             tuple[str, bool, AcpSessionRuntime | None, ConversationSession]
         ] = []
+        # ACP runtimes to close for stuck sessions that are kept alive (have clients).
+        stuck_acp_rts: list[AcpSessionRuntime] = []
 
         with cls._lock:
             to_remove: list[str] = []
@@ -579,6 +581,12 @@ class SessionManager:
                     session.generating = False
                     if not session.clients:
                         to_remove.append(session_id)
+                    elif session.acp_runtime is not None:
+                        # Keep the session so live SSE clients can observe the
+                        # cleared state, but terminate the stuck ACP subprocess
+                        # now so a new /step cannot overlap the old one.
+                        stuck_acp_rts.append(session.acp_runtime)
+                        session.acp_runtime = None
 
             # Remove all identified sessions while still holding the lock.
             for session_id in to_remove:
@@ -630,6 +638,13 @@ class SessionManager:
             if acp_rt is not None:
                 from .session_step import close_acp_runtime_bg
 
+                close_acp_runtime_bg(acp_rt)
+
+        # Close ACP runtimes for stuck sessions that were kept alive.
+        if stuck_acp_rts:
+            from .session_step import close_acp_runtime_bg
+
+            for acp_rt in stuck_acp_rts:
                 close_acp_runtime_bg(acp_rt)
 
     @classmethod

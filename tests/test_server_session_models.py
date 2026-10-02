@@ -721,6 +721,36 @@ class TestSessionManagerCleanInactive:
         # generating is reset so the session is no longer considered stuck
         assert session.generating is False
 
+    def test_stuck_session_with_clients_closes_acp_runtime(self):
+        """Stuck-generating sessions with clients have their ACP runtime closed to prevent overlap.
+
+        The session is kept alive so the SSE stream can observe the cleared state,
+        but the ACP subprocess must be terminated so a new /step cannot overlap
+        the still-running original.
+        """
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import MagicMock, patch
+
+        session = SessionManager.create_session("conv-stuck-acp")
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        session.last_activity = datetime.now(tz=timezone.utc)
+        session.clients.add("client-1")
+        mock_runtime = MagicMock()
+        session.acp_runtime = mock_runtime
+
+        with patch("gptme.server.session_step.close_acp_runtime_bg") as mock_close:
+            SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+        # Session is kept — a live SSE client is connected
+        assert SessionManager.get_session(session.id) is not None
+        # generating is reset
+        assert session.generating is False
+        # ACP runtime is nulled out so the next /step cannot reuse the old subprocess
+        assert session.acp_runtime is None
+        # The stuck subprocess was scheduled for background termination
+        mock_close.assert_called_once_with(mock_runtime)
+
     def test_atomic_cleanup_removes_multiple_sessions(self):
         """clean_inactive_sessions removes multiple stale sessions atomically."""
         from datetime import datetime, timedelta, timezone
