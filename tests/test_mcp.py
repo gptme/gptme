@@ -672,6 +672,61 @@ def test_restart_mcp_client_keeps_dynamic_server_in_dynamic_registry():
         _mcp_clients.pop("restartserver", None)
 
 
+def test_restart_mcp_client_failed_reconnect_drops_dead_dynamic_server():
+    """A failed reconnect must not leave the closed client registered, or the
+    server can neither be retried nor reloaded."""
+    from unittest.mock import MagicMock, patch
+
+    import pytest
+
+    import gptme.tools.mcp_adapter as mcp_adapter
+    from gptme.tools.mcp_adapter import _dynamic_servers
+
+    old_client = MagicMock()
+    old_client.stack = None
+    new_client = MagicMock()
+    new_client.connect.side_effect = ConnectionError("down")
+
+    _dynamic_servers["deadserver"] = old_client
+    try:
+        with (
+            patch("gptme.mcp.client.MCPClient", return_value=new_client),
+            pytest.raises(ConnectionError),
+        ):
+            mcp_adapter._restart_mcp_client("deadserver", MagicMock())
+
+        assert "deadserver" not in _dynamic_servers
+        new_client.close.assert_called_once()
+    finally:
+        _dynamic_servers.pop("deadserver", None)
+
+
+def test_restart_mcp_client_failed_reconnect_drops_dead_static_client():
+    from unittest.mock import MagicMock, patch
+
+    import pytest
+
+    import gptme.tools.mcp_adapter as mcp_adapter
+    from gptme.tools.mcp_adapter import _mcp_clients
+
+    old_client = MagicMock()
+    old_client.stack = None
+    new_client = MagicMock()
+    new_client.connect.side_effect = ConnectionError("down")
+
+    _mcp_clients["deadstatic"] = old_client
+    try:
+        with (
+            patch("gptme.mcp.client.MCPClient", return_value=new_client),
+            pytest.raises(ConnectionError),
+        ):
+            mcp_adapter._restart_mcp_client("deadstatic", MagicMock())
+
+        assert "deadstatic" not in _mcp_clients
+    finally:
+        _mcp_clients.pop("deadstatic", None)
+
+
 def test_create_mcp_tools_explicit_servers_do_not_adopt_live_client():
     """Explicit ``servers`` may differ from a live same-named client, so the
     live client must not be reused for them."""
@@ -726,6 +781,7 @@ def test_create_mcp_tools_reconnects_static_client_on_config_rebuild():
         with patch("gptme.mcp.client.MCPClient", return_value=fresh):
             create_mcp_tools(config)
         fresh.connect.assert_called_once_with("staticsrv")
+        stale.close.assert_called_once()
     finally:
         _mcp_clients.pop("staticsrv", None)
 

@@ -145,7 +145,23 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
 
     # Create new client and reconnect
     new_client = MCPClient(config=config)
-    tools, session = new_client.connect(server_name)
+    try:
+        tools, session = new_client.connect(server_name)
+    except BaseException:
+        # The old client is already closed; don't leave it registered, or later
+        # calls resolve to a dead client and a dynamic server can't be reloaded.
+        try:
+            new_client.close()
+        except Exception:
+            logger.debug(
+                "Failed to close MCP client after failed restart", exc_info=True
+            )
+        if registry is _dynamic_servers:
+            # Drops the registry entry, loaded ToolSpecs and the tool cache.
+            unload_mcp_server(server_name)
+        elif registry.get(server_name) is old_client:
+            del registry[server_name]
+        raise
 
     # Store the new client
     registry[server_name] = new_client
@@ -354,7 +370,14 @@ def create_mcp_tools(
             # Connect to server
             tools, session = client.connect(server_config.name)
 
-            # Store the client in the caller-selected registry for execution/restart.
+            # Store the client in the caller-selected registry for execution/restart,
+            # closing the one it replaces so a cache rebuild doesn't orphan it.
+            previous = client_registry.get(server_config.name)
+            if previous is not None and previous is not client:
+                try:
+                    previous.close()
+                except Exception:
+                    logger.debug("Failed to close replaced MCP client", exc_info=True)
             client_registry[server_config.name] = client
             owned_this_call.append(server_config.name)
 
