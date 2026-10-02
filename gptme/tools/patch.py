@@ -302,7 +302,11 @@ def apply(codeblock: str, content: str) -> str:
                 raise ValueError(error_msg) from None
             status = f"Hunk {i}/{total_hunks} failed"
             if i > 1:
-                status += f" ({i - 1} hunk(s) applied successfully before failure)"
+                # apply() is all-or-nothing: the file is only written on success
+                status += (
+                    f" ({i - 1} hunk(s) before it matched, but no changes were written;"
+                    " fix this hunk and resend the full patch)"
+                )
             raise ValueError(
                 f"{status}: {error_msg}\nFailed hunk starts with: {original_preview!r}"
             ) from None
@@ -372,6 +376,12 @@ def execute_patch_impl(
     except FileNotFoundError:
         raise ValueError(
             f"Patch failed: No such file or directory `{path}` (pwd: `{Path.cwd()}`)"
+        ) from None
+    except UnicodeDecodeError as e:
+        # Subclass of ValueError whose args[0] is just the codec name ("utf-8")
+        raise ValueError(
+            f"Patch failed: `{path}` is not valid UTF-8 (byte 0x{e.object[e.start]:02x}"
+            f" at offset {e.start}). Edit it with the shell tool (e.g. sed, iconv) instead."
         ) from None
     except ValueError as e:
         raise ValueError(f"Patch failed: {e.args[0]}") from None
