@@ -4490,3 +4490,19 @@ class TestNonStreamToolCalls:
             "Let me check.\n"
             '@shell(call_1): {"command": "ls"}'
         )
+
+
+@pytest.mark.parametrize("status", [408, 409])
+def test_openai_retries_408_409(status):
+    from unittest.mock import patch
+
+    import httpx
+    from openai import APIStatusError
+
+    from gptme.llm.llm_openai import _handle_openai_transient_error
+
+    response = httpx.Response(status, request=httpx.Request("POST", "http://x"))
+    error = APIStatusError("transient", response=response, body=None)
+    with patch("gptme.llm.llm_openai.backoff_wait", return_value=False) as w:
+        _handle_openai_transient_error(error, attempt=0, max_retries=3, base_delay=0)
+    w.assert_called_once()
