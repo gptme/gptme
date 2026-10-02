@@ -128,26 +128,41 @@ def test_use_acp_rejected_on_restricted_server():
 
 def test_request_may_narrow_with_preset():
     client = _client(["read"])
-    _, resp = _put(client, {"config": {"chat": {"tools": ["read-only"]}}})
+    conv_id, resp = _put(client, {"config": {"chat": {"tools": ["read-only"]}}})
     assert resp.status_code == 200
+    # Stored as the resolved concrete name, not the client's pattern.
+    assert _conversation_tools(client, conv_id) == ["read"]
 
 
 def test_request_may_narrow_with_glob():
     client = _client(["read", "save"])
-    _, resp = _put(client, {"config": {"chat": {"tools": ["read*"]}}})
+    conv_id, resp = _put(client, {"config": {"chat": {"tools": ["read*"]}}})
     assert resp.status_code == 200
+    assert _conversation_tools(client, conv_id) == ["read"]
 
 
 def test_request_may_narrow_with_hint_pattern():
     client = _client(["read"])
-    _, resp = _put(client, {"config": {"chat": {"tools": ["hint:read-only"]}}})
+    conv_id, resp = _put(client, {"config": {"chat": {"tools": ["hint:read-only"]}}})
     assert resp.status_code == 200
+    assert _conversation_tools(client, conv_id) == ["read"]
 
 
 def test_request_glob_escalation_rejected():
     client = _client(["read"])
     _, resp = _put(client, {"config": {"chat": {"tools": ["*"]}}})
     assert resp.status_code == 403
+
+
+def test_combined_preset_is_resolved_not_orphaned():
+    client = _client(["read"])
+    conv_id = f"test-tools-allowlist-combined-{random.randint(0, 10_000_000)}"
+    resp = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={"config": {"chat": {"tools": ["read-only", "read"]}}},
+    )
+    assert resp.status_code == 200
+    assert _conversation_tools(client, conv_id) == ["read"]
 
 
 def test_patch_may_narrow_with_preset():
@@ -158,3 +173,4 @@ def test_patch_may_narrow_with_preset():
         json={"chat": {"tools": ["read-only"]}},
     )
     assert resp.status_code == 200
+    assert _conversation_tools(client, conv_id) == ["read"]

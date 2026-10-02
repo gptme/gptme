@@ -73,34 +73,59 @@ def _default_conversation_tools() -> list[str]:
     return names
 
 
-def _tools_outside_server_allowlist(requested: list[str] | None) -> list[str]:
-    """Entries in ``requested`` that the server's ``--tools`` allowlist forbids.
+def _is_tool_pattern(entry: str) -> bool:
+    """Whether an entry is a preset, glob, or hint pattern rather than a plain name."""
+    from ..tools._allowlist import TOOL_PRESETS, is_hint_pattern
 
-    An entry is permitted when it resolves to tools the allowlist selects, or
-    when it appears literally in the allowlist (file-path entries). Resolving
-    through :func:`get_toolchain` lets clients narrow with presets, globs, and
-    hint patterns (``read-only``, ``read*``, ``hint:read-only``) instead of
-    having to repeat the server's exact spelling. An entry that resolves to
-    nothing is rejected unless literal, so unknown, unavailable, or non-allowlisted
-    file-path entries cannot slip through.
+    return (
+        entry in TOOL_PRESETS
+        or is_hint_pattern(entry)
+        or any(c in entry for c in "*?[")
+    )
+
+
+def _resolve_requested_tools(
+    requested: list[str] | None,
+) -> tuple[list[str] | None, list[str]]:
+    """Resolve a requested tool selection against the server's ``--tools`` allowlist.
+
+    Returns ``(normalized, forbidden)``:
+
+    * ``normalized`` — the concrete tool list to save. Presets, globs, and hint
+      patterns (``read-only``, ``read*``, ``hint:read-only``) are resolved to the
+      tool names they currently match, so a saved selection can never widen later
+      when a new matching tool becomes available. File-path entries and plain
+      names that appear in the allowlist are kept verbatim. Entry order is
+      preserved; duplicates are dropped.
+    * ``forbidden`` — entries that grant a tool outside the allowlist, or that
+      resolve to no tool at all (unknown/unavailable names, non-allowlisted file
+      paths). Callers reject the request when this is non-empty.
+
+    An unrestricted server (no allowlist) returns ``requested`` unchanged.
     """
     from ..tools import get_toolchain
 
     allowlist = _server_tool_allowlist()
     if allowlist is None or not requested:
-        return []
+        return requested, []
+
     allowed = {t.name for t in get_toolchain(allowlist, strict=False)}
     allowed.update(allowlist)
 
-    outside: list[str] = []
+    normalized: list[str] = []
+    forbidden: list[str] = []
     for entry in requested:
-        if entry in allowed:
+        if not _is_tool_pattern(entry) and entry in allowed:
+            resolved = [entry]
+        else:
+            resolved = [t.name for t in get_toolchain([entry], strict=False)]
+        if not resolved or not set(resolved) <= allowed:
+            forbidden.append(entry)
             continue
-        resolved = {t.name for t in get_toolchain([entry], strict=False)}
-        if resolved and resolved <= allowed:
-            continue
-        outside.append(entry)
-    return outside
+        for name in resolved:
+            if name not in normalized:
+                normalized.append(name)
+    return normalized, forbidden
 
 
 def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:

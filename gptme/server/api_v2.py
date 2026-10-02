@@ -87,7 +87,7 @@ from .api_v2_agents import agents_api
 from .api_v2_common import (
     _abs_to_rel_workspace,
     _default_conversation_tools,
-    _tools_outside_server_allowlist,
+    _resolve_requested_tools,
     _tools_unset,
     _validate_branch,
     _validate_conversation_id,
@@ -1775,7 +1775,8 @@ def api_conversation_put(conversation_id: str):
             409,
         )
 
-    if forbidden := _tools_outside_server_allowlist(request_config.tools):
+    normalized_tools, forbidden = _resolve_requested_tools(request_config.tools)
+    if forbidden:
         shutil.rmtree(logdir, ignore_errors=True)
         return (
             flask.jsonify(
@@ -1786,6 +1787,7 @@ def api_conversation_put(conversation_id: str):
             ),
             403,
         )
+    request_config.tools = normalized_tools
 
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
@@ -2911,7 +2913,8 @@ def api_conversation_config_patch(conversation_id: str):
                 }
             ), 400
 
-    if forbidden := _tools_outside_server_allowlist(tool_allowlist):
+    normalized_tools, forbidden = _resolve_requested_tools(tool_allowlist)
+    if forbidden:
         return (
             flask.jsonify(
                 {
@@ -2921,6 +2924,11 @@ def api_conversation_config_patch(conversation_id: str):
             ),
             403,
         )
+    if isinstance(chat_patch, dict) and "tools" in chat_patch:
+        # Save the resolved concrete names, not the client's patterns, so the
+        # stored selection cannot widen when a new matching tool appears later.
+        tool_allowlist = normalized_tools
+        chat_patch["tools"] = normalized_tools
 
     logdir = get_logs_dir() / conversation_id
 
