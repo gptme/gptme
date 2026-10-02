@@ -20,7 +20,9 @@ OpenRouter's speech API.
 ## Option 2 — gptme-tts server (local, no API key)
 
 [gptme-tts](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-tts) is a standalone TTS server
-that runs locally using Kokoro. No cloud, no API key, ~80 MB model download.
+that runs locally using Kokoro. No cloud and no API key. The first run installs
+PyTorch through `uv` and downloads the Kokoro weights (about 330 MB) plus about
+0.5 MB per voice used.
 
 gptme-tts is not published on PyPI. The server is a single script,
 `tts_server.py`, in the gptme-contrib repo. It is a self-contained
