@@ -962,6 +962,23 @@ def _stderr_failure_tail(stderr_path: Path | None) -> str:
     return "\nChild stderr tail:\n" + "\n".join(tail)
 
 
+def _proc_start_ticks(pid: int) -> int | None:
+    """Return a process's start time (clock ticks since boot), or None.
+
+    Field 22 of ``/proc/<pid>/stat``. ``None`` when procfs is unavailable
+    (macOS) or the process is already gone.
+    """
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    try:
+        # comm (field 2) may contain spaces/parens, so split after the last ')'.
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except (IndexError, ValueError):
+        return None
+
+
 def _killable_group(pgid: int) -> bool:
     """True if ``pgid`` is a live group we may safely SIGKILL.
 
@@ -982,12 +999,41 @@ def _killable_group(pgid: int) -> bool:
     return True
 
 
-def _kill_recorded_shell_groups(pgid_file: Path) -> None:
+def _group_started_after(pgid: int, after_ticks: int | None) -> bool:
+    """True if every live member of ``pgid`` started after ``after_ticks``.
+
+    A group the child's shell created can only contain processes started after
+    the CLI itself, so this rejects a stale entry that now names an unrelated
+    group which predates the subagent. Fails open when procfs is unavailable.
+    """
+    if after_ticks is None:
+        return True
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return True
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            rest = Path(f"/proc/{entry}/stat").read_text().rsplit(")", 1)[1].split()
+            member_pgrp = int(rest[2])  # field 5
+            member_start = int(rest[19])  # field 22
+        except (OSError, IndexError, ValueError):
+            continue
+        if member_pgrp == pgid and member_start < after_ticks:
+            return False
+    return True
+
+
+def _kill_recorded_shell_groups(
+    pgid_file: Path, after_ticks: int | None = None
+) -> None:
     """SIGKILL the persistent-shell process groups a child CLI recorded.
 
     Each persistent shell is its own session leader, so its pgid equals its
-    sid. Groups that are no longer recognisable, or that are the killing
-    process's own group/session, are skipped.
+    sid. Groups that are no longer recognisable, that predate the subagent, or
+    that are the killing process's own group/session, are skipped.
     """
     if sys.platform == "win32":
         return
@@ -1004,6 +1050,8 @@ def _kill_recorded_shell_groups(pgid_file: Path) -> None:
             continue
         if pgid <= 1 or pgid in (own_pgid, own_sid) or not _killable_group(pgid):
             continue
+        if not _group_started_after(pgid, after_ticks):
+            continue
         try:
             os.killpg(pgid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
@@ -1015,17 +1063,20 @@ def _terminate_subprocess(
 ) -> None:
     """Give CLI cleanup a grace period before forcing termination, then reap.
 
-    If the CLI ignores SIGTERM, its persistent shells (separate sessions) are
-    killed too, so nothing they detached outlives the subagent.
+    Persistent shells run in their own sessions, so they survive both a
+    SIGTERM-ignoring CLI and one that exits while leaving them behind; the
+    groups it recorded are therefore killed once the CLI is down either way.
     """
+    pid = getattr(process, "pid", None)
+    cli_start = _proc_start_ticks(pid) if isinstance(pid, int) else None
     process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
-        if shell_pgid_file is not None:
-            _kill_recorded_shell_groups(shell_pgid_file)
+    if shell_pgid_file is not None:
+        _kill_recorded_shell_groups(shell_pgid_file, after_ticks=cli_start)
 
 
 def _monitor_subprocess(

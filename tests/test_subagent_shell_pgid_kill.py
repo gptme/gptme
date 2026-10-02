@@ -45,13 +45,8 @@ def _wait_dead(pid: int, timeout: float = 5.0) -> bool:
 def test_sigkill_escalation_kills_recorded_shell_and_detached_child(tmp_path: Path):
     pgid_file = tmp_path / "shell-pgids"
     pid_file = tmp_path / "detached.pid"
-    # Stand-in for a persistent shell: own session, detaches a long sleep.
-    shell = subprocess.Popen(
-        ["bash", "-c", f"sleep 300 & echo $! > {pid_file}; wait"],
-        start_new_session=True,
-    )
-    pgid_file.write_text(f"{shell.pid}\n")
-    # Stand-in for a CLI that ignores SIGTERM.
+    # Stand-in for a CLI that ignores SIGTERM. Started before the shell, as in
+    # production: the recorded group must postdate the CLI to be killed.
     cli = subprocess.Popen(
         [
             sys.executable,
@@ -59,6 +54,12 @@ def test_sigkill_escalation_kills_recorded_shell_and_detached_child(tmp_path: Pa
             "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(300)",
         ],
     )
+    # Stand-in for a persistent shell: own session, detaches a long sleep.
+    shell = subprocess.Popen(
+        ["bash", "-c", f"sleep 300 & echo $! > {pid_file}; wait"],
+        start_new_session=True,
+    )
+    pgid_file.write_text(f"{shell.pid}\n")
     for _ in range(100):
         if pid_file.exists() and pid_file.read_text().strip():
             break
@@ -102,7 +103,22 @@ def test_kill_recorded_groups_skips_non_session_leaders_and_garbage(tmp_path: Pa
     if os.getsid(os.getpid()) == os.getpid():
         pytest.skip("test runner is itself a session leader")
     _kill_recorded_shell_groups(pgid_file)  # must not kill us or raise
+    assert _alive(os.getpid()), "the killing process's own group was signalled"
     _kill_recorded_shell_groups(tmp_path / "missing")
+
+
+def test_kill_recorded_groups_skips_groups_predating_the_subagent(tmp_path: Path):
+    pgid_file = tmp_path / "shell-pgids"
+    # A stale entry naming a group that started before the subagent must not
+    # be signalled: a shell the child spawned cannot predate the child.
+    leader = subprocess.Popen(["bash", "-c", "sleep 60"], start_new_session=True)
+    try:
+        pgid_file.write_text(f"{leader.pid}\n")
+        _kill_recorded_shell_groups(pgid_file, after_ticks=1 << 62)
+        assert _alive(leader.pid), "a group predating the subagent was killed"
+    finally:
+        leader.kill()
+        leader.wait()
 
 
 def test_shell_session_records_its_pgid(tmp_path: Path, monkeypatch):
