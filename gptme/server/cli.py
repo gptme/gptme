@@ -54,6 +54,7 @@ from gptme.config import set_config_from_workspace
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
 from .constants import _pick_fallback_model
+from .token_file import read_token_file, remove_token_file, write_token_file
 
 # NOTE: `.app` and `.auth` import flask at module scope, so they are imported
 # inside the commands that need them rather than here.  Importing them at
@@ -374,6 +375,11 @@ def serve(
 
     # Initialize authentication and display token
     token = init_auth(host=host, display=True)
+    # Share an auto-generated token with local clients (`/restart web`,
+    # `gptme-server token`); a token from the environment is already known.
+    shared_token = token if token and not os.environ.get("GPTME_SERVER_TOKEN") else None
+    if shared_token:
+        write_token_file(shared_token)
     if token:
         # Fragment (not query) so the token is not sent to the server or logged
         # as a request URL. The bundled UI reads #userToken= and then strips it.
@@ -399,6 +405,8 @@ def serve(
     try:
         app.run(debug=debug, host=host, port=port)
     finally:
+        if shared_token:
+            remove_token_file(shared_token)
         shutdown_telemetry()
 
 
@@ -407,7 +415,11 @@ def show_token():
     """Display the server authentication token."""
     from .auth import get_server_token
 
-    token = get_server_token()
+    # A running server with an auto-generated token shares it via the token
+    # file; generating a fresh one here would print a token nobody accepts.
+    token = (
+        None if os.environ.get("GPTME_SERVER_TOKEN") else read_token_file()
+    ) or get_server_token()
     if token:
         click.echo("=" * 60)
         click.echo("gptme-server Authentication Token")

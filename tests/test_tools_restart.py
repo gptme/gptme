@@ -595,7 +595,9 @@ class TestDoRestartSwitch:
 
 class TestWebSwitch:
     @pytest.fixture(autouse=True)
-    def _env(self, monkeypatch):
+    def _env(self, monkeypatch, tmp_path):
+        # Isolate from a token file a real local gptme-server may have written.
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
         for var in (
             "GPTME_SERVER_URL",
             "GPTME_SERVER_HOST",
@@ -846,3 +848,65 @@ class TestCmdRestart:
         # session-end hooks run exactly once on the web handover
         trigger.assert_called_once()
         assert trigger.call_args.args[0] == HookType.SESSION_END
+
+
+class TestServerTokenFile:
+    """`/restart web` reads the token an auto-token gptme-server shares."""
+
+    @pytest.fixture(autouse=True)
+    def _env(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        for var in (
+            "GPTME_SERVER_URL",
+            "GPTME_SERVER_HOST",
+            "GPTME_SERVER_PORT",
+            "GPTME_SERVER_TOKEN",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_write_read_remove(self):
+        from gptme.server.token_file import (
+            get_token_file,
+            read_token_file,
+            remove_token_file,
+            write_token_file,
+        )
+
+        assert read_token_file() is None
+        write_token_file("tok-a")
+        assert read_token_file() == "tok-a"
+        assert get_token_file().stat().st_mode & 0o777 == 0o600
+        # A later server replaced the file: the first one must not remove it.
+        write_token_file("tok-b")
+        remove_token_file("tok-a")
+        assert read_token_file() == "tok-b"
+        remove_token_file("tok-b")
+        assert not get_token_file().exists()
+
+    def test_web_switch_uses_token_file(self, monkeypatch):
+        from gptme.server.token_file import write_token_file
+
+        write_token_file("from-file")
+        requests = TestWebSwitch._mock_http(monkeypatch)
+        url = prepare_web_switch("my-conv")
+        assert url.endswith("&userToken=from-file")
+        assert (
+            "http://127.0.0.1:5700/api/v2/conversations/my-conv?limit=1",
+            "from-file",
+        ) in requests
+
+    def test_env_token_wins_over_file(self, monkeypatch):
+        from gptme.server.token_file import write_token_file
+
+        write_token_file("from-file")
+        monkeypatch.setenv("GPTME_SERVER_TOKEN", "from-env")
+        TestWebSwitch._mock_http(monkeypatch)
+        assert prepare_web_switch("my-conv").endswith("&userToken=from-env")
+
+    def test_stale_token_file_rejected(self, monkeypatch):
+        from gptme.server.token_file import write_token_file
+
+        write_token_file("stale")
+        TestWebSwitch._mock_http(monkeypatch, {"/conversations/": 401})
+        with pytest.raises(RestartError, match="rejected the token in"):
+            prepare_web_switch("my-conv")

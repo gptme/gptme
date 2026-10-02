@@ -16,6 +16,7 @@ from urllib.parse import quote, urlencode
 
 from ..hooks.confirm import confirm
 from ..message import Message
+from ..server.token_file import get_token_file, read_token_file
 from .base import ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -279,15 +280,24 @@ def prepare_web_switch(conversation_name: str) -> str:
     # Ask the destination server itself, with the credentials the browser
     # will get: it must find the conversation (same logs dir) and accept them.
     conv = quote(conversation_name, safe="")
-    token = os.environ.get("GPTME_SERVER_TOKEN") or None
+    # Fall back to the token a local gptme-server shares when it generated one.
+    token = os.environ.get("GPTME_SERVER_TOKEN") or read_token_file()
     status = _http_status(f"{base}/api/v2/conversations/{conv}?limit=1", token=token)
     if status in (401, 403):
+        if not token:
+            raise RestartError(
+                f"The gptme-server at {base} requires authentication. Set "
+                "GPTME_SERVER_TOKEN to its token (shown by `gptme-server token`), "
+                "or start it with that variable set, then retry."
+            )
+        if os.environ.get("GPTME_SERVER_TOKEN"):
+            raise RestartError(
+                f"The gptme-server at {base} rejected GPTME_SERVER_TOKEN."
+            )
         raise RestartError(
-            f"The gptme-server at {base} requires authentication. Set "
-            "GPTME_SERVER_TOKEN to its token (shown by `gptme-server token`), "
-            "or start it with that variable set, then retry."
-            if not token
-            else f"The gptme-server at {base} rejected GPTME_SERVER_TOKEN."
+            f"The gptme-server at {base} rejected the token in {get_token_file()} "
+            "(written by another gptme-server?). Set GPTME_SERVER_TOKEN to its "
+            "token, then retry."
         )
     if status == 404:
         raise RestartError(
