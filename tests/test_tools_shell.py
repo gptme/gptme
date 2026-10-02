@@ -2926,3 +2926,96 @@ def test_closing_output_pipe_restarts_broken_shell():
         assert (rc, stdout) == (0, "alive")
     finally:
         shell.close()
+
+
+@pytest.mark.timeout(30)
+def test_run_tail_flush_uses_pre_restart_decoders(monkeypatch):
+    """A mid-read shell restart must not break the final UTF-8 tail flush.
+
+    When a command kills bash, the reader restarts the shell before returning.
+    `_init()` runs commands that rebuild `_output_decoders` for the *new* pipe
+    descriptors, so the outer flush must use the decoders this command read
+    with. Looking them up again by the old fd raised KeyError whenever the OS
+    did not reuse the old descriptor numbers (Greptile P1).
+    """
+    import codecs
+
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession()
+    real_restart = shell.restart
+
+    def restart_with_unreused_fds() -> None:
+        real_restart()
+        # Simulate the OS handing out fresh descriptor numbers after the
+        # restart, so the old stdout/stderr fd keys no longer exist.
+        shell._output_decoders = {
+            shell.stdout_fd + 1000: codecs.getincrementaldecoder("utf-8")(
+                errors="replace"
+            ),
+            shell.stderr_fd + 1000: codecs.getincrementaldecoder("utf-8")(
+                errors="replace"
+            ),
+        }
+
+    try:
+        monkeypatch.setattr(shell, "restart", restart_with_unreused_fds)
+        rc, stdout, stderr = shell.run("exit 3", timeout=20.0)
+        assert rc == 3
+        assert stdout == ""
+        assert "shell exited" in stderr
+        # The restarted shell must still be usable for the next command.
+        rc, stdout, _stderr = shell.run("echo alive", timeout=5.0)
+        assert (rc, stdout) == (0, "alive")
+    finally:
+        shell.close()
+
+
+@pytest.mark.timeout(30)
+def test_windows_producer_stops_when_readable_after_stop(monkeypatch):
+    """A continuously readable pipe must not keep the producer alive.
+
+    With data always available `os.read` never raises BlockingIOError, so a
+    stop_event check only on that branch let the producer outlive the command
+    and compete with the next command's reader for a reused descriptor
+    (Greptile P1). The producer loop must gate on stop_event on the success
+    path too.
+    """
+    import time
+
+    shell = object.__new__(shell_module.ShellSession)
+    shell.stdout_fd = 10
+    shell.stderr_fd = 11
+    shell.delimiter = "END_OF_COMMAND_OUTPUT"
+    shell._output_decoders = {}
+    shell.process = Mock()
+    shell._terminate_process = Mock()  # type: ignore[method-assign]
+
+    reads = {"n": 0}
+    payload = b"START_123\nReturnCode:0 END_OF_COMMAND_OUTPUT\n"
+
+    def read_side_effect(fd, _n):
+        reads["n"] += 1
+        return payload
+
+    monkeypatch.setattr(shell_module, "_is_windows", True)
+    monkeypatch.setattr(shell_module.os, "set_blocking", Mock())
+    monkeypatch.setattr(shell_module.os, "read", Mock(side_effect=read_side_effect))
+
+    rc, _stdout, _stderr = shell._read_output_windows(
+        "echo hi",
+        False,
+        [],
+        [],
+        None,
+        False,
+        "START_123",
+        "END_OF_COMMAND_OUTPUT",
+        None,
+        20.0,
+    )
+    assert rc == 0
+
+    baseline = reads["n"]
+    time.sleep(0.15)
+    assert reads["n"] == baseline, "producer kept reading after stop_event was set"

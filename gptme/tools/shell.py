@@ -1254,10 +1254,18 @@ class ShellSession:
 
         # Each pipe keeps incomplete UTF-8 sequences across reads. Reset for
         # every command so an unfinished sequence cannot leak into the next one.
+        # Hold direct references: if the shell dies mid-command and is restarted,
+        # `_init()` runs commands that rebuild `self._output_decoders` for the
+        # *new* pipe descriptors. Flushing by the old fd afterwards would raise
+        # KeyError (fd numbers not reused) or drop the old shell's incomplete
+        # sequence (fd numbers reused), so the tail flush must use the decoders
+        # this command actually read with.
         stdout_fd, stderr_fd = self.stdout_fd, self.stderr_fd
+        stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._output_decoders = {
-            fd: codecs.getincrementaldecoder("utf-8")(errors="replace")
-            for fd in (stdout_fd, stderr_fd)
+            stdout_fd: stdout_decoder,
+            stderr_fd: stderr_decoder,
         }
         reader = self._read_output_windows if _is_windows else self._read_output_unix
         result = reader(
@@ -1276,8 +1284,8 @@ class ShellSession:
         # The Windows reader has joined its producer threads before returning.
         # Flush a genuinely incomplete final sequence using the same replacement
         # policy as invalid bytes, even when a dead shell changed its pipe fds.
-        out_tail = self._output_decoders[stdout_fd].decode(b"", final=True)
-        err_tail = self._output_decoders[stderr_fd].decode(b"", final=True)
+        out_tail = stdout_decoder.decode(b"", final=True)
+        err_tail = stderr_decoder.decode(b"", final=True)
         self._capture_output(stdout, out_tail, stream=sys.stdout, output=output)
         self._capture_output(stderr, err_tail, stream=sys.stderr, output=output)
         return result[0], result[1] + out_tail, result[2] + err_tail
@@ -1331,6 +1339,13 @@ class ShellSession:
                 os.set_blocking(fd, False)
             except OSError:
                 pass
+            # A background process can keep a pipe continuously readable, so
+            # `os.read` never raises BlockingIOError and a stop_event check only
+            # in that branch would let this reader outlive the command. It would
+            # then compete with the next command's reader for a reused
+            # descriptor and divert that command's output into this abandoned
+            # queue (Greptile P1). Check stop_event after each successful
+            # read+enqueue so the final buffered bytes are still delivered.
             while not cap_state["over"]:
                 try:
                     raw = os.read(fd, 2**16)
@@ -1379,6 +1394,10 @@ class ShellSession:
                     if over:
                         # Stop producing more data; the consumer detects the
                         # cap and performs the kill + marker.
+                        break
+                    if stop_event.is_set():
+                        # The chunk above is already enqueued, so the consumer's
+                        # post-join drain can recover it; stop reading now.
                         break
                 except BlockingIOError:
                     if stop_event.is_set():
