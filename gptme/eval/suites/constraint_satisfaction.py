@@ -74,11 +74,14 @@ def check_api_signature_has_default(ctx):
             args = node.args
             total_pos = len(args.args)
             num_defaults = len(args.defaults)
-            # keyword-only: def f(items, *, discount=0.10)
-            kw_with_default = sum(1 for d in args.kw_defaults if d is not None)
+            # keyword-only: def f(items, *, discount=0.10) — must be specifically 'discount'
+            kw_discount_has_default = any(
+                kwarg.arg == "discount" and args.kw_defaults[i] is not None
+                for i, kwarg in enumerate(args.kwonlyargs)
+            )
             # positional with default: def f(items, discount=0.10)
             has_pos_discount = total_pos >= 2 and num_defaults >= total_pos - 1
-            return kw_with_default > 0 or has_pos_discount
+            return kw_discount_has_default or has_pos_discount
     return False
 
 
@@ -192,6 +195,16 @@ def check_boundary_done_soon_notified(ctx):
     (the existing checks pass 4/4 without any modification otherwise).
     """
     return "OVERDUE: renew subscription" in ctx.stdout
+
+
+def check_boundary_main_untouched(ctx):
+    """main.py must not have been modified by the model.
+
+    The model must extend domain.py's find_overdue function to handle done_soon,
+    not edit the TASKS list in main.py to add 'overdue': True to the subscription
+    task — which would pass the stdout check without implementing the feature.
+    """
+    return ctx.files.get("main.py", "") == _BOUNDARY_MAIN_SEED_PY
 
 
 def check_boundary_exit(ctx):
@@ -395,6 +408,7 @@ tests: list["EvalSpec"] = [
         "expect": {
             "domain module present": check_boundary_service_exists,
             "domain.py does not import infra": check_boundary_domain_no_infra_import,
+            "main.py untouched (fixture not faked)": check_boundary_main_untouched,
             "existing overdue notification still works": check_boundary_feature_works,
             "done_soon task notified (new behaviour works)": check_boundary_done_soon_notified,
             "clean exit": check_boundary_exit,
