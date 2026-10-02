@@ -3,6 +3,7 @@
 Covers _is_debug_errors_enabled, _abs_to_rel_workspace, and msg2dict.
 """
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,7 @@ from gptme.util.uri import URI
 def test_conversation_internal_error_respects_debug_gate(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
+    server_error_records: list[logging.LogRecord],
     debug_errors: bool,
     endpoint: str,
     method: str,
@@ -59,17 +60,18 @@ def test_conversation_internal_error_respects_debug_gate(
         raise error_type("Cannot read /secret/path")
 
     monkeypatch.setattr("gptme.logmanager.LogManager.load", fail)
-    with caplog.at_level("ERROR"):
-        response = client.open(
-            f"/api/v2/conversations/example/{endpoint}", method=method
-        )
+    response = client.open(f"/api/v2/conversations/example/{endpoint}", method=method)
 
     assert response.status_code == 500
     assert response.get_json() == {
         "error": "Cannot read /secret/path" if debug_errors else "Internal server error"
     }
-    assert "/secret/path" in caplog.text
-    assert any(record.exc_info for record in caplog.records)
+    # Internal details must still reach the server log, with the traceback
+    # attached, even when they are hidden from the client.
+    assert any(
+        record.exc_info and "/secret/path" in str(record.exc_info[1])
+        for record in server_error_records
+    )
 
 
 # ---------------------------------------------------------------------------

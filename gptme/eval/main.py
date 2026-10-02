@@ -15,6 +15,7 @@ import sys
 import tempfile
 from collections import defaultdict
 from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, get_args
@@ -629,9 +630,6 @@ def main(
         docker_reexec(sys.argv)
         # docker_reexec will exit, so this line is never reached
 
-    # init
-    multiprocessing_logging.install_mp_handler()
-
     config = get_config()
 
     # Generate model+format combinations
@@ -820,16 +818,17 @@ def main(
 
     if not json_output:
         print("=== Running evals ===")
-    model_results = run_evals(
-        evals_to_run,
-        model_configs,
-        timeout,
-        parallel,
-        use_docker,
-        include_user_context=user_context,
-        adversarial=adversarial,
-        no_lessons=no_lessons,
-    )
+    with _multiprocessing_logging():
+        model_results = run_evals(
+            evals_to_run,
+            model_configs,
+            timeout,
+            parallel,
+            use_docker,
+            include_user_context=user_context,
+            adversarial=adversarial,
+            no_lessons=no_lessons,
+        )
     if not json_output:
         print("=== Finished ===")
 
@@ -849,6 +848,41 @@ def main(
     write_results(model_results, write_json=json_output, json_data=json_data)
 
     sys.exit(0)
+
+
+@contextmanager
+def _multiprocessing_logging() -> Generator[None, None, None]:
+    """Route root-logger output through multiprocess-safe handlers while evals run.
+
+    ``multiprocessing_logging.install_mp_handler()`` replaces every root handler
+    with a ``MultiProcessingHandler`` wrapper that, on emit, mutates the record in
+    place (clearing ``exc_info`` after caching ``exc_text``). Left installed, the
+    wrappers outlive the eval run: in a long-lived process (e.g. a pytest worker)
+    they keep wrapping whatever handlers were on the root logger at install time
+    and strip ``exc_info`` from every later record before other handlers see it.
+    Scope the wrappers to the eval run and restore the original handlers after.
+    """
+    root = logging.getLogger()
+    before = list(root.handlers)
+    multiprocessing_logging.install_mp_handler(root)
+    wrappers = [
+        h
+        for h in root.handlers
+        if isinstance(h, multiprocessing_logging.MultiProcessingHandler)
+        and h not in before
+    ]
+    try:
+        yield
+    finally:
+        for wrapper in wrappers:
+            root.removeHandler(wrapper)
+            if wrapper.sub_handler not in root.handlers:
+                root.addHandler(wrapper.sub_handler)
+            # MultiProcessingHandler.close() would also close the wrapped handler,
+            # which we don't own; only stop the wrapper's receive thread (it drains
+            # the queue before exiting).
+            wrapper._is_closed = True
+            wrapper._receive_thread.join(5.0)
 
 
 def _read_case_results(cases_file: Path) -> Generator[CaseResult, None, None]:

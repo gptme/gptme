@@ -6,6 +6,7 @@ filtered responses are smaller than the full GET response.
 """
 
 import json
+import logging
 import re
 
 import pytest
@@ -30,7 +31,7 @@ def _query(client: FlaskClient, body: dict | None = None):
 def test_tools_internal_error_respects_debug_gate(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
+    server_error_records: list[logging.LogRecord],
     debug_errors: bool,
     method: str,
 ) -> None:
@@ -43,15 +44,18 @@ def test_tools_internal_error_respects_debug_gate(
         raise RuntimeError("Cannot read /secret/path")
 
     monkeypatch.setattr("gptme.server.tools_api.get_available_tools", fail)
-    with caplog.at_level("ERROR"):
-        response = client.open("/api/v2/tools", method=method, json={})
+    response = client.open("/api/v2/tools", method=method, json={})
 
     assert response.status_code == 500
     assert response.get_json() == {
         "error": "Cannot read /secret/path" if debug_errors else "Internal server error"
     }
-    assert "/secret/path" in caplog.text
-    assert "Traceback" in caplog.text
+    # Internal details must still reach the server log, with the traceback
+    # attached, even when they are hidden from the client.
+    assert any(
+        record.exc_info and "/secret/path" in str(record.exc_info[1])
+        for record in server_error_records
+    )
 
 
 def test_query_no_filters_returns_all_tools(client: FlaskClient):

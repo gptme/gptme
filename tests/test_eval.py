@@ -1,5 +1,6 @@
 import importlib
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -491,6 +492,45 @@ def test_eval_cli_user_context_flag_propagation():
         )
         assert result.exit_code == 0, result.output
         assert captured == [True]
+
+
+def test_eval_cli_restores_root_log_handlers():
+    """multiprocessing_logging wrappers must not outlive the eval run.
+
+    Leaked ``MultiProcessingHandler`` wrappers on the root logger clear
+    ``exc_info`` on every later record, which broke unrelated caplog-based
+    tests running in the same pytest worker.
+    """
+    import multiprocessing_logging
+
+    root = logging.getLogger()
+    seen_during_run: list[bool] = []
+
+    def fake_run_evals(evals, *args, **kwargs):
+        seen_during_run.append(
+            any(
+                isinstance(h, multiprocessing_logging.MultiProcessingHandler)
+                for h in root.handlers
+            )
+        )
+        return {}
+
+    handlers_before = list(root.handlers)
+    runner = CliRunner()
+    with (
+        patch.object(_eval_main_module, "run_evals", side_effect=fake_run_evals),
+        patch.object(_eval_main_module, "print_model_results", return_value=None),
+        patch.object(_eval_main_module, "print_model_results_table", return_value=None),
+        patch.object(_eval_main_module, "write_results", return_value=None),
+    ):
+        result = runner.invoke(main, ["hello", "--model", "anthropic"])
+    assert result.exit_code == 0, result.output
+    assert seen_during_run == [True]
+    assert not any(
+        isinstance(h, multiprocessing_logging.MultiProcessingHandler)
+        for h in root.handlers
+    )
+    assert set(root.handlers) == set(handlers_before)
 
 
 def test_eval_agent_passes_user_context_flag(monkeypatch, tmp_path):
