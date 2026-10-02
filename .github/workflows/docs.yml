@@ -108,7 +108,16 @@ jobs:
           poetry install -E browser -E server
 
       - name: Check docs for dead links
-        run: make docs-linkcheck
+        # Fail (rather than get cancelled at the job timeout) if a host keeps
+        # the run throttled: Sphinx honours a server's Retry-After uncapped.
+        run: |
+          timeout 10m make docs-linkcheck || {
+            rc=$?
+            if [ "$rc" -eq 124 ]; then
+              echo "::error::linkcheck did not finish within 10 minutes (rate-limited?)"
+            fi
+            exit "$rc"
+          }
 
   deploy:
     name: deploy
