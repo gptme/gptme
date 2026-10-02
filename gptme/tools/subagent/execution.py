@@ -1033,24 +1033,42 @@ def _kill_recorded_shell_groups(
 
     Each persistent shell is its own session leader, so its pgid equals its
     sid. Groups that are no longer recognisable, that predate the subagent, or
-    that are the killing process's own group/session, are skipped.
+    that are the killing process's own group/session, are skipped. When the
+    entry carries a start time and the pid is still live, both must match —
+    a recycled pid is rejected exactly.
     """
     if sys.platform == "win32":
         return
     try:
-        lines = pgid_file.read_text().split()
+        lines = pgid_file.read_text().splitlines()
     except OSError:
         return
     own_pgid = os.getpgid(0)
     own_sid = os.getsid(0)
     for line in lines:
+        parts = line.split()
+        if not parts:
+            continue
         try:
-            pgid = int(line)
+            pgid = int(parts[0])
         except ValueError:
             continue
-        if pgid <= 1 or pgid in (own_pgid, own_sid) or not _killable_group(pgid):
+        if pgid <= 1 or pgid in (own_pgid, own_sid):
             continue
-        if not _group_started_after(pgid, after_ticks):
+        recorded_start = (
+            int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+        )
+        live_start = _proc_start_ticks(pgid)
+        if recorded_start is not None and live_start is not None:
+            # A recycled pid always has a different start time, so equality
+            # proves this is still the shell that recorded the entry.
+            if live_start != recorded_start:
+                continue
+        elif not _group_started_after(pgid, after_ticks):
+            # Entry without a start time (older child / no procfs), or the
+            # leader already exited: reject groups that predate the subagent.
+            continue
+        if not _killable_group(pgid):
             continue
         try:
             os.killpg(pgid, signal.SIGKILL)

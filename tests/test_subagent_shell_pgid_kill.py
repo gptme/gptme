@@ -126,10 +126,25 @@ def test_shell_session_records_its_pgid(tmp_path: Path, monkeypatch):
 
     pgid_file = tmp_path / "shell-pgids"
     monkeypatch.setenv("GPTME_SHELL_PGID_FILE", str(pgid_file))
-    _record_shell_pgid(4242)
-    _record_shell_pgid(4343)
-    assert pgid_file.read_text().split() == ["4242", "4343"]
+    _record_shell_pgid(os.getpid())
+    _record_shell_pgid(os.getppid())
+    pids = [line.split()[0] for line in pgid_file.read_text().splitlines()]
+    assert pids == [str(os.getpid()), str(os.getppid())]
 
     monkeypatch.delenv("GPTME_SHELL_PGID_FILE")
     _record_shell_pgid(5555)  # no-op without the variable
     assert "5555" not in pgid_file.read_text()
+
+
+def test_kill_recorded_groups_skips_a_reused_pid(tmp_path: Path):
+    pgid_file = tmp_path / "shell-pgids"
+    # Live session leader, but the recorded start time is not its own: the pid
+    # was recycled, so this group is not the recorded shell's.
+    leader = subprocess.Popen(["bash", "-c", "sleep 60"], start_new_session=True)
+    try:
+        pgid_file.write_text(f"{leader.pid} 1\n")
+        _kill_recorded_shell_groups(pgid_file)
+        assert _alive(leader.pid), "a recycled pid's group was killed"
+    finally:
+        leader.kill()
+        leader.wait()
