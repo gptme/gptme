@@ -36,16 +36,16 @@ no separate install beyond `uv`.
    cd gptme-contrib/plugins/gptme-tts
    ```
 
-2. Start the server: `./tts_server.py --backend kokoro` (listens on
-   `http://127.0.0.1:8765`; `--list-voices` and `--voice` pick a voice).
+2. Start the server, allowing the origin your webui is served from
+   (`http://localhost:5701` by default):
 
-```{note}
-`tts_server.py` does not currently send CORS headers. A webui served from a
-different origin (another host or port) cannot read its responses and silently
-falls back to the browser engine. Until that changes, put the server behind a
-reverse proxy that adds `Access-Control-Allow-Origin` before wiring it to the
-webui — or skip steps 3–4 and use it from the terminal plugin below instead.
-```
+   ```sh
+   uv run tts_server.py --backend kokoro --cors-origin http://localhost:5701
+   ```
+
+   It listens on `http://127.0.0.1:8765`; `--list-voices` and `--voice` pick a
+   voice. Without a matching `--cors-origin`, the browser blocks the server's
+   responses and the webui silently falls back to the browser engine.
 
 3. In the webui, open **Settings → TTS engine** and select **gptme-tts server**.
 4. Set the **gptme-tts server URL** to `http://localhost:8765`.

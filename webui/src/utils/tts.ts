@@ -282,8 +282,10 @@ async function speak(rawText: string, key: string): Promise<void> {
         _ttsNotConfiguredHintShown = true;
         console.info(
           '[gptme TTS] Server TTS not configured (no OPENROUTER_API_KEY). ' +
-            'For local TTS, install the gptme-tts server (pip install gptme-tts) ' +
-            'and add its URL in Settings → TTS engine → gptme-tts server URL. ' +
+            'For local TTS, clone https://github.com/gptme/gptme-contrib and, with uv installed, run ' +
+            'uv run plugins/gptme-tts/tts_server.py --backend kokoro --cors-origin ' +
+            window.location.origin +
+            ' from its directory. Set http://localhost:8765 in Settings → TTS engine → gptme-tts server URL. ' +
             'Falling back to browser speech synthesis.'
         );
       }

@@ -268,8 +268,34 @@ export function SettingsContent({
               <p className="text-xs text-muted-foreground">
                 {settings.ttsProvider === 'server' &&
                   'Uses the connected gptme-server /api/v2/audio/speech endpoint (provider-backed, e.g. OpenRouter — higher quality). Requires OPENROUTER_API_KEY to be set on the server. For local TTS without an API key, use the gptme-tts server option instead.'}
-                {settings.ttsProvider === 'external' &&
-                  'Uses a standalone gptme-tts server for local TTS (no API key needed). Install with: pip install gptme-tts, then run: gptme-tts.'}
+                {settings.ttsProvider === 'external' && (
+                  <>
+                    Local TTS with no API key. Install uv, clone{' '}
+                    <a
+                      href="https://github.com/gptme/gptme-contrib"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      gptme-contrib
+                    </a>
+                    , then run from its directory:{' '}
+                    <code className="break-words rounded bg-muted px-1">
+                      uv run plugins/gptme-tts/tts_server.py --backend kokoro --cors-origin{' '}
+                      {window.location.origin}
+                    </code>
+                    . Set --cors-origin to the web UI&apos;s origin if it changes. See the{' '}
+                    <a
+                      href="https://gptme.org/docs/howto/tts-setup.html"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      setup guide
+                    </a>{' '}
+                    for full instructions.
+                  </>
+                )}
                 {settings.ttsProvider === 'browser' &&
                   "Uses the browser's built-in speech synthesis (always available, no setup required)."}
                 {settings.ttsProvider === 'auto' &&
@@ -285,13 +311,13 @@ export function SettingsContent({
                 <p className="text-xs text-muted-foreground">
                   HTTP base URL of a running{' '}
                   <code className="rounded bg-muted px-1">gptme-tts</code> server, e.g.{' '}
-                  <code className="rounded bg-muted px-1">http://localhost:5001</code>.
+                  <code className="rounded bg-muted px-1">http://localhost:8765</code>.
                   {settings.ttsProvider === 'auto' && ' Leave empty to skip this engine.'}
                 </p>
                 <Input
                   id="tts-server-url"
                   type="text"
-                  placeholder="http://localhost:5001"
+                  placeholder="http://localhost:8765"
                   value={settings.ttsServerUrl}
                   onChange={(e) => updateSettings({ ttsServerUrl: e.target.value.trim() })}
                 />
