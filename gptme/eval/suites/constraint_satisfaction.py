@@ -61,6 +61,8 @@ def check_api_signature_has_default(ctx):
 
     A required second parameter would break every existing call site
     (report.py among them) even though the function is "extended".
+    Handles both positional defaults (def f(items, discount=0.10)) and
+    keyword-only args (def f(items, *, discount=0.10)).
     """
     content = ctx.files.get("legacy_api.py", "")
     try:
@@ -70,11 +72,24 @@ def check_api_signature_has_default(ctx):
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "calculate_total":
             args = node.args
-            total_args = len(args.args)
+            total_pos = len(args.args)
             num_defaults = len(args.defaults)
-            # every arg beyond the first (items) must have a default
-            return total_args >= 2 and num_defaults >= total_args - 1
+            # keyword-only: def f(items, *, discount=0.10)
+            kw_with_default = sum(1 for d in args.kw_defaults if d is not None)
+            # positional with default: def f(items, discount=0.10)
+            has_pos_discount = total_pos >= 2 and num_defaults >= total_pos - 1
+            return kw_with_default > 0 or has_pos_discount
     return False
+
+
+def check_api_demo_untouched(ctx):
+    """_api_demo.py must not have been modified by the model.
+
+    The demo script calls calculate_total(items, discount=0.10) to verify
+    the new feature. If the model edits it to print the expected output
+    directly (bypassing legacy_api.py), this check fails.
+    """
+    return ctx.files.get("_api_demo.py", "") == _API_DEMO_PY
 
 
 def check_api_exit(ctx):
@@ -111,6 +126,16 @@ def check_schema_field_is_optional(ctx):
     # required annotation.
     pattern = re.compile(r"priority\s*:\s*[^\n=]+=\s*\S", re.MULTILINE)
     return bool(pattern.search(content))
+
+
+def check_schema_demo_untouched(ctx):
+    """_schema_demo.py must not have been modified by the model.
+
+    The demo script parses both legacy and new records to verify backward
+    compatibility. If the model edits it to print expected results directly
+    (bypassing task_schema.py), this check fails.
+    """
+    return ctx.files.get("_schema_demo.py", "") == _SCHEMA_DEMO_PY
 
 
 def check_schema_exit(ctx):
@@ -154,8 +179,19 @@ def check_boundary_domain_no_infra_import(ctx):
 
 
 def check_boundary_feature_works(ctx):
-    """The new notify-on-overdue feature must actually run end-to-end."""
+    """The existing overdue notification must still work after the extension."""
     return "OVERDUE: renew library book" in ctx.stdout
+
+
+def check_boundary_done_soon_notified(ctx):
+    """A done_soon: True task must appear in the OVERDUE output.
+
+    main.py seeds a task with done_soon=True. Without extending find_overdue,
+    this task is filtered out and the check fails. This ensures the model
+    actually implemented the extension rather than leaving code unchanged
+    (the existing checks pass 4/4 without any modification otherwise).
+    """
+    return "OVERDUE: renew subscription" in ctx.stdout
 
 
 def check_boundary_exit(ctx):
@@ -271,6 +307,7 @@ from infra import ConsoleNotifier
 
 TASKS = [
     {"title": "renew library book", "overdue": True},
+    {"title": "renew subscription", "done_soon": True},
     {"title": "water plants", "overdue": False},
 ]
 
@@ -302,6 +339,7 @@ tests: list["EvalSpec"] = [
         "expect": {
             "legacy_api.py exists": check_api_legacy_api_exists,
             "report.py untouched (contract preserved)": check_api_report_untouched,
+            "_api_demo.py untouched (results not faked)": check_api_demo_untouched,
             "old call site still works unmodified": check_api_old_callsite_still_works,
             "new discount feature works": check_api_discount_feature_works,
             "new parameter has a default (non-breaking)": check_api_signature_has_default,
@@ -328,6 +366,7 @@ tests: list["EvalSpec"] = [
         "tools": ["read", "save", "shell"],
         "expect": {
             "task_schema.py exists": check_schema_file_exists,
+            "_schema_demo.py untouched (results not faked)": check_schema_demo_untouched,
             "legacy records still parse": check_schema_legacy_records_parse,
             "new field present on new records": check_schema_new_field_present,
             "field declared optional/defaulted": check_schema_field_is_optional,
@@ -357,6 +396,7 @@ tests: list["EvalSpec"] = [
             "domain module present": check_boundary_service_exists,
             "domain.py does not import infra": check_boundary_domain_no_infra_import,
             "existing overdue notification still works": check_boundary_feature_works,
+            "done_soon task notified (new behaviour works)": check_boundary_done_soon_notified,
             "clean exit": check_boundary_exit,
         },
     },
