@@ -1496,7 +1496,7 @@ def main(
         if verbose:
             logger.exception(e)
         else:
-            logger.error(e)
+            logger.error(_format_fatal_error(e))
             # Print last call site in gptme code for context
             tb = traceback.extract_tb(sys.exc_info()[2])
 
@@ -1516,7 +1516,9 @@ def main(
                 )
         if not config.chat.interactive:
             error_class, exit_code = _classify_fatal_error(e)
-            _write_terminal_error_to_log(logdir, error_class, exit_code, str(e))
+            _write_terminal_error_to_log(
+                logdir, error_class, exit_code, _format_fatal_error(e)
+            )
         else:
             exit_code = 1
         # the conversation is saved; say how to get back to it once the
@@ -1689,6 +1691,13 @@ def _is_conversation_lock_error(e: BaseException) -> bool:
     """
     msg = str(e).lower()
     return "another gptme instance" in msg and "is using" in msg
+
+
+def _format_fatal_error(e: BaseException) -> str:
+    """Message text for a fatal error, without KeyError's repr-style quoting."""
+    if isinstance(e, KeyError) and len(e.args) == 1 and isinstance(e.args[0], str):
+        return e.args[0]
+    return str(e)
 
 
 def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
