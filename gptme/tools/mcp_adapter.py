@@ -577,9 +577,12 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
 
     # Re-enable if the server was previously unloaded (disabled in config).
     # Without this, create_mcp_tools() skips the server on the next cache rebuild.
+    # Track whether we changed this so we can revert on connection failure.
+    enabled_reset = False
     if server_config and not server_config.enabled:
         server_config.enabled = True
         set_config(config)
+        enabled_reset = True
 
     # If not in config, try to find in registry
     if not server_config:
@@ -658,9 +661,12 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
 
     except Exception as e:
-        # If connection failed and we added the config, remove it to maintain consistency
+        # Revert all state changes on failure.
         if config_added:
             config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
+            set_config(config)
+        elif enabled_reset and server_config:
+            server_config.enabled = False
             set_config(config)
         _dynamic_servers.pop(name, None)
         logger.error(f"Failed to load server '{name}': {e}")
