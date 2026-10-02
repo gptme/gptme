@@ -10,6 +10,7 @@ from typing import Literal
 from ...llm.models import get_default_model, get_model
 from ...message import Message, len_tokens
 from ...util.context_budget import get_context_budget
+from ...util.context_measurement import measure_context_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ def should_auto_compact(
             model_context_budget=model.context_budget,
         )
 
-    total_tokens = len_tokens(log, model.model)
+    total_tokens = measure_context_tokens(log, model.full)
 
     # One budget means one trigger: no separate provider-window fraction.
     would_trigger = total_tokens >= limit
@@ -188,6 +189,10 @@ def should_auto_compact(
     total, estimated_savings, reasoning_savings = estimate_compaction_savings(
         log, limit, keep_head=keep_head
     )
+    # Compare trim savings against the stored-text total the engine will
+    # actually shrink, not the larger provider-reported count: a trim saving
+    # >10% of stored text must not fail the gate just because provider overhead
+    # (tool schemas, etc.) inflated the denominator.
     savings_ratio = estimated_savings / total if total > 0 else 0
 
     if savings_ratio < MIN_SAVINGS_RATIO:

@@ -53,6 +53,7 @@ from .tools.complete import SessionCompleteException
 from .util import console, path_with_tilde
 from .util.auto_naming import MAX_ASSISTANT_MSGS_FOR_NAMING, try_auto_name
 from .util.context import include_paths
+from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
@@ -808,9 +809,23 @@ def _reply_with_overflow_recovery(
     """Generate once, compacting to a lossless view and retrying on overflow."""
 
     def generate(messages: list[Message]) -> Message:
-        return reply(
+        manager = LogManager.get_current_log()
+        stored_input = (
+            manager.log.messages
+            if manager is not None
+            and logdir is not None
+            and manager.logdir.resolve() == logdir.resolve()
+            else log.messages
+        )
+        input_count = len(stored_input)
+        input_digest = input_log_digest(stored_input)
+        # Resolve model metadata once: get_model() may hit a dynamic catalog
+        # (OpenRouter/gptme) whose failures aren't cached, so a second lookup
+        # after generation could fail the step after a successful reply.
+        model_meta = get_model(model)
+        response = reply(
             messages,
-            get_model(model).full,
+            model_meta.full,
             stream,
             tools,
             workspace,
@@ -819,6 +834,8 @@ def _reply_with_overflow_recovery(
             on_thinking=on_thinking,
             max_tokens=max_tokens,
         )
+        anchor_context_usage(response, input_count, input_digest, model_meta.full)
+        return response
 
     try:
         return generate(msgs)
@@ -828,7 +845,6 @@ def _reply_with_overflow_recovery(
 
         from time import monotonic
 
-        from .logmanager import LogManager
         from .tools.autocompact.events import append_compaction_event
         from .tools.autocompact.recovery import compact_for_overflow
 
