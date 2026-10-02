@@ -369,6 +369,46 @@ def test_retry_on_overloaded_retries_timeout_once():
     assert len(calls) == 2
 
 
+def test_retry_generator_timeout_retries_only_before_yield():
+    """Streaming: a timeout before the first yield is retried; after a yield it is not."""
+    from unittest.mock import patch
+
+    import httpx
+    from anthropic import APITimeoutError
+
+    from gptme.llm.llm_anthropic import retry_generator_on_overloaded
+
+    def timeout():
+        return APITimeoutError(request=httpx.Request("POST", "http://x"))
+
+    early_calls = []
+
+    @retry_generator_on_overloaded(max_retries=3, base_delay=0.0)
+    def timeout_before_yield():
+        early_calls.append(1)
+        if len(early_calls) == 1:
+            raise timeout()
+        yield "ok"
+
+    late_calls = []
+
+    @retry_generator_on_overloaded(max_retries=3, base_delay=0.0)
+    def timeout_after_yield():
+        late_calls.append(1)
+        yield "partial"
+        raise timeout()
+
+    with patch("gptme.llm.llm_anthropic.backoff_wait", return_value=False):
+        assert list(timeout_before_yield()) == ["ok"]
+        assert len(early_calls) == 2
+
+        gen = timeout_after_yield()
+        assert next(gen) == "partial"
+        with pytest.raises(APITimeoutError):
+            next(gen)
+        assert len(late_calls) == 1
+
+
 @pytest.mark.parametrize("status", [408, 409])
 def test_anthropic_retries_408_409(status):
     from unittest.mock import patch
