@@ -886,3 +886,70 @@ def test_stream_does_not_retry_non_transient_status(_backoff_delays):
 
     assert mock_post.call_count == 1
     assert _backoff_delays == []
+
+
+class _ErrorBodyReadFails(_Non200Response):
+    """Non-200 response whose body read drops mid-way."""
+
+    @property
+    def text(self) -> str:
+        raise requests.exceptions.ChunkedEncodingError("body read dropped")
+
+    @text.setter
+    def text(self, value: str) -> None:
+        pass
+
+
+def test_stream_closes_response_when_error_body_read_fails():
+    """A failure while reading an error body must not leak the response."""
+    broken = _ErrorBodyReadFails(503, "")
+    ok = _FakeSSEStreamResponse(
+        [
+            {"type": "response.output_text.delta", "delta": "Done."},
+            {"type": "response.done"},
+        ]
+    )
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[broken, ok],
+        ),
+    ):
+        output = "".join(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+    assert output == "Done."
+    assert broken.closed
+
+
+def test_stream_interrupt_during_request_aborts_retry(monkeypatch):
+    """An interrupt that lands during a request (before the backoff wait
+    starts) must abort the retry, using the real backoff_wait."""
+    from gptme.llm import retry_abort
+
+    monkeypatch.setattr(
+        llm_openai_subscription, "backoff_wait", retry_abort.backoff_wait
+    )
+    unavailable = _Non200Response(503, "upstream unavailable")
+    calls = 0
+
+    def post(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        retry_abort.interrupt_pending_retries()
+        return unavailable
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch("gptme.llm.llm_openai_subscription.requests.post", side_effect=post),
+        pytest.raises(requests.HTTPError),
+    ):
+        "".join(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+    assert calls == 1, "the interrupted call must not send another request"

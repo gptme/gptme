@@ -57,7 +57,7 @@ from .openai_responses import (
     _stream_responses_events,
     _tool_spec_to_responses_tool,
 )
-from .retry_abort import backoff_wait
+from .retry_abort import backoff_wait, current_generation
 from .retry_policy import retry_delay_for_error
 
 logger = logging.getLogger(__name__)
@@ -678,7 +678,13 @@ def stream(
             timeout=(30, read_timeout),
         )
         if resp.status_code != 200:
-            error_text = resp.text[:500]
+            try:
+                error_text = resp.text[:500]
+            except BaseException:
+                # Reading the error body can itself time out or drop; close
+                # the response so each retry doesn't leak a socket.
+                resp.close()
+                raise
             # HTTPError (module `requests`) is a recoverable provider error
             # for interactive recovery. ValueError is not — it looks like a
             # gptme bug and crashes the chat loop. Keep the message format
@@ -692,6 +698,9 @@ def stream(
         return resp
 
     def _sse_events():
+        # Captured when the request starts, so an interrupt that lands during
+        # a request (before the backoff wait) still aborts the retry.
+        generation = current_generation()
         attempts = 0
         yielded_any = False
         response: requests.Response | None = None
@@ -739,7 +748,7 @@ def stream(
                         attempts,
                         max_stream_retries,
                     )
-                    if backoff_wait(delay):
+                    if backoff_wait(delay, generation):
                         raise
         finally:
             # Runs on every exit path: normal return, exception, or GeneratorExit
