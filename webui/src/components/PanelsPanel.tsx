@@ -84,6 +84,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
   // the instance server, which can be a different origin than the SPA.
   const { connectionConfig } = useApi();
   const apiBaseUrl = connectionConfig.baseUrl;
+  const bearerAuth = Boolean(connectionConfig.useAuthToken && connectionConfig.authToken);
   const controllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
@@ -204,6 +205,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
             descriptor={toDescriptor(selected)}
             conversationId={conversationId}
             apiBaseUrl={apiBaseUrl}
+            bearerAuth={bearerAuth}
           />
         )}
         {selected && isLiveApp(selected) && selected.status === 'running' && (
@@ -219,6 +221,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
             }}
             conversationId={conversationId}
             apiBaseUrl={apiBaseUrl}
+            bearerAuth={bearerAuth}
           />
         )}
       </div>
