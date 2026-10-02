@@ -9,6 +9,7 @@ Unlike ``complete`` (ends session) and ``clarify`` (pauses session), ``progress`
 continues execution after delivering the update.
 
 Delivery modes:
+
 - Thread-mode subagents: uses the in-process ``_progress_queue``; the parent's
   LOOP_CONTINUE hook picks it up on the next iteration.
 - Subprocess-mode subagents: writes JSON lines to ``GPTME_PROGRESS_FILE`` (set

@@ -269,6 +269,74 @@ describe('ServerSelector in non-embedded mode', () => {
     expect(container.firstChild).not.toBeNull();
   });
 
+  it('retries the connection when the already-primary server is clicked while disconnected', async () => {
+    const user = userEvent.setup();
+    const checkConnection = jest.fn().mockResolvedValue(true);
+    const { getClientForServer } =
+      jest.requireMock<typeof import('@/stores/serverClients')>('@/stores/serverClients');
+    const { connectServer, disconnectServer } =
+      jest.requireMock<typeof import('@/stores/servers')>('@/stores/servers');
+    (connectServer as jest.Mock).mockClear();
+    (disconnectServer as jest.Mock).mockClear();
+    // Registry says the Local server is connected, but its live connection is down.
+    (getClientForServer as jest.Mock).mockImplementation(() => ({
+      isConnected$: { get: () => false },
+      checkConnection,
+    }));
+
+    render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+
+    await user.click(screen.getByText('Local'));
+    const row = await screen.findByRole('button', { name: /127\.0\.0\.1:5700/ });
+    await user.click(row);
+
+    await waitFor(() => expect(checkConnection).toHaveBeenCalled());
+    // A successful retry must not mutate the registry either.
+    expect(connectServer).not.toHaveBeenCalled();
+    expect(disconnectServer).not.toHaveBeenCalled();
+
+    (getClientForServer as jest.Mock).mockReturnValue(null);
+  });
+
+  it('does not drop the primary server when a retry probe fails', async () => {
+    const user = userEvent.setup();
+    const checkConnection = jest.fn().mockResolvedValue(false);
+    const { getClientForServer } =
+      jest.requireMock<typeof import('@/stores/serverClients')>('@/stores/serverClients');
+    const { connectServer, disconnectServer } =
+      jest.requireMock<typeof import('@/stores/servers')>('@/stores/servers');
+    const { toast } = jest.requireMock<typeof import('sonner')>('sonner');
+    (connectServer as jest.Mock).mockClear();
+    (disconnectServer as jest.Mock).mockClear();
+    (toast.error as jest.Mock).mockClear();
+    (getClientForServer as jest.Mock).mockImplementation(() => ({
+      isConnected$: { get: () => false },
+      checkConnection,
+    }));
+
+    render(
+      <TooltipProvider>
+        <ServerSelector />
+      </TooltipProvider>
+    );
+
+    await user.click(screen.getByText('Local'));
+    const row = await screen.findByRole('button', { name: /127\.0\.0\.1:5700/ });
+    await user.click(row);
+
+    // The regression: a failed probe used to disconnect the server, which
+    // silently promoted another connected server to primary.
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(connectServer).not.toHaveBeenCalled();
+    expect(disconnectServer).not.toHaveBeenCalled();
+
+    (getClientForServer as jest.Mock).mockReturnValue(null);
+  });
+
   it('focuses and marks the server URL invalid when submitted empty', async () => {
     const user = userEvent.setup();
     render(

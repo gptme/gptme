@@ -24,7 +24,7 @@ from typing_extensions import Self
 from .codeblock import Codeblock
 from .constants import role_color
 from .util import console
-from .util.prompt import rich_to_str
+from .util.rich_text import rich_to_str
 from .util.tokens import len_tokens
 from .util.uri import URI, FilePath, parse_file_reference
 
@@ -199,6 +199,13 @@ class MessageMetadata(TypedDict, total=False):
     served_model: str
     cost: float  # Cost in USD
     usage: UsageData
+    # Anchor provider usage to the stored input prefix. Compaction, edits, or
+    # branch changes invalidate it rather than replaying a stale large count.
+    input_log_messages: int
+    input_log_digest: str
+    # Qualified model identity that produced the anchored provider usage, so a
+    # provider switch serving the same bare model name invalidates the anchor.
+    input_log_model: str
     # Effective reasoning effort level applied to the request (e.g. "high"),
     # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
     # actually shaped the request. Absent means the provider default applied.

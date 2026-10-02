@@ -522,21 +522,12 @@ def record_llm_request(
         "success": str(success).lower(),
     }
 
-    # Add token counts as attributes if provided
-    if input_tokens is not None:
-        attributes["input_tokens"] = str(input_tokens)
-    if output_tokens is not None:
-        attributes["output_tokens"] = str(output_tokens)
-    if cache_creation_tokens is not None:
-        attributes["cache_creation_tokens"] = str(cache_creation_tokens)
-    if cache_read_tokens is not None:
-        attributes["cache_read_tokens"] = str(cache_read_tokens)
-    if total_tokens is not None:
-        attributes["total_tokens"] = str(total_tokens)
-    if cost > 0:
-        attributes["cost"] = f"{cost:.6f}"
-
+    # Token counts and cost are values, not dimensions: they go to counters below
+    # (labels with unbounded numeric values explode Prometheus series cardinality).
     llm_request_counter.add(1, attributes)
+
+    if cost > 0 and (cost_counter := telemetry_objects.get("llm_cost_counter")):
+        cost_counter.add(cost, {"provider": provider, "model": model})
 
     # Also record individual token metrics for existing dashboards/queries
     if input_tokens:

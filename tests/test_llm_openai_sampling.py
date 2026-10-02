@@ -435,3 +435,133 @@ def test_openrouter_provider_from_ignores_non_string_values():
         llm_openai._openrouter_provider_from(SimpleNamespace(provider=" Together "))
         == "Together"
     )
+
+
+def test_stream_records_cumulative_usage_once(monkeypatch):
+    """Providers like Gemini attach cumulative usage to every chunk; count one request."""
+
+    def chunk(content, completion_tokens):
+        return SimpleNamespace(
+            usage=SimpleNamespace(
+                prompt_tokens=10,
+                completion_tokens=completion_tokens,
+                total_tokens=10 + completion_tokens,
+            ),
+            choices=[
+                SimpleNamespace(
+                    finish_reason=None,
+                    delta=SimpleNamespace(
+                        reasoning_content=None,
+                        reasoning=None,
+                        content=content,
+                        tool_calls=None,
+                    ),
+                )
+            ],
+        )
+
+    chunks = [chunk("a", 1), chunk("b", 2), chunk("c", 3)]
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=chunks))
+        )
+    )
+    record = Mock()
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "record_llm_request", record)
+
+    text, metadata = _collect_stream_result(
+        llm_openai.stream(
+            [Message(role="user", content="Say abc.")], "openai/gpt-4o", None
+        )
+    )
+
+    assert text == "abc"
+    assert record.call_count == 1
+    assert record.call_args.kwargs["output_tokens"] == 3
+    assert metadata is not None
+    assert metadata["usage"] == {"input_tokens": 10, "output_tokens": 3}
+
+
+def test_stream_records_usage_when_closed_early(monkeypatch):
+    """Closing the stream early must still record usage already received.
+
+    Providers with cumulative per-chunk usage may deliver it before the user
+    interrupts; the deferred post-loop recording must not be skipped when the
+    consumer closes the generator.
+    """
+
+    def chunk(content, completion_tokens):
+        return SimpleNamespace(
+            usage=SimpleNamespace(
+                prompt_tokens=10,
+                completion_tokens=completion_tokens,
+                total_tokens=10 + completion_tokens,
+            ),
+            choices=[
+                SimpleNamespace(
+                    finish_reason=None,
+                    delta=SimpleNamespace(
+                        reasoning_content=None,
+                        reasoning=None,
+                        content=content,
+                        tool_calls=None,
+                    ),
+                )
+            ],
+        )
+
+    chunks = [chunk("a", 1), chunk("b", 2)]
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=chunks))
+        )
+    )
+    record = Mock()
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "record_llm_request", record)
+
+    gen = llm_openai.stream(
+        [Message(role="user", content="Say abc.")], "openai/gpt-4o", None
+    )
+    assert next(gen) == "a"
+    gen.close()
+
+    assert record.call_count == 1
+    assert record.call_args.kwargs["output_tokens"] == 1
+
+
+def test_stream_failure_after_usage_records_unsuccessful(monkeypatch):
+    """A stream that errors after reporting usage must not be recorded as a success."""
+
+    usage_chunk = SimpleNamespace(
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=0, total_tokens=10),
+        choices=[],
+    )
+
+    def failing_stream():
+        yield usage_chunk
+        raise RuntimeError("connection reset mid-stream")
+
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=failing_stream()))
+        )
+    )
+    record = Mock()
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "record_llm_request", record)
+
+    # One attempt, without the retry wrapper (a retry would re-run create()).
+    gen = llm_openai.stream.__wrapped__(
+        [Message(role="user", content="Say abc.")], "openai/gpt-4o", None
+    )
+    # _guarded_stream_iter re-raises non-SDK errors as httpx.RemoteProtocolError.
+    with pytest.raises(Exception, match="connection reset mid-stream"):
+        list(gen)
+
+    assert record.call_count == 1
+    assert record.call_args.kwargs["success"] is False

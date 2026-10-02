@@ -474,6 +474,40 @@ class TestTriggerSync:
         assert success_call["success"] is True
         assert success_call["duration"] == pytest.approx(0.2)
 
+    def test_generator_typeerror_in_hook_body_is_logged(self, caplog):
+        """A TypeError raised inside a generator hook body is not swallowed.
+
+        Regression test: the TypeError from ``next()`` previously matched an
+        ``except TypeError`` that only meant to handle non-iterable return
+        values, so a real bug in the hook body failed silently — no log line,
+        no telemetry, remaining messages dropped.
+        """
+        registry = HookRegistry()
+
+        def buggy_hook(*args: Any, **kwargs: Any) -> Any:
+            yield Message("system", "before crash")
+            value: Any = None
+            _ = value + 1  # TypeError inside the hook body
+
+        registry.register("buggy-hook", HookType.STEP_PRE, buggy_hook)
+
+        with (
+            unittest.mock.patch("gptme.telemetry.record_hook_call") as mock_record,
+            caplog.at_level(logging.ERROR, logger="gptme.hooks.registry"),
+        ):
+            messages = list(registry.trigger(HookType.STEP_PRE))
+
+        # The message yielded before the crash is still delivered.
+        assert len(messages) == 1
+        assert messages[0].content == "before crash"
+        # The error is logged and recorded as a failure, not silently dropped.
+        assert any("buggy-hook" in msg for msg in caplog.messages)
+        mock_record.assert_called_once()
+        kwargs = mock_record.call_args.kwargs
+        assert kwargs["hook_name"] == "buggy-hook"
+        assert kwargs["success"] is False
+        assert kwargs["error_type"] == "TypeError"
+
 
 # ── HookRegistry: StopPropagation ────────────────────────────────────
 

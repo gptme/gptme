@@ -29,7 +29,8 @@ When working with data, automatically import common libraries and set up display
 ```python
 import numpy as np
 import pandas as pd
-pd.set_option('display.max_rows', 100)
+
+pd.set_option("display.max_rows", 100)
 ```
 
 ### Debugging
@@ -37,6 +38,7 @@ Use bundled helpers for debugging:
 
 ```python
 from python_helpers import inspect_df, describe_object
+
 inspect_df(df)  # Quick dataframe overview
 describe_object(obj)  # Object introspection
 ```
@@ -59,13 +61,14 @@ Required packages are listed in `requirements.txt`:
 ### Quick Data Analysis
 ```python
 # Helpers auto-import pandas, numpy
-df = pd.read_csv('data.csv')
+df = pd.read_csv("data.csv")
 inspect_df(df)  # Show overview
 ```
 
 ### Performance Profiling
 ```python
 from python_helpers import time_function
+
 
 @time_function
 def slow_operation():

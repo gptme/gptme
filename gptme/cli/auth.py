@@ -82,6 +82,9 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
     try:
         resp = requests.post(authorize_url, json={"client_id": "gptme-cli"}, timeout=15)
         resp.raise_for_status()
+    except requests.exceptions.Timeout:
+        console.print(f"[red]✗ Timed out connecting to {auth_base}[/red]")
+        sys.exit(1)
     except requests.exceptions.ConnectionError:
         console.print(f"[red]✗ Could not connect to {auth_base}[/red]")
         console.print("  Check your --auth-url argument.")
@@ -125,6 +128,7 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
     # Step 3: Poll for token
     deadline = time.monotonic() + expires_in
     current_interval = interval
+    last_network_error: Exception | None = None
 
     while time.monotonic() < deadline:
         time.sleep(current_interval)
@@ -140,9 +144,16 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
                 },
                 timeout=15,
             )
-        except requests.exceptions.ConnectionError:
-            console.print("\n[red]✗ Lost connection to service[/red]")
-            sys.exit(1)
+        except (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as e:
+            # The device code stays valid until the deadline; a network blip
+            # during browser approval shouldn't abort the whole login.
+            last_network_error = e
+            console.print("[dim]![/dim]", end="")
+            continue
+        last_network_error = None
 
         if poll_resp.status_code == 200:
             try:
@@ -205,6 +216,10 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 
     console.print("\n")
     console.print("[red]✗ Timed out waiting for authorization.[/red]")
+    if last_network_error is not None:
+        console.print(
+            f"  The token endpoint was unreachable at the end: {last_network_error}"
+        )
     sys.exit(1)
 
 

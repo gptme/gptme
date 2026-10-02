@@ -1263,6 +1263,14 @@ def test_format_resume_hint_shell_quotes_space_containing_name():
     assert cli._format_resume_hint("foo bar") == "gptme --name 'foo bar'"
 
 
+def test_format_fatal_error_drops_keyerror_quotes():
+    msg = "Environment variable ANTHROPIC_API_KEY not set"
+    assert str(KeyError(msg)) != msg  # the quoting being worked around
+    assert cli._format_fatal_error(KeyError(msg)) == msg
+    assert cli._format_fatal_error(RuntimeError(msg)) == msg
+    assert cli._format_fatal_error(KeyError(1, 2)) == str(KeyError(1, 2))
+
+
 def test_command_exit(args: list[str], runner: CliRunner):
     args.append("/exit")
     result = runner.invoke(cli.main, args)
@@ -2142,3 +2150,22 @@ def test_resume_selection_loads_complete_history(
     assert seen == [(expected_dir, histories[expected_dir], expected_prompts)]
     for path, before in snapshots.items():
         assert (path / "conversation.jsonl").read_bytes() == before
+
+
+def test_noninteractive_does_not_seed_prompt_history(monkeypatch, tmp_path: Path):
+    """--non-interactive must not create a prompt_toolkit session (it warns on non-TTY)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    calls: list[str] = []
+    monkeypatch.setattr("gptme.util.prompt.add_history", calls.append)
+    monkeypatch.setattr(
+        importlib.import_module("gptme.chat"), "chat", lambda *a, **k: None
+    )
+
+    result = CliRunner().invoke(
+        cli.main, ["--non-interactive", "--name", "no-history", "hello"]
+    )
+    assert result.exit_code == 0, result.output
+    assert calls == [], result.output

@@ -15,7 +15,7 @@ from flask import request
 from pydantic import BaseModel, Field
 
 from ..logmanager import LogManager
-from .api_v2_common import _validate_conversation_id
+from .api_v2_common import _validate_conversation_id, server_error
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 
@@ -351,10 +351,10 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         if e.errno == errno.ENAMETOOLONG:
             return flask.jsonify({"error": str(e)}), 400
         logger.exception("Error browsing workspace")
-        return flask.jsonify({"error": "Internal server error"}), 500
+        return server_error(e)
     except Exception as e:
         logger.exception("Error browsing workspace")
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)
 
 
 @workspace_api.route(
@@ -469,7 +469,7 @@ def upload_files(conversation_id: str):
         return flask.jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.exception("Error uploading files")
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)
 
 
 @workspace_api.route(
@@ -532,10 +532,10 @@ def serve_conversation_file(conversation_id: str, filepath: str):
         if e.errno == errno.ENAMETOOLONG:
             return flask.jsonify({"error": str(e)}), 400
         logger.exception("Error serving conversation file")
-        return flask.jsonify({"error": "Internal server error"}), 500
+        return server_error(e)
     except Exception as e:
         logger.exception("Error serving conversation file")
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)
 
 
 @workspace_api.route(
@@ -623,10 +623,10 @@ def preview_file(conversation_id: str, filepath: str):
         if e.errno == errno.ENAMETOOLONG:
             return flask.jsonify({"error": str(e)}), 400
         logger.exception("Error previewing file")
-        return flask.jsonify({"error": "Internal server error"}), 500
+        return server_error(e)
     except Exception as e:
         logger.exception("Error previewing file")
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)
 
 
 @workspace_api.route(
@@ -690,7 +690,7 @@ def download_file(conversation_id: str, filepath: str):
         if e.errno == errno.ENAMETOOLONG:
             return flask.jsonify({"error": str(e)}), 400
         logger.exception("Error downloading file")
-        return flask.jsonify({"error": "Internal server error"}), 500
+        return server_error(e)
     except Exception as e:
         logger.exception("Error downloading file")
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)

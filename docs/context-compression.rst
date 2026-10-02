@@ -23,6 +23,14 @@ can opt out through model metadata (Anthropic's native 1M models currently use
 ``context_budget = 0.9``). Explicit budgets remain clamped to the output/headroom
 ceiling so they cannot make provider requests overflow.
 
+The trigger uses the last response's provider-reported input count (uncached
+input plus cache reads and cache writes), then adds a tokenizer estimate for
+that response and subsequent messages. This includes provider overhead such as
+tool schemas that a stored-text estimate misses. Usage is anchored to the stored
+input prefix and model: edits, compaction views, and model changes invalidate
+it. Conversations without a valid usage anchor fall back to tokenizer estimates
+until a new response arrives. UI-only status messages do not count as growth.
+
 Configuring the Context Budget
 ===============================
 
@@ -43,13 +51,15 @@ Note: ``GPTME_CONTEXT_LENGTH`` overrides the *provider window* for local models;
 Built-in Compression Strategy
 ==============================
 
-By default, gptme uses a 3-phase compression algorithm:
+The default trim path stubs stale tool outputs, truncates large tool results,
+and applies extractive compression to eligible older assistant messages.
+Age-based reasoning stripping is disabled: retained thinking blocks are not
+rewritten. Compaction waits until pending tool calls have their results.
 
-1. **Reasoning Stripping** - Remove reasoning tags from older messages (age-based)
-2. **Tool Result Truncation** - Truncate largest tool results first
-3. **Extractive Compression** - Summarize long assistant messages
-
-This approach intelligently prioritizes the largest messages for removal to achieve target reduction with minimal information loss.
+Budget-triggered trims target 70% of the budget and reject views saving less
+than 10% of the estimated stored text. If estimated trim savings are too small,
+the automatic path requests an LLM summary instead. A failed summary latches
+the conversation to trim-only until sufficient message growth permits a retry.
 
 Using Compaction
 ================
@@ -74,8 +84,9 @@ You can also manually compact a conversation:
 
 Two strategies are available:
 
-- **trim** (default) — rule-based: strips old reasoning blocks, truncates massive tool
-  results, and compresses long assistant messages. Fast and deterministic; no LLM call.
+- **trim** (default) — rule-based: stubs stale tool outputs, truncates massive tool
+  results, and compresses eligible assistant messages without rewriting thinking.
+  Fast and deterministic; no LLM call.
   If savings would be low, gptme will suggest ``/compact summarize`` instead.
 
 - **summarize** — LLM-powered: asks the model to produce a ``RESUME.md`` capturing

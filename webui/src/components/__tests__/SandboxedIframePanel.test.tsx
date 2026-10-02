@@ -201,33 +201,31 @@ describe('SandboxedIframePanel', () => {
   it('resolves a server-relative src against the instance API base url', () => {
     render(
       <SandboxedIframePanel
-        descriptor={{ ...baseDescriptor, src: '/preview/5173/', title: 'Live App' }}
+        descriptor={{ ...baseDescriptor, src: '/app/5173/', title: 'Live App' }}
         conversationId="conv1"
         apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
       />
     );
     const frame = screen.getByTitle('Live App') as HTMLIFrameElement;
     // The SPA origin is not the pod; the resolved src must point at the instance.
-    expect(frame.getAttribute('src')).toBe(
-      'https://fleet.gptme.ai/api/v1/instances/abc/preview/5173/'
-    );
+    expect(frame.getAttribute('src')).toBe('https://fleet.gptme.ai/api/v1/instances/abc/app/5173/');
   });
 
   it('leaves a server-relative src alone when no API base url is given', () => {
     render(
       <SandboxedIframePanel
-        descriptor={{ ...baseDescriptor, src: '/preview/5173/', title: 'Live App' }}
+        descriptor={{ ...baseDescriptor, src: '/app/5173/', title: 'Live App' }}
         conversationId="conv1"
       />
     );
     // Local dev serves the SPA and the API from the same origin.
-    expect(screen.getByTitle('Live App').getAttribute('src')).toBe('/preview/5173/');
+    expect(screen.getByTitle('Live App').getAttribute('src')).toBe('/app/5173/');
   });
 
   it('accepts opaque-origin messages from the panel frame and replies to it', async () => {
     render(
       <SandboxedIframePanel
-        descriptor={{ ...baseDescriptor, src: '/preview/5173/', title: 'Live App' }}
+        descriptor={{ ...baseDescriptor, src: '/app/5173/', title: 'Live App' }}
         conversationId="conv1"
         apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
       />
@@ -253,7 +251,7 @@ describe('SandboxedIframePanel', () => {
       <SandboxedIframePanel
         descriptor={{
           ...baseDescriptor,
-          src: '/preview/5173/',
+          src: '/app/5173/',
           sandbox: ['allow-same-origin'],
           title: 'Live App',
         }}
@@ -475,5 +473,40 @@ describe('SandboxedIframePanel', () => {
     );
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.queryByTitle('Webapp Preview')).not.toBeInTheDocument();
+  });
+
+  it('shows a sign-in notice instead of an iframe for remote instance previews with bearer auth', () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/' }}
+        conversationId="conv1"
+        apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
+        bearerAuth
+      />
+    );
+    expect(screen.queryByTitle('Webapp Preview')).toBeNull();
+    expect(screen.getByText('Preview needs sign-in')).toBeTruthy();
+  });
+
+  it('renders the iframe for remote instance previews when no bearer auth is used', () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/' }}
+        conversationId="conv1"
+        apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
+      />
+    );
+    expect(screen.getByTitle('Webapp Preview')).toBeTruthy();
+  });
+
+  it('still renders the iframe for local instance previews', () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/' }}
+        conversationId="conv1"
+        apiBaseUrl="http://localhost:5700"
+      />
+    );
+    expect(getIframe().getAttribute('src')).toBe('http://localhost:5700/preview/5173/');
   });
 });

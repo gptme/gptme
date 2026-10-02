@@ -51,7 +51,7 @@ OAUTH_SCOPES = "openid profile email offline_access grok-cli:access api:access"
 GROK_PROXY_URL = "https://cli-chat-proxy.grok.com/v1"
 
 # Minimum grok CLI version accepted by the proxy; passed via x-grok-client-version header
-GROK_CLIENT_VERSION = "0.1.202"
+GROK_CLIENT_VERSION = "1.0.13"
 
 # grok CLI auth storage key format: "{issuer}::{client_id}"
 GROK_AUTH_KEY = f"{OAUTH_ISSUER}::{OAUTH_CLIENT_ID}"

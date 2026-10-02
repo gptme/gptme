@@ -222,10 +222,10 @@ def resume(
 ) -> None:
     """Rehydrate a <<RESUMED SESSION>> prompt from a prior session trajectory.
 
-    Prints the resume prompt to stdout so it can be piped into gptme:
+    Prints the resume prompt to stdout so it can be passed to gptme:
 
     \b
-        gptme-resume | gptme -c "$(cat)"
+        gptme -- "$(gptme-resume)"
         gptme-resume --last 1 --output json
     """
     logs_dir = _get_logs_dir()

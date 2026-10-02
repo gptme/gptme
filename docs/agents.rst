@@ -112,6 +112,28 @@ Read more:
     and history live in files you own, and it reaches people through whichever
     :doc:`channels <channels>` you connect.
 
+Tasks and communication
+-----------------------
+
+A long-running agent needs a task queue it can pick work from and a way to
+answer messages exactly once. gptme's own agents use two packages from
+`gptme-contrib <https://github.com/gptme/gptme-contrib>`__ for this:
+
+- `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__
+  — a file-based task manager and work queue. Tasks are Markdown files with YAML
+  frontmatter in the agent's repository; ``gptodo ready`` and ``gptodo next``
+  return only unblocked work, and claims and locks keep concurrent sessions from
+  picking the same task. The agent template's ``tasks/`` directory follows its
+  conventions.
+- `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__
+  — email and SSH agent-to-agent messaging. Every message is a Markdown file in
+  the workspace, and replies are tracked so nothing is answered twice. See
+  :doc:`channels/email` and :doc:`channels/agent-messaging`.
+
+Both are optional. An agent can bring its own task and communication systems —
+GitHub Issues, Linear, a plain ``TODO.md``, chat — as long as its prompt and
+context tell it where to look.
+
 Why personify agents?
 ---------------------
 
@@ -150,6 +172,8 @@ For more details, see the following resources:
 
 - `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ - Template for creating new agents
 - `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ - Community-contributed tools and scripts for agents
+- `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`_ - Task manager and work queue for agents
+- `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`_ - Email and agent-to-agent messaging
 
 .. toctree::
    :hidden:

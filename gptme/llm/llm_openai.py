@@ -18,6 +18,7 @@ from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools.base import truncate_tool_description
 from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
 from .models import (
+    OPENAI_COMPAT_PROVIDERS,
     CustomProvider,
     ModelMeta,
     Provider,
@@ -248,6 +249,7 @@ def _record_usage(
     resolved_model: str | None = None,
     reasoning_effort: str | None = None,
     served_model: str | None = None,
+    success: bool = True,
 ) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata.
 
@@ -297,7 +299,7 @@ def _record_usage(
     record_llm_request(
         provider=provider,
         model=model,
-        success=True,
+        success=success,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_creation_tokens=cache_creation_tokens,
@@ -880,7 +882,7 @@ def _handle_openai_transient_error(
         should_retry = True
     elif isinstance(e, APIStatusError):
         # Retry on all 5xx server errors (transient)
-        if 500 <= e.status_code < 600:
+        if 500 <= e.status_code < 600 or e.status_code in (408, 409):
             should_retry = True
         else:
             # Check for known transient issues in error message, body, or string repr
@@ -1275,21 +1277,22 @@ def chat(
         raise ValueError("OpenAI API returned empty choices list")
     choice = response.choices[0]
     result = []
-    if choice.finish_reason == "tool_calls":
-        for tool_call in choice.message.tool_calls or []:
-            assert isinstance(tool_call, ChatCompletionMessageToolCall)
-            result.append(
-                f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
-            )
-    else:
-        if reasoning_content := (
-            getattr(choice.message, "reasoning_content", None)
-            or getattr(choice.message, "reasoning", None)
-        ):
-            logger.debug("Reasoning content: %s", reasoning_content)
-            result.append(f"<think>\n{reasoning_content}\n</think>\n")
-        if choice.message.content:
-            result.append(choice.message.content)
+    # Don't gate on finish_reason: some OpenAI-compatible backends return tool
+    # calls with finish_reason="stop", and a "tool_calls" response can carry
+    # assistant text. Keep both, matching the streaming path.
+    if reasoning_content := (
+        getattr(choice.message, "reasoning_content", None)
+        or getattr(choice.message, "reasoning", None)
+    ):
+        logger.debug("Reasoning content: %s", reasoning_content)
+        result.append(f"<think>\n{reasoning_content}\n</think>\n")
+    if choice.message.content:
+        result.append(choice.message.content)
+    for tool_call in choice.message.tool_calls or []:
+        assert isinstance(tool_call, ChatCompletionMessageToolCall)
+        result.append(
+            f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
+        )
 
     if not result:
         raise ValueError(
@@ -1809,90 +1812,111 @@ def stream(
 
     # Model id as the provider reports it on each chunk (last non-empty wins).
     served_model: str | None = None
+    last_usage = None
+    stream_failed = False
 
-    for chunk_raw in _guarded_stream_iter(_stream_obj, model=model, provider=provider):
-        from openai.types.chat import ChatCompletionChunk  # fmt: skip
-        from openai.types.chat.chat_completion_chunk import (  # fmt: skip
-            ChoiceDeltaToolCall,
-            ChoiceDeltaToolCallFunction,
-        )
-
-        if _or_provider_from_body and (
-            _body_provider := _openrouter_provider_from(chunk_raw)
+    try:
+        for chunk_raw in _guarded_stream_iter(
+            _stream_obj, model=model, provider=provider
         ):
-            _or_provider_from_body = False
-            _or_resolved = _make_resolved_model(model, _body_provider)
-            if _or_resolved:
-                if captured_metadata is None:
-                    captured_metadata = _record_usage(
-                        None,
-                        model,
-                        resolved_model=_or_resolved,
-                        reasoning_effort=reasoning_effort,
-                    )
-                else:
-                    captured_metadata["resolved_model"] = _or_resolved
+            from openai.types.chat import ChatCompletionChunk  # fmt: skip
+            from openai.types.chat.chat_completion_chunk import (  # fmt: skip
+                ChoiceDeltaToolCall,
+                ChoiceDeltaToolCallFunction,
+            )
 
-        # Cast the chunk to the correct type
-        chunk = cast(ChatCompletionChunk, chunk_raw)
+            if _or_provider_from_body and (
+                _body_provider := _openrouter_provider_from(chunk_raw)
+            ):
+                _or_provider_from_body = False
+                _or_resolved = _make_resolved_model(model, _body_provider)
+                if _or_resolved:
+                    if captured_metadata is None:
+                        captured_metadata = _record_usage(
+                            None,
+                            model,
+                            resolved_model=_or_resolved,
+                            reasoning_effort=reasoning_effort,
+                        )
+                    else:
+                        captured_metadata["resolved_model"] = _or_resolved
 
-        if chunk_served := served_model_from(chunk):
-            served_model = chunk_served
+            # Cast the chunk to the correct type
+            chunk = cast(ChatCompletionChunk, chunk_raw)
 
-        # Record usage if available (typically in final chunk)
-        # and capture metadata for message attachment
-        if hasattr(chunk, "usage") and chunk.usage:
+            if chunk_served := served_model_from(chunk):
+                served_model = chunk_served
+
+            # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
+            # endpoint) attach it to every chunk. Keep the latest and record once
+            # after the stream, so one response is one request/turn.
+            if hasattr(chunk, "usage") and chunk.usage:
+                last_usage = chunk.usage
+
+            if not chunk.choices:
+                continue
+
+            choice = chunk.choices[0]
+            stop_reason = choice.finish_reason
+            delta = choice.delta
+
+            # Handle reasoning content
+            # OpenRouter API uses delta.reasoning
+            # DeepSeek API uses delta.reasoning_content
+            if reasoning_content := (
+                getattr(delta, "reasoning_content", None)
+                or getattr(delta, "reasoning", None)
+            ):
+                if not in_reasoning_block:
+                    yield "<think>\n"
+                    in_reasoning_block = True
+                yield reasoning_content
+            elif in_reasoning_block:
+                yield "\n</think>\n\n"
+                in_reasoning_block = False
+                if delta.content is not None:
+                    yield delta.content
+            elif delta.content is not None:
+                yield delta.content
+
+            # Handle tool calls
+            if delta.tool_calls:
+                for tool_call in delta.tool_calls:
+                    if (
+                        isinstance(tool_call, ChoiceDeltaToolCall)
+                        and tool_call.function
+                    ):
+                        func = tool_call.function
+                        if isinstance(func, ChoiceDeltaToolCallFunction):
+                            if func.name:
+                                yield f"\n@{func.name}({tool_call.id}): "
+                            if func.arguments:
+                                yield func.arguments
+
+            # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
+            # if delta.type == "response.reasoning_summary.delta":
+            #     if not in_reasoning_block:
+            #         yield "<think>\n"
+            #         in_reasoning_block = True
+            #     yield delta.text
+    except Exception:
+        # A provider/transport error mid-stream. GeneratorExit (consumer closed
+        # early) is a BaseException and deliberately not caught here.
+        stream_failed = True
+        raise
+    finally:
+        # Record usage even if the consumer closes this generator early
+        # (interrupt/break): some providers attach cumulative usage to every
+        # chunk, so the latest value still describes the partial response.
+        if last_usage is not None:
             captured_metadata = _record_usage(
-                chunk.usage,
+                last_usage,
                 model,
                 resolved_model=_or_resolved,
                 reasoning_effort=reasoning_effort,
                 served_model=served_model,
+                success=not stream_failed,
             )
-
-        if not chunk.choices:
-            continue
-
-        choice = chunk.choices[0]
-        stop_reason = choice.finish_reason
-        delta = choice.delta
-
-        # Handle reasoning content
-        # OpenRouter API uses delta.reasoning
-        # DeepSeek API uses delta.reasoning_content
-        if reasoning_content := (
-            getattr(delta, "reasoning_content", None)
-            or getattr(delta, "reasoning", None)
-        ):
-            if not in_reasoning_block:
-                yield "<think>\n"
-                in_reasoning_block = True
-            yield reasoning_content
-        elif in_reasoning_block:
-            yield "\n</think>\n\n"
-            in_reasoning_block = False
-            if delta.content is not None:
-                yield delta.content
-        elif delta.content is not None:
-            yield delta.content
-
-        # Handle tool calls
-        if delta.tool_calls:
-            for tool_call in delta.tool_calls:
-                if isinstance(tool_call, ChoiceDeltaToolCall) and tool_call.function:
-                    func = tool_call.function
-                    if isinstance(func, ChoiceDeltaToolCallFunction):
-                        if func.name:
-                            yield f"\n@{func.name}({tool_call.id}): "
-                        if func.arguments:
-                            yield func.arguments
-
-        # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
-        # if delta.type == "response.reasoning_summary.delta":
-        #     if not in_reasoning_block:
-        #         yield "<think>\n"
-        #         in_reasoning_block = True
-        #     yield delta.text
 
     if in_reasoning_block:
         yield "\n</think>\n"
@@ -2405,19 +2429,16 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
     )
     description = truncate_tool_description(description, spec.name)
 
-    # Custom providers are OpenAI-compatible and support tools API.
-    # grok-subscription routes to xAI's OpenAI-compatible subscription proxy
-    # (cli-chat-proxy.grok.com), which supports function calling — without it
-    # here, `--tool-format tool` raised "Provider doesn't support tools API".
-    if model.provider in [
-        "openai",
-        "azure",
-        "openrouter",
-        "deepseek",
-        "moonshot",
-        "local",
-        "grok-subscription",
-    ] or is_custom_provider(model.model.split("/")[0]):
+    # Custom providers are OpenAI-compatible and support tools API. Reuse the
+    # canonical OPENAI_COMPAT_PROVIDERS set (the same one used to stamp each
+    # model's default_tool_format) so the two cannot drift. Every provider in
+    # it advertises an OpenAI-compatible function-calling API, so a provider
+    # whose models default to the "tool" format must serialize here; otherwise
+    # the default crashes with "Provider doesn't support tools API" — which is
+    # exactly what gemini, groq, and xai did.
+    if model.provider in OPENAI_COMPAT_PROVIDERS or is_custom_provider(
+        model.model.split("/")[0]
+    ):
         all_required = all(p.required for p in spec.parameters)
         supports_strict = model.supports_strict_tools and all_required
         function_def: dict[str, Any] = {

@@ -311,33 +311,29 @@ class TestUtilSubcommandMirroring:
     def test_util_subcmd_after_unknown_option_does_not_dispatch(
         self, runner: CliRunner
     ):
-        """gptme --bogus chats list --help shows gptme help, not gptme-util.
-
-        With ignore_unknown_options=True, Click treats '--bogus' as a positional.
-        The scanner mirrors this: unknown long options stop the scan without
-        enabling util dispatch, so allow_interspersed_args stays True and
-        --help fires as an eager option showing gptme's top-level help.
-        """
+        """Unknown leading long options fail without utility dispatch."""
         with (
             patch("gptme.cli.main.shutil.which", return_value=None),
             patch("gptme.cli.main.subprocess.call") as mock_call,
         ):
             result = runner.invoke(main, ["--bogus", "chats", "list", "--help"])
-        assert "Usage:" in result.output
-        assert result.exit_code == 0
+        assert "No such option" in result.output
+        assert "--bogus" in result.output
+        assert result.exit_code == 2
         mock_call.assert_not_called()
 
     def test_util_subcmd_after_unknown_short_option_does_not_dispatch(
         self, runner: CliRunner
     ):
-        """gptme -x chats list --help shows gptme help, not gptme-util."""
+        """Unknown leading short options fail without utility dispatch."""
         with (
             patch("gptme.cli.main.shutil.which", return_value=None),
             patch("gptme.cli.main.subprocess.call") as mock_call,
         ):
             result = runner.invoke(main, ["-x", "chats", "list", "--help"])
-        assert "Usage:" in result.output
-        assert result.exit_code == 0
+        assert "No such option" in result.output
+        assert "-x" in result.output
+        assert result.exit_code == 2
         mock_call.assert_not_called()
 
     def test_util_subcmd_skipped_for_version_flag(self, runner: CliRunner):
@@ -452,3 +448,59 @@ class TestUtilParentProgName:
         output = _util_stats_days_zero_output(parent_prog=None)
         assert "Usage: gptme-util stats" in output
         assert "Try 'gptme-util stats --help'" in output
+
+
+@pytest.mark.parametrize(
+    ("args", "unknown"),
+    [
+        (["--modle", "gpt-4o", "fix the bug"], "--modle"),
+        (["--modle=gpt-4o", "fix the bug"], "--modle"),
+        (["-c", "fix the bug"], "-c"),
+        (["-nx", "fix the bug"], "-x"),
+        (["--workspace", ".", "--modle", "fix the bug"], "--modle"),
+    ],
+)
+def test_unknown_leading_option_never_starts_session(
+    runner: CliRunner, args: list[str], unknown: str
+) -> None:
+    with patch.object(main, "callback") as session:
+        result = runner.invoke(main, args)
+    assert result.exit_code == 2, result.output
+    assert "No such option" in result.output
+    assert unknown in result.output
+    if unknown == "--modle":
+        assert "Did you mean" in result.output
+        assert "--model" in result.output
+    session.assert_not_called()
+
+
+@pytest.mark.parametrize("args", [["--", "--modle"], ["hello", "--modle"]])
+def test_option_like_prompt_text_is_preserved(args: list[str]) -> None:
+    with main.make_context("gptme", args) as ctx:
+        assert ctx.params["prompts"][-1] == "--modle"
+
+
+@pytest.mark.parametrize(
+    ("option", "name"),
+    [("--no-stream", "stream"), ("--no-prune-tool-output", "prune_tool_output")],
+)
+def test_negative_boolean_options_remain_valid(option: str, name: str) -> None:
+    with main.make_context("gptme", [option, "hello"]) as ctx:
+        assert ctx.params[name] is False
+
+
+def test_option_like_value_is_not_rejected() -> None:
+    with main.make_context("gptme", ["--system", "--modle", "hello"]) as ctx:
+        assert ctx.params["prompt_system"] == "--modle"
+
+
+def test_utility_shortcut_keeps_unknown_options(runner: CliRunner) -> None:
+    with (
+        patch("gptme.cli.main.shutil.which", return_value="/usr/local/bin/gptme-util"),
+        patch("gptme.cli.main.subprocess.call", return_value=0) as forward,
+    ):
+        result = runner.invoke(main, ["chats", "list", "--flag"])
+    assert result.exit_code == 0, result.output
+    forward.assert_called_once_with(
+        ["/usr/local/bin/gptme-util", "chats", "list", "--flag"], env=ANY
+    )

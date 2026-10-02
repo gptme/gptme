@@ -948,6 +948,30 @@ def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools():
     assert "<server>.*" in rendered_warning
 
 
+def test_normalize_tool_allowlist_does_not_warn_per_item():
+    """Normalizing a multi-tool allowlist must not emit one MCP warning per tool."""
+    import gptme.tools
+    from gptme.config.cli_setup import _normalize_tool_allowlist
+    from gptme.tools.base import ToolSpec
+
+    clear_tools()
+    fake_tools = [
+        ToolSpec(name="time.get_current_time", desc="Time", is_mcp=True),
+        ToolSpec(name="save", desc="Save"),
+        ToolSpec(name="shell", desc="Shell"),
+    ]
+
+    with (
+        patch("gptme.tools.get_available_tools", return_value=fake_tools),
+        patch.object(gptme.tools, "_warned_mcp_allowlists", set()),
+        patch.object(gptme.tools.logger, "warning") as mock_warning,
+    ):
+        normalized = _normalize_tool_allowlist(["save", "shell"])
+
+    assert normalized == ["save", "shell"]
+    mock_warning.assert_not_called()
+
+
 def test_tool_descriptions_within_openai_limit():
     """All tool descriptions must fit within OpenAI's 1024-char function description limit.
 

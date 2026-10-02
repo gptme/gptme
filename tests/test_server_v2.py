@@ -5558,3 +5558,119 @@ def test_v2_agents_put_rejects_non_object_mcp_server_entries(
     assert (
         data["error"] == "Invalid project_config: mcp.servers entries must be objects"
     )
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_v2_step_anchors_provider_usage(v2_conv, client: FlaskClient, stream):
+    """Both server generation paths attach usage to the stored input prefix."""
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager
+    from gptme.util.context_measurement import input_log_digest, measure_context_tokens
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Reply briefly"},
+    )
+
+    class UsageStream:
+        metadata = {"usage": {"input_tokens": 1000, "cache_read_tokens": 500}}
+
+        def __iter__(self):
+            yield "ok\n"
+
+    with (
+        unittest.mock.patch(
+            "gptme.server.session_step._stream", return_value=UsageStream()
+        ),
+        unittest.mock.patch(
+            "gptme.server.session_step._chat_complete",
+            return_value=("ok\n", UsageStream.metadata.copy()),
+        ),
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+                "stream": stream,
+            },
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            session = SessionManager.get_session(session_id)
+            if session is not None and not session.generating:
+                break
+            time.sleep(0.01)
+    assert response.status_code == 200
+    messages = LogManager.load(conversation_id, lock=False).log.messages
+    index = next(i for i, message in enumerate(messages) if message.role == "assistant")
+    metadata = messages[index].metadata
+    assert metadata is not None
+    assert metadata["input_log_messages"] == index
+    assert metadata["input_log_digest"] == input_log_digest(messages[:index])
+    assert metadata["usage"]["input_tokens"] == 1000
+    assert measure_context_tokens(messages, "openai/mock-model") >= 1500
+
+
+def test_v2_step_resolves_model_once(v2_conv, client: FlaskClient):
+    """The step reuses its start-of-step model metadata for usage anchoring.
+
+    A second ``get_model`` lookup after generation could retry a failing
+    dynamic model catalog (e.g. OpenRouter) and stall step completion.
+    """
+    import sys
+
+    import gptme.llm.models
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Reply briefly"},
+    )
+
+    real_get_model = gptme.llm.models.get_model
+    generated = False
+    step_lookups: list[bool] = []  # one entry per step lookup: after generation?
+
+    def tracking_get_model(model):
+        if sys._getframe(1).f_code.co_filename.endswith("session_step.py"):
+            step_lookups.append(generated)
+        return real_get_model(model)
+
+    def fake_chat_complete(*args, **kwargs):
+        nonlocal generated
+        generated = True
+        return "ok\n", {"usage": {"input_tokens": 10}}
+
+    with (
+        unittest.mock.patch("gptme.llm.models.get_model", new=tracking_get_model),
+        unittest.mock.patch(
+            "gptme.server.session_step._chat_complete", new=fake_chat_complete
+        ),
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+                "stream": False,
+            },
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            session = SessionManager.get_session(session_id)
+            if session is not None and not session.generating:
+                break
+            time.sleep(0.01)
+    assert response.status_code == 200
+    assert generated
+    assert step_lookups == [False]  # resolved once, before generation
+    messages = LogManager.load(conversation_id, lock=False).log.messages
+    assistant = next(m for m in messages if m.role == "assistant")
+    assert assistant.metadata is not None
+    assert "input_log_messages" in assistant.metadata

@@ -132,7 +132,7 @@ const demoMessages: Record<string, Message[]> = {
     {
       role: 'assistant',
       content:
-        "The gptme web UI offers several advantages over the CLI interface:\n\n1. **Rich Message Display**:\n   - Syntax highlighted code blocks\n   - Collapsible sections for code and thinking\n   - Different styles for user/assistant/system messages\n   - Emoji indicators for different types of content:\n     - 📄 File paths\n     - 🛠️ Tool usage\n     - 📤 Command output\n     - 💻 Code blocks\n\n2. **Interactive Features**:\n   - Real-time streaming of responses\n   - Easy navigation between conversations\n   - Ability to view and restore conversation history\n\n3. **Integration with gptme-server**:\n   - Connects to your local gptme instance\n   - Access to all local tools and capabilities\n   - Secure local execution of commands\n\nHere's an example showing different types of content:\n\n```/path/to/file.py\n# This shows as a file path\n```\n\n```shell\n# This shows as a tool\nls -la\n```\n\n```stdout\n# This shows as command output\ntotal 0\n```\n\n<thinking>\nThinking blocks are collapsible and help show my reasoning process\n</thinking>\n\nThis web UI is a work in progress and will be improved over time (see the [remaining issues](https://github.com/gptme/gptme-webui/issues)).",
+        "The gptme web UI offers several advantages over the CLI interface:\n\n1. **Rich Message Display**:\n   - Syntax highlighted code blocks\n   - Collapsible sections for code and thinking\n   - Different styles for user/assistant/system messages\n   - Emoji indicators for different types of content:\n     - 📄 File paths\n     - 🛠️ Tool usage\n     - 📤 Command output\n     - 💻 Code blocks\n\n2. **Interactive Features**:\n   - Real-time streaming of responses\n   - Easy navigation between conversations\n   - Ability to view and restore conversation history\n\n3. **Integration with gptme-server**:\n   - Connects to your local gptme instance\n   - Access to all local tools and capabilities\n   - Secure local execution of commands\n\nHere's an example showing different types of content:\n\n```/path/to/file.py\n# This shows as a file path\n```\n\n```shell\n# This shows as a tool\nls -la\n```\n\n```stdout\n# This shows as command output\ntotal 0\n```\n\n<thinking>\nThinking blocks are collapsible and help show my reasoning process\n</thinking>\n\nThis web UI is a work in progress and will be improved over time (see the [open web UI issues](https://github.com/gptme/gptme/issues?q=is%3Aissue+is%3Aopen+label%3Awebui)).",
       timestamp: DEMO_EPOCH_ISO,
     },
     {
@@ -143,7 +143,7 @@ const demoMessages: Record<string, Message[]> = {
     {
       role: 'assistant',
       content:
-        "To use the gptme web UI, you'll need to run `gptme-server` locally first:\n\n```shell\ngptme-server --cors-origin='<origin>'  # Replace <origin> with the web UI URL\n```\n\nThen you have two options for accessing the web UI:\n\n1. **Use the hosted version** at [chat.gptme.org](https://chat.gptme.org):\n   - Use `--cors-origin='https://chat.gptme.org'` when starting the server\n   - Click the 'Connect' button in the top-right corner\n   - Enter the server URL (default: http://127.0.0.1:5700)\n\n2. **Run the web UI locally**:\n   ```shell\n   git clone https://github.com/gptme/gptme-webui\n   cd gptme-webui\n   npm install\n   npm run dev\n   ```\n   Then:\n   - Use `--cors-origin='http://localhost:5701'` when starting the server\n   - Open http://localhost:5701 in your browser\n   - Click 'Connect' and enter the server URL\n\nBoth options provide the same features, just choose what works best for you!",
+        "The simplest way is to let `gptme-server` serve the web UI itself (release packages ship the UI; a source checkout needs `make bundle-webui` first):\n\n```shell\ngptme-server\n```\n\nThen open http://localhost:5700 in your browser. Authentication is on by default, so paste the token the server prints at startup — run `gptme-server token` to see it again.\n\nOther options:\n\n1. **Use the hosted version** at [chat.gptme.org](https://chat.gptme.org):\n   - Start the server with `--cors-origin='https://chat.gptme.org'`\n   - Pick your server from the server selector in the top-right corner (it shows **Local** by default)\n   - If your server requires a token, turn on **Add Authorization header** for that server and paste the token printed by `gptme-server`\n   - If your browser asks to access other apps and services on this device, click **Allow**\n\n2. **Run the web UI from source** (for frontend development):\n\n```shell\ngit clone https://github.com/gptme/gptme\ncd gptme/webui\nnpm install\nnpm run dev\n```\n\nThen start the server with `--cors-origin='http://localhost:5701'` and open http://localhost:5701.\n\nAll options give you the same features, so choose what works best for you!",
       timestamp: DEMO_EPOCH_ISO,
     },
   ],
@@ -160,6 +160,12 @@ const demoMessages: Record<string, Message[]> = {
   })),
 };
 
+function showStressTest(): boolean {
+  return (
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('stress-test')
+  );
+}
+
 // Demo conversations (as ConversationSummary objects)
 export const demoConversations: ConversationSummary[] = [
   {
@@ -170,14 +176,20 @@ export const demoConversations: ConversationSummary[] = [
     readonly: true,
     workspace: '/demo/workspace',
   },
-  {
-    id: 'stress-test',
-    name: 'Stress test (200 messages)',
-    modified: DEMO_EPOCH_UNIX,
-    messages: demoMessages['stress-test'].length,
-    readonly: true,
-    workspace: '/demo/workspace',
-  },
+  // e2e fixture only: listed when the app is loaded with `?stress-test`, so
+  // users browsing the offline demo never see it.
+  ...(showStressTest()
+    ? [
+        {
+          id: 'stress-test',
+          name: 'Stress test (200 messages)',
+          modified: DEMO_EPOCH_UNIX,
+          messages: demoMessages['stress-test'].length,
+          readonly: true,
+          workspace: '/demo/workspace',
+        },
+      ]
+    : []),
 ];
 
 // Helper function to get demo conversation messages

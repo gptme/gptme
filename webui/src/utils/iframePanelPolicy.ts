@@ -142,6 +142,39 @@ export function isAllowedIframeSrc(src: string, allowedOrigin?: string | null): 
 }
 
 /**
+ * True when `src` is this instance's preview route on a remote (non-loopback)
+ * API origin and the connection authenticates with a bearer token. Such routes
+ * require `Authorization: Bearer`, which a browser never attaches to an iframe
+ * navigation, so the frame can only ever render a 401 page. Deployments that
+ * run without server auth (`bearerAuth` false) are left alone.
+ */
+export function isAuthGatedPreviewSrc(
+  src: string,
+  apiBaseUrl?: string | null,
+  bearerAuth = false
+): boolean {
+  if (!bearerAuth) return false;
+  const apiOrigin = urlOrigin(apiBaseUrl);
+  if (!apiOrigin || !apiBaseUrl) return false;
+  try {
+    const url = new URL(src);
+    if (url.origin !== apiOrigin) return false;
+    const host = url.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
+      return false;
+    }
+    // Anchor to the instance's own base path so other routes on the same
+    // origin (e.g. `/preview/5173/` at the origin root) are not caught.
+    const basePath = new URL(apiBaseUrl).pathname.replace(/\/+$/, '');
+    return new RegExp(`^${basePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/preview/\\d+(/|$)`).test(
+      url.pathname
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve the origin an iframe `src` will load from, for strict postMessage
  * origin checks. Server-relative paths resolve against the host window origin.
  * Returns null when the origin cannot be determined.

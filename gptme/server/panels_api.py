@@ -19,7 +19,7 @@ import flask
 from pydantic import BaseModel, Field
 
 from ..logmanager import LogManager
-from .api_v2_common import _validate_conversation_id
+from .api_v2_common import _validate_conversation_id, server_error
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 
@@ -303,4 +303,4 @@ def list_panels(conversation_id: str):
         return flask.jsonify({"panels": [p.model_dump() for p in panels]})
     except Exception as e:
         logger.exception("Error listing panels for %s", conversation_id)
-        return flask.jsonify({"error": str(e)}), 500
+        return server_error(e)

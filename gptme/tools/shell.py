@@ -1252,21 +1252,23 @@ class ShellSession:
         start_time = time.time() if timeout else None
         max_output_bytes = _get_max_output_bytes()
 
-        if _is_windows:
-            return self._read_output_windows(
-                command,
-                output,
-                stdout,
-                stderr,
-                return_code,
-                seen_start_marker,
-                start_marker_pattern,
-                delimiter_pattern,
-                start_time,
-                timeout,
-                max_output_bytes,
-            )
-        return self._read_output_unix(
+        # Each pipe keeps incomplete UTF-8 sequences across reads. Reset for
+        # every command so an unfinished sequence cannot leak into the next one.
+        # Hold direct references: if the shell dies mid-command and is restarted,
+        # `_init()` runs commands that rebuild `self._output_decoders` for the
+        # *new* pipe descriptors. Flushing by the old fd afterwards would raise
+        # KeyError (fd numbers not reused) or drop the old shell's incomplete
+        # sequence (fd numbers reused), so the tail flush must use the decoders
+        # this command actually read with.
+        stdout_fd, stderr_fd = self.stdout_fd, self.stderr_fd
+        stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._output_decoders = {
+            stdout_fd: stdout_decoder,
+            stderr_fd: stderr_decoder,
+        }
+        reader = self._read_output_windows if _is_windows else self._read_output_unix
+        result = reader(
             command,
             output,
             stdout,
@@ -1279,6 +1281,24 @@ class ShellSession:
             timeout,
             max_output_bytes,
         )
+        # The Windows reader has joined its producer threads before returning.
+        # Flush a genuinely incomplete final sequence using the same replacement
+        # policy as invalid bytes, even when a dead shell changed its pipe fds.
+        out_tail = stdout_decoder.decode(b"", final=True)
+        err_tail = stderr_decoder.decode(b"", final=True)
+        self._capture_output(stdout, out_tail, stream=sys.stdout, output=output)
+        self._capture_output(stderr, err_tail, stream=sys.stderr, output=output)
+        return result[0], result[1] + out_tail, result[2] + err_tail
+
+    def _decode_output(self, fd: int, raw: bytes) -> str:
+        # Direct reader tests and recovery helpers can bypass _run_pipe.
+        if not hasattr(self, "_output_decoders"):
+            self._output_decoders = {}
+        if fd not in self._output_decoders:
+            self._output_decoders[fd] = codecs.getincrementaldecoder("utf-8")(
+                errors="replace"
+            )
+        return self._output_decoders[fd].decode(raw)
 
     def _read_output_windows(
         self,
@@ -1319,12 +1339,19 @@ class ShellSession:
                 os.set_blocking(fd, False)
             except OSError:
                 pass
-            while not stop_event.is_set() and not cap_state["over"]:
+            # A background process can keep a pipe continuously readable, so
+            # `os.read` never raises BlockingIOError and a stop_event check only
+            # in that branch would let this reader outlive the command. It would
+            # then compete with the next command's reader for a reused
+            # descriptor and divert that command's output into this abandoned
+            # queue (Greptile P1). Check stop_event after each successful
+            # read+enqueue so the final buffered bytes are still delivered.
+            while not cap_state["over"]:
                 try:
                     raw = os.read(fd, 2**16)
                     if not raw:
                         break
-                    data = raw.decode("utf-8", errors="replace")
+                    data = self._decode_output(fd, raw)
 
                     # Exclude shell protocol markers from byte accounting on
                     # stdout (mirrors the Unix path).  Pre-marker bytes (e.g.
@@ -1368,7 +1395,13 @@ class ShellSession:
                         # Stop producing more data; the consumer detects the
                         # cap and performs the kill + marker.
                         break
+                    if stop_event.is_set():
+                        # The chunk above is already enqueued, so the consumer's
+                        # post-join drain can recover it; stop reading now.
+                        break
                 except BlockingIOError:
+                    if stop_event.is_set():
+                        break
                     time.sleep(0.01)
                 except OSError:
                     break
@@ -1474,9 +1507,11 @@ class ShellSession:
                                     )
                                 )
 
-                            # Drain remaining stderr
+                            # Finish reading bytes already in the pipe before
+                            # draining the queue; the final UTF-8 bytes can arrive
+                            # before the delimiter but after the previous read.
                             stop_event.set()
-                            time.sleep(0.05)
+                            t_stderr.join(timeout=0.5)
                             while not stderr_queue.empty():
                                 try:
                                     err_data = stderr_queue.get_nowait()
@@ -1869,7 +1904,7 @@ class ShellSession:
                             max_output_bytes,
                             captured_bytes,
                         )
-                    data = raw.decode("utf-8", errors="replace")
+                    data = self._decode_output(fd, raw)
                     lines = data.splitlines(keepends=True)
                     re_returncode = re.compile(r"ReturnCode:(\d+)")
 
@@ -1990,7 +2025,9 @@ class ShellSession:
                                     continue
                                 drain_empty_count = 0
                                 captured_bytes += len(drain_raw)
-                                drain_data = drain_raw.decode("utf-8", errors="replace")
+                                drain_data = self._decode_output(
+                                    self.stderr_fd, drain_raw
+                                )
                                 self._capture_output(
                                     stderr, drain_data, stream=sys.stderr, output=output
                                 )
@@ -2066,7 +2103,7 @@ class ShellSession:
                     continue
                 read_any = True
                 captured_bytes += len(raw)
-                data = raw.decode("utf-8", errors="replace")
+                data = self._decode_output(fd, raw)
                 target = stdout if fd == self.stdout_fd else stderr
                 stream = sys.stdout if fd == self.stdout_fd else sys.stderr
                 target.append(data)
@@ -2164,7 +2201,7 @@ class ShellSession:
                     continue
                 drain_empty_count = 0
                 drain_budget -= len(drain_raw)
-                drain_data = drain_raw.decode("utf-8", errors="replace")
+                drain_data = self._decode_output(drain_fd, drain_raw)
                 if drain_fd == self.stdout_fd:
                     stdout.append(drain_data)
                     if output:

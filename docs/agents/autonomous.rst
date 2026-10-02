@@ -50,7 +50,10 @@ a separate question, and in practice two loop shapes show up:
 
 The `gptme-runloops <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-runloops>`__
 package in gptme-contrib implements both, plus email and multi-agent
-coordination loops:
+coordination loops. Its ``email`` loop answers mail through
+`gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__,
+and its ``team`` loop delegates tasks through
+`gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__:
 
 .. code-block:: bash
 

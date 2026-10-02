@@ -18,6 +18,8 @@ Each tool has its own reference page, listed here by category.
 - :doc:`tools/patch` - Apply precise changes to existing files
 - :doc:`tools/morph` - Apply fast targeted edits using Morph Fast Apply
 - :doc:`tools/hashline-edit` - Snapshot-anchored line-range edits with stale-file detection
+- :doc:`tools/patch-many` - Apply patches to multiple files atomically
+- :doc:`tools/convert` - Convert files between formats using offline system tools
 
 💻 Code & Development
 ~~~~~~~~~~~~~~~~~~~~~
@@ -58,12 +60,16 @@ Each tool has its own reference page, listed here by category.
 - :doc:`tools/restart` - Restart the gptme process after configuration changes
 - :doc:`tools/vent` - Emit in-the-moment friction signals to a durable ledger
 - :doc:`tools/request-tool-change` - Let the assistant enable or disable a tool for the current session, within the session allowlist (opt-in)
+- :doc:`tools/watch` - Arm event sources and get woken when they fire instead of polling (opt-in)
+- :doc:`tools/progress` - Let a subagent send intermediate updates to its parent (opt-in)
+- :doc:`tools/clarify` - Let a subagent pause and ask its parent for information (opt-in)
 
 🧠 Knowledge & Planning
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 - :doc:`tools/lessons` - Access contextual lessons and behavioral guidance
 - :doc:`tools/todo` - Manage a conversation-scoped working memory task list
+- :doc:`tools/memory` - Save persistent memories to the shared cross-runtime store
 
 🔌 Extensions
 ~~~~~~~~~~~~~
@@ -79,6 +85,8 @@ Each tool has its own reference page, listed here by category.
    tools/patch
    tools/morph
    tools/hashline-edit
+   tools/patch-many
+   tools/convert
    tools/python
    tools/shell
    GitHub (gh) <tools/gh>
@@ -99,8 +107,12 @@ Each tool has its own reference page, listed here by category.
    tools/restart
    tools/vent
    Request Tool Change <tools/request-tool-change>
+   tools/watch
+   tools/progress
+   tools/clarify
    tools/lessons
    tools/todo
+   tools/memory
    tools/mcp
 
 Tool Interface Architecture
@@ -231,7 +243,7 @@ MCP tool annotations
 ~~~~~~~~~~~~~~~~~~~~~
 
 When gptme connects to an MCP server, each tool's
-`ToolAnnotations <https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations>`_
+`ToolAnnotations <https://modelcontextprotocol.io/specification/latest/schema#toolannotations>`_
 are mapped to gptme hints:
 
 .. list-table::

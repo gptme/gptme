@@ -9,7 +9,7 @@ Split from the original monolithic models.py into sub-modules:
 """
 
 # Re-export everything that was previously importable from gptme.llm.models
-from .data import MODELS
+from .data import MODELS, OPENAI_COMPAT_PROVIDERS
 from .listing import (
     _apply_model_filters,
     _get_models_for_provider,
@@ -63,6 +63,7 @@ __all__ = [
     "MODEL_ALIASES",
     "PROVIDER_ALIASES",
     "MODELS",
+    "OPENAI_COMPAT_PROVIDERS",
     "PROVIDERS",
     "PROVIDERS_OPENAI",
     "RECOMMENDED_MODELS",

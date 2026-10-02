@@ -222,8 +222,10 @@ See :doc:`mcp`.
 📦 Community Extensions
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ hosts community-contributed plugins, scripts, and lessons:
+`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ hosts community-contributed plugins, packages, scripts, and lessons:
 
+- **gptodo** — file-based task manager and work queue for agents
+- **gptmail** — email and agent-to-agent messaging for agents
 - **gptme-consortium** — multi-model consensus decision-making
 - **gptme-imagen** — multi-provider image generation
 - **gptme-lsp** — Language Server Protocol integration
@@ -245,10 +247,10 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 
 - **Persistent workspace** — git-tracked "brain" with journal, tasks, knowledge base, and lessons
 - **Run loops** — scheduled (systemd/launchd) or event-driven autonomous operation
-- **Task management** — structured task queue with YAML metadata and GTD-style workflows
+- **Task management** — structured task queue with YAML metadata, managed with `gptodo <https://github.com/gptme/gptme-contrib/tree/master/packages/gptodo>`__ (or bring your own tracker)
 - **Meta-learning** — lessons system captures behavioral patterns and improves over time
 - **Multi-agent coordination** — file leases, message bus, and work claiming for concurrent agents
-- **External integrations** — GitHub, email, Discord, Twitter, RSS, and more (see :doc:`channels`)
+- **External integrations** — GitHub, email and agent-to-agent messaging via `gptmail <https://github.com/gptme/gptme-contrib/tree/master/packages/gptmail>`__, Discord, Twitter, RSS, and more (see :doc:`channels`)
 
 .. code-block:: bash
 
