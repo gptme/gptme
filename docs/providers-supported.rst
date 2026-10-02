@@ -243,6 +243,25 @@ Requesty
 
 Get an API key at https://app.requesty.ai/api-keys. See https://docs.requesty.ai for details.
 
+.. _y-api:
+
+Y-API
+~~~~~
+
+`Y-API <https://y-api.bestvirtualgoods.com/>`__ is an OpenAI-compatible LLM gateway that routes to many models through a single API key, using the same ``vendor/model`` naming as OpenRouter and Requesty (e.g. ``y-api/anthropic/claude-sonnet-5``). It is reached through the standard OpenAI-compatible client path.
+
+The catalog is fetched dynamically and its contents vary by account, so no models are bundled in the static registry: pass the full ``y-api/<vendor>/<model>`` id with ``-m``.
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [env]
+    YAPI_API_KEY = "your-api-key"
+
+Get an API key at https://y-api.bestvirtualgoods.com/app/keys. The current catalog is at https://y-api.bestvirtualgoods.com/models.
+
 .. _groq:
 
 Groq
