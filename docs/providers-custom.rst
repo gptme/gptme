@@ -207,6 +207,39 @@ Pre-cache tiktoken once while online to avoid this:
    estimate (~4 chars/token) when the download fails. PyPI releases do not yet
    include this fallback, so the pre-cache step is recommended regardless.
 
+Hosted OpenAI-compatible APIs
+-----------------------------
+
+Hosted services that speak the OpenAI Chat Completions protocol work as named
+``[[providers]]`` entries too. For example,
+`Grokified <https://grokified.com/>`_ serves Grok models through
+``https://api.grokified.com/v1`` at 50% of the list price:
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "grokified"
+    base_url = "https://api.grokified.com/v1"
+    api_key_env = "GROKIFIED_API_KEY"
+    default_model = "grok-build-0.1"
+
+.. code-block:: sh
+
+    export GROKIFIED_API_KEY="gk_live_..."
+    gptme 'hello' -m grokified/grok-build-0.1
+
+Create a key at `grokified.com/login <https://grokified.com/login>`_; the
+`API docs <https://grokified.com/docs>`_ list every model. ``grok-build-0.1``
+(256K context, tuned for code) and ``grok-4.6`` (500K context) work on any
+account. ``grok-4.7`` needs a Basic plan or higher, and a prepaid account gets
+a 403 ``plan_capability_required`` error for it.
+
+.. note::
+
+   Pricing and model availability change. Check the provider's own
+   `models page <https://grokified.com/docs/models>`_ before relying on a
+   figure.
+
 Configuration
 -------------
 
