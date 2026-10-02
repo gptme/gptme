@@ -475,7 +475,20 @@ describe('SandboxedIframePanel', () => {
     expect(screen.queryByTitle('Webapp Preview')).not.toBeInTheDocument();
   });
 
-  it('shows a sign-in notice instead of an iframe for remote instance previews', () => {
+  it('shows a sign-in notice instead of an iframe for remote instance previews with bearer auth', () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, src: '/preview/5173/' }}
+        conversationId="conv1"
+        apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
+        bearerAuth
+      />
+    );
+    expect(screen.queryByTitle('Webapp Preview')).toBeNull();
+    expect(screen.getByText('Preview needs sign-in')).toBeTruthy();
+  });
+
+  it('renders the iframe for remote instance previews when no bearer auth is used', () => {
     render(
       <SandboxedIframePanel
         descriptor={{ ...baseDescriptor, src: '/preview/5173/' }}
@@ -483,8 +496,7 @@ describe('SandboxedIframePanel', () => {
         apiBaseUrl="https://fleet.gptme.ai/api/v1/instances/abc"
       />
     );
-    expect(screen.queryByTitle('Webapp Preview')).toBeNull();
-    expect(screen.getByText('Preview needs sign-in')).toBeTruthy();
+    expect(screen.getByTitle('Webapp Preview')).toBeTruthy();
   });
 
   it('still renders the iframe for local instance previews', () => {

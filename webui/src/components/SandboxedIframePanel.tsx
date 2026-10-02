@@ -33,9 +33,16 @@ interface Props {
   conversationId: string;
   /** Instance API base URL. Server-relative descriptor srcs resolve against it. */
   apiBaseUrl?: string;
+  /** True when the connection authenticates with a bearer token (never sent by iframes). */
+  bearerAuth?: boolean;
 }
 
-export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, apiBaseUrl }) => {
+export const SandboxedIframePanel: FC<Props> = ({
+  descriptor,
+  conversationId,
+  apiBaseUrl,
+  bearerAuth = false,
+}) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bootstrappedRef = useRef(false);
   // The src whose document the once-per-document guard is currently armed for.
@@ -47,7 +54,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
   const src = resolvePanelSrc(descriptor.src, apiBaseUrl);
   const apiOrigin = urlOrigin(apiBaseUrl);
   const allowed = isAllowedIframeSrc(src, apiOrigin);
-  const authGated = allowed && isAuthGatedPreviewSrc(src, apiBaseUrl);
+  const authGated = allowed && isAuthGatedPreviewSrc(src, apiBaseUrl, bearerAuth);
   const expectedOrigin = allowed ? iframeSrcOrigin(src, apiOrigin ?? undefined) : null;
   // A sandbox without `allow-same-origin` gives the frame an opaque origin: its
   // messages arrive as `event.origin === "null"` and no concrete `targetOrigin`
