@@ -383,13 +383,23 @@ def _wrap_file_payload(rel: str, content: str) -> str:
     return f"{fence}{rel}\n{content}\n{fence}"
 
 
-def _make_turn_pre_hook(scout_model: str, workspace: Path):
+def _make_turn_pre_hook(scout_model: str, workspace: Path | None):
     """Return a TURN_PRE hook generator bound to the given scout_model."""
 
     def _scout_hook(
         manager: Any = None,
         **kwargs: Any,
     ) -> Generator[Message, None, None]:
+        # Resolve workspace at call time from the manager so subagents and evals
+        # use their own workspace rather than the process cwd at registration.
+        ws: Path | None = None
+        if manager is not None:
+            ws = getattr(manager, "workspace", None)
+        if ws is None:
+            ws = workspace  # registration-time workspace (from chat/project config)
+        if ws is None:
+            ws = Path.cwd()
+
         msgs = _get_messages_from_manager(manager)
 
         # Find the last user message
@@ -409,7 +419,7 @@ def _make_turn_pre_hook(scout_model: str, workspace: Path):
         if _scouted_this_turn(msgs):
             return
 
-        files = scout_files(last_user_content, workspace, scout_model)
+        files = scout_files(last_user_content, ws, scout_model)
         if not files:
             return
 
@@ -422,14 +432,14 @@ def _make_turn_pre_hook(scout_model: str, workspace: Path):
         total = 0
         for item in files:
             fpath, expected = _identity_of(item)
-            content = _safe_read(fpath, workspace, expected)
+            content = _safe_read(fpath, ws, expected)
             if content is None:
                 continue
             if total + len(content) > _MAX_TOTAL_CHARS:
                 logger.debug("context-scout: stopping injection at total-size cap")
                 break
             try:
-                rel = fpath.relative_to(workspace.resolve()).as_posix()
+                rel = fpath.relative_to(ws.resolve()).as_posix()
             except ValueError:
                 continue
             parts.append(_wrap_file_payload(rel, content))
@@ -451,8 +461,12 @@ def register() -> None:
 
     config = get_config()
     # Project [context] takes precedence over the user-level defaults.
+    # Use None as sentinel so an explicit empty project value disables scouting
+    # rather than falling through to the user-level default.
     project_scout = config.project.context.scout_model if config.project else None
-    scout_model = project_scout or config.user.context.scout_model
+    scout_model = (
+        project_scout if project_scout is not None else config.user.context.scout_model
+    )
     if not scout_model:
         return
     if not _SUPPORTS_DIR_FD:
@@ -461,13 +475,14 @@ def register() -> None:
         )
         return
 
+    # Resolve workspace from config at registration time as a hint.
+    # The hook re-resolves from manager.workspace at call time, so subagents
+    # and evals always bind the correct workspace for their run.
     workspace: Path | None = None
     if config.chat is not None:
         workspace = getattr(config.chat, "workspace", None)
     if workspace is None and config.project is not None:
         workspace = getattr(config.project, "_workspace", None)
-    if workspace is None:
-        workspace = Path.cwd()
 
     hook_fn = _make_turn_pre_hook(scout_model, workspace)
     register_hook(

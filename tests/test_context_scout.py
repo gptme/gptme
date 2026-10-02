@@ -412,6 +412,33 @@ class TestTurnPreHook:
         assert len(result) == 1
         assert result[0].content.count("A") <= CONTENT_SIZE_WARN_THRESHOLD
 
+    def test_manager_workspace_overrides_registration_workspace(self, tmp_path):
+        """manager.workspace takes priority over registration-time workspace.
+
+        This ensures subagents and evals scout their own workspace, not the
+        process cwd captured at registration.
+        """
+        reg_ws = tmp_path / "registration-dir"
+        reg_ws.mkdir()
+        # The hook is created with the registration-time workspace.
+        hook = _make_turn_pre_hook("cheap-model", reg_ws)
+
+        # The manager reports a different workspace (the run's actual workspace).
+        run_ws = tmp_path / "run-dir"
+        run_ws.mkdir()
+        long_msg = "please fix the authentication bug in the login module " * 3
+        msgs = self._make_messages(("user", long_msg))
+
+        class FakeManager:
+            workspace = run_ws
+            messages = msgs  # _get_messages_from_manager looks for .messages
+
+        with patch("gptme.context.scout.scout_files", return_value=[]) as mock_sf:
+            list(hook(manager=FakeManager()))
+        # scout_files must receive the manager workspace, not the registration one.
+        assert mock_sf.called
+        assert mock_sf.call_args[0][1] == run_ws
+
     def test_does_not_inject_symlink_to_hidden_file(self, tmp_path):
         """_safe_read must not follow a symlink to hidden/ignored contents."""
         secret = tmp_path / ".env"
@@ -655,6 +682,8 @@ def _real_config(tmp_path, project_scout=None, user_scout=None):
         (None, "user-model", True),
         ("project-model", "user-model", True),
         (None, None, False),
+        # Explicit empty project value disables scouting even when user config has a model.
+        ("", "user-model", False),
     ],
 )
 def test_register_reads_scout_model_from_config(
@@ -671,4 +700,5 @@ def test_register_reads_scout_model_from_config(
         register()
     assert register_hook.called is expected
     if expected:
-        make_hook.assert_called_once_with(project_scout or user_scout, tmp_path)
+        resolved = project_scout if project_scout is not None else user_scout
+        make_hook.assert_called_once_with(resolved, tmp_path)
