@@ -168,10 +168,8 @@ class BatchJob:
                     # raw result without truncation. The default of 2000 would clip
                     # JSON from larger schemas and make structured output silently
                     # fail in _parse_result().
-                    # Use remaining time as timeout to avoid exceeding the deadline.
-                    wait_timeout = min(poll_secs, max(1, int(remaining)))
                     result = subagent_wait(
-                        agent_id, timeout=wait_timeout, max_result_chars=0
+                        agent_id, timeout=poll_secs, max_result_chars=0
                     )
                 except Exception as e:
                     logger.warning(f"Error waiting for {agent_id}: {e}")
@@ -217,11 +215,7 @@ class BatchJob:
             # placeholders (otherwise output_tokens can be silently lost).
             agent_to_future = {aid: f for f, aid in futures.items()}
             try:
-                # Use a much larger timeout for as_completed to account for thread
-                # pool scheduling overhead and exception handling time. The actual
-                # deadline enforcement happens in _wait_one via the deadline parameter.
-                as_completed_timeout = max(timeout + 10, timeout * 2)
-                for future in as_completed(futures, timeout=as_completed_timeout):
+                for future in as_completed(futures, timeout=timeout):
                     agent_id, result = future.result()
                     with self._lock:
                         prev = self.results.get(agent_id)
