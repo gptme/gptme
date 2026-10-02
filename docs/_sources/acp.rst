@@ -5,7 +5,7 @@
 ACP
 ===
 
-gptme implements the `Agent Client Protocol (ACP) <https://github.com/ArcadeAI/agent-client-protocol>`_, allowing it to be used as a coding agent from any ACP-compatible editor such as `Zed <https://zed.dev/>`_ and JetBrains IDEs.
+gptme implements the `Agent Client Protocol (ACP) <https://github.com/agentclientprotocol/agent-client-protocol>`_, allowing it to be used as a coding agent from any ACP-compatible editor such as `Zed <https://zed.dev/>`_ and JetBrains IDEs.
 
 This enables a seamless integration where your editor can leverage gptme's powerful toolset (code execution, file editing, web browsing, etc.) directly within your development workflow.
 

@@ -3102,7 +3102,7 @@ OpenRouter's speech API.
 
 ## Option 2 — gptme-tts server (local, no API key)
 
-[gptme-tts](https://github.com/gptme/gptme-tts) is a standalone TTS server
+[gptme-tts](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-tts) is a standalone TTS server
 that runs locally using Kokoro. No cloud, no API key, ~80 MB model download.
 
 gptme-tts is not published on PyPI. The server is a single script,
@@ -5938,7 +5938,7 @@ MCP tool annotations
 ~~~~~~~~~~~~~~~~~~~~~
 
 When gptme connects to an MCP server, each tool's
-`ToolAnnotations <https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations>`_
+`ToolAnnotations <https://modelcontextprotocol.io/specification/latest/schema#toolannotations>`_
 are mapped to gptme hints:
 
 .. list-table::
@@ -8847,7 +8847,7 @@ To run everything on your own machines, or with your own provider keys, self-hos
 ACP
 ===
 
-gptme implements the `Agent Client Protocol (ACP) <https://github.com/ArcadeAI/agent-client-protocol>`_, allowing it to be used as a coding agent from any ACP-compatible editor such as `Zed <https://zed.dev/>`_ and JetBrains IDEs.
+gptme implements the `Agent Client Protocol (ACP) <https://github.com/agentclientprotocol/agent-client-protocol>`_, allowing it to be used as a coding agent from any ACP-compatible editor such as `Zed <https://zed.dev/>`_ and JetBrains IDEs.
 
 This enables a seamless integration where your editor can leverage gptme's powerful toolset (code execution, file editing, web browsing, etc.) directly within your development workflow.
 
@@ -13477,7 +13477,7 @@ For examples of script-based tools, see:
 
 **gptme-contrib** - A collection of community-contributed tools and scripts:
 
-- `Twitter CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/twitter.py>`_: Twitter client with OAuth support
+- `Twitter CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/twitter/twitter.py>`_: Twitter client with OAuth support
 - `Perplexity CLI <https://github.com/gptme/gptme-contrib/blob/master/scripts/perplexity.py>`_: Perplexity search tool
 
 **Standalone Tools** - Independent tool repositories:
