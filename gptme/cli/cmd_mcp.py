@@ -16,50 +16,33 @@ def mcp():
     """Commands for managing MCP servers."""
 
 
-#: Query/fragment parameter names whose values are credentials and must not be
-#: echoed back in the confirmation prompt.
-_SECRET_PARAM_NAMES = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "apikey",
-        "auth",
-        "authorization",
-        "key",
-        "password",
-        "passwd",
-        "pwd",
-        "secret",
-        "token",
-    }
-)
 _REDACTED_VALUE = "***"
 
 
-def _redact_secret_params(params: str) -> str:
-    """Mask values of credential-looking ``name=value`` pairs.
+def _redact_param_values(params: str) -> str:
+    """Mask every ``name=value`` value in a query or fragment string.
 
-    Non-credential parameters are left untouched so the target stays
-    identifiable, and a malformed pair is passed through verbatim.
+    Values are masked regardless of the parameter name: a credential can ride
+    under any name (``?sig=``, ``?X-Amz-Signature=``), so redacting only a
+    hardcoded set of "known" credential names would leave the rest exposed.
+    Names are kept so the target stays identifiable, and a malformed pair is
+    passed through verbatim.
     """
     if not params:
         return params
     redacted: list[str] = []
     for pair in params.split("&"):
         name, sep, _ = pair.partition("=")
-        if sep and name.lower() in _SECRET_PARAM_NAMES:
-            redacted.append(f"{name}={_REDACTED_VALUE}")
-        else:
-            redacted.append(pair)
+        redacted.append(f"{name}={_REDACTED_VALUE}" if sep else pair)
     return "&".join(redacted)
 
 
 def _display_target(server: MCPServerConfig) -> str:
     """Render a server target for confirmation, hiding URL credentials.
 
-    Redacts userinfo (``user:pass@``) and credential-looking query/fragment
-    parameters. Never raises: a malformed port or an IPv6 host must not abort
-    the diagnostic before the approval prompt is even shown.
+    Redacts userinfo (``user:pass@``) and every query/fragment parameter value.
+    Never raises: a malformed port or an IPv6 host must not abort the
+    diagnostic before the approval prompt is even shown.
     """
     if server.is_http:
         parts = urlsplit(server.url or "")
@@ -67,12 +50,12 @@ def _display_target(server: MCPServerConfig) -> str:
             # Strip only the userinfo; keep host:port verbatim so an invalid
             # port or IPv6 brackets still match the URL the client will use.
             parts = parts._replace(netloc=parts.netloc.rpartition("@")[2])
-        # Credentials can also ride in the query string or fragment
-        # (e.g. ``?api_key=...``); mask those values but keep the names.
+        # A credential can ride in any query/fragment parameter, not just the
+        # conventional names, so mask every value and keep only the names.
         if parts.query:
-            parts = parts._replace(query=_redact_secret_params(parts.query))
+            parts = parts._replace(query=_redact_param_values(parts.query))
         if parts.fragment:
-            parts = parts._replace(fragment=_redact_secret_params(parts.fragment))
+            parts = parts._replace(fragment=_redact_param_values(parts.fragment))
         return urlunsplit(parts)
     return shlex.join([server.command or "", *server.args])
 
@@ -80,10 +63,9 @@ def _display_target(server: MCPServerConfig) -> str:
 def _confirm_project_connection(config: Config, server: MCPServerConfig) -> bool:
     """Require consent before connecting to a workspace-supplied server.
 
-    The target is shown so the user can inspect what will run. URL credentials
-    (userinfo and credential-like query/fragment parameters) are redacted;
-    command arguments are shown verbatim because they define the command being
-    approved.
+    The target is shown so the user can inspect what will run. URL userinfo and
+    query/fragment parameter values are redacted; command arguments are shown
+    verbatim because they define the command being approved.
     """
     if not config.project or not config.project.mcp:
         return True
