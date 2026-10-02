@@ -633,7 +633,7 @@ def _create_subagent_thread(
     if reasoning_effort:
         from ...config.core import get_config  # fmt: skip
 
-        get_config().user.env["THINKING_EFFORT"] = reasoning_effort
+        get_config().env_overrides["THINKING_EFFORT"] = reasoning_effort
 
     try:
         chat(
@@ -1075,6 +1075,8 @@ def _monitor_subprocess(
     progress_thread.join(timeout=2.0)
 
     input_tokens: int | None = None
+    tool_uses: int | None = None
+    duration_s: float | None = None
     output_tokens: int | None = None
     result: str | dict[str, object] | None
 
@@ -1093,6 +1095,8 @@ def _monitor_subprocess(
             result = log_status.result
             input_tokens = log_status.input_tokens
             output_tokens = log_status.output_tokens
+            tool_uses = log_status.tool_uses
+            duration_s = log_status.duration_s
         except Exception:
             result = "Task completed (check log for details)"
     else:
@@ -1118,6 +1122,8 @@ def _monitor_subprocess(
         result,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        tool_uses=tool_uses,
+        duration_s=duration_s,
     )
     if not set_subagent_result_if_absent(subagent.agent_id, final_result):
         # Timeout/cancel won the cache race. Patch the stored result with
@@ -1159,6 +1165,7 @@ def _run_planner(
     workdir: Path | None = None,
     parent_logdir: Path | None = None,
     parent_branch: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -1335,6 +1342,7 @@ def _run_planner(
                             context_mode=context_mode,
                             context_include=context_include,
                             profile=_profile,
+                            reasoning_effort=reasoning_effort,
                         )
                     except Exception as e:
                         logger.error(
@@ -1427,6 +1435,7 @@ def _run_planner(
                         agent_id=executor_agent_id,
                         redact_secrets=redact_secrets,
                         context_window=context_window,
+                        reasoning_effort=reasoning_effort,
                     )
                 finally:
                     release_thread()

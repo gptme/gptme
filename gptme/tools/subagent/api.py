@@ -590,6 +590,7 @@ def subagent(
                 workdir=workdir_path,
                 parent_logdir=parent_logdir,
                 parent_branch=parent_branch,
+                reasoning_effort=reasoning_effort,
             )
         finally:
             if _timer is not None:
@@ -1019,7 +1020,6 @@ def subagent(
             reasoning_effort=reasoning_effort,
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
-            fork_message_count=len(fork_messages) if fork_messages is not None else 0,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -1686,6 +1686,8 @@ def subagent_continue(agent_id: str, message: str) -> None:
         context_window=sa.context_window,
         max_time=sa.max_time,
         context_turns=sa.context_turns,
+        reasoning_effort=sa.reasoning_effort,
+        fork_message_count=sa.fork_message_count,
         parent_logdir=sa.parent_logdir,
         parent_branch=sa.parent_branch,
         prompt_queue_closed=prompt_queue_closed,

@@ -1152,6 +1152,36 @@ class TestSubagentCancel:
         with _subagent_results_lock:
             assert _subagent_results["proc-agent"] == ReturnType("success", "done")
 
+    def test_subprocess_monitor_caches_usage_from_log(self, tmp_path, monkeypatch):
+        """tool_uses/duration_s read from the child log survive into the cached result."""
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = 0
+        mock_proc.returncode = 0
+        sa = self._register(
+            "usage-agent",
+            process=mock_proc,
+            execution_mode="subprocess",
+            logdir=tmp_path,
+        )
+        monkeypatch.setattr(
+            Subagent,
+            "status",
+            lambda self: ReturnType(
+                "success",
+                "done",
+                input_tokens=3,
+                output_tokens=4,
+                tool_uses=7,
+                duration_s=1.5,
+            ),
+        )
+
+        _monitor_subprocess(sa)
+
+        cached = _subagent_results[sa.agent_id]
+        assert (cached.tool_uses, cached.duration_s) == (7, 1.5)
+        assert (cached.input_tokens, cached.output_tokens) == (3, 4)
+
     def test_subprocess_monitor_timeout_remains_failure_after_clean_exit(
         self, tmp_path
     ):
@@ -8230,7 +8260,27 @@ class TestReasoningEffort:
             # own thread (not a real spawned subagent thread), so the config
             # mutation lands on THIS thread's shared Config — clean it up so
             # it doesn't leak into later tests sharing the same thread.
-            get_config().user.env.pop("THINKING_EFFORT", None)
+            get_config().env_overrides.pop("THINKING_EFFORT", None)
+
+    def test_reasoning_effort_overrides_inherited_env(self):
+        """The per-call override beats GPTME_THINKING_EFFORT in os.environ, and
+        stays local to the Config it was set on."""
+        import os
+
+        from gptme.config.core import Config
+
+        cfg = Config()
+        cfg.env_overrides["THINKING_EFFORT"] = "low"
+        prev = os.environ.get("GPTME_THINKING_EFFORT")
+        os.environ["GPTME_THINKING_EFFORT"] = "high"
+        try:
+            assert cfg.get_env("GPTME_THINKING_EFFORT") == "low"
+            assert Config().get_env("GPTME_THINKING_EFFORT") == "high"
+        finally:
+            if prev is None:
+                os.environ.pop("GPTME_THINKING_EFFORT", None)
+            else:
+                os.environ["GPTME_THINKING_EFFORT"] = prev
 
     def test_reasoning_effort_none_leaves_config_untouched(self, monkeypatch, tmp_path):
         """reasoning_effort=None (default) does not set a config override."""
