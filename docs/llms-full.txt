@@ -3470,6 +3470,23 @@ This file currently supports a few options:
 
 - ``files``, a list of paths that gptme will always include in the context. If no ``gptme.toml`` is present or if the ``files`` option is unset, gptme will automatically look for common project files, such as: ``README.md``, ``pyproject.toml``, ``package.json``, ``Cargo.toml``, ``Makefile``, ``.cursor/rules/**.mdc``, ``CLAUDE.md``, ``GEMINI.md``.
 - ``prompt``, a string that will be included in the system prompt with a ``# Current Project`` header.
+- ``exclude``, a list of glob patterns for files to drop from the context file list. Each pattern is matched against both the file name and its path relative to the workspace, and applies to context files from ``files``, auto-detected project files, and user-configured files. :ref:`Agent instruction files <agent-instruction-files>` such as ``AGENTS.md`` are loaded separately and are not filtered.
+- ``system``, the system prompt variant: ``"full"`` (default) or ``"short"`` (a compact prompt with roughly 60% fewer tokens). An explicitly passed ``--system`` CLI flag takes precedence.
+
+  ``exclude`` and ``system`` are only read from the ``[prompt]`` table form of the
+  config. That form nests *all* prompt options instead of placing them at the top
+  level, and the two forms are mutually exclusive: when a ``[prompt]`` table is
+  present, ``files``, ``prompt``, ``base_prompt``, and ``context_cmd`` must be
+  nested inside it too. A top-level ``files`` alongside a ``[prompt]`` table is
+  ignored with an "Unknown keys" warning.
+
+  .. code-block:: toml
+
+      [prompt]
+      prompt = "This is gptme."
+      files = ["README.md", "docs/**/*.rst"]
+      exclude = ["CHANGELOG.md", "docs/releases/*"]
+      system = "short"
 - ``base_prompt``, a string that will be used as the base prompt for the project. This will override the global base prompt ("You are gptme v{__version__}, a general-purpose AI assistant powered by LLMs. [...]"). It can be useful to change the identity of the assistant and override some default behaviors.
 - ``context_cmd``, a command used to generate context to include when constructing the system prompt. The command will be run in the workspace root and should output a string that will be included in the system prompt. Examples can be ``git status -v`` or ``scripts/context.sh``. For new conversations where the first user message is known at context-construction time, it is available in the ``GPTME_PROMPT_INITIAL`` environment variable, enabling query-dependent retrieval without interpolating untrusted prompt text into the shell command. The variable is unset when no initial prompt exists or when it exceeds the safe process-environment size. For example, ``context_cmd = 'my-retriever --query-env GPTME_PROMPT_INITIAL'`` lets a retriever read the query directly from its process environment.
 - ``hooks.scripts``, a list of bounded shell commands attached to lifecycle events.
@@ -3526,6 +3543,40 @@ This file currently supports a few options:
 
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.
+- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the directory gptme is started from (normally the workspace root). ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
+
+  .. code-block:: toml
+
+      [lessons]
+      dirs = ["lessons", "/opt/shared-lessons"]
+
+- ``subagent``, subagent execution settings. ``max_concurrent`` caps how many subagents run at once; excess subagents queue until a slot frees up. Resolution order: the ``GPTME_SUBAGENT_MAX_CONCURRENT`` environment variable, then this setting, then ``min(8, cpu_count)``. Example:
+
+  .. code-block:: toml
+
+      [subagent]
+      max_concurrent = 4
+
+- ``context``, context management settings. ``budget`` sets when compaction triggers, as a fraction of the model context window (``0 < x <= 1``) or an absolute token count; see :doc:`context-compression` for how it layers with the CLI flag, environment variable, and per-model config. ``enabled`` turns on fresh context mode (default ``false``; it replaces ``GPTME_FRESH``, and takes precedence over it whenever a project config is present), ``[context.selector]`` tunes how relevant files are selected, and ``scout_model`` names a cheap model that picks relevant files before each user turn (unset disables the pre-pass). Example:
+
+  .. code-block:: toml
+
+      [context]
+      budget = 0.85
+      enabled = true
+      scout_model = "openai/gpt-4.1-mini"
+
+      [context.selector]
+      strategy = "hybrid"  # "rule", "llm" or "hybrid"
+      max_candidates = 20
+      max_selected = 5
+
+- ``plugin``, per-plugin configuration under ``[plugin.<name>]`` tables. gptme passes these through without validation; each plugin reads its own table from ``config.project.plugin`` (and ``config.user.plugin`` for the global config). Example:
+
+  .. code-block:: toml
+
+      [plugin.my_project_plugin]
+      api_url = "http://localhost:8080"
 
 See :class:`gptme.config.ProjectConfig` for the API reference.
 
