@@ -267,6 +267,7 @@ The following metrics are automatically collected:
 - ``gptme_tool_duration_seconds``: Histogram of tool execution durations by tool name
 - ``gptme_active_conversations``: Gauge of currently active conversations
 - ``gptme_llm_requests_total``: Counter of LLM API requests by provider, model, and success status
+- ``gptme_llm_cost_usd_total``: Counter of LLM API cost in USD by provider and model (replaces the old per-request ``cost`` label)
 - HTTP request metrics (from Flask instrumentation)
 - OpenAI/Anthropic API call metrics (from LLM instrumentations)
 
@@ -289,6 +290,9 @@ Here are some useful Prometheus queries for monitoring gptme:
 
    # LLM request success rate
    rate(gptme_llm_requests_total{success="true"}[5m]) / rate(gptme_llm_requests_total[5m])
+
+   # LLM spend per hour by model (USD)
+   sum by (model) (increase(gptme_llm_cost_usd_total[1h]))
 
    # Tokens processed per second
    rate(gptme_tokens_processed_total[5m])

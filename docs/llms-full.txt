@@ -5609,6 +5609,8 @@ Each tool has its own reference page, listed here by category.
 - :doc:`tools/patch` - Apply precise changes to existing files
 - :doc:`tools/morph` - Apply fast targeted edits using Morph Fast Apply
 - :doc:`tools/hashline-edit` - Snapshot-anchored line-range edits with stale-file detection
+- :doc:`tools/patch-many` - Apply patches to multiple files atomically
+- :doc:`tools/convert` - Convert files between formats using offline system tools
 
 💻 Code & Development
 ~~~~~~~~~~~~~~~~~~~~~
@@ -5649,12 +5651,16 @@ Each tool has its own reference page, listed here by category.
 - :doc:`tools/restart` - Restart the gptme process after configuration changes
 - :doc:`tools/vent` - Emit in-the-moment friction signals to a durable ledger
 - :doc:`tools/request-tool-change` - Let the assistant enable or disable a tool for the current session, within the session allowlist (opt-in)
+- :doc:`tools/watch` - Arm event sources and get woken when they fire instead of polling (opt-in)
+- :doc:`tools/progress` - Let a subagent send intermediate updates to its parent (opt-in)
+- :doc:`tools/clarify` - Let a subagent pause and ask its parent for information (opt-in)
 
 🧠 Knowledge & Planning
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 - :doc:`tools/lessons` - Access contextual lessons and behavioral guidance
 - :doc:`tools/todo` - Manage a conversation-scoped working memory task list
+- :doc:`tools/memory` - Save persistent memories to the shared cross-runtime store
 
 🔌 Extensions
 ~~~~~~~~~~~~~
@@ -5669,6 +5675,8 @@ Each tool has its own reference page, listed here by category.
    tools/patch
    tools/morph
    tools/hashline-edit
+   tools/patch-many
+   tools/convert
    tools/python
    tools/shell
    GitHub (gh) <tools/gh>
@@ -5689,8 +5697,12 @@ Each tool has its own reference page, listed here by category.
    tools/restart
    tools/vent
    Request Tool Change <tools/request-tool-change>
+   tools/watch
+   tools/progress
+   tools/clarify
    tools/lessons
    tools/todo
+   tools/memory
    tools/mcp
 
 Tool Interface Architecture
@@ -5986,6 +5998,46 @@ Hashline Edit
 =============
 
 .. automodule:: gptme.tools.hashline_edit
+    :members:
+    :noindex:
+
+
+:audience: power-user
+
+Patch many
+==========
+
+The ``patch_many`` tool applies several ``patch``-style changes in one call and
+commits them atomically: if any hunk fails validation, no file is written. It is
+meant for cross-cutting edits ("rename this symbol", "add a parameter and update
+its callers") that would otherwise take one ``patch`` call per file.
+
+Patches are validated in-memory before anything lands, so a failed hunk
+validation leaves files unchanged. If a file write fails, rollback is
+best-effort and a partial refactor may remain on disk.
+
+.. automodule:: gptme.tools.patch_many
+    :members:
+    :noindex:
+
+
+:audience: power-user
+
+Convert
+=======
+
+The ``convert`` tool reformats files offline using system converters, falling
+back gracefully when a specific one is unavailable. Choose the destination
+format by the ``output_path`` extension (``.png``, ``.jpg``, ``.txt``, ``.md``),
+and pass ``dry_run`` to see the converter plan without executing. It has no
+markdown-fence block type, so ask for it in natural language and let the model
+call it with structured arguments:
+
+.. code-block:: text
+
+    gptme "convert report.pdf to report-page-1.png at high quality, dry run first"
+
+.. automodule:: gptme.tools.convert
     :members:
     :noindex:
 
@@ -6726,6 +6778,65 @@ This is separate from ``vent``: ``vent`` records operational friction, while
 
 :audience: power-user
 
+Watch
+=====
+
+The ``watch`` tool arms an event source and returns immediately; gptme keeps
+working and delivers one system message when the event fires. Use it instead of
+polling with ``sleep N; check`` — for example, to wait for CI without blocking:
+
+.. code-block:: text
+
+    watch
+    until gh pr checks 42 --repo gptme/gptme --every 60s --timeout 30m
+
+Sources include ``run``, ``until``, ``stream``, ``timer`` and ``tmux``, with
+``list``, ``cancel`` and ``wait`` to manage them. The tool is opt-in
+(``disabled_by_default``); enable it with ``-t +watch``.
+
+.. automodule:: gptme.tools.watch
+    :members:
+    :noindex:
+
+
+:audience: power-user
+
+Progress
+========
+
+The ``progress`` tool lets a subagent send an intermediate status update to its
+parent orchestrator without stopping the session — the counterpart to
+``complete`` (ends the session) and ``clarify`` (pauses it). The update arrives
+as a ⏳ system message via the parent's ``LOOP_CONTINUE`` hook.
+
+The tool is opt-in and enabled automatically for subagents; enable it explicitly
+with ``-t +progress``.
+
+.. automodule:: gptme.tools.progress
+    :members:
+    :noindex:
+
+
+:audience: power-user
+
+Clarify
+=======
+
+The ``clarify`` tool lets a subagent pause and ask its parent orchestrator a
+question when it cannot proceed without more information. The session stops
+cleanly and the parent can answer with ``subagent_reply(agent_id, reply)``,
+which re-spawns the subagent with the original task and the Q&A in context.
+
+The tool is opt-in and enabled automatically for subagents; enable it explicitly
+with ``-t +clarify``.
+
+.. automodule:: gptme.tools.clarify
+    :members:
+    :noindex:
+
+
+:audience: power-user
+
 Lessons
 =======
 
@@ -6740,6 +6851,30 @@ Todo
 ====
 
 .. automodule:: gptme.tools.todo
+    :members:
+    :noindex:
+
+
+:audience: power-user
+
+Memory
+======
+
+The ``memory`` tool saves a fact to the shared cross-runtime memory store, so a
+later session on any runtime (gptme, Claude Code, Codex) can recall it. Entries
+are Markdown files under the memory root alongside an index line in
+``MEMORY.md``. Gptme loads the index at startup when user context is enabled
+(the default; eval runs typically disable it).
+
+The first line of the block is the one-line summary shown in the index; the rest
+is the body:
+
+.. code-block:: text
+
+    memory prefer-short-answers
+    User prefers short, direct answers without preamble.
+
+.. automodule:: gptme.tools.memory
     :members:
     :noindex:
 
@@ -14446,6 +14581,7 @@ The following metrics are automatically collected:
 - ``gptme_tool_duration_seconds``: Histogram of tool execution durations by tool name
 - ``gptme_active_conversations``: Gauge of currently active conversations
 - ``gptme_llm_requests_total``: Counter of LLM API requests by provider, model, and success status
+- ``gptme_llm_cost_usd_total``: Counter of LLM API cost in USD by provider and model (replaces the old per-request ``cost`` label)
 - HTTP request metrics (from Flask instrumentation)
 - OpenAI/Anthropic API call metrics (from LLM instrumentations)
 
@@ -14468,6 +14604,9 @@ Here are some useful Prometheus queries for monitoring gptme:
 
    # LLM request success rate
    rate(gptme_llm_requests_total{success="true"}[5m]) / rate(gptme_llm_requests_total[5m])
+
+   # LLM spend per hour by model (USD)
+   sum by (model) (increase(gptme_llm_cost_usd_total[1h]))
 
    # Tokens processed per second
    rate(gptme_tokens_processed_total[5m])

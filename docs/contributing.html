@@ -241,6 +241,8 @@
 <li class="toctree-l2"><a class="reference internal" href="tools/patch.html">Patch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/morph.html">Morph</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/hashline-edit.html">Hashline Edit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/patch-many.html">Patch many</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/convert.html">Convert</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/python.html">Python</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/shell.html">Shell</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/gh.html">GitHub (gh)</a></li>
@@ -261,8 +263,12 @@
 <li class="toctree-l2"><a class="reference internal" href="tools/restart.html">Restart</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/vent.html">Vent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/request-tool-change.html">Request Tool Change</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/watch.html">Watch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/progress.html">Progress</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/clarify.html">Clarify</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/lessons.html">Lessons</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/todo.html">Todo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tools/memory.html">Memory</a></li>
 <li class="toctree-l2"><a class="reference internal" href="tools/mcp.html">MCP</a></li>
 </ul>
 </details></li>
@@ -910,6 +916,7 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme_tool_duration_seconds</span></code>: Histogram of tool execution durations by tool name</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme_active_conversations</span></code>: Gauge of currently active conversations</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme_llm_requests_total</span></code>: Counter of LLM API requests by provider, model, and success status</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme_llm_cost_usd_total</span></code>: Counter of LLM API cost in USD by provider and model (replaces the old per-request <code class="docutils literal notranslate"><span class="pre">cost</span></code> label)</p></li>
 <li><p>HTTP request metrics (from Flask instrumentation)</p></li>
 <li><p>OpenAI/Anthropic API call metrics (from LLM instrumentations)</p></li>
 </ul>
@@ -929,6 +936,9 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server
 
 <span class="c1"># LLM request success rate</span>
 <span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">{</span><span class="nl">success</span><span class="o">=</span><span class="p">&quot;</span><span class="s">true</span><span class="p">&quot;}[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
+
+<span class="c1"># LLM spend per hour by model (USD)</span>
+<span class="k">sum</span><span class="w"> </span><span class="k">by</span><span class="w"> </span><span class="o">(</span><span class="nv">model</span><span class="o">)</span><span class="w"> </span><span class="o">(</span><span class="kr">increase</span><span class="o">(</span><span class="nv">gptme_llm_cost_usd_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">))</span>
 
 <span class="c1"># Tokens processed per second</span>
 <span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tokens_processed_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
