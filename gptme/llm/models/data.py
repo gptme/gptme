@@ -154,6 +154,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 128_000,
             "price_input": 10,
             "price_output": 50,
+            "price_cache_read": 0.25,
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,

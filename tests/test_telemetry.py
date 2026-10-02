@@ -192,6 +192,81 @@ def test_calculate_llm_cost_resolves_anthropic_short_alias():
     assert alias_cost == pytest.approx(dated_cost)
 
 
+@pytest.mark.parametrize("model", ["claude-fable-5-1", "claude-fable-5-1-20260901"])
+def test_calculate_llm_cost_fable51_cache_read_price(model: str):
+    """Fable 5.1 reads cached input at $0.25/MTok, with unchanged writes."""
+    from gptme.telemetry import _calculate_llm_cost
+
+    assert _calculate_llm_cost(
+        provider="anthropic",
+        model=model,
+        input_tokens=1000,
+        output_tokens=100,
+        cache_creation_tokens=2000,
+        cache_read_tokens=3000,
+    ) == pytest.approx(0.010 + 0.005 + 0.025 + 0.00075)
+
+
+@pytest.mark.parametrize("output_tokens", [0, 100])
+def test_calculate_llm_cost_fully_cached_fable51(output_tokens: int):
+    """Zero uncached input or output does not make cache reads free."""
+    from gptme.telemetry import _calculate_llm_cost
+
+    assert _calculate_llm_cost(
+        provider="anthropic",
+        model="claude-fable-5-1",
+        input_tokens=0,
+        output_tokens=output_tokens,
+        cache_read_tokens=3000,
+    ) == pytest.approx(output_tokens * 50 / 1e6 + 0.00075)
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "expected"),
+    [
+        ("anthropic", "claude-fable-5", 0.043),
+        ("anthropic", "claude-haiku-4-5", 0.0043),
+        ("openai", "gpt-4o", 0.014),
+    ],
+)
+def test_calculate_llm_cost_default_cache_prices(
+    provider: str, model: str, expected: float
+):
+    """Models without an override keep their provider's existing cache rates."""
+    from gptme.telemetry import _calculate_llm_cost
+
+    assert _calculate_llm_cost(
+        provider=provider,
+        model=model,
+        input_tokens=1000,
+        output_tokens=100,
+        cache_creation_tokens=2000,
+        cache_read_tokens=3000,
+    ) == pytest.approx(expected)
+
+
+def test_calculate_llm_cost_subscription_with_cache_price(monkeypatch):
+    """An explicit cache rate must not add marginal cost to a subscription."""
+    from dataclasses import replace
+
+    from gptme.llm.models import get_model
+    from gptme.telemetry import _calculate_llm_cost
+
+    meta = replace(get_model("anthropic/claude-fable-5-1"), pricing_type="subscription")
+    monkeypatch.setattr("gptme.llm.models.get_model", lambda _: meta)
+    assert (
+        _calculate_llm_cost(
+            provider="anthropic",
+            model=meta.model,
+            input_tokens=1000,
+            output_tokens=100,
+            cache_creation_tokens=2000,
+            cache_read_tokens=3000,
+        )
+        == 0.0
+    )
+
+
 @pytest.mark.skipif(
     not _has_telemetry_deps(),
     reason="Requires telemetry dependencies (opentelemetry, prometheus_client)",
