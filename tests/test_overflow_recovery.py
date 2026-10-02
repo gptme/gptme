@@ -486,3 +486,93 @@ def test_server_revoked_during_retry_restores_only_its_own_epoch(
         assert reloaded.log.messages[-1].role == "user"
     finally:
         SessionManager.remove_session(session.id)
+
+
+def test_pinned_state_restored_by_position_avoids_collision(tmp_path, monkeypatch):
+    """Two reasoning messages sharing the same content+timestamp must not collide."""
+    from datetime import datetime, timezone
+
+    from gptme.llm.models import ModelMeta
+    from gptme.tools.autocompact.recovery import compact_for_overflow
+
+    tiny = ModelMeta(provider="unknown", model="gpt-4", context=300)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.engine.get_default_model", lambda: tiny
+    )
+    # Force same timestamp so the old dict key (ts, content, role, call_id) collides.
+    shared_ts = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    reasoning = "<think>identical reasoning " * 10 + "</think>"
+    droppable_msg = Message("assistant", reasoning, timestamp=shared_ts, pinned=False)
+    pinned_msg = Message("assistant", reasoning, timestamp=shared_ts, pinned=True)
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "Original task"),
+        droppable_msg,
+        Message("user", "First continue"),
+        pinned_msg,
+        Message("user", "Second continue " * 20),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    compacted = compact_for_overflow(manager)
+    # Both reasoning messages are preserved (pinned during trim) and appear in order
+    reasoning_msgs = [m for m in compacted if "<think>" in m.content]
+    assert len(reasoning_msgs) == 2
+    # Position-based restore: first is droppable, second is pinned
+    assert not reasoning_msgs[0].pinned, "First reasoning message must remain droppable"
+    assert reasoning_msgs[1].pinned, "Second reasoning message must remain pinned"
+
+
+@pytest.mark.parametrize("revocation", ["interrupt", "replacement"])
+def test_server_revoked_after_retry_does_not_commit_reply(
+    client, tmp_path, monkeypatch, revocation
+):
+    """A successful retry that races an epoch revocation must not commit its reply."""
+    from gptme.server import session_step
+    from gptme.server.session_models import SessionManager
+
+    name = f"test-revoked-after-retry-{uuid4().hex}"
+    response = client.put(
+        f"/api/v2/conversations/{name}",
+        json={"prompt": "System", "config": {"chat": {"workspace": str(tmp_path)}}},
+    )
+    assert response.status_code == 200
+    session = SessionManager.get_session(response.get_json()["session_id"])
+    assert session is not None
+    manager = LogManager.load(name, lock=False)
+    for message in history()[1:]:
+        manager.append(message)
+    manager.write()
+    calls = []
+
+    def complete(messages, *args, **kwargs):
+        calls.append(messages.copy())
+        if len(calls) == 1:
+            raise overflow()
+        # Retry succeeded — revoke epoch after the LLM responds but before commit
+        if revocation == "interrupt":
+            session.interrupted = True
+        else:
+            with session.step_lock:
+                session.step_seq += 1
+        return "Recovered after revocation", None
+
+    monkeypatch.setattr(session_step, "_chat_complete", complete)
+    monkeypatch.setattr(session_step, "trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active: active.log.messages[:2] + active.log.messages[-1:],
+    )
+    session.generating = True
+    try:
+        session_step.step(name, session, "openai/gpt-4", tmp_path, stream=False)
+        reloaded = LogManager.load(name, lock=False)
+        assert len(calls) == 2
+        # Reply must NOT be committed — the epoch was revoked
+        assert reloaded.log.messages[-1].role == "user"
+        assert all(
+            "Recovered" not in m.content
+            for m in reloaded.log.messages
+            if m.role == "assistant"
+        )
+    finally:
+        SessionManager.remove_session(session.id)

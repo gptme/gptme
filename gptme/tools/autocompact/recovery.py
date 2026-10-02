@@ -30,16 +30,15 @@ def compact_for_overflow(manager: LogManager) -> list[Message]:
 
     # reduce_log's final fallback can truncate details inside thinking. Protect
     # those blocks during trim, then restore flags so whole-step dropping works.
-    originals = {
-        (
-            message.timestamp,
-            message.content,
-            message.role,
-            message.call_id,
-        ): message.pinned
-        for message in manager.log.messages
-        if _has_reasoning_block(message.content)
-    }
+    # Track originals by position rather than content-tuple to avoid collisions
+    # when two reasoning messages share the same timestamp/content/role/call_id
+    # (e.g. legacy messages whose timestamp is a shared file-mtime).
+    keep_head = config.keep_head
+    orig_pinned = [
+        msg.pinned
+        for i, msg in enumerate(manager.log.messages)
+        if i >= keep_head and _has_reasoning_block(msg.content)
+    ]
     trim_input = [
         message.replace(pinned=True)
         if _has_reasoning_block(message.content)
@@ -47,14 +46,20 @@ def compact_for_overflow(manager: LogManager) -> list[Message]:
         for message in manager.log.messages
     ]
     compressed = get_context_provider("default").compress(trim_input, config).messages
-    return [
-        message.replace(pinned=originals[key])
-        if index >= config.keep_head
-        and (key := (message.timestamp, message.content, message.role, message.call_id))
-        in originals
-        else message
-        for index, message in enumerate(compressed)
-    ]
+    # Reasoning messages are pinned so the compressor preserves them in order;
+    # restore each one's original pinned value by its ordinal position.
+    reasoning_counter = 0
+    result = []
+    for index, message in enumerate(compressed):
+        if index >= keep_head and _has_reasoning_block(message.content):
+            if reasoning_counter < len(orig_pinned):
+                result.append(message.replace(pinned=orig_pinned[reasoning_counter]))
+                reasoning_counter += 1
+            else:
+                result.append(message)
+        else:
+            result.append(message)
+    return result
 
 
 def _drop_oldest_turn(messages: list[Message]) -> list[Message]:

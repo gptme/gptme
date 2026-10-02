@@ -1082,6 +1082,13 @@ def step(
             retry_guard=overflow_guard,
         )
 
+        # A successful retry can race an interrupt or replacement step: the last
+        # overflow_guard check finished before this point, so re-verify ownership
+        # under the lock before committing the reply to the shared view.
+        with session.step_lock:
+            if session.step_seq != my_step_seq or session.interrupted:
+                raise InterruptedError("Epoch replaced before reply commit")
+
         _append_and_notify(manager, session, msg)
 
         # Trigger TURN_POST hook (turn.post - after message processing completes)
