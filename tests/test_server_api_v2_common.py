@@ -24,13 +24,21 @@ from gptme.util.uri import URI
 
 @pytest.mark.parametrize("debug_errors", [False, True])
 @pytest.mark.parametrize(
-    ("endpoint", "error_type"),
+    ("endpoint", "method", "error_type"),
     [
-        ("artifacts", RuntimeError),
-        ("artifacts/example", RuntimeError),
-        ("panels", RuntimeError),
-        ("workspace", RuntimeError),
-        ("workspace", OSError),
+        ("artifacts", "GET", RuntimeError),
+        ("artifacts/example", "GET", RuntimeError),
+        ("panels", "GET", RuntimeError),
+        ("workspace", "GET", RuntimeError),
+        ("workspace", "GET", OSError),
+        ("workspace/upload", "POST", RuntimeError),
+        ("workspace/upload", "POST", OSError),
+        ("files/example.txt", "GET", RuntimeError),
+        ("files/example.txt", "GET", OSError),
+        ("workspace/example.txt/preview", "GET", RuntimeError),
+        ("workspace/example.txt/preview", "GET", OSError),
+        ("workspace/example.txt/download", "GET", RuntimeError),
+        ("workspace/example.txt/download", "GET", OSError),
     ],
 )
 def test_conversation_internal_error_respects_debug_gate(
@@ -39,6 +47,7 @@ def test_conversation_internal_error_respects_debug_gate(
     caplog: pytest.LogCaptureFixture,
     debug_errors: bool,
     endpoint: str,
+    method: str,
     error_type: type[Exception],
 ) -> None:
     if debug_errors:
@@ -51,7 +60,9 @@ def test_conversation_internal_error_respects_debug_gate(
 
     monkeypatch.setattr("gptme.logmanager.LogManager.load", fail)
     with caplog.at_level("ERROR"):
-        response = client.get(f"/api/v2/conversations/example/{endpoint}")
+        response = client.open(
+            f"/api/v2/conversations/example/{endpoint}", method=method
+        )
 
     assert response.status_code == 500
     assert response.get_json() == {
