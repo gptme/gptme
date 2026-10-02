@@ -3,7 +3,7 @@
 Providers
 =========
 
-We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
+We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Y-API, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
 
 You can also bring your own subscription instead of an API key: a ChatGPT Plus/Pro plan via :ref:`OpenAI Subscription <openai-subscription>` or a SuperGrok plan via :ref:`Grok Subscription <grok-subscription>`.
 
@@ -83,6 +83,9 @@ Each links to its setup details on :doc:`providers-supported`.
    * - :ref:`Requesty <requesty>`
      - ``requesty/``
      - ``REQUESTY_API_KEY``
+   * - :ref:`Y-API <y-api>`
+     - ``y-api/``
+     - ``YAPI_API_KEY``
    * - :ref:`Groq <groq>`
      - ``groq/``
      - ``GROQ_API_KEY``
