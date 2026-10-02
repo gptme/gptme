@@ -698,3 +698,33 @@ def test_create_mcp_tools_explicit_servers_do_not_adopt_live_client():
         from gptme.tools.mcp_adapter import _mcp_clients
 
         _mcp_clients.pop("samename", None)
+
+
+def test_create_mcp_tools_reconnects_static_client_on_config_rebuild():
+    """Only dynamically loaded clients are reused on a rebuild; a static-config
+    client is reconnected so a changed config under the same name takes effect."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.config import Config, MCPConfig, MCPServerConfig, UserConfig
+    from gptme.tools.mcp_adapter import _mcp_clients, create_mcp_tools
+
+    stale = MagicMock()
+    stale.tools = MagicMock()
+    fresh = MagicMock()
+    fresh.connect.return_value = (MagicMock(tools=[]), MagicMock())
+
+    config = Config(
+        user=UserConfig(
+            mcp=MCPConfig(
+                enabled=True,
+                servers=[MCPServerConfig(name="staticsrv", command="new")],
+            )
+        )
+    )
+    _mcp_clients["staticsrv"] = stale
+    try:
+        with patch("gptme.mcp.client.MCPClient", return_value=fresh):
+            create_mcp_tools(config)
+        fresh.connect.assert_called_once_with("staticsrv")
+    finally:
+        _mcp_clients.pop("staticsrv", None)

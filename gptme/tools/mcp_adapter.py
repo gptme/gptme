@@ -322,13 +322,13 @@ def create_mcp_tools(
         client: MCPClient | None = None
         client_is_reused = False
         try:
-            # Reuse an existing live client to avoid double-connecting a server
-            # that was already loaded via load_mcp_server().
-            # Only for the global registry built from config: a session-scoped
-            # registry (ACP) must never adopt a same-named global client, and
-            # explicit ``servers`` may differ in command/url from the live one.
+            # Reuse a live client only when it was loaded via load_mcp_server():
+            # that avoids double-connecting it on a cache rebuild. Static-config
+            # clients are always reconnected (as before) since config may have
+            # changed under the same name, and a session-scoped registry (ACP)
+            # or explicit ``servers`` must never adopt a same-named global client.
             existing = (
-                get_mcp_clients().get(server_config.name)
+                _dynamic_servers.get(server_config.name)
                 if clients is None and servers is None
                 else None
             )
@@ -338,15 +338,9 @@ def create_mcp_tools(
                 tools = existing.tools
                 # Dynamic clients stay owned by _dynamic_servers so unloading
                 # them really cuts off execution; don't copy into _mcp_clients.
-                reused_dynamic = server_config.name in _dynamic_servers
-                if not reused_dynamic:
-                    client_registry[server_config.name] = client
                 tool_specs.extend(
                     _build_tool_specs_for_server(
-                        server_config,
-                        tools,
-                        client_config,
-                        clients=None if reused_dynamic else client_registry,
+                        server_config, tools, client_config, clients=None
                     )
                 )
                 continue
