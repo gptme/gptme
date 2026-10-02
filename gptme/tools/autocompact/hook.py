@@ -12,6 +12,7 @@ from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from ...config import get_project_config
 from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
 from ...message import Message, len_tokens
@@ -382,11 +383,25 @@ def autocompact_hook(
         original_count = len(messages)
         view_before = manager.current_view
         try:
-            yield from _resume_via_llm(
+            # Read compact_instructions and keep_recent_tokens from project config
+            compact_instructions: str | None = None
+            keep_recent_tokens: int = 20_000
+            try:
+                proj_cfg = get_project_config(manager.workspace)
+                if proj_cfg and proj_cfg.context:
+                    compact_instructions = proj_cfg.context.compact_instructions
+                    keep_recent_tokens = proj_cfg.context.keep_recent_tokens
+            except Exception:
+                pass  # Config read is best-effort; use defaults if it fails
+
+            applied = yield from _resume_via_llm(
                 manager,
                 messages,
                 use_view_branch=True,
                 llm_unlocked=llm_unlocked,
+                compact_instructions=compact_instructions,
+                keep_recent_tokens=keep_recent_tokens,
+                keep_head=_get_keep_head(),
             )
         except Exception as e:
             logger.error(f"Auto-summarize failed: {e}")
@@ -402,6 +417,13 @@ def autocompact_hook(
             )
             _failed_summarize[conv_key] = n_messages
             _prune_attempts(current_time)
+            return
+
+        # Stale discard: a view was created but the resume did not apply, so
+        # recording cooldown here would throttle the next unchanged-length
+        # attempt for 60s after a no-op — the same premature-throttle bug the
+        # rule-based exception path already guards against.
+        if not applied:
             return
 
         _last_autocompact_attempt[conv_key] = (
