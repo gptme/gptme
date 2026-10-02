@@ -1368,9 +1368,9 @@ def test_subprocess_monitor_thread_started():
 
 
 def test_subprocess_monitor_timeout():
-    """Test that _monitor_subprocess kills the process on timeout."""
+    """Test that timeout cleanup escalates when the process ignores SIGTERM."""
     import subprocess
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock, call, patch
 
     from gptme.tools.subagent.execution import _monitor_subprocess
     from gptme.tools.subagent.types import (
@@ -1383,7 +1383,8 @@ def test_subprocess_monitor_timeout():
     mock_process = MagicMock(spec=subprocess.Popen)
     mock_process.wait.side_effect = [
         subprocess.TimeoutExpired(cmd="gptme", timeout=2),  # first call: timeout
-        None,  # second call (after kill): reap succeeds
+        subprocess.TimeoutExpired(cmd="gptme", timeout=5),  # grace period expires
+        None,  # after kill: reap succeeds
     ]
     mock_process.returncode = -9  # SIGKILL
 
@@ -1401,8 +1402,14 @@ def test_subprocess_monitor_timeout():
     with patch("gptme.tools.subagent.execution.notify_completion"):
         _monitor_subprocess(sa)
 
-    # Verify: process was killed
+    # Verify: graceful cleanup was attempted before escalating and reaping.
+    mock_process.terminate.assert_called_once()
     mock_process.kill.assert_called_once()
+    assert mock_process.wait.call_args_list == [
+        call(timeout=2),
+        call(timeout=5),
+        call(),
+    ]
 
     # Verify: result was cached as failure with timeout message
     with _subagent_results_lock:
