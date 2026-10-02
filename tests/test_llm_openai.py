@@ -4347,7 +4347,9 @@ class TestNonStreamToolCalls:
     """
 
     @staticmethod
-    def _completion(finish_reason: str, content: str | None):
+    def _completion(
+        finish_reason: str, content: str | None, reasoning: str | None = None
+    ):
         from openai.types.chat import ChatCompletionMessageToolCall
         from openai.types.completion_usage import CompletionUsage
 
@@ -4368,7 +4370,7 @@ class TestNonStreamToolCalls:
                     message=SimpleNamespace(
                         content=content,
                         tool_calls=[tool_call],
-                        reasoning_content=None,
+                        reasoning_content=reasoning,
                     ),
                 )
             ],
@@ -4403,3 +4405,35 @@ class TestNonStreamToolCalls:
         tool_line = '@shell(call_1): {"command": "ls"}'
         expected = f"{content}\n{tool_line}" if content else tool_line
         assert result == expected
+
+    @pytest.mark.parametrize("finish_reason", ["stop", "tool_calls"])
+    def test_chat_orders_reasoning_before_content_and_tool_calls(
+        self, monkeypatch, finish_reason
+    ):
+        """Reasoning, text and tool calls together: think block first, tool last."""
+        completion = self._completion(finish_reason, "Let me check.", "Need to list.")
+        raw = SimpleNamespace(parse=lambda: completion, headers={})
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    with_raw_response=SimpleNamespace(create=Mock(return_value=raw))
+                )
+            )
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+        monkeypatch.setattr(
+            llm_openai, "_should_use_responses_api", lambda *args: False
+        )
+
+        result, _ = llm_openai.chat(
+            [Message(role="user", content="Hi")],
+            "openrouter/deepseek/deepseek-v4-flash-0731",
+            None,
+        )
+
+        assert result == (
+            "<think>\nNeed to list.\n</think>\n\n"
+            "Let me check.\n"
+            '@shell(call_1): {"command": "ls"}'
+        )
