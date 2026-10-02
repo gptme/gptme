@@ -329,6 +329,10 @@ class Subagent:
     context_window: int | None = None
     # Number of parent conversation turns to forward as context (P1: persist for re-spawn)
     context_turns: int | None = None
+    # Number of messages prepended from the parent's log when context_mode="fork".
+    # _read_log() skips these when counting tool_uses so the count reflects only
+    # the subagent's own tool invocations, not the inherited parent history.
+    fork_message_count: int = 0
     # Timestamp (seconds since epoch) when this subagent was created
     started_at: float = field(default_factory=time.time)
     # Wall-clock limit in seconds; when set, a watchdog auto-cancels after this time
@@ -520,11 +524,14 @@ class Subagent:
                 duration_s=duration_s,
             )
 
-        # Total ToolUse invocations across all assistant messages — usage
-        # reporting parity with Claude Code's Agent tool notification.
+        # Total ToolUse invocations across the subagent's own assistant messages.
+        # When context_mode="fork", the log starts with fork_message_count messages
+        # copied from the parent; skip them so the count reflects only this
+        # subagent's tool calls, not the parent's inherited history.
+        own_msgs = log[self.fork_message_count :]
         n_tool_uses = sum(
             len(list(ToolUse.iter_from_content(message.content)))
-            for message in log
+            for message in own_msgs
             if message.role == "assistant"
         )
 

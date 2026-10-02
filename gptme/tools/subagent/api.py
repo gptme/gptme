@@ -1019,6 +1019,7 @@ def subagent(
             reasoning_effort=reasoning_effort,
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
+            fork_message_count=len(fork_messages) if fork_messages is not None else 0,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -1198,6 +1199,7 @@ def subagent(
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
             prompt_queue_closed=_pqc,
+            fork_message_count=len(fork_messages) if fork_messages is not None else 0,
         )
         with _subagents_lock:
             _subagents.append(sa)

@@ -7819,6 +7819,61 @@ class TestUsageReporting:
         # 1 (echo one) + 2 (echo two, echo three) + 1 (complete) = 4
         assert result.tool_uses == 4
 
+    def test_tool_uses_excludes_forked_parent_messages(self, tmp_path):
+        """fork_message_count causes _read_log to skip parent-inherited messages
+        so tool_uses reflects only the subagent's own tool calls."""
+        logdir = tmp_path / "subagent-fork-log"
+        logdir.mkdir()
+        # Simulate: 2 parent messages (1 assistant with tool calls), then subagent's own
+        messages = [
+            # --- parent messages (fork_message_count=2 covers these) ---
+            {
+                "role": "user",
+                "content": "parent task",
+                "timestamp": "2025-01-01T00:00:00+00:00",
+            },
+            {
+                "role": "assistant",
+                "content": "```shell\necho parent-work\n```",
+                "timestamp": "2025-01-01T00:00:01+00:00",
+            },
+            # --- subagent's own messages ---
+            {
+                "role": "user",
+                "content": "subagent task",
+                "timestamp": "2025-01-01T00:00:02+00:00",
+            },
+            {
+                "role": "assistant",
+                "content": "```shell\necho subagent-work\n```",
+                "timestamp": "2025-01-01T00:00:03+00:00",
+            },
+            {
+                "role": "assistant",
+                "content": "```complete\ndone\n```",
+                "timestamp": "2025-01-01T00:00:04+00:00",
+            },
+        ]
+        (logdir / "conversation.jsonl").write_text(
+            "".join(json.dumps(m) + "\n" for m in messages)
+        )
+        from gptme.tools import init_tools
+
+        init_tools(allowlist=["shell", "complete"])
+        sa = Subagent(
+            agent_id="fork-usage-test",
+            prompt="subagent task",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            context_mode="fork",
+            fork_message_count=2,  # skip the 2 parent messages
+        )
+        result = sa._read_log()
+        assert result.status == "success"
+        # Only subagent's own 2 tool uses (shell + complete), not the parent's 1
+        assert result.tool_uses == 2
+
     def test_duration_s_reflects_elapsed_time(self, tmp_path):
         """duration_s is wall-clock seconds since the subagent's started_at."""
         logdir = tmp_path / "subagent-log"

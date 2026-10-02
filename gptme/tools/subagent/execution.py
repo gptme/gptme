@@ -613,10 +613,15 @@ def _create_subagent_thread(
     _enter_subagent_cwd(workspace)
 
     # Scope the reasoning-effort override to this subagent's own thread.
-    # get_config()/set_config() read/write a ContextVar, and a plain
-    # threading.Thread starts with a fresh, empty contextvars context (see the
-    # clear_tools() note above) — so mutating this thread's Config instance
-    # here never touches the parent's or any sibling subagent's effort level.
+    # prepare_execution_environment() above called set_config() with a fresh
+    # Config.from_workspace(), rebinding _config_var in THIS thread's context
+    # to a new Config object owned by this thread.  In GIL builds the thread
+    # started with an empty context, so set_config() was also the first write;
+    # in Python 3.13 free-threaded builds (PEP 703) the thread *copies* the
+    # parent's context at creation time (see the clear_tools() note above), but
+    # prepare_execution_environment()'s set_config() call rebinds _config_var
+    # in the copy — so the parent's Config is never the object returned by
+    # get_config() here.  Either way the mutation below is thread-local.
     if reasoning_effort:
         from ...config.core import get_config  # fmt: skip
 
