@@ -1,5 +1,6 @@
 """CLI commands for skills and lessons management."""
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -101,8 +102,8 @@ def skills_show(name: str):
     index = LessonIndex()
 
     if not index.lessons:
-        click.echo("No skills or lessons found.")
-        return
+        click.echo("No skills or lessons found.", err=True)
+        sys.exit(1)
 
     name_lower = name.lower()
 
@@ -110,41 +111,38 @@ def skills_show(name: str):
         return item.metadata.name or item.title
 
     # Exact matches win over substring matches: skill name, then filename stem,
-    # then lesson title. Only fall back to a substring match if it is unique.
-    exact_keys = [
-        lambda item: (item.metadata.name or "").lower(),
-        lambda item: item.path.stem.lower(),
-        lambda item: item.title.lower(),
-    ]
-    match = None
-    for key in exact_keys:
-        match = next((item for item in index.lessons if key(item) == name_lower), None)
-        if match:
-            break
-
-    if match is None:
-        candidates = [
-            item
-            for item in index.lessons
-            if name_lower in (item.metadata.name or "").lower()
+    # then lesson title, then substring. The first tier with any hit decides;
+    # several hits in that tier are reported instead of picking one.
+    tiers = [
+        lambda item: (item.metadata.name or "").lower() == name_lower,
+        lambda item: item.path.stem.lower() == name_lower,
+        lambda item: item.title.lower() == name_lower,
+        lambda item: (
+            name_lower in (item.metadata.name or "").lower()
             or name_lower in item.title.lower()
             or name_lower in item.path.stem.lower()
-        ]
-        if len(candidates) == 1:
-            match = candidates[0]
-        elif candidates:
-            click.echo(f"Multiple skills or lessons match '{name}':\n", err=True)
-            for item in candidates[:20]:
-                click.echo(f"  {label(item)}  ({item.path})", err=True)
-            if len(candidates) > 20:
-                click.echo(f"  ... and {len(candidates) - 20} more", err=True)
-            click.echo("\nUse an exact name or filename.", err=True)
-            sys.exit(1)
-        else:
-            click.echo(f"Skill or lesson not found: {name}", err=True)
-            click.echo(f"Try 'gptme-util skills search {name}'.", err=True)
-            sys.exit(1)
+        ),
+    ]
+    candidates: list = []
+    for matches in tiers:
+        candidates = [item for item in index.lessons if matches(item)]
+        if candidates:
+            break
 
+    if not candidates:
+        click.echo(f"Skill or lesson not found: {name}", err=True)
+        click.echo(f"Try 'gptme-util skills search {shlex.quote(name)}'.", err=True)
+        sys.exit(1)
+    if len(candidates) > 1:
+        click.echo(f"Multiple skills or lessons match '{name}':\n", err=True)
+        for item in candidates[:20]:
+            click.echo(f"  {label(item)}  ({item.path})", err=True)
+        if len(candidates) > 20:
+            click.echo(f"  ... and {len(candidates) - 20} more", err=True)
+        click.echo("\nUse a more specific name.", err=True)
+        sys.exit(1)
+
+    match = candidates[0]
     if match.is_stub:
         match = index.materialize_lesson(match)
     click.echo(f"# {label(match)}")
