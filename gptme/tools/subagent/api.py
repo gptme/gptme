@@ -216,14 +216,15 @@ def subagent(
                        "sequential" runs subtasks one after another.
                        Only applies to planner mode.
         context_mode: Controls what context is shared with the subagent:
+
             - "full" (default): Share complete context (agent identity, tools, workspace)
             - "selective": Share only specified context components (requires context_include)
-            - "fork": Start the subagent from an independent copy of the parent's
-              full conversation log (identity, tools, and every turn so far),
-              so it can continue the parent's work with complete history.
-              Thread mode only (ignored with a warning in subprocess/ACP mode).
-              Mutually exclusive with ``context_turns`` (fork already includes
-              the full history). See "Fork semantics" below.
+            - "fork": Start the subagent from an independent *copy* of the parent's
+              full conversation log — not a reference to the same log file, so the
+              child's own turns never appear in the parent's log and vice versa.
+              Matches Claude Code's "fork" subagent type, thread mode only (ignored
+              with a warning in subprocess/ACP/planner mode), and is mutually
+              exclusive with context_turns (fork already includes the full history).
         context_include: For selective mode, list of context components to include:
             - Thread mode supports "agent" and "tools"
             - Subprocess mode also supports "workspace", which maps to the CLI's "files" context
@@ -361,24 +362,6 @@ def subagent(
 
             Use this to route a cheap, high-volume subagent to low effort while
             the parent (or a verification subagent) stays at high effort.
-
-    Fork semantics (``context_mode="fork"``):
-        The subagent receives an independent **copy** of the parent's message
-        list at spawn time — not a reference to the same log file. This means:
-
-        - The child can read everything the parent has done so far (identity,
-          tools, every prior turn), matching Claude Code's ``fork`` subagent
-          type.
-        - The child's own turns are written to its own logdir; they never
-          appear in the parent's log, and the parent's later turns never
-          appear in the child's log. The two conversations diverge from the
-          fork point, like a git fork — not like a shared/appended log, which
-          would require locking the parent's log file across threads/processes
-          and would let a cancelled or slow child block the parent's writes.
-        - Because the copy already includes the parent's identity/tools/history
-          preamble, ``context_mode="fork"`` does not call ``get_prompt()`` or
-          apply ``context_window`` truncation — those are "full" mode concerns
-          for building fresh context, not copying existing context.
 
     Returns:
         None: Starts asynchronous execution.
