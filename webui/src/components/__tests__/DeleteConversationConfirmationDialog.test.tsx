@@ -36,10 +36,13 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}</div>;
 }
 
-function renderDialog(conversationName = 'selected-chat') {
+function renderDialog(
+  conversationName = 'selected-chat',
+  currentRoute = `/chat/${conversationName}`
+) {
   const onDelete = jest.fn();
   render(
-    <MemoryRouter initialEntries={[`/chat/${conversationName}`]}>
+    <MemoryRouter initialEntries={[currentRoute]}>
       <LocationProbe />
       <DeleteConversationConfirmationDialog
         conversationName={conversationName}
@@ -75,12 +78,12 @@ describe('DeleteConversationConfirmationDialog', () => {
   });
 
   it('keeps the current route and selection when deleting another conversation', async () => {
-    renderDialog('other-chat');
+    renderDialog('other-chat', '/chat/selected-chat');
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(mockDeleteConversation).toHaveBeenCalledWith('other-chat'));
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat\/other-chat$/);
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat\/selected-chat$/);
     expect(mockSelectedConversation$.get()).toBe('selected-chat');
   });
 });
