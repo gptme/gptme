@@ -674,6 +674,11 @@ class ChatConfig(BaseModel):
         ge=0.0,
         le=1.0,
     )
+    tool_format: str | None = Field(None, description="Tool format (markdown/xml/tool)")
+    stream: bool | None = Field(None, description="Stream model responses")
+    interactive: bool | None = Field(None, description="Interactive mode")
+    agent: str | None = Field(None, description="Agent path")
+    system_prompt: str | None = Field(None, description="System prompt override")
 
 
 class ConversationConfigResponse(BaseModel):
@@ -725,6 +730,38 @@ class JsonRpcResponse(BaseModel):
     error: dict[str, Any] | None = Field(None, description="Error object")
 
 
+class ConversationConfigUpdateResponse(BaseModel):
+    """Result of a conversation config update."""
+
+    status: str = Field(..., description="'ok' on success")
+    message: str = Field(..., description="Human-readable result")
+    config: ConversationConfigResponse = Field(..., description="Updated config")
+    tools: list[str] = Field(..., description="Names of the tools now loaded")
+
+
+class DeployStatusResponse(BaseModel):
+    """Web UI staging deploy trigger configuration (never includes the token)."""
+
+    enabled: bool = Field(..., description="Dev deploy trigger enabled")
+    configured: bool = Field(..., description="Everything needed to trigger is set")
+    repository: str = Field(..., description="GitHub owner/repo")
+    workflow: str = Field(..., description="Workflow file name")
+    ref: str = Field(..., description="Branch or tag to deploy")
+    has_token: bool = Field(..., description="Whether a GitHub token is set")
+    actions_url: str = Field(..., description="GitHub Actions URL")
+
+
+class DeployTriggerResponse(BaseModel):
+    """Staging deploy workflow queued."""
+
+    status: str = Field(..., description="'queued'")
+    message: str = Field(..., description="Human-readable result")
+    repository: str = Field(..., description="GitHub owner/repo")
+    workflow: str = Field(..., description="Workflow file name")
+    ref: str = Field(..., description="Branch or tag deployed")
+    actions_url: str = Field(..., description="GitHub Actions URL")
+
+
 class ComputerStatusResponse(BaseModel):
     """Available computer-use backends."""
 
@@ -732,6 +769,13 @@ class ComputerStatusResponse(BaseModel):
         ..., description="True when taking a screenshot will succeed"
     )
     system: str = Field(..., description="Platform name (Linux / Darwin / Windows)")
+    display: str | None = Field(None, description="$DISPLAY on Linux, null elsewhere")
+    backends: dict[str, bool] = Field(
+        ..., description="Availability of each backend tool"
+    )
+    screenshot_error: str | None = Field(
+        None, description="Why the screenshot availability check failed, if it did"
+    )
 
 
 # Helper functions for automatic inference
@@ -816,7 +860,7 @@ def _infer_request_body(func: Callable) -> type[BaseModel] | None:
 
 
 def api_doc_simple(
-    responses: dict[int, type | None] | None = None,
+    responses: dict[int, type | str | None] | None = None,
     request_body: type[BaseModel] | None = None,
     parameters: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
@@ -920,7 +964,7 @@ CONVERSATION_ID_PARAM = {
 def api_doc(
     summary: str | None = None,
     description: str | None = None,
-    responses: dict[int, type | None] | None = None,
+    responses: dict[int, type | str | None] | None = None,
     request_body: type | None = None,
     parameters: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
@@ -1122,9 +1166,17 @@ def _convert_to_openapi_nullable(schema: dict) -> dict:
                     new_schema = {k: v for k, v in schema.items() if k != "anyOf"}
                     if len(non_null_items) == 1:
                         new_schema.update(non_null_items[0])
+                        new_schema["nullable"] = True
                     else:
-                        new_schema["anyOf"] = non_null_items
-                    new_schema["nullable"] = True
+                        # OpenAPI 3.0 only honours ``nullable`` next to a
+                        # ``type``, so mark each typed member rather than
+                        # the (typeless) anyOf wrapper.
+                        new_schema["anyOf"] = [
+                            {**item, "nullable": True}
+                            if isinstance(item, dict) and "type" in item
+                            else item
+                            for item in non_null_items
+                        ]
 
                     # If field has enum, add null to the allowed values
                     if "enum" in new_schema and None not in new_schema["enum"]:
@@ -1198,7 +1250,15 @@ def _create_method_spec(
 
     # Add responses with better descriptions
     for code, response_type in doc["responses"].items():
-        if response_type:
+        if isinstance(response_type, str):
+            # A MIME type string documents a raw (non-JSON) body
+            method_spec["responses"][str(code)] = {
+                "description": f"{response_type} body",
+                "content": {
+                    response_type: {"schema": {"type": "string", "format": "binary"}}
+                },
+            }
+        elif response_type:
             # Get description from response model if available
             response_description = (
                 getattr(response_type, "__doc__", None) or f"HTTP {code}"

@@ -52,7 +52,7 @@ def _optional_string(
         "Returns WAV audio (`audio/wav`); requires OPENROUTER_API_KEY."
     ),
     request_body=SpeechRequest,
-    responses={400: ErrorResponse},
+    responses={200: "audio/wav", 400: ErrorResponse},
     tags=["audio"],
 )
 def synthesize_speech():

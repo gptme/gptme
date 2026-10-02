@@ -103,9 +103,12 @@ from .openapi_docs import (
     AudioTranscriptionResponse,
     ConversationConfigPatchRequest,
     ConversationConfigResponse,
+    ConversationConfigUpdateResponse,
     ConversationCreateRequest,
     ConversationListResponse,
     ConversationResponse,
+    DeployStatusResponse,
+    DeployTriggerResponse,
     ErrorResponse,
     ExternalSessionListResponse,
     ExternalSessionResponse,
@@ -940,6 +943,7 @@ def api_config():
 @api_doc(
     summary="Get staging deploy status",
     description="Return whether the web UI staging deploy trigger is configured.",
+    responses={200: DeployStatusResponse},
     tags=["dev"],
 )
 def api_dev_deploy_staging_status():
@@ -952,6 +956,12 @@ def api_dev_deploy_staging_status():
 @api_doc(
     summary="Trigger staging deploy",
     description="Trigger the configured web UI staging deploy workflow.",
+    responses={
+        202: DeployTriggerResponse,
+        403: ErrorResponse,
+        502: ErrorResponse,
+        503: ErrorResponse,
+    },
     tags=["dev"],
 )
 def api_dev_deploy_staging_trigger():
@@ -2889,7 +2899,7 @@ def api_conversation_config(conversation_id: str):
     ),
     request_body=ConversationConfigPatchRequest,
     responses={
-        200: ConversationConfigResponse,
+        200: ConversationConfigUpdateResponse,
         400: ErrorResponse,
         404: ErrorResponse,
         409: ErrorResponse,

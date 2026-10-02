@@ -116,7 +116,7 @@ def update_conversation_metrics(n_conversations: int, n_messages: int) -> None:
 @api_doc(
     summary="Prometheus metrics",
     description="Current metrics in Prometheus text format (`text/plain`).",
-    responses={503: None},
+    responses={200: "text/plain", 503: None},
     tags=["metrics"],
 )
 def metrics_view() -> flask.Response:
