@@ -540,7 +540,8 @@ export const ConversationList: FC<Props> = ({
         connectionStatus === 'disconnected' &&
         conversations.length === 0 && (
           <div className="px-2 py-2 text-sm text-muted-foreground">
-            Not connected to API. Use the connect button to load conversations.
+            Not connected to API. Pick a server from the selector in the top bar to load
+            conversations.
           </div>
         )}
       {!isLoading && !isError && isConnected && conversations.length === 0 && (

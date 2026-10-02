@@ -33,6 +33,7 @@ from pathlib import Path
 import flask
 
 from .auth import require_auth
+from .openapi_docs import ComputerStatusResponse, ErrorResponse, api_doc
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,19 @@ def _take_screenshot() -> Path:
 
 @computer_api.route("/api/v2/computer/screenshot")
 @require_auth
+@api_doc(
+    summary="Take screenshot",
+    description=(
+        "Take a screenshot of the current desktop and return it as a JPEG "
+        "(`image/jpeg`). 503 when no display backend is available."
+    ),
+    responses={
+        200: ["image/jpeg", "image/png"],
+        500: ErrorResponse,
+        503: ErrorResponse,
+    },
+    tags=["computer"],
+)
 def screenshot():
     """Take a screenshot of the current desktop and return it as a JPEG image.
 
@@ -239,6 +253,12 @@ def screenshot():
 
 @computer_api.route("/api/v2/computer/status")
 @require_auth
+@api_doc(
+    summary="Computer-use status",
+    description="Describe which computer-use backends are available.",
+    responses={200: ComputerStatusResponse},
+    tags=["computer"],
+)
 def status():
     """Return a JSON object describing what computer-use backends are available.
 

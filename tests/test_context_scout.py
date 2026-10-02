@@ -412,6 +412,33 @@ class TestTurnPreHook:
         assert len(result) == 1
         assert result[0].content.count("A") <= CONTENT_SIZE_WARN_THRESHOLD
 
+    def test_manager_workspace_overrides_registration_workspace(self, tmp_path):
+        """manager.workspace takes priority over registration-time workspace.
+
+        This ensures subagents and evals scout their own workspace, not the
+        process cwd captured at registration.
+        """
+        reg_ws = tmp_path / "registration-dir"
+        reg_ws.mkdir()
+        # The hook is created with the registration-time workspace.
+        hook = _make_turn_pre_hook("cheap-model", reg_ws)
+
+        # The manager reports a different workspace (the run's actual workspace).
+        run_ws = tmp_path / "run-dir"
+        run_ws.mkdir()
+        long_msg = "please fix the authentication bug in the login module " * 3
+        msgs = self._make_messages(("user", long_msg))
+
+        class FakeManager:
+            workspace = run_ws
+            messages = msgs  # _get_messages_from_manager looks for .messages
+
+        with patch("gptme.context.scout.scout_files", return_value=[]) as mock_sf:
+            list(hook(manager=FakeManager()))
+        # scout_files must receive the manager workspace, not the registration one.
+        assert mock_sf.called
+        assert mock_sf.call_args[0][1] == run_ws
+
     def test_does_not_inject_symlink_to_hidden_file(self, tmp_path):
         """_safe_read must not follow a symlink to hidden/ignored contents."""
         secret = tmp_path / ".env"
@@ -518,7 +545,7 @@ class TestSafeRead:
     def test_does_not_register_without_dir_fd(self, tmp_path):
         """Unsupported runtimes must skip before paying for scout-model calls."""
         config = MagicMock()
-        config.context.scout_model = "cheap-model"
+        config.project.context.scout_model = "cheap-model"
         config.chat.workspace = tmp_path
         with (
             patch("gptme.context.scout._SUPPORTS_DIR_FD", False),
@@ -631,3 +658,47 @@ class TestSafeRead:
         # Without the inode pin the replacement would be readable — the pin is
         # what closes the window, not the path walk.
         assert _safe_read(advertised, ws) == "SECRET=do-not-leak"
+
+
+# ---------------------------------------------------------------------------
+# register() reads scout_model from real config objects
+# ---------------------------------------------------------------------------
+
+
+def _real_config(tmp_path, project_scout=None, user_scout=None):
+    from gptme.config import Config, ProjectConfig, UserConfig
+
+    project = ProjectConfig(context=ContextConfig(scout_model=project_scout))
+    project._workspace = tmp_path
+    return Config(
+        user=UserConfig(context=ContextConfig(scout_model=user_scout)), project=project
+    )
+
+
+@pytest.mark.parametrize(
+    ("project_scout", "user_scout", "expected"),
+    [
+        ("project-model", None, True),
+        (None, "user-model", True),
+        ("project-model", "user-model", True),
+        (None, None, False),
+        # Explicit empty project value disables scouting even when user config has a model.
+        ("", "user-model", False),
+    ],
+)
+def test_register_reads_scout_model_from_config(
+    tmp_path, project_scout, user_scout, expected
+):
+    """[context] scout_model in gptme.toml or the user config registers the hook."""
+    config = _real_config(tmp_path, project_scout, user_scout)
+    with (
+        patch("gptme.context.scout._SUPPORTS_DIR_FD", True),
+        patch("gptme.config.get_config", return_value=config),
+        patch("gptme.context.scout._make_turn_pre_hook") as make_hook,
+        patch("gptme.hooks.register_hook") as register_hook,
+    ):
+        register()
+    assert register_hook.called is expected
+    if expected:
+        resolved = project_scout if project_scout is not None else user_scout
+        make_hook.assert_called_once_with(resolved, tmp_path)

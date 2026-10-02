@@ -58,6 +58,14 @@ jobs:
     - name: Build
       run: npm run build
 
+    - name: Install extension dependencies
+      working-directory: webui/extension
+      run: npm ci
+
+    - name: Build browser extension
+      working-directory: webui/extension
+      run: npm run build
+
     - name: Set up Python
       uses: actions/setup-python@v7
       with:

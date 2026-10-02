@@ -11,6 +11,8 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
+from .openapi_docs import api_doc
+
 if TYPE_CHECKING:
     import flask
 
@@ -111,6 +113,12 @@ def update_conversation_metrics(n_conversations: int, n_messages: int) -> None:
     messages_total.set(n_messages)
 
 
+@api_doc(
+    summary="Prometheus metrics",
+    description="Current metrics in Prometheus text format (`text/plain`).",
+    responses={200: "text/plain", 503: None},
+    tags=["metrics"],
+)
 def metrics_view() -> flask.Response:
     """Render current metrics in Prometheus text format."""
     import flask

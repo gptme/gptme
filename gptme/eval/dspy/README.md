@@ -98,8 +98,7 @@ from gptme.eval.dspy import run_prompt_optimization_experiment
 
 # Run optimization experiment
 experiment = run_prompt_optimization_experiment(
-    experiment_name="gptme_optimization_v1",
-    model="anthropic/claude-haiku-4-5"
+    experiment_name="gptme_optimization_v1", model="anthropic/claude-haiku-4-5"
 )
 
 # Check results
@@ -153,7 +152,7 @@ from gptme.eval.dspy import quick_prompt_test
 prompts = {
     "original": "You are gptme, a helpful assistant...",
     "enhanced": "You are gptme, an advanced AI assistant with tool access...",
-    "concise": "gptme: AI assistant with terminal and code execution tools."
+    "concise": "gptme: AI assistant with terminal and code execution tools.",
 }
 
 results = quick_prompt_test(prompts, num_examples=10)
@@ -168,14 +167,12 @@ optimizer = PromptOptimizer(
     model="anthropic/claude-haiku-4-5",
     optimizer_type="miprov2",
     max_demos=3,
-    num_trials=15
+    num_trials=15,
 )
 
 base_prompt = get_current_gptme_prompt()
 optimized_prompt, results = optimizer.optimize_prompt(
-    base_prompt=base_prompt,
-    train_size=20,
-    val_size=10
+    base_prompt=base_prompt, train_size=20, val_size=10
 )
 
 print(f"Improvement: {results['average_score']:.3f}")
@@ -282,11 +279,7 @@ Advanced prompt optimization using:
 - Automatic hyperparameter tuning
 
 ```python
-optimizer_config = {
-    "optimizer_type": "miprov2",
-    "max_demos": 3,
-    "num_trials": 10
-}
+optimizer_config = {"optimizer_type": "miprov2", "max_demos": 3, "num_trials": 10}
 ```
 
 ### BootstrapFewShot
@@ -297,11 +290,7 @@ Focuses on generating effective few-shot examples:
 - Validate against held-out data
 
 ```python
-optimizer_config = {
-    "optimizer_type": "bootstrap",
-    "max_demos": 4,
-    "num_trials": 8
-}
+optimizer_config = {"optimizer_type": "bootstrap", "max_demos": 4, "num_trials": 8}
 ```
 
 ## Evaluation Metrics

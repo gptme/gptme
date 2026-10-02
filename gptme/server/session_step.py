@@ -33,6 +33,7 @@ from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools
 from ..tools._url_safety import set_session_allow_hosts
 from ..tools.shell import set_workspace_cwd
+from ..util.context_measurement import anchor_context_usage, input_log_digest
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
 from .session_models import (
@@ -848,10 +849,14 @@ def step(
 
     # Set the model as default before triggering hooks
     # This ensures hooks like token_awareness can access the model
-    from ..llm.models import set_default_model
+    from ..llm.models import get_model, set_default_model
     from ..model_attestation import record_runtime_selection
 
-    set_default_model(model)
+    # Resolve model metadata once per step: get_model() may hit a dynamic
+    # model catalog (OpenRouter/gptme) whose failures aren't cached, so a
+    # second lookup after generation could stall step completion.
+    model_meta = get_model(model)
+    set_default_model(model_meta)
     record_runtime_selection(model, "api_request")
 
     # Trigger SESSION_START hook for new conversations
@@ -917,6 +922,9 @@ def step(
         manager.write()
         logger.debug("Wrote step.pre hook messages to disk")
 
+    # Anchor usage to stored input before preparation merges/enriches messages.
+    input_count = len(manager.log.messages)
+    input_digest = input_log_digest(manager.log.messages)
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
     if not msgs:
@@ -1029,8 +1037,11 @@ def step(
         ):
             metadata = stream_wrapper.metadata
 
-        # Persist the assistant message
+        # Persist the assistant message. Anchor the *resolved* model (e.g.
+        # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity
+        # compaction compares against; the raw request name can differ.
         msg = Message("assistant", output, metadata=metadata)
+        anchor_context_usage(msg, input_count, input_digest, model_meta.full)
 
         _append_and_notify(manager, session, msg)
 

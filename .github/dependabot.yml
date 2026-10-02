@@ -30,3 +30,72 @@ updates:
         update-types:
           - "minor"
           - "patch"
+  # npm manifests live in several independent projects; each needs its own
+  # entry. Routine minor/patch bumps are grouped per project to keep the review
+  # queue small; major bumps still open individual PRs.
+  - package-ecosystem: "npm"
+    directory: "/webui"
+    schedule:
+      interval: "weekly"
+    groups:
+      webui-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "npm"
+    directory: "/webui/extension"
+    schedule:
+      interval: "weekly"
+    groups:
+      webui-extension-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "npm"
+    directory: "/tauri"
+    schedule:
+      interval: "weekly"
+    groups:
+      tauri-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "npm"
+    directory: "/tauri/e2e"
+    schedule:
+      interval: "weekly"
+    groups:
+      tauri-e2e-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "npm"
+    directory: "/site/next"
+    schedule:
+      interval: "weekly"
+    groups:
+      site-next-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "cargo"
+    directory: "/tauri/src-tauri"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

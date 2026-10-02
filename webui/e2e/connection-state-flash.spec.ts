@@ -6,7 +6,7 @@ import { test, expect, type Page, type Route } from '@playwright/test';
  * On a normal load, and whenever the client reconnected (gptme.ai swaps in a
  * fresh API client on every hourly session-token refresh), the webui briefly
  * rendered its *disconnected* UI before the connection probe finished:
- *   - "Not connected to API. Use the connect button to load conversations."
+ *   - "Not connected to API. Pick a server from the selector in the top bar to load conversations."
  *     in the conversation list,
  *   - the amber "Cannot reach … / No gptme server connected" alert on the
  *     new-chat view,

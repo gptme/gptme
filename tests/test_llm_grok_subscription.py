@@ -333,7 +333,12 @@ def test_init_registers_openai_client(tmp_path):
     assert call_args.args[0] == "grok-subscription"
     assert call_args.kwargs["api_key"] == "cli-access-token"
     assert "cli-chat-proxy.grok.com" in call_args.kwargs["base_url"]
-    assert call_args.kwargs.get("default_headers", {}).get("x-grok-client-version")
+    sent_version = call_args.kwargs.get("default_headers", {}).get(
+        "x-grok-client-version"
+    )
+    assert sent_version
+    # xAI's proxy answers HTTP 426 below 1.0.13 (0.1.202 was rejected 2026-10-02).
+    assert tuple(int(p) for p in sent_version.split(".")) >= (1, 0, 13)
 
     mod._auth = None
 

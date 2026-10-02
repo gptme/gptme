@@ -4589,7 +4589,7 @@ class TestDegenerationThreshold:
     """Tests for the _degeneration_threshold() env-var parser."""
 
     def test_default_returns_default_value(self, monkeypatch):
-        from gptme.llm.llm_openai import (
+        from gptme.llm._degeneration import (
             _DEGEN_THRESHOLD_DEFAULT,
             _degeneration_threshold,
         )
@@ -4616,7 +4616,7 @@ class TestDegenerationThreshold:
         assert _degeneration_threshold() == pytest.approx(0.75)
 
     def test_invalid_string_returns_default(self, monkeypatch):
-        from gptme.llm.llm_openai import (
+        from gptme.llm._degeneration import (
             _DEGEN_THRESHOLD_DEFAULT,
             _degeneration_threshold,
         )
@@ -4756,7 +4756,7 @@ class TestDegenerationThresholdValidation:
 
     @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-1", "-0.5", "1.5", "2"])
     def test_invalid_numeric_threshold_falls_back_to_default(self, monkeypatch, value):
-        from gptme.llm.llm_openai import (
+        from gptme.llm._degeneration import (
             _DEGEN_THRESHOLD_DEFAULT,
             _degeneration_threshold,
         )
@@ -4977,3 +4977,19 @@ class TestDegenerationStreamBehaviour:
         first = next(gen)
         assert first  # output began before the stream was exhausted
         assert state["consumed"] < len(chunks)
+
+
+@pytest.mark.parametrize("status", [408, 409])
+def test_openai_retries_408_409(status):
+    from unittest.mock import patch
+
+    import httpx
+    from openai import APIStatusError
+
+    from gptme.llm.llm_openai import _handle_openai_transient_error
+
+    response = httpx.Response(status, request=httpx.Request("POST", "http://x"))
+    error = APIStatusError("transient", response=response, body=None)
+    with patch("gptme.llm.llm_openai.backoff_wait", return_value=False) as w:
+        _handle_openai_transient_error(error, attempt=0, max_retries=3, base_delay=0)
+    w.assert_called_once()

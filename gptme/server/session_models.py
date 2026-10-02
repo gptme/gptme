@@ -135,6 +135,9 @@ class ConversationSession(BaseSession):
     # Lock for atomic check-and-set of the generating flag in /step.
     # Prevents concurrent requests from both reading False before either writes True.
     step_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Lock guarding append, trim and read of events list to prevent concurrent
+    # modifications from losing events or giving inconsistent indices.
+    _events_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     # Monotonically increasing generation epoch. Interrupts revoke the current
     # epoch; successful user dispatches and tool continuations claim a new one.
     # Tool workers compare their captured epoch before releasing or continuing.
@@ -204,14 +207,39 @@ class ConversationSession(BaseSession):
     def trim_events(self) -> None:
         """Trim old events when the list exceeds _MAX_EVENTS.
 
-        Only trims when no clients are connected to avoid breaking
-        in-flight SSE streams that reference absolute indices.
+        Trims regardless of connected clients. Readers already address events
+        by absolute index (_events_offset), so trimming the front does not break
+        in-flight SSE streams.
         """
-        if len(self.events) <= self._MAX_EVENTS or self.clients:
-            return
-        trim_count = len(self.events) - self._KEEP_EVENTS
-        self._events_offset += trim_count
-        self.events = self.events[trim_count:]
+        with self._events_lock:
+            if len(self.events) <= self._MAX_EVENTS:
+                return
+            trim_count = len(self.events) - self._KEEP_EVENTS
+            self._events_offset += trim_count
+            self.events = self.events[trim_count:]
+
+    def read_events(self, abs_index: int) -> tuple[list[EventType], int]:
+        """Read events from an absolute index atomically.
+
+        Returns the batch of events and the index after them, guaranteeing
+        that the caller can resume from that index without skipping or
+        duplicating events even if trims happen concurrently.
+        """
+        with self._events_lock:
+            rel_index = max(0, abs_index - self._events_offset)
+            events = self.events[rel_index:]
+            next_abs_index = self._events_offset + len(self.events)
+            return events, next_abs_index
+
+    def append_event(self, event: EventType) -> None:
+        """Append an event and trim if needed."""
+        with self._events_lock:
+            self.events.append(event)
+            # Call trim while holding the lock to ensure atomic append+trim
+            if len(self.events) > self._MAX_EVENTS:
+                trim_count = len(self.events) - self._KEEP_EVENTS
+                self._events_offset += trim_count
+                self.events = self.events[trim_count:]
 
 
 class SessionManager:
@@ -339,8 +367,7 @@ class SessionManager:
         """Add an event to all sessions for a conversation."""
         sessions = cls.get_sessions_for_conversation(conversation_id)
         for session in sessions:
-            session.events.append(event)
-            session.trim_events()
+            session.append_event(event)
             session.touch()
             session.event_flag.set()
 

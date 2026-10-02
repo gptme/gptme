@@ -1629,3 +1629,26 @@ def test_api_v2_delete_message_creates_adjacency_rejected(client: FlaskClient):
     assert response.status_code == 400
     data = response.get_json()
     assert data is not None and "consecutive" in data["error"]
+
+
+def test_openapi_spec_covers_all_api_routes(client: FlaskClient):
+    """Every /api route must appear in the OpenAPI spec so new routes can't drift out silently."""
+    from gptme.server.openapi_docs import _convert_flask_path_to_openapi
+
+    response = client.get("/api/docs/openapi.json")
+    assert response.status_code == 200
+    paths = response.get_json()["paths"]
+
+    missing: list[str] = []
+    for rule in client.application.url_map.iter_rules():
+        if not rule.rule.startswith("/api/") or rule.rule.startswith("/api/docs"):
+            continue
+        path = _convert_flask_path_to_openapi(rule.rule)
+        # OpenAPI 3.0 has no QUERY method, so only check the standard verbs
+        methods = (rule.methods or set()) & {"GET", "POST", "PUT", "PATCH", "DELETE"}
+        missing.extend(
+            f"{method} {path}"
+            for method in methods
+            if method.lower() not in paths.get(path, {})
+        )
+    assert not missing, f"Routes missing from OpenAPI spec: {sorted(missing)}"

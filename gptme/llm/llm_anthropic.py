@@ -11,7 +11,7 @@ from typing import (
     cast,
 )
 
-from httpx import RemoteProtocolError
+from httpx import NetworkError, RemoteProtocolError, TimeoutException
 from pydantic import BaseModel  # fmt: skip
 
 from ..constants import TEMPERATURE, TOP_P
@@ -494,7 +494,7 @@ def _handle_anthropic_transient_error(
     """
     # Allow tests to override max_retries via environment variable
     # This breaks out of the retry loop early to prevent test timeouts
-    from anthropic import APIStatusError  # fmt: skip
+    from anthropic import APIConnectionError, APIStatusError  # fmt: skip
 
     test_max_retries_str = os.environ.get("GPTME_TEST_MAX_RETRIES")
     if test_max_retries_str:
@@ -517,8 +517,9 @@ def _handle_anthropic_transient_error(
         # Retry on all 5xx server errors (transient)
         if 500 <= e.status_code < 600:
             should_retry = True
-        # Retry on 429 rate limit (should back off)
-        elif e.status_code == 429:
+        # Retry on 408 (request timeout), 409 (conflict) and 429 (rate limit),
+        # matching the SDK's own retry policy
+        elif e.status_code in (408, 409, 429):
             should_retry = True
         # Also check error message for known transient issues
         elif hasattr(e, "message"):
@@ -527,8 +528,12 @@ def _handle_anthropic_transient_error(
                 keyword in error_msg for keyword in ["overload", "internal", "timeout"]
             ):
                 should_retry = True
-    # Also check for "httpx.RemoteProtocolError: peer closed connection without sending complete message body"
-    elif isinstance(e, RemoteProtocolError):
+    # Connection errors and timeouts (APITimeoutError subclasses APIConnectionError),
+    # plus httpx transport errors such as "peer closed connection without sending
+    # complete message body". SDK retries are disabled, so this is the only retry layer.
+    elif isinstance(
+        e, APIConnectionError | RemoteProtocolError | NetworkError | TimeoutException
+    ):
         should_retry = True
 
     # Re-raise if not transient or max retries reached
