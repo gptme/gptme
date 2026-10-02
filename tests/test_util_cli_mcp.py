@@ -1,11 +1,15 @@
 """Tests for the MCP-related gptme-util CLI commands."""
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 from click.testing import CliRunner
 
 from gptme.cli.util import main
+from gptme.config import Config, get_config, set_config
+from gptme.mcp.client import MCPClient
 
 
 @pytest.fixture
@@ -14,7 +18,7 @@ def mock_config(mocker):
     config = Mock()
     config.mcp.enabled = True
     config.mcp.servers = []
-    mocker.patch("gptme.cli.cmd_mcp.get_config", return_value=config)
+    mocker.patch("gptme.cli.cmd_mcp.Config.from_workspace", return_value=config)
     return config
 
 
@@ -564,3 +568,49 @@ class TestMCPServe:
         result = runner.invoke(main, ["mcp", "serve", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         mock_create.assert_called_once_with(tool_names=None, workspace=str(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "command", [["list"], ["test", "project-time"], ["info", "project-time"]]
+)
+def test_mcp_commands_load_workspace_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: list[str]
+) -> None:
+    """Load real user/project TOML, mocking only the external connection."""
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    user_config = user_dir / "config.toml"
+    user_config.write_text("[mcp]\nenabled = false\n", encoding="utf-8")
+    monkeypatch.setattr("gptme.config.user.config_path", str(user_config))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text(
+        "[mcp]\nenabled = true\n\n[[mcp.servers]]\n"
+        'name = "project-time"\ncommand = "project-server"\n',
+        encoding="utf-8",
+    )
+    prior_config = get_config()
+    set_config(Config.from_workspace(user_dir))
+    monkeypatch.chdir(workspace)
+    connected = []
+
+    def connect(client: MCPClient, server_name: str) -> tuple[SimpleNamespace, None]:
+        assert client.config.project is not None
+        assert client.config.mcp.enabled
+        connected.append(server_name)
+        return SimpleNamespace(tools=[]), None
+
+    monkeypatch.setattr(MCPClient, "connect", connect)
+    # No registry lookup is needed for a locally configured project server.
+    monkeypatch.setattr(
+        "gptme.mcp.registry.MCPRegistry.get_server_details",
+        lambda *_: pytest.fail("project server was mistaken for a registry server"),
+    )
+    try:
+        result = CliRunner().invoke(main, ["mcp", *command])
+        assert result.exit_code == 0, result.output
+        assert "project-time" in result.output
+        assert "Connected" in result.output
+        assert connected == ["project-time"]
+    finally:
+        set_config(prior_config)

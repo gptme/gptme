@@ -32,7 +32,28 @@ You can configure MCP in your :ref:`global-config` (``~/.config/gptme/config.tom
     url = "https://example.com/mcp"
     headers = { Authorization = "Bearer your-token" }
 
-We also intend to support specifying it in the :ref:`project-config`, and the ability to set it per-conversation.
+The same ``[mcp]`` settings are supported in :ref:`project-config`
+(``gptme.toml`` in your workspace) and per-conversation configuration.
+For example, a project's ``gptme.toml`` can enable its own server:
+
+.. code-block:: toml
+
+    [mcp]
+    enabled = true
+
+    [[mcp.servers]]
+    name = "project-server"
+    command = "server-command"
+    args = ["--arg1"]
+
+Servers from all configuration layers are combined. For servers with the same
+name, conversation settings take precedence over project settings, which take
+precedence over global settings. The ``enabled`` and ``auto_start`` settings
+follow the same precedence.
+
+Run ``gptme-util mcp list``, ``gptme-util mcp test project-server``, or
+``gptme-util mcp info project-server`` from the workspace directory to inspect
+and test the merged global and project configuration.
 
 Management Tool
 ---------------

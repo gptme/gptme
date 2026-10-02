@@ -1,10 +1,11 @@
 """CLI commands for MCP (Model Context Protocol) server management."""
 
 import sys
+from pathlib import Path
 
 import click
 
-from ..config import get_config
+from ..config import Config
 from ..mcp.client import MCPClient
 
 
@@ -17,7 +18,7 @@ def mcp():
 def mcp_list():
     """List MCP servers and check their connection health."""
 
-    config = get_config()
+    config = Config.from_workspace(Path.cwd())
 
     if not config.mcp.enabled:
         click.echo("❌ MCP is disabled in config")
@@ -65,7 +66,7 @@ def mcp_list():
 def mcp_test(server_name: str):
     """Test connection to a specific MCP server."""
 
-    config = get_config()
+    config = Config.from_workspace(Path.cwd())
 
     if not config.mcp.enabled:
         click.echo("❌ MCP is disabled in config")
@@ -106,7 +107,7 @@ def mcp_info(server_name: str):
     """
     from ..mcp.registry import MCPRegistry, format_server_details
 
-    config = get_config()
+    config = Config.from_workspace(Path.cwd())
 
     # First check if server is configured locally
     server = next((s for s in config.mcp.servers if s.name == server_name), None)
