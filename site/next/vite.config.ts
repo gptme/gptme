@@ -42,7 +42,7 @@ function ssrDev(): Plugin {
 export default defineConfig({
   appType: "custom",
   plugins: [ssrDev()],
-  esbuild: {
-    jsx: "automatic",
+  oxc: {
+    jsx: { runtime: "automatic" },
   },
 });
