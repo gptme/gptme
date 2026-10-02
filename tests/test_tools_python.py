@@ -481,3 +481,24 @@ def test_cap_output_and_teeio_accept_lone_surrogates():
     tee = TeeIO(io.StringIO())
     tee.write(s)
     assert tee.get_captured() == s
+
+
+def test_cap_output_result_within_cap():
+    """Truncated output (marker included) must not exceed the byte cap."""
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    for s in ("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 1), chr(0xDCFF) * (4 * 1024 * 1024)):
+        capped = _cap_output(s)
+        assert len(capped.encode("utf-8", errors="surrogatepass")) <= (
+            _DEFAULT_MAX_OUTPUT_BYTES
+        )
+
+
+def test_teeio_write_reports_full_length_when_truncating():
+    import io
+
+    from gptme.tools.python import TeeIO
+
+    tee = TeeIO(io.StringIO())
+    data = "x" * (15 * 1024 * 1024)
+    assert tee.write(data) == len(data)

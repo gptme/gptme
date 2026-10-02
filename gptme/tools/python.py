@@ -60,6 +60,18 @@ _IMAGE_MIME: dict[str, str] = {
 }
 
 
+def _decode_slice(data: bytes) -> str:
+    """Decode a byte slice that may cut a character in half.
+
+    Tries surrogatepass first (round-trips lone surrogates); on a mid-character
+    split falls back to dropping the partial bytes, which never expands the text.
+    """
+    try:
+        return data.decode("utf-8", errors="surrogatepass")
+    except UnicodeDecodeError:
+        return data.decode("utf-8", errors="ignore")
+
+
 def _cap_output(output: str) -> str:
     """Cap output to a reasonable size (10 MiB) with head+tail truncation.
 
@@ -74,13 +86,13 @@ def _cap_output(output: str) -> str:
         return output
 
     # Output exceeds cap; return head+tail with truncation marker (byte-level slice)
-    half = _DEFAULT_MAX_OUTPUT_BYTES // 2
+    # Reserve room for the marker so the result stays within the cap
+    half = (_DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE) // 2
     head_bytes = encoded[:half]
     tail_bytes = encoded[-half:]
     omitted = total_bytes - len(head_bytes) - len(tail_bytes)
-    # Decode with error replacement so a mid-character split doesn't raise
-    head = head_bytes.decode("utf-8", errors="replace")
-    tail = tail_bytes.decode("utf-8", errors="replace")
+    head = _decode_slice(head_bytes)
+    tail = _decode_slice(tail_bytes)
     return f"{head}\n\n[... {omitted:,} bytes omitted ({total_bytes:,} total) ...]\n\n{tail}"
 
 
@@ -287,6 +299,7 @@ class TeeIO(io.StringIO):
         self.original_stream.flush()  # Ensure immediate display
         # Stop buffering once the cap is reached to avoid unbounded memory growth,
         # but keep the part of a crossing write that still fits.
+        n_chars = len(s)
         encoded = s.encode("utf-8", errors="surrogatepass")
         self._byte_count += len(encoded)
         limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
@@ -294,12 +307,12 @@ class TeeIO(io.StringIO):
         if len(encoded) > room:
             self._truncated = True
             if room <= 0:
-                return len(s)
-            encoded = encoded[:room]
-            s = encoded.decode("utf-8", errors="ignore")
-            self._buffered_bytes += len(s.encode("utf-8", errors="surrogatepass"))
-            super().write(s)
-            return len(s)
+                return n_chars
+            kept = _decode_slice(encoded[:room])
+            self._buffered_bytes += len(kept.encode("utf-8", errors="surrogatepass"))
+            super().write(kept)
+            # Report the full write as accepted: the cap limits retention only
+            return n_chars
         self._buffered_bytes += len(encoded)
         return super().write(s)
 
