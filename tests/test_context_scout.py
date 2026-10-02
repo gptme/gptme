@@ -518,7 +518,7 @@ class TestSafeRead:
     def test_does_not_register_without_dir_fd(self, tmp_path):
         """Unsupported runtimes must skip before paying for scout-model calls."""
         config = MagicMock()
-        config.context.scout_model = "cheap-model"
+        config.project.context.scout_model = "cheap-model"
         config.chat.workspace = tmp_path
         with (
             patch("gptme.context.scout._SUPPORTS_DIR_FD", False),
@@ -631,3 +631,44 @@ class TestSafeRead:
         # Without the inode pin the replacement would be readable — the pin is
         # what closes the window, not the path walk.
         assert _safe_read(advertised, ws) == "SECRET=do-not-leak"
+
+
+# ---------------------------------------------------------------------------
+# register() reads scout_model from real config objects
+# ---------------------------------------------------------------------------
+
+
+def _real_config(tmp_path, project_scout=None, user_scout=None):
+    from gptme.config import Config, ProjectConfig, UserConfig
+
+    project = ProjectConfig(context=ContextConfig(scout_model=project_scout))
+    project._workspace = tmp_path
+    return Config(
+        user=UserConfig(context=ContextConfig(scout_model=user_scout)), project=project
+    )
+
+
+@pytest.mark.parametrize(
+    ("project_scout", "user_scout", "expected"),
+    [
+        ("project-model", None, True),
+        (None, "user-model", True),
+        ("project-model", "user-model", True),
+        (None, None, False),
+    ],
+)
+def test_register_reads_scout_model_from_config(
+    tmp_path, project_scout, user_scout, expected
+):
+    """[context] scout_model in gptme.toml or the user config registers the hook."""
+    config = _real_config(tmp_path, project_scout, user_scout)
+    with (
+        patch("gptme.context.scout._SUPPORTS_DIR_FD", True),
+        patch("gptme.config.get_config", return_value=config),
+        patch("gptme.context.scout._make_turn_pre_hook") as make_hook,
+        patch("gptme.hooks.register_hook") as register_hook,
+    ):
+        register()
+    assert register_hook.called is expected
+    if expected:
+        make_hook.assert_called_once_with(project_scout or user_scout, tmp_path)

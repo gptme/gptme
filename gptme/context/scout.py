@@ -450,11 +450,9 @@ def register() -> None:
     from ..hooks import HookType, register_hook  # fmt: skip
 
     config = get_config()
-    context_cfg = getattr(config, "context", None)
-    if context_cfg is None:
-        return
-
-    scout_model: str | None = getattr(context_cfg, "scout_model", None)
+    # Project [context] takes precedence over the user-level defaults.
+    project_scout = config.project.context.scout_model if config.project else None
+    scout_model = project_scout or config.user.context.scout_model
     if not scout_model:
         return
     if not _SUPPORTS_DIR_FD:
