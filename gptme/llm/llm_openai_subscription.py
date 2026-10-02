@@ -57,6 +57,8 @@ from .openai_responses import (
     _stream_responses_events,
     _tool_spec_to_responses_tool,
 )
+from .retry_abort import backoff_wait
+from .retry_policy import retry_delay_for_error
 
 logger = logging.getLogger(__name__)
 
@@ -536,6 +538,12 @@ def _transform_to_codex_request(
     return body
 
 
+def _is_retryable_status(error: requests.HTTPError) -> bool:
+    """429 and 5xx from the Codex backend are transient; other statuses are not."""
+    status = getattr(error.response, "status_code", None)
+    return status == 429 or (status is not None and 500 <= status < 600)
+
+
 def _parse_sse_response(line: bytes | str) -> dict[str, Any] | None:
     """Parse a single SSE line (bytes or str)."""
     if isinstance(line, bytes):
@@ -686,10 +694,11 @@ def stream(
     def _sse_events():
         attempts = 0
         yielded_any = False
-        response = _open_response()
+        response: requests.Response | None = None
         try:
             while True:
                 try:
+                    response = _open_response()
                     for line in response.iter_lines():
                         if not line:
                             continue
@@ -705,28 +714,41 @@ def stream(
                     requests.exceptions.Timeout,
                     requests.exceptions.ConnectionError,
                     requests.exceptions.ChunkedEncodingError,
+                    requests.HTTPError,
                 ) as e:
                     # Close before rebinding so the abandoned SSL socket is
                     # released immediately rather than at interpreter teardown.
-                    response.close()
+                    if response is not None:
+                        response.close()
+                        response = None
+                    if isinstance(e, requests.HTTPError) and not _is_retryable_status(
+                        e
+                    ):
+                        raise
                     if yielded_any or attempts >= max_stream_retries:
                         raise
+                    # Back off (honoring Retry-After) instead of re-sending at
+                    # once: the backend is rate-limiting a shared quota.
+                    delay = retry_delay_for_error(e, attempts)
                     attempts += 1
                     logger.warning(
-                        "Subscription stream idle/dropped before first event (%s); "
-                        "retrying (%d/%d)",
+                        "Subscription request failed before first event (%s); "
+                        "retrying in %.1fs (%d/%d)",
                         e,
+                        delay,
                         attempts,
                         max_stream_retries,
                     )
-                    response = _open_response()
+                    if backoff_wait(delay):
+                        raise
         finally:
             # Runs on every exit path: normal return, exception, or GeneratorExit
             # when _stream_responses_events breaks early on response.done.
             # Without this the streaming SSL socket lingers until interpreter
             # teardown and can SIGSEGV when _ssl is finalized out-of-order
             # (status=139, recurring in PM canary with gpt-5.6-sol).
-            response.close()
+            if response is not None:
+                response.close()
 
     _usage_holder: list[Any] = []
 

@@ -349,6 +349,19 @@ def test_stream_read_timeout_invalid_env_falls_back_to_default(monkeypatch, bad_
     assert mock_post.call_args.kwargs["timeout"] == (30, 600.0)
 
 
+@pytest.fixture(autouse=True)
+def _backoff_delays(monkeypatch) -> list[float]:
+    """Record stream-retry backoff delays instead of sleeping."""
+    delays: list[float] = []
+
+    def _fake_backoff_wait(delay: float, generation: int | None = None) -> bool:
+        delays.append(delay)
+        return False
+
+    monkeypatch.setattr(llm_openai_subscription, "backoff_wait", _fake_backoff_wait)
+    return delays
+
+
 class _TimeoutThenEventsResponse:
     """First iter_lines() call raises ReadTimeout (silent reasoning pause
     exceeding the read timeout); used to simulate a retryable idle stream."""
@@ -460,6 +473,7 @@ class _Non200Response:
     def __init__(self, status_code: int, body: str) -> None:
         self.status_code = status_code
         self.text = body
+        self.headers: dict[str, str] = {}
         self.closed = False
 
     def iter_lines(self) -> Iterator[bytes]:
@@ -801,3 +815,74 @@ def test_stalled_callback_connection_cannot_bypass_deadline():
         finally:
             sock.close()
             llm_openai_subscription._OAuthCallbackHandler.timeout = None
+
+
+def test_stream_retries_503_on_initial_request(_backoff_delays):
+    """A 503 on the very first request backs off and retries."""
+    ok = _FakeSSEStreamResponse(
+        [
+            {"type": "response.output_text.delta", "delta": "Done."},
+            {"type": "response.done"},
+        ]
+    )
+    unavailable = _Non200Response(503, "upstream unavailable")
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[unavailable, ok],
+        ) as mock_post,
+    ):
+        output = "".join(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert output == "Done."
+    assert mock_post.call_count == 2
+    assert unavailable.closed
+    assert len(_backoff_delays) == 1
+
+
+def test_stream_429_honors_retry_after(_backoff_delays):
+    limited = _Non200Response(429, "rate limited")
+    limited.headers["Retry-After"] = "2"
+    ok = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            side_effect=[limited, ok],
+        ),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert _backoff_delays == [2.0]
+
+
+def test_stream_does_not_retry_non_transient_status(_backoff_delays):
+    unauthorized = _Non200Response(401, "unauthorized")
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post",
+            return_value=unauthorized,
+        ) as mock_post,
+        pytest.raises(requests.HTTPError, match="Codex API error 401"),
+    ):
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.6-sol"
+            )
+        )
+
+    assert mock_post.call_count == 1
+    assert _backoff_delays == []
