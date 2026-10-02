@@ -911,7 +911,7 @@ The <code class="docutils literal notranslate"><span class="pre">groq/&lt;model&
 Access tokens are automatically refreshed before expiry, so you only need to authenticate once.</p>
 <p><strong>Usage:</strong></p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.6-sol
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6.1-sol
 </pre></div>
 </div>
 <p>You can also append reasoning levels: <code class="docutils literal notranslate"><span class="pre">:low</span></code>, <code class="docutils literal notranslate"><span class="pre">:medium</span></code>, <code class="docutils literal notranslate"><span class="pre">:high</span></code>, or <code class="docutils literal notranslate"><span class="pre">:xhigh</span></code>:</p>
@@ -921,6 +921,7 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <p><strong>Available Models:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-6-astra</span></code> - Current flagship (released 2026-09-03). Rolling out to Codex on Plus/Pro; if the endpoint reports that the model needs a newer client, re-authenticate with <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">openai-subscription</span></code> to refresh the token</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-6.1-sol</span></code> - Current workhorse: near-Astra performance at a lower cost; preferred over <code class="docutils literal notranslate"><span class="pre">gpt-5.6-sol</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.6-sol</span></code> / <code class="docutils literal notranslate"><span class="pre">gpt-5.6-terra</span></code> / <code class="docutils literal notranslate"><span class="pre">gpt-5.6-luna</span></code> - GPT-5.6 family (flagship / balanced / fast)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.5-pro</span></code> - Previous flagship with maximum reasoning compute (Responses API only)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.4</span></code> - Previous flagship with reasoning capabilities</p></li>

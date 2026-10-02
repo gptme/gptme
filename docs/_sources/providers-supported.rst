@@ -332,7 +332,7 @@ Access tokens are automatically refreshed before expiry, so you only need to aut
 .. code-block:: sh
 
     gptme "hello" -m openai-subscription/gpt-6-astra
-    gptme "hello" -m openai-subscription/gpt-5.6-sol
+    gptme "hello" -m openai-subscription/gpt-6.1-sol
 
 You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xhigh``:
 
@@ -343,6 +343,7 @@ You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xh
 **Available Models:**
 
 - ``gpt-6-astra`` - Current flagship (released 2026-09-03). Rolling out to Codex on Plus/Pro; if the endpoint reports that the model needs a newer client, re-authenticate with ``gptme-auth openai-subscription`` to refresh the token
+- ``gpt-6.1-sol`` - Current workhorse: near-Astra performance at a lower cost; preferred over ``gpt-5.6-sol``
 - ``gpt-5.6-sol`` / ``gpt-5.6-terra`` / ``gpt-5.6-luna`` - GPT-5.6 family (flagship / balanced / fast)
 - ``gpt-5.5-pro`` - Previous flagship with maximum reasoning compute (Responses API only)
 - ``gpt-5.4`` - Previous flagship with reasoning capabilities
