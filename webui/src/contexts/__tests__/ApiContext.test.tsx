@@ -240,6 +240,50 @@ describe('ApiProvider mobile auto-connect', () => {
     // full reactive chain (update → registry change → component re-render) works.
   });
 
+  it('syncs the rotated sidecar token into a server already on the sidecar port', async () => {
+    // A previous launch rewrote the default URL to the sidecar's non-default
+    // port and stored that launch's token. This launch's sidecar has a new token.
+    const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
+      serverRegistry$: { set: (value: unknown) => void };
+    };
+    serverRegistry$.set({
+      activeServerId: 'server-1',
+      connectedServerIds: [],
+      servers: [
+        {
+          id: 'server-1',
+          name: 'Local',
+          baseUrl: 'http://127.0.0.1:5712',
+          authToken: 'previous-launch-token',
+          useAuthToken: true,
+          createdAt: 0,
+          lastUsedAt: 0,
+        },
+      ],
+    });
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(mockUpdateServer).toHaveBeenCalledWith('server-1', {
+        authToken: 'sidecar-token',
+        useAuthToken: true,
+      });
+    });
+  });
+
   it('connects with the Tauri-managed URL and token even before the sync effect settles', async () => {
     mockUseTauriServerStatus.mockReturnValue({
       isLoading: true,
@@ -279,6 +323,141 @@ describe('ApiProvider mobile auto-connect', () => {
       useAuthToken: true,
     });
     expect(mockCheckConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not overwrite an independent server credential on manual connect', async () => {
+    setActiveServerBaseUrl('http://127.0.0.1:5712');
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: false,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: true,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: () => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    await connectFromProbe();
+
+    expect(mockUpdateServer).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
+  });
+
+  it('does not inject sidecar token when connecting to a remote server from a sidecar-port base', async () => {
+    // Active server is on the sidecar port; user calls connect({ baseUrl: remote })
+    // The sidecar token must NOT leak into the remote connection.
+    setActiveServerBaseUrl('http://127.0.0.1:5712');
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: (config: { baseUrl: string }) => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    // The mount effect may have synced the token to the sidecar URL (correct behaviour).
+    // Clear the mock so we only assert on what connect() does for the remote URL.
+    mockUpdateServer.mockClear();
+    mockGetClientForServerConfig.mockClear();
+
+    await connectFromProbe({ baseUrl: 'https://remote.example.com' });
+
+    expect(mockUpdateServer).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
+    expect(mockGetClientForServerConfig).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
+  });
+
+  it('drops a stored sidecar token when connecting to a remote server', async () => {
+    // The registry already holds the sidecar token (synced earlier); connect()
+    // to a remote URL without credentials must not let the client inherit it.
+    setActiveServerBaseUrl('http://127.0.0.1:5712');
+    const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
+      serverRegistry$: { get: () => { servers: Record<string, unknown>[] } };
+    };
+    serverRegistry$.get().servers[0].authToken = 'sidecar-token';
+    serverRegistry$.get().servers[0].useAuthToken = true;
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    let connectFromProbe!: (config: { baseUrl: string }) => Promise<void>;
+    function ConnectProbe() {
+      connectFromProbe = useApi().connect;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <ConnectProbe />
+      </ApiProvider>
+    );
+
+    mockUpdateServer.mockClear();
+    mockGetClientForServerConfig.mockClear();
+
+    await connectFromProbe({ baseUrl: 'https://remote.example.com' });
+
+    expect(mockUpdateServer).toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({
+        baseUrl: 'https://remote.example.com',
+        authToken: null,
+        useAuthToken: false,
+      })
+    );
+    expect(mockGetClientForServerConfig).toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ baseUrl: 'https://remote.example.com', authToken: null })
+    );
+    expect(mockGetClientForServerConfig).not.toHaveBeenCalledWith(
+      'server-1',
+      expect.objectContaining({ authToken: 'sidecar-token' })
+    );
   });
 
   it('uses the latest rendered server snapshot when an imperative store read lags', async () => {
