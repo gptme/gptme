@@ -1811,98 +1811,107 @@ def stream(
     served_model: str | None = None
     last_usage = None
 
-    for chunk_raw in _guarded_stream_iter(_stream_obj, model=model, provider=provider):
-        from openai.types.chat import ChatCompletionChunk  # fmt: skip
-        from openai.types.chat.chat_completion_chunk import (  # fmt: skip
-            ChoiceDeltaToolCall,
-            ChoiceDeltaToolCallFunction,
-        )
-
-        if _or_provider_from_body and (
-            _body_provider := _openrouter_provider_from(chunk_raw)
+    try:
+        for chunk_raw in _guarded_stream_iter(
+            _stream_obj, model=model, provider=provider
         ):
-            _or_provider_from_body = False
-            _or_resolved = _make_resolved_model(model, _body_provider)
-            if _or_resolved:
-                if captured_metadata is None:
-                    captured_metadata = _record_usage(
-                        None,
-                        model,
-                        resolved_model=_or_resolved,
-                        reasoning_effort=reasoning_effort,
-                    )
-                else:
-                    captured_metadata["resolved_model"] = _or_resolved
+            from openai.types.chat import ChatCompletionChunk  # fmt: skip
+            from openai.types.chat.chat_completion_chunk import (  # fmt: skip
+                ChoiceDeltaToolCall,
+                ChoiceDeltaToolCallFunction,
+            )
 
-        # Cast the chunk to the correct type
-        chunk = cast(ChatCompletionChunk, chunk_raw)
+            if _or_provider_from_body and (
+                _body_provider := _openrouter_provider_from(chunk_raw)
+            ):
+                _or_provider_from_body = False
+                _or_resolved = _make_resolved_model(model, _body_provider)
+                if _or_resolved:
+                    if captured_metadata is None:
+                        captured_metadata = _record_usage(
+                            None,
+                            model,
+                            resolved_model=_or_resolved,
+                            reasoning_effort=reasoning_effort,
+                        )
+                    else:
+                        captured_metadata["resolved_model"] = _or_resolved
 
-        if chunk_served := served_model_from(chunk):
-            served_model = chunk_served
+            # Cast the chunk to the correct type
+            chunk = cast(ChatCompletionChunk, chunk_raw)
 
-        # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
-        # endpoint) attach it to every chunk. Keep the latest and record once
-        # after the stream, so one response is one request/turn.
-        if hasattr(chunk, "usage") and chunk.usage:
-            last_usage = chunk.usage
+            if chunk_served := served_model_from(chunk):
+                served_model = chunk_served
 
-        if not chunk.choices:
-            continue
+            # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
+            # endpoint) attach it to every chunk. Keep the latest and record once
+            # after the stream, so one response is one request/turn.
+            if hasattr(chunk, "usage") and chunk.usage:
+                last_usage = chunk.usage
 
-        choice = chunk.choices[0]
-        stop_reason = choice.finish_reason
-        delta = choice.delta
+            if not chunk.choices:
+                continue
 
-        # Handle reasoning content
-        # OpenRouter API uses delta.reasoning
-        # DeepSeek API uses delta.reasoning_content
-        if reasoning_content := (
-            getattr(delta, "reasoning_content", None)
-            or getattr(delta, "reasoning", None)
-        ):
-            if not in_reasoning_block:
-                yield "<think>\n"
-                in_reasoning_block = True
-            yield reasoning_content
-        elif in_reasoning_block:
-            yield "\n</think>\n\n"
-            in_reasoning_block = False
-            if delta.content is not None:
+            choice = chunk.choices[0]
+            stop_reason = choice.finish_reason
+            delta = choice.delta
+
+            # Handle reasoning content
+            # OpenRouter API uses delta.reasoning
+            # DeepSeek API uses delta.reasoning_content
+            if reasoning_content := (
+                getattr(delta, "reasoning_content", None)
+                or getattr(delta, "reasoning", None)
+            ):
+                if not in_reasoning_block:
+                    yield "<think>\n"
+                    in_reasoning_block = True
+                yield reasoning_content
+            elif in_reasoning_block:
+                yield "\n</think>\n\n"
+                in_reasoning_block = False
+                if delta.content is not None:
+                    yield delta.content
+            elif delta.content is not None:
                 yield delta.content
-        elif delta.content is not None:
-            yield delta.content
 
-        # Handle tool calls
-        if delta.tool_calls:
-            for tool_call in delta.tool_calls:
-                if isinstance(tool_call, ChoiceDeltaToolCall) and tool_call.function:
-                    func = tool_call.function
-                    if isinstance(func, ChoiceDeltaToolCallFunction):
-                        if func.name:
-                            yield f"\n@{func.name}({tool_call.id}): "
-                        if func.arguments:
-                            yield func.arguments
+            # Handle tool calls
+            if delta.tool_calls:
+                for tool_call in delta.tool_calls:
+                    if (
+                        isinstance(tool_call, ChoiceDeltaToolCall)
+                        and tool_call.function
+                    ):
+                        func = tool_call.function
+                        if isinstance(func, ChoiceDeltaToolCallFunction):
+                            if func.name:
+                                yield f"\n@{func.name}({tool_call.id}): "
+                            if func.arguments:
+                                yield func.arguments
 
-        # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
-        # if delta.type == "response.reasoning_summary.delta":
-        #     if not in_reasoning_block:
-        #         yield "<think>\n"
-        #         in_reasoning_block = True
-        #     yield delta.text
+            # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
+            # if delta.type == "response.reasoning_summary.delta":
+            #     if not in_reasoning_block:
+            #         yield "<think>\n"
+            #         in_reasoning_block = True
+            #     yield delta.text
+    finally:
+        # Record usage even if the consumer closes this generator early
+        # (interrupt/break): some providers attach cumulative usage to every
+        # chunk, so the latest value still describes the partial response.
+        if last_usage is not None:
+            captured_metadata = _record_usage(
+                last_usage,
+                model,
+                resolved_model=_or_resolved,
+                reasoning_effort=reasoning_effort,
+                served_model=served_model,
+            )
 
     if in_reasoning_block:
         yield "\n</think>\n"
 
     logger.debug(f"Stop reason: {stop_reason}")
-
-    if last_usage is not None:
-        captured_metadata = _record_usage(
-            last_usage,
-            model,
-            resolved_model=_or_resolved,
-            reasoning_effort=reasoning_effort,
-            served_model=served_model,
-        )
 
     if captured_metadata is None and (
         reasoning_effort is not None or served_model is not None
