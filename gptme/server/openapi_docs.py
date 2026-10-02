@@ -860,7 +860,7 @@ def _infer_request_body(func: Callable) -> type[BaseModel] | None:
 
 
 def api_doc_simple(
-    responses: dict[int, type | str | None] | None = None,
+    responses: dict[int, type | str | list[str] | None] | None = None,
     request_body: type[BaseModel] | None = None,
     parameters: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
@@ -964,7 +964,7 @@ CONVERSATION_ID_PARAM = {
 def api_doc(
     summary: str | None = None,
     description: str | None = None,
-    responses: dict[int, type | str | None] | None = None,
+    responses: dict[int, type | str | list[str] | None] | None = None,
     request_body: type | None = None,
     parameters: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
@@ -1250,13 +1250,22 @@ def _create_method_spec(
 
     # Add responses with better descriptions
     for code, response_type in doc["responses"].items():
-        if isinstance(response_type, str):
-            # A MIME type string documents a raw (non-JSON) body
+        if isinstance(response_type, (str, list)):
+            # A MIME type string (or list of strings) documents a raw (non-JSON) body
+            mime_types = (
+                [response_type] if isinstance(response_type, str) else response_type
+            )
+            content = {}
+            for mime in mime_types:
+                if mime.startswith("text/"):
+                    schema: dict[str, Any] = {"type": "string"}
+                else:
+                    schema = {"type": "string", "format": "binary"}
+                content[mime] = {"schema": schema}
+            description = ", ".join(mime_types) + " body"
             method_spec["responses"][str(code)] = {
-                "description": f"{response_type} body",
-                "content": {
-                    response_type: {"schema": {"type": "string", "format": "binary"}}
-                },
+                "description": description,
+                "content": content,
             }
         elif response_type:
             # Get description from response model if available

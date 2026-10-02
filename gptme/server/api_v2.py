@@ -959,6 +959,7 @@ def api_dev_deploy_staging_status():
     responses={
         202: DeployTriggerResponse,
         403: ErrorResponse,
+        500: ErrorResponse,
         502: ErrorResponse,
         503: ErrorResponse,
     },

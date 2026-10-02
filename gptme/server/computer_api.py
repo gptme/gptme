@@ -149,7 +149,11 @@ def _take_screenshot() -> Path:
         "Take a screenshot of the current desktop and return it as a JPEG "
         "(`image/jpeg`). 503 when no display backend is available."
     ),
-    responses={200: "image/jpeg", 500: ErrorResponse, 503: ErrorResponse},
+    responses={
+        200: ["image/jpeg", "image/png"],
+        500: ErrorResponse,
+        503: ErrorResponse,
+    },
     tags=["computer"],
 )
 def screenshot():
