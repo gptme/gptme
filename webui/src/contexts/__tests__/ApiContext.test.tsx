@@ -240,6 +240,50 @@ describe('ApiProvider mobile auto-connect', () => {
     // full reactive chain (update → registry change → component re-render) works.
   });
 
+  it('syncs the rotated sidecar token into a server already on the sidecar port', async () => {
+    // A previous launch rewrote the default URL to the sidecar's non-default
+    // port and stored that launch's token. This launch's sidecar has a new token.
+    const { serverRegistry$ } = jest.requireMock('@/stores/servers') as {
+      serverRegistry$: { set: (value: unknown) => void };
+    };
+    serverRegistry$.set({
+      activeServerId: 'server-1',
+      connectedServerIds: [],
+      servers: [
+        {
+          id: 'server-1',
+          name: 'Local',
+          baseUrl: 'http://127.0.0.1:5712',
+          authToken: 'previous-launch-token',
+          useAuthToken: true,
+          createdAt: 0,
+          lastUsedAt: 0,
+        },
+      ],
+    });
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5712,
+        port_available: false,
+        manages_local_server: true,
+        existing_server_detected: false,
+        auth_token: 'sidecar-token',
+      },
+    });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(mockUpdateServer).toHaveBeenCalledWith('server-1', {
+        authToken: 'sidecar-token',
+        useAuthToken: true,
+      });
+    });
+  });
+
   it('connects with the Tauri-managed URL and token even before the sync effect settles', async () => {
     mockUseTauriServerStatus.mockReturnValue({
       isLoading: true,
