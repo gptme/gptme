@@ -277,6 +277,13 @@ def api_conversation_events(conversation_id: str):
             last_event_index = session.events_count
 
             while True:
+                # End the stream if the session was evicted (idle sweep or stuck
+                # generation). Its events no longer arrive, so keeping the
+                # stream open would strand the client on an ID `/step` rejects;
+                # closing lets it reconnect and attach to a fresh session.
+                if SessionManager.get_session(session.id) is not session:
+                    break
+
                 # Check if there are new events
                 if last_event_index < (new_index := session.events_count):
                     # Send any new events

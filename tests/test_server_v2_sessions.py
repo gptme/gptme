@@ -2662,3 +2662,23 @@ class TestSessionEviction:
             assert SessionManager.get_session(session.id) is not None
         finally:
             stream.close()
+
+    def test_stream_ends_when_its_session_is_evicted(self, client: FlaskClient):
+        """An evicted session must not leave its stream open on a dead ID."""
+        conv = create_conversation(client)["conversation_id"]
+        stream = self._connect(client, conv)
+        try:
+            session = next(
+                s
+                for s in SessionManager.get_sessions_for_conversation(conv)
+                if s.clients
+            )
+            SessionManager.remove_session(session.id)
+            session.event_flag.set()  # wake the generator instead of waiting 15s
+
+            # The stream drains its pings and then terminates, so the client
+            # reconnects and attaches to a fresh session.
+            remaining = list(stream.response)  # would block forever if it stayed open
+            assert all(b'"type": "ping"' in chunk for chunk in remaining)
+        finally:
+            stream.close()
