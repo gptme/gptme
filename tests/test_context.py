@@ -43,6 +43,10 @@ def test_file_to_display_path_deleted_cwd(tmp_path, monkeypatch):
     result = file_to_display_path(file, workspace)
     assert result == file
 
+    # Relative paths must not crash either (f.absolute() would need the CWD)
+    rel = Path("rel/test.txt")
+    assert file_to_display_path(rel, workspace) == rel
+
 
 def test_embed_attached_file_content(tmp_path):
     # Create test file

@@ -224,8 +224,8 @@ def file_to_display_path(f: Path, workspace: Path | None = None) -> Path:
     try:
         cwd = Path.cwd()
     except OSError:
-        # CWD was deleted mid-session; fall back to absolute path
-        return f.absolute() if not f.is_absolute() else f
+        # CWD was deleted mid-session; f.absolute() would need it too, so return as-is
+        return f
     if workspace and workspace in f.parents and workspace in [cwd, *cwd.parents]:
         # NOTE: walk_up only available in Python 3.12+
         try:
