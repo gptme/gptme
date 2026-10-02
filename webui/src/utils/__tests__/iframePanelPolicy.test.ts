@@ -1,6 +1,7 @@
 import {
   iframeSrcOrigin,
   isAllowedIframeSrc,
+  isAuthGatedPreviewSrc,
   resolvePanelSrc,
   resolveSandbox,
   sandboxHasOpaqueOrigin,
@@ -211,5 +212,20 @@ describe('sandboxHasOpaqueOrigin', () => {
     // allow-same-origin without allow-scripts survives resolveSandbox and
     // preserves the frame origin.
     expect(sandboxHasOpaqueOrigin(['allow-same-origin'])).toBe(false);
+  });
+});
+
+describe('isAuthGatedPreviewSrc', () => {
+  const base = 'https://fleet.gptme.ai/api/v1/instances/abc';
+  it('flags preview routes on a remote instance origin', () => {
+    expect(isAuthGatedPreviewSrc(`${base}/preview/5173/`, base)).toBe(true);
+    expect(isAuthGatedPreviewSrc(`${base}/preview/5173`, base)).toBe(true);
+  });
+  it('ignores loopback, non-preview, and foreign-origin srcs', () => {
+    const local = 'http://localhost:5700';
+    expect(isAuthGatedPreviewSrc(`${local}/preview/5173/`, local)).toBe(false);
+    expect(isAuthGatedPreviewSrc(`${base}/files/x`, base)).toBe(false);
+    expect(isAuthGatedPreviewSrc('https://other.example/preview/5173/', base)).toBe(false);
+    expect(isAuthGatedPreviewSrc(`${base}/preview/5173/`, undefined)).toBe(false);
   });
 });

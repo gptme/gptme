@@ -21,6 +21,7 @@ import { isGptmeIframeMessage } from '@/types/panel';
 import {
   iframeSrcOrigin,
   isAllowedIframeSrc,
+  isAuthGatedPreviewSrc,
   resolvePanelSrc,
   resolveSandbox,
   sandboxHasOpaqueOrigin,
@@ -46,6 +47,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
   const src = resolvePanelSrc(descriptor.src, apiBaseUrl);
   const apiOrigin = urlOrigin(apiBaseUrl);
   const allowed = isAllowedIframeSrc(src, apiOrigin);
+  const authGated = allowed && isAuthGatedPreviewSrc(src, apiBaseUrl);
   const expectedOrigin = allowed ? iframeSrcOrigin(src, apiOrigin ?? undefined) : null;
   // A sandbox without `allow-same-origin` gives the frame an opaque origin: its
   // messages arrive as `event.origin === "null"` and no concrete `targetOrigin`
@@ -75,7 +77,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
       bootstrappedSrcRef.current = src;
       bootstrappedRef.current = false;
     }
-    if (!allowed) return;
+    if (!allowed || authGated) return;
 
     const post = (message: GptmeIframeMessage) => {
       const target = iframeRef.current?.contentWindow;
@@ -139,6 +141,7 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
     // bootstrapped. (`handleLoad` re-arms the once-per-document guard.)
     src,
     allowed,
+    authGated,
     expectedOrigin,
     opaqueOrigin,
     conversationId,
@@ -157,6 +160,21 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId, ap
           The panel source <code className="rounded bg-muted px-1">{src}</code> is not an allowed
           iframe origin. Only localhost tool servers, server-relative paths, and the connected
           server are permitted.
+        </p>
+      </div>
+    );
+  }
+
+  if (authGated) {
+    return (
+      <div
+        role="status"
+        className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground"
+      >
+        <p className="font-medium text-foreground">Preview needs sign-in</p>
+        <p>
+          This preview is served by the instance behind authenticated access, which an embedded
+          frame cannot provide. Use the instance&apos;s &quot;Open preview&quot; link instead.
         </p>
       </div>
     );

@@ -142,6 +142,28 @@ export function isAllowedIframeSrc(src: string, allowedOrigin?: string | null): 
 }
 
 /**
+ * True when `src` is an instance preview route on a remote (non-loopback)
+ * instance API origin. Those routes sit behind `Authorization: Bearer`
+ * authentication, which a browser never attaches to an iframe navigation, so
+ * the frame can only ever render a 401 page.
+ */
+export function isAuthGatedPreviewSrc(src: string, apiBaseUrl?: string | null): boolean {
+  const apiOrigin = urlOrigin(apiBaseUrl);
+  if (!apiOrigin) return false;
+  try {
+    const url = new URL(src);
+    if (url.origin !== apiOrigin) return false;
+    const host = url.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
+      return false;
+    }
+    return /\/preview\/\d+(\/|$)/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve the origin an iframe `src` will load from, for strict postMessage
  * origin checks. Server-relative paths resolve against the host window origin.
  * Returns null when the origin cannot be determined.
