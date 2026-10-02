@@ -674,7 +674,10 @@ def _read_user_config_file_text() -> str:
 
 
 # env/header keys whose values are secrets in the structured MCP endpoint.
-_MCP_SECRET_KEY_RE = re.compile(r"(?i)(api_?key|secret|password|token|auth)")
+_MCP_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|secret|password|token|auth)")
+
+# Serialises atomic read-modify-write of the user config file.
+_config_write_lock = threading.Lock()
 
 
 def _mcp_config_response(mcp: MCPConfig) -> dict:
@@ -734,6 +737,10 @@ def _parse_mcp_request(body: dict, current: MCPConfig) -> MCPConfig:
             original = getattr(on_disk.get(srv.name), field_name, {})
             for key, value in values.items():
                 if value != _REDACT_SENTINEL:
+                    continue
+                # *** is a keep-old marker only for secret-looking keys; for
+                # other keys it is a literal value and passes through unchanged.
+                if not _MCP_SECRET_KEY_RE.search(str(key)):
                     continue
                 if key not in original:
                     raise ValueError(
@@ -4020,18 +4027,36 @@ def api_user_mcp_config_put():
     if not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400
 
-    doc, current = _read_user_mcp_config()
-    try:
-        mcp = _parse_mcp_request(req_json, current)
-    except ValueError as exc:
-        return flask.jsonify({"error": str(exc)}), 400
+    with _config_write_lock:
+        doc, current = _read_user_mcp_config()
 
-    doc["mcp"] = _mcp_config_to_toml(mcp)
-    config_file, _local_path = get_user_config_paths()
-    config_file.write_text(tomlkit.dumps(doc))
-    from gptme.config.core import reload_config
+        # Refuse to overwrite entries the non-strict parser could not represent.
+        if "mcp" in doc:
+            raw_servers = doc["mcp"].unwrap().get("servers", [])
+            raw_count = len(raw_servers) if isinstance(raw_servers, list) else 0
+            if raw_count != len(current.servers):
+                skipped = raw_count - len(current.servers)
+                return flask.jsonify(
+                    {
+                        "error": (
+                            f"{skipped} entry(ies) in the existing [mcp] section "
+                            "cannot be represented by the structured editor; fix or "
+                            "remove them in config.toml before using this endpoint"
+                        )
+                    }
+                ), 409
 
-    reload_config()
+        try:
+            mcp = _parse_mcp_request(req_json, current)
+        except ValueError as exc:
+            return flask.jsonify({"error": str(exc)}), 400
+
+        doc["mcp"] = _mcp_config_to_toml(mcp)
+        config_file, _local_path = get_user_config_paths()
+        config_file.write_text(tomlkit.dumps(doc))
+        from gptme.config.core import reload_config
+
+        reload_config()
 
     response = _mcp_config_response(mcp)
     response["status"] = "ok"
