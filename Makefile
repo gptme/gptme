@@ -146,6 +146,9 @@ docs: docs/conf.py docs/*.rst docs/.clean check-rst
 docs-structure: ## Show the built docs' sidebar navigation with each page's headings
 	poetry run python scripts/docs_structure.py docs/_build/html --headings
 
+docs-linkcheck: docs/conf.py docs/*.rst ## Check docs for dead links (see docs/conf.py linkcheck_ignore)
+	poetry run make -C docs linkcheck
+
 docs-auto:
 	make -C docs livehtml
 

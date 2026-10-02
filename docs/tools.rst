@@ -243,7 +243,7 @@ MCP tool annotations
 ~~~~~~~~~~~~~~~~~~~~~
 
 When gptme connects to an MCP server, each tool's
-`ToolAnnotations <https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations>`_
+`ToolAnnotations <https://modelcontextprotocol.io/specification/latest/schema#toolannotations>`_
 are mapped to gptme hints:
 
 .. list-table::

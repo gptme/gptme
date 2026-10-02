@@ -121,11 +121,44 @@ def escape_click_line_blocks(app, ctx, lines):
             lines[i] = "| " + _BARE_ASTERISK.sub(r"\*", line[2:])
 
 
+# A quoted example value like 'https://a.org,tauri://localhost' in click option help
+# is auto-linked by docutils as one (bogus) URL, which linkcheck then reports as
+# broken. Render such values as inline literals in the docs; ``--help`` is unchanged.
+_QUOTED_URL = re.compile(r"'([^'\s]+://[^'\s]*)'")
+
+
+def literalize_quoted_urls(app, ctx, lines):
+    for i, line in enumerate(lines):
+        lines[i] = _QUOTED_URL.sub(r"``\1``", line)
+
+
+def drop_excluded_linkcheck_docs(app, doctree, docname):
+    """Keep links from ``linkcheck_exclude_documents`` out of the linkcheck queue.
+
+    Sphinx only skips those links at check time, after queueing them. While a
+    host is rate-limiting, every queued link for that host still costs a worker
+    a 1s sleep, and the release notes queue ~6.8k github.com links, so a single
+    GitHub 429 stalls the run for many minutes. Drop them at collection time
+    instead (``doctree-resolved`` fires after the linkcheck collector has run).
+    """
+    if app.builder.name != "linkcheck":
+        return
+    if not any(
+        re.match(pat, docname) for pat in app.config.linkcheck_exclude_documents
+    ):
+        return
+    hyperlinks = app.builder.hyperlinks
+    for uri in [uri for uri, link in hyperlinks.items() if link.docname == docname]:
+        del hyperlinks[uri]
+
+
 def setup(app):
     app.add_directive("chat", ChatDirective)
     app.connect("env-check-consistency", check_audience)
     app.connect("sphinx-click-process-description", escape_click_line_blocks)
     app.connect("sphinx-click-process-epilog", escape_click_line_blocks)
+    app.connect("sphinx-click-process-options", literalize_quoted_urls)
+    app.connect("doctree-resolved", drop_excluded_linkcheck_docs)
 
 
 # -- General configuration ---------------------------------------------------
@@ -176,6 +209,42 @@ autosectionlabel_maxdepth = 2
 autodoc_typehints_format = "short"
 autodoc_class_signature = "separated"
 napoleon_attr_annotations = False
+
+# -- linkcheck builder --------------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-the-linkcheck-builder
+#
+# Auto-generated release notes: ~4k commit/compare links plus ~2.7k issue/PR
+# links, all generated from real refs. Checking them takes longer than the CI
+# job budget and gets the runner throttled by github.com, so skip them (see
+# drop_excluded_linkcheck_docs for why they're also kept out of the queue).
+linkcheck_exclude_documents = [r"releases/.*"]
+# Sites that block automated/headless requests (auth walls, bot protection) —
+# these return non-2xx to the linkcheck crawler even though the links are fine
+# for a real browser. Match by regex so query strings/anchors don't matter.
+# GitHub issue/PR/discussion links in hand-written docs are deliberately NOT
+# ignored here: they're worth validating (a mistyped number is a real bug).
+linkcheck_ignore = [
+    r"https://(x|twitter)\.com/.*",  # requires auth to view
+    r"https://discord\.(gg|com)/.*",  # invite links, often expire/require auth
+    r"http://localhost.*",  # local dev references, not reachable from CI
+    r"https://activitywatch\.net/.*",  # Cloudflare bot protection 403s CI runners
+    r"https://(console\.)?x\.ai/?.*",  # Cloudflare bot protection (403)
+    r"https://lovable\.dev/?.*",  # Cloudflare bot protection (403)
+    r"https://news\.ycombinator\.com/.*",  # throttles crawlers (419/429)
+    r"https://mcp\.so/?.*",  # bot protection 403s CI runners
+    r"https://(www\.)?reddit\.com/.*",  # blocks datacenter IPs (403)
+    r"https://app\.requesty\.ai/.*",  # SPA dashboard: server 404s client-side routes
+    r"llms(-full)?\.txt$",  # generated into the build output by sphinx-llms-txt
+]
+# GitHub renders README heading anchors as "user-content-*" ids (resolved by JS),
+# so the anchor check always fails; still check that the page itself exists.
+linkcheck_anchors_ignore_for_url = [r"https://github\.com/.*"]
+linkcheck_timeout = 10
+linkcheck_retries = 2
+# Cap the exponential backoff on 429s without a Retry-After header: a throttled
+# run then reports the affected links as broken instead of hitting the job timeout.
+linkcheck_rate_limit_timeout = 60
+linkcheck_workers = 4
 
 nitpicky = True
 nitpick_ignore = [
