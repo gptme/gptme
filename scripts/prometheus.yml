@@ -3,6 +3,8 @@ global:
 scrape_configs:
   - job_name: 'gptme'
     static_configs:
-      - targets: ['172.17.0.1:8000']  # Linux-compatible alternative to host.docker.internal
-    metrics_path: '/metrics'
+      # gptme-server on its default port; it must listen beyond 127.0.0.1
+      # (e.g. `gptme-server --host 0.0.0.0`) for the container to reach it.
+      - targets: ['172.17.0.1:5700']  # Linux-compatible alternative to host.docker.internal
+    metrics_path: '/api/v0/metrics'
     scrape_interval: 5s
