@@ -529,10 +529,10 @@ class SessionManager:
 
         A session with connected SSE clients is never evicted, even if its
         ``last_activity`` is old: the stream keeps the session alive and
-        evicting it would drop a live client. Nor is a session holding a tool
-        that awaits confirmation: a user may disconnect and return later to
-        confirm it, which needs the original session. Other sessions whose
-        clients have all disconnected are evicted once idle past the cutoff.
+        evicting it would drop a live client. Sessions whose clients have all
+        disconnected (``clients`` empty) are evicted once idle past the cutoff,
+        including any tool still awaiting confirmation: its owned skill
+        invocation is marked abandoned rather than pinning the session forever.
 
         Also detects sessions stuck in generating=True state: if a session has
         been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, it is
@@ -560,10 +560,6 @@ class SessionManager:
                     session.last_activity < cutoff
                     and not session.generating
                     and not session.clients
-                    and not any(
-                        te.status == ToolStatus.PENDING
-                        for te in session.pending_tools.values()
-                    )
                 ):
                     to_remove.append(session_id)
                 elif (

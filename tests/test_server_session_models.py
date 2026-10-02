@@ -605,27 +605,6 @@ class TestSessionManagerCleanInactive:
         SessionManager.clean_inactive_sessions(max_age_minutes=60)
         assert SessionManager.get_session(session.id) is None
 
-    def test_does_not_remove_session_with_pending_confirmation(self):
-        """A tool awaiting confirmation keeps an idle, client-less session.
-
-        The user may disconnect and come back later to confirm; evicting the
-        session would make that confirmation 404.
-        """
-        from datetime import datetime, timedelta, timezone
-
-        session = SessionManager.create_session("conv-pending")
-        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
-        execution = ToolExecution(tool_id="t1", tooluse=make_tooluse())
-        session.pending_tools["t1"] = execution
-
-        SessionManager.clean_inactive_sessions(max_age_minutes=60)
-        assert SessionManager.get_session(session.id) is session
-
-        # Once resolved, the session is evictable again.
-        execution.status = ToolStatus.COMPLETED
-        SessionManager.clean_inactive_sessions(max_age_minutes=60)
-        assert SessionManager.get_session(session.id) is None
-
     def test_attach_client_registers_on_live_session(self):
         session = SessionManager.create_session("conv-attach")
 
