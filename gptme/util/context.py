@@ -221,7 +221,11 @@ def file_to_display_path(f: Path, workspace: Path | None = None) -> Path:
     - If file and pwd is in workspace, show path relative to pwd
     - Otherwise, show absolute path
     """
-    cwd = Path.cwd()
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        # CWD was deleted mid-session; fall back to absolute path
+        return f.absolute() if not f.is_absolute() else f
     if workspace and workspace in f.parents and workspace in [cwd, *cwd.parents]:
         # NOTE: walk_up only available in Python 3.12+
         try:
