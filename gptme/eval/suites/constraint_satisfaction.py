@@ -79,8 +79,16 @@ def check_api_signature_has_default(ctx):
                 kwarg.arg == "discount" and args.kw_defaults[i] is not None
                 for i, kwarg in enumerate(args.kwonlyargs)
             )
-            # positional with default: def f(items, discount=0.10)
-            has_pos_discount = total_pos >= 2 and num_defaults >= total_pos - 1
+            # positional with default: def f(items, discount=0.10). The
+            # defaulted positional args are the trailing num_defaults of
+            # args.args, so check 'discount' is among them by name — a
+            # defaulted second param named something else must not pass.
+            defaulted_pos = (
+                {a.arg for a in args.args[total_pos - num_defaults :]}
+                if num_defaults
+                else set()
+            )
+            has_pos_discount = total_pos >= 2 and "discount" in defaulted_pos
             return kw_discount_has_default or has_pos_discount
     return False
 
@@ -173,10 +181,17 @@ def check_boundary_domain_no_infra_import(ctx):
         return False
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            if any(alias.name == "infra" for alias in node.names):
+            if any(
+                alias.name == "infra" or alias.name.startswith("infra.")
+                for alias in node.names
+            ):
                 return False
         if isinstance(node, ast.ImportFrom):
-            if node.module == "infra":
+            # Catch submodule imports too: `from infra.sub import x` still
+            # reaches into the infra layer and must fail the layering check.
+            if node.module and (
+                node.module == "infra" or node.module.startswith("infra.")
+            ):
                 return False
     return True
 
