@@ -230,9 +230,11 @@ Hosted services that speak the OpenAI Chat Completions protocol work as named
 
 Create a key at `grokified.com/login <https://grokified.com/login>`_; the
 `API docs <https://grokified.com/docs>`_ list every model. ``grok-build-0.1``
-(256K context, tuned for code) and ``grok-4.6`` (500K context) work on any
-account. ``grok-4.7`` needs a Basic plan or higher, and a prepaid account gets
-a 403 ``plan_capability_required`` error for it.
+(tuned for code, 256K context on Grokified) and ``grok-4.6`` (500K context on
+Grokified) work on any account. gptme assigns a 128K context window to every
+model of a custom provider, so it uses 128K for these models too. ``grok-4.7``
+needs a Basic plan or higher, and a prepaid account gets a 403
+``plan_capability_required`` error for it.
 
 .. note::
 
