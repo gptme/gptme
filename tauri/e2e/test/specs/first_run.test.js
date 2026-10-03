@@ -172,10 +172,15 @@ describe("Real first-run flow", () => {
           (await describeWebview()),
       );
     }
-    if (await connectBtn.isExisting()) {
-      await connectBtn.click();
-    } else if (await continueBtn.isExisting()) {
-      await continueBtn.click();
+    try {
+      if (await connectBtn.isExisting()) {
+        await connectBtn.click();
+      } else if (await continueBtn.isExisting()) {
+        await continueBtn.click();
+      }
+    } catch (_clickErr) {
+      // The wizard may have auto-advanced between isExisting() and click();
+      // treat as auto-advance and let the connected-signal waitUntil below handle it.
     }
 
     // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted
