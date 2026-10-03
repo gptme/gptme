@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "0.5.20",
-    "@types/node": "22.20.2",
+    "@types/node": "26.6.3",
     "@types/react": "18.3.31",
     "@types/react-dom": "18.3.7",
     "@types/sanitize-html": "2.16.2",
