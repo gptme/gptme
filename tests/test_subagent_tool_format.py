@@ -124,12 +124,18 @@ def test_subprocess_defers_to_env_when_model_declares_no_format(tmp_path, monkey
         ("markdown", "```complete", "<complete>"),
         ("xml", "<complete>", "```complete"),
         ("tool", "native tool call", "```complete"),
+        (None, "in your active tool format", "```complete"),
     ],
 )
 def test_completion_instruction_matches_child_dialect(dialect, expected, absent):
-    """The complete/clarify examples must be parseable in the child's dialect."""
+    """The complete/clarify examples must be parseable in the child's dialect.
+
+    ``None`` (unknown dialect) must not assert any dialect-specific syntax.
+    """
     from gptme.tools.subagent.hooks import _get_complete_instruction
 
     instruction = _get_complete_instruction(tool_format=dialect)
     assert expected in instruction
     assert absent not in instruction
+    if dialect is None:
+        assert "<complete>" not in instruction

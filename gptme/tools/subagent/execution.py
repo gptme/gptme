@@ -74,11 +74,13 @@ def _child_tool_format(model: str | None) -> ToolFormat:
     return _declared_child_tool_format(model) or "markdown"
 
 
-def _effective_child_tool_format(model: str | None) -> ToolFormat:
-    """Dialect the subprocess CLI resolves for this child.
+def _effective_child_tool_format(model: str | None) -> ToolFormat | None:
+    """Dialect the subprocess CLI will use, when the parent can determine it.
 
-    Mirrors CLI precedence: a declared model metadata format wins (it is passed
-    explicitly), then the inherited ``TOOL_FORMAT`` env, then markdown.
+    Returns the declared model metadata format, else the inherited
+    ``TOOL_FORMAT`` env. Returns ``None`` when the child CLI's own resolution
+    (workspace config, saved conversation) cannot be known from the parent —
+    callers must then keep dialect-specific examples out of the prompt.
     """
     declared = _declared_child_tool_format(model)
     if declared is not None:
@@ -86,7 +88,7 @@ def _effective_child_tool_format(model: str | None) -> ToolFormat:
     env_format = os.environ.get("GPTME_TOOL_FORMAT") or os.environ.get("TOOL_FORMAT")
     if env_format in ("markdown", "xml", "tool"):
         return cast(ToolFormat, env_format)
-    return "markdown"
+    return None
 
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")

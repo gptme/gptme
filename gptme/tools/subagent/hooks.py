@@ -162,18 +162,22 @@ def _dict_to_jsonschema(d: dict) -> dict:
     }
 
 
-def _render_signal_block(tool: str, content: str, tool_format: str) -> str:
+def _render_signal_block(tool: str, content: str, tool_format: str | None) -> str:
     """Render a signal-tool example in the child's own tool dialect.
 
     Subagent children run in their model's native format (see
     ``execution._child_tool_format``), so a markdown-fenced example would be
     unparseable for an ``xml`` child and misleading for a native-tool child.
+    ``None`` means the dialect is unknown — omit the dialect-specific example
+    rather than assert a syntax the child may not be running in.
     """
     if tool_format == "xml":
         return f"<tool-use>\n<{tool}>\n{content}\n</{tool}>\n</tool-use>"
     if tool_format == "tool":
         # Native tool calling: the model invokes the tool directly, no text block.
         return f"call the `{tool}` tool (native tool call) with:\n{content}"
+    if tool_format is None:
+        return f"Use the `{tool}` tool (in your active tool format):\n{content}"
     return f"```{tool}\n{content}\n```"
 
 
@@ -182,7 +186,7 @@ def _get_complete_instruction(
     *,
     supports_progress: bool = True,
     output_schema: "type | dict | None" = None,
-    tool_format: str = "markdown",
+    tool_format: str | None = "markdown",
 ) -> str:
     """Get the standard instruction for using the complete tool.
 
@@ -198,8 +202,10 @@ def _get_complete_instruction(
             - Plain ``{field: type}`` dict: converted to a JSON Schema object.
             - Raw JSON Schema dict (has ``"type"``/``"properties"``): used as-is.
             When set, the instruction is extended with the expected schema.
-        tool_format: The child's tool dialect ("markdown", "xml", or "tool").
-            Signal examples are rendered in this dialect so they stay parseable.
+        tool_format: The child's tool dialect ("markdown", "xml", or "tool"),
+            or ``None`` when it cannot be determined. Signal examples are
+            rendered in this dialect so they stay parseable; ``None`` renders a
+            dialect-free instruction instead of a wrong example.
     """
     if output_schema is not None:
         import json
