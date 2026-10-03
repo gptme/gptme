@@ -26,6 +26,7 @@ import { isLocalApiBaseUrl } from '@/utils/openConversationPath';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
 import { isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
+import { getActiveServer } from '@/stores/servers';
 import {
   bumpProviderStatusVersion,
   setupWizard$,
@@ -144,6 +145,11 @@ export function SetupWizard() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
+  // Base URL at the moment the user started cloud sign-in. Used to tell a
+  // connection made *by* the sign-in apart from one that already existed (or a
+  // sidecar that came up late): only a base URL that changed after sign-in
+  // started can mean the cloud connection completed.
+  const cloudLoginStartBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
   const {
     isLoading: isLoadingTauriStatus,
@@ -360,16 +366,31 @@ export function SetupWizard() {
     )
       return;
 
-    // On the cloud step only a non-local connection after the user started the
-    // sign-in may auto-advance — a pre-existing or late-connecting local server
-    // (e.g. the Tauri sidecar, on any port) must not count as sign-in finishing.
-    if (step === 'cloud' && (!cloudLoginStarted || isLocalApiBaseUrl(connectionConfig.baseUrl)))
-      return;
+    // On the cloud step only a connection made by the sign-in may auto-advance:
+    // a pre-existing connection (e.g. the Tauri sidecar, or a LAN/remote server
+    // the user was already on) and a late-connecting local server must not be
+    // treated as sign-in finishing. Requiring a non-loopback URL pins the
+    // sidecar case on any port; requiring it to differ from the URL at sign-in
+    // start covers a pre-existing non-loopback connection.
+    if (step === 'cloud') {
+      const baseUrl = connectionConfig.baseUrl;
+      const signInStartBaseUrl = cloudLoginStartBaseUrlRef.current;
+      // Fail closed: without a recorded sign-in start there is no evidence the
+      // connection came from this sign-in, so never auto-advance.
+      if (
+        !cloudLoginStarted ||
+        signInStartBaseUrl === null ||
+        isLocalApiBaseUrl(baseUrl) ||
+        baseUrl === signInStartBaseUrl
+      )
+        return;
+    }
 
     if (lastAutoAdvanceBaseUrlRef.current === connectionConfig.baseUrl) return;
     lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
 
     setCloudLoginStarted(false);
+    cloudLoginStartBaseUrlRef.current = null;
     void checkProviderAndAdvance();
   }, [
     checkProviderAndAdvance,
@@ -434,7 +455,11 @@ export function SetupWizard() {
           if (cancelled) {
             return;
           }
-          await connect(config);
+          // The exchange registered and selected the cloud server, but
+          // connect() would otherwise target the previous render's server (the
+          // local one) and apply the cloud URL to it. Pass the freshly selected
+          // server id so the probe and the registry update hit the cloud server.
+          await connect(config, getActiveServer()?.id);
         } catch (error) {
           if (cancelled) {
             return;
@@ -714,6 +739,7 @@ export function SetupWizard() {
     // will handle the callback and connect automatically.
     setConnectError(null);
     setCloudLoginStarted(true);
+    cloudLoginStartBaseUrlRef.current = connectionConfig.baseUrl;
 
     // In Tauri, hand the URL to the OS browser via the opener plugin instead of
     // window.open(). On Android, wry's WebView has no multiple-window support,

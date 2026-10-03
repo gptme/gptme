@@ -99,6 +99,15 @@ jest.mock('@/contexts/ApiContext', () => ({
   }),
 }));
 
+const mockActiveServer = jest.fn(() => ({ id: 'cloud-server-1' }));
+
+// Partial mock: keep the real store, override only the lookup so tests can
+// assert which server connect() targets after the auth-code exchange.
+jest.mock('@/stores/servers', () => {
+  const actual = jest.requireActual('@/stores/servers');
+  return { ...actual, getActiveServer: () => mockActiveServer() };
+});
+
 jest.mock('@/utils/tauri', () => ({
   isTauriEnvironment: () => mockIsTauriEnvironment(),
   invokeTauri: (...args: unknown[]) => mockInvokeTauri(...args),
@@ -211,6 +220,7 @@ describe('SetupWizard', () => {
     mockInvokeTauri.mockReset();
     mockProcessConnectionFromHash.mockReset();
     mockIsDemoMode.mockReturnValue(false);
+    mockActiveServer.mockReturnValue({ id: 'cloud-server-1' });
     mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -448,11 +458,12 @@ describe('SetupWizard', () => {
 
   it('exchanges the cloud auth code while a local server is still connected', async () => {
     // The desktop sidecar is already connected when the user signs in; the
-    // auth-code listener must still process the callback.
+    // auth-code listener must still process the callback, and connect() must
+    // target the freshly selected cloud server rather than the local one.
     isConnected$.set(true);
     mockConnect.mockImplementation(async () => {});
 
-    render(
+    const { rerender } = render(
       <SettingsProvider>
         <SetupWizard />
       </SettingsProvider>
@@ -461,6 +472,9 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /get started/i }));
     fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
     fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    // The pre-existing local connection must not have advanced the wizard.
+    expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
 
     await act(async () => {
       window.dispatchEvent(
@@ -478,8 +492,82 @@ describe('SetupWizard', () => {
       expect(mockProcessConnectionFromHash).toHaveBeenCalledWith('code=deadbeef');
     });
     await waitFor(() => {
-      expect(mockConnect).toHaveBeenCalled();
+      expect(mockConnect).toHaveBeenCalledWith(
+        {
+          baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
+          authToken: 'tok-123',
+          useAuthToken: true,
+        },
+        'cloud-server-1'
+      );
     });
+
+    // Only the cloud connection completing (base URL changes) finishes setup.
+    mockConnectionBaseUrl = 'https://fleet.gptme.ai/api/v1/instances/test';
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+    });
+  });
+
+  it('does not auto-advance on a non-loopback server connected before cloud sign-in', async () => {
+    // A pre-existing non-loopback connection (LAN/remote server) is still not a
+    // completed cloud sign-in: the wizard must wait for the base URL to change.
+    mockConnectionBaseUrl = 'http://192.168.1.20:5700';
+    isConnected$.set(true);
+
+    const { rerender } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    await act(async () => {});
+
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeInTheDocument();
+    expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
+
+    // The cloud sign-in completing changes the base URL → advance.
+    mockConnectionBaseUrl = 'https://fleet.gptme.ai/api/v1/instances/test';
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+    });
+  });
+
+  it('never auto-advances the cloud step when sign-in was never started', async () => {
+    // Pre-existing non-loopback connection on the cloud step with no sign-in
+    // click: the guard must fail closed, not treat the connection as cloud.
+    mockConnectionBaseUrl = 'http://192.168.1.20:5700';
+    isConnected$.set(true);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+
+    await act(async () => {});
+
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeInTheDocument();
+    expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
   });
 
   it('processes cloud auth codes posted back from the authorize popup', async () => {
@@ -514,11 +602,14 @@ describe('SetupWizard', () => {
     });
 
     await waitFor(() => {
-      expect(mockConnect).toHaveBeenCalledWith({
-        baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
-        authToken: 'tok-123',
-        useAuthToken: true,
-      });
+      expect(mockConnect).toHaveBeenCalledWith(
+        {
+          baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
+          authToken: 'tok-123',
+          useAuthToken: true,
+        },
+        'cloud-server-1'
+      );
     });
   });
 
@@ -605,11 +696,14 @@ describe('SetupWizard', () => {
     });
 
     await waitFor(() => {
-      expect(mockConnect).toHaveBeenCalledWith({
-        baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
-        authToken: 'tok-123',
-        useAuthToken: true,
-      });
+      expect(mockConnect).toHaveBeenCalledWith(
+        {
+          baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
+          authToken: 'tok-123',
+          useAuthToken: true,
+        },
+        'cloud-server-1'
+      );
     });
   });
 
