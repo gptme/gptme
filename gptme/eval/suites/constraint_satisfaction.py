@@ -124,24 +124,6 @@ def check_schema_new_field_present(ctx):
     return "high" in ctx.stdout and "priority_values_ok" in ctx.stdout
 
 
-def _is_none_constant(node) -> bool:
-    return isinstance(node, ast.Constant) and node.value is None
-
-
-def _annotation_is_optional(ann) -> bool:
-    """True for `Optional[X]`, `typing.Optional[X]`, or `X | None`.
-
-    Pydantic gives these forms a `None` default even without an assignment.
-    """
-    if isinstance(ann, ast.Subscript):
-        base = ann.value
-        name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")
-        return name == "Optional"
-    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
-        return _is_none_constant(ann.left) or _is_none_constant(ann.right)
-    return False
-
-
 def _default_is_required_sentinel(value) -> bool:
     """True for Pydantic's explicit 'no default' forms.
 
@@ -176,8 +158,10 @@ def check_schema_field_is_optional(ctx):
 
     A required field would make every pre-existing record (the legacy
     fixture data) fail validation — the actual constraint being tested.
-    Parses the annotation so Pydantic's `...` / `Field(...)` required
-    sentinels are not mistaken for a default.
+    In Pydantic v2 an `Optional[X]` / `X | None` annotation alone is still
+    a *required* field; the default must be explicit. So only a real
+    assignment counts, and Pydantic's `...` / `Field(...)` required
+    sentinels are not mistaken for one.
     """
     content = ctx.files.get("task_schema.py", "")
     try:
@@ -190,11 +174,9 @@ def check_schema_field_is_optional(ctx):
         target = node.target
         if not (isinstance(target, ast.Name) and target.id == "priority"):
             continue
-        if node.value is not None and _default_is_required_sentinel(node.value):
-            return False
-        # `Optional[X]` / `X | None` default to None even without a value;
-        # any other assigned value is itself the default.
-        return _annotation_is_optional(node.annotation) or node.value is not None
+        if node.value is None:
+            continue
+        return not _default_is_required_sentinel(node.value)
     return False
 
 
