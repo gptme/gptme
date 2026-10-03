@@ -389,9 +389,18 @@ def _output_config_kwargs(*, use_thinking: bool) -> _OutputConfigKwargs:
 
 
 def _matches_model(model: str, models: frozenset[str]) -> bool:
-    """Match model names with optional vendor prefixes and release suffixes."""
+    """Match model names with optional vendor prefixes and release suffixes.
+
+    Only a purely numeric suffix is treated as a dated release of ``known``
+    (e.g. ``claude-sonnet-5-5-20260928`` -> ``claude-sonnet-5-5``). A
+    hyphenated non-numeric suffix names a *different* model
+    (``claude-sonnet-5-5-mini``), which must not inherit its thinking mode.
+    """
     base = model.rsplit("/", 1)[-1]
-    return base in models or any(base.startswith(known + "-") for known in models)
+    return base in models or any(
+        base.startswith(known + "-") and base[len(known) + 1 :].isdigit()
+        for known in models
+    )
 
 
 def _requires_adaptive_thinking(model: str) -> bool:

@@ -799,6 +799,10 @@ class TestRequiresAdaptiveThinking:
             "anthropic/claude-opus-4-6",
             "openrouter/anthropic/claude-sonnet-4-5",
             "claude-haiku-4-5",
+            # A non-numeric suffix is a different model, not a dated release.
+            "claude-sonnet-5-5-mini",
+            "claude-opus-5-5-lite",
+            "claude-fable-5-preview",
         ],
     )
     def test_legacy_still_used(self, model):
@@ -875,6 +879,8 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     payload = payloads[0]
     if model == "claude-sonnet-5-5" and reasoning == "0":
         assert payload["thinking"] == {"type": "between_tools"}
+        # Thinking is suppressed, so no effort should be sent either.
+        assert "output_config" not in payload
     else:
         assert payload["thinking"] == {"type": "adaptive", "display": "summarized"}
         assert payload["output_config"] == {"effort": "high"}
