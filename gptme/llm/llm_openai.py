@@ -2794,6 +2794,8 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
     pricing = model_data.get("pricing", {})
     price_input = float(pricing.get("prompt", 0)) * 1_000_000
     price_output = float(pricing.get("completion", 0)) * 1_000_000
+    cache_read = pricing.get("input_cache_read")
+    price_cache_read = float(cache_read) * 1_000_000 if cache_read is not None else None
     # Check for vision support: look for "image" in input modalities
     # OpenRouter uses modalities like "text+image->text" (not "vision")
     architecture = model_data.get("architecture", {})
@@ -2824,6 +2826,7 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         supports_reasoning=reasoning and include_reasoning,
         price_input=price_input,
         price_output=price_output,
+        price_cache_read=price_cache_read,
         default_tool_format="tool",  # openai-compat route dialect
     )
 
