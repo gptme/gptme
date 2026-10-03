@@ -1,7 +1,10 @@
+import json
 import logging
 import os
 
+import httpx
 import pytest
+from anthropic import Anthropic
 
 import gptme.llm.llm_anthropic as llm_anthropic
 from gptme.llm.llm_anthropic import (
@@ -202,6 +205,48 @@ def test_message_conversion_with_tools():
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
+        },
+    ]
+
+
+def test_message_conversion_preserves_empty_signed_thinking():
+    """An empty thinking block still round-trips into the next request.
+
+    Claude 5 can return signature-bearing thinking blocks whose text is empty;
+    re-sending the history must carry the block back verbatim or Anthropic
+    rejects the assistant turn.
+    """
+    init_tools(allowlist=["save"])
+
+    messages = [
+        Message(role="system", content="Project prompt", hide=True),
+        Message(role="user", content="First user prompt"),
+        Message(
+            role="assistant",
+            content=(
+                "<thinking>\n<!-- think-sig: empty-sig== -->\n</thinking>\n"
+                '@save(tool_call_id): {"path": "path.txt", "content": "file_content"}'
+            ),
+        ),
+        Message(role="system", content="Saved", call_id="tool_call_id"),
+    ]
+
+    tool_save = get_tool("save")
+    assert tool_save
+
+    messages_dicts = list(_prepare_messages_for_api(messages, [tool_save])[0])
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    assert assistant["content"] == [
+        {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "empty-sig==",
+        },
+        {
+            "type": "tool_use",
+            "id": "tool_call_id",
+            "name": "save",
+            "input": {"path": "path.txt", "content": "file_content"},
         },
     ]
 
@@ -777,6 +822,11 @@ class TestRequiresAdaptiveThinking:
             "claude-opus-4-8",
             "anthropic/claude-opus-4-8",
             "openrouter/anthropic/claude-opus-4-8",
+            "claude-sonnet-5-5",
+            "anthropic/claude-sonnet-5-5-20260928",
+            "claude-opus-5-5",
+            "claude-fable-5",
+            "claude-fable-5-1",
         ],
     )
     def test_adaptive_required(self, model):
@@ -791,6 +841,10 @@ class TestRequiresAdaptiveThinking:
             "anthropic/claude-opus-4-6",
             "openrouter/anthropic/claude-sonnet-4-5",
             "claude-haiku-4-5",
+            # A non-numeric suffix is a different model, not a dated release.
+            "claude-sonnet-5-5-mini",
+            "claude-opus-5-5-lite",
+            "claude-fable-5-preview",
         ],
     )
     def test_legacy_still_used(self, model):
@@ -808,39 +862,116 @@ class TestBuildThinkingParam:
             is None
         )
 
-    def test_opus_47_returns_adaptive(self):
-        # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
+    def test_sonnet_55_disabled_uses_between_tools(self):
         assert _build_thinking_param(
-            "claude-opus-4-7", use_thinking=True, thinking_budget=8000
-        ) == {"type": "adaptive"}
+            "anthropic/claude-sonnet-5-5", use_thinking=False, thinking_budget=8000
+        ) == {"type": "between_tools"}
 
-    def test_opus_47_adaptive_ignores_budget(self):
-        # Budget is irrelevant once adaptive: effort flows via output_config.
+    @pytest.mark.parametrize(
+        "model",
+        ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"],
+    )
+    def test_claude_5_uses_adaptive_with_visible_summaries(self, model):
         assert _build_thinking_param(
-            "claude-opus-4-7", use_thinking=True, thinking_budget=32000
-        ) == {"type": "adaptive"}
+            model, use_thinking=True, thinking_budget=8000
+        ) == {"type": "adaptive", "display": "summarized"}
 
-    def test_opus_48_returns_adaptive(self):
-        assert _build_thinking_param(
-            "claude-opus-4-8", use_thinking=True, thinking_budget=8000
-        ) == {"type": "adaptive"}
 
-    def test_opus_46_returns_legacy_enabled(self):
-        assert _build_thinking_param(
-            "claude-opus-4-6", use_thinking=True, thinking_budget=12345
-        ) == {"type": "enabled", "budget_tokens": 12345}
+@pytest.mark.parametrize("reasoning", ["0", "1"])
+@pytest.mark.parametrize(
+    "model",
+    ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"],
+)
+def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
+    """The real SDK sends supported thinking fields, including reasoning-off mode."""
+    payloads = []
 
-    def test_sonnet_returns_legacy_enabled(self):
-        assert _build_thinking_param(
-            "claude-sonnet-4-6", use_thinking=True, thinking_budget=4000
-        ) == {"type": "enabled", "budget_tokens": 4000}
+    def serve(request):
+        payloads.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": [
+                    {"type": "thinking", "thinking": "", "signature": "opaque-sig=="},
+                    {"type": "text", "text": "Hello"},
+                ],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
 
-    def test_openrouter_prefix_opus_47(self):
-        assert _build_thinking_param(
-            "openrouter/anthropic/claude-opus-4-7",
-            use_thinking=True,
-            thinking_budget=8000,
-        ) == {"type": "adaptive"}
+    monkeypatch.setenv("GPTME_REASONING", reasoning)
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
+    monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
+    with httpx.Client(transport=httpx.MockTransport(serve)) as http_client:
+        client = Anthropic(api_key="test-key", http_client=http_client)
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        answer, _ = llm_anthropic.chat(
+            [Message("system", "Be helpful."), Message("user", "Hello")],
+            model,
+            tools=None,
+        )
+
+    payload = payloads[0]
+    if model == "claude-sonnet-5-5" and reasoning == "0":
+        assert payload["thinking"] == {"type": "between_tools"}
+        # Thinking is suppressed, so no effort should be sent either.
+        assert "output_config" not in payload
+    else:
+        assert payload["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert payload["output_config"] == {"effort": "high"}
+    assert "top_p" not in payload
+    assert payload["max_tokens"] == 128_000
+    # Empty signed thinking must survive conversion back into the next request.
+    blocks, text = llm_anthropic._extract_thinking_content(answer)
+    assert blocks == [("", "opaque-sig==")]
+    assert text == "Hello"
+
+
+def test_opus_47_returns_adaptive():
+    # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
+    assert _build_thinking_param(
+        "claude-opus-4-7", use_thinking=True, thinking_budget=8000
+    ) == {"type": "adaptive"}
+
+
+def test_opus_47_adaptive_ignores_budget():
+    # Budget is irrelevant once adaptive: effort flows via output_config.
+    assert _build_thinking_param(
+        "claude-opus-4-7", use_thinking=True, thinking_budget=32000
+    ) == {"type": "adaptive"}
+
+
+def test_opus_48_returns_adaptive():
+    assert _build_thinking_param(
+        "claude-opus-4-8", use_thinking=True, thinking_budget=8000
+    ) == {"type": "adaptive"}
+
+
+def test_opus_46_returns_legacy_enabled():
+    assert _build_thinking_param(
+        "claude-opus-4-6", use_thinking=True, thinking_budget=12345
+    ) == {"type": "enabled", "budget_tokens": 12345}
+
+
+def test_sonnet_returns_legacy_enabled():
+    assert _build_thinking_param(
+        "claude-sonnet-4-6", use_thinking=True, thinking_budget=4000
+    ) == {"type": "enabled", "budget_tokens": 4000}
+
+
+def test_openrouter_prefix_opus_47():
+    assert _build_thinking_param(
+        "openrouter/anthropic/claude-opus-4-7",
+        use_thinking=True,
+        thinking_budget=8000,
+    ) == {"type": "adaptive"}
 
 
 class TestAdjustThinkingBudgetAdaptive:

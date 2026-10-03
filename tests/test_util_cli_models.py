@@ -251,7 +251,7 @@ class TestModelsRecommended:
         assert result.exit_code == 0, result.output
         lines = result.output.strip().splitlines()
         assert lines[0].startswith("+-") and lines[2].startswith("+=")
-        assert "``anthropic/claude-sonnet-4-6``" in result.output
+        assert "``anthropic/claude-sonnet-5-5``" in result.output
         # every row has the same width, or Sphinx rejects the table
         assert len({len(line) for line in lines}) == 1
 
