@@ -646,7 +646,11 @@ export const ChatInput: FC<Props> = ({
   const conversation$ = conversationId ? conversations$.get(conversationId) : null;
   const chatConfig = conversation$?.chatConfig?.get();
   const pendingModel = conversation$?.pendingModel?.get();
-  const conversationModel = chatConfig?.chat?.model || pendingModel;
+  // Use the pending model only while chatConfig is unresolved (undefined =
+  // in-flight, null = fetch failed). Once a config resolves it wins even when it
+  // carries no model, so a stale pendingModel can never resurface after the pill
+  // has switched to the conversation's real configuration.
+  const conversationModel = chatConfig ? chatConfig.chat?.model : pendingModel;
   // Show the loading skeleton when:
   //   (a) chatConfig is actively being fetched for an editable conversation — the
   //       three-value sentinel tracks this: undefined = in-flight, null = failed.

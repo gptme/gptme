@@ -378,6 +378,25 @@ describe('Model selector (gptme#3440)', () => {
     expect(screen.getByTestId('model-selector')).toHaveTextContent('claude-haiku-4-5');
   });
 
+  it('does not show the stale pendingModel once chatConfig loads without a model', () => {
+    // Regression guard for the P1: once a config resolves, pendingModel must be
+    // ignored even when the config carries no model — otherwise the pill keeps
+    // showing the model the user sent with instead of the loaded configuration.
+    mockConversation$.set({
+      isGenerating: false,
+      executingTool: null,
+      chatConfig: { chat: {} },
+      pendingModel: 'openai/gpt-4o',
+    });
+
+    const autoFocus$ = observable(false);
+    render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
+
+    const badge = screen.getByTestId('model-selector');
+    expect(badge).not.toHaveAttribute('aria-label', 'Loading model...');
+    expect(badge).not.toHaveTextContent('gpt-4o');
+  });
+
   it('transitions from loading skeleton to real model when chatConfig arrives', async () => {
     // Phase 1: chatConfig not yet loaded (undefined = fetch not yet attempted) —
     // badge shows the skeleton, never the wrong fallback model name.
