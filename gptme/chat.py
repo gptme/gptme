@@ -23,8 +23,6 @@ from .constants import (
 from .hooks import HookType, StopPropagation, trigger_hook
 from .init import init
 from .llm import (
-    did_llm_reply_emit_visible_output,
-    is_context_length_error,
     is_llm_reply_error,
     reply,
 )
@@ -803,7 +801,9 @@ def _reply_with_overflow_recovery(
     logdir: Path | None,
     max_tokens: int | None = None,
 ) -> Message:
-    """Generate once, compacting to a lossless view and retrying on overflow."""
+    """Generate with shared, view-preserving context-overflow recovery."""
+    # Dynamic catalogs may fail on a second lookup after a successful reply.
+    model_meta = get_model(model)
 
     def generate(messages: list[Message]) -> Message:
         manager = LogManager.get_current_log()
@@ -816,10 +816,6 @@ def _reply_with_overflow_recovery(
         )
         input_count = len(stored_input)
         input_digest = input_log_digest(stored_input)
-        # Resolve model metadata once: get_model() may hit a dynamic catalog
-        # (OpenRouter/gptme) whose failures aren't cached, so a second lookup
-        # after generation could fail the step after a successful reply.
-        model_meta = get_model(model)
         response = reply(
             messages,
             model_meta.full,
@@ -834,75 +830,23 @@ def _reply_with_overflow_recovery(
         anchor_context_usage(response, input_count, input_digest, model_meta.full)
         return response
 
-    try:
-        return generate(msgs)
-    except Exception as first_error:
-        if not is_context_length_error(first_error) or logdir is None:
-            raise
+    from .tools.autocompact.recovery import recover_reply
 
-        from time import monotonic
-
-        from .tools.autocompact.events import append_compaction_event
-        from .tools.autocompact.recovery import compact_for_overflow
-
-        manager = LogManager.get_current_log()
-        if (
-            manager is None
-            or manager.log is not log
-            or manager.logdir.resolve() != logdir.resolve()
-        ):
-            raise
-
-        # Retrying after a visible streaming prefix would duplicate output. A
-        # context rejection before the first provider chunk is still atomic.
-        if did_llm_reply_emit_visible_output(first_error):
-            raise
-
-        started = monotonic()
-        before_messages = manager.log.messages
-        before_tokens = len_tokens(before_messages, get_model(model).model)
-        compacted_messages = compact_for_overflow(manager)
-        after_tokens = len_tokens(compacted_messages, get_model(model).model)
-        view_name = manager.get_next_view_name()
-        manager.create_view(view_name, compacted_messages)
-        manager.switch_view(view_name)
-        retry_success = False
-        keep_compacted_view = False
-        provider_tokens_before = len_tokens(msgs, get_model(model).model)
-        provider_tokens_after = None
-        try:
-            retry_messages = prepare_messages(
-                manager.log.messages, workspace, logdir=logdir
-            )
-            provider_tokens_after = len_tokens(retry_messages, get_model(model).model)
-            if provider_tokens_after >= provider_tokens_before:
-                logger.warning(
-                    "Overflow compaction did not shrink provider input "
-                    "(%d -> %d tokens); skipping retry",
-                    provider_tokens_before,
-                    provider_tokens_after,
-                )
-                raise first_error
-            response = generate(retry_messages)
-            retry_success = True
-            keep_compacted_view = True
-            return response
-        finally:
-            append_compaction_event(
-                logdir,
-                trigger="overflow",
-                method="trim",
-                tokens_before=before_tokens,
-                tokens_after=after_tokens,
-                messages_before=len(before_messages),
-                messages_after=len(compacted_messages),
-                elapsed_seconds=monotonic() - started,
-                retry_success=retry_success,
-                provider_tokens_before=provider_tokens_before,
-                provider_tokens_after=provider_tokens_after,
-            )
-            if not keep_compacted_view:
-                manager.switch_to_master()
+    manager = LogManager.get_current_log()
+    if (
+        manager is None
+        or manager.log is not log
+        or logdir is None
+        or manager.logdir.resolve() != logdir.resolve()
+    ):
+        manager = None
+    return recover_reply(
+        manager,
+        msgs,
+        model_meta.full,
+        generate,
+        lambda messages: prepare_messages(messages, workspace, logdir=logdir),
+    )
 
 
 @trace_function(name="chat.step", attributes={"component": "chat"})
