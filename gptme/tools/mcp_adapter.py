@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from logging import getLogger
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -73,8 +73,13 @@ def clear_mcp_clients() -> None:
 
 
 def _get_mcp_client(server_name: str) -> MCPClient | None:
-    """Get MCP client from either pre-configured or dynamically loaded servers."""
-    return _mcp_clients.get(server_name) or _dynamic_servers.get(server_name)
+    """Get MCP client from either pre-configured or dynamically loaded servers.
+
+    Dynamic servers win: their ToolSpecs resolve through here, and a same-named
+    entry added to ``_mcp_clients`` later (explicit ``servers=``) must not
+    hijack calls to the dynamically loaded server.
+    """
+    return _dynamic_servers.get(server_name) or _mcp_clients.get(server_name)
 
 
 def _extract_content_text(
@@ -118,8 +123,12 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
 
     logger.info(f"Restarting MCP client for server: {server_name}")
 
+    # Dynamic servers (load_mcp_server) own their client in _dynamic_servers;
+    # restart in place so unloading still cuts off the replacement.
+    registry = _dynamic_servers if server_name in _dynamic_servers else _mcp_clients
+
     # Get existing client if any
-    old_client = _mcp_clients.get(server_name)
+    old_client = registry.get(server_name)
 
     # Close old client if it exists
     if old_client is not None:
@@ -136,10 +145,26 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
 
     # Create new client and reconnect
     new_client = MCPClient(config=config)
-    tools, session = new_client.connect(server_name)
+    try:
+        tools, session = new_client.connect(server_name)
+    except BaseException:
+        # The old client is already closed; don't leave it registered, or later
+        # calls resolve to a dead client and a dynamic server can't be reloaded.
+        try:
+            new_client.close()
+        except Exception:
+            logger.debug(
+                "Failed to close MCP client after failed restart", exc_info=True
+            )
+        if registry is _dynamic_servers:
+            # Drops the registry entry, loaded ToolSpecs and the tool cache.
+            unload_mcp_server(server_name)
+        elif registry.get(server_name) is old_client:
+            del registry[server_name]
+        raise
 
     # Store the new client
-    _mcp_clients[server_name] = new_client
+    registry[server_name] = new_client
 
     logger.info(f"Successfully restarted MCP client for {server_name}")
     return new_client
@@ -196,6 +221,83 @@ def _call_mcp_tool_with_retry(
     raise last_error
 
 
+def _build_tool_specs_for_server(
+    server_config: MCPServerConfig,
+    tools_result: mcp_types.ListToolsResult,
+    config: Config,
+    *,
+    clients: dict[str, MCPClient] | None = None,
+) -> list[ToolSpec]:
+    """Build ToolSpecs for a single already-connected MCP server.
+
+    Extracted from create_mcp_tools() so load_mcp_server() can register
+    tools for dynamically loaded servers without reconnecting.
+    """
+    from typing import cast
+
+    specs: list[ToolSpec] = []
+
+    for mcp_tool in tools_result.tools:
+        parameters = []
+        input_schema = mcp_tool.inputSchema
+        if isinstance(input_schema, dict) and "properties" in input_schema:
+            required_params = input_schema.get("required", [])
+            for param_name, param_schema in input_schema["properties"].items():
+                parameters.append(
+                    Parameter(
+                        name=param_name,
+                        description=param_schema.get("description", ""),
+                        type=param_schema.get("type", "string"),
+                        required=param_name in required_params,
+                    )
+                )
+
+        example = {
+            param.name: f"<{param.type}>" for param in parameters if param.required
+        }
+        example_str = json.dumps(example, indent=2)
+        name = f"{server_config.name}.{mcp_tool.name}"
+
+        def make_examples(tool_name: str, example_content: str) -> Callable[[str], str]:
+            return lambda tool_format: ToolUse(
+                tool_name, [], example_content
+            ).to_output(cast(ToolFormat, tool_format))
+
+        hints: frozenset[str] = frozenset()
+        if mcp_tool.annotations:
+            ann = mcp_tool.annotations
+            hint_set: set[str] = set()
+            if ann.readOnlyHint:
+                hint_set.add("read-only")
+            if ann.destructiveHint is not False and not ann.readOnlyHint:
+                hint_set.add("destructive")
+            if ann.idempotentHint:
+                hint_set.add("idempotent")
+            if ann.openWorldHint is False:
+                hint_set.add("closed-world")
+            hints = frozenset(hint_set)
+
+        tool_spec = ToolSpec(
+            name=name,
+            desc=f"[{server_config.name}] {mcp_tool.description}",
+            parameters=parameters,
+            execute=create_mcp_execute_function(
+                mcp_tool.name,
+                server_config.name,
+                config,
+                clients=clients,
+            ),
+            available=True,
+            examples=make_examples(name, example_str),
+            block_types=[name],
+            is_mcp=True,
+            hints=hints,
+        )
+        specs.append(tool_spec)
+
+    return specs
+
+
 # Function to create MCP tools
 def create_mcp_tools(
     config: Config,
@@ -236,92 +338,67 @@ def create_mcp_tools(
 
     # Initialize connections to all servers
     for server_config in server_configs:
+        if not server_config.enabled:
+            continue
         client: MCPClient | None = None
+        client_is_reused = False
         try:
+            # Reuse a live client only when it was loaded via load_mcp_server():
+            # that avoids double-connecting it on a cache rebuild. Static-config
+            # clients are always reconnected (as before) since config may have
+            # changed under the same name, and a session-scoped registry (ACP)
+            # or explicit ``servers`` must never adopt a same-named global client.
+            existing = (
+                _dynamic_servers.get(server_config.name)
+                if clients is None and servers is None
+                else None
+            )
+            if existing is not None and existing.tools is not None:
+                client = existing
+                client_is_reused = True
+                tools = existing.tools
+                # Dynamic clients stay owned by _dynamic_servers so unloading
+                # them really cuts off execution; don't copy into _mcp_clients.
+                tool_specs.extend(
+                    _build_tool_specs_for_server(
+                        server_config, tools, client_config, clients=None
+                    )
+                )
+                continue
             client = MCPClient(config=client_config)
 
             # Connect to server
             tools, session = client.connect(server_config.name)
 
-            # Store the client in the caller-selected registry for execution/restart.
+            # Store the client in the caller-selected registry for execution/restart,
+            # closing the one it replaces so a cache rebuild doesn't orphan it.
+            previous = client_registry.get(server_config.name)
+            if previous is not None and previous is not client:
+                try:
+                    previous.close()
+                except Exception:
+                    logger.debug("Failed to close replaced MCP client", exc_info=True)
             client_registry[server_config.name] = client
             owned_this_call.append(server_config.name)
 
-            # Create tool specs for each tool
-            for mcp_tool in tools.tools:
-                # Extract parameters
-                parameters = []
-                # Check if the tool has inputSchema with properties
-                input_schema = mcp_tool.inputSchema
-                if isinstance(input_schema, dict) and "properties" in input_schema:
-                    required_params = input_schema.get("required", [])
-                    for param_name, param_schema in input_schema["properties"].items():
-                        parameters.append(
-                            Parameter(
-                                name=param_name,
-                                description=param_schema.get("description", ""),
-                                type=param_schema.get("type", "string"),
-                                required=param_name in required_params,
-                            )
-                        )
-
-                # Add example usage in the correct format
-                example = {
-                    param.name: f"<{param.type}>"
-                    for param in parameters
-                    if param.required
-                }
-                example_str = json.dumps(example, indent=2)
-
-                name = f"{server_config.name}.{mcp_tool.name}"
-
-                def make_examples(
-                    tool_name: str, example_content: str
-                ) -> Callable[[str], str]:
-                    return lambda tool_format: ToolUse(
-                        tool_name, [], example_content
-                    ).to_output(cast(ToolFormat, tool_format))
-
-                # Extract MCP ToolAnnotations into hint tags
-                hints: frozenset[str] = frozenset()
-                if mcp_tool.annotations:
-                    ann = mcp_tool.annotations
-                    hint_set: set[str] = set()
-                    if ann.readOnlyHint:
-                        hint_set.add("read-only")
-                    if ann.destructiveHint is not False and not ann.readOnlyHint:
-                        hint_set.add("destructive")
-                    if ann.idempotentHint:
-                        hint_set.add("idempotent")
-                    if ann.openWorldHint is False:
-                        hint_set.add("closed-world")
-                    hints = frozenset(hint_set)
-
-                tool_spec = ToolSpec(
-                    name=name,
-                    desc=f"[{server_config.name}] {mcp_tool.description}",
-                    parameters=parameters,
-                    execute=create_mcp_execute_function(
-                        mcp_tool.name,
-                        server_config.name,
-                        client_config,
-                        clients=client_registry,
-                    ),
-                    available=True,
-                    examples=make_examples(name, example_str),
-                    block_types=[name],
-                    is_mcp=True,
-                    hints=hints,
+            tool_specs.extend(
+                _build_tool_specs_for_server(
+                    server_config, tools, client_config, clients=client_registry
                 )
-
-                tool_specs.append(tool_spec)
+            )
 
         except (Exception, asyncio.CancelledError) as e:
-            if client is not None:
+            if client is not None and not client_is_reused:
                 try:
                     client.close()
                 except Exception:
                     logger.debug("Failed to close rejected MCP client", exc_info=True)
+                # Don't leave a closed client registered (it would make
+                # load_mcp_server() report "already loaded" for a dead server).
+                if client_registry.get(server_config.name) is client:
+                    del client_registry[server_config.name]
+                    if server_config.name in owned_this_call:
+                        owned_this_call.remove(server_config.name)
             if strict:
                 for name in owned_this_call:
                     leftover = client_registry.pop(name, None)
@@ -512,6 +589,17 @@ def get_mcp_server_info(name: str) -> str:
     return format_server_details(server)
 
 
+def _has_loaded_tools_for_server(name: str) -> bool:
+    """Whether any currently loaded tool belongs to MCP server `name`."""
+    try:
+        from ..tools import _get_loaded_tools
+
+        prefix = f"{name}."
+        return any(t.name.startswith(prefix) for t in _get_loaded_tools())
+    except Exception:
+        return False
+
+
 def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     """
     Dynamically load an MCP server during the session.
@@ -529,8 +617,23 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     if name in _dynamic_servers:
         return f"Server '{name}' is already loaded."
 
+    # A server of this name already provides tools in this session (static
+    # config or an ACP host-supplied server). Loading a second one would replace
+    # its ToolSpecs by name and route calls to the wrong server.
+    if name in _mcp_clients or _has_loaded_tools_for_server(name):
+        return f"Server '{name}' is already loaded."
+
     # Check if server is in config
     server_config = next((s for s in config.mcp.servers if s.name == name), None)
+
+    # Re-enable if the server was previously unloaded (disabled in config).
+    # Without this, create_mcp_tools() skips the server on the next cache rebuild.
+    # Track whether we changed this so we can revert on connection failure.
+    enabled_reset = False
+    if server_config and not server_config.enabled:
+        server_config.enabled = True
+        set_config(config)
+        enabled_reset = True
 
     # If not in config, try to find in registry
     if not server_config:
@@ -565,6 +668,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         set_config(config)
         config_added = True
 
+    client: MCPClient | None = None
     try:
         from ..mcp.client import MCPClient
 
@@ -575,14 +679,57 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # Store in dynamic servers
         _dynamic_servers[name] = client
 
+        # Build ToolSpecs and register them in the available-tools cache.
+        # clients=None so execute uses _get_mcp_client(), which checks _dynamic_servers.
+        new_specs = _build_tool_specs_for_server(
+            server_config, tools, config, clients=None
+        )
+
+        # Append to the live cache if it exists; otherwise the next
+        # get_available_tools() call will rebuild (and reuse this client).
+        try:
+            from ..tools import (
+                _get_available_tools_cache,
+                _get_loaded_tools,
+                _set_available_tools_cache,
+            )
+
+            new_names = {spec.name for spec in new_specs}
+            cached = _get_available_tools_cache()
+            if cached is not None:
+                _set_available_tools_cache(
+                    [t for t in cached if t.name not in new_names] + new_specs
+                )
+            # Make the tools invocable now: dispatch and the model's tool list
+            # use the loaded set, not the available-tools cache.
+            loaded = _get_loaded_tools()
+            loaded[:] = [t for t in loaded if t.name not in new_names] + new_specs
+        except Exception:
+            logger.debug(
+                "Failed to update available-tools cache after MCP load", exc_info=True
+            )
+
         tool_names = [tool.name for tool in tools.tools]
         return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
 
     except Exception as e:
-        # If connection failed and we added the config, remove it to maintain consistency
+        # Revert all state changes on failure.
         if config_added:
             config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
             set_config(config)
+        elif enabled_reset and server_config:
+            server_config.enabled = False
+            set_config(config)
+        _dynamic_servers.pop(name, None)
+        if client is not None:
+            # connect() may have succeeded before a later step (e.g. ToolSpec
+            # construction) failed; don't orphan the open transport.
+            try:
+                client.close()
+            except Exception:
+                logger.debug(
+                    "Failed to close MCP client after failed load", exc_info=True
+                )
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
 
@@ -600,8 +747,13 @@ def unload_mcp_server(name: str) -> str:
     if name not in _dynamic_servers:
         return f"Server '{name}' is not loaded."
 
-    # Remove from dynamic servers
-    del _dynamic_servers[name]
+    # Remove from dynamic servers and close the transport so the subprocess
+    # and its event loop aren't leaked for the rest of the session.
+    client = _dynamic_servers.pop(name)
+    try:
+        client.close()
+    except Exception:
+        logger.debug("Failed to close MCP client on unload", exc_info=True)
 
     # Optionally disable in config (but don't remove)
     config = get_config()
@@ -609,6 +761,20 @@ def unload_mcp_server(name: str) -> str:
     if server_config:
         server_config.enabled = False
         set_config(config)
+
+    # Invalidate the available-tools cache so the unloaded server's ToolSpecs
+    # are dropped. The next get_available_tools() call will rebuild without it.
+    try:
+        from ..tools import _get_loaded_tools, _set_available_tools_cache
+
+        prefix = f"{name}."
+        loaded = _get_loaded_tools()
+        loaded[:] = [t for t in loaded if not t.name.startswith(prefix)]
+        _set_available_tools_cache(None)
+    except Exception:
+        logger.debug(
+            "Failed to clear available-tools cache after MCP unload", exc_info=True
+        )
 
     return f"Successfully unloaded server '{name}'."
 
