@@ -241,7 +241,7 @@ behaviour silently:
   dynamic-fetch fallbacks.
 
 - ``supports_parallel_tool_calls`` is set on 71 entries: the Claude Fable 5.x
-  and Opus/Sonnet 4.x/5.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5/GPT-6
+  and Opus/Sonnet 4.x/5.x families, the OpenRouter Claude aliases, Kimi K3, the GPT-4.1/GPT-5/GPT-6
   families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
   lite and experimental Gemini variants are excluded via
   ``PARALLEL_TOOL_CALL_EXCEPTIONS``), xAI Grok (excluding the older
