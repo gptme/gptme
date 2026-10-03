@@ -1461,8 +1461,100 @@ def prompts_expand(prompt: tuple[str, ...]):
         if disabled_path_include is not None:
             os.environ["GPTME_DISABLE_PATH_INCLUDE"] = disabled_path_include
 
+    # Mixed-text tokens are heuristic (prose, or relative to another expanded
+    # path) and must stay silent. Warn only when the entire prompt is a single
+    # Click argument that is an explicit path and wasn't found.
+    _warn_if_whole_prompt_path_missing(prompt)
+
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
+
+
+def _warn_if_whole_prompt_path_missing(prompt: tuple[str, ...]) -> None:
+    """Warn on stderr when the whole prompt is one missing explicit path.
+
+    Use Click's argument boundary, not whitespace: a quoted path with spaces
+    (``"/tmp/missing file.txt"``) is still one path. Multiple arguments stay
+    silent — that is mixed text. A single argument that starts with a complete
+    path then continues as prose (``"./missing.txt is discussed here"``) is
+    also silent.
+
+    Existence follows ``_find_potential_paths`` punctuation stripping so
+    ``/tmp/existing.txt.`` does not false-warn after a successful expand.
+    """
+    if len(prompt) != 1:
+        return
+    stripped = prompt[0].strip()
+    if not stripped:
+        return
+    if not _looks_like_explicit_file_path(stripped):
+        return
+    if _is_quoted_mixed_prose(stripped):
+        return
+    if _is_slash_command_token(stripped):
+        return
+    # Same trailing-punct strip as gptme.util.context._find_potential_paths.
+    normalized = stripped.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+    if Path(stripped).expanduser().exists() or Path(normalized).expanduser().exists():
+        return
+    click.echo(f"warning: path not found, not expanded: {stripped}", err=True)
+
+
+def _is_quoted_mixed_prose(prompt: str) -> bool:
+    """True when one Click argument starts with a complete path then continues as text.
+
+    Distinguishes ``./missing.txt is discussed here`` (mixed prose, silent)
+    from ``/tmp/missing file.txt`` (one spaced filename, warn). A single
+    argument is prose when the first token is already a complete file name —
+    its *basename* carries an extension — or when there are three or more
+    words (a sentence). Testing the basename rather than the whole token keeps
+    ``./missing file.txt`` and ``/tmp/v1.2/missing file.txt`` warning, while
+    ``/tmp/v1.2/readme is discussed here`` stays silent on its word count.
+    """
+    parts = prompt.split(None, 2)
+    if len(parts) < 2:
+        return False
+    first = parts[0]
+    if not _looks_like_explicit_file_path(first):
+        return False
+    if "." in Path(first).name:
+        return True
+    return len(parts) >= 3
+
+
+def _looks_like_explicit_file_path(path: str) -> bool:
+    """True for a whole-prompt token intended as a filesystem path, not prose.
+
+    Absolute (`/`), home (`~/`), cwd-relative (`./`), parent-relative (`../`),
+    and Windows drive-absolute (`C:/`, `C:\\`) forms. Bare names like
+    `README.md` stay silent — those are heuristic, not explicit paths.
+    """
+    if path.startswith(("/", "~/", "./", "../")):
+        return True
+    return len(path) >= 3 and path[0].isalpha() and path[1] == ":" and path[2] in "/\\"
+
+
+def _is_slash_command_token(word: str) -> bool:
+    """True for actual /commands, not single-component filesystem paths.
+
+    ``is_message_command`` treats any first token with exactly one slash as a
+    command, so ``/nonexistent`` would skip the missing-path warning.
+    Restrict the exemption to registered commands and discovered tool names.
+    """
+    if not word.startswith("/") or "/" in word[1:] or not word[1:]:
+        return False
+    name = word[1:]
+    try:
+        from ..commands.base import get_registered_commands  # fmt: skip
+        from ..commands.meta import COMMANDS  # fmt: skip
+
+        if name in COMMANDS or name in get_registered_commands():
+            return True
+        from ..tools import get_available_tools  # fmt: skip
+
+        return any(t.name == name for t in get_available_tools(include_mcp=False))
+    except Exception:
+        return False
 
 
 @main.group()
