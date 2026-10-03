@@ -96,8 +96,9 @@ def test_subprocess_defers_to_env_when_model_declares_no_format(tmp_path, monkey
     """A custom provider without metadata must not be forced to markdown.
 
     Passing ``--tool-format markdown`` unconditionally would clobber a
-    workspace ``TOOL_FORMAT=xml``; the flag must be omitted so the CLI's own
-    precedence (env > model default > markdown) resolves the dialect.
+    workspace ``TOOL_FORMAT``; the flag must be omitted so the CLI resolves
+    the dialect itself. The parent cannot know that resolution, so it must not
+    assert one in the prompt either (``None`` → dialect-free instruction).
     """
     import gptme.llm.models
 
@@ -114,8 +115,7 @@ def test_subprocess_defers_to_env_when_model_declares_no_format(tmp_path, monkey
 
     command = popen.call_args.args[0]
     assert "--tool-format" not in command
-    # The prompt's completion instruction still reflects the resolved dialect.
-    assert execution._effective_child_tool_format("custom/child") == "xml"
+    assert execution._effective_child_tool_format("custom/child") is None
 
 
 @pytest.mark.parametrize(

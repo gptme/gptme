@@ -19,7 +19,7 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
@@ -75,20 +75,15 @@ def _child_tool_format(model: str | None) -> ToolFormat:
 
 
 def _effective_child_tool_format(model: str | None) -> ToolFormat | None:
-    """Dialect the subprocess CLI will use, when the parent can determine it.
+    """Dialect the parent can *assert* for the subprocess child, if any.
 
-    Returns the declared model metadata format, else the inherited
-    ``TOOL_FORMAT`` env. Returns ``None`` when the child CLI's own resolution
-    (workspace config, saved conversation) cannot be known from the parent —
-    callers must then keep dialect-specific examples out of the prompt.
+    Only a declared model metadata format is knowable here: it is the value the
+    parent passes explicitly as ``--tool-format``. When the child model declares
+    none, the child CLI resolves the dialect itself (env, workspace config,
+    saved conversation), so the parent must not guess — returning ``None`` keeps
+    dialect-specific examples out of the prompt instead of risking a mismatch.
     """
-    declared = _declared_child_tool_format(model)
-    if declared is not None:
-        return declared
-    env_format = os.environ.get("GPTME_TOOL_FORMAT") or os.environ.get("TOOL_FORMAT")
-    if env_format in ("markdown", "xml", "tool"):
-        return cast(ToolFormat, env_format)
-    return None
+    return _declared_child_tool_format(model)
 
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
