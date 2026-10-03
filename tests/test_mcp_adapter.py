@@ -646,3 +646,110 @@ class TestMCPElicitationBridge:
         port_field = request.fields[0]
         assert port_field.default == "8080"
         assert port_field.required is False
+
+
+# ── Regression: load_mcp_server must register ToolSpecs ──────────────
+
+
+class TestLoadMcpServerRegistersToolSpecs:
+    """Regression tests for gptme/gptme#4069.
+
+    ``load_mcp_server`` connected the client but never built ToolSpecs or
+    invalidated the available-tools cache, so dynamically loaded tools were
+    invisible to ``get_available_tools()``.
+    """
+
+    def test_load_invalidates_cache(self, mock_config):
+        """load_mcp_server must invalidate the available-tools cache."""
+        from gptme.tools import _set_available_tools_cache
+
+        # Pre-populate the cache to simulate a prior get_available_tools() call
+        _set_available_tools_cache([MagicMock()])
+
+        mock_client = MagicMock()
+        mock_tools = MagicMock()
+        mock_tools.tools = []
+        mock_session = MagicMock()
+        mock_client.connect.return_value = (mock_tools, mock_session)
+        mock_client.tools = mock_tools
+
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_client),
+        ):
+            load_mcp_server("test-server")
+
+        # Cache must be invalidated so next get_available_tools() rebuilds
+        from gptme.tools import _get_available_tools_cache
+
+        assert _get_available_tools_cache() is None
+
+        # Cleanup
+        _set_available_tools_cache(None)
+        if "test-server" in _dynamic_servers:
+            del _dynamic_servers["test-server"]
+
+    def test_unload_invalidates_cache(self, mock_config):
+        """unload_mcp_server must invalidate the available-tools cache."""
+        from gptme.tools import _get_available_tools_cache, _set_available_tools_cache
+
+        # Set up a loaded dynamic server
+        mock_client = MagicMock()
+        mock_client.tools = MagicMock()
+        mock_client.tools.tools = []
+        _dynamic_servers["test-server"] = mock_client
+        mock_config.user.mcp.servers[0].enabled = True
+
+        # Pre-populate the cache
+        _set_available_tools_cache([MagicMock()])
+
+        with patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config):
+            unload_mcp_server("test-server")
+
+        assert _get_available_tools_cache() is None
+        assert "test-server" not in _dynamic_servers
+
+        # Cleanup
+        _set_available_tools_cache(None)
+
+    def test_create_mcp_tools_skips_disabled_servers(self, mock_config):
+        """create_mcp_tools must skip servers with enabled=False."""
+        # Disable the server in config
+        mock_config.user.mcp.servers[0].enabled = False
+
+        with patch("gptme.mcp.client.MCPClient") as mock_client_cls:
+            specs = create_mcp_tools(mock_config)
+
+        assert specs == []
+        # Must not have attempted to connect
+        mock_client_cls.assert_not_called()
+
+    def test_create_mcp_tools_reuses_dynamic_connection(self, mock_config):
+        """create_mcp_tools must reuse an existing dynamic client, not reconnect."""
+        from gptme.mcp.client import MCPClient
+
+        # Set up a dynamic server with a mock client that has tools
+        mock_tool = MagicMock()
+        mock_tool.name = "dyn_tool"
+        mock_tool.description = "A dynamic tool"
+        mock_tool.inputSchema = {
+            "properties": {"x": {"type": "string"}},
+            "required": ["x"],
+        }
+        mock_tool.annotations = None
+
+        mock_client = MagicMock(spec=MCPClient)
+        mock_client.tools = MagicMock()
+        mock_client.tools.tools = [mock_tool]
+        _dynamic_servers["test-server"] = mock_client
+
+        with patch("gptme.mcp.client.MCPClient") as mock_client_cls:
+            specs = create_mcp_tools(mock_config)
+
+        # Must have built a tool spec from the existing dynamic connection
+        assert len(specs) == 1
+        assert specs[0].name == "test-server.dyn_tool"
+        assert specs[0].is_mcp
+
+        # Must NOT have created a new MCPClient (no reconnection)
+        mock_client_cls.assert_not_called()
