@@ -677,6 +677,7 @@ brew<span class="w"> </span>install<span class="w"> </span>cliclick
 <span class="c1"># Then grant your terminal Screen Recording + Accessibility permissions in System Settings (macOS Ventura+) or System Preferences (older macOS)</span>
 </pre></div>
 </div>
+<p>The computer-use tool does not need Full Disk Access on macOS. Grant your terminal Screen Recording and Accessibility permissions; accessibility-first actions (<code class="docutils literal notranslate"><span class="pre">accessibility_tree</span></code>, <code class="docutils literal notranslate"><span class="pre">click_accessible_element</span></code>) drive System Events through AppleScript and may additionally prompt for Automation access.</p>
 <p>For web automation (structured ARIA snapshots), install Playwright:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install gptme with browser support (provides the &#39;playwright&#39; CLI)</span>
 pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[browser]&quot;</span>
