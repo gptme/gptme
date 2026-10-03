@@ -193,6 +193,18 @@ def check_boundary_domain_no_infra_import(ctx):
                 node.module == "infra" or node.module.startswith("infra.")
             ):
                 return False
+        if isinstance(node, ast.Call):
+            # Dynamic imports reach the same layer: __import__("infra") /
+            # importlib.import_module("infra") are not Import/ImportFrom nodes.
+            func = node.func
+            callee = (
+                func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+            )
+            if callee in ("__import__", "import_module") and node.args:
+                arg = node.args[0]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    if arg.value == "infra" or arg.value.startswith("infra."):
+                        return False
     return True
 
 

@@ -616,9 +616,11 @@ class TestOpenShellExecutionEnv:
             try:
 
                 def fake_run(args, **kwargs):
-                    dest = Path(args[7])
-                    dest.mkdir(parents=True, exist_ok=True)
-                    (dest / "ok.txt").write_text("ok")
+                    # Only handle openshell commands; return success for docker cleanup
+                    if args[0] == "openshell":
+                        dest = Path(args[7])
+                        dest.mkdir(parents=True, exist_ok=True)
+                        (dest / "ok.txt").write_text("ok")
                     return subprocess.CompletedProcess(
                         args=args, returncode=0, stdout="", stderr=""
                     )
