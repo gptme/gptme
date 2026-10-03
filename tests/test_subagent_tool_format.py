@@ -57,6 +57,21 @@ def test_thread_prompts_and_chat_use_child_model_format(
     assert chat.call_args.kwargs["tool_format"] == dialect
 
 
+def test_thread_without_model_uses_default_model_format(monkeypatch):
+    """A model-less thread child's model IS the thread default model.
+
+    In thread mode ``model=None`` means the child runs on the context's default
+    model, so resolving the format from that model's metadata is selecting the
+    *child's* dialect — not inheriting the parent's tool format.
+    """
+    import gptme.llm.models
+
+    meta = ModelMeta("mock", "child", context=4096, default_tool_format="xml")
+    monkeypatch.setattr(gptme.llm.models, "get_default_model", lambda: meta)
+
+    assert execution._child_tool_format(None) == "xml"
+
+
 @pytest.mark.parametrize("dialect", ["markdown", "xml", "tool"])
 def test_subprocess_passes_child_format_over_parent_env(tmp_path, monkeypatch, dialect):
     import gptme.llm.models

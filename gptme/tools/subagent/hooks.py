@@ -174,8 +174,12 @@ def _render_signal_block(tool: str, content: str, tool_format: str | None) -> st
     if tool_format == "xml":
         return f"<tool-use>\n<{tool}>\n{content}\n</{tool}>\n</tool-use>"
     if tool_format == "tool":
-        # Native tool calling: the model invokes the tool directly, no text block.
-        return f"call the `{tool}` tool (native tool call) with:\n{content}"
+        # Native tool calling has no textual syntax: name the tool and let the
+        # model's structured tool schema carry the argument.
+        return (
+            f"Call the `{tool}` tool as a native tool call; "
+            f"pass this as the tool argument:\n{content}"
+        )
     if tool_format is None:
         return f"Use the `{tool}` tool (in your active tool format):\n{content}"
     return f"```{tool}\n{content}\n```"
