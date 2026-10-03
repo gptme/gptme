@@ -238,7 +238,10 @@ def _get_complete_instruction(
             "IMPORTANT: Your `complete` block MUST contain valid JSON matching the schema above. "
             "Do not include any text outside the JSON object."
         )
-    if supports_progress:
+    # Native tool calls cannot carry a text body and `progress` declares no
+    # argument, so a native `progress` call would deliver an empty update.
+    # Advertise it only in dialects that can express the message.
+    if supports_progress and tool_format != "tool":
         instruction += (
             "\n"
             f"To send an intermediate progress update to the {target} (without stopping), use `progress`:\n"

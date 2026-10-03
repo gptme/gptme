@@ -154,3 +154,7 @@ def test_completion_instruction_matches_child_dialect(dialect, expected, absent)
     assert absent not in instruction
     if dialect is None:
         assert "<complete>" not in instruction
+    if dialect == "tool":
+        # Native calls carry no text body, so `progress` cannot deliver an
+        # update and must not be advertised.
+        assert "progress" not in instruction
