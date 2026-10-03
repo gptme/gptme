@@ -10,6 +10,7 @@ import type {
   ExternalSessionDetail,
   SendMessageRequest,
   ServerHealth,
+  ServerInfo,
   SkillListResponse,
   UserInfo,
 } from '@/types/api';
@@ -1462,19 +1463,11 @@ export class ApiClient {
     return info;
   }
 
-  async getServerInfo(): Promise<{
-    version?: string;
-    api_version?: number;
-    contract_revision?: number;
-  }> {
+  async getServerInfo(): Promise<ServerInfo> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
-    const data = await this.fetchJson<{
-      version?: string;
-      api_version?: number;
-      contract_revision?: number;
-    }>(`${this.baseUrl}/api/v2`);
+    const data = await this.fetchJson<ServerInfo>(`${this.baseUrl}/api/v2`);
     return data;
   }
 
