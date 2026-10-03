@@ -60,7 +60,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
-    "date-fns": "^3.6.0",
+    "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.3.0",
     "highlight.js": "^11.10.0",
     "input-otp": "^1.2.4",
