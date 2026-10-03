@@ -90,9 +90,37 @@ def test_kill_recorded_groups_reaches_group_with_dead_leader(tmp_path: Path):
     detached = int(pid_file.read_text())
     pgid_file.write_text(f"{leader.pid}\n")
 
-    _kill_recorded_shell_groups(pgid_file)
+    # The production caller passes the CLI's start time; with the leader gone
+    # the group is accepted only because every member postdates it.
+    _kill_recorded_shell_groups(pgid_file, after_ticks=1)
 
     assert _wait_dead(detached), "group with a dead leader survived the kill"
+
+
+def test_kill_recorded_groups_skips_when_start_cannot_be_verified(tmp_path: Path):
+    pgid_file = tmp_path / "shell-pgids"
+    # macOS has no procfs: neither the recorded entry nor the CLI carries a
+    # start time, so a pid alone is unverifiable. A live unrelated session
+    # leader that reused a dead shell's pid must not be signalled.
+    leader = subprocess.Popen(["bash", "-c", "sleep 60"], start_new_session=True)
+    try:
+        # Wait for the child's setsid() so it is a session leader by the time
+        # the kill path checks it (otherwise the group lookup races).
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and os.getsid(leader.pid) != leader.pid:
+            time.sleep(0.01)
+        pgid_file.write_text(f"{leader.pid}\n")
+        _kill_recorded_shell_groups(pgid_file, after_ticks=None)
+        # SIGKILL delivery is asynchronous: give it a moment before deciding
+        # the entry was left alone. poll() reaps a signalled child, so it
+        # reports the kill that /proc liveness checks can miss.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and leader.poll() is None:
+            time.sleep(0.02)
+        assert leader.poll() is None, "an unverifiable entry was signalled"
+    finally:
+        leader.kill()
+        leader.wait()
 
 
 def test_kill_recorded_groups_skips_non_session_leaders_and_garbage(tmp_path: Path):

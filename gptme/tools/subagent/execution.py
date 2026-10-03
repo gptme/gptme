@@ -1000,18 +1000,21 @@ def _killable_group(pgid: int) -> bool:
 
 
 def _group_started_after(pgid: int, after_ticks: int | None) -> bool:
-    """True if every live member of ``pgid`` started after ``after_ticks``.
+    """True if every live member of ``pgid`` verifiably started after ``after_ticks``.
 
     A group the child's shell created can only contain processes started after
     the CLI itself, so this rejects a stale entry that now names an unrelated
-    group which predates the subagent. Fails open when procfs is unavailable.
+    group which predates the subagent. When procfs (or the CLI's start time) is
+    unavailable, membership cannot be verified, so this fails closed: the entry
+    is left alone rather than risking a signal to an unrelated group that
+    reused a dead shell's pid. macOS has no procfs, so it takes this path.
     """
     if after_ticks is None:
-        return True
+        return False
     try:
         entries = os.listdir("/proc")
     except OSError:
-        return True
+        return False
     for entry in entries:
         if not entry.isdigit():
             continue
