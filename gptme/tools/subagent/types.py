@@ -174,6 +174,8 @@ def update_subagent_result_with_branch(
             amended,
             input_tokens=existing.input_tokens,
             output_tokens=existing.output_tokens,
+            tool_uses=existing.tool_uses,
+            duration_s=existing.duration_s,
         )
 
 
@@ -190,6 +192,12 @@ class ReturnType:
     # None means unavailable (e.g. cached terminal result, pre-budget-tracking log).
     input_tokens: int | None = None
     output_tokens: int | None = None
+    # Usage reporting (parity with Claude Code's Agent tool notification):
+    # total ToolUse invocations across the subagent's assistant messages, and
+    # wall-clock seconds from spawn to terminal result. None means unavailable
+    # (e.g. no conversation log was read, or spawn time wasn't tracked).
+    tool_uses: int | None = None
+    duration_s: float | None = None
 
 
 @dataclass
@@ -284,11 +292,14 @@ class Subagent:
     thread: threading.Thread | None
     logdir: Path
     model: str | None
-    context_mode: Literal["full", "selective"] = "full"
+    context_mode: Literal["full", "selective", "fork"] = "full"
     context_include: list[str] | None = None
     profile: str | None = None
     output_schema: "type | dict | None" = None
     use_acp: bool = False
+    # Per-call reasoning effort override (e.g. "low"/"medium"/"high"), forwarded
+    # to the model for this subagent only. None = inherit the parent's setting.
+    reasoning_effort: str | None = None
     # Subprocess mode fields
     process: subprocess.Popen | None = None
     execution_mode: Literal["thread", "subprocess", "acp"] = "thread"
@@ -318,6 +329,10 @@ class Subagent:
     context_window: int | None = None
     # Number of parent conversation turns to forward as context (P1: persist for re-spawn)
     context_turns: int | None = None
+    # Number of messages prepended from the parent's log when context_mode="fork".
+    # _read_log() skips these when counting tool_uses so the count reflects only
+    # the subagent's own tool invocations, not the inherited parent history.
+    fork_message_count: int = 0
     # Timestamp (seconds since epoch) when this subagent was created
     started_at: float = field(default_factory=time.time)
     # Wall-clock limit in seconds; when set, a watchdog auto-cancels after this time
@@ -487,6 +502,7 @@ class Subagent:
 
         # Read token stats once; attach to every terminal ReturnType we return.
         in_tok, out_tok = self._read_token_stats()
+        duration_s = time.time() - self.started_at
 
         # Check if executor used the complete tool
         try:
@@ -497,6 +513,7 @@ class Subagent:
                 f"Subagent exited before creating a conversation log: {self.logdir}",
                 input_tokens=in_tok,
                 output_tokens=out_tok,
+                duration_s=duration_s,
             )
         if not log:
             return ReturnType(
@@ -504,7 +521,19 @@ class Subagent:
                 "No messages in log",
                 input_tokens=in_tok,
                 output_tokens=out_tok,
+                duration_s=duration_s,
             )
+
+        # Total ToolUse invocations across the subagent's own assistant messages.
+        # When context_mode="fork", the log starts with fork_message_count messages
+        # copied from the parent; skip them so the count reflects only this
+        # subagent's tool calls, not the parent's inherited history.
+        own_msgs = log[self.fork_message_count :]
+        n_tool_uses = sum(
+            len(list(ToolUse.iter_from_content(message.content)))
+            for message in own_msgs
+            if message.role == "assistant"
+        )
 
         # Completion hooks may append bookkeeping messages after the terminal
         # assistant signal (for example, "Task complete" and a token warning).
@@ -529,6 +558,8 @@ class Subagent:
                 clarification_result.result,
                 input_tokens=in_tok,
                 output_tokens=out_tok,
+                tool_uses=n_tool_uses,
+                duration_s=duration_s,
             )
 
         # Check for a complete tool call in the terminal assistant message.
@@ -549,6 +580,8 @@ class Subagent:
                 result + f"\n\nFull log: {self.logdir}",
                 input_tokens=in_tok,
                 output_tokens=out_tok,
+                tool_uses=n_tool_uses,
+                duration_s=duration_s,
             )
 
         # Fallback: Check for complete code block directly
@@ -569,6 +602,8 @@ class Subagent:
                     result + f"\n\nFull log: {self.logdir}",
                     input_tokens=in_tok,
                     output_tokens=out_tok,
+                    tool_uses=n_tool_uses,
+                    duration_s=duration_s,
                 )
 
         # Check if session ended with system completion message
@@ -578,6 +613,8 @@ class Subagent:
                 f"Task completed successfully. Full log: {self.logdir}",
                 input_tokens=in_tok,
                 output_tokens=out_tok,
+                tool_uses=n_tool_uses,
+                duration_s=duration_s,
             )
 
         # Task didn't complete properly
@@ -586,4 +623,6 @@ class Subagent:
             f"Task did not complete properly. Check log: {self.logdir}",
             input_tokens=in_tok,
             output_tokens=out_tok,
+            tool_uses=n_tool_uses,
+            duration_s=duration_s,
         )

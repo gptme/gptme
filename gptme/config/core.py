@@ -52,6 +52,9 @@ class Config:
     user: UserConfig = field(default_factory=load_user_config)
     project: ProjectConfig | None = None
     chat: ChatConfig | None = None
+    # Context-local overrides that beat every other source (including os.environ).
+    # Used to scope a setting to one thread, e.g. a subagent's per-call reasoning_effort.
+    env_overrides: dict[str, str] = field(default_factory=dict, repr=False)
     # Runtime-only provenance for a model already resolved into chat.model.
     # The value guard prevents a later explicit model from inheriting stale provenance.
     _model_source: tuple[ModelSourceKind, str] | None = field(default=None, repr=False)
@@ -182,7 +185,8 @@ class Config:
         prefixed = f"GPTME_{key}" if not key.startswith("GPTME_") else key
         bare = key.removeprefix("GPTME_") if key.startswith("GPTME_") else key
         return (
-            os.environ.get(prefixed)
+            self.env_overrides.get(bare)
+            or os.environ.get(prefixed)
             or os.environ.get(bare)
             or (self.chat and self.chat.env.get(bare))
             or (self.project and self.project.env.get(bare))
