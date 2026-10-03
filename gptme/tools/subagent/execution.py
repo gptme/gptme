@@ -621,19 +621,28 @@ def _create_subagent_thread(
     _enter_subagent_cwd(workspace)
 
     # Scope the reasoning-effort override to this subagent's own thread.
-    # prepare_execution_environment() above called set_config() with a fresh
-    # Config.from_workspace(), rebinding _config_var in THIS thread's context
-    # to a new Config object owned by this thread.  In GIL builds the thread
-    # started with an empty context, so set_config() was also the first write;
-    # in Python 3.13 free-threaded builds (PEP 703) the thread *copies* the
-    # parent's context at creation time (see the clear_tools() note above), but
-    # prepare_execution_environment()'s set_config() call rebinds _config_var
-    # in the copy — so the parent's Config is never the object returned by
-    # get_config() here.  Either way the mutation below is thread-local.
+    # We do NOT mutate the Config that get_config() returns: we replace it with
+    # a *copy* carrying the override and rebind _config_var via set_config().
+    # That makes the isolation explicit and independent of any prior side
+    # effect — even on Python 3.13 free-threaded builds (PEP 703), where the
+    # thread *copies* the parent's context at creation time (see the
+    # clear_tools() note above) and get_config() would otherwise return the
+    # parent's Config object.  The parent's Config is never mutated.
     if reasoning_effort:
-        from ...config.core import get_config  # fmt: skip
+        from dataclasses import replace  # fmt: skip
 
-        get_config().env_overrides["THINKING_EFFORT"] = reasoning_effort
+        from ...config.core import get_config, set_config  # fmt: skip
+
+        current = get_config()
+        set_config(
+            replace(
+                current,
+                env_overrides={
+                    **current.env_overrides,
+                    "THINKING_EFFORT": reasoning_effort,
+                },
+            )
+        )
 
     try:
         chat(
@@ -1085,6 +1094,9 @@ def _monitor_subprocess(
         status: Status = "failure"
         result = f"Process killed after {subagent.timeout}s timeout"
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
+        # A timeout is a terminal result: report wall-clock seconds since spawn
+        # so usage reporting is not silently incomplete on this path.
+        duration_s = time.time() - subagent.started_at
     elif subagent.process.returncode == 0:
         status = "success"
         # Get result from conversation log (primary source for subprocess mode)
@@ -1103,6 +1115,7 @@ def _monitor_subprocess(
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
+        duration_s = time.time() - subagent.started_at
 
     # Clean up worktree isolation; capture preserved branch so it can be
     # included in the result that callers receive via subagent_wait() / subagent_parallel().

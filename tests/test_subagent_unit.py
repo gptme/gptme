@@ -1202,6 +1202,9 @@ class TestSubagentCancel:
         assert mock_proc.wait.call_args_list[-1].kwargs == {"timeout": 5}
         assert _subagent_results[sa.agent_id].status == "failure"
         assert "timeout" in (_subagent_results[sa.agent_id].result or "")
+        # A timeout is a terminal result: usage reporting must still carry
+        # wall-clock duration rather than returning None.
+        assert _subagent_results[sa.agent_id].duration_s is not None
 
     def test_subprocess_monitor_escalates_unresponsive_timeout(self, tmp_path):
         mock_proc = MagicMock()
@@ -8242,29 +8245,36 @@ class TestReasoningEffort:
         )
         monkeypatch.setattr(subagent_execution, "get_tools", lambda: [])
 
-        try:
-            subagent_execution._create_subagent_thread(
-                prompt="do the thing",
-                logdir=tmp_path / "logdir",
-                model=None,
-                context_mode="full",
-                context_include=None,
-                workspace=tmp_path,
-                redact_secrets=False,
-                reasoning_effort="low",
-            )
+        # The parent thread starts clean.
+        assert get_config().get_env("GPTME_THINKING_EFFORT") is None
 
-            assert seen_effort == ["low"]
-            # Never leaked into the process-wide environment.
-            import os
+        # Run the subagent in a real thread so the test exercises an actual
+        # context boundary — a process-global Config would leak to the parent.
+        thread = threading.Thread(
+            target=subagent_execution._create_subagent_thread,
+            kwargs={
+                "prompt": "do the thing",
+                "logdir": tmp_path / "logdir",
+                "model": None,
+                "context_mode": "full",
+                "context_include": None,
+                "workspace": tmp_path,
+                "redact_secrets": False,
+                "reasoning_effort": "low",
+            },
+        )
+        thread.start()
+        thread.join(timeout=10)
+        assert not thread.is_alive()
 
-            assert "GPTME_THINKING_EFFORT" not in os.environ
-        finally:
-            # This test calls _create_subagent_thread directly in the test's
-            # own thread (not a real spawned subagent thread), so the config
-            # mutation lands on THIS thread's shared Config — clean it up so
-            # it doesn't leak into later tests sharing the same thread.
-            get_config().env_overrides.pop("THINKING_EFFORT", None)
+        # The override was visible inside the subagent's own thread ...
+        assert seen_effort == ["low"]
+        # ... but never reached the parent thread's Config.
+        assert get_config().get_env("GPTME_THINKING_EFFORT") is None
+        # Never leaked into the process-wide environment either.
+        import os
+
+        assert "GPTME_THINKING_EFFORT" not in os.environ
 
     def test_reasoning_effort_overrides_inherited_env(self):
         """The per-call override beats GPTME_THINKING_EFFORT in os.environ, and
