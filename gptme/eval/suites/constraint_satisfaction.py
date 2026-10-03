@@ -153,6 +153,50 @@ def _default_is_required_sentinel(value) -> bool:
     return False
 
 
+def _priority_default_state(
+    cls_node: ast.ClassDef,
+    classdefs_by_name: dict[str, ast.ClassDef],
+    seen: set[str] | None = None,
+) -> bool | None:
+    """Verdict for `priority` on a class and its in-file base classes.
+
+    Returns True if the field is optional (has a real default), False if it is
+    declared required (annotation-only or a Pydantic `...`/`Field(...)`
+    sentinel), and None if no declaration exists in this file's hierarchy.
+
+    The most-derived declaration wins: a `Task.priority` override is checked
+    before any base-class definition. Bases are resolved by name among classes
+    defined in the same module (transitively). A base imported from another
+    module cannot be inspected statically and is treated as unresolved.
+    """
+    if seen is None:
+        seen = set()
+    if cls_node.name in seen:
+        return None
+    seen.add(cls_node.name)
+    for stmt in cls_node.body:
+        if not isinstance(stmt, ast.AnnAssign):
+            continue
+        target = stmt.target
+        if not (isinstance(target, ast.Name) and target.id == "priority"):
+            continue
+        # It is optional only with an explicit non-sentinel default — an
+        # annotation alone (or `= ...` / `Field(...)`) is still required.
+        if stmt.value is None:
+            return False
+        return not _default_is_required_sentinel(stmt.value)
+    for base in cls_node.bases:
+        if not isinstance(base, ast.Name):
+            continue
+        base_node = classdefs_by_name.get(base.id)
+        if base_node is None:
+            continue
+        state = _priority_default_state(base_node, classdefs_by_name, seen)
+        if state is not None:
+            return state
+    return None
+
+
 def check_schema_field_is_optional(ctx):
     """'priority' must be declared optional/defaulted, not required.
 
@@ -162,37 +206,26 @@ def check_schema_field_is_optional(ctx):
     a *required* field; the default must be explicit. So only a real
     assignment counts, and Pydantic's `...` / `Field(...)` required
     sentinels are not mistaken for one.
+
+    A field inherited from a base class defined in `task_schema.py` counts:
+    `Task(**row)` resolves it through the MRO, so a defaulted base field is
+    just as backward-compatible as an inline one. An unrelated helper's
+    `priority` attribute (outside `Task`'s hierarchy) does not satisfy it.
     """
     content = ctx.files.get("task_schema.py", "")
     try:
         tree = ast.parse(content)
     except SyntaxError:
         return False
-    task_class = next(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef) and node.name == "Task"
-        ),
-        None,
-    )
+    classdefs_by_name = {
+        node.name: node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+    }
+    task_class = classdefs_by_name.get("Task")
     if task_class is None:
         return False
-    # Scope the search to `Task.priority` itself. A `priority` attribute on an
-    # unrelated helper (with a default) must not satisfy the check while the
-    # model's `Task.priority` is still required.
-    for stmt in task_class.body:
-        if not isinstance(stmt, ast.AnnAssign):
-            continue
-        target = stmt.target
-        if not (isinstance(target, ast.Name) and target.id == "priority"):
-            continue
-        # Found the field on Task. It is optional only with an explicit
-        # non-sentinel default — an annotation alone is still required.
-        if stmt.value is None:
-            return False
-        return not _default_is_required_sentinel(stmt.value)
-    return False
+    # Search `Task` and its in-file base classes; only an explicit non-sentinel
+    # default in that hierarchy makes the field optional.
+    return _priority_default_state(task_class, classdefs_by_name) is True
 
 
 def check_schema_demo_untouched(ctx):
