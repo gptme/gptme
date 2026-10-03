@@ -1507,6 +1507,18 @@ def get_path(
     return Path(fn).expanduser()
 
 
+def file_newline(path: Path) -> str:
+    """Return the dominant line ending of an existing file: ``"\\r\\n"`` or ``"\\n"``.
+
+    Edit tools read files in universal-newline mode (so edits match on ``"\\n"``)
+    and should write back with ``newline=file_newline(path)`` so that CRLF files
+    aren't rewritten as LF (and LF files aren't rewritten as CRLF on Windows).
+    """
+    data = path.read_bytes()
+    crlf = data.count(b"\r\n")
+    return "\r\n" if crlf and crlf >= data.count(b"\n") - crlf else "\n"
+
+
 def load_from_file(path: Path) -> list[ToolSpec]:
     """Import a tool from a Python file and return discovered ToolSpec instances.
 
