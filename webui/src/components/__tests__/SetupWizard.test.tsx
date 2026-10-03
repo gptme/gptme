@@ -78,6 +78,8 @@ const mockUseTauriServerStatus = jest.fn(
   })
 );
 
+let mockConnectionBaseUrl = 'http://127.0.0.1:5700';
+
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
     api: {
@@ -88,7 +90,9 @@ jest.mock('@/contexts/ApiContext', () => ({
     isConnected$,
     connect: mockConnect,
     connectionConfig: {
-      baseUrl: 'http://127.0.0.1:5700',
+      get baseUrl() {
+        return mockConnectionBaseUrl;
+      },
       authToken: null,
       useAuthToken: false,
     },
@@ -200,6 +204,7 @@ describe('SetupWizard', () => {
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
     setupWizard$.providerStatusVersion.set(0);
+    mockConnectionBaseUrl = 'http://127.0.0.1:5700';
     mockConnect.mockReset();
     mockOpen.mockReset();
     mockFetch.mockReset();
@@ -361,6 +366,8 @@ describe('SetupWizard', () => {
     expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
     expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
 
+    // A completed cloud sign-in connects to the cloud server, changing the base URL.
+    mockConnectionBaseUrl = 'https://fleet.gptme.ai/api/v1/instances/test';
     isConnected$.set(true);
     rerender(
       <SettingsProvider>
@@ -390,6 +397,66 @@ describe('SetupWizard', () => {
 
     expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeInTheDocument();
     expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
+  });
+
+  it('does not auto-advance when a local server connects after the user chose Cloud', async () => {
+    // The sidecar may still be connecting when the user picks Cloud; that late
+    // local connection must not be treated as the cloud sign-in completing.
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    await act(async () => {});
+
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeInTheDocument();
+
+    // Local sidecar connects while the user is on the cloud step.
+    await act(async () => {
+      isConnected$.set(true);
+    });
+
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeInTheDocument();
+    expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
+  });
+
+  it('exchanges the cloud auth code while a local server is still connected', async () => {
+    // The desktop sidecar is already connected when the user signs in; the
+    // auth-code listener must still process the callback.
+    isConnected$.set(true);
+    mockConnect.mockImplementation(async () => {});
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: CLOUD_AUTH_ORIGIN,
+          data: {
+            type: 'gptme-cloud-auth-code',
+            code: 'deadbeef',
+          },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockProcessConnectionFromHash).toHaveBeenCalledWith('code=deadbeef');
+    });
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalled();
+    });
   });
 
   it('processes cloud auth codes posted back from the authorize popup', async () => {

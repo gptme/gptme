@@ -347,8 +347,10 @@ export function SetupWizard() {
   }, [checkProviderConfigured, completeSetup]);
 
   useEffect(() => {
+    // While waiting for the cloud sign-in callback, keep the pin so a local
+    // connection that arrives mid-sign-in is not mistaken for the cloud one.
     if (!isConnected) {
-      lastAutoAdvanceBaseUrlRef.current = null;
+      if (!cloudLoginStarted) lastAutoAdvanceBaseUrlRef.current = null;
       return;
     }
     if (
@@ -360,12 +362,24 @@ export function SetupWizard() {
     )
       return;
 
+    // On the cloud step only a connection that completes the sign-in (started
+    // via handleCloudLogin) may auto-advance — a pre-existing or late-connecting
+    // local server (e.g. the Tauri sidecar) must not count as sign-in finishing.
+    if (step === 'cloud' && !cloudLoginStarted) return;
+
     if (lastAutoAdvanceBaseUrlRef.current === connectionConfig.baseUrl) return;
     lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
 
     setCloudLoginStarted(false);
     void checkProviderAndAdvance();
-  }, [checkProviderAndAdvance, connectionConfig.baseUrl, isConnected, isOpen, step]);
+  }, [
+    checkProviderAndAdvance,
+    cloudLoginStarted,
+    connectionConfig.baseUrl,
+    isConnected,
+    isOpen,
+    step,
+  ]);
 
   useEffect(() => {
     if (!externalOpen || demoMode) {
@@ -385,7 +399,10 @@ export function SetupWizard() {
   }, [demoMode, externalOpen, externalStep]);
 
   useEffect(() => {
-    if (!cloudLoginStarted || step !== 'cloud' || isConnected) {
+    // isConnected is intentionally not a gate: the user may still be connected
+    // to the local server when the cloud auth code arrives (the desktop sidecar
+    // case) and the code must still be exchanged.
+    if (!cloudLoginStarted || step !== 'cloud') {
       return;
     }
 
@@ -436,7 +453,7 @@ export function SetupWizard() {
       cancelled = true;
       window.removeEventListener('message', handleCloudAuthMessage);
     };
-  }, [cloudLoginStarted, connect, isConnected, step]);
+  }, [cloudLoginStarted, connect, step]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
@@ -697,6 +714,10 @@ export function SetupWizard() {
     // Open the cloud auth URL — the deep-link flow (gptme://) or URL fragment
     // will handle the callback and connect automatically.
     setConnectError(null);
+    // Pin the current server URL so the auto-advance effect ignores a local
+    // connection (pre-existing or arriving during sign-in); only connecting to
+    // a different server (the cloud) advances.
+    lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
     setCloudLoginStarted(true);
 
     // In Tauri, hand the URL to the OS browser via the opener plugin instead of
@@ -848,12 +869,7 @@ export function SetupWizard() {
                 </div>
               </button>
               <button
-                onClick={() => {
-                  // An already-connected server (e.g. the Tauri sidecar) must not count as the
-                  // cloud sign-in finishing; only a connection to a different server advances.
-                  if (isConnected) lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
-                  setStep('cloud');
-                }}
+                onClick={() => setStep('cloud')}
                 className="flex items-start gap-4 rounded-lg border p-4 text-left transition-colors hover:bg-accent"
               >
                 <Cloud className="mt-0.5 h-6 w-6 shrink-0" />
