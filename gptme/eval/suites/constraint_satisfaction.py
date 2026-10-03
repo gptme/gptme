@@ -61,8 +61,9 @@ def check_api_signature_has_default(ctx):
 
     A required second parameter would break every existing call site
     (report.py among them) even though the function is "extended".
-    Handles both positional defaults (def f(items, discount=0.10)) and
-    keyword-only args (def f(items, *, discount=0.10)).
+    Handles positional defaults (def f(items, discount=0.10)), positional-only
+    defaults (def f(items, /, discount=0.10)), and keyword-only args
+    (def f(items, *, discount=0.10)).
     """
     content = ctx.files.get("legacy_api.py", "")
     try:
@@ -72,24 +73,23 @@ def check_api_signature_has_default(ctx):
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "calculate_total":
             args = node.args
-            total_pos = len(args.args)
+            # posonlyargs and args are separate in the AST; defaults apply to
+            # the trailing len(defaults) of their concatenation. Check
+            # 'discount' by name among those — a defaulted param with a
+            # different name must not satisfy the check.
+            positional = [*args.posonlyargs, *args.args]
             num_defaults = len(args.defaults)
+            defaulted_pos = (
+                {a.arg for a in positional[len(positional) - num_defaults :]}
+                if num_defaults
+                else set()
+            )
             # keyword-only: def f(items, *, discount=0.10) — must be specifically 'discount'
             kw_discount_has_default = any(
                 kwarg.arg == "discount" and args.kw_defaults[i] is not None
                 for i, kwarg in enumerate(args.kwonlyargs)
             )
-            # positional with default: def f(items, discount=0.10). The
-            # defaulted positional args are the trailing num_defaults of
-            # args.args, so check 'discount' is among them by name — a
-            # defaulted second param named something else must not pass.
-            defaulted_pos = (
-                {a.arg for a in args.args[total_pos - num_defaults :]}
-                if num_defaults
-                else set()
-            )
-            has_pos_discount = total_pos >= 2 and "discount" in defaulted_pos
-            return kw_discount_has_default or has_pos_discount
+            return kw_discount_has_default or "discount" in defaulted_pos
     return False
 
 
@@ -171,6 +171,11 @@ def check_boundary_domain_no_infra_import(ctx):
     NotifierPort abstract interface defined in domain.py itself — main.py
     wires the concrete infra implementation in. A direct `import infra` or
     `from infra import ...` in domain.py breaks that layering.
+
+    Static analysis is intentionally bounded: it catches literal imports and
+    literal dynamic imports. A module name computed at runtime
+    (``import_module("inf" + "ra")``) is out of scope — no static check can
+    resolve it, and this constraint is a style check, not a sandbox.
     """
     content = ctx.files.get("domain.py", "")
     if not content:
