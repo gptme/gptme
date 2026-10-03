@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 import random
 import re
@@ -1269,6 +1270,53 @@ def test_format_fatal_error_drops_keyerror_quotes():
     assert cli._format_fatal_error(KeyError(msg)) == msg
     assert cli._format_fatal_error(RuntimeError(msg)) == msg
     assert cli._format_fatal_error(KeyError(1, 2)) == str(KeyError(1, 2))
+
+
+def test_fatal_keyerror_output_strips_repr_quotes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, runner: CliRunner
+) -> None:
+    """KeyError from chat() must reach the user without repr-style single quotes."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    # GPTME_LOGS_HOME takes precedence over XDG_DATA_HOME, so an inherited value
+    # would send the conversation log outside tmp_path and fail the lookup below
+    # even when quote stripping works.
+    monkeypatch.delenv("GPTME_LOGS_HOME", raising=False)
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    msg = "Environment variable ANTHROPIC_API_KEY not set"
+    calls: list[tuple[Any, ...]] = []
+
+    def _raise_keyerror(*args: Any, **kwargs: Any):
+        calls.append(args)
+        raise KeyError(msg)
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", _raise_keyerror)
+
+    result = runner.invoke(cli.main, ["--non-interactive", "hello"])
+
+    # The stub must actually be reached; otherwise an unrelated early KeyError
+    # carrying the same message would satisfy every assertion below vacuously.
+    assert calls, "stubbed gptme.chat.chat was never called"
+    assert result.exit_code != 0
+    # The plain message must appear; repr-style quotes must not (stdout path)
+    assert msg in result.output
+    assert f"'{msg}'" not in result.output
+
+    # The conversation.jsonl error event must also strip repr-style quotes
+    jsonl_files = list((tmp_path / "data").glob("**/conversation.jsonl"))
+    assert jsonl_files, "conversation.jsonl not written by non-interactive error path"
+    events = [
+        json.loads(line)
+        for line in jsonl_files[0].read_text().splitlines()
+        if line.strip()
+    ]
+    error_events = [e for e in events if e.get("metadata", {}).get("error")]
+    assert error_events, "No error event written to conversation.jsonl"
+    assert msg in error_events[0]["content"]
+    assert f"'{msg}'" not in error_events[0]["content"]
 
 
 def test_command_exit(args: list[str], runner: CliRunner):
