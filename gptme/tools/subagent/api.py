@@ -1803,6 +1803,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             context_window=sa.context_window,
             max_time=sa.max_time,
             context_turns=sa.context_turns,
+            reasoning_effort=sa.reasoning_effort,
         )
     except Exception:
         with _subagents_lock:

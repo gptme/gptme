@@ -2414,6 +2414,7 @@ class TestClarifyBlock:
             isolated=True,
             timeout=42,
             role="verify",
+            reasoning_effort="low",
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -2446,6 +2447,7 @@ class TestClarifyBlock:
                         timeout=kwargs["timeout"],
                         role=kwargs["role"],
                         context_turns=kwargs.get("context_turns"),
+                        reasoning_effort=kwargs.get("reasoning_effort"),
                     )
                 )
 
@@ -2473,6 +2475,7 @@ class TestClarifyBlock:
             "context_window": None,
             "max_time": None,
             "context_turns": None,
+            "reasoning_effort": "low",
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results
@@ -2484,6 +2487,7 @@ class TestClarifyBlock:
         assert matching[0].context_include == ["workspace", "tools"]
         assert matching[0].profile == "custom-reviewer"
         assert matching[0].execution_mode == "acp"
+        assert matching[0].reasoning_effort == "low"
 
     def test_subagent_reply_recreates_cleaned_isolated_workspace(
         self, tmp_path, monkeypatch
