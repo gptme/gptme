@@ -209,6 +209,40 @@ def test_message_conversion_with_tools():
     ]
 
 
+def test_message_conversion_preserves_empty_signed_thinking():
+    """An empty thinking block still round-trips into the next request.
+
+    Claude 5 can return signature-bearing thinking blocks whose text is empty;
+    re-sending the history must carry the block back verbatim or Anthropic
+    rejects the assistant turn.
+    """
+    init_tools(allowlist=["save"])
+
+    messages = [
+        Message(role="system", content="Project prompt", hide=True),
+        Message(role="user", content="First user prompt"),
+        Message(
+            role="assistant",
+            content=(
+                "<thinking>\n<!-- think-sig: empty-sig== -->\n</thinking>\n"
+                '@save(tool_call_id): {"path": "path.txt", "content": "file_content"}'
+            ),
+        ),
+        Message(role="system", content="Saved", call_id="tool_call_id"),
+    ]
+
+    tool_save = get_tool("save")
+    assert tool_save
+
+    messages_dicts = list(_prepare_messages_for_api(messages, [tool_save])[0])
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    assert {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "empty-sig==",
+    } in assistant["content"]
+
+
 def test_message_conversion_with_tool_and_non_tool():
     init_tools(allowlist=["save", "shell"])
 
