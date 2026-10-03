@@ -679,7 +679,30 @@
 <span class="n">headers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Authorization</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;Bearer your-token&quot;</span><span class="w"> </span><span class="p">}</span>
 </pre></div>
 </div>
-<p>We also intend to support specifying it in the <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>, and the ability to set it per-conversation.</p>
+<p>The same <code class="docutils literal notranslate"><span class="pre">[mcp]</span></code> settings are supported in <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>
+(<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> in your workspace) and per-conversation configuration.
+For example, a project’s <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> can enable its own server:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[mcp]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+
+<span class="k">[[mcp.servers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;project-server&quot;</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;server-command&quot;</span>
+<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;--arg1&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Servers from all configuration layers are combined. For servers with the same
+name, conversation settings take precedence over project settings, which take
+precedence over global settings. The <code class="docutils literal notranslate"><span class="pre">enabled</span></code> and <code class="docutils literal notranslate"><span class="pre">auto_start</span></code> settings
+follow the same precedence.</p>
+<p>Run <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">mcp</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">mcp</span> <span class="pre">test</span> <span class="pre">project-server</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">mcp</span> <span class="pre">info</span> <span class="pre">project-server</span></code> from the workspace directory to inspect
+and test the merged global and project configuration. Before connecting to a
+project-defined server, these commands ask for confirmation and show the target
+command or URL (credentials in an HTTP URL — userinfo and query/fragment
+parameter values — are redacted). Declining or
+supplying no input skips the connection; <code class="docutils literal notranslate"><span class="pre">mcp</span> <span class="pre">test</span></code> exits unsuccessfully. Connecting to a stdio server runs its configured command,
+so approve only project servers you trust.</p>
 </section>
 <section id="management-tool">
 <h2>Management Tool<a class="headerlink" href="#management-tool" title="Link to this heading">#</a></h2>
