@@ -972,3 +972,39 @@ class TestReasoningEffortStamp:
         )
         assert stamped == {"model": "claude-sonnet-4-6"}
         assert "reasoning_effort" not in stamped
+
+
+def test_chat_uses_not_given_timeout():
+    """chat() must not hardcode a timeout — it should pass NOT_GIVEN so the
+    client-level timeout (set from LLM_API_TIMEOUT or the SDK default of 600s)
+    takes effect instead of a 60s cap that breaks long Opus/thinking responses.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from anthropic import NOT_GIVEN
+
+    import gptme.llm.llm_anthropic as llm_anthropic
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = []
+    mock_response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    mock_response.model = "claude-sonnet-4-6"
+    mock_client.messages.create.return_value = mock_response
+
+    msgs = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hello"),
+    ]
+    with patch.object(llm_anthropic, "_anthropic", mock_client):
+        llm_anthropic.chat(msgs, model="claude-sonnet-4-6", tools=None)
+
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert call_kwargs.get("timeout") is NOT_GIVEN, (
+        f"chat() passed timeout={call_kwargs.get('timeout')!r}; expected NOT_GIVEN"
+    )
