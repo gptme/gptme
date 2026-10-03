@@ -1,20 +1,25 @@
 """Tests for the MCP-related gptme-util CLI commands."""
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+import click
 import pytest
 from click.testing import CliRunner
 
 from gptme.cli.util import main
+from gptme.mcp.client import MCPClient
 
 
 @pytest.fixture
 def mock_config(mocker):
     """Mock configuration with MCP settings."""
     config = Mock()
+    config.project = None
     config.mcp.enabled = True
     config.mcp.servers = []
-    mocker.patch("gptme.cli.cmd_mcp.get_config", return_value=config)
+    mocker.patch("gptme.cli.cmd_mcp.Config.from_workspace", return_value=config)
     return config
 
 
@@ -331,6 +336,23 @@ class TestMCPInfo:
         assert "Headers: 1 configured" in result.output
         server.env = {}
 
+    def test_http_server_url_is_redacted(self, mock_config, mock_mcp_client):
+        """Info must not echo URL credentials or query values to the terminal."""
+        server = Mock()
+        server.name = "http-server"
+        server.enabled = False
+        server.is_http = True
+        server.url = "https://user:secret@example.com/mcp?token=hunter2"
+        server.headers = {}
+        mock_config.mcp.servers = [server]
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp", "info", "http-server"])
+        assert result.exit_code == 0
+        assert "URL: https://example.com/mcp?token=" in result.output
+        assert "secret" not in result.output
+        assert "hunter2" not in result.output
+
     def test_local_disabled_server(self, mock_config):
         """Test info for disabled local server."""
         server = Mock()
@@ -564,3 +586,165 @@ class TestMCPServe:
         result = runner.invoke(main, ["mcp", "serve", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         mock_create.assert_called_once_with(tool_names=None, workspace=str(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "command", [["list"], ["test", "project-time"], ["info", "project-time"]]
+)
+@pytest.mark.parametrize("approve", [True, False, None])
+def test_mcp_commands_load_workspace_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: list[str],
+    approve: bool | None,
+) -> None:
+    """Load real user/project TOML, mocking only the external connection."""
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    user_config = user_dir / "config.toml"
+    user_config.write_text("[mcp]\nenabled = false\n", encoding="utf-8")
+    monkeypatch.setattr("gptme.config.user.config_path", str(user_config))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text(
+        "[mcp]\nenabled = true\n\n[[mcp.servers]]\n"
+        'name = "project-time"\ncommand = "project-server"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+    connected = []
+    events: list[str] = []
+    real_confirm = click.confirm
+
+    def track_confirm(*args, **kwargs):
+        events.append("confirm")
+        return real_confirm(*args, **kwargs)
+
+    monkeypatch.setattr("gptme.cli.cmd_mcp.click.confirm", track_confirm)
+
+    def connect(client: MCPClient, server_name: str) -> tuple[SimpleNamespace, None]:
+        assert client.config.project is not None
+        assert client.config.mcp.enabled
+        events.append("connect")
+        connected.append(server_name)
+        return SimpleNamespace(tools=[]), None
+
+    monkeypatch.setattr(MCPClient, "connect", connect)
+    # No registry lookup is needed for a locally configured project server.
+    monkeypatch.setattr(
+        "gptme.mcp.registry.MCPRegistry.get_server_details",
+        lambda *_: pytest.fail("project server was mistaken for a registry server"),
+    )
+    answer = "" if approve is None else ("y\n" if approve else "n\n")
+    result = CliRunner().invoke(main, ["mcp", *command], input=answer)
+    assert result.exit_code == (1 if command[0] == "test" and not approve else 0), (
+        result.output
+    )
+    assert "project-time" in result.output
+    assert "project-server" in result.output
+    assert "Connect to project MCP server" in result.output
+    if approve:
+        assert "Connected" in result.output
+        assert connected == ["project-time"]
+        # The prompt must precede the connection, not just appear somewhere.
+        assert events == ["confirm", "connect"]
+    else:
+        assert "not approved" in result.output
+        assert connected == []
+        assert events == ["confirm"]
+
+
+def test_display_target_redacts_url_credentials() -> None:
+    """Confirmation targets must not echo credentials embedded in a URL."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    with_creds = MCPServerConfig(
+        name="project-http", url="https://user:secret@example.com:8443/mcp"
+    )
+    assert _display_target(with_creds) == "https://example.com:8443/mcp"
+
+    plain = MCPServerConfig(name="project-http", url="https://example.com/mcp")
+    assert _display_target(plain) == "https://example.com/mcp"
+
+
+def test_display_target_survives_malformed_url() -> None:
+    """An unparseable URL (unmatched IPv6 bracket) must not abort diagnostics."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(name="project-http", url="https://[2001:db8::1/mcp")
+    assert _display_target(server) == "<unparseable URL>"
+
+
+def test_display_target_redacts_all_query_parameter_values() -> None:
+    """Any query value can be a credential, so every value is masked."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://example.com/mcp?api_key=secret&transport=sse",
+    )
+    # Even the non-credential-looking value is masked: names are kept, values
+    # are not trusted, so an unconventional credential name (e.g. ``?sig=``)
+    # cannot slip through.
+    assert _display_target(server) == (
+        "https://example.com/mcp?api_key=***&transport=***"
+    )
+
+    # Userinfo and query values can appear together; both are masked.
+    both = MCPServerConfig(
+        name="project-http",
+        url="https://user:secret@example.com/mcp?token=topsecret",
+    )
+    assert _display_target(both) == "https://example.com/mcp?token=***"
+
+
+def test_display_target_redacts_fragment_parameter_value() -> None:
+    """A credential in the fragment must be masked as well."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://example.com/mcp#access_token=secret",
+    )
+    assert _display_target(server) == "https://example.com/mcp#access_token=***"
+
+
+def test_display_target_preserves_ipv6_brackets() -> None:
+    """An IPv6 host must stay bracketed or the rebuilt URL is ambiguous/wrong."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://user:secret@[2001:db8::1]:8443/mcp",
+    )
+    assert _display_target(server) == "https://[2001:db8::1]:8443/mcp"
+
+
+def test_display_target_handles_invalid_port() -> None:
+    """A non-numeric port must not raise and must stay in the displayed target.
+
+    The user is approving the exact URL the client will use, so the malformed
+    port text must not silently disappear from the confirmation prompt.
+    """
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(
+        name="project-http",
+        url="https://user:secret@example.com:abc/mcp",
+    )
+    assert _display_target(server) == "https://example.com:abc/mcp"
+
+
+def test_display_target_shows_stdio_command() -> None:
+    """Stdio targets are shown verbatim so the approved command is visible."""
+    from gptme.cli.cmd_mcp import _display_target
+    from gptme.config import MCPServerConfig
+
+    server = MCPServerConfig(name="project-stdio", command="python", args=["-m", "srv"])
+    assert _display_target(server) == "python -m srv"
