@@ -15,7 +15,6 @@ Run this suite in isolation with: `gptme-eval constraint_satisfaction`
 """
 
 import ast
-import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -125,18 +124,78 @@ def check_schema_new_field_present(ctx):
     return "high" in ctx.stdout and "priority_values_ok" in ctx.stdout
 
 
+def _is_none_constant(node) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
+
+
+def _annotation_is_optional(ann) -> bool:
+    """True for `Optional[X]`, `typing.Optional[X]`, or `X | None`.
+
+    Pydantic gives these forms a `None` default even without an assignment.
+    """
+    if isinstance(ann, ast.Subscript):
+        base = ann.value
+        name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")
+        return name == "Optional"
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
+        return _is_none_constant(ann.left) or _is_none_constant(ann.right)
+    return False
+
+
+def _default_is_required_sentinel(value) -> bool:
+    """True for Pydantic's explicit 'no default' forms.
+
+    `priority: str = ...` (Ellipsis) and `Field(...)` / `Field(description=
+    ...)` mark the field required despite the assignment; a regex on `=`
+    cannot tell them apart from a real default.
+    """
+    if isinstance(value, ast.Constant) and value.value is Ellipsis:
+        return True
+    if isinstance(value, ast.Call):
+        func = value.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+        if name != "Field":
+            return False
+        if value.args:
+            return (
+                isinstance(value.args[0], ast.Constant)
+                and value.args[0].value is Ellipsis
+            )
+        for kw in value.keywords:
+            if kw.arg == "default":
+                return isinstance(kw.value, ast.Constant) and kw.value.value is Ellipsis
+            if kw.arg == "default_factory":
+                return False
+        # `Field(description=...)` with no default → required.
+        return True
+    return False
+
+
 def check_schema_field_is_optional(ctx):
     """'priority' must be declared optional/defaulted, not required.
 
     A required field would make every pre-existing record (the legacy
     fixture data) fail validation — the actual constraint being tested.
+    Parses the annotation so Pydantic's `...` / `Field(...)` required
+    sentinels are not mistaken for a default.
     """
     content = ctx.files.get("task_schema.py", "")
-    # Match `priority: Optional[str] = ...` / `priority: str | None = ...`
-    # / `priority: str = "..."` — any form with a default, not a bare
-    # required annotation.
-    pattern = re.compile(r"priority\s*:\s*[^\n=]+=\s*\S", re.MULTILINE)
-    return bool(pattern.search(content))
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AnnAssign):
+            continue
+        target = node.target
+        if not (isinstance(target, ast.Name) and target.id == "priority"):
+            continue
+        if node.value is not None and _default_is_required_sentinel(node.value):
+            return False
+        # `Optional[X]` / `X | None` default to None even without a value;
+        # any other assigned value is itself the default.
+        return _annotation_is_optional(node.annotation) or node.value is not None
+    return False
 
 
 def check_schema_demo_untouched(ctx):
@@ -237,6 +296,16 @@ def check_boundary_main_untouched(ctx):
     task — which would pass the stdout check without implementing the feature.
     """
     return ctx.files.get("main.py", "") == _BOUNDARY_MAIN_SEED_PY
+
+
+def check_boundary_infra_untouched(ctx):
+    """infra.py must not have been modified by the model.
+
+    Otherwise the model could fake the done_soon notification by editing
+    ConsoleNotifier.notify to print the expected line unconditionally, never
+    extending find_overdue — main.py's guard alone does not stop that.
+    """
+    return ctx.files.get("infra.py", "") == _INFRA_PY
 
 
 def check_boundary_exit(ctx):
@@ -441,6 +510,7 @@ tests: list["EvalSpec"] = [
             "domain module present": check_boundary_service_exists,
             "domain.py does not import infra": check_boundary_domain_no_infra_import,
             "main.py untouched (fixture not faked)": check_boundary_main_untouched,
+            "infra.py untouched (fixture not faked)": check_boundary_infra_untouched,
             "existing overdue notification still works": check_boundary_feature_works,
             "done_soon task notified (new behaviour works)": check_boundary_done_soon_notified,
             "clean exit": check_boundary_exit,
