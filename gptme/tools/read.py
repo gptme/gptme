@@ -12,6 +12,7 @@ import os
 from collections.abc import Generator
 from pathlib import Path
 
+from ..hooks._policy_block import policy_block_message
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.context_savings import record_context_savings
@@ -337,10 +338,12 @@ def execute_read(
             preview="\n".join(str(p) for p in paths),
         )
         if result is not None and result.action == ConfirmAction.SKIP:
-            yield Message(
-                "system",
-                result.message or "Read blocked by guardrail",
-            )
+            if result.message:
+                yield Message("system", result.message)
+            else:
+                yield policy_block_message(
+                    "read-guardrail", "Read blocked by guardrail"
+                )
             return
 
     # Parse optional line range from kwargs (single-path only)
