@@ -17,10 +17,12 @@ on:
   workflow_dispatch:
 
 # Cancel a PR's older runs when it gets a new push (they're superseded).
-# Every other run (master push, release, dispatch, schedule) gets its own
-# group, so none of them can cancel or replace another.
+# Pushes to the same branch share one group: one run in flight plus the newest
+# pending run (a newer push replaces an older *pending* run; a *running* one is
+# never cancelled). Release dispatches, manual dispatches and schedules get
+# their own group, so a push can never replace a pending release build.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'push' && github.ref || github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
