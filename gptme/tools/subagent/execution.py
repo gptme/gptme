@@ -37,7 +37,7 @@ from .._allowlist import (
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
-from ..base import ToolSpec
+from ..base import ToolFormat, ToolSpec
 from .concurrency import get_slot_sem
 from .hooks import notify_completion, notify_progress
 from .persistence import persist_subagent_meta
@@ -53,6 +53,38 @@ if TYPE_CHECKING:
     from .types import Status, Subagent, SubtaskDef
 
 logger = logging.getLogger(__name__)
+
+
+def _declared_child_tool_format(model: str | None) -> ToolFormat | None:
+    """Return the dialect the child's model metadata *declares*, if any.
+
+    Distinguishing "metadata declares a format" from "we defaulted to
+    markdown" matters for subprocess children: forcing ``--tool-format
+    markdown`` on a custom provider whose metadata carries no format would
+    clobber a workspace ``TOOL_FORMAT`` setting (the CLI flag wins over env).
+    """
+    from ...llm.models import get_default_model, get_model
+
+    meta = get_model(model) if model else get_default_model()
+    return meta.default_tool_format if meta else None
+
+
+def _child_tool_format(model: str | None) -> ToolFormat:
+    """Resolve the child's dialect without inheriting the parent's tool format."""
+    return _declared_child_tool_format(model) or "markdown"
+
+
+def _effective_child_tool_format(model: str | None) -> ToolFormat | None:
+    """Dialect the parent can *assert* for the subprocess child, if any.
+
+    Only a declared model metadata format is knowable here: it is the value the
+    parent passes explicitly as ``--tool-format``. When the child model declares
+    none, the child CLI resolves the dialect itself (env, workspace config,
+    saved conversation), so the parent must not guess — returning ``None`` keeps
+    dialect-specific examples out of the prompt instead of risking a mismatch.
+    """
+    return _declared_child_tool_format(model)
+
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
@@ -407,6 +439,7 @@ def _create_subagent_thread(
     # Initialize model and tools for this thread
     if model:
         set_default_model(model)
+    tool_format = _child_tool_format(model)
 
     # Apply profile tool restrictions if specified
     tool_allowlist = None
@@ -467,7 +500,9 @@ def _create_subagent_thread(
             prompt_gptme(False, None, agent_name=None, tools=available_tools)
         ) + list(
             prompt_tools(
-                tools=available_tools, tool_format="markdown", examples=include_examples
+                tools=available_tools,
+                tool_format=tool_format,
+                examples=include_examples,
             )
         )
     elif context_mode == "selective":
@@ -492,7 +527,7 @@ def _create_subagent_thread(
                 list(
                     prompt_tools(
                         tools=available_tools,
-                        tool_format="markdown",
+                        tool_format=tool_format,
                         examples=include_examples,
                     )
                 )
@@ -502,6 +537,7 @@ def _create_subagent_thread(
         include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
         initial_msgs = get_prompt(
             available_tools,
+            tool_format=tool_format,
             interactive=False,
             workspace=workspace,
             include_examples=include_examples,
@@ -516,7 +552,14 @@ def _create_subagent_thread(
         # SYSTEM_PROMPT_CACHE_BOUNDARY, chat_history, or context_cmd output
         # may add more — the measurement below handles all cases correctly.
         if context_window is not None and context_window > 0:
-            n_base = len(get_prompt(available_tools, interactive=False, workspace=None))
+            n_base = len(
+                get_prompt(
+                    available_tools,
+                    tool_format=tool_format,
+                    interactive=False,
+                    workspace=None,
+                )
+            )
             initial_msgs = initial_msgs[: n_base + context_window]
 
     # Apply secret redaction to workspace context messages if requested.
@@ -563,7 +606,9 @@ def _create_subagent_thread(
         # Subagent._read_log() instead.
         complete_instruction = Message(
             "system",
-            _get_complete_instruction(target, output_schema=output_schema),
+            _get_complete_instruction(
+                target, output_schema=output_schema, tool_format=tool_format
+            ),
         )
         initial_msgs.append(complete_instruction)
 
@@ -592,7 +637,7 @@ def _create_subagent_thread(
             no_confirm=True,
             interactive=False,
             show_hidden=False,
-            tool_format="markdown",
+            tool_format=tool_format,
             output_format="quiet",
         )
     finally:
@@ -676,6 +721,12 @@ def _run_subagent_subprocess(
 
     if model:
         cmd.extend(["--model", model])
+        # Only override when the child model actually declares a dialect; that
+        # prevents parent/workspace settings from winning over the child model,
+        # while a custom provider without metadata still resolves TOOL_FORMAT
+        # through the CLI instead of being forced to markdown.
+        if declared_format := _declared_child_tool_format(model):
+            cmd.extend(["--tool-format", declared_format])
 
     if profile:
         cmd.extend(["--agent-profile", profile])
@@ -746,7 +797,7 @@ def _run_subagent_subprocess(
     if not resume:
         complete_section = (
             "\n\n[Completion Instructions]\n"
-            f"{_get_complete_instruction('orchestrator', supports_progress=True, output_schema=output_schema_dict)}\n"
+            f"{_get_complete_instruction('orchestrator', supports_progress=True, output_schema=output_schema_dict, tool_format=_effective_child_tool_format(model))}\n"
         )
         prompt = prompt + complete_section
 

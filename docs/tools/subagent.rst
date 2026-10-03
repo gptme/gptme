@@ -7,6 +7,17 @@ Subagent
     :members:
     :noindex:
 
+Child tool format
+-----------------
+
+Native thread and subprocess children select their tool format from the resolved
+child model's ``default_tool_format`` metadata, falling back to ``markdown`` when
+that metadata is absent. The same dialect is used for thread-mode tool prompts
+and execution. Subprocess children pass it explicitly to the CLI, so a parent's
+or workspace's tool-format setting does not override the requested model's
+preferred dialect. The parent's tool format remains unchanged. ACP children
+continue to use their external agent's configuration.
+
 Subagent Isolation Contract
 ---------------------------
 

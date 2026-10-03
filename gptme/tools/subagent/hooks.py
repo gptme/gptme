@@ -162,11 +162,35 @@ def _dict_to_jsonschema(d: dict) -> dict:
     }
 
 
+def _render_signal_block(tool: str, content: str, tool_format: str | None) -> str:
+    """Render a signal-tool example in the child's own tool dialect.
+
+    Subagent children run in their model's native format (see
+    ``execution._child_tool_format``), so a markdown-fenced example would be
+    unparseable for an ``xml`` child and misleading for a native-tool child.
+    ``None`` means the dialect is unknown — omit the dialect-specific example
+    rather than assert a syntax the child may not be running in.
+    """
+    if tool_format == "xml":
+        return f"<tool-use>\n<{tool}>\n{content}\n</{tool}>\n</tool-use>"
+    if tool_format == "tool":
+        # Native tool calling has no textual syntax: name the tool and let the
+        # model's structured tool schema carry the argument.
+        return (
+            f"Call the `{tool}` tool as a native tool call; "
+            f"pass this as the tool argument:\n{content}"
+        )
+    if tool_format is None:
+        return f"Use the `{tool}` tool (in your active tool format):\n{content}"
+    return f"```{tool}\n{content}\n```"
+
+
 def _get_complete_instruction(
     target: str = "orchestrator",
     *,
     supports_progress: bool = True,
     output_schema: "type | dict | None" = None,
+    tool_format: str | None = "markdown",
 ) -> str:
     """Get the standard instruction for using the complete tool.
 
@@ -182,6 +206,10 @@ def _get_complete_instruction(
             - Plain ``{field: type}`` dict: converted to a JSON Schema object.
             - Raw JSON Schema dict (has ``"type"``/``"properties"``): used as-is.
             When set, the instruction is extended with the expected schema.
+        tool_format: The child's tool dialect ("markdown", "xml", or "tool"),
+            or ``None`` when it cannot be determined. Signal examples are
+            rendered in this dialect so they stay parseable; ``None`` renders a
+            dialect-free instruction instead of a wrong example.
     """
     if output_schema is not None:
         import json
@@ -200,13 +228,9 @@ def _get_complete_instruction(
     instruction = (
         "When finished, use the `complete` tool with your full answer/result.\n"
         f"Include everything the {target} needs - they shouldn't need to read the full log.\n"
-        "```complete\n"
-        f"{complete_block_hint}\n"
-        "```\n"
-        f"If you cannot proceed without more information from the {target}, use the `clarify` block instead:\n"
-        "```clarify\n"
-        "Your specific question here.\n"
-        "```"
+        f"{_render_signal_block('complete', complete_block_hint, tool_format)}\n"
+        f"If you cannot proceed without more information from the {target}, use `clarify` instead:\n"
+        f"{_render_signal_block('clarify', 'Your specific question here.', tool_format)}"
     )
     if output_schema is not None:
         instruction += (
@@ -214,13 +238,14 @@ def _get_complete_instruction(
             "IMPORTANT: Your `complete` block MUST contain valid JSON matching the schema above. "
             "Do not include any text outside the JSON object."
         )
-    if supports_progress:
+    # Native tool calls cannot carry a text body and `progress` declares no
+    # argument, so a native `progress` call would deliver an empty update.
+    # Advertise it only in dialects that can express the message.
+    if supports_progress and tool_format != "tool":
         instruction += (
             "\n"
-            f"To send an intermediate progress update to the {target} (without stopping), use the `progress` block:\n"
-            "```progress\n"
-            "Brief status update: what you have done so far and what remains.\n"
-            "```"
+            f"To send an intermediate progress update to the {target} (without stopping), use `progress`:\n"
+            f"{_render_signal_block('progress', 'Brief status update: what you have done so far and what remains.', tool_format)}"
         )
     return instruction
 
