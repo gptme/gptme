@@ -25,6 +25,29 @@ def test_file_to_display_path(tmp_path, monkeypatch):
     assert file_to_display_path(file, workspace) == file.absolute()
 
 
+def test_file_to_display_path_deleted_cwd(tmp_path, monkeypatch):
+    """Should not crash when CWD has been deleted mid-session (ENOENT)."""
+    import pathlib
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    file = workspace / "test.txt"
+    file.touch()
+
+    def raise_enoent():
+        raise FileNotFoundError("[Errno 2] No such file or directory")
+
+    monkeypatch.setattr(pathlib.Path, "cwd", staticmethod(raise_enoent))
+
+    # Should not raise; file is already absolute so returns as-is
+    result = file_to_display_path(file, workspace)
+    assert result == file
+
+    # Relative paths must not crash either (f.absolute() would need the CWD)
+    rel = Path("rel/test.txt")
+    assert file_to_display_path(rel, workspace) == rel
+
+
 def test_embed_attached_file_content(tmp_path):
     # Create test file
     file = tmp_path / "test.txt"
