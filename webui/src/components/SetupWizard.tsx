@@ -848,7 +848,12 @@ export function SetupWizard() {
                 </div>
               </button>
               <button
-                onClick={() => setStep('cloud')}
+                onClick={() => {
+                  // An already-connected server (e.g. the Tauri sidecar) must not count as the
+                  // cloud sign-in finishing; only a connection to a different server advances.
+                  if (isConnected) lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
+                  setStep('cloud');
+                }}
                 className="flex items-start gap-4 rounded-lg border p-4 text-left transition-colors hover:bg-accent"
               >
                 <Cloud className="mt-0.5 h-6 w-6 shrink-0" />

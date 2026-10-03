@@ -373,6 +373,25 @@ describe('SetupWizard', () => {
     });
   });
 
+  it('offers cloud sign-in when a local server is already connected', async () => {
+    // The Tauri sidecar is connected before the user reaches the mode step; choosing
+    // Cloud must not auto-advance to completion on that pre-existing connection.
+    isConnected$.set(true);
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+
+    await act(async () => {});
+
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeInTheDocument();
+    expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
+  });
+
   it('processes cloud auth codes posted back from the authorize popup', async () => {
     mockConnect.mockImplementation(async () => {
       isConnected$.set(true);
