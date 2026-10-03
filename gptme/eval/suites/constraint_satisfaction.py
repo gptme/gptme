@@ -264,11 +264,15 @@ def check_boundary_domain_no_infra_import(ctx):
             callee = (
                 func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
             )
-            if callee in ("__import__", "import_module") and node.args:
-                arg = node.args[0]
-                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                    if arg.value == "infra" or arg.value.startswith("infra."):
-                        return False
+            if callee in ("__import__", "import_module"):
+                # `import_module(name="infra")` reaches the same layer as the
+                # positional form; inspect keyword arguments too.
+                args = list(node.args)
+                args += [kw.value for kw in node.keywords if kw.arg == "name"]
+                for arg in args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        if arg.value == "infra" or arg.value.startswith("infra."):
+                            return False
     return True
 
 
