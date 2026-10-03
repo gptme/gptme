@@ -90,3 +90,46 @@ def test_child_format_falls_back_to_markdown(tmp_path, monkeypatch, has_default)
         assert get_tool_format() == "tool"
     finally:
         set_tool_format(old)
+
+
+def test_subprocess_defers_to_env_when_model_declares_no_format(tmp_path, monkeypatch):
+    """A custom provider without metadata must not be forced to markdown.
+
+    Passing ``--tool-format markdown`` unconditionally would clobber a
+    workspace ``TOOL_FORMAT=xml``; the flag must be omitted so the CLI's own
+    precedence (env > model default > markdown) resolves the dialect.
+    """
+    import gptme.llm.models
+
+    monkeypatch.setattr(gptme.llm.models, "get_model", lambda model: None)
+    monkeypatch.setenv("GPTME_TOOL_FORMAT", "xml")
+    monkeypatch.delenv("TOOL_FORMAT", raising=False)
+    monkeypatch.setattr(execution, "_load_agent_memory", lambda profile: ("", None))
+    popen = MagicMock()
+    monkeypatch.setattr(execution.subprocess, "Popen", popen)
+    logdir = tmp_path / "subagent-test"
+    logdir.mkdir()
+
+    execution._run_subagent_subprocess("task", logdir, "custom/child", tmp_path)
+
+    command = popen.call_args.args[0]
+    assert "--tool-format" not in command
+    # The prompt's completion instruction still reflects the resolved dialect.
+    assert execution._effective_child_tool_format("custom/child") == "xml"
+
+
+@pytest.mark.parametrize(
+    ("dialect", "expected", "absent"),
+    [
+        ("markdown", "```complete", "<complete>"),
+        ("xml", "<complete>", "```complete"),
+        ("tool", "native tool call", "```complete"),
+    ],
+)
+def test_completion_instruction_matches_child_dialect(dialect, expected, absent):
+    """The complete/clarify examples must be parseable in the child's dialect."""
+    from gptme.tools.subagent.hooks import _get_complete_instruction
+
+    instruction = _get_complete_instruction(tool_format=dialect)
+    assert expected in instruction
+    assert absent not in instruction

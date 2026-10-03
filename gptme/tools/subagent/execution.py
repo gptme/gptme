@@ -19,7 +19,7 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
@@ -55,12 +55,38 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _child_tool_format(model: str | None) -> ToolFormat:
-    """Resolve the child's dialect without inheriting the parent's tool format."""
+def _declared_child_tool_format(model: str | None) -> ToolFormat | None:
+    """Return the dialect the child's model metadata *declares*, if any.
+
+    Distinguishing "metadata declares a format" from "we defaulted to
+    markdown" matters for subprocess children: forcing ``--tool-format
+    markdown`` on a custom provider whose metadata carries no format would
+    clobber a workspace ``TOOL_FORMAT`` setting (the CLI flag wins over env).
+    """
     from ...llm.models import get_default_model, get_model
 
     meta = get_model(model) if model else get_default_model()
-    return (meta.default_tool_format if meta else None) or "markdown"
+    return meta.default_tool_format if meta else None
+
+
+def _child_tool_format(model: str | None) -> ToolFormat:
+    """Resolve the child's dialect without inheriting the parent's tool format."""
+    return _declared_child_tool_format(model) or "markdown"
+
+
+def _effective_child_tool_format(model: str | None) -> ToolFormat:
+    """Dialect the subprocess CLI resolves for this child.
+
+    Mirrors CLI precedence: a declared model metadata format wins (it is passed
+    explicitly), then the inherited ``TOOL_FORMAT`` env, then markdown.
+    """
+    declared = _declared_child_tool_format(model)
+    if declared is not None:
+        return declared
+    env_format = os.environ.get("GPTME_TOOL_FORMAT") or os.environ.get("TOOL_FORMAT")
+    if env_format in ("markdown", "xml", "tool"):
+        return cast(ToolFormat, env_format)
+    return "markdown"
 
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
@@ -583,7 +609,9 @@ def _create_subagent_thread(
         # Subagent._read_log() instead.
         complete_instruction = Message(
             "system",
-            _get_complete_instruction(target, output_schema=output_schema),
+            _get_complete_instruction(
+                target, output_schema=output_schema, tool_format=tool_format
+            ),
         )
         initial_msgs.append(complete_instruction)
 
@@ -696,9 +724,12 @@ def _run_subagent_subprocess(
 
     if model:
         cmd.extend(["--model", model])
-        # CLI override prevents parent/workspace format settings from selecting
-        # a dialect incompatible with the explicitly requested child model.
-        cmd.extend(["--tool-format", _child_tool_format(model)])
+        # Only override when the child model actually declares a dialect; that
+        # prevents parent/workspace settings from winning over the child model,
+        # while a custom provider without metadata still resolves TOOL_FORMAT
+        # through the CLI instead of being forced to markdown.
+        if declared_format := _declared_child_tool_format(model):
+            cmd.extend(["--tool-format", declared_format])
 
     if profile:
         cmd.extend(["--agent-profile", profile])
@@ -769,7 +800,7 @@ def _run_subagent_subprocess(
     if not resume:
         complete_section = (
             "\n\n[Completion Instructions]\n"
-            f"{_get_complete_instruction('orchestrator', supports_progress=True, output_schema=output_schema_dict)}\n"
+            f"{_get_complete_instruction('orchestrator', supports_progress=True, output_schema=output_schema_dict, tool_format=_effective_child_tool_format(model))}\n"
         )
         prompt = prompt + complete_section
 
