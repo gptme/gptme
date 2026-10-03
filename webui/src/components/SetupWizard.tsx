@@ -347,10 +347,8 @@ export function SetupWizard() {
   }, [checkProviderConfigured, completeSetup]);
 
   useEffect(() => {
-    // While waiting for the cloud sign-in callback, keep the pin so a local
-    // connection that arrives mid-sign-in is not mistaken for the cloud one.
     if (!isConnected) {
-      if (!cloudLoginStarted) lastAutoAdvanceBaseUrlRef.current = null;
+      lastAutoAdvanceBaseUrlRef.current = null;
       return;
     }
     if (
@@ -362,10 +360,11 @@ export function SetupWizard() {
     )
       return;
 
-    // On the cloud step only a connection that completes the sign-in (started
-    // via handleCloudLogin) may auto-advance — a pre-existing or late-connecting
-    // local server (e.g. the Tauri sidecar) must not count as sign-in finishing.
-    if (step === 'cloud' && !cloudLoginStarted) return;
+    // On the cloud step only a non-local connection after the user started the
+    // sign-in may auto-advance — a pre-existing or late-connecting local server
+    // (e.g. the Tauri sidecar, on any port) must not count as sign-in finishing.
+    if (step === 'cloud' && (!cloudLoginStarted || isLocalApiBaseUrl(connectionConfig.baseUrl)))
+      return;
 
     if (lastAutoAdvanceBaseUrlRef.current === connectionConfig.baseUrl) return;
     lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
@@ -714,10 +713,6 @@ export function SetupWizard() {
     // Open the cloud auth URL — the deep-link flow (gptme://) or URL fragment
     // will handle the callback and connect automatically.
     setConnectError(null);
-    // Pin the current server URL so the auto-advance effect ignores a local
-    // connection (pre-existing or arriving during sign-in); only connecting to
-    // a different server (the cloud) advances.
-    lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
     setCloudLoginStarted(true);
 
     // In Tauri, hand the URL to the OS browser via the opener plugin instead of

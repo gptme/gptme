@@ -423,6 +423,29 @@ describe('SetupWizard', () => {
     expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
   });
 
+  it('does not auto-advance when the local sidecar connects on a different port', async () => {
+    // The sidecar port is not fixed; any loopback connection during cloud
+    // sign-in must be ignored, not just the URL current at sign-in start.
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+    await act(async () => {});
+
+    await act(async () => {
+      mockConnectionBaseUrl = 'http://127.0.0.1:5712';
+      isConnected$.set(true);
+    });
+
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeInTheDocument();
+    expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
+  });
+
   it('exchanges the cloud auth code while a local server is still connected', async () => {
     // The desktop sidecar is already connected when the user signs in; the
     // auth-code listener must still process the callback.
