@@ -14,6 +14,7 @@ const mockConversation$ = observable<{
   isGenerating: boolean;
   executingTool: null;
   chatConfig: MockChatConfig;
+  pendingModel?: string;
 }>({
   isGenerating: false,
   executingTool: null,
@@ -342,6 +343,39 @@ describe('Model selector (gptme#3440)', () => {
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveAttribute('aria-label', 'Loading model...');
     expect(badge.textContent ?? '').toBe('');
+  });
+
+  it('shows the model the user sent with while chatConfig is still loading (gptme#4112)', () => {
+    // A freshly created conversation has chatConfig === undefined until the server
+    // round-trip finishes. The model the user just sent with is known, so the pill
+    // must show it instead of flashing a skeleton.
+    mockConversation$.set({
+      isGenerating: false,
+      executingTool: null,
+      chatConfig: undefined,
+      pendingModel: 'openai/gpt-4o',
+    });
+
+    const autoFocus$ = observable(false);
+    render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
+
+    const badge = screen.getByTestId('model-selector');
+    expect(badge).not.toHaveAttribute('aria-label', 'Loading model...');
+    expect(badge).toHaveTextContent('gpt-4o');
+  });
+
+  it('prefers the loaded chatConfig model over pendingModel', () => {
+    mockConversation$.set({
+      isGenerating: false,
+      executingTool: null,
+      chatConfig: { chat: { model: 'anthropic/claude-haiku-4-5' } },
+      pendingModel: 'openai/gpt-4o',
+    });
+
+    const autoFocus$ = observable(false);
+    render(<ChatInput conversationId="conv-a" onSend={jest.fn()} autoFocus$={autoFocus$} />);
+
+    expect(screen.getByTestId('model-selector')).toHaveTextContent('claude-haiku-4-5');
   });
 
   it('transitions from loading skeleton to real model when chatConfig arrives', async () => {

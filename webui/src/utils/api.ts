@@ -1705,7 +1705,11 @@ export class ApiClient {
         branches: {},
         workspace: requestWorkspace(options?.workspace) ?? '@log',
       },
-      { needsInitialStep: true, initialStepStream: options?.stream }
+      {
+        needsInitialStep: true,
+        initialStepStream: options?.stream,
+        pendingModel: options?.model,
+      }
     );
     // Pre-set generating so Stop appears with the first chat render, collapsing
     // "message appears" and "response starts indicating" into one visual event.
