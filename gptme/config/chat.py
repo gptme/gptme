@@ -138,6 +138,10 @@ class ChatConfig:
     workspace: Path = field(default_factory=Path.cwd)
     agent: Path | None = None
     system_prompt: str | None = None
+    # Agent profile the conversation was launched with (--agent-profile).
+    # Persisted so a resume or interface switch re-applies the profile's
+    # system prompt even when the flag is not passed again.
+    agent_profile: str | None = None
 
     env: dict = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -201,6 +205,10 @@ class ChatConfig:
         system_prompt = chat_data.get("system_prompt")
         if system_prompt is not None and not isinstance(system_prompt, str):
             raise ValueError("chat.system_prompt must be a string")
+
+        agent_profile = chat_data.get("agent_profile")
+        if agent_profile is not None and not isinstance(agent_profile, str):
+            raise ValueError("chat.agent_profile must be a string")
 
         env = config_data.pop("env", {})
         if not isinstance(env, dict):
@@ -498,6 +506,7 @@ class ChatConfig:
                     "agent",
                     "watch_autowake",
                     "context_budget",
+                    "agent_profile",
                 ]
                 and cli_value is not None
             ):
@@ -513,6 +522,7 @@ class ChatConfig:
                     "agent",
                     "watch_autowake",
                     "context_budget",
+                    "agent_profile",
                 ]
                 and cli_value != default_value
             ):

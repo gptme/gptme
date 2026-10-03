@@ -81,6 +81,7 @@ def _replacement_prompt(
         load_user_config,
         set_config,
     )
+    from ..profiles import get_profile  # fmt: skip
     from ..prompts import get_prompt  # fmt: skip
     from ..tools import get_tools  # fmt: skip
 
@@ -90,6 +91,12 @@ def _replacement_prompt(
     prompt = (project_config.system if project_config else None) or "full"
     if chat_config.system_prompt:
         prompt = chat_config.system_prompt
+    # Carry the conversation's persisted agent profile into the replacement:
+    # otherwise a runtime /model or /tools switch silently drops the profile
+    # that the superseded startup prompt used to carry.
+    profile = (
+        get_profile(chat_config.agent_profile) if chat_config.agent_profile else None
+    )
     return get_prompt(
         get_tools(),
         prompt=prompt,
@@ -98,6 +105,7 @@ def _replacement_prompt(
         model=model,
         workspace=chat_config.workspace,
         agent_path=chat_config.agent,
+        profile=profile,
         prompt_generation=uuid4().hex,
     )
 

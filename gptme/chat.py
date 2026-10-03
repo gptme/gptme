@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import threading
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterable
 from contextlib import ExitStack
 from contextvars import ContextVar
 from pathlib import Path
@@ -145,6 +145,62 @@ def _log_token_usage(msgs: list[Message], msg_response: Message, model: str) -> 
         logger.warning("track-tokens failed: %s", e)
 
 
+def _leading_system_messages(msgs: Iterable[Message]) -> list[Message]:
+    """Return the leading contiguous run of system messages."""
+    leading: list[Message] = []
+    for msg in msgs:
+        if msg.role != "system":
+            break
+        leading.append(msg)
+    return leading
+
+
+def _apply_resume_msgs(manager: LogManager, resume_msgs: list[Message]) -> None:
+    """Append prompt messages that must take effect when resuming an existing log.
+
+    ``initial_msgs`` only seeds a *new* log — ``LogManager.load`` keeps the
+    persisted history when one exists — so a message meant to be (re-)applied on
+    resume (e.g. an agent profile) would be discarded.
+
+    Messages are keyed by ``resume_key`` metadata, never by content substring:
+    substring matching over the whole log let any user or assistant message that
+    merely quoted the marker suppress the prompt, and a profile edit kept the
+    stale copy.  A message already embedded in the persisted startup prompt is
+    left alone — re-applying it would duplicate the profile captured at
+    conversation creation.
+
+    The message is appended (preserving chronology and dual-writing to any
+    restored compacted view), and ``prepare_messages`` hoists the newest message
+    per key into the leading system block so it keeps system authority.
+    """
+    if not resume_msgs:
+        return
+
+    for msg in resume_msgs:
+        key = msg.metadata.get("resume_key") if msg.metadata else None
+        content = msg.content if isinstance(msg.content, str) else ""
+
+        latest = next(
+            (
+                m
+                for m in reversed(list(manager.log))
+                if key and m.metadata and m.metadata.get("resume_key") == key
+            ),
+            None,
+        )
+        if latest is not None and latest.content == content:
+            continue
+
+        # Already part of the persisted startup prompt?
+        if content and any(
+            isinstance(m.content, str) and content in m.content
+            for m in _leading_system_messages(manager.log)
+        ):
+            continue
+
+        manager.append(msg)
+
+
 @trace_function(name="chat.main", attributes={"component": "chat"})
 def chat(
     prompt_msgs: list[Message],
@@ -160,6 +216,7 @@ def chat(
     tool_format: ToolFormat | None = None,
     output_schema: type | None = None,
     output_format: str = "text",
+    resume_msgs: list[Message] | None = None,
 ) -> None:
     """
     Run the chat loop.
@@ -167,6 +224,10 @@ def chat(
     prompt_msgs: list of messages to execute in sequence.
     initial_msgs: list of history messages.
     workspace: path to workspace directory.
+    resume_msgs: messages to (re-)apply when resuming an existing conversation,
+        e.g. a runtime-config-derived prompt that would otherwise be discarded
+        because ``initial_msgs`` only seeds a new log. Applied idempotently by
+        ``resume_key`` metadata (see ``_apply_resume_msgs``).
 
     Callable from other modules.
     """
@@ -241,6 +302,11 @@ def chat(
         if not is_output_json() and not is_output_quiet():
             console.log(f"Using logdir: {path_with_tilde(logdir)}")
         manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+
+        # ``initial_msgs`` is ignored when the log already has history, so
+        # resume-only injections (e.g. a re-applied agent profile) must be
+        # applied after load to actually reach the model.
+        _apply_resume_msgs(manager, resume_msgs or [])
 
         from .lessons.skill_events import skill_session
 
@@ -734,13 +800,38 @@ def _should_prompt_for_input(log: Log) -> bool:
     # - No messages at all
     # - Last message was from assistant (normal flow)
     # - There was an interrupt, decline, or provider error after the last assistant
-    # - Last message was pinned
+    # - Last message was pinned (except resume-only prompts like a re-applied
+    #   agent profile: those are appended after saved turns, so treating them
+    #   as "needs input" would break crash recovery on an unanswered user turn)
     # - No user messages exist in the entire log
+    last_msg_is_resume_prompt = bool(
+        last_msg
+        and last_msg.pinned
+        and last_msg.metadata
+        and "resume_key" in last_msg.metadata
+    )
+    if last_msg_is_resume_prompt:
+        # The resume-only prompt carries no turn semantics: decide from the
+        # last substantive message as if the resume prompt were not there.
+        # An unanswered user turn still auto-generates (crash recovery); a
+        # completed assistant turn asks for input (no unsolicited generation
+        # on a normal interactive resume).
+        substantive = next(
+            (
+                m
+                for m in reversed(log)
+                if not (m.metadata and "resume_key" in m.metadata)
+            ),
+            None,
+        )
+        if substantive is None:
+            return True
+        return substantive.role != "user"
     return (
         not last_msg
         or last_msg.role == "assistant"
         or has_recent_return_to_prompt
-        or last_msg.pinned
+        or (last_msg.pinned and not last_msg_is_resume_prompt)
         or not any(role == "user" for role in [m.role for m in log])
     )
 

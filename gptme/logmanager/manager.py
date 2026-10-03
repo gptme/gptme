@@ -1144,6 +1144,73 @@ def _active_prompt_generation(msgs: list[Message]) -> list[Message]:
     return active + history
 
 
+def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
+    """Move resume-only prompt messages into the leading system block.
+
+    Resume messages (e.g. a re-applied agent profile) are ``append``-ed to the
+    log for a truthful chronology, but a trailing system message is
+    down-converted to user content by providers without native
+    mid-conversation system messages, and it is dropped when a newer
+    replacement prompt generation supersedes the legacy prompt block. Provider
+    context therefore hoists the newest message per ``resume_key`` to just
+    after the leading system block.
+
+    Only the newest message per key survives: a changed profile appends a new
+    copy and the superseded copy must not stay provider-visible. A resume
+    message already embedded in the active prompt generation (e.g. a /model or
+    /tools switch carried the profile into the replacement prompt) is dropped —
+    sending both copies would duplicate the instructions in model context.
+    """
+    latest: dict[str, Message] = {}
+    for msg in msgs:
+        key = msg.metadata.get("resume_key") if msg.metadata else None
+        if key:
+            latest[key] = msg
+    if not latest:
+        return msgs
+
+    # Drop resume messages whose content is already embedded in a replacement
+    # prompt generation that survived the generation filter (it is in `msgs`).
+    embedded: set[str] = set()
+    embedded_ids: set[int] = set()
+    for key, msg in latest.items():
+        content = msg.content if isinstance(msg.content, str) else ""
+        if content and any(
+            isinstance(m.content, str) and content in m.content
+            for m in msgs
+            if m.metadata and "prompt_generation" in m.metadata
+        ):
+            embedded.add(key)
+            embedded_ids.add(id(msg))
+    for key in embedded:
+        del latest[key]
+
+    # Keys whose newest copy is embedded are fully superseded: drop every saved
+    # copy of that key, not just the newest, or an older profile would stay
+    # provider-visible alongside the current instructions in the replacement.
+    keys = set(latest) | embedded
+    remaining = [
+        m
+        for m in msgs
+        if id(m) not in embedded_ids
+        and not (m.metadata and m.metadata.get("resume_key") in keys)
+    ]
+    if not latest:
+        # Every resume message was embedded in a prompt generation; drop them all.
+        return remaining
+
+    insert_at = 0
+    for msg in remaining:
+        if msg.role != "system" or (
+            msg.metadata and msg.metadata.get("resume_key") in keys
+        ):
+            break
+        insert_at += 1
+
+    hoisted = [latest[key] for key in latest]
+    return remaining[:insert_at] + hoisted + remaining[insert_at:]
+
+
 def prepare_messages(
     msgs: list[Message],
     workspace: Path | None = None,
@@ -1172,6 +1239,10 @@ def prepare_messages(
     # the earlier generation marker) and the provider would see stale + current
     # instructions as one prompt.
     msgs = _active_prompt_generation(filtered)
+
+    # Resume-only prompt messages (e.g. a re-applied agent profile) live at the
+    # end of the log but belong in the leading system block for the provider.
+    msgs = _hoist_resume_msgs(msgs)
 
     # Always merge after the filter/reorder. A length-change guard misses the
     # same-count case: a single tagged prompt sitting between two same-role
