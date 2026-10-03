@@ -891,39 +891,45 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     assert blocks == [("", "opaque-sig==")]
     assert text == "Hello"
 
-    def test_opus_47_returns_adaptive(self):
-        # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
-        assert _build_thinking_param(
-            "claude-opus-4-7", use_thinking=True, thinking_budget=8000
-        ) == {"type": "adaptive"}
 
-    def test_opus_47_adaptive_ignores_budget(self):
-        # Budget is irrelevant once adaptive: effort flows via output_config.
-        assert _build_thinking_param(
-            "claude-opus-4-7", use_thinking=True, thinking_budget=32000
-        ) == {"type": "adaptive"}
+def test_opus_47_returns_adaptive():
+    # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
+    assert _build_thinking_param(
+        "claude-opus-4-7", use_thinking=True, thinking_budget=8000
+    ) == {"type": "adaptive"}
 
-    def test_opus_48_returns_adaptive(self):
-        assert _build_thinking_param(
-            "claude-opus-4-8", use_thinking=True, thinking_budget=8000
-        ) == {"type": "adaptive"}
 
-    def test_opus_46_returns_legacy_enabled(self):
-        assert _build_thinking_param(
-            "claude-opus-4-6", use_thinking=True, thinking_budget=12345
-        ) == {"type": "enabled", "budget_tokens": 12345}
+def test_opus_47_adaptive_ignores_budget():
+    # Budget is irrelevant once adaptive: effort flows via output_config.
+    assert _build_thinking_param(
+        "claude-opus-4-7", use_thinking=True, thinking_budget=32000
+    ) == {"type": "adaptive"}
 
-    def test_sonnet_returns_legacy_enabled(self):
-        assert _build_thinking_param(
-            "claude-sonnet-4-6", use_thinking=True, thinking_budget=4000
-        ) == {"type": "enabled", "budget_tokens": 4000}
 
-    def test_openrouter_prefix_opus_47(self):
-        assert _build_thinking_param(
-            "openrouter/anthropic/claude-opus-4-7",
-            use_thinking=True,
-            thinking_budget=8000,
-        ) == {"type": "adaptive"}
+def test_opus_48_returns_adaptive():
+    assert _build_thinking_param(
+        "claude-opus-4-8", use_thinking=True, thinking_budget=8000
+    ) == {"type": "adaptive"}
+
+
+def test_opus_46_returns_legacy_enabled():
+    assert _build_thinking_param(
+        "claude-opus-4-6", use_thinking=True, thinking_budget=12345
+    ) == {"type": "enabled", "budget_tokens": 12345}
+
+
+def test_sonnet_returns_legacy_enabled():
+    assert _build_thinking_param(
+        "claude-sonnet-4-6", use_thinking=True, thinking_budget=4000
+    ) == {"type": "enabled", "budget_tokens": 4000}
+
+
+def test_openrouter_prefix_opus_47():
+    assert _build_thinking_param(
+        "openrouter/anthropic/claude-opus-4-7",
+        use_thinking=True,
+        thinking_budget=8000,
+    ) == {"type": "adaptive"}
 
 
 class TestAdjustThinkingBudgetAdaptive:
