@@ -117,9 +117,12 @@ jest.mock('@/hooks/useTauriServerStatus', () => ({
   useTauriServerStatus: () => mockUseTauriServerStatus(),
 }));
 
+const mockIsCloudApiBaseUrl = jest.fn((url: string) => url.includes('fleet.gptme.ai'));
+
 jest.mock('@/utils/connectionConfig', () => ({
   processConnectionFromHash: (...args: unknown[]) => mockProcessConnectionFromHash(...args),
   isDemoMode: () => mockIsDemoMode(),
+  isCloudApiBaseUrl: (url: string) => mockIsCloudApiBaseUrl(url),
 }));
 
 jest.mock('@legendapp/state/react', () => ({
@@ -221,6 +224,7 @@ describe('SetupWizard', () => {
     mockProcessConnectionFromHash.mockReset();
     mockIsDemoMode.mockReturnValue(false);
     mockActiveServer.mockReturnValue({ id: 'cloud-server-1' });
+    mockIsCloudApiBaseUrl.mockImplementation((url: string) => url.includes('fleet.gptme.ai'));
     mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -543,6 +547,26 @@ describe('SetupWizard', () => {
         <SetupWizard />
       </SettingsProvider>
     );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+    });
+  });
+
+  it('advances the cloud step when already connected to a cloud server', async () => {
+    // Re-entering the wizard while already on the managed cloud must not demand
+    // another sign-in — the connection already is what the step is for.
+    mockConnectionBaseUrl = 'https://fleet.gptme.ai/api/v1/instances/test';
+    isConnected$.set(true);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();

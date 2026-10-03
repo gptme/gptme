@@ -25,7 +25,7 @@ import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
 import { isLocalApiBaseUrl } from '@/utils/openConversationPath';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
-import { isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
+import { isCloudApiBaseUrl, isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
 import { getActiveServer } from '@/stores/servers';
 import {
   bumpProviderStatusVersion,
@@ -366,17 +366,16 @@ export function SetupWizard() {
     )
       return;
 
-    // On the cloud step only a connection made by the sign-in may auto-advance:
-    // a pre-existing connection (e.g. the Tauri sidecar, or a LAN/remote server
-    // the user was already on) and a late-connecting local server must not be
-    // treated as sign-in finishing. Requiring a non-loopback URL pins the
-    // sidecar case on any port; requiring it to differ from the URL at sign-in
-    // start covers a pre-existing non-loopback connection.
-    if (step === 'cloud') {
+    // On the cloud step a connection that already *is* the managed cloud server
+    // may advance directly. Any other connection must have come from a sign-in
+    // this session started: a pre-existing connection (the Tauri sidecar, or a
+    // LAN/remote server) and a late-connecting local server must not be treated
+    // as sign-in finishing. A non-loopback URL pins the sidecar case on any
+    // port; differing from the URL at sign-in start covers a pre-existing
+    // non-loopback connection; a null start URL (no sign-in) fails closed.
+    if (step === 'cloud' && !isCloudApiBaseUrl(connectionConfig.baseUrl)) {
       const baseUrl = connectionConfig.baseUrl;
       const signInStartBaseUrl = cloudLoginStartBaseUrlRef.current;
-      // Fail closed: without a recorded sign-in start there is no evidence the
-      // connection came from this sign-in, so never auto-advance.
       if (
         !cloudLoginStarted ||
         signInStartBaseUrl === null ||
