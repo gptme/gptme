@@ -1,5 +1,6 @@
 """Native children select their own model's dialect, not their parent's."""
 
+from importlib import import_module
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,7 +17,7 @@ from gptme.tools.subagent import execution
 def test_thread_prompts_and_chat_use_child_model_format(
     tmp_path, monkeypatch, dialect, context_mode, context_window
 ):
-    import gptme.chat
+    chat_module = import_module("gptme.chat")
     import gptme.executor
     import gptme.llm.models
     import gptme.prompts
@@ -37,7 +38,7 @@ def test_thread_prompts_and_chat_use_child_model_format(
     tool_prompt = MagicMock(return_value=[])
     monkeypatch.setattr(gptme.prompts, "prompt_tools", tool_prompt)
     chat = MagicMock()
-    monkeypatch.setattr(gptme.chat, "chat", chat)
+    monkeypatch.setattr(chat_module, "chat", chat)
 
     execution._create_subagent_thread(
         "task",
