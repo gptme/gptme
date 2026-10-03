@@ -629,6 +629,7 @@
             </div>
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#child-tool-format">Child tool format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent-isolation-contract">Subagent Isolation Contract</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fan-out-and-parallel-execution">Fan-out and Parallel Execution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#structured-output-output-schema">Structured Output (output_schema)</a></li>
@@ -2307,6 +2308,16 @@ completes. <code class="docutils literal notranslate"><span class="pre">result_d
 </div>
 </dd></dl>
 
+<section id="child-tool-format">
+<h2>Child tool format<a class="headerlink" href="#child-tool-format" title="Link to this heading">#</a></h2>
+<p>Native thread and subprocess children select their tool format from the resolved
+child model’s <code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code> metadata, falling back to <code class="docutils literal notranslate"><span class="pre">markdown</span></code> when
+that metadata is absent. The same dialect is used for thread-mode tool prompts
+and execution. Subprocess children pass it explicitly to the CLI, so a parent’s
+or workspace’s tool-format setting does not override the requested model’s
+preferred dialect. The parent’s tool format remains unchanged. ACP children
+continue to use their external agent’s configuration.</p>
+</section>
 <section id="subagent-isolation-contract">
 <h2>Subagent Isolation Contract<a class="headerlink" href="#subagent-isolation-contract" title="Link to this heading">#</a></h2>
 <p>When spawning a subagent you need to know exactly what it inherits from the parent
@@ -2549,6 +2560,7 @@ and gate further spawning when a budget limit is reached.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#child-tool-format">Child tool format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#subagent-isolation-contract">Subagent Isolation Contract</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fan-out-and-parallel-execution">Fan-out and Parallel Execution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#structured-output-output-schema">Structured Output (output_schema)</a></li>
