@@ -24,6 +24,8 @@ brew install cliclick
 # Then grant your terminal Screen Recording + Accessibility permissions in System Settings (macOS Ventura+) or System Preferences (older macOS)
 ```
 
+The computer-use tool does not need Full Disk Access on macOS: Screen Recording and Accessibility are the only permissions it requires.
+
 For web automation (structured ARIA snapshots), install Playwright:
 
 ```bash
