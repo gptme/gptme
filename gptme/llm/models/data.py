@@ -703,6 +703,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 384_000,
             "price_input": 0.3,
             "price_output": 1.2,
+            "price_cache_read": 0.006,  # OpenRouter catalog, 2026-10-03
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,  # DeepSeek API supports parallel tool calls
             "preferred_edit_format": "diff",
@@ -746,6 +747,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 131_072,
             "price_input": 0.15,
             "price_output": 0.5,
+            "price_cache_read": 0.03,  # OpenRouter catalog, 2026-10-03
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
