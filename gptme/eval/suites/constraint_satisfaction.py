@@ -168,15 +168,30 @@ def check_schema_field_is_optional(ctx):
         tree = ast.parse(content)
     except SyntaxError:
         return False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.AnnAssign):
+    task_class = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == "Task"
+        ),
+        None,
+    )
+    if task_class is None:
+        return False
+    # Scope the search to `Task.priority` itself. A `priority` attribute on an
+    # unrelated helper (with a default) must not satisfy the check while the
+    # model's `Task.priority` is still required.
+    for stmt in task_class.body:
+        if not isinstance(stmt, ast.AnnAssign):
             continue
-        target = node.target
+        target = stmt.target
         if not (isinstance(target, ast.Name) and target.id == "priority"):
             continue
-        if node.value is None:
-            continue
-        return not _default_is_required_sentinel(node.value)
+        # Found the field on Task. It is optional only with an explicit
+        # non-sentinel default — an annotation alone is still required.
+        if stmt.value is None:
+            return False
+        return not _default_is_required_sentinel(stmt.value)
     return False
 
 
