@@ -83,17 +83,40 @@ def test_cache_price_serialization(cache_price):
 
 
 @pytest.mark.parametrize(
-    ("model", "rate"),
+    ("provider", "model", "rate"),
     [
-        ("deepseek/deepseek-v4.1-flash", 0.006),
-        ("z-ai/glm-5.3-flash", 0.03),
+        # production convention: `_record_usage` passes the underlying vendor as
+        # provider and keeps the fully qualified model name
+        ("deepseek", "openrouter/deepseek/deepseek-v4.1-flash", 0.006),
+        ("z-ai", "openrouter/z-ai/glm-5.3-flash", 0.03),
     ],
 )
-def test_static_openrouter_models_charge_cache_reads(model, rate):
+def test_static_openrouter_models_charge_cache_reads(provider, model, rate):
     assert _calculate_llm_cost(
-        "openrouter",
+        provider,
         model,
         0,
         0,
         cache_read_tokens=1000000,
     ) == pytest.approx(rate)
+
+
+def test_production_openrouter_lookup_uses_full_model(monkeypatch):
+    """A vendor provider must not break the qualified OpenRouter model lookup."""
+    meta = catalog_model()
+    seen = []
+
+    def get_model(name):
+        seen.append(name)
+        return meta
+
+    monkeypatch.setattr("gptme.llm.models.get_model", get_model)
+    cost = _calculate_llm_cost(
+        "z-ai",
+        "openrouter/z-ai/glm-5.3-flash",
+        0,
+        0,
+        cache_read_tokens=1_000_000,
+    )
+    assert seen == ["openrouter/z-ai/glm-5.3-flash"]
+    assert cost == pytest.approx(0.03)

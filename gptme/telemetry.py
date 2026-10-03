@@ -363,9 +363,22 @@ def _calculate_llm_cost(
     cache_read_tokens: int | None = None,
 ) -> float:
     """Calculate the cost of an LLM request."""
-    from .llm.models import get_model  # lazy — breaks telemetry → llm circular dep
+    from .llm.models import (  # lazy — breaks telemetry → llm circular dep
+        PROVIDER_ALIASES,
+        PROVIDERS,
+        get_model,
+    )
 
-    lookup_model = model if model.startswith(f"{provider}/") else f"{provider}/{model}"
+    # ``model`` may already carry a routing prefix (e.g.
+    # "openrouter/z-ai/glm-5.3-flash", where ``provider`` is the underlying
+    # vendor "z-ai") or be a bare catalog id ("z-ai/glm-5.3-flash" with
+    # ``provider`` "openrouter"). Only add the provider prefix when the model
+    # does not already start with a known provider namespace.
+    model_prefix = model.split("/", 1)[0] if "/" in model else ""
+    if model_prefix in PROVIDERS or model_prefix in PROVIDER_ALIASES:
+        lookup_model = model
+    else:
+        lookup_model = f"{provider}/{model}"
     meta = get_model(lookup_model)
     if meta is None:
         return 0.0
