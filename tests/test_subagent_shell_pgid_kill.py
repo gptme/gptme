@@ -14,10 +14,19 @@ import pytest
 
 from gptme.tools.subagent.execution import (
     _kill_recorded_shell_groups,
+    _process_start_marker,
     _terminate_subprocess,
 )
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
+
+_HAS_PROCFS = Path("/proc").exists()
+
+
+def _recorded_entry(pid: int) -> str:
+    """Mimic what a persistent shell writes to the pgid file."""
+    marker = _process_start_marker(pid)
+    return f"{pid} {marker}\n" if marker is not None else f"{pid}\n"
 
 
 def _alive(pid: int) -> bool:
@@ -59,7 +68,10 @@ def test_sigkill_escalation_kills_recorded_shell_and_detached_child(tmp_path: Pa
         ["bash", "-c", f"sleep 300 & echo $! > {pid_file}; wait"],
         start_new_session=True,
     )
-    pgid_file.write_text(f"{shell.pid}\n")
+    # As in production, the shell records its pgid plus a start marker, so the
+    # parent can verify the identity before signalling (also on macOS, where
+    # the marker comes from `ps` rather than procfs).
+    pgid_file.write_text(_recorded_entry(shell.pid))
     for _ in range(100):
         if pid_file.exists() and pid_file.read_text().strip():
             break
@@ -74,6 +86,9 @@ def test_sigkill_escalation_kills_recorded_shell_and_detached_child(tmp_path: Pa
     shell.wait(timeout=5)
 
 
+@pytest.mark.skipif(
+    not _HAS_PROCFS, reason="dead-leader member scan requires procfs (Linux)"
+)
 def test_kill_recorded_groups_reaches_group_with_dead_leader(tmp_path: Path):
     pgid_file = tmp_path / "shell-pgids"
     pid_file = tmp_path / "detached.pid"
@@ -176,3 +191,54 @@ def test_kill_recorded_groups_skips_a_reused_pid(tmp_path: Path):
     finally:
         leader.kill()
         leader.wait()
+
+
+def test_process_start_marker_is_stable_and_none_for_dead_pids():
+    proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
+    try:
+        first = _process_start_marker(proc.pid)
+        assert first is not None
+        assert first == _process_start_marker(proc.pid)
+    finally:
+        proc.kill()
+        proc.wait()
+    assert _process_start_marker(proc.pid) is None
+    assert _process_start_marker(999999999) is None
+
+
+def test_process_start_marker_falls_back_to_ps(monkeypatch):
+    import gptme.tools.subagent.execution as execution
+
+    proc = subprocess.Popen(["bash", "-c", "sleep 30"], start_new_session=True)
+    try:
+        monkeypatch.setattr(execution, "_proc_start_ticks", lambda pid: None)
+        marker = execution._process_start_marker(proc.pid)
+        assert marker is not None
+        assert marker == execution._process_start_marker(proc.pid)
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_kill_recorded_groups_uses_portable_marker_without_procfs(
+    tmp_path: Path, monkeypatch
+):
+    """A live shell identified via `ps` (macOS path) is still reaped."""
+    import gptme.tools.subagent.execution as execution
+
+    pgid_file = tmp_path / "shell-pgids"
+    shell = subprocess.Popen(["bash", "-c", "sleep 60"], start_new_session=True)
+    try:
+        monkeypatch.setattr(execution, "_proc_start_ticks", lambda pid: None)
+        marker = execution._process_start_marker(shell.pid)
+        assert marker is not None
+        pgid_file.write_text(f"{shell.pid} {marker}\n")
+        execution._kill_recorded_shell_groups(pgid_file)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and shell.poll() is None:
+            time.sleep(0.02)
+        assert shell.poll() is not None, "a portable-marker shell was not reaped"
+    finally:
+        if shell.poll() is None:
+            shell.kill()
+        shell.wait()

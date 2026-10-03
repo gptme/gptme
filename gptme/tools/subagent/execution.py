@@ -979,6 +979,33 @@ def _proc_start_ticks(pid: int) -> int | None:
         return None
 
 
+def _process_start_marker(pid: int) -> str | None:
+    """A stable identity string for a live process, or None.
+
+    Prefers the procfs start time (clock ticks); falls back to ``ps`` so the
+    same identity can be checked on platforms without procfs (macOS). Two
+    reads of the same live process compare equal, while a recycled pid yields
+    a different value. ``None`` when the process is gone or cannot be read.
+    """
+    ticks = _proc_start_ticks(pid)
+    if ticks is not None:
+        return str(ticks)
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    marker = result.stdout.strip()
+    return marker or None
+
+
 def _killable_group(pgid: int) -> bool:
     """True if ``pgid`` is a live group we may safely SIGKILL.
 
@@ -1007,7 +1034,8 @@ def _group_started_after(pgid: int, after_ticks: int | None) -> bool:
     group which predates the subagent. When procfs (or the CLI's start time) is
     unavailable, membership cannot be verified, so this fails closed: the entry
     is left alone rather than risking a signal to an unrelated group that
-    reused a dead shell's pid. macOS has no procfs, so it takes this path.
+    reused a dead shell's pid. A live macOS shell is instead matched exactly by
+    ``_process_start_marker``; only a leaderless group reaches this path there.
     """
     if after_ticks is None:
         return False
@@ -1037,8 +1065,8 @@ def _kill_recorded_shell_groups(
     Each persistent shell is its own session leader, so its pgid equals its
     sid. Groups that are no longer recognisable, that predate the subagent, or
     that are the killing process's own group/session, are skipped. When the
-    entry carries a start time and the pid is still live, both must match —
-    a recycled pid is rejected exactly.
+    entry carries a start marker and the pid is still live, both must match —
+    a recycled pid is rejected exactly, on Linux and macOS alike.
     """
     if sys.platform == "win32":
         return
@@ -1049,27 +1077,28 @@ def _kill_recorded_shell_groups(
     own_pgid = os.getpgid(0)
     own_sid = os.getsid(0)
     for line in lines:
-        parts = line.split()
-        if not parts:
+        line = line.strip()
+        if not line:
             continue
+        # The start marker may contain spaces (ps lstart on macOS), so only the
+        # pid is split off; the rest of the line is the marker.
+        pid_field, _, marker = line.partition(" ")
         try:
-            pgid = int(parts[0])
+            pgid = int(pid_field)
         except ValueError:
             continue
         if pgid <= 1 or pgid in (own_pgid, own_sid):
             continue
-        recorded_start = (
-            int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
-        )
-        live_start = _proc_start_ticks(pgid)
+        recorded_start = marker.strip() or None
+        live_start = _process_start_marker(pgid) if recorded_start is not None else None
         if recorded_start is not None and live_start is not None:
-            # A recycled pid always has a different start time, so equality
+            # A recycled pid always has a different start marker, so equality
             # proves this is still the shell that recorded the entry.
             if live_start != recorded_start:
                 continue
         elif not _group_started_after(pgid, after_ticks):
-            # Entry without a start time (older child / no procfs), or the
-            # leader already exited: reject groups that predate the subagent.
+            # Entry without a start marker (older child), or the leader already
+            # exited: reject groups that predate the subagent.
             continue
         if not _killable_group(pgid):
             continue

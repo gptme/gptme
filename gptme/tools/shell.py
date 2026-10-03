@@ -570,6 +570,32 @@ def _proc_start_ticks(pid: int) -> int | None:
         return None
 
 
+def _process_start_marker(pid: int) -> str | None:
+    """A stable identity string for this live shell, or None.
+
+    Prefers the procfs start time; falls back to ``ps`` so the parent can
+    still verify the shell on platforms without procfs (macOS). Two reads of
+    the same live process compare equal, while a recycled pid does not.
+    """
+    ticks = _proc_start_ticks(pid)
+    if ticks is not None:
+        return str(ticks)
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    marker = result.stdout.strip()
+    return marker or None
+
+
 def _record_shell_pgid(pid: int) -> None:
     """Append this shell's process group to ``$GPTME_SHELL_PGID_FILE``.
 
@@ -577,14 +603,15 @@ def _record_shell_pgid(pid: int) -> None:
     SIGKILL a CLI that ignored SIGTERM, it can also kill the persistent shells
     and whatever they detached. Each shell runs in its own session
     (``start_new_session``), so its pid is its pgid, and killing the CLI's own
-    group would miss it. The start time is recorded alongside so the parent
+    group would miss it. A start marker is recorded alongside so the parent
     can tell the shell apart from an unrelated process that later reused its
-    pid. Without procfs only the pid is written.
+    pid — via procfs on Linux, or ``ps`` start time without procfs (macOS).
+    The bare pid is written only if no marker can be obtained.
     """
     path = os.environ.get("GPTME_SHELL_PGID_FILE")
     if not path or _is_windows:
         return
-    start = _proc_start_ticks(pid)
+    start = _process_start_marker(pid)
     entry = f"{pid} {start}\n" if start is not None else f"{pid}\n"
     try:
         with open(path, "a") as f:
