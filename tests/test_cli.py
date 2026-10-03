@@ -1279,17 +1279,26 @@ def test_fatal_keyerror_output_strips_repr_quotes(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    # GPTME_LOGS_HOME takes precedence over XDG_DATA_HOME, so an inherited value
+    # would send the conversation log outside tmp_path and fail the lookup below
+    # even when quote stripping works.
+    monkeypatch.delenv("GPTME_LOGS_HOME", raising=False)
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
 
     msg = "Environment variable ANTHROPIC_API_KEY not set"
+    calls: list[tuple[Any, ...]] = []
 
-    def _raise_keyerror(*args, **kwargs):
+    def _raise_keyerror(*args: Any, **kwargs: Any):
+        calls.append(args)
         raise KeyError(msg)
 
     monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", _raise_keyerror)
 
     result = runner.invoke(cli.main, ["--non-interactive", "hello"])
 
+    # The stub must actually be reached; otherwise an unrelated early KeyError
+    # carrying the same message would satisfy every assertion below vacuously.
+    assert calls, "stubbed gptme.chat.chat was never called"
     assert result.exit_code != 0
     # The plain message must appear; repr-style quotes must not (stdout path)
     assert msg in result.output
