@@ -132,12 +132,18 @@ function getCloudExchangeBaseUrl(): string {
 
 /**
  * True when the URL points at the managed gptme cloud — either the auth app
- * origin (gptme.ai) or the fleet operator host that serves the instances
- * (fleet.gptme.ai by default, or whatever VITE_GPTME_* configures).
+ * origin (gptme.ai) or a host under the fleet operator that serves the
+ * instances (fleet.gptme.ai by default, or whatever VITE_GPTME_* configures).
  *
  * The setup wizard uses this to recognise a connection that already *is* the
  * cloud server, so re-entering the cloud step does not demand a fresh sign-in
  * while a pre-existing LAN/remote connection still does not count as cloud.
+ *
+ * Cloud instances live on subdomains of the fleet host
+ * (`https://<instance>.fleet.gptme.ai`), so an exact-host comparison would miss
+ * the connection a signed-in user actually has. Match the host itself or any
+ * subdomain of it; a lookalike host such as `fleet.gptme.ai.evil.example` is
+ * not a subdomain and stays rejected.
  */
 export function isCloudApiBaseUrl(
   baseUrl: string,
@@ -152,7 +158,8 @@ export function isCloudApiBaseUrl(
   }
   return [cloudAppBaseUrl, fleetBaseUrl].some((base) => {
     try {
-      return new URL(base).hostname === host;
+      const baseHost = new URL(base).hostname;
+      return host === baseHost || host.endsWith(`.${baseHost}`);
     } catch {
       return false;
     }

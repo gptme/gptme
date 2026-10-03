@@ -117,7 +117,16 @@ jest.mock('@/hooks/useTauriServerStatus', () => ({
   useTauriServerStatus: () => mockUseTauriServerStatus(),
 }));
 
-const mockIsCloudApiBaseUrl = jest.fn((url: string) => url.includes('fleet.gptme.ai'));
+// Mirrors the real isCloudApiBaseUrl semantics (exact host or subdomain) so the
+// mock does not mask an instance-subdomain mismatch. See connectionConfig.ts.
+const mockIsCloudApiBaseUrl = jest.fn((url: string) => {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'fleet.gptme.ai' || host.endsWith('.fleet.gptme.ai');
+  } catch {
+    return false;
+  }
+});
 
 jest.mock('@/utils/connectionConfig', () => ({
   processConnectionFromHash: (...args: unknown[]) => mockProcessConnectionFromHash(...args),
@@ -224,7 +233,14 @@ describe('SetupWizard', () => {
     mockProcessConnectionFromHash.mockReset();
     mockIsDemoMode.mockReturnValue(false);
     mockActiveServer.mockReturnValue({ id: 'cloud-server-1' });
-    mockIsCloudApiBaseUrl.mockImplementation((url: string) => url.includes('fleet.gptme.ai'));
+    mockIsCloudApiBaseUrl.mockImplementation((url: string) => {
+      try {
+        const host = new URL(url).hostname;
+        return host === 'fleet.gptme.ai' || host.endsWith('.fleet.gptme.ai');
+      } catch {
+        return false;
+      }
+    });
     mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -555,8 +571,9 @@ describe('SetupWizard', () => {
 
   it('advances the cloud step when already connected to a cloud server', async () => {
     // Re-entering the wizard while already on the managed cloud must not demand
-    // another sign-in — the connection already is what the step is for.
-    mockConnectionBaseUrl = 'https://fleet.gptme.ai/api/v1/instances/test';
+    // another sign-in — the connection already is what the step is for. Use the
+    // real per-instance subdomain the auth exchange returns, not the bare fleet host.
+    mockConnectionBaseUrl = 'https://instance-123.fleet.gptme.ai';
     isConnected$.set(true);
 
     render(

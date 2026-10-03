@@ -64,6 +64,13 @@ describe('isCloudApiBaseUrl', () => {
     );
   });
 
+  it('matches the per-instance fleet subdomain returned by the auth exchange', () => {
+    // The exchange returns an instance URL like https://instance-123.fleet.gptme.ai,
+    // not the bare fleet host — an exact-host check would miss it.
+    expect(isCloudApiBaseUrl('https://instance-123.fleet.gptme.ai', app, fleet)).toBe(true);
+    expect(isCloudApiBaseUrl('https://instance-123.fleet.gptme.ai/api/v1', app, fleet)).toBe(true);
+  });
+
   it('does not match local or LAN servers', () => {
     expect(isCloudApiBaseUrl('http://127.0.0.1:5700', app, fleet)).toBe(false);
     expect(isCloudApiBaseUrl('http://192.168.1.20:5700', app, fleet)).toBe(false);
