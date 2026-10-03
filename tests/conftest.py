@@ -506,20 +506,25 @@ def reset_allow_hosts_after():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_acp_health_monitor():
-    """Stop the ACP health monitor and clear SessionManager state after each test.
+def cleanup_session_health_monitor(detect_leaked_threads):
+    """Stop the session health monitor and clear SessionManager state after each test.
 
-    The health monitor is a module-level singleton thread. Without this fixture
-    the first test that starts it leaks the thread for the rest of the xdist
-    worker's life, racing with any test that writes to SessionManager._sessions
-    directly and causing RuntimeError: dictionary changed size during iteration.
+    The health monitor is a module-level singleton thread, started by every
+    ``create_app()``. Without this fixture the thread leaks for the rest of the
+    xdist worker's life, racing with any test that writes to
+    ``SessionManager._sessions`` directly and causing
+    ``RuntimeError: dictionary changed size during iteration``.
+
+    Depends on ``detect_leaked_threads`` so this teardown is guaranteed to run
+    *before* the leak check, regardless of autouse fixture instantiation order:
+    a stopped thread must not be reported as a leak.
     """
     yield
     try:
         try:
-            from gptme.server.session_step import stop_acp_health_monitor
+            from gptme.server.session_step import stop_session_health_monitor
 
-            stop_acp_health_monitor()
+            stop_session_health_monitor()
         except ImportError:
             pass
         try:
@@ -532,7 +537,7 @@ def cleanup_acp_health_monitor():
         except ImportError:
             pass
     except Exception as e:
-        logger.warning(f"Error during ACP health monitor cleanup: {e}")
+        logger.warning(f"Error during session health monitor cleanup: {e}")
 
 
 @pytest.fixture(autouse=True)
