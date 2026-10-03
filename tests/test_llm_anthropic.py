@@ -236,11 +236,19 @@ def test_message_conversion_preserves_empty_signed_thinking():
 
     messages_dicts = list(_prepare_messages_for_api(messages, [tool_save])[0])
     assistant = next(m for m in messages_dicts if m["role"] == "assistant")
-    assert {
-        "type": "thinking",
-        "thinking": "",
-        "signature": "empty-sig==",
-    } in assistant["content"]
+    assert assistant["content"] == [
+        {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "empty-sig==",
+        },
+        {
+            "type": "tool_use",
+            "id": "tool_call_id",
+            "name": "save",
+            "input": {"path": "path.txt", "content": "file_content"},
+        },
+    ]
 
 
 def test_message_conversion_with_tool_and_non_tool():
