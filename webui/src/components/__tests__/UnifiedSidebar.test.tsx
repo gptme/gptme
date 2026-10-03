@@ -36,7 +36,7 @@ const renderTaskSidebar = (initialEntry = '/tasks') => {
     defaultOptions: { queries: { retry: false } },
   });
 
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <UnifiedSidebar
@@ -51,6 +51,13 @@ const renderTaskSidebar = (initialEntry = '/tasks') => {
       </MemoryRouter>
     </QueryClientProvider>
   );
+  return { ...result, queryClient };
+};
+
+const SERVER_INFO_KEY = ['server-info', 'demo://offline'];
+
+const waitForServerInfo = async (queryClient: QueryClient) => {
+  await waitFor(() => expect(queryClient.getQueryState(SERVER_INFO_KEY)?.status).toBe('success'));
 };
 
 describe('UnifiedSidebar task creation', () => {
@@ -86,17 +93,19 @@ describe('UnifiedSidebar external sessions capability gate', () => {
       version: '0.30.0',
       capabilities: { external_session_catalog: false, external_session_transcript: false },
     });
-    renderTaskSidebar('/chat');
+    const { queryClient } = renderTaskSidebar('/chat');
 
-    await waitFor(() => expect(mockGetServerInfo).toHaveBeenCalledTimes(1));
+    await waitForServerInfo(queryClient);
+    expect(mockGetServerInfo).toHaveBeenCalledTimes(1);
     expect(mockGetExternalSessions).not.toHaveBeenCalled();
   });
 
   it('does not request the catalog when the server reports no capabilities', async () => {
     mockGetServerInfo.mockResolvedValue({ version: '0.29.0' });
-    renderTaskSidebar('/chat');
+    const { queryClient } = renderTaskSidebar('/chat');
 
-    await waitFor(() => expect(mockGetServerInfo).toHaveBeenCalledTimes(1));
+    await waitForServerInfo(queryClient);
+    expect(mockGetServerInfo).toHaveBeenCalledTimes(1);
     expect(mockGetExternalSessions).not.toHaveBeenCalled();
   });
 

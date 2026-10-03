@@ -148,13 +148,15 @@ export const UnifiedSidebar: FC<Props> = ({
 
   // Servers without a session provider answer /api/v2/external-sessions with 503
   // on every chat load (gptme/gptme#4112). Read the capability flag from
-  // GET /api/v2 once per connection and only ask for the catalog when it is on.
+  // GET /api/v2 and only ask for the catalog when it is on. Default retries
+  // cover a transient lookup failure; the short staleTime means a reconnect
+  // (the query is re-enabled when isConnected flips back) re-reads the flag,
+  // so a server restarted with a different provider is picked up.
   const { data: serverInfo } = useQuery({
     queryKey: ['server-info', connectionConfig.baseUrl],
     queryFn: () => api.getServerInfo(),
     enabled: isConnected && !demoMode,
-    staleTime: 5 * 60 * 1000,
-    retry: false,
+    staleTime: 60 * 1000,
   });
   const hasExternalSessionCatalog = serverInfo?.capabilities?.external_session_catalog === true;
 
