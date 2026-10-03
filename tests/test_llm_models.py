@@ -768,10 +768,24 @@ def test_fetch_models_parallel_propagates_config_context():
 
 @patch("gptme.llm.models.listing._fetch_models_parallel")
 def test_list_models_detailed_uses_parallel_fetch(mock_fetch, capsys):
-    """The default detailed output fetches providers concurrently too."""
+    """The default detailed output renders models returned by the parallel fetch.
+
+    Pins behavior, not just the call: a sentinel model returned for one provider
+    must appear in the printed output, so removing the detailed path (or wiring
+    it to a different fetch) fails the test.
+    """
     from gptme.llm.models import list_models
 
-    mock_fetch.side_effect = lambda providers, dynamic_fetch: [[] for _ in providers]
+    sentinel = ModelMeta(provider="openai", model="parallel-sentinel", context=8192)
+
+    def fake_fetch(providers, dynamic_fetch):
+        return [[sentinel] if str(p) == "openai" else [] for p in providers]
+
+    mock_fetch.side_effect = fake_fetch
     list_models(dynamic_fetch=False)
     assert mock_fetch.call_count == 1
-    assert "openai" in mock_fetch.call_args.args[0]
+    providers_arg, dynamic_arg = mock_fetch.call_args.args
+    assert "openai" in providers_arg
+    assert dynamic_arg is False
+    out = capsys.readouterr().out
+    assert "parallel-sentinel" in out
