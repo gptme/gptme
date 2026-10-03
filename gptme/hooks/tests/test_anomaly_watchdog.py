@@ -1,0 +1,871 @@
+"""Tests for the anomaly_watchdog hooks.
+
+Covers:
+- scope_escape: write outside workspace triggers warning/block
+- scope_escape: write inside workspace is allowed
+- scope_escape: write inside allowed_dirs is allowed
+- scope_escape: patch body is literal content, never a set of destinations
+- write_storm: exceeding write limit triggers warning/block
+- write_storm: blocked calls do not refresh the window after the fact
+- write_storm: concurrent window pruning is thread-safe
+- novel_host: browser call to new hostname triggers warning (incl. subtools)
+- novel_host: browser call to trusted hostname is silent
+- block mode: TOOL_CONFIRM hook actually skips the tool
+- disabled mode: no anomalies fired
+"""
+
+from __future__ import annotations
+
+import contextvars
+import json
+import threading
+import time
+
+import pytest
+
+from .. import anomaly_watchdog
+from ..anomaly_watchdog import (
+    _check_novel_host,
+    _check_scope_escape,
+    _check_write_storm,
+    _enabled,
+    anomaly_watchdog_confirm,
+    check_tool_post,
+    check_tool_pre,
+)
+from ..confirm import ConfirmAction
+from ..types import ToolExecutePostData
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _fake_tool_use(
+    tool: str,
+    args: list[str] | None = None,
+    kwargs: dict[str, str] | None = None,
+    content: str | None = None,
+):
+    """Build a minimal ToolUse-like object."""
+
+    class _FakeToolUse:
+        def __init__(self):
+            self.tool = tool
+            self.args = args
+            self.kwargs = kwargs
+            self.content = content
+
+    return _FakeToolUse()
+
+
+def _no_log(monkeypatch) -> None:
+    """Make the log-directory lookup report no active conversation."""
+    from ...logmanager import LogManager
+
+    monkeypatch.setattr(LogManager, "get_current_log", classmethod(lambda cls: None))
+
+
+def _stub_id(value: str | None):
+    """Stand-in for a ``current_*_id`` ContextVar with a fixed value."""
+
+    class _Stub:
+        def get(self) -> str | None:
+            return value
+
+    return _Stub()
+
+
+def _session_key() -> str:
+    return anomaly_watchdog._session_key()
+
+
+def _msgs(findings) -> list[str]:
+    """Messages of ``_detect_findings`` results, which pair (blockable, message)."""
+    return [message for _, message in findings]
+
+
+def _reset_storm_state() -> None:
+    anomaly_watchdog._write_times_by_session.clear()
+    anomaly_watchdog._rejected_calls.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clean_storm_state():
+    """Keep the module-level write window from leaking between tests."""
+    _reset_storm_state()
+    yield
+    _reset_storm_state()
+
+
+# ---------------------------------------------------------------------------
+# _enabled
+# ---------------------------------------------------------------------------
+
+
+class TestEnabled:
+    def test_off_by_default(self, monkeypatch):
+        monkeypatch.delenv("GPTME_ANOMALY_WATCHDOG", raising=False)
+        assert not _enabled()
+
+    def test_warn_mode(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        assert _enabled()
+
+    def test_block_mode(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        assert _enabled()
+
+    def test_off_explicit(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "off")
+        assert not _enabled()
+
+
+# ---------------------------------------------------------------------------
+# scope_escape
+# ---------------------------------------------------------------------------
+
+
+class TestScopeEscape:
+    def test_write_inside_workspace_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["subdir/file.txt"])
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is None
+
+    def test_write_outside_workspace_warned(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        outside = tmp_path.parent / "other" / "file.txt"
+        tool_use = _fake_tool_use("save", args=[str(outside)])
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        should_block, msg = result
+        assert not should_block  # warn mode
+        assert "scope_escape" in msg
+
+    def test_write_outside_workspace_blocked(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        outside = tmp_path.parent / "bad" / "secret.txt"
+        tool_use = _fake_tool_use("save", args=[str(outside)])
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        should_block, _ = result
+        assert should_block
+
+    def test_write_in_allowed_dir_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        allowed = tmp_path.parent / "allowed"
+        allowed.mkdir(exist_ok=True)
+        monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_DIRS", str(allowed))
+        tool_use = _fake_tool_use("save", args=[str(allowed / "ok.txt")])
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is None
+
+    def test_no_workspace_skipped(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        result = _check_scope_escape(tool_use, None)
+        assert result is None
+
+    def test_patch_many_extra_args_are_checked(self, tmp_path, monkeypatch):
+        """``patch_many`` edits several files, so every argument is a target."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use(
+            "patch_many", args=[str(tmp_path / "ok.txt"), "/etc/secret"]
+        )
+        # Through _detect_findings: the tool must also be gated as a write tool.
+        findings = anomaly_watchdog._detect_findings(tool_use, tmp_path)
+        assert any("scope_escape" in m and "secret" in m for m in _msgs(findings))
+
+    def test_patch_many_multi_hunk_headers_are_checked(self, tmp_path, monkeypatch):
+        """The multi-hunk format carries its paths in ``=== PATH: ... ===``."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        content = (
+            f"=== PATH: {tmp_path / 'ok.txt'} ===\n<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED\n"
+            "=== PATH: /etc/secret ===\n<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+        )
+        findings = anomaly_watchdog._detect_findings(
+            _fake_tool_use("patch_many", content=content), tmp_path
+        )
+        assert any("scope_escape" in m for m in _msgs(findings))
+
+    def test_patch_many_kwargs_patches_are_checked(self, tmp_path, monkeypatch):
+        """The function-call format passes a ``patches`` JSON payload."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        payload = json.dumps([{"path": "/etc/secret", "patch": "x"}])
+        findings = anomaly_watchdog._detect_findings(
+            _fake_tool_use("patch_many", kwargs={"patches": payload}), tmp_path
+        )
+        assert any("scope_escape" in m for m in _msgs(findings))
+
+    def test_patch_many_all_inside_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use(
+            "patch_many", args=[str(tmp_path / "a.txt"), str(tmp_path / "b.txt")]
+        )
+        assert anomaly_watchdog._detect_findings(tool_use, tmp_path) == []
+
+    def test_patch_many_counts_as_a_write(self, tmp_path, monkeypatch):
+        """A multi-file edit is one write event for the storm window."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("patch_many", args=["a.txt"]),
+                    workspace=tmp_path,
+                )
+            )
+        )
+        assert (
+            sum(len(v) for v in anomaly_watchdog._write_times_by_session.values()) == 1
+        )
+
+    def test_patch_path_arg_alone_is_checked(self, tmp_path, monkeypatch):
+        """The path argument is the patch tool's only destination."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("patch", args=["/etc/secret"])
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        assert "scope_escape" in result[1]
+
+    def test_patch_kwargs_path_is_checked(self, tmp_path, monkeypatch):
+        """A tool-format call passes the target through kwargs."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use(
+            "patch", kwargs={"path": "/etc/secret", "patch": "<<<<<<< ORIGINAL"}
+        )
+        result = _check_scope_escape(tool_use, tmp_path)
+        assert result is not None
+        assert "scope_escape" in result[1]
+
+    def test_patch_body_diff_lines_are_not_destinations(self, tmp_path, monkeypatch):
+        """The patch body is literal file text in conflict-marker format.
+
+        A pasted diff — a docs example, a test fixture, a diff embedded in a
+        markdown file — contains ``---``/``+++`` lines that name no destination
+        the tool will write to. Treating them as targets raised scope_escape on
+        a valid in-workspace patch and (in block mode) refused it.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        content = (
+            "<<<<<<< ORIGINAL\n"
+            "examples:\n"
+            "=======\n"
+            "examples:\n"
+            "--- /etc/passwd\n"
+            "+++ /etc/passwd\n"
+            "@@ -1 +1 @@\n"
+            "+pasted diff content\n"
+            ">>>>>>> UPDATED"
+        )
+        tool_use = _fake_tool_use(
+            "patch", args=[str(tmp_path / "docs.md")], content=content
+        )
+        assert _check_scope_escape(tool_use, tmp_path) is None
+
+    def test_patch_body_without_path_arg_is_not_flagged(self, tmp_path, monkeypatch):
+        """Body-only content cannot name a destination, so it must not flag."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use(
+            "patch", content="--- /etc/passwd\n+++ /etc/passwd\n@@ -1 +1 @@\n-x\n+y"
+        )
+        assert _check_scope_escape(tool_use, tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# write_storm
+# ---------------------------------------------------------------------------
+
+
+class TestWriteStorm:
+    def test_below_limit_ok(self, monkeypatch):
+        """The check counts the call in flight: the N-th write is the first
+        tripped, so exactly N-1 execute."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        for _ in range(3):
+            anomaly_watchdog.record_write()
+        assert _check_write_storm() is None  # the 4th write is still allowed
+        anomaly_watchdog.record_write()
+        assert _check_write_storm() is not None  # the 5th is the first tripped
+
+    def test_at_limit_triggers(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        for _ in range(3):
+            anomaly_watchdog.record_write()
+        result = _check_write_storm()
+        assert result is not None
+        _, msg = result
+        assert "write_storm" in msg
+
+    def test_warn_mode_counts_executed_writes(self, tmp_path, monkeypatch):
+        """In warn mode nothing is blocked, so out-of-workspace writes that
+        execute must still count toward the storm window."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+
+        outside = _fake_tool_use("save", args=["/etc/shadow"])
+        post = ToolExecutePostData(tool_use=outside, workspace=tmp_path)
+        for _ in range(2):
+            findings = anomaly_watchdog._detect_findings(outside, tmp_path)
+            assert any("scope_escape" in m for m in _msgs(findings))
+            assert not any("write_storm" in m for m in _msgs(findings))
+            # Warn mode does not block, so the flagged write still executes.
+            list(check_tool_post(post))
+        # The third executed write is the limit-th and trips the storm.
+        findings = anomaly_watchdog._detect_findings(outside, tmp_path)
+        assert any("write_storm" in m for m in _msgs(findings))
+
+    def test_blocked_writes_are_not_recorded_by_the_post_hook(
+        self, tmp_path, monkeypatch
+    ):
+        """A call the watchdog blocks must not advance the window.
+
+        TOOL_EXECUTE_POST fires on the skip path too (the tool generator
+        returns normally after confirmation declines), so the reject marker the
+        confirm hook leaves is what stops a blocked burst from refreshing its
+        own window and locking out later legitimate writes.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+
+        outside = _fake_tool_use("save", args=["/etc/shadow"])
+        post = ToolExecutePostData(tool_use=outside, workspace=tmp_path)
+        for _ in range(10):
+            blocked = anomaly_watchdog_confirm(outside, workspace=tmp_path)
+            assert blocked is not None
+            assert blocked.action == ConfirmAction.SKIP
+            list(check_tool_post(post))
+        assert anomaly_watchdog._write_times_by_session == {}
+
+        # A clean write through the same chain does count.
+        inside = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
+        assert anomaly_watchdog_confirm(inside, workspace=tmp_path) is None
+        list(check_tool_post(ToolExecutePostData(tool_use=inside, workspace=tmp_path)))
+        assert (
+            sum(len(v) for v in anomaly_watchdog._write_times_by_session.values()) == 1
+        )
+
+    def test_prune_survives_a_key_removed_mid_snapshot(self, monkeypatch):
+        """Pruning must tolerate a key missing from the snapshot it iterates.
+
+        ``_WINDOW_LOCK`` already excludes a concurrent remover, so this is the
+        crash guard on the snapshot/access pair in ``_prune_stale_windows``,
+        not a reproduction of a live race. The mapping below deletes a key as
+        the snapshot is taken, which pins the guard deterministically: without
+        it the indexed access raised ``KeyError``, the hook registry swallows
+        that, and the check silently failed open with the window lost.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        class _InterleavingDict(dict[str, list[float]]):
+            fired = False
+
+            def __iter__(self):
+                keys = list(super().__iter__())
+                if keys and not self.fired:
+                    self.fired = True  # interleave once, then behave normally
+                    super().__delitem__(keys[0])
+                return iter(keys)
+
+        window = _InterleavingDict({"session-a": [1000.0], "session-b": [1000.0]})
+        monkeypatch.setattr(anomaly_watchdog, "_write_times_by_session", window)
+        monkeypatch.setattr(anomaly_watchdog, "_session_key", lambda: "session-b")
+        now = {"t": 1000.5}
+        monkeypatch.setattr(anomaly_watchdog.time, "monotonic", lambda: now["t"])
+
+        anomaly_watchdog.record_write()  # must not raise
+        assert _check_write_storm() is None
+        assert len(window["session-b"]) == 2
+
+    def test_check_does_not_advance_the_window(self, monkeypatch):
+        """Checking the storm must not record a write, or blocked attempts
+        would refresh their own window and lock out later writes."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        for _ in range(10):
+            assert _check_write_storm() is None
+        assert anomaly_watchdog._write_times_by_session == {}
+
+    def test_post_hook_skips_a_blocked_call_from_its_result(
+        self, tmp_path, monkeypatch
+    ):
+        """A blocked call must not be recorded, even off the identity marker.
+
+        The marker is keyed on the ``ToolUse`` object, which the hook pipeline
+        may copy or reconstruct. The result text is this module's own, so it
+        survives that; without it a refused write would still advance the
+        window and could lock out later legitimate writes.
+        """
+        from ...message import Message
+
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("save", args=["x.txt"]),
+                    workspace=tmp_path,
+                    result_msgs=(
+                        Message(
+                            "system",
+                            f"{anomaly_watchdog._BLOCK_PREFIX}\n"
+                            "scope_escape: /etc/secret",
+                        ),
+                    ),
+                )
+            )
+        )
+        assert anomaly_watchdog._write_times_by_session == {}
+
+    def test_post_hook_records_only_write_tools(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("shell", args=["ls"]), workspace=tmp_path
+                )
+            )
+        )
+        assert anomaly_watchdog._write_times_by_session == {}
+
+        list(
+            check_tool_post(
+                ToolExecutePostData(
+                    tool_use=_fake_tool_use("save", args=["x.txt"]), workspace=tmp_path
+                )
+            )
+        )
+        assert (
+            sum(len(v) for v in anomaly_watchdog._write_times_by_session.values()) == 1
+        )
+
+    def test_windows_are_isolated_per_session(self, monkeypatch):
+        """Writes in one conversation must not count against another."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+
+        current = {"key": "session-a"}
+        monkeypatch.setattr(anomaly_watchdog, "_session_key", lambda: current["key"])
+
+        # Fill session-a's window to the limit, then hand off to session-b.
+        for _ in range(3):
+            anomaly_watchdog.record_write()
+        assert _check_write_storm() is not None  # session-a exceeds its limit
+        # session-b starts empty and must not inherit session-a's window.
+        current["key"] = "session-b"
+        for _ in range(2):
+            assert _check_write_storm() is None
+            anomaly_watchdog.record_write()
+
+    def test_empty_windows_are_evicted(self, monkeypatch):
+        """A conversation's window key must not linger once its timestamps
+        age out, or a long-lived server accumulates one key per session."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "10")
+
+        now = {"t": 1000.0}
+        monkeypatch.setattr(anomaly_watchdog.time, "monotonic", lambda: now["t"])
+        current = {"key": "session-a"}
+        monkeypatch.setattr(anomaly_watchdog, "_session_key", lambda: current["key"])
+
+        anomaly_watchdog.record_write()
+        assert "session-a" in anomaly_watchdog._write_times_by_session
+
+        # Switch conversations and let session-a's window age out.
+        current["key"] = "session-b"
+        now["t"] += 11
+        assert _check_write_storm() is None
+        assert "session-a" not in anomaly_watchdog._write_times_by_session
+
+    def test_fallback_key_survives_a_fresh_context(self, monkeypatch):
+        """A per-prompt context copy must not reset the write window.
+
+        ACP copies a fresh execution context for every prompt; a key minted per
+        context would start a new window each turn, so earlier writes would drop
+        out and write-storm would never fire.
+        """
+        _no_log(monkeypatch)
+        parent = _session_key()
+        assert _session_key() == parent  # stable within a context
+        assert contextvars.copy_context().run(_session_key) == parent
+        assert contextvars.Context().run(_session_key) == parent  # fresh context
+        assert parent.startswith("thread-")
+
+    def test_distinct_threads_get_distinct_fallback_keys(self, monkeypatch):
+        """The thread fallback must not merge unrelated workers.
+
+        The two workers are joined one after the other on purpose: the runtime
+        recycles a dead thread's OS id, so an identity taken from
+        ``threading.get_ident()`` can collide here even though the workers never
+        overlap. Keys must be unique per thread *object*, not per live thread.
+        """
+        _no_log(monkeypatch)
+        seen: list[str] = []
+
+        def worker() -> None:
+            seen.append(_session_key())
+
+        for _ in range(2):
+            thread = threading.Thread(target=worker)
+            thread.start()
+            thread.join(timeout=5)
+
+        assert len(seen) == 2
+        assert seen[0] != seen[1]
+
+    def test_approximate_identity_is_reported_but_not_enforced(
+        self, tmp_path, monkeypatch
+    ):
+        """A thread-shared window must never block a write it may not own.
+
+        Without a log directory or a session id the window is only known to be
+        continuous, not exclusive — between two sessions sharing a worker, a
+        burst in one could otherwise stop the other's legitimate write.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "2")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        _no_log(monkeypatch)
+        monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id(None))
+        monkeypatch.setattr(anomaly_watchdog, "current_session_id", _stub_id(None))
+
+        tool_use = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
+        for _ in range(2):
+            anomaly_watchdog.record_write()
+
+        findings = anomaly_watchdog._detect_findings(tool_use, tmp_path)
+        assert any("write_storm" in m and "reported only" in m for m in _msgs(findings))
+        # Reported, but the confirm hook must not skip the write.
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+    def test_exact_identity_still_enforces(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "2")
+        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
+        _no_log(monkeypatch)
+        monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id("c1"))
+        monkeypatch.setattr(anomaly_watchdog, "current_session_id", _stub_id(None))
+
+        tool_use = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
+        for _ in range(2):
+            anomaly_watchdog.record_write()
+
+        blocked = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
+        assert blocked is not None
+        assert blocked.action == ConfirmAction.SKIP
+
+    def test_server_conversation_id_wins_over_the_thread(self, monkeypatch):
+        monkeypatch.setattr(
+            anomaly_watchdog, "current_conversation_id", _stub_id("conv-1")
+        )
+        monkeypatch.setattr(anomaly_watchdog, "current_session_id", _stub_id("sess-1"))
+        assert _session_key() == "conv-conv-1"
+
+        monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id(None))
+        assert _session_key() == "session-sess-1"
+
+    def test_reject_ledger_mutations_hold_their_own_lock(self):
+        """The reject ledger must be mutated under a lock, like the window.
+
+        TOOL_CONFIRM and TOOL_EXECUTE_POST fire on different threads when a
+        server runs concurrent tool calls, and ``_mark_rejected`` is a
+        check-then-act sequence (prune, cap-``clear()``, insert) over a plain
+        dict. ``_write_times_by_session`` is already serialized; this checks the
+        reject ledger is too. Holding the lock must block a marker mutation
+        until it is released, and a blocked marker must still be consumable.
+        """
+        tool_use = _fake_tool_use("save", args=["/tmp/x"])
+        marked = threading.Event()
+        consumed = threading.Event()
+
+        def mark() -> None:
+            anomaly_watchdog._mark_rejected(tool_use)
+            marked.set()
+
+        def consume() -> None:
+            anomaly_watchdog._consume_rejected(tool_use)
+            consumed.set()
+
+        anomaly_watchdog._REJECTED_LOCK.acquire()
+        try:
+            marker_thread = threading.Thread(target=mark)
+            marker_thread.start()
+            assert not marked.wait(timeout=0.5), "marker written without the lock"
+            consumer_thread = threading.Thread(target=consume)
+            consumer_thread.start()
+            assert not consumed.wait(timeout=0.5), "ledger read without the lock"
+        finally:
+            anomaly_watchdog._REJECTED_LOCK.release()
+
+        assert marked.wait(timeout=5), "marker write did not resume"
+        marker_thread.join(timeout=5)
+        assert consumed.wait(timeout=5), "ledger read did not resume"
+        consumer_thread.join(timeout=5)
+
+    def test_reject_ledger_overflow_evicts_oldest_only(self):
+        """Hitting the 512-entry cap must not drop other live markers.
+
+        ``_mark_rejected`` used to ``clear()`` the whole ledger at the cap,
+        which silently un-blocked every call still awaiting its post hook —
+        they would then be counted as executed writes by ``check_tool_post``.
+        """
+        # Fill the ledger with fresh synthetic keys (so the TTL prune does not
+        # remove them before the overflow path runs), then add one more live
+        # marker to trigger the cap.
+        fresh = time.monotonic()
+        for i in range(512):
+            anomaly_watchdog._rejected_calls[i] = fresh + i * 1e-6
+        live = _fake_tool_use("save", args=["/tmp/live"])
+        anomaly_watchdog._mark_rejected(live)
+
+        assert len(anomaly_watchdog._rejected_calls) <= 512
+        assert anomaly_watchdog._consume_rejected(live), (
+            "live marker was dropped by the overflow path"
+        )
+        # Only the oldest entry was evicted; the rest survive.
+        assert 0 not in anomaly_watchdog._rejected_calls
+        assert 510 in anomaly_watchdog._rejected_calls
+
+
+# ---------------------------------------------------------------------------
+# novel_host
+# ---------------------------------------------------------------------------
+
+
+class TestNovelHost:
+    def test_userinfo_url_uses_the_real_destination_host(self, monkeypatch):
+        """``urlparse`` hostname is the host actually connected to.
+
+        In ``https://user:pass@evil.example/`` the userinfo precedes the host,
+        and in ``https://trusted.example@evil.example/`` the allowlisted-looking
+        text is *userinfo*, not the host — ``urlparse`` returns
+        ``evil.example`` for both, which is what the request reaches.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_HOSTS", "trusted.example")
+
+        for url in (
+            "https://user:pass@evil.example/x",
+            "https://trusted.example@evil.example/x",
+        ):
+            result = _check_novel_host(_fake_tool_use("browser", args=[url]))
+            assert result is not None, url
+            assert "evil.example" in result[1]
+
+        # The reverse — credentials mailed to the allowlisted host — is fine.
+        result = _check_novel_host(
+            _fake_tool_use("browser", args=["https://user:pass@trusted.example/x"])
+        )
+        assert result is None
+
+    def test_new_host_warns(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
+        tool_use = _fake_tool_use("browser", args=["https://evil.example.com/x"])
+        result = _check_novel_host(tool_use)
+        assert result is not None
+        _, msg = result
+        assert "novel_host" in msg
+        assert "evil.example.com" in msg
+
+    def test_non_http_scheme_is_flagged(self, monkeypatch):
+        """A scheme with no hostname must not slip past the allowlist.
+
+        ``file:///etc/passwd`` and ``data:`` parse to an empty hostname, so a
+        hostname-only check would return no finding at all.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_HOSTS", "trusted.example")
+
+        for url in ("file:///etc/passwd", "data:text/plain,hi"):
+            result = _check_novel_host(_fake_tool_use("browser", args=[url]))
+            assert result is not None, url
+            assert "non-http(s)" in result[1]
+
+    def test_browser_subtool_warns(self, monkeypatch):
+        """Subtools invoked as 'browser.read_url' must not bypass host checks."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
+        tool_use = _fake_tool_use(
+            "browser.read_url", kwargs={"url": "https://sneaky.example.org"}
+        )
+        result = _check_novel_host(tool_use)
+        assert result is not None
+        _, msg = result
+        assert "novel_host" in msg
+
+    def test_trusted_host_silent(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.setenv("GPTME_ANOMALY_ALLOWED_HOSTS", "docs.example.com")
+        tool_use = _fake_tool_use("browser", args=["https://docs.example.com/page"])
+        result = _check_novel_host(tool_use)
+        assert result is None
+
+    def test_localhost_silent(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
+        tool_use = _fake_tool_use("browser", args=["http://localhost:8080/api"])
+        result = _check_novel_host(tool_use)
+        assert result is None
+
+    def test_no_url_skipped(self, monkeypatch):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        tool_use = _fake_tool_use("browser", args=None, content=None)
+        result = _check_novel_host(tool_use)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# check_tool_pre (integration)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckToolPre:
+    def test_disabled_no_output(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "off")
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        msgs = list(check_tool_pre(_pre_data(tool_use, tmp_path)))
+        assert msgs == []
+
+    def test_scope_escape_warn_yields_message(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        msgs = list(check_tool_pre(_pre_data(tool_use, tmp_path)))
+        assert len(msgs) == 1
+        assert "scope_escape" in msgs[0].content
+
+    def test_block_mode_pre_yields_no_stoppropagation(self, monkeypatch, tmp_path):
+        """In block mode the TOOL_EXECUTE_PRE hook must not pretend to block —
+        actual blocking happens in the TOOL_CONFIRM hook."""
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        msgs = list(check_tool_pre(_pre_data(tool_use, tmp_path)))
+        assert msgs == []
+
+
+# ---------------------------------------------------------------------------
+# anomaly_watchdog_confirm (block mode enforcement)
+# ---------------------------------------------------------------------------
+
+
+def _pre_data(tool_use, workspace):
+    class _FakeData:
+        def __init__(self):
+            self.tool_use = tool_use
+            self.workspace = workspace
+            self.log = None
+
+    return _FakeData()
+
+
+class TestConfirmHook:
+    def test_block_mode_skips_flagged_tool(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        result = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
+        assert result is not None
+        assert result.action.value == "skip"
+        assert "anomaly_watchdog" in (result.message or "")
+
+    def test_block_mode_allows_clean_tool(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["inside.txt"])
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+    def test_warn_mode_confirm_falls_through(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+    def test_off_mode_confirm_falls_through(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "off")
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# config activation
+# ---------------------------------------------------------------------------
+
+
+class TestConfigActivation:
+    def test_config_section_enables_warn(self, monkeypatch):
+        monkeypatch.delenv("GPTME_ANOMALY_WATCHDOG", raising=False)
+
+        class _Cfg:
+            class user:
+                plugin = {"anomaly_watchdog": {"mode": "warn"}}
+
+            project = None
+
+        anomaly_watchdog._init_from_config(_Cfg())
+        import os
+
+        assert os.environ["GPTME_ANOMALY_WATCHDOG"] == "warn"
+
+    @pytest.mark.parametrize("configured", ["block", "off"])
+    def test_config_mode_is_not_downgraded_to_warn(self, monkeypatch, configured):
+        """A configured ``mode`` must survive config activation unchanged."""
+        monkeypatch.delenv("GPTME_ANOMALY_WATCHDOG", raising=False)
+
+        class _Cfg:
+            class user:
+                plugin = {"anomaly_watchdog": {"mode": configured}}
+
+            project = None
+
+        anomaly_watchdog._init_from_config(_Cfg())
+        import os
+
+        assert os.environ["GPTME_ANOMALY_WATCHDOG"] == configured
+
+    def test_config_without_mode_defaults_to_warn(self, monkeypatch):
+        monkeypatch.delenv("GPTME_ANOMALY_WATCHDOG", raising=False)
+
+        class _Cfg:
+            class user:
+                plugin = {"anomaly_watchdog": {"write_limit": 5}}
+
+            project = None
+
+        anomaly_watchdog._init_from_config(_Cfg())
+        import os
+
+        assert os.environ["GPTME_ANOMALY_WATCHDOG"] == "warn"
+        assert os.environ["GPTME_ANOMALY_WRITE_LIMIT"] == "5"
