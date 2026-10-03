@@ -22,6 +22,7 @@ jest.mock('@/stores/servers', () => ({
 import {
   describeError,
   getConnectionConfigFromSources,
+  isCloudApiBaseUrl,
   isDemoMode,
   processConnectionFromHash,
   resetDemoModeForTests,
@@ -49,6 +50,38 @@ describe('resolveCloudExchangeBaseUrl', () => {
     expect(
       resolveCloudExchangeBaseUrl('https://cloud.example.com', 'https://fleet.example.com/')
     ).toBe('https://fleet.example.com');
+  });
+});
+
+describe('isCloudApiBaseUrl', () => {
+  const fleet = 'https://fleet.gptme.ai';
+  const app = 'https://gptme.ai';
+
+  it('matches the app origin and the fleet instance host', () => {
+    expect(isCloudApiBaseUrl('https://gptme.ai', app, fleet)).toBe(true);
+    expect(isCloudApiBaseUrl('https://fleet.gptme.ai/api/v1/instances/test', app, fleet)).toBe(
+      true
+    );
+  });
+
+  it('matches the per-instance fleet subdomain returned by the auth exchange', () => {
+    // The exchange returns an instance URL like https://instance-123.fleet.gptme.ai,
+    // not the bare fleet host — an exact-host check would miss it.
+    expect(isCloudApiBaseUrl('https://instance-123.fleet.gptme.ai', app, fleet)).toBe(true);
+    expect(isCloudApiBaseUrl('https://instance-123.fleet.gptme.ai/api/v1', app, fleet)).toBe(true);
+  });
+
+  it('does not match local or LAN servers', () => {
+    expect(isCloudApiBaseUrl('http://127.0.0.1:5700', app, fleet)).toBe(false);
+    expect(isCloudApiBaseUrl('http://192.168.1.20:5700', app, fleet)).toBe(false);
+  });
+
+  it('does not match an unrelated host with a similar name', () => {
+    expect(isCloudApiBaseUrl('https://fleet.gptme.ai.evil.example', app, fleet)).toBe(false);
+  });
+
+  it('returns false for an unparseable URL instead of throwing', () => {
+    expect(isCloudApiBaseUrl('not a url', app, fleet)).toBe(false);
   });
 });
 
