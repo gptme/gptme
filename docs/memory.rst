@@ -96,12 +96,16 @@ allowlist:
 
 .. code-block:: console
 
-   $ HOOK_ALLOWLIST=knowledge_inject gptme
+   $ HOOK_ALLOWLIST=knowledge_inject,cli_confirm gptme
 
-``HOOK_ALLOWLIST`` replaces the default hook set; include any other hooks you
-need in the same comma-separated list. Applications can also opt in with
-``init_hooks(allowlist=["knowledge_inject", ...])``. New memories should use the
-shared Markdown memory toolkit below.
+``HOOK_ALLOWLIST`` replaces the default hook set, including mode-specific
+confirmation hooks. The interactive example includes ``cli_confirm`` to retain
+tool confirmation; add other hooks you need to the comma-separated list.
+Applications can include ``knowledge_inject`` in an explicit
+``init_hooks(allowlist=[...])`` call, alongside their confirmation hook
+(``cli_confirm`` for interactive CLI, or ``server_confirm`` and
+``server_elicit`` for server mode). New memories should use the shared Markdown
+memory toolkit below.
 
 To move existing entries over:
 

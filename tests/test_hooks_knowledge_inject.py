@@ -365,3 +365,21 @@ def test_explicit_knowledge_opt_in_delivery_lifecycle(
         assert knowledge_list() == [entry]
     finally:
         clear_hooks()
+
+
+def test_documented_cli_opt_in_keeps_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.hooks import HookType, clear_hooks, get_hooks, init_hooks
+
+    monkeypatch.setattr("gptme.plugins.registry.get_all_plugins", lambda: [])
+    monkeypatch.setenv("HOOK_ALLOWLIST", "knowledge_inject,cli_confirm")
+    clear_hooks()
+    try:
+        init_hooks(interactive=True)
+        names = {hook.name for hook in get_hooks()}
+        assert "knowledge_inject.session_start" in names
+        assert "knowledge_inject.turn_pre" in names
+        assert "cli_confirm" in {hook.name for hook in get_hooks(HookType.TOOL_CONFIRM)}
+    finally:
+        clear_hooks()

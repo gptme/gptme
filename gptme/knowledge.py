@@ -7,7 +7,8 @@ so gptme-rag's ``KnowledgeEntrySource`` can index the same JSONL.
 
 Retrieval without gptme-rag uses keyword search over problem + resolution
 text. Legacy session injection is opt-in via
-``HOOK_ALLOWLIST=knowledge_inject`` (see ``gptme.hooks.knowledge_inject``).
+an explicit ``knowledge_inject`` hook allowlist entry
+(see ``gptme.hooks.knowledge_inject``).
 Use the shared Markdown memory toolkit for new memories.
 
 Entry types
