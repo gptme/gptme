@@ -749,6 +749,22 @@ about a user or project, save a memory.</p>
 deprecated: the subgroup prints a <code class="docutils literal notranslate"><span class="pre">DeprecationWarning</span></code> and will be removed in
 a future release. Memory entries cover the same job, with typed entries and
 recall that every harness can read.</p>
+<p>Legacy JSONL entries are no longer injected into sessions by default. Existing
+<code class="docutils literal notranslate"><span class="pre">knowledge</span></code> save/list/search/delete commands and the stored JSONL remain
+available until retirement.</p>
+<p>For compatibility, explicitly include <code class="docutils literal notranslate"><span class="pre">knowledge_inject</span></code> in your hook
+allowlist:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span><span class="nv">HOOK_ALLOWLIST</span><span class="o">=</span>knowledge_inject,cli_confirm<span class="w"> </span>gptme
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">HOOK_ALLOWLIST</span></code> replaces the default hook set, including mode-specific
+confirmation hooks. The interactive example includes <code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code> to retain
+tool confirmation; add other hooks you need to the comma-separated list.
+Applications can include <code class="docutils literal notranslate"><span class="pre">knowledge_inject</span></code> in an explicit
+<code class="docutils literal notranslate"><span class="pre">init_hooks(allowlist=[...])</span></code> call, alongside their confirmation hook
+(<code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code> for interactive CLI, or <code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> and
+<code class="docutils literal notranslate"><span class="pre">server_elicit</span></code> for server mode). New memories should use the shared Markdown
+memory toolkit below.</p>
 <p>To move existing entries over:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>migrate-knowledge-jsonl
 </pre></div>
