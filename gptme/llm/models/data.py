@@ -811,9 +811,20 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
     },
     # Y-API — OpenAI-compatible LLM gateway using vendor/model paths
-    # (e.g. "y-api/anthropic/claude-sonnet-5"), like requesty/openrouter.
-    # Empty dict = models fetched dynamically or specified by user
-    "y-api": {},
+    # (e.g. "y-api/deepseek/deepseek-v4-flash"), like requesty/openrouter.
+    # The catalog is account-scoped and fetched dynamically; only the default
+    # model is registered statically so PROVIDER_DEFAULT_MODELS resolves.
+    "y-api": {
+        "deepseek/deepseek-v4-flash": {
+            "context": 1_048_576,
+            # price omitted: served at zero cost in the Y-API catalog today.
+            # Catalog-verified 2026-10-04. Free flags on a resale gateway can
+            # be withdrawn, in which case it bills at its listed rate.
+            # supports_vision deliberately not set: this model is not in the
+            # gateway's image-capable set (no measured vision round-trip).
+            "preferred_edit_format": "diff",
+        },
+    },
     # gptme managed service — proxies to multiple providers
     # Models are pass-through: gptme/claude-sonnet-4-6 → proxied to backend
     # Empty dict = models fetched dynamically or specified by user
