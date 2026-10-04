@@ -8,6 +8,77 @@ from click.testing import CliRunner
 
 from gptme.cli.util import main as util_main
 from gptme.memory import MemoryRoot, MemoryStore
+from gptme.memory.schema import parse_entry
+
+
+@pytest.mark.parametrize("scope", ["agent", "user"])
+@pytest.mark.parametrize("managed", [False, True])
+def test_scoped_save_json_reports_written_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope: str, managed: bool
+) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "memory").mkdir(parents=True)
+    agent = tmp_path / "agent"
+    (agent / "memory").mkdir(parents=True)
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.setenv("GPTME_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GPTME_AGENT_WORKSPACE", str(agent))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    store = MemoryStore.from_workspace()
+    project_path = store.save(
+        "shared-policy",
+        "Project policy",
+        "Project body",
+        scope="project",
+        metadata={"originSessionId": "project-origin"},
+    )
+    path = store.save(
+        "shared-policy",
+        "Original broader policy",
+        scope=scope,
+        title="Curated broader policy",
+        metadata={"source": "operator"},
+    )
+    if managed:
+        (path.parent / ".memory-index.json").write_text(
+            json.dumps({"version": 1, "budget": 1000, "selected": [path.name]})
+        )
+    project_before = {p.name: p.read_bytes() for p in project_path.parent.iterdir()}
+
+    result = CliRunner().invoke(
+        util_main,
+        [
+            "memory",
+            "save",
+            "shared-policy",
+            "Updated broader policy",
+            "--scope",
+            scope,
+            "--type",
+            "feedback",
+            "--metadata",
+            '{"originSessionId":"broader-origin"}',
+            "--json",
+        ],
+        input="Updated broader body",
+    )
+
+    assert result.exit_code == 0, result.output
+    receipt = json.loads(result.output)
+    written = parse_entry(path, scope=scope, strict=True)
+    assert receipt == written.to_dict()
+    assert receipt["description"] == "Updated broader policy"
+    assert receipt["metadata"] == {
+        "source": "operator",
+        "originSessionId": "broader-origin",
+    }
+    assert receipt["title"] == "Curated broader policy"
+    assert written.body.strip() == "Updated broader body"
+    assert {
+        p.name: p.read_bytes() for p in project_path.parent.iterdir()
+    } == project_before
+    if managed:
+        assert store.check_index(scope=scope)
 
 
 def test_cli_metadata_preserves_other_fields_and_policy(
