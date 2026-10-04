@@ -109,6 +109,7 @@ class TestVentProvenance:
     def test_launcher_session_identity(
         self, ledger_path, monkeypatch, neutral, legacy, expected
     ):
+        monkeypatch.delenv("GPTME_SESSION_ID", raising=False)
         for key, value in (("AGENT_SESSION_ID", neutral), ("BOB_SESSION_ID", legacy)):
             monkeypatch.delenv(key, raising=False)
             if value is not None:
@@ -119,6 +120,13 @@ class TestVentProvenance:
         assert entry["harness"] == "gptme"
         if expected is None:
             assert "session_id" not in entry
+
+    def test_gptme_session_identity_has_precedence(self, ledger_path, monkeypatch):
+        monkeypatch.setenv("GPTME_SESSION_ID", "native-session")
+        monkeypatch.setenv("AGENT_SESSION_ID", "neutral-session")
+        monkeypatch.setenv("BOB_SESSION_ID", "legacy-session")
+        execute_vent("Stuck on import resolution", None, None)
+        assert json.loads(ledger_path.read_text())["session_id"] == "native-session"
 
     def test_runtime_model(self, ledger_path, monkeypatch):
         from gptme.llm.models import ModelMeta
@@ -137,6 +145,7 @@ class TestVentProvenance:
         assert "model" not in entry
 
     def test_repeated_vents_preserve_one_session(self, ledger_path, monkeypatch):
+        monkeypatch.delenv("GPTME_SESSION_ID", raising=False)
         monkeypatch.setenv("AGENT_SESSION_ID", "same-session")
         for _ in range(2):
             _vent_this_turn.set(False)

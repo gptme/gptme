@@ -141,7 +141,7 @@ def execute_vent(
         "harness": "gptme",
     }
     # Launchers supply the session-record identity; manual runs stay unattributed.
-    for key in ("AGENT_SESSION_ID", "BOB_SESSION_ID"):
+    for key in ("GPTME_SESSION_ID", "AGENT_SESSION_ID", "BOB_SESSION_ID"):
         if session_id := os.environ.get(key, "").strip():
             entry["session_id"] = session_id
             break
