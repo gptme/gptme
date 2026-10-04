@@ -238,10 +238,12 @@ def init_hooks(
     if allowlist is not None:
         hooks_to_register = allowlist
     else:
-        # Register all default hooks except test and mode-specific hooks.
+        # Register all default hooks except explicit opt-ins and mode-specific hooks.
         # Confirmation hooks (cli_confirm, auto_confirm, server_confirm) and the
         # subprocess-only control hook are registered from runtime mode below.
-        mode_specific_hooks = {
+        non_default_hooks = {
+            # Deprecated JSONL knowledge delivery requires an explicit allowlist.
+            "knowledge_inject",
             "test",
             "cli_confirm",
             "auto_confirm",
@@ -249,7 +251,7 @@ def init_hooks(
             "server_elicit",
             "subagent_control",
         }
-        hooks_to_register = [h for h in available_hooks if h not in mode_specific_hooks]
+        hooks_to_register = [h for h in available_hooks if h not in non_default_hooks]
 
         # Mode-based hook selection:
         # - Server mode with confirmation: server_confirm + server_elicit
