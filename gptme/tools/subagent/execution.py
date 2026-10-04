@@ -1096,10 +1096,23 @@ def _kill_recorded_shell_groups(
             # proves this is still the shell that recorded the entry.
             if live_start != recorded_start:
                 continue
-        elif not _group_started_after(pgid, after_ticks):
+        else:
             # Entry without a start marker (older child), or the leader already
-            # exited: reject groups that predate the subagent.
-            continue
+            # exited: reject groups that predate the subagent. The CLI's own
+            # start time is the primary fence, but it is unavailable when the
+            # CLI was already reaped by the time cancellation ran; fall back to
+            # the shell's recorded procfs start time, which is the same
+            # membership check with a stricter (later) fence — the shell starts
+            # after the CLI, so a group that postdates it postdates the CLI too.
+            fence = after_ticks
+            if (
+                fence is None
+                and recorded_start is not None
+                and recorded_start.isdigit()
+            ):
+                fence = int(recorded_start)
+            if not _group_started_after(pgid, fence):
+                continue
         if not _killable_group(pgid):
             continue
         try:

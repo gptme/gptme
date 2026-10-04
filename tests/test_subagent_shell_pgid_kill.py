@@ -242,3 +242,31 @@ def test_kill_recorded_groups_uses_portable_marker_without_procfs(
         if shell.poll() is None:
             shell.kill()
         shell.wait()
+
+
+@pytest.mark.skipif(
+    not _HAS_PROCFS, reason="dead-leader member scan requires procfs (Linux)"
+)
+def test_kill_recorded_groups_dead_leader_without_cli_start(tmp_path: Path):
+    pgid_file = tmp_path / "shell-pgids"
+    pid_file = tmp_path / "detached.pid"
+    # Session leader exits at once, leaving `sleep` in its leaderless group.
+    leader = subprocess.Popen(
+        ["bash", "-c", f"sleep 300 & echo $! > {pid_file}"],
+        start_new_session=True,
+    )
+    # Record the entry while the leader is still alive, as the shell does at
+    # startup: the marker is the shell's own start time.
+    pgid_file.write_text(_recorded_entry(leader.pid))
+    leader.wait(timeout=5)
+    for _ in range(100):
+        if pid_file.exists() and pid_file.read_text().strip():
+            break
+        time.sleep(0.05)
+    detached = int(pid_file.read_text())
+
+    # The CLI was already reaped, so the production caller has no start time.
+    # The shell's recorded marker must still fence the group and reach it.
+    _kill_recorded_shell_groups(pgid_file, after_ticks=None)
+
+    assert _wait_dead(detached), "leaderless group survived without a CLI start time"
