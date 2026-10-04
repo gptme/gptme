@@ -87,6 +87,22 @@ deprecated: the subgroup prints a ``DeprecationWarning`` and will be removed in
 a future release. Memory entries cover the same job, with typed entries and
 recall that every harness can read.
 
+Legacy JSONL entries are no longer injected into sessions by default. Existing
+``knowledge`` save/list/search/delete commands and the stored JSONL remain
+available until retirement.
+
+For compatibility, explicitly include ``knowledge_inject`` in your hook
+allowlist:
+
+.. code-block:: console
+
+   $ HOOK_ALLOWLIST=knowledge_inject gptme
+
+``HOOK_ALLOWLIST`` replaces the default hook set; include any other hooks you
+need in the same comma-separated list. Applications can also opt in with
+``init_hooks(allowlist=["knowledge_inject", ...])``. New memories should use the
+shared Markdown memory toolkit below.
+
 To move existing entries over:
 
 .. code-block:: console
