@@ -95,6 +95,57 @@ class TestExecuteVent:
         assert [e["message"] for e in entries] == ["Vent 0", "Vent 1", "Vent 2"]
 
 
+class TestVentProvenance:
+    @pytest.mark.parametrize(
+        ("neutral", "legacy", "expected"),
+        [
+            ("neutral-session", "legacy-session", "neutral-session"),
+            (None, "legacy-session", "legacy-session"),
+            ("  ", " legacy-session ", "legacy-session"),
+            (" neutral-session ", None, "neutral-session"),
+            (None, None, None),
+        ],
+    )
+    def test_launcher_session_identity(
+        self, ledger_path, monkeypatch, neutral, legacy, expected
+    ):
+        for key, value in (("AGENT_SESSION_ID", neutral), ("BOB_SESSION_ID", legacy)):
+            monkeypatch.delenv(key, raising=False)
+            if value is not None:
+                monkeypatch.setenv(key, value)
+        execute_vent("Stuck on import resolution", None, None)
+        entry = json.loads(ledger_path.read_text())
+        assert entry.get("session_id") == expected
+        assert entry["harness"] == "gptme"
+        if expected is None:
+            assert "session_id" not in entry
+
+    def test_runtime_model(self, ledger_path, monkeypatch):
+        from gptme.llm.models import ModelMeta
+
+        model = ModelMeta(provider="openai", model="gpt-test", context=8192)
+        monkeypatch.setattr("gptme.llm.models.get_default_model", lambda: model)
+        execute_vent("Stuck on import resolution", None, None)
+        entry = json.loads(ledger_path.read_text())
+        assert entry["model"] == "openai/gpt-test"
+
+    def test_unset_runtime_model(self, ledger_path, monkeypatch):
+        monkeypatch.setattr("gptme.llm.models.get_default_model", lambda: None)
+        execute_vent("Stuck on import resolution", None, None)
+        entry = json.loads(ledger_path.read_text())
+        assert entry["harness"] == "gptme"
+        assert "model" not in entry
+
+    def test_repeated_vents_preserve_one_session(self, ledger_path, monkeypatch):
+        monkeypatch.setenv("AGENT_SESSION_ID", "same-session")
+        for _ in range(2):
+            _vent_this_turn.set(False)
+            execute_vent("Stuck on import resolution", None, None)
+        entries = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+        assert len(entries) == 2
+        assert {entry["session_id"] for entry in entries} == {"same-session"}
+
+
 class TestParseResolutionOwner:
     def test_no_tag_returns_none(self):
         msg, owner = _parse_resolution_owner("Just a plain message with no tag")
