@@ -24,6 +24,8 @@ def test_read_jsonl_skips_unusable_lines(tmp_path: Path):
         b'"str"\n',
         b'{"role": "user", "content": "x", "timestamp": "notadate"}\n',
         b'{"role": "user"}\n',
+        b'{"role": 5, "content": ["x"]}\n',
+        b'{"role": "assistant", "content": null}\n',
         GOOD,
     )
     messages = Log.read_jsonl(conv).messages

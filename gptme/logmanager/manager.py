@@ -1283,6 +1283,10 @@ def _message_from_json_line(line: str, path: PathLike, file_mtime: datetime) -> 
     json_data = json.loads(line)
     if not isinstance(json_data, dict):
         raise ValueError("expected a JSON object")
+    if not isinstance(json_data.get("role"), str) or not isinstance(
+        json_data.get("content"), str
+    ):
+        raise ValueError("'role' and 'content' must be strings")
     files = [parse_file_reference(f) for f in json_data.pop("files", [])]
     file_hashes = json_data.pop("file_hashes", {})
     if "timestamp" in json_data:
