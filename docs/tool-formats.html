@@ -865,7 +865,7 @@ format; listed here because it is adjacent and equally undocumented.</p></td>
 </div>
 <p><strong>How well populated is this?</strong> Unevenly, and it is worth being explicit about:</p>
 <ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code> is set to <code class="docutils literal notranslate"><span class="pre">tool</span></code> on 108 of the 127 models in the
+<li><p><code class="docutils literal notranslate"><span class="pre">default_tool_format</span></code> is set to <code class="docutils literal notranslate"><span class="pre">tool</span></code> on 108 of the 131 models in the
 bundled registry. This is stamped <strong>per provider</strong>, not per model: every
 provider that talks the OpenAI-compatible function-calling API gets it
 (<code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini</span></code>, <code class="docutils literal notranslate"><span class="pre">xai</span></code>, <code class="docutils literal notranslate"><span class="pre">groq</span></code>,
@@ -878,8 +878,9 @@ ship no static registry entries at all, so there is nothing to stamp; they get
 the same <code class="docutils literal notranslate"><span class="pre">tool</span></code> default applied at resolution time instead, including on
 dynamic-fetch fallbacks.</p>
 </li>
-<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on 67 entries: the Claude Opus/Sonnet
-4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5/GPT-6
+<li><p><code class="docutils literal notranslate"><span class="pre">supports_parallel_tool_calls</span></code> is set on 71 entries: the Claude Fable 5.x
+and Opus/Sonnet 4.x/5.x families, the OpenRouter Claude Opus/Sonnet aliases,
+Kimi K3, the GPT-4.1/GPT-5/GPT-6
 families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
 lite and experimental Gemini variants are excluded via
 <code class="docutils literal notranslate"><span class="pre">PARALLEL_TOOL_CALL_EXCEPTIONS</span></code>), xAI Grok (excluding the older

@@ -5627,7 +5627,7 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set to ``tool`` on 108 of the 127 models in the
+- ``default_tool_format`` is set to ``tool`` on 108 of the 131 models in the
   bundled registry. This is stamped **per provider**, not per model: every
   provider that talks the OpenAI-compatible function-calling API gets it
   (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
@@ -5641,8 +5641,9 @@ behaviour silently:
   the same ``tool`` default applied at resolution time instead, including on
   dynamic-fetch fallbacks.
 
-- ``supports_parallel_tool_calls`` is set on 67 entries: the Claude Opus/Sonnet
-  4.x families and their OpenRouter aliases, Kimi K3, the GPT-4.1/GPT-5/GPT-6
+- ``supports_parallel_tool_calls`` is set on 71 entries: the Claude Fable 5.x
+  and Opus/Sonnet 4.x/5.x families, the OpenRouter Claude Opus/Sonnet aliases,
+  Kimi K3, the GPT-4.1/GPT-5/GPT-6
   families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
   lite and experimental Gemini variants are excluded via
   ``PARALLEL_TOOL_CALL_EXCEPTIONS``), xAI Grok (excluding the older
@@ -15363,7 +15364,7 @@ Overview
 The context compression system has one unified pipeline:
 
 1. **Context Budget** - A configurable token threshold at which compaction is triggered (distinct from the provider window)
-2. **Automatic Compaction** - Triggered after each turn when the log approaches the budget; also retried once on provider context-length overflow
+2. **Automatic Compaction** - Triggered after each turn when the log approaches the budget; shared CLI/server recovery handles provider context-length overflow
 3. **Plugin Interface** - Allows third-party packages to provide custom compression strategies
 
 The budget defaults to
@@ -15411,6 +15412,13 @@ Budget-triggered trims target 70% of the budget and reject views saving less
 than 10% of the estimated stored text. If estimated trim savings are too small,
 the automatic path requests an LLM summary instead. A failed summary latches
 the conversation to trim-only until sufficient message growth permits a retry.
+
+CLI and server overflow recovery try a trim first, then remove old whole
+assistant/user steps with their tool results toward 70% of the previous context
+size. The protected head, pinned steps, newest user request, and final step stay
+verbatim. Every retry must reduce the prepared input; at most eight retries run.
+Partial output stops retries. Failed recovery restores the original active view;
+successful recovery keeps the smaller view and preserves the lossless master log.
 
 Using Compaction
 ================
