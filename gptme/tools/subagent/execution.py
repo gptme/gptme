@@ -10,6 +10,7 @@ subagent() function in api.py.
 import logging
 import os
 import random
+import signal
 import string
 import subprocess
 import sys
@@ -87,6 +88,7 @@ def _effective_child_tool_format(model: str | None) -> ToolFormat | None:
 
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
+_SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
 _SUBPROCESS_STDERR_TAIL_BYTES = 16 * 1024
 _SUBPROCESS_STDERR_TAIL_LINES = 20
@@ -348,7 +350,7 @@ def _create_subagent_thread(
     prompt: str,
     logdir: Path,
     model: str | None,
-    context_mode: Literal["full", "selective"],
+    context_mode: Literal["full", "selective", "fork"],
     context_include: list[str] | None,
     workspace: Path,
     target: str = "parent",
@@ -358,6 +360,8 @@ def _create_subagent_thread(
     redact_secrets: bool = True,
     context_window: int | None = None,
     parent_messages: list[Message] | None = None,
+    fork_messages: list[Message] | None = None,
+    reasoning_effort: str | None = None,
     prompt_queue_closed: threading.Event | None = None,
     *,
     resume: bool = False,
@@ -374,6 +378,12 @@ def _create_subagent_thread(
         target: Who will review the results ("parent" or "planner")
         profile_name: Optional agent profile to apply (system prompt + hard tool enforcement)
         agent_id: Identifier stored in thread-local so the progress tool can self-identify
+        fork_messages: Full copy of the parent's conversation log, used when
+            context_mode="fork". Falls back to normal "full" context building
+            when None (e.g. planner mode, or no active LogManager at spawn time).
+        reasoning_effort: Per-call reasoning effort override, scoped to this
+            subagent's own thread via a thread-local config context. Never
+            touches the parent's or any sibling's effort level.
         context_window: Limit workspace context messages. None = no limit; 0 = minimal
             context (just agent identity + tools, no workspace files); N > 0 = at most
             N workspace context messages included.
@@ -474,11 +484,14 @@ def _create_subagent_thread(
     # conversations already contain their startup context.
     if resume:
         initial_msgs = []
-    elif context_window == 0:
+    elif context_window == 0 and context_mode != "fork":
         # Minimal context: just agent identity and tools, no workspace files.
         # This is the context isolation mode requested by the --isolate flag.
         # Note: if context_mode="selective" is also set, context_window=0 takes
         # precedence and the context_include list is ignored — agent+tools only.
+        # Note: context_mode="fork" is excluded from this branch — fork requires
+        # the parent history, so context_window=0 is ignored and the fork branch
+        # below handles it (with a warning).
         from ...prompts import prompt_gptme, prompt_tools
 
         if (
@@ -505,6 +518,33 @@ def _create_subagent_thread(
                 examples=include_examples,
             )
         )
+    elif context_mode == "fork":
+        # Independent copy of the parent's full log (identity, tools, every
+        # turn so far). The copy is a plain list of the same Message objects —
+        # mutating it (e.g. appending the child's own turns below) never
+        # touches the parent's log, since LogManager holds its own list.
+        if context_window == 0:
+            logger.warning(
+                "context_mode='fork' and context_window=0 are incompatible; "
+                "fork requires parent history — ignoring context_window=0"
+            )
+        if fork_messages is not None:
+            initial_msgs = list(fork_messages)
+        else:
+            # No parent history available (planner mode doesn't forward it;
+            # or no active LogManager at spawn time) — fall back to a normal
+            # fresh "full" context rather than spawning with zero identity.
+            logger.warning(
+                "context_mode='fork' but no parent messages were provided; "
+                "falling back to a fresh 'full' context"
+            )
+            include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
+            initial_msgs = get_prompt(
+                available_tools,
+                interactive=False,
+                workspace=workspace,
+                include_examples=include_examples,
+            )
     elif context_mode == "selective":
         # Selective context — build from specified components.
         # context_window > 0 is not applied in selective mode; the caller
@@ -626,6 +666,31 @@ def _create_subagent_thread(
     # parent's cwd is restored when the subagent ran elsewhere (e.g.
     # isolation="worktree" or an explicit workdir).
     _enter_subagent_cwd(workspace)
+
+    # Scope the reasoning-effort override to this subagent's own thread.
+    # We do NOT mutate the Config that get_config() returns: we replace it with
+    # a *copy* carrying the override and rebind _config_var via set_config().
+    # That makes the isolation explicit and independent of any prior side
+    # effect — even on Python 3.13 free-threaded builds (PEP 703), where the
+    # thread *copies* the parent's context at creation time (see the
+    # clear_tools() note above) and get_config() would otherwise return the
+    # parent's Config object.  The parent's Config is never mutated.
+    if reasoning_effort:
+        from dataclasses import replace  # fmt: skip
+
+        from ...config.core import get_config, set_config  # fmt: skip
+
+        current = get_config()
+        set_config(
+            replace(
+                current,
+                env_overrides={
+                    **current.env_overrides,
+                    "THINKING_EFFORT": reasoning_effort,
+                },
+            )
+        )
+
     try:
         chat(
             prompt_msgs,
@@ -670,11 +735,12 @@ def _run_subagent_subprocess(
     logdir: Path,
     model: str | None,
     workspace: Path,
-    context_mode: Literal["full", "selective"] | None = None,
+    context_mode: Literal["full", "selective", "fork"] | None = None,
     context_include: list[str] | None = None,
     output_schema: str | None = None,
     output_schema_dict: dict | None = None,
     profile: str | None = None,
+    reasoning_effort: str | None = None,
     *,
     resume: bool = False,
 ) -> subprocess.Popen:
@@ -700,6 +766,10 @@ def _run_subagent_subprocess(
             Injected into the prompt via ``_get_complete_instruction`` rather than
             the CLI flag, because the CLI only accepts ``module:ClassName`` format.
         profile: Agent profile name to apply via --agent-profile flag
+        reasoning_effort: Per-call reasoning effort override, forwarded to the
+            child process as the ``GPTME_THINKING_EFFORT`` environment variable.
+            Scoped to this subprocess's own environment copy — never touches
+            the parent process's or any sibling's environment.
         resume: Continue the conversation already stored in ``logdir``.
 
     Returns:
@@ -814,6 +884,9 @@ def _run_subagent_subprocess(
     env = os.environ.copy()
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
+    env["GPTME_SHELL_PGID_FILE"] = str(logdir / _SHELL_PGIDS_FILENAME)
+    if reasoning_effort:
+        env["GPTME_THINKING_EFFORT"] = reasoning_effort
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
     try:
@@ -1010,14 +1083,171 @@ def _stderr_failure_tail(stderr_path: Path | None) -> str:
     return "\nChild stderr tail:\n" + "\n".join(tail)
 
 
-def _terminate_subprocess(process: subprocess.Popen) -> None:
-    """Give CLI cleanup a grace period before forcing termination, then reap."""
+def _proc_start_ticks(pid: int) -> int | None:
+    """Return a process's start time (clock ticks since boot), or None.
+
+    Field 22 of ``/proc/<pid>/stat``. ``None`` when procfs is unavailable
+    (macOS) or the process is already gone.
+    """
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    try:
+        # comm (field 2) may contain spaces/parens, so split after the last ')'.
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def _process_start_marker(pid: int) -> str | None:
+    """A stable identity string for a live process, or None.
+
+    Prefers the procfs start time (clock ticks); falls back to ``ps`` so the
+    same identity can be checked on platforms without procfs (macOS). Two
+    reads of the same live process compare equal, while a recycled pid yields
+    a different value. ``None`` when the process is gone or cannot be read.
+    """
+    ticks = _proc_start_ticks(pid)
+    if ticks is not None:
+        return str(ticks)
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    marker = result.stdout.strip()
+    return marker or None
+
+
+def _killable_group(pgid: int) -> bool:
+    """True if ``pgid`` is a live group we may safely SIGKILL.
+
+    A recorded shell's pgid equals its own session id while its leader is
+    alive. Once the leader exits, the pid lookup fails but the group can still
+    hold processes the shell started, so fall back to probing the group
+    itself. A reused pid shows up as a session that no longer matches, and is
+    skipped rather than signalled.
+    """
+    try:
+        return os.getsid(pgid) == pgid
+    except ProcessLookupError:
+        pass
+    try:
+        os.killpg(pgid, 0)  # signal 0 probes existence without sending
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
+def _group_started_after(pgid: int, after_ticks: int | None) -> bool:
+    """True if every live member of ``pgid`` verifiably started after ``after_ticks``.
+
+    A group the child's shell created can only contain processes started after
+    the CLI itself, so this rejects a stale entry that now names an unrelated
+    group which predates the subagent. When procfs (or the CLI's start time) is
+    unavailable, membership cannot be verified, so this fails closed: the entry
+    is left alone rather than risking a signal to an unrelated group that
+    reused a dead shell's pid. A live macOS shell is instead matched exactly by
+    ``_process_start_marker``; only a leaderless group reaches this path there.
+    """
+    if after_ticks is None:
+        return False
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            rest = Path(f"/proc/{entry}/stat").read_text().rsplit(")", 1)[1].split()
+            member_pgrp = int(rest[2])  # field 5
+            member_start = int(rest[19])  # field 22
+        except (OSError, IndexError, ValueError):
+            continue
+        if member_pgrp == pgid and member_start < after_ticks:
+            return False
+    return True
+
+
+def _kill_recorded_shell_groups(
+    pgid_file: Path, after_ticks: int | None = None
+) -> None:
+    """SIGKILL the persistent-shell process groups a child CLI recorded.
+
+    Each persistent shell is its own session leader, so its pgid equals its
+    sid. Groups that are no longer recognisable, that predate the subagent, or
+    that are the killing process's own group/session, are skipped. When the
+    entry carries a start marker and the pid is still live, both must match —
+    a recycled pid is rejected exactly, on Linux and macOS alike.
+    """
+    if sys.platform == "win32":
+        return
+    try:
+        lines = pgid_file.read_text().splitlines()
+    except OSError:
+        return
+    own_pgid = os.getpgid(0)
+    own_sid = os.getsid(0)
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # The start marker may contain spaces (ps lstart on macOS), so only the
+        # pid is split off; the rest of the line is the marker.
+        pid_field, _, marker = line.partition(" ")
+        try:
+            pgid = int(pid_field)
+        except ValueError:
+            continue
+        if pgid <= 1 or pgid in (own_pgid, own_sid):
+            continue
+        recorded_start = marker.strip() or None
+        live_start = _process_start_marker(pgid) if recorded_start is not None else None
+        if recorded_start is not None and live_start is not None:
+            # A recycled pid always has a different start marker, so equality
+            # proves this is still the shell that recorded the entry.
+            if live_start != recorded_start:
+                continue
+        elif not _group_started_after(pgid, after_ticks):
+            # Entry without a start marker (older child), or the leader already
+            # exited: reject groups that predate the subagent.
+            continue
+        if not _killable_group(pgid):
+            continue
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            continue
+
+
+def _terminate_subprocess(
+    process: subprocess.Popen, shell_pgid_file: Path | None = None
+) -> None:
+    """Give CLI cleanup a grace period before forcing termination, then reap.
+
+    Persistent shells run in their own sessions, so they survive both a
+    SIGTERM-ignoring CLI and one that exits while leaving them behind; the
+    groups it recorded are therefore killed once the CLI is down either way.
+    """
+    pid = getattr(process, "pid", None)
+    cli_start = _proc_start_ticks(pid) if isinstance(pid, int) else None
     process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
+    if shell_pgid_file is not None:
+        _kill_recorded_shell_groups(shell_pgid_file, after_ticks=cli_start)
 
 
 def _monitor_subprocess(
@@ -1058,13 +1288,15 @@ def _monitor_subprocess(
             f"Subagent {subagent.agent_id} timed out after {subagent.timeout}s, terminating"
         )
         _timed_out = True
-        _terminate_subprocess(subagent.process)
+        _terminate_subprocess(subagent.process, subagent.logdir / _SHELL_PGIDS_FILENAME)
 
     # Stop the progress-poll thread and let it do a final drain.
     progress_stop.set()
     progress_thread.join(timeout=2.0)
 
     input_tokens: int | None = None
+    tool_uses: int | None = None
+    duration_s: float | None = None
     output_tokens: int | None = None
     result: str | dict[str, object] | None
 
@@ -1073,6 +1305,9 @@ def _monitor_subprocess(
         status: Status = "failure"
         result = f"Process killed after {subagent.timeout}s timeout"
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
+        # A timeout is a terminal result: report wall-clock seconds since spawn
+        # so usage reporting is not silently incomplete on this path.
+        duration_s = time.time() - subagent.started_at
     elif subagent.process.returncode == 0:
         status = "success"
         # Get result from conversation log (primary source for subprocess mode)
@@ -1083,12 +1318,15 @@ def _monitor_subprocess(
             result = log_status.result
             input_tokens = log_status.input_tokens
             output_tokens = log_status.output_tokens
+            tool_uses = log_status.tool_uses
+            duration_s = log_status.duration_s
         except Exception:
             result = "Task completed (check log for details)"
     else:
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
+        duration_s = time.time() - subagent.started_at
 
     # Clean up worktree isolation; capture preserved branch so it can be
     # included in the result that callers receive via subagent_wait() / subagent_parallel().
@@ -1108,6 +1346,8 @@ def _monitor_subprocess(
         result,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        tool_uses=tool_uses,
+        duration_s=duration_s,
     )
     if not set_subagent_result_if_absent(subagent.agent_id, final_result):
         # Timeout/cancel won the cache race. Patch the stored result with
@@ -1140,7 +1380,7 @@ def _run_planner(
     prompt: str,
     subtasks: "list[SubtaskDef]",
     execution_mode: Literal["parallel", "sequential"] = "parallel",
-    context_mode: Literal["full", "selective"] = "full",
+    context_mode: Literal["full", "selective", "fork"] = "full",
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,
@@ -1149,6 +1389,7 @@ def _run_planner(
     workdir: Path | None = None,
     parent_logdir: Path | None = None,
     parent_branch: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -1325,6 +1566,7 @@ def _run_planner(
                             context_mode=context_mode,
                             context_include=context_include,
                             profile=_profile,
+                            reasoning_effort=reasoning_effort,
                         )
                     except Exception as e:
                         logger.error(
@@ -1417,6 +1659,7 @@ def _run_planner(
                         agent_id=executor_agent_id,
                         redact_secrets=redact_secrets,
                         context_window=context_window,
+                        reasoning_effort=reasoning_effort,
                     )
                 finally:
                     release_thread()

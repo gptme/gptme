@@ -43,6 +43,7 @@ from .openai_responses import (
     ContentPart,
     MessageContent,
     MessageDict,
+    ResponsesStreamError,
     ToolCall,
     ToolCallFunction,
     _content_to_responses_input,  # noqa: F401
@@ -266,6 +267,10 @@ def _record_usage(
     success: bool = True,
 ) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata.
+
+    ``success`` is False for a response that ended incomplete (e.g. hit the
+    output token limit): its usage and cost still count, but it is not
+    recorded as a completed generation.
 
     ``reasoning_effort`` is the effective level applied to the request (from
     ``GPTME_THINKING_EFFORT``); it is stamped on the metadata so session logs
@@ -893,7 +898,15 @@ def _handle_openai_transient_error(
     # Check if this is a transient error we should retry
     should_retry = False
 
-    if isinstance(e, RateLimitError):
+    if isinstance(e, ResponsesStreamError):
+        # Explicit failures keep their provider code so permanent errors do not
+        # inherit the blanket retry policy for malformed/disconnected streams.
+        should_retry = e.code in {
+            "rate_limit_exceeded",
+            "server_is_overloaded",
+            "service_unavailable_error",
+        }
+    elif isinstance(e, RateLimitError):
         # 429 rate limit - should back off and retry
         should_retry = True
     elif isinstance(e, APIConnectionError):
@@ -1635,6 +1648,13 @@ def _stream_responses(
         nonlocal served_model
         served_model = served
 
+    incomplete = False
+
+    def _capture_incomplete() -> None:
+        # Fires before usage on response.incomplete.
+        nonlocal incomplete
+        incomplete = True
+
     def _capture_usage(usage: Any) -> None:
         nonlocal captured_metadata
         captured_metadata = _record_usage(
@@ -1642,6 +1662,7 @@ def _stream_responses(
             model,
             reasoning_effort=reasoning_effort,
             served_model=served_model,
+            success=not incomplete,
         )
 
     stream = client.responses.create(**kwargs)
@@ -1649,6 +1670,7 @@ def _stream_responses(
         _guarded_stream_iter(stream, model=model, provider=provider),
         usage_callback=_capture_usage,
         model_callback=_capture_model,
+        incomplete_callback=_capture_incomplete,
     )
 
     if captured_metadata is None and (
@@ -2710,6 +2732,24 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         raise
 
 
+def _short_request_error(e: requests.RequestException) -> str:
+    """Summarize a requests error in a few words instead of urllib3's repr."""
+    if isinstance(e, requests.HTTPError) and e.response is not None:
+        return f"HTTP {e.response.status_code}"
+    if isinstance(e, requests.Timeout):
+        return "timed out"
+    if isinstance(e, requests.exceptions.SSLError):
+        # Keep the certificate reason; it is what the user needs to fix it.
+        m = re.search(r"certificate verify failed: ([^('\")]+)", str(e))
+        if m:
+            return f"SSL certificate verify failed: {m.group(1).strip()}"
+        return "SSL error"
+    if isinstance(e, requests.ConnectionError):
+        m = re.search(r"\[Errno -?\d+\] ([^('\")]+)", str(e))
+        return m.group(1).strip() if m else "connection failed"
+    return type(e).__name__
+
+
 def _get_openai_compatible_models(
     config,
     provider_name: str = "local",
@@ -2732,7 +2772,8 @@ def _get_openai_compatible_models(
 
     try:
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
-        response = requests.get(models_url, headers=headers, timeout=10)
+        # Short connect timeout: an unreachable host should not stall listing.
+        response = requests.get(models_url, headers=headers, timeout=(3, 10))
         response.raise_for_status()
         data = response.json()
 
@@ -2744,7 +2785,7 @@ def _get_openai_compatible_models(
         ]
     except requests.RequestException as e:
         log_fn = logger.debug if provider_name == "local" else logger.warning
-        log_fn(f"Failed to retrieve models from {provider_name} provider: {e}")
+        log_fn(f"{provider_name} provider: unavailable ({_short_request_error(e)})")
         # Return empty list instead of raising - local server might not be running
         return []
     except Exception as e:
@@ -2802,6 +2843,8 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
     pricing = model_data.get("pricing", {})
     price_input = float(pricing.get("prompt", 0)) * 1_000_000
     price_output = float(pricing.get("completion", 0)) * 1_000_000
+    cache_read = pricing.get("input_cache_read")
+    price_cache_read = float(cache_read) * 1_000_000 if cache_read is not None else None
     # Check for vision support: look for "image" in input modalities
     # OpenRouter uses modalities like "text+image->text" (not "vision")
     architecture = model_data.get("architecture", {})
@@ -2832,6 +2875,7 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         supports_reasoning=reasoning and include_reasoning,
         price_input=price_input,
         price_output=price_output,
+        price_cache_read=price_cache_read,
         default_tool_format="tool",  # openai-compat route dialect
     )
 

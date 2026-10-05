@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import httpx
 from typing_extensions import NotRequired
 
 from ..tools.base import truncate_tool_description
@@ -19,6 +20,16 @@ if TYPE_CHECKING:
     from ..tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+
+class ResponsesStreamError(httpx.RemoteProtocolError):
+    """Explicit failure reported inside an HTTP-200 Responses stream."""
+
+    def __init__(self, event_type: str, code: str, message: str):
+        self.event_type = event_type
+        self.code = code
+        self.message = message
+        super().__init__(f"Responses stream {event_type}: {code}: {message}")
 
 
 class ContentPart(TypedDict):
@@ -365,6 +376,7 @@ def _stream_responses_events(
     *,
     usage_callback: Callable[[Any], None] | None = None,
     model_callback: Callable[[str], None] | None = None,
+    incomplete_callback: Callable[[], None] | None = None,
 ) -> Generator[str, None, None]:
     """Process a Responses API event stream, yielding formatted text chunks.
 
@@ -393,7 +405,22 @@ def _stream_responses_events(
     for event in event_iter:
         event_type = _obj_get(event, "type", "")
 
-        if event_type in ("response.reasoning_text.delta", "response.reasoning.delta"):
+        if event_type in ("error", "response.failed"):
+            # HTTP 200 only establishes the stream, not successful generation.
+            # Raise a provider error without dumping the response (instructions,
+            # input and output may contain private context).
+            if event_type == "response.failed":
+                error = _obj_get(_obj_get(event, "response", None), "error", None)
+            else:
+                error = _obj_get(event, "error", None) or event
+            code = _obj_get(error, "code", None) or "unknown_error"
+            message = _obj_get(error, "message", None) or "Generation failed"
+            raise ResponsesStreamError(event_type, code, message)
+
+        elif event_type in (
+            "response.reasoning_text.delta",
+            "response.reasoning.delta",
+        ):
             delta = _obj_get(event, "delta", "")
             if delta:
                 if not in_reasoning_block:
@@ -470,8 +497,26 @@ def _stream_responses_events(
                 if served is not None:
                     model_callback(served)
 
-        elif event_type in ("response.completed", "response.done"):
+        elif event_type in ("error", "response.failed"):
+            # Without this a failed response ended the stream silently and
+            # looked like a normal (often empty) reply.
+            raise _responses_stream_error(event)
+
+        elif event_type in (
+            "response.completed",
+            "response.done",
+            "response.incomplete",
+        ):
             response_obj = _obj_get(event, "response", None)
+            if event_type == "response.incomplete":
+                details = _obj_get(response_obj, "incomplete_details", None)
+                logger.warning(
+                    "Responses API stream ended incomplete (reason=%s); "
+                    "output may be truncated",
+                    _obj_get(details, "reason", None) or "unknown",
+                )
+                if incomplete_callback is not None:
+                    incomplete_callback()
             if model_callback is not None:
                 served = served_model_from(response_obj)
                 if served is not None:
@@ -489,6 +534,29 @@ def _stream_responses_events(
         yield pending.replace("<thinking>", "<think>").replace(
             "</thinking>", "</think>"
         )
+
+
+def _responses_stream_error(event: Any) -> Exception:
+    """Build a provider error from an ``error``/``response.failed`` stream event.
+
+    ``error`` events carry ``code``/``message`` at the top level;
+    ``response.failed`` nests them under ``response.error``. Raising an
+    ``openai.APIError`` with that body lets ``is_provider_error()`` and
+    ``is_context_length_error()`` classify it like any other provider failure.
+    """
+    import httpx
+    from openai import APIError  # fmt: skip
+
+    error = _obj_get(_obj_get(event, "response", None), "error", None) or event
+    code = _obj_get(error, "code", None)
+    message = _obj_get(error, "message", None) or "unknown error"
+    body = {"code": code, "message": message}
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    return APIError(
+        f"Responses API stream failed ({code or 'no code'}): {message}",
+        request,
+        body=body,
+    )
 
 
 def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:

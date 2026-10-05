@@ -15,7 +15,7 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,12 +26,13 @@ from ..dirs import get_logs_dir
 from ..executor import prepare_execution_environment
 from ..hooks import HookType, trigger_hook
 from ..hooks.confirm import ConfirmationResult
-from ..llm import _chat_complete, _stream
+from ..llm import _chat_complete, _stream, mark_llm_reply_origin
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message, MessageMetadata, MessageTimings
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools
 from ..tools._url_safety import set_session_allow_hosts
+from ..tools.autocompact.recovery import recover_reply
 from ..tools.shell import set_workspace_cwd
 from ..util.context_measurement import anchor_context_usage, input_log_digest
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
@@ -51,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# ACP Health Monitor
+# Session Health Monitor
 # ---------------------------------------------------------------------------
 
 _health_monitor_thread: threading.Thread | None = None
@@ -65,11 +66,12 @@ _HEALTH_CHECK_INTERVAL = 30
 _SESSION_MAX_AGE_MINUTES = 60
 
 
-def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
-    """Start a background thread that periodically checks ACP subprocess health.
+def start_session_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
+    """Start a background thread that periodically checks session health.
 
-    The monitor:
-    - Cleans up sessions idle longer than ``_SESSION_MAX_AGE_MINUTES``
+    Started unconditionally at app creation so every server deployment gets
+    session hygiene, not only those that ever used ACP. The monitor:
+    - Cleans up client-less sessions idle longer than ``_SESSION_MAX_AGE_MINUTES``
     - Detects dead ACP subprocesses and removes their sessions
     - Logs subprocess lifecycle events for observability
     """
@@ -80,30 +82,30 @@ def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
             try:
                 _run_health_check()
             except Exception:
-                logger.exception("Error in ACP health monitor")
+                logger.exception("Error in session health monitor")
 
     with _health_monitor_lock:
         if _health_monitor_thread is not None:
             logger.debug(
-                "ACP health monitor already running (interval arg %ds ignored)",
+                "Session health monitor already running (interval arg %ds ignored)",
                 interval,
             )
             return  # Already running
 
         _health_monitor_stop.clear()
         _health_monitor_thread = threading.Thread(
-            target=_monitor, daemon=True, name="acp-health-monitor"
+            target=_monitor, daemon=True, name="session-health-monitor"
         )
         _health_monitor_thread.start()
         # Register atexit handler only once — stop/start cycles re-enter this function
         # but must not accumulate duplicate registrations.
         if not _health_monitor_atexit_registered:
-            atexit.register(stop_acp_health_monitor)
+            atexit.register(stop_session_health_monitor)
             _health_monitor_atexit_registered = True
-    logger.info("ACP health monitor started (interval=%ds)", interval)
+    logger.info("Session health monitor started (interval=%ds)", interval)
 
 
-def stop_acp_health_monitor() -> None:
+def stop_session_health_monitor() -> None:
     """Stop the health monitor and clean up all remaining ACP sessions."""
     global _health_monitor_thread
     with _health_monitor_lock:
@@ -123,10 +125,9 @@ def stop_acp_health_monitor() -> None:
 
 def _run_health_check() -> None:
     """Single health check iteration."""
-    # 1. Clean inactive sessions (was never called before this change).
-    # Note: this intentionally applies to all sessions (not just ACP ones) —
-    # the health monitor acts as server-wide session hygiene in ACP deployments.
-    # Non-ACP sessions idle for more than _SESSION_MAX_AGE_MINUTES are also evicted.
+    # 1. Clean inactive, client-less sessions. Applies to all sessions, not just
+    # ACP ones — the monitor is server-wide session hygiene, started for every
+    # deployment at app creation.
     SessionManager.clean_inactive_sessions(max_age_minutes=_SESSION_MAX_AGE_MINUTES)
 
     # 2. Check ACP subprocess health
@@ -922,9 +923,6 @@ def step(
         manager.write()
         logger.debug("Wrote step.pre hook messages to disk")
 
-    # Anchor usage to stored input before preparation merges/enriches messages.
-    input_count = len(manager.log.messages)
-    input_digest = input_log_digest(manager.log.messages)
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
     if not msgs:
@@ -955,95 +953,149 @@ def step(
     skill_outcome: SkillPhase | None = None
     skill_error_type = None
     try:
-        # Stream tokens from the model
         output = ""
-        tooluses = []
-        # Handle streaming vs non-streaming differently
-        metadata = None
+        tooluses: list[ToolUse] = []
 
-        # Batch settings for SSE events: accumulate chars and flush at a
-        # batch boundary (~20 chars) or on newline, to dramatically reduce
-        # SSE event volume (10K events → ~500 for a typical response).
-        _SSE_BATCH_SIZE = 20
-        sse_token_batch: list[str] = []
-
-        def _flush_sse_batch() -> None:
-            if not sse_token_batch:
-                return
-            SessionManager.add_event(
-                conversation_id,
-                {
-                    "type": "generation_progress",
-                    "token": "".join(sse_token_batch),
-                },
+        def retry_allowed() -> bool:
+            return (
+                session.generating
+                and not session.interrupted
+                and session.step_seq == my_step_seq
             )
-            sse_token_batch.clear()
 
-        if stream:
-            stream_wrapper = _stream(
-                msgs,
-                model,
-                tools,
-                max_tokens=effective_max_tokens,
-                temperature=effective_temperature,
-                top_p=effective_top_p,
-            )
-            chunks: Iterable[str] = stream_wrapper
-        else:
-            response, metadata = _chat_complete(
-                msgs,
-                model,
-                tools,
-                max_tokens=effective_max_tokens,
-                temperature=effective_temperature,
-                top_p=effective_top_p,
-            )
-            chunks = [response]  # Wrap in list to iterate
-            stream_wrapper = None
+        @contextmanager
+        def overflow_guard(restoring: bool) -> Iterator[None]:
+            # Serialize view activation with interrupt/replacement admission.
+            # Interrupt and replacement both bump step_seq under step_lock, so
+            # ownership of the view reduces to the epoch check; only retry
+            # admission additionally needs a live, uninterrupted generation.
+            with session.step_lock:
+                if session.step_seq != my_step_seq or (
+                    not restoring and not retry_allowed()
+                ):
+                    raise InterruptedError("Step no longer owns generation")
+                yield
 
-        for token in (char for chunk in chunks for char in chunk):
-            # check if interrupted
+        def generate(messages: list[Message]) -> Message:
+            nonlocal output, tooluses
+            if not retry_allowed():
+                raise InterruptedError("Step no longer owns generation")
+            input_count = len(manager.log.messages)
+            input_digest = input_log_digest(manager.log.messages)
+            output = ""
+            tooluses = []
+            # Handle streaming vs non-streaming differently
+            metadata = None
+
+            # Batch settings for SSE events: accumulate chars and flush at a
+            # batch boundary (~20 chars) or on newline, to dramatically reduce
+            # SSE event volume (10K events → ~500 for a typical response).
+            _SSE_BATCH_SIZE = 20
+            sse_token_batch: list[str] = []
+
+            def _flush_sse_batch() -> None:
+                if not sse_token_batch:
+                    return
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "generation_progress",
+                        "token": "".join(sse_token_batch),
+                    },
+                )
+                sse_token_batch.clear()
+
+            try:
+                if stream:
+                    stream_wrapper = _stream(
+                        messages,
+                        model,
+                        tools,
+                        max_tokens=effective_max_tokens,
+                        temperature=effective_temperature,
+                        top_p=effective_top_p,
+                    )
+                    chunks: Iterable[str] = stream_wrapper
+                else:
+                    response, metadata = _chat_complete(
+                        messages,
+                        model,
+                        tools,
+                        max_tokens=effective_max_tokens,
+                        temperature=effective_temperature,
+                        top_p=effective_top_p,
+                    )
+                    chunks = [response]  # Wrap in list to iterate
+                    stream_wrapper = None
+
+                for token in (char for chunk in chunks for char in chunk):
+                    # check if interrupted
+                    if (
+                        not session.generating
+                        or session.interrupted
+                        or session.step_seq != my_step_seq
+                    ):
+                        output += " [INTERRUPTED]"
+                        break
+
+                    output += token
+                    sse_token_batch.append(token)
+
+                    # Flush batch: on newline (tool detection needs it) or at batch cap
+                    if token == "\n" or len(sse_token_batch) >= _SSE_BATCH_SIZE:
+                        _flush_sse_batch()
+
+                    # Check for complete tool uses on \n
+                    if "\n" in token:
+                        if tooluses := list(ToolUse.iter_from_content(output)):
+                            _flush_sse_batch()  # flush remaining before break
+                            break
+                else:
+                    tooluses = list(ToolUse.iter_from_content(output))
+
+            except Exception as error:
+                mark_llm_reply_origin(error, output_emitted=bool(output))
+                raise
+
+            # Flush any remaining buffered tokens before completion
+            _flush_sse_batch()
+
+            # Capture metadata from stream after iteration completes
             if (
-                not session.generating
-                or session.interrupted
-                or session.step_seq != my_step_seq
+                stream_wrapper is not None
+                and hasattr(stream_wrapper, "metadata")
+                and stream_wrapper.metadata
             ):
-                output += " [INTERRUPTED]"
-                break
+                metadata = stream_wrapper.metadata
 
-            output += token
-            sse_token_batch.append(token)
+            # Persist the assistant message. Anchor the *resolved* model (e.g.
+            # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity
+            # compaction compares against; the raw request name can differ.
+            msg = Message("assistant", output, metadata=metadata)
+            anchor_context_usage(msg, input_count, input_digest, model_meta.full)
 
-            # Flush batch: on newline (tool detection needs it) or at batch cap
-            if token == "\n" or len(sse_token_batch) >= _SSE_BATCH_SIZE:
-                _flush_sse_batch()
+            return msg
 
-            # Check for complete tool uses on \n
-            if "\n" in token:
-                if tooluses := list(ToolUse.iter_from_content(output)):
-                    _flush_sse_batch()  # flush remaining before break
-                    break
-        else:
-            tooluses = list(ToolUse.iter_from_content(output))
+        msg = recover_reply(
+            manager,
+            msgs,
+            model_meta.full,
+            generate,
+            lambda messages: prepare_messages(messages, logdir=manager.logdir),
+            retry_guard=overflow_guard,
+        )
 
-        # Flush any remaining buffered tokens before completion
-        _flush_sse_batch()
-
-        # Capture metadata from stream after iteration completes
-        if (
-            stream_wrapper is not None
-            and hasattr(stream_wrapper, "metadata")
-            and stream_wrapper.metadata
-        ):
-            metadata = stream_wrapper.metadata
-
-        # Persist the assistant message. Anchor the *resolved* model (e.g.
-        # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity
-        # compaction compares against; the raw request name can differ.
-        msg = Message("assistant", output, metadata=metadata)
-        anchor_context_usage(msg, input_count, input_digest, model_meta.full)
-
-        _append_and_notify(manager, session, msg)
+        # A successful retry can race an interrupt or replacement step: the last
+        # overflow_guard check finished before this point, so re-verify ownership
+        # and commit the reply under the same lock hold; releasing in between
+        # would let a replacement bump the epoch before the append lands. The
+        # smaller view stays active on revocation on purpose: it is the one
+        # proven to fit the provider, and the epoch owner (not this step) may
+        # already have switched views, so restoring here could clobber it.
+        with session.step_lock:
+            if session.step_seq != my_step_seq or session.interrupted:
+                raise InterruptedError("Epoch replaced before reply commit")
+            _append_and_notify(manager, session, msg)
 
         # Trigger TURN_POST hook (turn.post - after message processing completes)
         if post_msgs := trigger_hook(
@@ -1139,6 +1191,9 @@ def step(
             )
 
     except Exception as e:
+        # A revoked step must not publish its failure into a replacement epoch.
+        if session.interrupted or session.step_seq != my_step_seq:
+            return
         skill_outcome = "failed"
         skill_error_type = type(e).__name__
         logger.exception(f"Error during step execution: {e}")

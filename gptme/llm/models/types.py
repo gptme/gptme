@@ -179,6 +179,10 @@ class ModelMeta:
     # shifting the existing positional constructor fields.
     context_budget: float | int | None = None
 
+    # USD per 1M cached input tokens. None means no explicit model rate;
+    # zero is a known free cache read. Keep last for positional compatibility.
+    price_cache_read: float | None = None
+
     @property
     def full(self) -> str:
         # For unknown providers (including custom providers), the model field
@@ -299,6 +303,7 @@ class _ModelDictMeta(TypedDict):
     # price in USD per 1M tokens
     price_input: NotRequired[float]
     price_output: NotRequired[float]
+    price_cache_read: NotRequired[float | None]
 
     supports_streaming: NotRequired[bool]
     supports_vision: NotRequired[bool]

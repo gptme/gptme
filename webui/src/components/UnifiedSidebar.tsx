@@ -146,12 +146,26 @@ export const UnifiedSidebar: FC<Props> = ({
   // Navigation state - agents/workspaces show chat sidebar content
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
 
+  // Servers without a session provider answer /api/v2/external-sessions with 503
+  // on every chat load (gptme/gptme#4112). Read the capability flag from
+  // GET /api/v2 and only ask for the catalog when it is on. Default retries
+  // cover a transient lookup failure; the short staleTime means a reconnect
+  // (the query is re-enabled when isConnected flips back) re-reads the flag,
+  // so a server restarted with a different provider is picked up.
+  const { data: serverInfo } = useQuery({
+    queryKey: ['server-info', connectionConfig.baseUrl],
+    queryFn: () => api.getServerInfo(),
+    enabled: isConnected && !demoMode,
+    staleTime: 60 * 1000,
+  });
+  const hasExternalSessionCatalog = serverInfo?.capabilities?.external_session_catalog === true;
+
   // Fetch external sessions for the chat sidebar (capability-gated, best-effort)
   // Key includes the day window to avoid colliding with ExternalSessionsView's full-range query
   const { data: externalSessions } = useQuery({
     queryKey: ['external-sessions', 7],
     queryFn: () => api.getExternalSessions(7),
-    enabled: isConnected && currentSection === 'chat',
+    enabled: isConnected && currentSection === 'chat' && hasExternalSessionCatalog,
     staleTime: 60 * 1000,
     retry: false,
   });

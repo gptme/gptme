@@ -326,6 +326,32 @@ class SessionManager:
         return session
 
     @classmethod
+    def attach_client(
+        cls, session: ConversationSession, client_id: str
+    ) -> ConversationSession:
+        """Register an SSE client on ``session`` atomically with eviction.
+
+        The client is added under ``_lock``, so ``clean_inactive_sessions``
+        cannot evict the session between the events route looking it up and the
+        stream registering its client. If the session was evicted before this
+        call, a fresh session for the same conversation is created and returned
+        instead, so the ``connected`` event never announces an ID the manager no
+        longer holds.
+        """
+        conversation_id = session.conversation_id
+        if conversation_id is None:
+            raise ValueError("Server sessions must have conversation_id")
+        with cls._lock:
+            if cls._sessions.get(session.id) is not session:
+                session = ConversationSession(
+                    id=str(uuid.uuid4()), conversation_id=conversation_id
+                )
+                cls._sessions[session.id] = session
+                cls._conversation_sessions[conversation_id].add(session.id)
+            session.clients.add(client_id)
+        return session
+
+    @classmethod
     def get_session(cls, session_id: str) -> ConversationSession | None:
         """Get a session by ID."""
         with cls._lock:
@@ -526,11 +552,21 @@ class SessionManager:
 
     @classmethod
     def clean_inactive_sessions(cls, max_age_minutes: int = 60) -> None:
-        """Clean up inactive sessions.
+        """Clean up inactive, client-less sessions.
+
+        A session with connected SSE clients is never evicted, even if its
+        ``last_activity`` is old: the stream keeps the session alive and
+        evicting it would drop a live client. Sessions whose clients have all
+        disconnected (``clients`` empty) are evicted once idle past the cutoff,
+        including any tool still awaiting confirmation: its owned skill
+        invocation is marked abandoned rather than pinning the session forever.
 
         Also detects sessions stuck in generating=True state: if a session has
-        been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, it is
-        force-cleaned to prevent permanent resource leaks.
+        been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, its
+        generating flag is forcibly reset. If no clients are connected, or the
+        session runs on an ACP runtime, the session is also evicted (closing
+        the subprocess); otherwise it is kept so the live stream can observe
+        the cleared state.
 
         Removal is performed atomically under a single lock acquisition to
         prevent a TOCTOU race where a concurrent ``/step`` could start
@@ -550,7 +586,11 @@ class SessionManager:
         with cls._lock:
             to_remove: list[str] = []
             for session_id, session in list(cls._sessions.items()):
-                if session.last_activity < cutoff and not session.generating:
+                if (
+                    session.last_activity < cutoff
+                    and not session.generating
+                    and not session.clients
+                ):
                     to_remove.append(session_id)
                 elif (
                     session.generating
@@ -565,7 +605,11 @@ class SessionManager:
                         cls._STUCK_GENERATING_TIMEOUT_MINUTES,
                     )
                     session.generating = False
-                    to_remove.append(session_id)
+                    # An ACP session is always evicted: removal closes the
+                    # (possibly still-running) subprocess, and keeping it would
+                    # let the next /step overlap the stuck prompt.
+                    if not session.clients or session.acp_runtime is not None:
+                        to_remove.append(session_id)
 
             # Remove all identified sessions while still holding the lock.
             for session_id in to_remove:

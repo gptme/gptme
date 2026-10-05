@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -131,11 +132,21 @@ def execute_vent(
     if not message:
         return Message("system", "vent: no message — nothing recorded.", quiet=True)
 
+    from ..llm.models import get_default_model
+
     entry: dict[str, str] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "workspace": str(Path.cwd()),
         "message": message,
+        "harness": "gptme",
     }
+    # Launchers supply the session-record identity; manual runs stay unattributed.
+    for key in ("GPTME_SESSION_ID", "AGENT_SESSION_ID", "BOB_SESSION_ID"):
+        if session_id := os.environ.get(key, "").strip():
+            entry["session_id"] = session_id
+            break
+    if model := get_default_model():
+        entry["model"] = model.full
     if resolution_owner:
         entry["resolution_owner"] = resolution_owner
 

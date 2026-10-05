@@ -68,9 +68,9 @@ from .session_step import (  # noqa: F401
     close_acp_runtime_bg,
     resolve_hook_confirmation,
     resolve_hook_elicitation,
-    start_acp_health_monitor,
+    start_session_health_monitor,
     start_tool_execution,
-    stop_acp_health_monitor,
+    stop_session_health_monitor,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,8 +156,8 @@ __all__ = [
     "ConversationSession",
     "SessionManager",
     # Step execution
-    "start_acp_health_monitor",
-    "stop_acp_health_monitor",
+    "start_session_health_monitor",
+    "stop_session_health_monitor",
     "close_acp_runtime_bg",
     "start_tool_execution",
     # Blueprint
@@ -228,7 +228,6 @@ def api_conversation_events(conversation_id: str):
                 conversation_id,
             )
         session = SessionManager.create_session(conversation_id)
-        session_id = session.id
     else:
         if session_obj.conversation_id != conversation_id:
             return flask.jsonify(
@@ -240,16 +239,19 @@ def api_conversation_events(conversation_id: str):
 
     # Generate event stream
     def generate_events() -> Generator[str, None, None]:
+        nonlocal session
         client_id = str(uuid.uuid4())
         sse_connection_open()
         try:
-            # Add this client to the session
-            session.clients.add(client_id)
+            # Add this client to the session atomically with idle eviction. If
+            # the session was evicted since the lookup above, this swaps in a
+            # fresh one, whose ID the `connected` event then announces.
+            session = SessionManager.attach_client(session, client_id)
 
             # Send initial connection event with pending tool state
             connected_event = {
                 "type": "connected",
-                "session_id": session_id,
+                "session_id": session.id,
                 "generating": session.generating,
                 "last_error": session.last_error,
                 "pending_tools": [
@@ -275,6 +277,13 @@ def api_conversation_events(conversation_id: str):
             last_event_index = session.events_count
 
             while True:
+                # End the stream if the session was evicted (idle sweep or stuck
+                # generation). Its events no longer arrive, so keeping the
+                # stream open would strand the client on an ID `/step` rejects;
+                # closing lets it reconnect and attach to a fresh session.
+                if SessionManager.get_session(session.id) is not session:
+                    break
+
                 # Check if there are new events
                 # Atomic read: batch and next index come from one lock hold, so a
                 # concurrent trim can't desync them.
@@ -487,8 +496,6 @@ def api_conversation_step(conversation_id: str):
 
             session.use_acp = True
             session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
-            # Lazy-start the health monitor on first ACP session.
-            start_acp_health_monitor()
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
         # Claim a new generation epoch before dispatch. If later setup fails,

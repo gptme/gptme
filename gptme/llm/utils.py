@@ -154,7 +154,7 @@ def process_image_file(
     if expand_user:
         f = f.expanduser()
 
-    ext = f.suffix[1:]
+    ext = f.suffix[1:].lower()
     if ext not in ALLOWED_FILE_EXTS:
         logger.warning("Unsupported file type: %s", ext)
         return None

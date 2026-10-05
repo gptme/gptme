@@ -263,7 +263,7 @@ def memory_save(
         body = sys.stdin.read()
     else:
         body = ""
-    from ..memory.schema import MemoryParseError  # fmt: skip
+    from ..memory.schema import MemoryParseError, parse_entry  # fmt: skip
 
     store = _store()
     try:
@@ -281,12 +281,8 @@ def memory_save(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     if as_json:
-        entry = store.get(name)
-        click.echo(
-            json.dumps(
-                entry.to_dict() if entry else {"path": str(path)}, indent=2, default=str
-            )
-        )
+        entry = parse_entry(path, scope=store.root(scope).scope)
+        click.echo(json.dumps(entry.to_dict(), indent=2, default=str))
     else:
         click.echo(f"Saved memory to {path}")
 

@@ -59,8 +59,11 @@ _EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 # https://platform.claude.com/docs/en/docs/build-with-claude/extended-thinking
 # ("Manual extended thinking is no longer supported on Claude Opus 4.7 or
 # later models and returns a 400 error.")
-_ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
-    {"claude-opus-4-7", "claude-opus-4-8"}
+_ALWAYS_THINKING_MODELS: frozenset[str] = frozenset(
+    {"claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"}
+)
+_ADAPTIVE_THINKING_MODELS: frozenset[str] = _ALWAYS_THINKING_MODELS | frozenset(
+    {"claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5-5"}
 )
 
 if TYPE_CHECKING:
@@ -210,9 +213,16 @@ def _resolve_thinking_budget() -> int:
     ``GPTME_REASONING_BUDGET`` is parsed as an integer (default 16000).
 
     If both are set, ``GPTME_THINKING_EFFORT`` wins and a warning is logged.
+
+    Reads via ``get_config().get_env()`` (not ``os.environ`` directly) so a
+    subagent's thread-local config override (see ``subagent(reasoning_effort=...)``)
+    takes effect without touching the parent process's or any sibling's setting.
     """
-    effort = os.environ.get(ENV_THINKING_EFFORT)
-    budget_raw = os.environ.get(ENV_REASONING_BUDGET)
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+    effort = config.get_env(ENV_THINKING_EFFORT)
+    budget_raw = config.get_env(ENV_REASONING_BUDGET)
 
     if effort is not None:
         level = _normalize_effort_level(effort)
@@ -275,8 +285,13 @@ def _resolve_effort_level() -> _EffortLevel | None:
 
     Returns ``None`` when the env var is not set (i.e. the budget is driven
     by ``GPTME_REASONING_BUDGET`` instead).
+
+    Reads via ``get_config().get_env()`` for the same thread-scoping reason as
+    ``_resolve_thinking_budget()`` above.
     """
-    effort = os.environ.get(ENV_THINKING_EFFORT)
+    from ..config import get_config  # fmt: skip
+
+    effort = get_config().get_env(ENV_THINKING_EFFORT)
     if effort is None:
         return None
     return _normalize_effort_level(effort)
@@ -385,6 +400,21 @@ def _output_config_kwargs(*, use_thinking: bool) -> _OutputConfigKwargs:
     return {"output_config": {"effort": effort_level}}
 
 
+def _matches_model(model: str, models: frozenset[str]) -> bool:
+    """Match model names with optional vendor prefixes and release suffixes.
+
+    Only a purely numeric suffix is treated as a dated release of ``known``
+    (e.g. ``claude-sonnet-5-5-20260928`` -> ``claude-sonnet-5-5``). A
+    hyphenated non-numeric suffix names a *different* model
+    (``claude-sonnet-5-5-mini``), which must not inherit its thinking mode.
+    """
+    base = model.rsplit("/", 1)[-1]
+    return base in models or any(
+        base.startswith(known + "-") and base[len(known) + 1 :].isdigit()
+        for known in models
+    )
+
+
 def _requires_adaptive_thinking(model: str) -> bool:
     """Return True if ``model`` rejects legacy ``thinking.type=enabled`` with 400.
 
@@ -392,13 +422,7 @@ def _requires_adaptive_thinking(model: str) -> bool:
     plus ``output_config.effort``.  Handles bare names, vendor prefixes, and
     Anthropic's dated-release suffixes (e.g. ``claude-opus-4-7-20260401``).
     """
-    # Strip vendor prefix: "anthropic/claude-opus-4-7" -> "claude-opus-4-7",
-    # "openrouter/anthropic/claude-opus-4-7" -> "claude-opus-4-7".
-    base = model.rsplit("/", 1)[-1]
-    if base in _ADAPTIVE_THINKING_MODELS:
-        return True
-    # Match dated-release suffix: "claude-opus-4-7-20260401".
-    return any(base.startswith(known + "-") for known in _ADAPTIVE_THINKING_MODELS)
+    return _matches_model(model, _ADAPTIVE_THINKING_MODELS)
 
 
 def _build_thinking_param(
@@ -406,16 +430,25 @@ def _build_thinking_param(
 ) -> dict[str, object] | None:
     """Build the ``thinking`` kwarg for Anthropic's messages API.
 
-    Returns ``None`` when thinking is disabled so callers can substitute
-    the SDK's ``NOT_GIVEN`` sentinel.  Branches on model capability:
+    Returns ``None`` when legacy thinking is disabled so callers can substitute
+    the SDK's ``NOT_GIVEN`` sentinel. Branches on model capability:
 
     - Adaptive-only models (Opus 4.7+): ``{"type": "adaptive"}`` (effort
       flows through ``output_config`` separately).
+    - Claude 5 models request visible thinking summaries; Sonnet 5.5 uses
+      ``between_tools`` when up-front thinking is disabled.
     - All other reasoning models: ``{"type": "enabled", "budget_tokens": N}``.
     """
+    if _matches_model(model, frozenset({"claude-sonnet-5-5"})):
+        # Sonnet 5.5 thinks by default; omission would ignore GPTME_REASONING=0.
+        if not use_thinking:
+            return {"type": "between_tools"}
+        return {"type": "adaptive", "display": "summarized"}
     if not use_thinking:
         return None
     if _requires_adaptive_thinking(model):
+        if _matches_model(model, _ALWAYS_THINKING_MODELS):
+            return {"type": "adaptive", "display": "summarized"}
         return {"type": "adaptive"}
     return {"type": "enabled", "budget_tokens": thinking_budget}
 
@@ -471,6 +504,10 @@ def _should_use_thinking(model_meta: ModelMeta, tools: list[ToolSpec] | None) ->
     messages containing <think> tags will be converted to proper Anthropic
     thinking blocks in the content array.
     """
+    # Opus 5.5 and Fable 5 cannot disable thinking; keep request/effort metadata honest.
+    if _matches_model(model_meta.model, _ALWAYS_THINKING_MODELS):
+        return True
+
     # Support environment variable to override reasoning behavior
     env_reasoning = os.environ.get(ENV_REASONING)
     if env_reasoning and env_reasoning.lower() in ("1", "true", "yes"):
@@ -1128,7 +1165,7 @@ def _extract_thinking_content(
         sig_match = sig_pattern.search(block)
         signature = sig_match.group(1).strip() if sig_match else ""
         cleaned_block = sig_pattern.sub("", block).strip()
-        if cleaned_block:
+        if cleaned_block or signature:
             thinking_blocks.append((cleaned_block, signature))
 
     # Remove <think> and <thinking> tags from content
