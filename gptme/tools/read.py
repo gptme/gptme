@@ -177,12 +177,14 @@ def _read_line_range(
     has_invalid_utf8 = False
     pending: list[str] = []
     pending_bytes = 0
+    line_has_content = False
     skip_lf = False
     separators = "\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"
 
     def consume() -> tuple[bool, bool]:
         """Consume one logical line; return (stop, truncated)."""
         nonlocal selected_bytes, total, has_invalid_utf8, pending_bytes
+        nonlocal line_has_content
         if total >= start_idx:
             separator_bytes = 1 if selected else 0
             if selected_bytes + separator_bytes + pending_bytes > _MAX_READ_BYTES:
@@ -198,11 +200,12 @@ def _read_line_range(
         total += 1
         pending.clear()
         pending_bytes = 0
+        line_has_content = False
         return end_line is not None and total >= end_line, False
 
     def process(text: str) -> tuple[bool, bool]:
         """Process decoded text; return (stop, truncated)."""
-        nonlocal pending_bytes, skip_lf
+        nonlocal pending_bytes, line_has_content, skip_lf
         for char in text:
             if skip_lf:
                 skip_lf = False
@@ -214,8 +217,11 @@ def _read_line_range(
                     return stop, truncated
                 skip_lf = char == "\r"
                 continue
+            line_has_content = True
             if total >= start_idx:
-                char_bytes = len(char.encode("utf-8", errors="surrogateescape"))
+                char_bytes = (
+                    3 if "\udc80" <= char <= "\udcff" else len(char.encode("utf-8"))
+                )
                 separator_bytes = 1 if selected else 0
                 if (
                     selected_bytes + separator_bytes + pending_bytes + char_bytes
@@ -236,7 +242,7 @@ def _read_line_range(
         if stop:
             return selected, total, truncated, False, has_invalid_utf8
 
-    if pending:
+    if line_has_content:
         stop, truncated = consume()
         if stop:
             return selected, total, truncated, False, has_invalid_utf8

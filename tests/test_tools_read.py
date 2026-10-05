@@ -616,7 +616,7 @@ def test_read_large_file_range_truncated_at_cap(tmp_path: Path):
 def test_read_large_file_range_cap_matches_rendered_utf8_bytes(tmp_path: Path):
     """The byte cap includes separators but not a nonexistent trailing newline."""
     path = tmp_path / "big.log"
-    path.write_text("é\né\né\n")
+    path.write_text("é\né\né\n", encoding="utf-8")
 
     with patch("gptme.tools.read._MAX_READ_BYTES", 5):
         messages = list(
@@ -643,12 +643,27 @@ def test_read_large_file_oversized_first_line_is_refused(tmp_path: Path):
     assert "x" * 11 not in content
 
 
+def test_read_large_file_range_cap_counts_replacement_bytes(tmp_path: Path):
+    """Invalid bytes count as the rendered three-byte replacement character."""
+    path = tmp_path / "invalid.log"
+    path.write_bytes(b"\xff\xff\n" + b"padding\n")
+
+    with patch("gptme.tools.read._MAX_READ_BYTES", 5):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "1"})
+        )
+
+    content = messages[0].content
+    assert "first line in the requested range exceeds" in content
+    assert "��" not in content
+
+
 def test_read_large_file_warns_on_invalid_utf8_in_selected_range(tmp_path: Path):
     """Replacement of selected invalid bytes is explicit to the agent."""
     path = tmp_path / "invalid.log"
     path.write_bytes(b"ok\ninvalid:\xff\nafter\n")
 
-    with patch("gptme.tools.read._MAX_READ_BYTES", 10):
+    with patch("gptme.tools.read._MAX_READ_BYTES", 11):
         messages = list(
             execute_read(None, [str(path)], {"start_line": "2", "end_line": "2"})
         )
@@ -657,6 +672,22 @@ def test_read_large_file_warns_on_invalid_utf8_in_selected_range(tmp_path: Path)
     assert "invalid:�" in content
     assert "contains invalid UTF-8 bytes" in content
     assert "does not exactly match the file" in content
+
+
+def test_read_large_file_counts_unselected_unterminated_final_line(tmp_path: Path):
+    """An unterminated final line is counted even when it precedes the range."""
+    path = tmp_path / "short.log"
+    path.write_bytes(b"first\ntail")
+
+    selected, total, truncated, total_exact, has_invalid_utf8 = _read_line_range(
+        path, 2, 3
+    )
+
+    assert selected == []
+    assert total == 2
+    assert not truncated
+    assert total_exact
+    assert not has_invalid_utf8
 
 
 def test_read_large_file_stream_matches_whole_file_line_boundaries(tmp_path: Path):
