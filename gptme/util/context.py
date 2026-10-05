@@ -1035,12 +1035,16 @@ def _resource_to_codeblock(
     paths = []
     urls = []
     for word in words:
-        f = Path(word).expanduser()
-        if f.exists() and f.is_file():
-            paths.append(word)
-            continue
-        if f.exists() and f.is_dir():
-            paths.append(word)
+        try:
+            f = Path(word).expanduser()
+            if f.exists() and f.is_file():
+                paths.append(word)
+                continue
+            if f.exists() and f.is_dir():
+                paths.append(word)
+                continue
+        except PermissionError:
+            logger.warning("Skipping unreadable file: %s", word)
             continue
         try:
             p = urllib.parse.urlparse(word)
