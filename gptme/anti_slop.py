@@ -222,12 +222,12 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
             {
                 "category": "em_dash",
                 "label": "em-dash abuse",
-                "count": round(em_excess, 2),  # display only; scoring uses exact float
+                "count": em_excess,
                 "weight": 1,
             }
         )
-        by_category["em_dash"] = round(em_excess, 2)
-        total_hits += round(em_excess, 2)
+        by_category["em_dash"] = em_excess
+        total_hits += em_excess
 
     staccato = _count_staccato_runs(text)
     if staccato:
@@ -360,6 +360,11 @@ def evaluate_gate(
 # ---------------------------------------------------------------------------
 # Convenience: run as a script  ``python -m gptme.anti_slop FILE``
 # ---------------------------------------------------------------------------
+def _format_count(count: int | float) -> str:
+    """Format a hit count compactly without hiding small positive values."""
+    return f"{count:.12g}"
+
+
 def _format_report(report: dict[str, Any], *, top: int = 5) -> str:
     smell = report["smell_report"]
     status = report["status"].upper()
@@ -367,14 +372,16 @@ def _format_report(report: dict[str, Any], *, top: int = 5) -> str:
         f"Anti-Slop Gate: {status}  [mode={report['mode']}]",
         f"reason: {report['reason']}",
         (
-            f"words: {smell['word_count']}  hits: {smell['total_hits']}  "
+            f"words: {smell['word_count']}  "
+            f"hits: {_format_count(smell['total_hits'])}  "
             f"weighted_score: {smell['weighted_score']} /1k words"
         ),
     ]
     if smell["hits"]:
         lines.append("\nTop smells:")
         lines.extend(
-            f"  [{h['category']:<13}] {h['label']:<28} x{h['count']}  (w{h['weight']})"
+            f"  [{h['category']:<13}] {h['label']:<28} "
+            f"x{_format_count(h['count'])}  (w{h['weight']})"
             for h in smell["hits"][:top]
         )
     return "\n".join(lines)

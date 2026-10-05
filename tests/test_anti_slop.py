@@ -98,19 +98,22 @@ def test_gate_strict_rounding_does_not_flip_gate():
     )
 
 
-def test_gate_relaxed_fractional_excess_is_reported():
-    # Regression: a fractional em_excess (0 < excess < 0.5) must remain visible
-    # in the report instead of producing either "em-dash abuse x0" or an
-    # unexplained nonzero score. ~100 words, 1 em dash, relaxed tolerance
-    # (8/1k) → tolerated ≈ 0.8 and excess ≈ 0.2.
-    text = " ".join(["word"] * 99) + " — sentence"
-    r = detect_smells(text, em_dash_tolerance=8.0)
+@pytest.mark.parametrize(
+    ("word_count", "tolerance", "expected_excess"),
+    [(100, 8.0, 0.2), (333, 3.0, 0.001)],
+)
+def test_gate_fractional_excess_is_reported(
+    word_count: int, tolerance: float, expected_excess: float
+):
+    # Every positive score contribution must remain positive in the report,
+    # including values below two decimal places.
+    text = " ".join(["word"] * (word_count - 1)) + " — sentence"
+    r = detect_smells(text, em_dash_tolerance=tolerance)
     em_hits = [h for h in r["hits"] if h["category"] == "em_dash"]
     assert len(em_hits) == 1
-    assert em_hits[0]["count"] == pytest.approx(0.2)
-    assert r["by_category"]["em_dash"] == pytest.approx(0.2)
-    assert r["total_hits"] == pytest.approx(0.2)
-    assert r["weighted_score"] == pytest.approx(2.0)
+    assert em_hits[0]["count"] == pytest.approx(expected_excess)
+    assert r["by_category"]["em_dash"] == pytest.approx(expected_excess)
+    assert r["total_hits"] == pytest.approx(expected_excess)
 
 
 def test_detect_returns_word_count():
@@ -285,13 +288,19 @@ def test_cli_check_skips_short_text():
     assert "SKIP" in result.output
 
 
-def test_cli_check_formats_fractional_em_dash_count():
-    text = " ".join(["word"] * 99) + " — sentence"
+@pytest.mark.parametrize(
+    ("word_count", "mode", "expected_count"),
+    [(100, "relaxed", "0.2"), (333, "strict", "0.001")],
+)
+def test_cli_check_formats_fractional_em_dash_count(
+    word_count: int, mode: str, expected_count: str
+):
+    text = " ".join(["word"] * (word_count - 1)) + " — sentence"
     runner = CliRunner()
-    result = runner.invoke(anti_slop, ["check", "--text", text, "--mode", "relaxed"])
+    result = runner.invoke(anti_slop, ["check", "--text", text, "--mode", mode])
     assert result.exit_code == 0
-    assert "hits: 0.2" in result.output
-    assert "em-dash abuse                x0.2" in result.output
+    assert f"hits: {expected_count}" in result.output
+    assert f"em-dash abuse                x{expected_count}" in result.output
 
 
 def test_cli_check_fails_on_slop():
