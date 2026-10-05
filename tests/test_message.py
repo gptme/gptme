@@ -128,6 +128,33 @@ def test_format_msgs_oneline_escapes_rich_markup():
     # Verify no Rich markup interpretation error
 
 
+def test_format_oneline_short_message_has_no_ellipsis():
+    """A short message that fits is shown verbatim, not marked as truncated."""
+    from gptme.message import Message
+
+    assert Message("user", "second turn").format(max_length=100) == "User: second turn"
+    assert Message("assistant", "done").format(max_length=100) == "Assistant: done"
+
+
+def test_format_oneline_truncation_ellipsis_not_doubled():
+    """Truncating at the first newline adds exactly one ellipsis."""
+    from gptme.message import Message
+
+    out = Message("assistant", "Hi there\n```python\nprint(1)\n```").format(
+        max_length=100
+    )
+    assert out == "Assistant: Hi there..."
+
+
+def test_format_oneline_unbreakable_long_word_still_truncated():
+    """A single word longer than the terminal width falls back to a hard cut."""
+    from gptme.message import Message, format_msgs
+
+    out = format_msgs([Message("user", "x" * 500)], oneline=True)[0]
+    assert out.endswith("...")
+    assert len(out) < 500
+
+
 def test_format_msgs_oneline_no_highlight_preserves_path_like_bracket():
     """Oneline plaintext formatting must preserve path-like brackets verbatim."""
     from gptme.message import Message, format_msgs
