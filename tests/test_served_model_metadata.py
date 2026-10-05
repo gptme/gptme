@@ -627,3 +627,75 @@ def test_anthropic_stream_served_model_from_message_start(
         assert metadata["served_model"] == expected
         # break_on_tooluse fallback (message_start partial) carries it too.
         assert partial["metadata"]["served_model"] == expected
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {
+            "type": "response.failed",
+            "response": {"error": {"code": "server_error", "message": "boom"}},
+        },
+        {"type": "error", "code": "server_error", "message": "boom"},
+    ],
+)
+def test_responses_stream_failure_raises_provider_error(event: dict) -> None:
+    """A failed response must raise, not end the stream as an empty reply."""
+    import openai
+
+    events = [{"type": "response.output_text.delta", "delta": "partial"}, event]
+    with pytest.raises(openai.APIError) as exc_info:
+        list(_stream_responses_events(events))
+    assert exc_info.value.body == {"code": "server_error", "message": "boom"}
+    assert "boom" in str(exc_info.value)
+
+
+def test_responses_stream_incomplete_warns_and_records_usage(caplog) -> None:
+    usage: list = []
+    events = [
+        {"type": "response.output_text.delta", "delta": "truncated"},
+        {
+            "type": "response.incomplete",
+            "response": {
+                "incomplete_details": {"reason": "max_output_tokens"},
+                "usage": {"input_tokens": 1, "output_tokens": 2},
+            },
+        },
+    ]
+    with caplog.at_level("WARNING", logger="gptme.llm.openai_responses"):
+        text = "".join(_stream_responses_events(events, usage_callback=usage.append))
+    assert text == "truncated"
+    assert usage == [{"input_tokens": 1, "output_tokens": 2}]
+    assert "max_output_tokens" in caplog.text
+
+
+def test_responses_stream_incomplete_signals_before_usage() -> None:
+    """Callers learn the response was incomplete before they record its usage."""
+    order: list[str] = []
+    events = [
+        {
+            "type": event_type,
+            "response": {"usage": {"input_tokens": 1, "output_tokens": 2}},
+        }
+        for event_type in ("response.completed", "response.incomplete")
+    ]
+    for event in events:
+        list(
+            _stream_responses_events(
+                [event],
+                usage_callback=lambda u: order.append("usage"),
+                incomplete_callback=lambda: order.append("incomplete"),
+            )
+        )
+    assert order == ["usage", "incomplete", "usage"]
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_record_usage_passes_success_to_telemetry(success: bool) -> None:
+    """An incomplete response keeps its usage/cost but is not a success."""
+    with patch.object(llm_openai, "record_llm_request") as record:
+        meta = _record_usage(
+            {"input_tokens": 1, "output_tokens": 2}, "openai/gpt-5", success=success
+        )
+    assert record.call_args.kwargs["success"] is success
+    assert meta is not None and meta.get("usage") is not None
