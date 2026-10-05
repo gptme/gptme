@@ -641,12 +641,13 @@ def test_anthropic_stream_served_model_from_message_start(
 )
 def test_responses_stream_failure_raises_provider_error(event: dict) -> None:
     """A failed response must raise, not end the stream as an empty reply."""
-    import openai
+    from gptme.llm.openai_responses import ResponsesStreamError
 
     events = [{"type": "response.output_text.delta", "delta": "partial"}, event]
-    with pytest.raises(openai.APIError) as exc_info:
+    with pytest.raises(ResponsesStreamError) as exc_info:
         list(_stream_responses_events(events))
-    assert exc_info.value.body == {"code": "server_error", "message": "boom"}
+    assert exc_info.value.code == "server_error"
+    assert exc_info.value.message == "boom"
     assert "boom" in str(exc_info.value)
 
 
