@@ -737,3 +737,55 @@ def test_model_to_dict_serializes_default_tool_format():
 
     unstamped = ModelMeta(provider=CustomProvider("test"), model="m2", context=8192)
     assert "default_tool_format" not in model_to_dict(unstamped)
+
+
+def test_fetch_models_parallel_propagates_config_context():
+    """Workers see the caller's ContextVar config (e.g. custom providers)."""
+    import contextvars
+
+    from gptme.config import get_config
+    from gptme.config.core import _config_var
+    from gptme.llm.models.listing import _fetch_models_parallel
+
+    sentinel = object()
+    seen: list = []
+
+    def fake_fetch(provider, dynamic_fetch):
+        seen.append(get_config())
+        return [provider]
+
+    def run():
+        _config_var.set(sentinel)  # type: ignore[arg-type]
+        with patch(
+            "gptme.llm.models.listing._get_models_for_provider", side_effect=fake_fetch
+        ):
+            return _fetch_models_parallel(["openai", "anthropic", "local"], False)
+
+    result = contextvars.copy_context().run(run)
+    assert result == [["openai"], ["anthropic"], ["local"]]
+    assert seen == [sentinel] * 3
+
+
+@patch("gptme.llm.models.listing._fetch_models_parallel")
+def test_list_models_detailed_uses_parallel_fetch(mock_fetch, capsys):
+    """The default detailed output renders models returned by the parallel fetch.
+
+    Pins behavior, not just the call: a sentinel model returned for one provider
+    must appear in the printed output, so removing the detailed path (or wiring
+    it to a different fetch) fails the test.
+    """
+    from gptme.llm.models import list_models
+
+    sentinel = ModelMeta(provider="openai", model="parallel-sentinel", context=8192)
+
+    def fake_fetch(providers, dynamic_fetch):
+        return [[sentinel] if str(p) == "openai" else [] for p in providers]
+
+    mock_fetch.side_effect = fake_fetch
+    list_models(dynamic_fetch=False)
+    assert mock_fetch.call_count == 1
+    providers_arg, dynamic_arg = mock_fetch.call_args.args
+    assert "openai" in providers_arg
+    assert dynamic_arg is False
+    out = capsys.readouterr().out
+    assert "parallel-sentinel" in out

@@ -2702,6 +2702,24 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         raise
 
 
+def _short_request_error(e: requests.RequestException) -> str:
+    """Summarize a requests error in a few words instead of urllib3's repr."""
+    if isinstance(e, requests.HTTPError) and e.response is not None:
+        return f"HTTP {e.response.status_code}"
+    if isinstance(e, requests.Timeout):
+        return "timed out"
+    if isinstance(e, requests.exceptions.SSLError):
+        # Keep the certificate reason; it is what the user needs to fix it.
+        m = re.search(r"certificate verify failed: ([^('\")]+)", str(e))
+        if m:
+            return f"SSL certificate verify failed: {m.group(1).strip()}"
+        return "SSL error"
+    if isinstance(e, requests.ConnectionError):
+        m = re.search(r"\[Errno -?\d+\] ([^('\")]+)", str(e))
+        return m.group(1).strip() if m else "connection failed"
+    return type(e).__name__
+
+
 def _get_openai_compatible_models(
     config,
     provider_name: str = "local",
@@ -2724,7 +2742,8 @@ def _get_openai_compatible_models(
 
     try:
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
-        response = requests.get(models_url, headers=headers, timeout=10)
+        # Short connect timeout: an unreachable host should not stall listing.
+        response = requests.get(models_url, headers=headers, timeout=(3, 10))
         response.raise_for_status()
         data = response.json()
 
@@ -2736,7 +2755,7 @@ def _get_openai_compatible_models(
         ]
     except requests.RequestException as e:
         log_fn = logger.debug if provider_name == "local" else logger.warning
-        log_fn(f"Failed to retrieve models from {provider_name} provider: {e}")
+        log_fn(f"{provider_name} provider: unavailable ({_short_request_error(e)})")
         # Return empty list instead of raising - local server might not be running
         return []
     except Exception as e:
