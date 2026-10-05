@@ -40,6 +40,7 @@ those shortcuts when the file itself is the source of truth.
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with '#' are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
+Files over 1 MiB must be read with a line range.
 """.strip()
 
 instructions_format = {
@@ -97,6 +98,9 @@ def _get_read_paths(
 
 
 _MAX_DIR_ENTRIES = 100
+# Files above this size are never loaded whole: a whole-file read needs an
+# explicit line range, which is streamed and capped at the same size.
+_MAX_READ_BYTES = 1024 * 1024
 _READ_ROOT_ENV = "GPTME_READ_ROOT"
 
 
@@ -149,6 +153,33 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
         "system",
         md_codeblock(f"{path} ({summary})", "\n".join(lines)),
     )
+
+
+def _read_line_range(
+    path: Path, start_idx: int, end_line: int | None
+) -> tuple[list[str], int, bool]:
+    """Stream lines ``start_idx:end_line`` without loading the whole file.
+
+    Line boundaries match ``str.splitlines()`` on the full content. Collection
+    stops once the selected text exceeds ``_MAX_READ_BYTES``; counting continues
+    so the total line count stays exact. Returns (selected, total, truncated).
+    """
+    selected: list[str] = []
+    selected_chars = 0
+    truncated = False
+    total = 0
+    with path.open(encoding="utf-8", newline="") as f:
+        for raw in f:
+            for line in raw.splitlines():
+                in_range = total >= start_idx and (end_line is None or total < end_line)
+                if in_range and not truncated:
+                    if selected_chars + len(line) > _MAX_READ_BYTES and selected:
+                        truncated = True
+                    else:
+                        selected.append(line)
+                        selected_chars += len(line) + 1
+                total += 1
+    return selected, total, truncated
 
 
 def _current_logdir() -> Path | None:
@@ -209,8 +240,28 @@ def _read_one(
         yield Message("system", f"Not a file: {path}")
         return
 
+    size = path.stat().st_size
+    is_large = size > _MAX_READ_BYTES
+    if is_large and start_line == 1 and end_line is None:
+        yield Message(
+            "system",
+            f"File too large to read whole: {path} ({size} bytes, limit "
+            f"{_MAX_READ_BYTES}). Pass start_line/end_line to read a range.",
+        )
+        return
+
+    start_idx = max(0, start_line - 1)
+    content: str | None = None
+    range_truncated = False
     try:
-        content = path.read_text(encoding="utf-8")
+        if is_large:
+            selected, total_lines, range_truncated = _read_line_range(
+                path, start_idx, end_line
+            )
+        else:
+            content = path.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            total_lines = len(lines)
     except UnicodeDecodeError:
         yield Message("system", f"Cannot read binary file: {path}")
         return
@@ -218,13 +269,12 @@ def _read_one(
         yield Message("system", f"Permission denied: {path}")
         return
 
-    lines = content.splitlines()
-    total_lines = len(lines)
-
     # Apply line range
-    start_idx = max(0, start_line - 1)
     end_idx = min(total_lines, end_line) if end_line is not None else total_lines
-    selected = lines[start_idx:end_idx]
+    if content is not None:
+        selected = lines[start_idx:end_idx]
+    elif range_truncated:
+        end_idx = start_idx + len(selected)
     display_pairs = list(enumerate(selected, start=start_idx + 1))
 
     pruned_message_prefix = ""
@@ -290,7 +340,9 @@ def _read_one(
     # so read.py never imports _hashline_snapshot directly.
     from . import notify_file_read
 
-    tag = notify_file_read(str(path), content)
+    # A streamed range of a large file is not the whole content, so it must not
+    # become a hashline snapshot.
+    tag = notify_file_read(str(path), content) if content is not None else None
 
     if tag is not None:
         body = md_codeblock(f"{path}{range_info}", f"[{path}#{tag}]\n" + numbered)
@@ -298,6 +350,11 @@ def _read_one(
         body = md_codeblock(f"{path}{range_info}", numbered)
     if pruned_message_prefix:
         body = pruned_message_prefix + "\n\n" + body
+    if range_truncated:
+        body += (
+            f"\n\nRange truncated at {_MAX_READ_BYTES} characters; "
+            f"continue with start_line={end_idx + 1}."
+        )
 
     yield Message("system", body)
 

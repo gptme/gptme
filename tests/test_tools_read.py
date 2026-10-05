@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from gptme.tools.pruner import PrunePlan
-from gptme.tools.read import examples, execute_read
+from gptme.tools.read import _read_line_range, examples, execute_read
 
 
 def test_examples_show_plain_output_without_hashline_tags():
@@ -541,3 +541,68 @@ def test_read_not_a_file(tmp_path: Path):
     messages = list(execute_read(None, [str(fifo)], None))
     assert len(messages) == 1
     assert "Not a file" in messages[0].content
+
+
+def test_read_large_file_without_range_is_refused(tmp_path: Path):
+    """A file over the size cap is not loaded whole; the reply asks for a range."""
+    path = tmp_path / "big.log"
+    path.write_text("x\n" * 50)
+
+    with (
+        patch("gptme.tools.read._MAX_READ_BYTES", 10),
+        patch.object(Path, "read_text", side_effect=AssertionError("loaded whole")),
+    ):
+        messages = list(execute_read(None, [str(path)], None))
+
+    assert len(messages) == 1
+    assert "too large to read whole" in messages[0].content
+    assert "start_line/end_line" in messages[0].content
+
+
+def test_read_large_file_range_streams_without_loading_whole(tmp_path: Path):
+    """A ranged read of a large file streams lines instead of reading it all."""
+    path = tmp_path / "big.log"
+    path.write_text("".join(f"row {i}\n" for i in range(1, 101)))
+
+    with (
+        patch("gptme.tools.read._MAX_READ_BYTES", 20),
+        patch.object(Path, "read_text", side_effect=AssertionError("loaded whole")),
+        patch("gptme.tools.notify_file_read") as notify,
+    ):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "5", "end_line": "6"})
+        )
+
+    content = messages[0].content
+    assert "(lines 5-6 of 100)" in content
+    assert "row 5" in content and "row 6" in content
+    assert "row 7" not in content
+    # A partial read must not become a hashline snapshot of the file.
+    notify.assert_not_called()
+
+
+def test_read_large_file_range_truncated_at_cap(tmp_path: Path):
+    """A huge requested range stops at the cap and says where to continue."""
+    path = tmp_path / "big.log"
+    path.write_text("abcd\n" * 100)
+
+    with patch("gptme.tools.read._MAX_READ_BYTES", 12):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "100"})
+        )
+
+    content = messages[0].content
+    assert "(lines 1-2 of 100)" in content
+    assert "continue with start_line=3" in content
+
+
+def test_read_large_file_stream_matches_whole_file_line_boundaries(tmp_path: Path):
+    """Streamed ranges split lines exactly like str.splitlines() on the content."""
+    text = "a\r\nb\rc\x0cd\u2028e\n\nf"
+    path = tmp_path / "mixed.txt"
+    path.write_bytes(text.encode())
+
+    selected, total, truncated = _read_line_range(path, 0, None)
+    assert selected == text.splitlines()
+    assert total == len(text.splitlines())
+    assert not truncated
