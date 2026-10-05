@@ -12,7 +12,7 @@ Overview
 The context compression system has one unified pipeline:
 
 1. **Context Budget** - A configurable token threshold at which compaction is triggered (distinct from the provider window)
-2. **Automatic Compaction** - Triggered after each turn when the log approaches the budget; also retried once on provider context-length overflow
+2. **Automatic Compaction** - Triggered after each turn when the log approaches the budget; shared CLI/server recovery handles provider context-length overflow
 3. **Plugin Interface** - Allows third-party packages to provide custom compression strategies
 
 The budget defaults to
@@ -60,6 +60,13 @@ Budget-triggered trims target 70% of the budget and reject views saving less
 than 10% of the estimated stored text. If estimated trim savings are too small,
 the automatic path requests an LLM summary instead. A failed summary latches
 the conversation to trim-only until sufficient message growth permits a retry.
+
+CLI and server overflow recovery try a trim first, then remove old whole
+assistant/user steps with their tool results toward 70% of the previous context
+size. The protected head, pinned steps, newest user request, and final step stay
+verbatim. Every retry must reduce the prepared input; at most eight retries run.
+Partial output stops retries. Failed recovery restores the original active view;
+successful recovery keeps the smaller view and preserves the lossless master log.
 
 Using Compaction
 ================
