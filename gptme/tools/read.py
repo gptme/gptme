@@ -166,7 +166,9 @@ def _read_text_bounded(path: Path) -> str | None:
         data = f.read(_MAX_READ_BYTES + 1)
     if len(data) > _MAX_READ_BYTES:
         return None
-    return data.decode("utf-8")
+    # Match Path.read_text()'s universal-newline behavior so snapshots remain
+    # byte-for-byte comparable with hashline_edit's later text-mode read.
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _read_line_range(
@@ -367,6 +369,9 @@ def _read_one(
         return
     except PermissionError:
         yield Message("system", f"Permission denied: {path}")
+        return
+    except FileNotFoundError:
+        yield Message("system", f"File not found: {path}")
         return
 
     # Apply line range

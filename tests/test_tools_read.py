@@ -81,6 +81,29 @@ def test_read_file_includes_hashline_tag_when_hashline_tool_active(tmp_path: Pat
     assert "[" + str(path) + "#" in messages[0].content
 
 
+def test_read_file_hashline_snapshot_preserves_newline_normalization(tmp_path: Path):
+    """Bounded binary reads retain read_text()'s universal-newline contract."""
+    from gptme.tools import get_tools, set_tools
+    from gptme.tools._hashline_snapshot import lookup_snapshot
+    from gptme.tools.hashline_edit import tool as hashline_tool
+
+    path = tmp_path / "windows.txt"
+    path.write_bytes(b"first\r\nsecond\rthird\n")
+
+    prev = get_tools()
+    set_tools([hashline_tool])
+    try:
+        message = list(execute_read(None, [str(path)], None))[0]
+    finally:
+        set_tools(prev)
+
+    marker = f"[{path.resolve()}#"
+    tag = message.content.split(marker, 1)[1].split("]", 1)[0]
+    matched, snapshot = lookup_snapshot(str(path.resolve()), tag)
+    assert matched
+    assert snapshot == path.read_text(encoding="utf-8") == "first\nsecond\nthird\n"
+
+
 def test_read_file_line_range_kwargs(tmp_path: Path):
     """Test reading a line range via kwargs."""
     path = tmp_path / "test.txt"
@@ -549,15 +572,17 @@ def test_read_large_file_without_range_is_refused(tmp_path: Path):
     path = tmp_path / "big.log"
     path.write_text("x\n" * 50)
 
+    reader = _BoundedReader(path.read_bytes(), max_read=11)
     with (
         patch("gptme.tools.read._MAX_READ_BYTES", 10),
-        patch.object(Path, "read_text", side_effect=AssertionError("loaded whole")),
+        patch.object(Path, "open", return_value=reader),
     ):
         messages = list(execute_read(None, [str(path)], None))
 
     assert len(messages) == 1
     assert "too large to read whole" in messages[0].content
     assert "start_line/end_line" in messages[0].content
+    assert reader.tell() == 11
 
 
 def test_read_large_file_range_streams_without_loading_whole(tmp_path: Path):
@@ -608,6 +633,33 @@ def test_read_small_file_that_grows_during_read_uses_streaming(tmp_path: Path):
     assert "row 1" in messages[0].content
     assert "row 2" not in messages[0].content
     notify.assert_not_called()
+
+
+def test_read_large_file_range_handles_disappearance_between_opens(tmp_path: Path):
+    """Rotation after the bounded probe returns a clean not-found result."""
+    path = tmp_path / "rotated.log"
+    path.write_text("row 1\nrow 2\n" + "x" * 100)
+    original_open = Path.open
+    opens = 0
+
+    def disappearing_open(self: Path, *args, **kwargs):
+        nonlocal opens
+        if self == path:
+            opens += 1
+            if opens == 2:
+                path.unlink()
+        return original_open(self, *args, **kwargs)
+
+    with (
+        patch("gptme.tools.read._MAX_READ_BYTES", 20),
+        patch.object(Path, "open", disappearing_open),
+    ):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "1"})
+        )
+
+    assert len(messages) == 1
+    assert f"File not found: {path.resolve()}" in messages[0].content
 
 
 def test_read_large_file_range_stops_inside_physical_line(tmp_path: Path):
