@@ -74,6 +74,12 @@ OAUTH_SCOPES = "openid profile email offline_access"
 CHATGPT_BASE_URL = "https://chatgpt.com"
 CODEX_ENDPOINT = f"{CHATGPT_BASE_URL}/backend-api/codex/responses"
 
+# Codex Responses API rejects `instructions` above this many characters
+# (`invalid_request_error` / `string_above_max_length`). Autocompact sizes
+# remaining system/context messages against a *token* budget and can still
+# join a few KB over this *character* cap (session 411c: 1,053,460 > 1,048,576).
+CODEX_INSTRUCTIONS_MAX_CHARS = 1_048_576
+
 
 def _get_token_storage_path() -> Path:
     """Get path to store OAuth tokens."""
@@ -511,6 +517,19 @@ def _codex_model_and_effort(
     return base_model, reasoning_level
 
 
+def _clamp_codex_instructions(instructions: str | None) -> str:
+    """Keep Codex `instructions` within the Responses API character cap."""
+    text = instructions or "You are a helpful assistant."
+    if len(text) <= CODEX_INSTRUCTIONS_MAX_CHARS:
+        return text
+    logger.warning(
+        "Codex instructions exceeded %d chars (%d); truncating to the Responses API cap",
+        CODEX_INSTRUCTIONS_MAX_CHARS,
+        len(text),
+    )
+    return text[:CODEX_INSTRUCTIONS_MAX_CHARS]
+
+
 def _transform_to_codex_request(
     input_items: list[dict[str, Any]],
     model: str,
@@ -525,7 +544,7 @@ def _transform_to_codex_request(
 
     body: dict[str, Any] = {
         "model": base_model,
-        "instructions": instructions or "You are a helpful assistant.",
+        "instructions": _clamp_codex_instructions(instructions),
         "input": input_items,
         "stream": stream,
         "store": False,

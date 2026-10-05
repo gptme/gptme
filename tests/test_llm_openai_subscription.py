@@ -1,4 +1,5 @@
 import json
+import logging
 import socket
 import threading
 import time
@@ -953,3 +954,55 @@ def test_stream_interrupt_during_request_aborts_retry(monkeypatch):
             )
         )
     assert calls == 1, "the interrupted call must not send another request"
+
+
+def test_transform_clamps_instructions_to_codex_char_cap(caplog):
+    """Regression: session 411c POSTed 1,053,460 chars and Codex 400'd the cap."""
+    over = "x" * (llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS + 4884)
+    with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai_subscription"):
+        body = llm_openai_subscription._transform_to_codex_request(
+            [], "gpt-5.6-sol", instructions=over
+        )
+    assert len(body["instructions"]) == (
+        llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
+    )
+    assert (
+        body["instructions"]
+        == over[: llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS]
+    )
+    assert "truncating to the Responses API cap" in caplog.text
+
+
+def test_transform_keeps_instructions_under_codex_char_cap():
+    text = "You are concise."
+    body = llm_openai_subscription._transform_to_codex_request(
+        [], "gpt-5.6-sol", instructions=text
+    )
+    assert body["instructions"] == text
+
+
+def test_stream_clamps_joined_system_instructions_to_codex_char_cap():
+    """Autocompact can leave joined system/context files a few KB over the cap."""
+    cap = llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
+    overflow = 4884
+    first = "A" * 100
+    second = "B" * (cap + overflow - len(first) - 2)
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+    messages = [
+        Message(role="system", content=first),
+        Message(role="system", content=second),
+        Message(role="user", content="hello"),
+    ]
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+        ) as mock_post,
+    ):
+        list(llm_openai_subscription.stream(messages, "gpt-5.6-sol"))
+
+    request_json = mock_post.call_args.kwargs["json"]
+    assert len(request_json["instructions"]) == cap
+    assert request_json["instructions"].startswith(first)
+    assert mock_post.call_args.kwargs["json"]["instructions"][-1] == "B"
