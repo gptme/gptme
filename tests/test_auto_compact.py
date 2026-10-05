@@ -3925,3 +3925,38 @@ def test_clip_middle_never_exceeds_sub_token_cap():
     model = "gpt-4"
     clipped = _clip_middle("\U0001f600" * 1000, 1, model)
     assert len_tokens(clipped, model) <= 1
+
+
+def test_resume_via_llm_recompaction_drops_stale_intro_and_context_files(
+    tmp_path, monkeypatch
+):
+    """Each compaction replaces the previous intro/context files instead of stacking them."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    (tmp_path / "notes.md").write_text("notes body")
+    messages = [Message("system", "core system prompt")]
+    for i in range(3):
+        messages += [Message("user", f"task {i}"), Message("assistant", f"done {i}")]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    (tmp_path / "conversation" / "workspace").symlink_to(tmp_path)
+    replies = iter(
+        [
+            "## Objective\nCP1\n\n## Context Files\n- `notes.md` — needed",
+            "## Objective\nCP2\n\n## Context Files\n- `notes.md` — needed",
+        ]
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda msgs, **kw: Message("assistant", next(replies)),
+    )
+
+    for rnd in range(2):
+        list(_resume_via_llm(manager, list(manager.log.messages), keep_recent_tokens=0))
+        manager.append(Message("user", f"more {rnd}"))
+        manager.append(Message("assistant", f"ok {rnd}"))
+
+    systems = [m.content for m in manager.log.messages if m.role == "system"]
+    assert systems[0] == "core system prompt"
+    assert sum(c.startswith("Previous conversation resumed from") for c in systems) == 1
+    assert sum(c.startswith("Context file `") for c in systems) == 1

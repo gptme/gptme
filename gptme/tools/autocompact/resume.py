@@ -28,6 +28,7 @@ _DEFAULT_KEEP_RECENT_TOKENS = 20_000
 # Intro line of a compacted view. It precedes the checkpoint message, so a
 # later re-compaction can recognise the earlier checkpoint in the log.
 _CHECKPOINT_INTRO_PREFIX = "Previous conversation resumed from"
+_CONTEXT_FILE_PREFIX = "Context file `"
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +295,13 @@ def _clip_messages_to_budget(
         out.append(clipped)
         remaining -= used
     return out
+
+
+def _is_compaction_artifact(msg: Message) -> bool:
+    """True for the system messages a compaction adds around its checkpoint."""
+    return msg.role == "system" and msg.content.startswith(
+        (_CHECKPOINT_INTRO_PREFIX, _CONTEXT_FILE_PREFIX)
+    )
 
 
 def _find_previous_checkpoint(msgs: list[Message]) -> Message | None:
@@ -753,14 +761,20 @@ only mentioned in passing.
     # new view, mirroring the trim path's positional protection. The leading
     # system block is always kept, so this only extends past it.
     head_end = max(len(original_system_msgs), min(keep_head, len(msgs)))
-    preserved_head = msgs[:head_end]
+    # A re-compaction's head still holds the previous compaction's intro and
+    # context files. The new checkpoint supersedes them; keeping them would
+    # leave one more orphaned intro (no checkpoint after it) per compaction.
+    original_system_msgs = [
+        m for m in original_system_msgs if not _is_compaction_artifact(m)
+    ]
+    preserved_head = [m for m in msgs[:head_end] if not _is_compaction_artifact(m)]
 
     # Create file context messages for each loaded file
     file_context_msgs = []
     for file_path, file_content in loaded_files:
         file_msg = Message(
             "system",
-            f"Context file `{file_path}`:\n{md_codeblock('', file_content)}",
+            f"{_CONTEXT_FILE_PREFIX}{file_path}`:\n{md_codeblock('', file_content)}",
         )
         file_context_msgs.append(file_msg)
 
