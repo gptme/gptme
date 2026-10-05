@@ -2007,3 +2007,15 @@ def test_models_list_json_suppresses_warning_level_logs(mocker):
     assert parsed[0]["full"] == "openai/gpt-5"
     # Logging must be restored for the rest of the suite.
     assert logging.root.manager.disable == logging.NOTSET
+
+
+def test_models_list_unknown_provider_errors():
+    """A mistyped --provider must error, not silently list nothing."""
+    runner = CliRunner()
+    for extra in ([], ["--json"], ["--simple"]):
+        result = runner.invoke(
+            main, ["models", "list", "--provider", "antropic", *extra]
+        )
+        assert result.exit_code == 2, result.output
+        assert "unknown provider 'antropic'" in result.output
+        assert "anthropic" in result.output

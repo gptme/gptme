@@ -159,6 +159,23 @@ def _fetch_models_parallel(
         )
 
 
+def get_known_providers() -> list[Provider]:
+    """All provider names gptme can list models for: built-in, custom (config) and plugin."""
+    from ...config import get_config  # fmt: skip
+
+    custom_providers: list[Provider] = [
+        CustomProvider(p.name) for p in get_config().user.providers
+    ]
+    plugin_providers: list[Provider] = [
+        CustomProvider(p.name) for p in discover_provider_plugins()
+    ]
+    return (
+        list(cast(list[Provider], list(MODELS.keys())))
+        + custom_providers
+        + plugin_providers
+    )
+
+
 def get_model_list(
     provider_filter: str | None = None,
     vision_only: bool = False,
@@ -183,8 +200,6 @@ def get_model_list(
         List of ModelMeta objects
     """
 
-    from ...config import get_config  # fmt: skip
-
     global _model_list_cache, _model_list_cache_time
 
     # Check cache for unfiltered dynamic fetches
@@ -206,24 +221,8 @@ def get_model_list(
 
     all_models: list[ModelMeta] = []
 
-    # Get custom providers from config
-    config = get_config()
-    custom_providers: list[Provider] = [
-        CustomProvider(p.name) for p in config.user.providers
-    ]
-
-    # Combine built-in, custom, and plugin providers
-    plugin_providers: list[Provider] = [
-        CustomProvider(p.name) for p in discover_provider_plugins()
-    ]
-    all_providers: list[Provider] = (
-        list(cast(list[Provider], list(MODELS.keys())))
-        + custom_providers
-        + plugin_providers
-    )
-
     providers = [
-        p for p in all_providers if not provider_filter or p == provider_filter
+        p for p in get_known_providers() if not provider_filter or p == provider_filter
     ]
     for models in _fetch_models_parallel(providers, dynamic_fetch):
         # Apply filters
@@ -369,8 +368,6 @@ def list_models(
         _print_simple_format(all_models)
     else:
         # Detailed format: print by provider with formatting
-        from ...config import get_config  # fmt: skip
-
         configured_set = (
             configured if configured is not None else _get_configured_providers()
         )
@@ -379,22 +376,9 @@ def list_models(
         else:
             print("Available models:")
 
-        config = get_config()
-        custom_providers: list[Provider] = [
-            CustomProvider(p.name) for p in config.user.providers
-        ]
-        plugin_providers_detail: list[Provider] = [
-            CustomProvider(p.name) for p in discover_provider_plugins()
-        ]
-        all_providers: list[Provider] = (
-            list(cast(list[Provider], list(MODELS.keys())))
-            + custom_providers
-            + plugin_providers_detail
-        )
-
         selected = [
             provider
-            for provider in all_providers
+            for provider in get_known_providers()
             if (not provider_filter or provider == provider_filter)
             and (not available_only or provider in configured_set)
         ]

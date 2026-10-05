@@ -1595,6 +1595,16 @@ def models_list(
 ):
     """List available models."""
 
+    if provider:
+        from ..llm.models.listing import get_known_providers  # fmt: skip
+
+        known = sorted(str(p) for p in get_known_providers())
+        if provider not in known:
+            raise click.BadParameter(
+                f"unknown provider '{provider}'. Known providers: {', '.join(known)}",
+                param_hint="--provider",
+            )
+
     if as_json:
         # Keep JSON output machine-readable even if provider discovery logs warnings.
         # redirect_stdout/redirect_stderr suppresses print() noise; logging.disable
