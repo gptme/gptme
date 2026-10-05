@@ -1111,18 +1111,6 @@ def _parse_gptme(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
         if candidate.is_dir():
             log_dir = str(candidate)
 
-    if not log_dir:
-        logs_base = Path.home() / ".cache" / "gptme" / "logs"
-        if logs_base.is_dir():
-            recent = sorted(
-                logs_base.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True
-            )
-            for d in recent[:3]:
-                if d.is_dir():
-                    log_dir = str(d)
-                    conversation_id = d.name
-                    break
-
     if _has_flag(cmdline, "serve"):
         return AgentInfo(
             pid=pid,
