@@ -3710,6 +3710,23 @@ def test_bound_summarize_input_pins_previous_checkpoint():
     assert pinned[-1].content == msgs[-1].content
 
 
+def test_bound_summarize_input_large_checkpoint_keeps_system_prompt():
+    """A large pinned checkpoint must not clip a fitting system prompt."""
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    model = "gpt-4"
+    system = Message("system", "essential system instruction\n" * 250)
+    checkpoint = Message("assistant", "checkpoint state\n" * 7000)
+    msgs = [system, checkpoint, Message("user", "newest progress")]
+
+    out = _bound_summarize_input(msgs, model, 20000, keep_head=1, pinned=checkpoint)
+
+    assert out[0].content == system.content
+    assert out[1].content != checkpoint.content
+    assert "characters omitted" in out[1].content
+    assert out[-1].content == "newest progress"
+
+
 def test_bound_summarize_input_reinserts_pinned_checkpoint_dropped_upstream():
     """prepare_messages can drop the checkpoint before pinning; it must come back."""
     from gptme.tools.autocompact.resume import _bound_summarize_input
@@ -3954,7 +3971,9 @@ def test_resume_via_llm_recompaction_drops_stale_intro_and_context_files(
     for i in range(3):
         messages += [Message("user", f"task {i}"), Message("assistant", f"done {i}")]
     manager = LogManager(messages, logdir=tmp_path / "conversation")
-    (tmp_path / "conversation" / "workspace").symlink_to(tmp_path)
+    (tmp_path / "conversation" / "config.toml").write_text(
+        f'[chat]\nworkspace = "{tmp_path}"\n'
+    )
     replies = iter(
         [
             "## Objective\nCP1\n\n## Context Files\n- `notes.md` — needed",

@@ -341,9 +341,11 @@ def _bound_summarize_input(
     - ``pinned`` (a previous checkpoint, matched by content) is never dropped
       for budget: it is the oldest surviving message, so without the pin it
       would be the first thing a re-compaction loses. It is kept right after
-      the head and counts against the head budget, so it clips with the head.
+      the head, but bounded separately so it cannot truncate the original
+      system prefix.
     """
     head = msgs[:keep_head]
+    body_start = keep_head
     if pinned is not None and context_window:
         # Match by content: prepare_messages copies and merges messages.
         pin_at = next(
@@ -364,8 +366,7 @@ def _bound_summarize_input(
         else:
             # prepare_messages may already have dropped it (oversized log).
             msgs = msgs[:keep_head] + [pinned] + msgs[keep_head:]
-        keep_head += 1
-        head = msgs[:keep_head]
+        body_start += 1
     body = [
         m.replace(
             content=_clip_middle(m.content, SUMMARY_MAX_TOOL_OUTPUT_TOKENS, model)
@@ -373,7 +374,7 @@ def _bound_summarize_input(
         if m.role == "system"
         and len_tokens(m.content, model) > SUMMARY_MAX_TOOL_OUTPUT_TOKENS
         else m
-        for m in msgs[keep_head:]
+        for m in msgs[body_start:]
     ]
     if not context_window:
         return head + body
@@ -395,23 +396,47 @@ def _bound_summarize_input(
         head = _clip_messages_to_budget(head, max(budget // 2, 1), model)
         head_tokens = len_tokens(head, model)
 
-    body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+    pinned_part: list[Message] = []
+    if pinned is not None:
+        # Reserve the original system prefix before the checkpoint. The pin is
+        # essential state, but treating it as part of ``head`` would let an
+        # oversized checkpoint proportionally truncate otherwise-fitting system
+        # instructions. Bound only the checkpoint and charge it before the body.
+        newest_reserve = SUMMARY_MIN_CLIP_TOKENS if body else 0
+        max_pin_tokens = max(
+            budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS - newest_reserve,
+            1,
+        )
+        pinned_msg = msgs[keep_head]
+        if len_tokens(pinned_msg.content, model) > max_pin_tokens:
+            pinned_msg = pinned_msg.replace(
+                content=_clip_middle(pinned_msg.content, max_pin_tokens, model)
+            )
+        pinned_part = [pinned_msg]
+
+    pinned_tokens = len_tokens(pinned_part, model)
+    body_budget = budget - head_tokens - pinned_tokens - _OMISSION_MARKER_RESERVE_TOKENS
     if body_budget <= 0 and body:
-        # The head fits the window but leaves no room for the conversation: it
-        # is within ``_OMISSION_MARKER_RESERVE_TOKENS`` of the whole budget.
-        # Returning the head alone would make the summarizer build a resume from
-        # system instructions with no task or progress, and that resume then
-        # replaces the working conversation history. Clip the head back to
-        # reserve a minimal slice for the newest conversation messages.
+        # The fixed prefix leaves no room for the conversation. Clip the system
+        # head, but never as a side effect of the checkpoint's proportional
+        # share: the checkpoint was bounded independently above.
         head = _clip_messages_to_budget(
             head,
-            max(budget - _OMISSION_MARKER_RESERVE_TOKENS - SUMMARY_MIN_CLIP_TOKENS, 1),
+            max(
+                budget
+                - pinned_tokens
+                - _OMISSION_MARKER_RESERVE_TOKENS
+                - SUMMARY_MIN_CLIP_TOKENS,
+                1,
+            ),
             model,
         )
         head_tokens = len_tokens(head, model)
-        body_budget = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+        body_budget = (
+            budget - head_tokens - pinned_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+        )
     if body_budget <= 0:
-        return head
+        return head + pinned_part
 
     kept: list[Message] = []
     used = 0
@@ -442,7 +467,7 @@ def _bound_summarize_input(
                 f"[{dropped} older messages omitted to fit the summarization window]",
             ),
         )
-    return head + kept
+    return head + pinned_part + kept
 
 
 def _get_recent_tail(
