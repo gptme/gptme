@@ -9,6 +9,7 @@ abstract: "An open-source AI agent in your terminal, equipped with local tools: 
 license: MIT
 url: "https://gptme.org"
 repository-code: "https://github.com/gptme/gptme"
+doi: "10.5281/zenodo.22816651"
 keywords:
 - AI agent
 - large language models
