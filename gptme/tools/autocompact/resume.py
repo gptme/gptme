@@ -372,8 +372,32 @@ def _bound_summarize_input(
                 + msgs[pin_at + 1 :]
             )
         else:
-            # prepare_messages may already have dropped it (oversized log).
-            msgs = msgs[:keep_head] + [pinned] + msgs[keep_head:]
+            # prepare_messages may have merged the checkpoint with the next
+            # assistant message. Split that known prefix back out instead of
+            # reinserting a duplicate copy of the checkpoint.
+            merged_prefix = f"{pinned.content}\n\n"
+            merged_at = next(
+                (
+                    i
+                    for i, m in enumerate(msgs[keep_head:], keep_head)
+                    if m.role == pinned.role and m.content.startswith(merged_prefix)
+                ),
+                None,
+            )
+            if merged_at is not None:
+                remainder = msgs[merged_at].replace(
+                    content=msgs[merged_at].content[len(merged_prefix) :]
+                )
+                msgs = (
+                    msgs[:keep_head]
+                    + [pinned]
+                    + msgs[keep_head:merged_at]
+                    + [remainder]
+                    + msgs[merged_at + 1 :]
+                )
+            else:
+                # prepare_messages may already have dropped it (oversized log).
+                msgs = msgs[:keep_head] + [pinned] + msgs[keep_head:]
         body_start += 1
     body = [
         m.replace(
@@ -414,7 +438,13 @@ def _bound_summarize_input(
         # input budget: newer messages are authoritative on conflicts and need
         # enough room for the summarizer to see more than one clipped boundary.
         available = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
-        max_pin_tokens = max(available // 2 if body else available, 1)
+        body_tokens = len_tokens(body, model)
+        max_pin_tokens = max(
+            available - body_tokens
+            if body_tokens <= available // 2
+            else available // 2,
+            1,
+        )
         pinned_msg = msgs[keep_head]
         if len_tokens(pinned_msg.content, model) > max_pin_tokens:
             pinned_msg = pinned_msg.replace(

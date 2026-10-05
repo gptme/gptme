@@ -3780,6 +3780,25 @@ def test_bound_summarize_input_large_checkpoint_reserves_half_for_newer_work():
     assert out[-1].content.endswith("newer work 2\n")
 
 
+def test_bound_summarize_input_keeps_fitting_checkpoint_and_newer_work():
+    """Do not clip a checkpoint when it and the newer work already fit."""
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    system = Message("system", "essential system instruction")
+    checkpoint = Message("assistant", "old checkpoint state\n" * 1300)
+    newer = Message("user", "small newer update\n" * 50)
+
+    out = _bound_summarize_input(
+        [system, checkpoint, newer],
+        "gpt-4",
+        20000,
+        keep_head=1,
+        pinned=checkpoint,
+    )
+
+    assert out == [system, checkpoint, newer]
+
+
 def test_bound_summarize_input_reinserts_pinned_checkpoint_dropped_upstream():
     """prepare_messages can drop the checkpoint before pinning; it must come back."""
     from gptme.tools.autocompact.resume import _bound_summarize_input
@@ -3806,6 +3825,21 @@ def test_bound_summarize_input_does_not_prefix_match_pinned_checkpoint():
 
     assert out[1] is checkpoint
     assert out[-1] is later
+
+
+def test_bound_summarize_input_splits_checkpoint_merged_with_newer_assistant():
+    """prepare_messages may merge the checkpoint with an adjacent recent turn."""
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    checkpoint = Message("assistant", "## Objective\nOld state")
+    merged = checkpoint.concat(Message("assistant", "newer completion"))
+    system = Message("system", "core system prompt")
+
+    out = _bound_summarize_input(
+        [system, merged], "gpt-4", 20000, keep_head=1, pinned=checkpoint
+    )
+
+    assert out == [system, checkpoint, Message("assistant", "newer completion")]
 
 
 def test_bound_summarize_input_preserves_long_user_request():
