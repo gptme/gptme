@@ -118,6 +118,7 @@ jobs:
         file: ./scripts/Dockerfile
         context: .
         push: true
+        provenance: false
 
     # Derive OCI labels (created/version/revision/source) for the server image so
     # downstream consumers (e.g. gptme-cloud's image-bump automation) can read
@@ -146,6 +147,7 @@ jobs:
         build-args: |
           BASE=gptme:latest
         push: ${{ env.SHOULD_PUSH }}
+        provenance: false
 
     # Derive OCI labels for the eval image (same pattern as server)
     - name: Docker meta (eval)
@@ -167,6 +169,7 @@ jobs:
         file: ./scripts/Dockerfile.eval
         context: .
         push: ${{ env.SHOULD_PUSH }}
+        provenance: false
 
     # Now the full eval image
     # NOTE: takes a long time and leads to a big (1GB+) image
