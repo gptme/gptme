@@ -517,17 +517,32 @@ def _codex_model_and_effort(
     return base_model, reasoning_level
 
 
+CODEX_INSTRUCTIONS_TRUNCATION_MARKER = (
+    "\n\n[... middle of instructions truncated to fit the Codex character cap ...]\n\n"
+)
+
+
 def _clamp_codex_instructions(instructions: str | None) -> str:
-    """Keep Codex `instructions` within the Responses API character cap."""
+    """Keep Codex `instructions` within the Responses API character cap.
+
+    Truncating the tail alone silently drops system messages appended later in
+    the conversation (workspace guidance, matched lessons), so keep both ends
+    and elide the middle: the largest, lowest-priority context blocks sit in
+    the middle of the joined system messages.
+    """
     text = instructions or "You are a helpful assistant."
-    if len(text) <= CODEX_INSTRUCTIONS_MAX_CHARS:
+    limit = CODEX_INSTRUCTIONS_MAX_CHARS
+    if len(text) <= limit:
         return text
     logger.warning(
-        "Codex instructions exceeded %d chars (%d); truncating to the Responses API cap",
-        CODEX_INSTRUCTIONS_MAX_CHARS,
+        "Codex instructions exceeded %d chars (%d); truncating middle to the Responses API cap",
+        limit,
         len(text),
     )
-    return text[:CODEX_INSTRUCTIONS_MAX_CHARS]
+    marker = CODEX_INSTRUCTIONS_TRUNCATION_MARKER
+    head_len = (limit - len(marker)) // 2
+    tail_len = limit - len(marker) - head_len
+    return text[:head_len] + marker + text[-tail_len:]
 
 
 def _transform_to_codex_request(

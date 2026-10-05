@@ -958,19 +958,23 @@ def test_stream_interrupt_during_request_aborts_retry(monkeypatch):
 
 def test_transform_clamps_instructions_to_codex_char_cap(caplog):
     """Regression: session 411c POSTed 1,053,460 chars and Codex 400'd the cap."""
-    over = "x" * (llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS + 4884)
+    cap = llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
+    head = "HEAD-MARKER " * 10
+    tail = "TAIL-MARKER " * 10
+    over = head + "x" * (cap + 4884) + tail
     with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai_subscription"):
         body = llm_openai_subscription._transform_to_codex_request(
             [], "gpt-5.6-sol", instructions=over
         )
-    assert len(body["instructions"]) == (
-        llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
-    )
+    assert len(body["instructions"]) == cap
+    # Both ends survive: earlier system prompt/identity and later guidance.
+    assert body["instructions"].startswith(head)
+    assert body["instructions"].endswith(tail)
     assert (
-        body["instructions"]
-        == over[: llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS]
+        llm_openai_subscription.CODEX_INSTRUCTIONS_TRUNCATION_MARKER
+        in (body["instructions"])
     )
-    assert "truncating to the Responses API cap" in caplog.text
+    assert "truncating middle to the Responses API cap" in caplog.text
 
 
 def test_transform_keeps_instructions_under_codex_char_cap():
