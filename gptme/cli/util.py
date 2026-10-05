@@ -697,7 +697,8 @@ def _read_gitignore(path: str) -> list[_IgnoreRule]:
     rules: list[_IgnoreRule] = []
     for fp in [_global_gitignore_path(), os.path.join(path, ".gitignore")]:
         if os.path.exists(fp):
-            with open(fp) as f:
+            # Git treats .gitignore as bytes; tolerate non-UTF-8 comments
+            with open(fp, encoding="utf-8", errors="replace") as f:
                 for raw in f:
                     rule = _parse_gitignore_pattern(raw)
                     if rule is not None:
@@ -1047,7 +1048,7 @@ def context_journal(days: int, path: str | None):
         flat_files = glob.glob(os.path.join(journal_dir, f"*{date}*.md"))
         subdir_files = glob.glob(os.path.join(journal_dir, date, "*.md"))
         for file in flat_files + subdir_files:
-            with open(file) as f:
+            with open(file, encoding="utf-8", errors="replace") as f:
                 entries.append(f"\n# {date} — {os.path.basename(file)}\n{f.read()}")
 
     if entries:
