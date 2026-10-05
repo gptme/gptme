@@ -28,6 +28,30 @@ def test_get_static_model():
     assert model.context > 0
 
 
+@pytest.mark.parametrize(
+    ("name", "input_price", "output_price"),
+    [
+        ("claude-sonnet-5-5", 2, 10),
+        ("claude-opus-5-5", 4, 20),
+        ("claude-fable-5", 10, 50),
+        ("claude-fable-5-1", 10, 50),
+    ],
+)
+def test_claude_5_metadata(name, input_price, output_price, caplog):
+    """Explicit and dated model IDs resolve without 4.x metadata fallbacks."""
+    for model_id in (name, f"{name}-20261001"):
+        with caplog.at_level(logging.WARNING):
+            meta = get_model(f"anthropic/{model_id}")
+        assert meta.context == 1_000_000
+        assert meta.max_output == 128_000
+        assert meta.price_input == input_price
+        assert meta.price_output == output_price
+        assert meta.supports_vision
+        assert meta.supports_reasoning
+        assert meta.supports_parallel_tool_calls
+    assert not any("Unknown model" in record.message for record in caplog.records)
+
+
 def test_get_model_provider_only():
     """Test getting recommended model when only provider is given."""
     model = get_model("openai")
@@ -241,7 +265,7 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
     ("provider", "expected_model"),
     [
         ("openai", "gpt-5.6-sol"),
-        ("anthropic", "claude-sonnet-4-6"),
+        ("anthropic", "claude-sonnet-5-5"),
         ("gemini", "gemini-3.1-pro-preview"),
         ("openrouter", "deepseek/deepseek-v4.1-flash"),
         ("xai", "grok-4.6"),
@@ -455,10 +479,10 @@ class TestClosestModelMatch:
         """An unknown claude-opus variant should inherit from the latest known opus."""
         model = get_model("anthropic/claude-opus-5-0")
         assert model.provider == "anthropic"
-        assert model.context == 1_000_000  # claude-opus-4-7 has 1M context (GA)
+        assert model.context == 1_000_000
         assert model.supports_reasoning is True
         # Opus is more expensive than sonnet
-        assert model.price_input >= 5
+        assert model.price_input == get_model("anthropic/claude-opus-5-5").price_input
 
     def test_unknown_openai_gpt_uses_closest_gpt(self):
         """An unknown GPT model should inherit from the latest known GPT."""
