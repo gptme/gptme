@@ -513,11 +513,6 @@ def _stream_responses_events(
                 if served is not None:
                     model_callback(served)
 
-        elif event_type in ("error", "response.failed"):
-            # Without this a failed response ended the stream silently and
-            # looked like a normal (often empty) reply.
-            raise _responses_stream_error(event)
-
         elif event_type in (
             "response.completed",
             "response.done",
@@ -550,24 +545,6 @@ def _stream_responses_events(
         yield pending.replace("<thinking>", "<think>").replace(
             "</thinking>", "</think>"
         )
-
-
-def _responses_stream_error(event: Any) -> ResponsesStreamError:
-    """Build a ResponsesStreamError from an ``error``/``response.failed`` stream event.
-
-    ``error`` events carry ``code``/``message`` at the top level;
-    ``response.failed`` nests them under ``response.error``.
-    ResponsesStreamError inherits from httpx.RemoteProtocolError, which is in
-    _PROVIDER_ERROR_MODULES, so is_provider_error() classifies it correctly.
-    """
-    event_type = _obj_get(event, "type", "") or "unknown"
-    if event_type == "response.failed":
-        error = _obj_get(_obj_get(event, "response", None), "error", None) or event
-    else:
-        error = _obj_get(event, "error", None) or event
-    code = _obj_get(error, "code", None) or "no code"
-    message = _obj_get(error, "message", None) or "unknown error"
-    return ResponsesStreamError(event_type, code, message)
 
 
 def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:

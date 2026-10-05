@@ -555,11 +555,12 @@ def test_execute_patch_crlf_in_updated_block_normalized_for_lf(tmp_path):
     assert f.read_bytes() == b"first\nnew one\nnew two\nlast\n"
 
 
+@pytest.mark.timeout(10)
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs not supported on Windows")
 def test_patch_refuse_fifo(tmp_path):
     """Patching a FIFO blocks forever at open(); the tool must refuse it."""
     fifo = tmp_path / "pipe"
     os.mkfifo(fifo)
     messages = list(execute_patch(example_patch, [str(fifo)], None))
-    assert any("Patch failed" in m.content for m in messages)
+    assert any("non-regular file" in m.content for m in messages)
     assert all("successfully" not in m.content for m in messages)
