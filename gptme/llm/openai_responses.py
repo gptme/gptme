@@ -423,9 +423,15 @@ def _stream_responses_events(
 
         if event_type in ("error", "response.failed"):
             # HTTP 200 only establishes the stream, not successful generation.
-            # Raise a provider error without dumping the response (instructions,
+            # Preserve the provider code without dumping the response (instructions,
             # input and output may contain private context).
-            raise _responses_stream_error(event)
+            if event_type == "response.failed":
+                error = _obj_get(_obj_get(event, "response", None), "error", None)
+            else:
+                error = _obj_get(event, "error", None) or event
+            code = _obj_get(error, "code", None) or "unknown_error"
+            message = _obj_get(error, "message", None) or "Generation failed"
+            raise ResponsesStreamError(event_type, code, message)
 
         elif event_type in (
             "response.reasoning_text.delta",
