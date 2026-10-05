@@ -891,11 +891,13 @@ def test_include_paths_inaccessible_parent_is_skipped(tmp_path, monkeypatch):
 
     path = tmp_path / "private" / "file.txt"
     monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
     monkeypatch.setattr(
         "gptme.util.context._find_potential_paths", lambda _: [str(path)]
     )
-    with patch("pathlib.Path.is_file", side_effect=PermissionError):
+    with patch("pathlib.Path.is_file", side_effect=PermissionError) as is_file:
         msg = include_paths(Message("user", f"look at {path}"), workspace=tmp_path)
+    is_file.assert_called_once()
     assert msg.content == f"look at {path}"
     assert not msg.files
 
