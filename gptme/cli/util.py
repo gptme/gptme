@@ -697,8 +697,10 @@ def _read_gitignore(path: str) -> list[_IgnoreRule]:
     rules: list[_IgnoreRule] = []
     for fp in [_global_gitignore_path(), os.path.join(path, ".gitignore")]:
         if os.path.exists(fp):
-            # Git treats .gitignore as bytes; tolerate non-UTF-8 comments
-            with open(fp, encoding="utf-8", errors="replace") as f:
+            # Git treats .gitignore as bytes. surrogateescape round-trips
+            # invalid bytes the same way os.walk decodes filenames, so
+            # patterns containing them still match.
+            with open(fp, encoding="utf-8", errors="surrogateescape") as f:
                 for raw in f:
                     rule = _parse_gitignore_pattern(raw)
                     if rule is not None:
