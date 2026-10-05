@@ -3642,6 +3642,74 @@ def test_bound_summarize_input_clips_tool_output_and_drops_oldest():
     )
 
 
+def _recompaction_log(checkpoint: str = "CHECKPOINT_MARKER objective") -> list[Message]:
+    """A log shaped like a compacted view: head, intro, checkpoint, new work."""
+    return [
+        Message("system", "core system prompt"),
+        Message("system", "Previous conversation resumed from LLM-generated summary:"),
+        Message("assistant", checkpoint),
+        Message("user", "newer task"),
+        Message("assistant", "newer answer"),
+    ]
+
+
+def test_find_previous_checkpoint():
+    from gptme.tools.autocompact.resume import _find_previous_checkpoint
+
+    msgs = _recompaction_log()
+    assert _find_previous_checkpoint(msgs) is msgs[2]
+    assert _find_previous_checkpoint(msgs[:2]) is None
+    assert _find_previous_checkpoint(msgs[3:]) is None
+    # An intro that is not followed by an assistant message is not a checkpoint.
+    assert _find_previous_checkpoint([msgs[1], msgs[3]]) is None
+
+
+def test_resume_via_llm_recompaction_asks_to_carry_checkpoint_forward(
+    tmp_path, monkeypatch
+):
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = _recompaction_log()
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    prompts: list[str] = []
+
+    def fake_reply(msgs, **kwargs):
+        prompts.append(msgs[-1].content)
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages))
+    assert "already contains a checkpoint" in prompts[0]
+
+    # First compaction (no earlier checkpoint) keeps the plain prompt.
+    plain = [m for i, m in enumerate(messages) if i not in (1, 2)]
+    manager = LogManager(plain, logdir=tmp_path / "conversation2")
+    list(_resume_via_llm(manager, plain))
+    assert "already contains a checkpoint" not in prompts[1]
+
+
+def test_bound_summarize_input_pins_previous_checkpoint():
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    model = "gpt-4"
+    big = "line of conversation\n" * 20000
+    msgs = _recompaction_log()
+    # Many large newer messages push the checkpoint out of a tight window.
+    msgs[3:3] = [Message("user", big), Message("assistant", big)] * 3
+    checkpoint = msgs[2]
+
+    unpinned = _bound_summarize_input(msgs, model, 20000, keep_head=1)
+    assert checkpoint not in unpinned, "setup: checkpoint must be droppable"
+
+    pinned = _bound_summarize_input(msgs, model, 20000, keep_head=1, pinned=checkpoint)
+    assert pinned[0].content == "core system prompt"
+    assert pinned[1] is checkpoint
+    assert "older messages omitted" in pinned[2].content
+    assert pinned[-1].content == msgs[-1].content
+
+
 def test_bound_summarize_input_preserves_long_user_request():
     """A long user request carries requirements; it must not be clipped as tool output."""
     from gptme.tools.autocompact.resume import (

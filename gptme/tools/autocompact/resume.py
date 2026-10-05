@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 # Default keep_recent window — last N tokens of history kept verbatim after checkpoint
 _DEFAULT_KEEP_RECENT_TOKENS = 20_000
 
+# Intro line of a compacted view. It precedes the checkpoint message, so a
+# later re-compaction can recognise the earlier checkpoint in the log.
+_CHECKPOINT_INTRO_PREFIX = "Previous conversation resumed from"
+
 logger = logging.getLogger(__name__)
 
 
@@ -292,12 +296,25 @@ def _clip_messages_to_budget(
     return out
 
 
+def _find_previous_checkpoint(msgs: list[Message]) -> Message | None:
+    """Return the most recent checkpoint left by an earlier compaction, if any."""
+    for i in range(len(msgs) - 2, -1, -1):
+        if (
+            msgs[i].role == "system"
+            and msgs[i].content.startswith(_CHECKPOINT_INTRO_PREFIX)
+            and msgs[i + 1].role == "assistant"
+        ):
+            return msgs[i + 1]
+    return None
+
+
 def _bound_summarize_input(
     msgs: list[Message],
     model: str,
     context_window: int | None,
     keep_head: int = 0,
     extra_reserve_tokens: int = 0,
+    pinned: Message | None = None,
 ) -> list[Message]:
     """Bound the summarizer request so summarizing an oversized log cannot itself overflow.
 
@@ -313,8 +330,31 @@ def _bound_summarize_input(
       ``extra_reserve_tokens`` — the caller's summarizer prompt), the oldest
       messages are dropped and the oldest surviving message is clipped if it
       only partly fits, so the final request is guaranteed to be within budget.
+    - ``pinned`` (a previous checkpoint, matched by content) is never dropped
+      for budget: it is the oldest surviving message, so without the pin it
+      would be the first thing a re-compaction loses. It is kept right after
+      the head and counts against the head budget, so it clips with the head.
     """
     head = msgs[:keep_head]
+    if pinned is not None and context_window:
+        # Match by content: prepare_messages copies and merges messages.
+        pin_at = next(
+            (
+                i
+                for i, m in enumerate(msgs[keep_head:], keep_head)
+                if m.role == pinned.role and m.content.startswith(pinned.content)
+            ),
+            None,
+        )
+        if pin_at is not None:
+            msgs = (
+                msgs[:keep_head]
+                + [msgs[pin_at]]
+                + msgs[keep_head:pin_at]
+                + msgs[pin_at + 1 :]
+            )
+            keep_head += 1
+            head = msgs[:keep_head]
     body = [
         m.replace(
             content=_clip_middle(m.content, SUMMARY_MAX_TOOL_OUTPUT_TOKENS, model)
@@ -576,6 +616,15 @@ Files that must be reloaded to continue effectively. Format:
 Focus on files that are actively referenced or modified. Omit files that are
 only mentioned in passing.
 """
+    previous_checkpoint = _find_previous_checkpoint(msgs)
+    if previous_checkpoint is not None:
+        resume_prompt += (
+            "\n\nThis conversation already contains a checkpoint from an earlier "
+            "compaction. Carry its still-valid Objective, Key Decisions, Open Items "
+            "and Context Files forward into the new checkpoint instead of "
+            "summarizing it as ordinary conversation. Where newer messages "
+            "conflict with it, the newer messages win; drop items they completed."
+        )
     if compact_instructions:
         resume_prompt += f"\n\nAdditional instructions:\n{compact_instructions}"
 
@@ -604,6 +653,7 @@ only mentioned in passing.
         context_window,
         keep_head=n_head,
         extra_reserve_tokens=len_tokens(resume_request, m.model),
+        pinned=previous_checkpoint,
     ) + [resume_request]
     snapshot = None
     file_snapshot = None
@@ -720,7 +770,8 @@ only mentioned in passing.
         files_note = f" (with {len(loaded_files)} context files)"
     resume_source = str(resume_path) if resume_path else "LLM-generated summary"
     resume_intro_msg = Message(
-        "system", f"Previous conversation resumed from {resume_source}{files_note}:"
+        "system",
+        f"{_CHECKPOINT_INTRO_PREFIX} {resume_source}{files_note}:",
     )
     resume_msg = Message("assistant", resume_content)
 
