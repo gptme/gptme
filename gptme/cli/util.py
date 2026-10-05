@@ -431,14 +431,20 @@ def tokens_count(text: str | None, model: str, file: str | None):
     from ..util.tokens import len_tokens  # fmt: skip
 
     # Get text from file if specified (or stdin via "-")
-    if file:
-        if file == "-":
+    try:
+        if file:
+            if file == "-":
+                text = sys.stdin.read()
+            else:
+                with open(file) as f:
+                    text = f.read()
+        elif text == "-":
             text = sys.stdin.read()
-        else:
-            with open(file) as f:
-                text = f.read()
-    elif text == "-":
-        text = sys.stdin.read()
+    except UnicodeDecodeError as e:
+        source = "stdin" if file in (None, "-") else file
+        raise click.ClickException(
+            f"{source} is not valid UTF-8 text: {e.reason}"
+        ) from None
 
     if not text:
         print(
