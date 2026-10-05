@@ -853,3 +853,42 @@ def test_include_paths_does_not_scan_tmp_from_prose(monkeypatch):
         called_paths = [Path(c.args[0]).resolve() for c in listing.call_args_list]
         tmp_roots = {Path("/tmp").resolve(), Path("/private/tmp").resolve()}
         assert tmp_roots.isdisjoint(called_paths)
+
+
+def _unreadable_file(tmp_path: Path) -> Path:
+    import os
+
+    import pytest
+
+    f = tmp_path / "noperm.txt"
+    f.write_text("secret")
+    f.chmod(0o000)
+    if os.access(f, os.R_OK):  # running as root: chmod does not restrict reads
+        pytest.skip("cannot make a file unreadable as this user")
+    return f
+
+
+def test_include_paths_unreadable_file_is_skipped(tmp_path, monkeypatch):
+    """An unreadable file mentioned in a prompt must not crash path inclusion."""
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    f = _unreadable_file(tmp_path)
+    try:
+        msg = include_paths(Message("user", f"look at {f}"), workspace=tmp_path)
+    finally:
+        f.chmod(0o644)
+    assert msg.content == f"look at {f}"
+    assert not msg.files
+
+
+def test_parse_prompt_files_unreadable_file(tmp_path, monkeypatch):
+    from gptme.util.context import _parse_prompt_files
+
+    monkeypatch.chdir(tmp_path)
+    f = _unreadable_file(tmp_path)
+    try:
+        assert _parse_prompt_files(str(f)) is None
+    finally:
+        f.chmod(0o644)

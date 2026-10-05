@@ -1011,6 +1011,9 @@ def _resource_to_codeblock(
                 logger.debug("skipping broad directory attachment: %s", f)
                 return None
             return _dir_to_listing(f, prompt)
+    except PermissionError:
+        logger.warning("Skipping unreadable file: %s", prompt)
+        return None
     except OSError as oserr:
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:
@@ -1116,6 +1119,9 @@ def _parse_prompt_files(prompt: str) -> Path | None:
             if p.suffix[1:].lower() in ["png", "jpg", "jpeg", "gif", "pdf"]:
                 return p
             return None
+    except PermissionError:
+        logger.debug("Skipping unreadable file: %s", prompt)
+        return None
     except OSError as oserr:  # pragma: no cover
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:
