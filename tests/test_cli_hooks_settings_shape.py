@@ -16,6 +16,8 @@ BAD = [
     b'{"hooks": {"UserPromptSubmit": "x"}}',
     b'{"hooks": {"PreToolUse": [1]}}',
     b'{"hooks": {"PreToolUse": [{"hooks": "x"}]}}',
+    b'{"hooks": {"PreToolUse": [{"hooks": [{"command": null}]}]}}',
+    b'{"hooks": {"UserPromptSubmit": [{"hooks": [{"command": 1}]}]}}',
 ]
 
 

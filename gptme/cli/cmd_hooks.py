@@ -428,7 +428,10 @@ def _load_settings(path: Path) -> dict:
         if not isinstance(entries, list) or not all(
             isinstance(e, dict)
             and isinstance(e.get("hooks", []), list)
-            and all(isinstance(h, dict) for h in e.get("hooks", []))
+            and all(
+                isinstance(h, dict) and isinstance(h.get("command", ""), str)
+                for h in e.get("hooks", [])
+            )
             for e in entries
         ):
             raise ValueError(
