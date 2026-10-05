@@ -602,8 +602,11 @@ def test_read_large_file_stream_matches_whole_file_line_boundaries(tmp_path: Pat
     path = tmp_path / "mixed.txt"
     path.write_bytes(text.encode())
 
-    selected, total, truncated, total_exact = _read_line_range(path, 0, None)
+    selected, total, truncated, total_exact, has_invalid_utf8 = _read_line_range(
+        path, 0, None
+    )
     assert selected == text.splitlines()
     assert total == len(text.splitlines())
     assert not truncated
     assert total_exact
+    assert not has_invalid_utf8

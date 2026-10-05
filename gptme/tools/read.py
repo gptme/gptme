@@ -41,9 +41,9 @@ To read multiple files in a single call, put one path per line in the code block
 Lines beginning with '#' are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
 For files over 1 MiB, always supply start_line and end_line to read a section at a
-time; the response shows the range and total line count so you can paginate with
-successive ranged reads. hashline_edit is not available for large-file ranged reads;
-use the save or patch tool to edit large files.
+time; advance start_line to the next line after the shown range to paginate through
+the file. hashline_edit is not available for large-file ranged reads; use the save
+or patch tool to edit large files.
 """.strip()
 
 instructions_format = {
@@ -158,9 +158,18 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
     )
 
 
+def _has_surrogate(s: str) -> bool:
+    return any("\udc80" <= c <= "\udcff" for c in s)
+
+
+def _replace_surrogates(s: str) -> str:
+    """Replace surrogate-escaped bytes (invalid UTF-8 markers) with U+FFFD."""
+    return "".join("�" if "\udc80" <= c <= "\udcff" else c for c in s)
+
+
 def _read_line_range(
     path: Path, start_idx: int, end_line: int | None
-) -> tuple[list[str], int, bool, bool]:
+) -> tuple[list[str], int, bool, bool, bool]:
     """Stream lines ``start_idx:end_line`` without loading the whole file.
 
     Line boundaries match ``str.splitlines()`` on the full content. Stops
@@ -168,30 +177,37 @@ def _read_line_range(
     caller omits the "of N" suffix). The size cap is measured in UTF-8 bytes,
     matching the large-file threshold; it applies to every line including the
     first so a single oversized line is always rejected. Invalid bytes outside
-    the selected range are replaced rather than raising. Returns
-    (selected, total, truncated, total_exact).
+    the selected range are decoded via surrogateescape (not raising, not
+    replacing). Invalid bytes *inside* the selected range are replaced with
+    U+FFFD for display and the ``has_invalid_utf8`` flag is set so the caller
+    can warn the agent that the displayed content differs from the file.
+    Returns (selected, total, truncated, total_exact, has_invalid_utf8).
     """
     selected: list[str] = []
     selected_bytes = 0
     truncated = False
     total = 0
     early_exit = False
-    with path.open(encoding="utf-8", newline="", errors="replace") as f:
+    has_invalid_utf8 = False
+    with path.open(encoding="utf-8", newline="", errors="surrogateescape") as f:
         for raw in f:
             for line in raw.splitlines():
                 in_range = total >= start_idx and (end_line is None or total < end_line)
                 if in_range and not truncated:
-                    line_bytes = len(line.encode("utf-8"))
+                    line_bytes = len(line.encode("utf-8", errors="surrogateescape"))
                     if selected_bytes + line_bytes > _MAX_READ_BYTES:
                         truncated = True
                     else:
+                        if _has_surrogate(line):
+                            has_invalid_utf8 = True
+                            line = _replace_surrogates(line)
                         selected.append(line)
                         selected_bytes += line_bytes + 1
                 total += 1
             if end_line is not None and total >= end_line:
                 early_exit = True
                 break
-    return selected, total, truncated, not early_exit
+    return selected, total, truncated, not early_exit, has_invalid_utf8
 
 
 def _current_logdir() -> Path | None:
@@ -266,11 +282,21 @@ def _read_one(
     content: str | None = None
     range_truncated = False
     total_exact = True
+    has_invalid_utf8 = False
     try:
         if is_large:
-            selected, total_lines, range_truncated, total_exact = _read_line_range(
-                path, start_idx, end_line
+            selected, total_lines, range_truncated, total_exact, has_invalid_utf8 = (
+                _read_line_range(path, start_idx, end_line)
             )
+            if range_truncated and not selected:
+                yield Message(
+                    "system",
+                    f"The first line in the requested range exceeds the "
+                    f"{_MAX_READ_BYTES} byte read limit (the file may be "
+                    f"minified or binary). Use a text editor or binary tool "
+                    f"to inspect it.",
+                )
+                return
         else:
             content = path.read_text(encoding="utf-8")
             lines = content.splitlines()
@@ -369,6 +395,12 @@ def _read_one(
         body += (
             f"\n\nRange truncated at {_MAX_READ_BYTES} bytes; "
             f"continue with start_line={end_idx + 1}."
+        )
+    if has_invalid_utf8:
+        body += (
+            "\n\nWarning: the selected range contains invalid UTF-8 bytes "
+            "(shown as \N{REPLACEMENT CHARACTER}). "
+            "The displayed content does not exactly match the file."
         )
 
     yield Message("system", body)
