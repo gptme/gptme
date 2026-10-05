@@ -454,11 +454,11 @@ def tokens_count(text: str | None, model: str, file: str | None):
         )
         sys.exit(1)
 
-    # Warn when tiktoken has no native encoding for this model; the count will
-    # use cl100k_base as a fallback and is an estimate, not an exact value.
+    # Warn when tiktoken has no native encoding for this model. The helper may
+    # use cl100k_base or a character approximation, so don't claim which one.
     if not has_known_tokenizer(model):
         print(
-            f"Warning: No native tokenizer for '{model}'; count uses cl100k_base and is an estimate.",
+            f"Warning: No native tokenizer for '{model}'; count is an estimate.",
             file=sys.stderr,
         )
 
