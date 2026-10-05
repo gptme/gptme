@@ -637,6 +637,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#engine-configuration-gptme-browser-engine">Engine configuration (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>)</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-firefox-instead-of-chromium">Use Firefox instead of Chromium</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-a-fingerprint-patched-firefox-anti-detection">Use a fingerprint-patched Firefox (anti-detection)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-a-custom-executable-path-gptme-browser-executable-path">Use a custom executable path (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_EXECUTABLE_PATH</span></code>)</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cdp-mode-gptme-browser-cdp-url">CDP mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>)</a></li>
@@ -1615,6 +1616,33 @@ gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quo
 </pre></div>
 </div>
 </section>
+<section id="use-a-custom-executable-path-gptme-browser-executable-path">
+<h3>Use a custom executable path (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_EXECUTABLE_PATH</span></code>)<a class="headerlink" href="#use-a-custom-executable-path-gptme-browser-executable-path" title="Link to this heading">#</a></h3>
+<p>Use <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_EXECUTABLE_PATH</span></code> to specify a custom browser executable
+independently of engine selection. This is useful when you have a cached or
+pre-built browser binary that you want to use with a specific engine.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use a custom Chromium binary with the default engine</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_EXECUTABLE_PATH</span><span class="o">=</span>/path/to/chromium
+gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+
+<span class="c1"># Use a custom Firefox binary</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>firefox
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_EXECUTABLE_PATH</span><span class="o">=</span>/path/to/firefox
+gptme<span class="w"> </span><span class="s2">&quot;screenshot https://example.com&quot;</span>
+</pre></div>
+</div>
+<p><strong>Precedence:</strong> Explicit constructor arguments take priority over environment
+variables. <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_EXECUTABLE_PATH</span></code> takes priority over the legacy
+<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code> path parsing.</p>
+<p><strong>Notes:</strong></p>
+<ul class="simple">
+<li><p>The executable path applies to the selected engine (Chromium or Firefox).</p></li>
+<li><p>This setting is ignored when using CDP mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>).</p></li>
+<li><p>No browser version compatibility is guaranteed; ensure your custom executable
+is compatible with the Playwright version in use.</p></li>
+<li><p>No automatic downloads or fallbacks occur if the path is missing or invalid.</p></li>
+</ul>
+</section>
 </section>
 <section id="cdp-mode-gptme-browser-cdp-url">
 <h2>CDP mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>)<a class="headerlink" href="#cdp-mode-gptme-browser-cdp-url" title="Link to this heading">#</a></h2>
@@ -1662,11 +1690,15 @@ gptme<span class="w"> </span><span class="s2">&quot;tweet &#39;hello from gptme&
 <td><p><code class="docutils literal notranslate"><span class="pre">chromium</span></code></p></td>
 <td><p>Engine or executable: <code class="docutils literal notranslate"><span class="pre">chromium</span></code>, <code class="docutils literal notranslate"><span class="pre">firefox</span></code>, a path, or a name on <code class="docutils literal notranslate"><span class="pre">$PATH</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_EXECUTABLE_PATH</span></code></p></td>
+<td><p><em>(unset)</em></p></td>
+<td><p>Custom executable path for the selected engine (independent of <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code></p></td>
 <td><p><em>(unset)</em></p></td>
 <td><p>WebSocket URL of an existing Chrome DevTools Protocol server</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_STORAGE_STATE</span></code></p></td>
 <td><p><em>(unset)</em></p></td>
 <td><p>Path to a Playwright storage-state JSON file for persistent sessions</p></td>
 </tr>
@@ -1770,6 +1802,7 @@ Chromium)</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#engine-configuration-gptme-browser-engine">Engine configuration (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_ENGINE</span></code>)</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-firefox-instead-of-chromium">Use Firefox instead of Chromium</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-a-fingerprint-patched-firefox-anti-detection">Use a fingerprint-patched Firefox (anti-detection)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-a-custom-executable-path-gptme-browser-executable-path">Use a custom executable path (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_EXECUTABLE_PATH</span></code>)</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cdp-mode-gptme-browser-cdp-url">CDP mode (<code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code>)</a></li>

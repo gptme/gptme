@@ -6396,6 +6396,36 @@ launching Firefox.
     export GPTME_BROWSER_ENGINE=$(python -m camoufox path)
     gptme "read https://example.com"
 
+Use a custom executable path (``GPTME_BROWSER_EXECUTABLE_PATH``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``GPTME_BROWSER_EXECUTABLE_PATH`` to specify a custom browser executable
+independently of engine selection. This is useful when you have a cached or
+pre-built browser binary that you want to use with a specific engine.
+
+.. code-block:: bash
+
+    # Use a custom Chromium binary with the default engine
+    export GPTME_BROWSER_EXECUTABLE_PATH=/path/to/chromium
+    gptme "read https://example.com"
+
+    # Use a custom Firefox binary
+    export GPTME_BROWSER_ENGINE=firefox
+    export GPTME_BROWSER_EXECUTABLE_PATH=/path/to/firefox
+    gptme "screenshot https://example.com"
+
+**Precedence:** Explicit constructor arguments take priority over environment
+variables. ``GPTME_BROWSER_EXECUTABLE_PATH`` takes priority over the legacy
+``GPTME_BROWSER_ENGINE`` path parsing.
+
+**Notes:**
+
+- The executable path applies to the selected engine (Chromium or Firefox).
+- This setting is ignored when using CDP mode (``GPTME_BROWSER_CDP_URL``).
+- No browser version compatibility is guaranteed; ensure your custom executable
+  is compatible with the Playwright version in use.
+- No automatic downloads or fallbacks occur if the path is missing or invalid.
+
 CDP mode (``GPTME_BROWSER_CDP_URL``)
 ------------------------------------
 
@@ -6444,6 +6474,9 @@ Environment variables
    * - ``GPTME_BROWSER_ENGINE``
      - ``chromium``
      - Engine or executable: ``chromium``, ``firefox``, a path, or a name on ``$PATH``
+   * - ``GPTME_BROWSER_EXECUTABLE_PATH``
+     - *(unset)*
+     - Custom executable path for the selected engine (independent of ``GPTME_BROWSER_ENGINE``)
    * - ``GPTME_BROWSER_CDP_URL``
      - *(unset)*
      - WebSocket URL of an existing Chrome DevTools Protocol server
