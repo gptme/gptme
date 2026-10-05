@@ -232,12 +232,10 @@ def test_rate_limit_response_surfaces_429_signal(blockage_server):
     caller can catch, or include '429' / 'too many requests' in the output.
     Unacceptable: return an empty string with no indication of the error.
     """
-    try:
-        result = read_url(f"{blockage_server}/rate-limited")
-    except Exception:
-        # Any exception is acceptable — it surfaces the error to the caller
-        return
-    # If no exception: the result must contain some signal of the error
+    result = read_url(f"{blockage_server}/rate-limited")
+    # The browser reader currently returns the rendered 429 page. If that
+    # contract changes to raising an HTTP-specific error, this test should be
+    # updated to assert that exact error rather than accepting every exception.
     assert result, "read_url returned empty string on 429 — no signal at all"
     rate_signal = any(
         kw in result.lower()
@@ -287,11 +285,7 @@ def test_spa_loading_does_not_silently_succeed(blockage_server):
     retrieved.  The agent must either time out visibly or return the spinner
     text — it must not return an empty success.
     """
-    try:
-        result = read_url(f"{blockage_server}/spa-loading")
-    except Exception:
-        # Timeout / exception is acceptable — it surfaces the stall
-        return
+    result = read_url(f"{blockage_server}/spa-loading")
     assert result, (
         "read_url returned empty string on infinite spinner — "
         "silent failure gives no signal to the LLM"
