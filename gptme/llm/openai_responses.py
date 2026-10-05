@@ -226,14 +226,13 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
 
     Also drops orphaned tool results (outputs with no preceding call), which
     happen when the call line was skipped/dropped (e.g. due to a corrupt timestamp
-    in the conversation log) but the result line survived.
+    in the conversation log) but the result line survived. The output content is
+    preserved as a user message so the model retains context of the completed action.
     """
     pending: dict[str, list[int]] = {}
-    seen_calls: set[str] = set()
     for idx, item in enumerate(items):
         if item.get("type") == "function_call":
             pending.setdefault(item["call_id"], []).append(idx)
-            seen_calls.add(item["call_id"])
         elif item.get("type") == "function_call_output":
             calls = pending.get(item["call_id"])
             if calls:
@@ -241,15 +240,26 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
     orphaned_calls = {idx for calls in pending.values() for idx in calls}
 
     paired_items: list[dict[str, Any]] = []
+    preceding_calls: set[str] = set()  # call_ids seen so far (positional, not global)
     for idx, item in enumerate(items):
-        if (
+        if item.get("type") == "function_call":
+            preceding_calls.add(item["call_id"])
+        elif (
             item.get("type") == "function_call_output"
-            and item["call_id"] not in seen_calls
+            and item["call_id"] not in preceding_calls
         ):
             logger.warning(
                 "Dropping orphaned tool result for call_id %s (no preceding call)",
                 item["call_id"],
             )
+            # Preserve the output as a user message so the model retains context
+            if output := item.get("output"):
+                paired_items.append(
+                    {
+                        "role": "user",
+                        "content": f"[Orphaned tool output for {item['call_id']}]: {output}",
+                    }
+                )
             continue
         paired_items.append(item)
         if idx in orphaned_calls:

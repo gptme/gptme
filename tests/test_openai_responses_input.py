@@ -139,6 +139,8 @@ def test_orphaned_tool_result_without_preceding_call_is_dropped() -> None:
     (e.g. due to a corrupt timestamp in the log, as in gptme#4182), but the
     tool result message survived. Passing the orphaned result to the Responses
     API would cause a 400 error.
+
+    The output content is preserved as a user message so the model retains context.
     """
     # call_orphan has a result but no preceding call in the conversation
     _, items = _messages_to_responses_input(
@@ -149,9 +151,40 @@ def test_orphaned_tool_result_without_preceding_call_is_dropped() -> None:
         ]
     )
     types = [i.get("type", i.get("role")) for i in items]
-    # The orphaned tool result must not appear in the output
+    # The orphaned tool result must not appear as function_call_output
     assert "function_call_output" not in types
     assert all(i.get("call_id") != "call_orphan" for i in items)
+    # But its content should be preserved as a user message
+    user_contents = [i.get("content", "") for i in items if i.get("role") == "user"]
+    assert any("orphaned result" in c for c in user_contents)
+
+
+def test_result_before_later_same_id_call_is_orphaned() -> None:
+    """A result that precedes any call with its call_id is orphaned and dropped.
+
+    A global 'seen_calls' set would wrongly keep this result because the later
+    call adds the ID to the set before the second pass. The positional check
+    ensures only calls that actually precede the result count.
+    """
+    _, items = _messages_to_responses_input(
+        [
+            Message("user", "Run it."),
+            Message("system", "early result", call_id="call_dup"),
+            Message("assistant", '@shell(call_dup): {"command": "echo 2"}'),
+            Message("user", "Continue."),
+        ]
+    )
+    typed = [
+        i for i in items if i.get("type") in ("function_call", "function_call_output")
+    ]
+    # The orphaned result (no preceding call) must be dropped;
+    # the later call must be paired with a synthetic result
+    assert [i["type"] for i in typed] == ["function_call", "function_call_output"]
+    assert typed[0]["call_id"] == "call_dup"
+    assert "No tool result was recorded" in typed[1]["output"]
+    # Orphaned content preserved as user message
+    user_contents = [i.get("content", "") for i in items if i.get("role") == "user"]
+    assert any("early result" in c for c in user_contents)
 
 
 def test_orphaned_result_dropped_while_valid_pairs_kept() -> None:
