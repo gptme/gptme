@@ -3749,6 +3749,37 @@ def test_bound_summarize_input_large_checkpoint_keeps_system_prompt():
     assert out[-1].content == "newest progress"
 
 
+def test_bound_summarize_input_large_checkpoint_reserves_half_for_newer_work():
+    """An old checkpoint must not crowd authoritative newer work out."""
+    from gptme.tools.autocompact.resume import (
+        _OMISSION_MARKER_RESERVE_TOKENS,
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    context_window = 20000
+    system = Message("system", "essential system instruction")
+    checkpoint = Message("assistant", "old checkpoint state\n" * 10000)
+    newer = [Message("user", f"newer work {i}\n" * 5000) for i in range(3)]
+
+    out = _bound_summarize_input(
+        [system, checkpoint, *newer],
+        model,
+        context_window,
+        keep_head=1,
+        pinned=checkpoint,
+    )
+
+    budget = (
+        context_window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+    available = budget - len_tokens(system, model) - _OMISSION_MARKER_RESERVE_TOKENS
+    assert len_tokens(out[1], model) <= available // 2
+    assert out[-1].content.endswith("newer work 2\n")
+
+
 def test_bound_summarize_input_reinserts_pinned_checkpoint_dropped_upstream():
     """prepare_messages can drop the checkpoint before pinning; it must come back."""
     from gptme.tools.autocompact.resume import _bound_summarize_input

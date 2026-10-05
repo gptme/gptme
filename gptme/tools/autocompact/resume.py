@@ -410,11 +410,11 @@ def _bound_summarize_input(
         # essential state, but treating it as part of ``head`` would let an
         # oversized checkpoint proportionally truncate otherwise-fitting system
         # instructions. Bound only the checkpoint and charge it before the body.
-        newest_reserve = SUMMARY_MIN_CLIP_TOKENS if body else 0
-        max_pin_tokens = max(
-            budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS - newest_reserve,
-            1,
-        )
+        # When newer work exists, cap the old checkpoint at half the remaining
+        # input budget: newer messages are authoritative on conflicts and need
+        # enough room for the summarizer to see more than one clipped boundary.
+        available = budget - head_tokens - _OMISSION_MARKER_RESERVE_TOKENS
+        max_pin_tokens = max(available // 2 if body else available, 1)
         pinned_msg = msgs[keep_head]
         if len_tokens(pinned_msg.content, model) > max_pin_tokens:
             pinned_msg = pinned_msg.replace(
