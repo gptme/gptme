@@ -348,6 +348,9 @@ def execute_patch_impl(
             ) from err
 
     try:
+        if path.exists() and not path.is_file():
+            raise ValueError(f"Cannot patch non-regular file `{path}`")
+
         with open(path, encoding="utf-8") as f:
             original_content = f.read()
 
