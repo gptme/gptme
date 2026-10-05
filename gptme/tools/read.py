@@ -195,17 +195,20 @@ def _read_line_range(
                 in_range = total >= start_idx and (end_line is None or total < end_line)
                 if in_range and not truncated:
                     line_bytes = len(line.encode("utf-8", errors="surrogateescape"))
-                    if selected_bytes + line_bytes > _MAX_READ_BYTES:
+                    separator_bytes = 1 if selected else 0
+                    if selected_bytes + separator_bytes + line_bytes > _MAX_READ_BYTES:
                         truncated = True
                     else:
                         if _has_surrogate(line):
                             has_invalid_utf8 = True
                             line = _replace_surrogates(line)
                         selected.append(line)
-                        selected_bytes += line_bytes + 1
+                        selected_bytes += separator_bytes + line_bytes
                 total += 1
-            if end_line is not None and total >= end_line:
-                early_exit = True
+                if end_line is not None and total >= end_line:
+                    early_exit = True
+                    break
+            if early_exit:
                 break
     return selected, total, truncated, not early_exit, has_invalid_utf8
 
@@ -382,7 +385,8 @@ def _read_one(
     from . import notify_file_read
 
     # A streamed range of a large file is not the whole content, so it must not
-    # become a hashline snapshot.
+    # become a hashline snapshot. Such a snapshot could not safely support
+    # hashline_edit, whose stale-write check compares against the full file.
     tag = notify_file_read(str(path), content) if content is not None else None
 
     if tag is not None:

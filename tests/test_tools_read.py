@@ -577,8 +577,24 @@ def test_read_large_file_range_streams_without_loading_whole(tmp_path: Path):
     assert "(lines 5-6)" in content
     assert "row 5" in content and "row 6" in content
     assert "row 7" not in content
-    # A partial read must not become a hashline snapshot of the file.
+    # A partial snapshot cannot satisfy hashline_edit's full-file stale check.
     notify.assert_not_called()
+
+
+def test_read_large_file_range_stops_inside_physical_line(tmp_path: Path):
+    """A logical separator inside a physical line can end the requested range."""
+    path = tmp_path / "big.log"
+    path.write_text("first\rsecond" + "x" * 100)
+
+    with patch("gptme.tools.read._MAX_READ_BYTES", 10):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "1"})
+        )
+
+    content = messages[0].content
+    assert "first" in content
+    assert "second" not in content
+    assert "exceeds" not in content
 
 
 def test_read_large_file_range_truncated_at_cap(tmp_path: Path):
@@ -594,6 +610,52 @@ def test_read_large_file_range_truncated_at_cap(tmp_path: Path):
     content = messages[0].content
     assert "(lines 1-2)" in content
     assert "continue with start_line=3" in content
+
+
+def test_read_large_file_range_cap_matches_rendered_utf8_bytes(tmp_path: Path):
+    """The byte cap includes separators but not a nonexistent trailing newline."""
+    path = tmp_path / "big.log"
+    path.write_text("é\né\né\n")
+
+    with patch("gptme.tools.read._MAX_READ_BYTES", 5):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "3"})
+        )
+
+    content = messages[0].content
+    assert "(lines 1-2)" in content
+    assert "continue with start_line=3" in content
+
+
+def test_read_large_file_oversized_first_line_is_refused(tmp_path: Path):
+    """An oversized first selected line never enters the tool result."""
+    path = tmp_path / "minified.json"
+    path.write_text("x" * 100)
+
+    with patch("gptme.tools.read._MAX_READ_BYTES", 10):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "1"})
+        )
+
+    content = messages[0].content
+    assert "first line in the requested range exceeds" in content
+    assert "x" * 11 not in content
+
+
+def test_read_large_file_warns_on_invalid_utf8_in_selected_range(tmp_path: Path):
+    """Replacement of selected invalid bytes is explicit to the agent."""
+    path = tmp_path / "invalid.log"
+    path.write_bytes(b"ok\ninvalid:\xff\nafter\n")
+
+    with patch("gptme.tools.read._MAX_READ_BYTES", 10):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "2", "end_line": "2"})
+        )
+
+    content = messages[0].content
+    assert "invalid:�" in content
+    assert "contains invalid UTF-8 bytes" in content
+    assert "does not exactly match the file" in content
 
 
 def test_read_large_file_stream_matches_whole_file_line_boundaries(tmp_path: Path):
