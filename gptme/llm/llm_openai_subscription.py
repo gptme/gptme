@@ -41,6 +41,7 @@ import time
 import webbrowser
 from base64 import urlsafe_b64decode
 from collections.abc import Callable, Generator
+from contextlib import closing
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -772,11 +773,14 @@ def stream(
         nonlocal _served_model
         _served_model = served
 
-    yield from _stream_responses_events(
-        _sse_events(),
-        usage_callback=_capture_usage,
-        model_callback=_capture_model,
-    )
+    # The parser can raise while the event generator is suspended at yield.
+    # Close it explicitly so retained exception tracebacks do not hold sockets.
+    with closing(_sse_events()) as events:
+        yield from _stream_responses_events(
+            events,
+            usage_callback=_capture_usage,
+            model_callback=_capture_model,
+        )
 
     # Return usage metadata so _StreamWithMetadata can attach it to the message.
     # _StreamWithMetadata adds the full provider-prefixed model name automatically.

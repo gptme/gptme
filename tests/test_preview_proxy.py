@@ -412,6 +412,41 @@ class TestPreviewProxyHTTP:
         assert resp.headers.get("Clear-Site-Data") is None
         assert client.get_cookie("gptme_auth") is None
 
+    def test_responses_are_never_cacheable(self, client: FlaskClient):
+        """Upstream cache policy is replaced so an authenticated preview is not stored."""
+
+        class _CacheHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Cache-Control", "public, max-age=31536000")
+                self.send_header("Expires", "Wed, 01 Jan 2031 00:00:00 GMT")
+                self.send_header("Pragma", "cache")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), _CacheHandler)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+
+        resp = client.get(f"/preview/{port}/")
+        t.join(timeout=3)
+        srv.server_close()
+
+        assert resp.status_code == 200
+        assert resp.headers.getlist("Cache-Control") == ["private, no-store"]
+        assert resp.headers.get("Expires") is None
+        assert resp.headers.get("Pragma") is None
+
+    def test_default_response_is_not_cacheable(self, client: FlaskClient):
+        with _loopback_http_server(b"hello") as port:
+            resp = client.get(f"/preview/{port}/")
+        assert resp.headers.get("Cache-Control") == "private, no-store"
+
 
 class TestHeaderHelpers:
     def test_sanitize_drops_token(self):
@@ -461,6 +496,9 @@ class TestHeaderHelpers:
             "Content-Encoding": "gzip",
             "Content-Security-Policy": "sandbox allow-same-origin",
             "Connection": "close",
+            "Cache-Control": "public, max-age=60",
+            "Expires": "Wed, 01 Jan 2031 00:00:00 GMT",
+            "Pragma": "cache",
             "X-Custom": "keep",
         }
         forwarded = _forward_response_headers(headers)
@@ -471,5 +509,6 @@ class TestHeaderHelpers:
         assert "content-encoding" not in lower
         assert "content-security-policy" not in lower
         assert "connection" not in lower
+        assert not {"cache-control", "expires", "pragma"} & lower
         assert ("X-Custom", "keep") in forwarded
         assert ("Content-Type", "text/html") in forwarded
