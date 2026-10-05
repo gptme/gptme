@@ -184,6 +184,13 @@ def execute_save_impl(
         path.parent.mkdir(parents=True)
         missing_parent_created = True
 
+    # Final guard: re-check immediately before open to close the TOCTOU window.
+    # The earlier check at the top of this block runs before hooks and confirms,
+    # leaving a gap where a FIFO could be swapped in.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot save to {path_display}: not a regular file")
+        return
+
     # Save the file
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(content)
