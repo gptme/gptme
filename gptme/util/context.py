@@ -1120,7 +1120,7 @@ def _parse_prompt_files(prompt: str) -> Path | None:
                 return p
             return None
     except PermissionError:
-        logger.debug("Skipping unreadable file: %s", prompt)
+        logger.warning("Skipping unreadable file: %s", prompt)
         return None
     except OSError as oserr:  # pragma: no cover
         # some prompts are too long to be a path, so we can't read them
