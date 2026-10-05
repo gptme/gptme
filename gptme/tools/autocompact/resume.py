@@ -360,7 +360,7 @@ def _bound_summarize_input(
             (
                 i
                 for i, m in enumerate(msgs[keep_head:], keep_head)
-                if m.role == pinned.role and m.content.startswith(pinned.content)
+                if m.role == pinned.role and m.content == pinned.content
             ),
             None,
         )
@@ -803,14 +803,17 @@ only mentioned in passing.
     # A re-compaction's head still holds the previous compaction's intro and
     # context files. The new checkpoint supersedes them; keeping them would
     # leave one more orphaned intro (no checkpoint after it) per compaction.
-    original_system_msgs = [
-        m for m in original_system_msgs if not _is_compaction_artifact(m)
-    ]
-    preserved_head = [
-        m
-        for i, m in enumerate(msgs[:head_end])
-        if i != previous_checkpoint_idx and not _is_compaction_artifact(m)
-    ]
+    if previous_checkpoint_idx is not None:
+        original_system_msgs = [
+            m for m in original_system_msgs if not _is_compaction_artifact(m)
+        ]
+        preserved_head = [
+            m
+            for i, m in enumerate(msgs[:head_end])
+            if i != previous_checkpoint_idx and not _is_compaction_artifact(m)
+        ]
+    else:
+        preserved_head = msgs[:head_end]
 
     # Create file context messages for each loaded file
     file_context_msgs = []
@@ -842,11 +845,13 @@ only mentioned in passing.
     # The previous checkpoint and its intro/context files are superseded by the
     # new checkpoint; left in the tail they would sit after it, and the next
     # re-compaction would pin that obsolete checkpoint instead of the new one.
-    tail_source = [
-        m
-        for i, m in enumerate(msgs[head_end:], head_end)
-        if i != previous_checkpoint_idx and not _is_compaction_artifact(m)
-    ]
+    tail_source = msgs[head_end:]
+    if previous_checkpoint_idx is not None:
+        tail_source = [
+            m
+            for i, m in enumerate(tail_source, head_end)
+            if i != previous_checkpoint_idx and not _is_compaction_artifact(m)
+        ]
     recent_tail = _get_recent_tail(
         tail_source,
         keep_recent_tokens,

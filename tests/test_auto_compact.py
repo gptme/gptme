@@ -3764,6 +3764,19 @@ def test_bound_summarize_input_reinserts_pinned_checkpoint_dropped_upstream():
     assert out[1] is checkpoint
 
 
+def test_bound_summarize_input_does_not_prefix_match_pinned_checkpoint():
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    checkpoint = Message("assistant", "Done")
+    later = Message("assistant", "Done with the new task")
+    msgs = [Message("system", "core system prompt"), later]
+
+    out = _bound_summarize_input(msgs, "gpt-4", 20000, keep_head=1, pinned=checkpoint)
+
+    assert out[1] is checkpoint
+    assert out[-1] is later
+
+
 def test_bound_summarize_input_preserves_long_user_request():
     """A long user request carries requirements; it must not be clipped as tool output."""
     from gptme.tools.autocompact.resume import (
@@ -3979,6 +3992,33 @@ def test_clip_middle_never_exceeds_sub_token_cap():
     model = "gpt-4"
     clipped = _clip_middle("\U0001f600" * 1000, 1, model)
     assert len_tokens(clipped, model) <= 1
+
+
+def test_resume_via_llm_first_compaction_keeps_context_file_lookalike(
+    tmp_path, monkeypatch
+):
+    """Artifact-shaped system text is only removed during re-compaction."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    lookalike = Message(
+        "system", "Context file `policy.md`:\n````\nprovider instruction\n````"
+    )
+    messages = [
+        Message("system", "core system prompt"),
+        lookalike,
+        Message("user", "task"),
+        Message("assistant", "done"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda msgs, **kw: Message("assistant", "## Objective\nNEW_CHECKPOINT"),
+    )
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=0))
+
+    assert lookalike in manager.log.messages
 
 
 def test_resume_via_llm_recompaction_drops_stale_intro_and_context_files(
