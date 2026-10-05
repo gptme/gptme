@@ -415,9 +415,9 @@ def _load_settings(path: Path) -> dict:
     entries do not have the shape Claude Code writes.
     """
     try:
-        settings = json.loads(path.read_text())
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        raise ValueError(f"Failed to parse {path}: {e}") from e
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise ValueError(f"Failed to read {path}: {e}") from e
     if not isinstance(settings, dict):
         raise ValueError(f"{path} must contain a JSON object")
     hooks_cfg = settings.get("hooks", {})

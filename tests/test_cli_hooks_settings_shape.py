@@ -45,6 +45,23 @@ def test_status_reports_malformed_settings(tmp_path: Path, body: bytes, monkeypa
     assert "unusable" in result.output
 
 
+@pytest.mark.parametrize("cmd", ["install", "uninstall", "status"])
+def test_settings_directory_is_clean_error(tmp_path: Path, cmd: str, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "gptme.toml").write_text("")
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.mkdir(parents=True)
+    result = CliRunner().invoke(hooks, [cmd, "--workspace", str(tmp_path)])
+    if cmd == "status":
+        assert result.exit_code == 0
+        assert result.exception is None
+        assert "unusable" in result.output
+    else:
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)
+    assert "settings.json" in result.output
+
+
 def test_valid_settings_roundtrip(tmp_path: Path):
     (tmp_path / "gptme.toml").write_text("")
     settings = tmp_path / ".claude" / "settings.json"
