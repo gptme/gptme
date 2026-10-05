@@ -517,6 +517,11 @@ def _codex_model_and_effort(
     return base_model, reasoning_level
 
 
+CODEX_INSTRUCTIONS_TRUNCATION_MARKER = (
+    "\n\n[... middle of instructions truncated to fit the Codex character cap ...]\n\n"
+)
+
+
 def _clamp_codex_instructions(instructions: str | None) -> str:
     """Keep Codex `instructions` within the Responses API character cap.
 
@@ -538,8 +543,10 @@ def _clamp_codex_instructions(instructions: str | None) -> str:
         parts[largest_index] = parts[largest_index][:-overflow]
         clamped = "\n\n".join(parts)
     else:
-        head_len = limit // 2
-        clamped = text[:head_len] + text[-(limit - head_len) :]
+        marker = CODEX_INSTRUCTIONS_TRUNCATION_MARKER
+        head_len = (limit - len(marker)) // 2
+        tail_len = limit - len(marker) - head_len
+        clamped = text[:head_len] + marker + text[-tail_len:]
 
     logger.warning(
         "Codex instructions exceeded %d chars (%d); removed %d chars to fit the Responses API cap",

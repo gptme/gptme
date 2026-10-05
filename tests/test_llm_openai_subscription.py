@@ -988,6 +988,25 @@ def test_transform_keeps_instructions_under_codex_char_cap():
     assert body["instructions"] == text
 
 
+def test_transform_marks_fallback_truncation_boundary(monkeypatch):
+    """Fallback truncation must not concatenate unrelated text fragments."""
+    monkeypatch.setattr(llm_openai_subscription, "CODEX_INSTRUCTIONS_MAX_CHARS", 24)
+    text = "AAAAAA\n\nBBBBBB\n\nCCCCCC\n\nDDDDDD"
+    marker = "<cut>"
+    monkeypatch.setattr(
+        llm_openai_subscription, "CODEX_INSTRUCTIONS_TRUNCATION_MARKER", marker
+    )
+
+    body = llm_openai_subscription._transform_to_codex_request(
+        [], "gpt-5.6-sol", instructions=text
+    )
+
+    assert len(body["instructions"]) == 24
+    assert marker in body["instructions"]
+    assert body["instructions"].startswith(text[:9])
+    assert body["instructions"].endswith(text[-10:])
+
+
 def test_stream_clamps_joined_system_instructions_to_codex_char_cap():
     """Autocompact can leave joined system/context files a few KB over the cap."""
     cap = llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
