@@ -3646,7 +3646,11 @@ def _recompaction_log(checkpoint: str = "CHECKPOINT_MARKER objective") -> list[M
     """A log shaped like a compacted view: head, intro, checkpoint, new work."""
     return [
         Message("system", "core system prompt"),
-        Message("system", "Previous conversation resumed from LLM-generated summary:"),
+        Message(
+            "system",
+            "Previous conversation resumed from LLM-generated summary:",
+            metadata={"compaction_artifact": "intro"},
+        ),
         Message("assistant", checkpoint),
         Message("user", "newer task"),
         Message("assistant", "newer answer"),
@@ -3667,6 +3671,21 @@ def test_find_previous_checkpoint_index():
         "system", "Previous conversation resumed from cache, but loading failed"
     )
     assert _find_previous_checkpoint_index([lookalike, msgs[2]]) is None
+    # Legacy persisted intros are recognized by shape only when the following
+    # assistant message has the checkpoint structure the compactor requests.
+    prose_lookalike = Message("system", "Previous conversation resumed from cache:")
+    assert (
+        _find_previous_checkpoint_index(
+            [prose_lookalike, Message("assistant", "ordinary explanation")]
+        )
+        is None
+    )
+    assert (
+        _find_previous_checkpoint_index(
+            [prose_lookalike, Message("assistant", "## Objective\nlegacy checkpoint")]
+        )
+        == 1
+    )
 
 
 def test_compaction_artifact_detection_rejects_prefix_lookalikes():
@@ -3676,6 +3695,13 @@ def test_compaction_artifact_detection_rejects_prefix_lookalikes():
         Message("system", "Previous conversation resumed from RESUME.md:")
     )
     assert _is_compaction_artifact(
+        Message(
+            "system",
+            "Context file `notes.md`:\n````\nbody\n````",
+            metadata={"compaction_artifact": "context_file"},
+        )
+    )
+    assert not _is_compaction_artifact(
         Message("system", "Context file `notes.md`:\n````\nbody\n````")
     )
     assert not _is_compaction_artifact(
@@ -3831,6 +3857,25 @@ def test_bound_summarize_input_keeps_fitting_checkpoint_and_newer_work():
     )
 
     assert out == [system, checkpoint, newer]
+
+
+def test_bound_summarize_input_keeps_pre_checkpoint_head_chronology():
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    system = Message("system", "core system prompt")
+    original_request = Message("user", "Use SQLite")
+    checkpoint = Message("assistant", "Changed database to PostgreSQL")
+    newer = Message("user", "Continue")
+
+    out = _bound_summarize_input(
+        [system, original_request, checkpoint, newer],
+        "gpt-4",
+        20000,
+        keep_head=2,
+        pinned=checkpoint,
+    )
+
+    assert out == [system, original_request, checkpoint, newer]
 
 
 def test_bound_summarize_input_reinserts_pinned_checkpoint_dropped_upstream():
@@ -4190,9 +4235,21 @@ def test_resume_via_llm_recompaction_drops_stale_intro_and_context_files(
     systems = [m.content for m in manager.log.messages if m.role == "system"]
     assert systems[0] == "core system prompt"
     assert sum(c.startswith("Previous conversation resumed from") for c in systems) == 1
-    # The old loaded context remains a harmless original-head message; one new
-    # context message is appended for the latest checkpoint.
-    assert sum(c.startswith("Context file `") for c in systems) == 2
+    assert sum(c.startswith("Context file `") for c in systems) == 1
+    context_msg = next(
+        m for m in manager.log.messages if m.content.startswith("Context file `")
+    )
+    assert context_msg.metadata == {"compaction_artifact": "context_file"}
+
+    # Provenance survives persistence; a later process can still retire this
+    # generated snapshot without mistaking content-shaped instructions for it.
+    from gptme.logmanager import Log
+
+    reloaded = Log.read_jsonl(manager.logfile)
+    reloaded_context = next(
+        m for m in reloaded.messages if m.content.startswith("Context file `")
+    )
+    assert reloaded_context.metadata == {"compaction_artifact": "context_file"}
 
 
 def test_resume_via_llm_recompaction_tail_does_not_keep_old_checkpoint(

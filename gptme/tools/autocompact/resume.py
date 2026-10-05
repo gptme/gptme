@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from ... import llm
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
-from ...message import Message, len_tokens
+from ...message import Message, MessageMetadata, len_tokens
 from ...tools import ToolUse
 from ...util.context import md_codeblock
 from ...util.context_budget import get_context_budget
@@ -36,6 +36,9 @@ _CONTEXT_FILE_RE = re.compile(
     rf"^{re.escape(_CONTEXT_FILE_PREFIX)}[^`\n]+`:\n````[^\n]*\n.*\n````$",
     re.DOTALL,
 )
+_COMPACTION_ARTIFACT_META = "compaction_artifact"
+_COMPACTION_INTRO = "intro"
+_COMPACTION_CONTEXT_FILE = "context_file"
 
 logger = logging.getLogger(__name__)
 
@@ -304,21 +307,37 @@ def _clip_messages_to_budget(
     return out
 
 
+def _compaction_artifact_kind(msg: Message) -> str | None:
+    if msg.role != "system":
+        return None
+    if msg.metadata:
+        value = msg.metadata.get(_COMPACTION_ARTIFACT_META)
+        if isinstance(value, str):
+            return value
+    # Compatibility for views written before compaction provenance was stored.
+    if _CHECKPOINT_INTRO_RE.fullmatch(msg.content) is not None:
+        return _COMPACTION_INTRO
+    return None
+
+
 def _is_compaction_artifact(msg: Message) -> bool:
-    """True for exact system-message shapes emitted around a checkpoint."""
-    return msg.role == "system" and (
-        _CHECKPOINT_INTRO_RE.fullmatch(msg.content) is not None
-        or _CONTEXT_FILE_RE.fullmatch(msg.content) is not None
-    )
+    """True for system messages known to be emitted around a checkpoint."""
+    return _compaction_artifact_kind(msg) is not None
 
 
 def _find_previous_checkpoint_index(msgs: list[Message]) -> int | None:
     """Index of the most recent checkpoint left by an earlier compaction, if any."""
     for i in range(len(msgs) - 2, -1, -1):
+        intro = msgs[i]
+        checkpoint = msgs[i + 1]
         if (
-            _is_compaction_artifact(msgs[i])
-            and _CHECKPOINT_INTRO_RE.fullmatch(msgs[i].content) is not None
-            and msgs[i + 1].role == "assistant"
+            _compaction_artifact_kind(intro) == _COMPACTION_INTRO
+            and checkpoint.role == "assistant"
+            and (
+                intro.metadata is not None
+                and intro.metadata.get(_COMPACTION_ARTIFACT_META) == _COMPACTION_INTRO
+                or re.search(r"(?m)^## Objective\s*$", checkpoint.content) is not None
+            )
         ):
             return i + 1
     return None
@@ -348,9 +367,9 @@ def _bound_summarize_input(
       only partly fits, so the final request is guaranteed to be within budget.
     - ``pinned`` (a previous checkpoint, matched by content) is never dropped
       for budget: it is the oldest surviving message, so without the pin it
-      would be the first thing a re-compaction loses. It is kept right after
-      the head, but bounded separately so it cannot truncate the original
-      system prefix.
+      would be the first thing a re-compaction loses. It is bounded separately
+      so it cannot truncate the original system prefix, while retaining its
+      chronological position among the other messages.
     """
     head = msgs[:keep_head]
     body_start = keep_head
@@ -364,14 +383,7 @@ def _bound_summarize_input(
             ),
             None,
         )
-        if pin_at is not None:
-            msgs = (
-                msgs[:keep_head]
-                + [msgs[pin_at]]
-                + msgs[keep_head:pin_at]
-                + msgs[pin_at + 1 :]
-            )
-        else:
+        if pin_at is None:
             # prepare_messages may have merged the checkpoint with the next
             # assistant message. Split that known prefix back out instead of
             # reinserting a duplicate copy of the checkpoint.
@@ -388,17 +400,13 @@ def _bound_summarize_input(
                 remainder = msgs[merged_at].replace(
                     content=msgs[merged_at].content[len(merged_prefix) :]
                 )
-                msgs = (
-                    msgs[:keep_head]
-                    + [pinned]
-                    + msgs[keep_head:merged_at]
-                    + [remainder]
-                    + msgs[merged_at + 1 :]
-                )
+                msgs = msgs[:merged_at] + [pinned, remainder] + msgs[merged_at + 1 :]
+                pin_at = merged_at
             else:
                 # prepare_messages may already have dropped it (oversized log).
                 msgs = msgs[:keep_head] + [pinned] + msgs[keep_head:]
-        body_start += 1
+                pin_at = keep_head
+        assert pin_at is not None
     body = [
         m.replace(
             content=_clip_middle(m.content, SUMMARY_MAX_TOOL_OUTPUT_TOKENS, model)
@@ -410,6 +418,10 @@ def _bound_summarize_input(
     ]
     if not context_window:
         return head + body
+
+    pin_body_at = pin_at - body_start if pin_at is not None else None
+    if pin_body_at is not None:
+        body = body[:pin_body_at] + body[pin_body_at + 1 :]
 
     budget = (
         context_window
@@ -429,7 +441,7 @@ def _bound_summarize_input(
         head_tokens = len_tokens(head, model)
 
     pinned_part: list[Message] = []
-    pinned_msg = msgs[keep_head] if pinned is not None else None
+    pinned_msg = pinned
 
     def bound_pinned() -> list[Message]:
         if pinned_msg is None:
@@ -513,7 +525,10 @@ def _bound_summarize_input(
                 f"[{dropped} older messages omitted to fit the summarization window]",
             ),
         )
-    return head + pinned_part + kept
+    if pinned_part and pin_body_at is not None:
+        pin_at_kept = max(pin_body_at - dropped, 0)
+        kept[pin_at_kept:pin_at_kept] = pinned_part
+    return head + kept
 
 
 def _get_recent_tail(
@@ -843,16 +858,20 @@ only mentioned in passing.
     # leave one more orphaned intro (no checkpoint after it) per compaction.
     if previous_checkpoint_idx is not None:
         previous_intro_idx = previous_checkpoint_idx - 1
-        # Only the intro immediately paired with the selected checkpoint is
-        # known to be generated by the previous compaction. Content-shaped
-        # system instructions elsewhere in the head may be user/provider input.
+        # Provenance-marked context snapshots and the intro/checkpoint pair are
+        # replaced by this compaction. Content-shaped original instructions are
+        # deliberately preserved.
         original_system_msgs = [
-            m for i, m in enumerate(original_system_msgs) if i != previous_intro_idx
+            m
+            for i, m in enumerate(original_system_msgs)
+            if i != previous_intro_idx
+            and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
         ]
         preserved_head = [
             m
             for i, m in enumerate(msgs[:head_end])
             if i not in (previous_intro_idx, previous_checkpoint_idx)
+            and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
         ]
     else:
         preserved_head = msgs[:head_end]
@@ -863,6 +882,7 @@ only mentioned in passing.
         file_msg = Message(
             "system",
             f"{_CONTEXT_FILE_PREFIX}{file_path}`:\n{md_codeblock('', file_content)}",
+            metadata=MessageMetadata(compaction_artifact=_COMPACTION_CONTEXT_FILE),
         )
         file_context_msgs.append(file_msg)
 
@@ -874,6 +894,7 @@ only mentioned in passing.
     resume_intro_msg = Message(
         "system",
         f"{_CHECKPOINT_INTRO_PREFIX} {resume_source}{files_note}:",
+        metadata=MessageMetadata(compaction_artifact=_COMPACTION_INTRO),
     )
     resume_msg = Message("assistant", resume_content)
 
@@ -894,6 +915,7 @@ only mentioned in passing.
             m
             for i, m in enumerate(tail_source, head_end)
             if i not in (previous_intro_idx, previous_checkpoint_idx)
+            and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
         ]
     recent_tail = _get_recent_tail(
         tail_source,
