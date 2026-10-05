@@ -176,6 +176,20 @@ _CREDENTIAL_RESPONSE_STRIP: frozenset[str] = frozenset(
     }
 )
 
+# Cache-policy headers are replaced.  A preview response is only reachable
+# with the ``gptme_auth`` cookie, but a shared or browser cache that stores it
+# would keep serving the page after the cookie is gone (or to another user of
+# the same cache), so every preview response is ``private, no-store``.
+_CACHE_POLICY_STRIP: frozenset[str] = frozenset(
+    {
+        "cache-control",
+        "expires",
+        "pragma",
+    }
+)
+
+PREVIEW_CACHE_CONTROL = "private, no-store"
+
 # Documents that can execute script.  Unique-origin sandbox them so they
 # cannot call cookie-authenticated /api/ routes as the user.
 _HTML_LIKE_MIME: frozenset[str] = frozenset(
@@ -252,12 +266,13 @@ def _forward_request_headers(
 
 
 def _forward_response_headers(headers: Any) -> list[tuple[str, str]]:
-    """Copy upstream response headers, dropping hop-by-hop, decoded-body, isolation, cookies."""
+    """Copy upstream response headers, dropping hop-by-hop, decoded-body, isolation, cookies, cache policy."""
     skip = (
         _HOP_BY_HOP
         | _DECODED_RESPONSE_STRIP
         | _ISOLATION_STRIP
         | _CREDENTIAL_RESPONSE_STRIP
+        | _CACHE_POLICY_STRIP
     )
     return [(key, value) for key, value in headers.items() if key.lower() not in skip]
 
@@ -480,6 +495,7 @@ def _http_stream_proxy(port: int, subpath: str) -> flask.Response:
         upstream.headers.get("Content-Type"),
     )
     response_headers.extend(_isolation_headers(content_type))
+    response_headers.append(("Cache-Control", PREVIEW_CACHE_CONTROL))
 
     def _generate() -> Iterator[bytes]:
         try:
