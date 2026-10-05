@@ -304,15 +304,15 @@ def _is_compaction_artifact(msg: Message) -> bool:
     )
 
 
-def _find_previous_checkpoint(msgs: list[Message]) -> Message | None:
-    """Return the most recent checkpoint left by an earlier compaction, if any."""
+def _find_previous_checkpoint_index(msgs: list[Message]) -> int | None:
+    """Index of the most recent checkpoint left by an earlier compaction, if any."""
     for i in range(len(msgs) - 2, -1, -1):
         if (
             msgs[i].role == "system"
             and msgs[i].content.startswith(_CHECKPOINT_INTRO_PREFIX)
             and msgs[i + 1].role == "assistant"
         ):
-            return msgs[i + 1]
+            return i + 1
     return None
 
 
@@ -361,8 +361,11 @@ def _bound_summarize_input(
                 + msgs[keep_head:pin_at]
                 + msgs[pin_at + 1 :]
             )
-            keep_head += 1
-            head = msgs[:keep_head]
+        else:
+            # prepare_messages may already have dropped it (oversized log).
+            msgs = msgs[:keep_head] + [pinned] + msgs[keep_head:]
+        keep_head += 1
+        head = msgs[:keep_head]
     body = [
         m.replace(
             content=_clip_middle(m.content, SUMMARY_MAX_TOOL_OUTPUT_TOKENS, model)
@@ -624,7 +627,10 @@ Files that must be reloaded to continue effectively. Format:
 Focus on files that are actively referenced or modified. Omit files that are
 only mentioned in passing.
 """
-    previous_checkpoint = _find_previous_checkpoint(msgs)
+    previous_checkpoint_idx = _find_previous_checkpoint_index(msgs)
+    previous_checkpoint = (
+        msgs[previous_checkpoint_idx] if previous_checkpoint_idx is not None else None
+    )
     if previous_checkpoint is not None:
         resume_prompt += (
             "\n\nThis conversation already contains a checkpoint from an earlier "
@@ -767,7 +773,11 @@ only mentioned in passing.
     original_system_msgs = [
         m for m in original_system_msgs if not _is_compaction_artifact(m)
     ]
-    preserved_head = [m for m in msgs[:head_end] if not _is_compaction_artifact(m)]
+    preserved_head = [
+        m
+        for i, m in enumerate(msgs[:head_end])
+        if i != previous_checkpoint_idx and not _is_compaction_artifact(m)
+    ]
 
     # Create file context messages for each loaded file
     file_context_msgs = []
@@ -796,7 +806,14 @@ only mentioned in passing.
     # The leading system messages are re-added verbatim in fixed_parts, so the
     # tail is derived from the conversation after them to avoid duplication.
     model_meta = get_default_model()
-    tail_source = msgs[head_end:]
+    # The previous checkpoint and its intro/context files are superseded by the
+    # new checkpoint; left in the tail they would sit after it, and the next
+    # re-compaction would pin that obsolete checkpoint instead of the new one.
+    tail_source = [
+        m
+        for i, m in enumerate(msgs[head_end:], head_end)
+        if i != previous_checkpoint_idx and not _is_compaction_artifact(m)
+    ]
     recent_tail = _get_recent_tail(
         tail_source,
         keep_recent_tokens,

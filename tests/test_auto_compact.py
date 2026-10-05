@@ -3653,15 +3653,15 @@ def _recompaction_log(checkpoint: str = "CHECKPOINT_MARKER objective") -> list[M
     ]
 
 
-def test_find_previous_checkpoint():
-    from gptme.tools.autocompact.resume import _find_previous_checkpoint
+def test_find_previous_checkpoint_index():
+    from gptme.tools.autocompact.resume import _find_previous_checkpoint_index
 
     msgs = _recompaction_log()
-    assert _find_previous_checkpoint(msgs) is msgs[2]
-    assert _find_previous_checkpoint(msgs[:2]) is None
-    assert _find_previous_checkpoint(msgs[3:]) is None
+    assert _find_previous_checkpoint_index(msgs) == 2
+    assert _find_previous_checkpoint_index(msgs[:2]) is None
+    assert _find_previous_checkpoint_index(msgs[3:]) is None
     # An intro that is not followed by an assistant message is not a checkpoint.
-    assert _find_previous_checkpoint([msgs[1], msgs[3]]) is None
+    assert _find_previous_checkpoint_index([msgs[1], msgs[3]]) is None
 
 
 def test_resume_via_llm_recompaction_asks_to_carry_checkpoint_forward(
@@ -3708,6 +3708,21 @@ def test_bound_summarize_input_pins_previous_checkpoint():
     assert pinned[1] is checkpoint
     assert "older messages omitted" in pinned[2].content
     assert pinned[-1].content == msgs[-1].content
+
+
+def test_bound_summarize_input_reinserts_pinned_checkpoint_dropped_upstream():
+    """prepare_messages can drop the checkpoint before pinning; it must come back."""
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    msgs = _recompaction_log()
+    checkpoint = msgs[2]
+    without = [m for m in msgs if m is not checkpoint]
+
+    out = _bound_summarize_input(
+        without, "gpt-4", 20000, keep_head=1, pinned=checkpoint
+    )
+    assert out[0].content == "core system prompt"
+    assert out[1] is checkpoint
 
 
 def test_bound_summarize_input_preserves_long_user_request():
@@ -3960,3 +3975,29 @@ def test_resume_via_llm_recompaction_drops_stale_intro_and_context_files(
     assert systems[0] == "core system prompt"
     assert sum(c.startswith("Previous conversation resumed from") for c in systems) == 1
     assert sum(c.startswith("Context file `") for c in systems) == 1
+
+
+def test_resume_via_llm_recompaction_tail_does_not_keep_old_checkpoint(
+    tmp_path, monkeypatch
+):
+    """A huge keep_recent window must not carry the old checkpoint after the new one."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import (
+        _find_previous_checkpoint_index,
+        _resume_via_llm,
+    )
+
+    messages = _recompaction_log("OLD_CHECKPOINT objective")
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda msgs, **kw: Message("assistant", "## Objective\nNEW_CHECKPOINT"),
+    )
+
+    list(_resume_via_llm(manager, list(manager.log.messages), keep_recent_tokens=10**6))
+
+    view = list(manager.log.messages)
+    assert not any("OLD_CHECKPOINT" in m.content for m in view)
+    idx = _find_previous_checkpoint_index(view)
+    assert idx is not None and "NEW_CHECKPOINT" in view[idx].content
+    assert any(m.content == "newer answer" for m in view)
