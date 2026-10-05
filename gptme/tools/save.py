@@ -313,6 +313,12 @@ def _validate_and_execute(
         yield Message("system", "No path provided")
         return
 
+    # Opening a FIFO or device blocks (the preview reads it before the user is
+    # even asked), so refuse anything that exists but is not a regular file.
+    if path.exists() and not path.is_file():
+        yield Message("system", f"Cannot {operation} to {path}: not a regular file")
+        return
+
     preview_lang = _get_preview_lang(path)
     confirm_msg = f"Save to {path}?" if operation == "save" else f"Append to {path}?"
     execute_fn = execute_save_impl if operation == "save" else execute_append_impl

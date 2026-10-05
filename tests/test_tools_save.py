@@ -1,6 +1,9 @@
 """Tests for the save and append tools."""
 
+import os
 from pathlib import Path
+
+import pytest
 
 from gptme.message import Message
 from gptme.tools import save as save_tool
@@ -284,3 +287,26 @@ def test_execute_save_skips_diff_preview_for_binary_file(tmp_path: Path, monkeyp
     assert len(messages) == 1
     assert messages[0].content == "stub"
     assert captured["preview_lang"] is None
+
+
+@pytest.mark.timeout(10)
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs not supported on Windows")
+@pytest.mark.parametrize("execute", [execute_save, execute_append])
+def test_save_append_refuse_fifo(tmp_path: Path, execute):
+    """Writing to (or previewing) a FIFO blocks forever; the tool must refuse it."""
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    messages = list(execute("hello\n", [str(fifo)], None))
+    assert len(messages) == 1
+    assert "not a regular file" in messages[0].content
+
+
+@pytest.mark.parametrize("execute", [execute_save, execute_append])
+def test_save_append_refuse_directory(tmp_path: Path, execute):
+    """A directory target gets a clear message, not an IsADirectoryError."""
+    target = tmp_path / "adir"
+    target.mkdir()
+    messages = list(execute("hello\n", [str(target)], None))
+    assert len(messages) == 1
+    assert "not a regular file" in messages[0].content
+    assert target.is_dir()
