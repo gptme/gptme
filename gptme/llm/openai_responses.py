@@ -530,27 +530,22 @@ def _stream_responses_events(
         )
 
 
-def _responses_stream_error(event: Any) -> Exception:
-    """Build a provider error from an ``error``/``response.failed`` stream event.
+def _responses_stream_error(event: Any) -> ResponsesStreamError:
+    """Build a ResponsesStreamError from an ``error``/``response.failed`` stream event.
 
     ``error`` events carry ``code``/``message`` at the top level;
-    ``response.failed`` nests them under ``response.error``. Raising an
-    ``openai.APIError`` with that body lets ``is_provider_error()`` and
-    ``is_context_length_error()`` classify it like any other provider failure.
+    ``response.failed`` nests them under ``response.error``.
+    ResponsesStreamError inherits from httpx.RemoteProtocolError, which is in
+    _PROVIDER_ERROR_MODULES, so is_provider_error() classifies it correctly.
     """
-    import httpx
-    from openai import APIError  # fmt: skip
-
-    error = _obj_get(_obj_get(event, "response", None), "error", None) or event
-    code = _obj_get(error, "code", None)
+    event_type = _obj_get(event, "type", "") or "unknown"
+    if event_type == "response.failed":
+        error = _obj_get(_obj_get(event, "response", None), "error", None) or event
+    else:
+        error = _obj_get(event, "error", None) or event
+    code = _obj_get(error, "code", None) or "no code"
     message = _obj_get(error, "message", None) or "unknown error"
-    body = {"code": code, "message": message}
-    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
-    return APIError(
-        f"Responses API stream failed ({code or 'no code'}): {message}",
-        request,
-        body=body,
-    )
+    return ResponsesStreamError(event_type, code, message)
 
 
 def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:
