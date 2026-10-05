@@ -15,7 +15,11 @@ import pytest
 from gptme.llm import llm_anthropic, llm_openai, llm_openai_subscription
 from gptme.llm.llm_openai import _record_usage
 from gptme.llm.models import get_model
-from gptme.llm.openai_responses import _stream_responses_events, served_model_from
+from gptme.llm.openai_responses import (
+    ResponsesStreamError,
+    _stream_responses_events,
+    served_model_from,
+)
 from gptme.message import Message
 
 
@@ -641,8 +645,6 @@ def test_anthropic_stream_served_model_from_message_start(
 )
 def test_responses_stream_failure_raises_provider_error(event: dict) -> None:
     """A failed response must raise, not end the stream as an empty reply."""
-    from gptme.llm.openai_responses import ResponsesStreamError
-
     events = [{"type": "response.output_text.delta", "delta": "partial"}, event]
     with pytest.raises(ResponsesStreamError) as exc_info:
         list(_stream_responses_events(events))
