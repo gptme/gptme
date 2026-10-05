@@ -29,6 +29,7 @@ class ResponsesStreamError(httpx.RemoteProtocolError):
         self.event_type = event_type
         self.code = code
         self.message = message
+        self.body = {"code": code, "message": message}
         super().__init__(f"Responses stream {event_type}: {code}: {message}")
 
 
