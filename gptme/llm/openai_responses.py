@@ -393,7 +393,26 @@ def _stream_responses_events(
     for event in event_iter:
         event_type = _obj_get(event, "type", "")
 
-        if event_type in ("response.reasoning_text.delta", "response.reasoning.delta"):
+        if event_type in ("error", "response.failed"):
+            import httpx
+
+            # HTTP 200 only establishes the stream, not successful generation.
+            # Raise a provider error without dumping the response (instructions,
+            # input and output may contain private context).
+            if event_type == "response.failed":
+                error = _obj_get(_obj_get(event, "response", None), "error", None)
+            else:
+                error = _obj_get(event, "error", None) or event
+            code = _obj_get(error, "code", None) or "unknown_error"
+            message = _obj_get(error, "message", None) or "Generation failed"
+            raise httpx.RemoteProtocolError(
+                f"Responses stream {event_type}: {code}: {message}"
+            )
+
+        elif event_type in (
+            "response.reasoning_text.delta",
+            "response.reasoning.delta",
+        ):
             delta = _obj_get(event, "delta", "")
             if delta:
                 if not in_reasoning_block:
