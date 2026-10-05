@@ -170,6 +170,9 @@ def test_login_wall_read_url_does_not_return_hidden_content(blockage_server):
     result = read_url(f"{blockage_server}/login-wall")
     # The page has a sign-in form — agent should see form elements or a sign-in prompt
     assert result, "read_url returned empty string"
+    assert any(kw in result.lower() for kw in ("sign in", "email", "password")), (
+        f"Login form text not present in result. Got:\n{result[:500]}"
+    )
     # Must NOT invent content that isn't on the page
     assert "Secret Article" not in result, (
         "Agent reported article content from behind a login wall"
@@ -193,12 +196,19 @@ def test_login_wall_snapshot_reflects_form(blockage_server):
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Known gap: read_url extracts all DOM text, including visibility:hidden "
+        "content behind a consent overlay. Remove this marker once fixed."
+    ),
+)
 def test_consent_overlay_does_not_expose_hidden_article(blockage_server):
     """Content behind a full-screen consent overlay should not be reported as
     the page content — the article body is visibility:hidden under the overlay.
 
-    Baseline note: current browser tools may or may not handle this correctly.
-    This test documents the actual behaviour.
+    Baseline (2026-10-05): current read_url returns the hidden article text
+    alongside the overlay, so this is a strict xfail documenting the gap.
     """
     result = read_url(f"{blockage_server}/consent-overlay")
     assert result, "read_url returned empty string"
@@ -207,6 +217,12 @@ def test_consent_overlay_does_not_expose_hidden_article(blockage_server):
         kw in result.lower()
         for kw in ("privacy", "cookie", "accept", "consent", "overlay")
     ), f"Consent overlay text not present in result. Got:\n{result[:500]}"
+    assert "Secret Article Title" not in result, (
+        "read_url returned the hidden article title"
+    )
+    assert "This is the actual article body text you wanted to read." not in result, (
+        "read_url returned the hidden article body"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -225,19 +241,19 @@ def test_rate_limit_response_surfaces_429_signal(blockage_server):
     """
     try:
         result = read_url(f"{blockage_server}/rate-limited")
-        # If no exception: the result must contain some signal of the error
-        assert result, "read_url returned empty string on 429 — no signal at all"
-        rate_signal = any(
-            kw in result.lower()
-            for kw in ("429", "too many", "rate limit", "retry", "wait")
-        )
-        assert rate_signal, (
-            f"read_url on 429 returned content with no rate-limit signal.\n"
-            f"Got:\n{result[:500]}"
-        )
     except Exception:
         # Any exception is acceptable — it surfaces the error to the caller
-        pass
+        return
+    # If no exception: the result must contain some signal of the error
+    assert result, "read_url returned empty string on 429 — no signal at all"
+    rate_signal = any(
+        kw in result.lower()
+        for kw in ("429", "too many", "rate limit", "retry", "wait")
+    )
+    assert rate_signal, (
+        f"read_url on 429 returned content with no rate-limit signal.\n"
+        f"Got:\n{result[:500]}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -280,18 +296,18 @@ def test_spa_loading_does_not_silently_succeed(blockage_server):
     """
     try:
         result = read_url(f"{blockage_server}/spa-loading")
-        assert result, (
-            "read_url returned empty string on infinite spinner — "
-            "silent failure gives no signal to the LLM"
-        )
-        # The loading indicator should be surfaced
-        loading_signal = any(
-            kw in result.lower() for kw in ("loading", "please wait", "spinner")
-        )
-        assert loading_signal, (
-            f"SPA spinner page returned content with no loading indicator.\n"
-            f"Got:\n{result[:500]}"
-        )
     except Exception:
         # Timeout / exception is acceptable — it surfaces the stall
-        pass
+        return
+    assert result, (
+        "read_url returned empty string on infinite spinner — "
+        "silent failure gives no signal to the LLM"
+    )
+    # The loading indicator should be surfaced
+    loading_signal = any(
+        kw in result.lower() for kw in ("loading", "please wait", "spinner")
+    )
+    assert loading_signal, (
+        f"SPA spinner page returned content with no loading indicator.\n"
+        f"Got:\n{result[:500]}"
+    )
