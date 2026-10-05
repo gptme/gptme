@@ -353,10 +353,10 @@ export const WelcomeView = () => {
   const hasCustomBg = !!bg;
 
   return (
-    <div className="mx-auto flex h-full w-full flex-col" style={bgStyle}>
-      <div className="mx-auto flex h-full w-full max-w-5xl flex-col items-center justify-center pt-12 sm:px-6">
+    <div className="mx-auto flex h-full w-full flex-col overflow-y-auto" style={bgStyle}>
+      <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center pt-12 sm:px-6">
         <div
-          className={`w-full max-w-4xl border p-6 shadow-[0_30px_120px_-48px_rgba(15,23,42,0.45)] sm:rounded-[3em] sm:p-8 ${
+          className={`my-auto w-full max-w-4xl border p-6 shadow-[0_30px_120px_-48px_rgba(15,23,42,0.45)] sm:rounded-[3em] sm:p-8 ${
             hasCustomBg
               ? 'border-white/20 bg-background/60 backdrop-blur-xl'
               : 'border-border/70 bg-background/90 backdrop-blur'
