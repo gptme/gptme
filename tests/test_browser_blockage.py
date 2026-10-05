@@ -209,6 +209,7 @@ def test_consent_overlay_surfaces_overlay(blockage_server):
 @pytest.mark.slow
 @pytest.mark.xfail(
     reason="read_url extracts visibility:hidden content behind a consent overlay",
+    raises=AssertionError,
     strict=True,
 )
 def test_consent_overlay_does_not_expose_hidden_article(blockage_server):
