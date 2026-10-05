@@ -189,6 +189,10 @@ def _read_text_capped(f: Path) -> str:
     produce ~100KB of context. Read one char past the cap instead, to tell
     "exactly at the cap" from "truncated".
     """
+    mime, _ = mimetypes.guess_type(str(f))
+    if mime and not mime.startswith("text/"):
+        raise UnicodeDecodeError("utf-8", b"", 0, 1, f"binary MIME type: {mime}")
+
     with f.open() as fh:
         head = fh.read(CONTENT_SIZE_WARN_THRESHOLD + 1)
         # fstat the open handle: the path may be rotated/deleted after the read

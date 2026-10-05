@@ -384,6 +384,8 @@ def test_stored_attachment_content_is_capped(tmp_path, monkeypatch):
     big = tmp_path / "big.log"
     big.write_text("D" * (CONTENT_SIZE_WARN_THRESHOLD * 20))
     file_hash, _ = store_file(logdir, big)
+    # Make fallback observably wrong: only the stored snapshot contains Ds.
+    big.write_text("fallback content")
 
     monkeypatch.setattr(
         "gptme.logmanager.LogManager.get_current_log",
@@ -400,6 +402,21 @@ def test_stored_attachment_content_is_capped(tmp_path, monkeypatch):
     )
     assert "truncated" in msg.content.lower()
     assert msg.content.count("D") <= CONTENT_SIZE_WARN_THRESHOLD
+
+
+def test_read_text_capped_keeps_large_pdf_as_attachment(tmp_path, monkeypatch):
+    """A PDF with a decodable prefix is not mistaken for text and removed."""
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.delenv("GPTME_FRESH", raising=False)
+    pdf = tmp_path / "report.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n" + b"A" * (CONTENT_SIZE_WARN_THRESHOLD * 2) + b"\xff")
+
+    msg = include_paths(Message("user", str(pdf)))
+    assert msg.files == [pdf]
+    assert "%PDF-1.7" not in msg.content
 
 
 def test_read_text_capped_treats_nul_prefix_as_binary(tmp_path):
