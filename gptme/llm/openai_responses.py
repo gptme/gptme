@@ -230,10 +230,13 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
     itself is discarded rather than promoted to a higher-trust message role.
     """
     pending: dict[str, list[int]] = {}
+    all_call_ids: set[str] = set()
     matched_results: set[int] = set()
     for idx, item in enumerate(items):
         if item.get("type") == "function_call":
-            pending.setdefault(item["call_id"], []).append(idx)
+            call_id = item["call_id"]
+            all_call_ids.add(call_id)
+            pending.setdefault(call_id, []).append(idx)
         elif item.get("type") == "function_call_output":
             calls = pending.get(item["call_id"])
             if calls:
@@ -243,7 +246,10 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
 
     paired_items: list[dict[str, Any]] = []
     for idx, item in enumerate(items):
-        if item.get("type") == "function_call_output" and idx not in matched_results:
+        if (
+            item.get("type") == "function_call_output"
+            and item["call_id"] not in all_call_ids
+        ):
             logger.warning(
                 "Dropping orphaned tool result for call_id %s (no preceding unpaired call)",
                 item["call_id"],
