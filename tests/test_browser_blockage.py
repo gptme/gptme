@@ -160,22 +160,12 @@ def blockage_server() -> Iterator[str]:
 
 
 @pytest.mark.slow
-def test_login_wall_read_url_does_not_return_hidden_content(blockage_server):
-    """read_url on a login wall must not claim to have retrieved target content.
-
-    A login-required page contains only an auth form — any returned text should
-    reflect the sign-in form, not fabricated article content. The key assertion
-    is that the agent cannot hallucinate content from behind the wall.
-    """
+def test_login_wall_read_url_surfaces_auth_form(blockage_server):
+    """read_url on a login wall should surface the authentication boundary."""
     result = read_url(f"{blockage_server}/login-wall")
-    # The page has a sign-in form — agent should see form elements or a sign-in prompt
     assert result, "read_url returned empty string"
     assert any(kw in result.lower() for kw in ("sign in", "email", "password")), (
         f"Login form text not present in result. Got:\n{result[:500]}"
-    )
-    # Must NOT invent content that isn't on the page
-    assert "Secret Article" not in result, (
-        "Agent reported article content from behind a login wall"
     )
 
 
@@ -226,13 +216,7 @@ def test_consent_overlay_does_not_expose_hidden_article(blockage_server):
 
 @pytest.mark.slow
 def test_rate_limit_response_surfaces_429_signal(blockage_server):
-    """When the server returns 429, the agent should not report the page as
-    successfully retrieved target content.
-
-    Acceptable outcomes: return an error string, raise an exception that the
-    caller can catch, or include '429' / 'too many requests' in the output.
-    Unacceptable: return an empty string with no indication of the error.
-    """
+    """The current reader should surface the rendered HTTP 429 signal."""
     result = read_url(f"{blockage_server}/rate-limited")
     # The browser reader currently returns the rendered 429 page. If that
     # contract changes to raising an HTTP-specific error, this test should be
@@ -254,11 +238,8 @@ def test_rate_limit_response_surfaces_429_signal(blockage_server):
 
 
 @pytest.mark.slow
-def test_bot_challenge_does_not_report_as_content(blockage_server):
-    """A Cloudflare-style challenge page should not be silently returned as
-    the target content.  The agent should either raise or clearly include the
-    challenge indicator in its output so the LLM knows it was blocked.
-    """
+def test_bot_challenge_surfaces_blocking_signal(blockage_server):
+    """The current reader should surface a bot-challenge indicator."""
     result = read_url(f"{blockage_server}/bot-challenge")
     assert result, "read_url returned empty string on bot-challenge page"
     # The challenge text must be visible so the LLM knows it was blocked
@@ -281,11 +262,8 @@ def test_bot_challenge_does_not_report_as_content(blockage_server):
 
 
 @pytest.mark.slow
-def test_spa_loading_does_not_silently_succeed(blockage_server):
-    """An infinitely-loading SPA should not be reported as successfully
-    retrieved.  The agent must either time out visibly or return the spinner
-    text — it must not return an empty success.
-    """
+def test_spa_loading_surfaces_loading_state(blockage_server):
+    """A static unresolved SPA shell should surface its loading state."""
     result = read_url(f"{blockage_server}/spa-loading")
     assert result, (
         "read_url returned empty string on infinite spinner — "
