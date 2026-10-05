@@ -365,7 +365,7 @@ def test_resource_to_codeblock_binary(tmp_path):
     assert "Size:" in result
 
 
-def test_resource_to_codeblock_skips_unreadable_fallback_word(monkeypatch):
+def test_resource_to_codeblock_skips_unreadable_fallback_word(tmp_path, monkeypatch):
     """Permission errors while scanning words in prose must not escape."""
     from unittest.mock import patch
 
@@ -373,12 +373,12 @@ def test_resource_to_codeblock_skips_unreadable_fallback_word(monkeypatch):
 
     inaccessible = "/private/file.txt"
     prompt = f"cat {inaccessible}"
-    original_exists = Path.exists
+    monkeypatch.chdir(tmp_path)
 
     def exists(path: Path) -> bool:
         if str(path) == inaccessible:
             raise PermissionError
-        return original_exists(path)
+        return False
 
     monkeypatch.setattr(Path, "exists", exists)
     with patch("gptme.util.context.logger.warning") as warning:

@@ -41,7 +41,7 @@ def test_get_prompt_short():
 def test_get_prompt_custom():
     prompt_msgs = get_prompt([], prompt="Hello world!", include_user_context=False)
     assert len(prompt_msgs) == 1
-    assert prompt_msgs[0].content.startswith("Hello world!")
+    assert prompt_msgs[0].content == "Hello world!"
 
 
 def test_get_prompt_selective_tools_always_included():
