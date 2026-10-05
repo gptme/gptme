@@ -117,6 +117,21 @@ def test_tokens_count(tmp_path):
     assert "Token count" in result.stdout
     assert result.stderr == ""
 
+    # Routed OpenAI model names retain native tokenizer detection.
+    result = runner.invoke(
+        main,
+        [
+            "tokens",
+            "count",
+            "--model",
+            "requesty/openai/gpt-4o-mini",
+            "hello",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert result.stderr == ""
+
     # A custom model merely containing a known model name remains unknown.
     result = runner.invoke(
         main, ["tokens", "count", "--model", "local/gpt-4o-gguf", "hello"]

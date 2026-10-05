@@ -215,11 +215,20 @@ class _GetTokenizer:
 get_tokenizer = _GetTokenizer()
 
 
-_PROVIDER_PREFIXES = ("openai/", "anthropic/", "google/", "azure/", "vertex/")
+_PROVIDER_PREFIXES = (
+    "openai/",
+    "openrouter/openai/",
+    "requesty/openai/",
+    "gptme/openrouter/openai/",
+    "anthropic/",
+    "google/",
+    "azure/",
+    "vertex/",
+)
 
 
 def _bare_model_name(model: str) -> str:
-    """Strip a provider prefix recognized by the tokenizer lookup."""
+    """Strip a recognized provider route from a tiktoken model name."""
     for prefix in _PROVIDER_PREFIXES:
         if model.startswith(prefix):
             return model[len(prefix) :]
