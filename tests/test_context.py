@@ -883,6 +883,23 @@ def test_include_paths_unreadable_file_is_skipped(tmp_path, monkeypatch):
     assert not msg.files
 
 
+def test_include_paths_inaccessible_parent_is_skipped(tmp_path, monkeypatch):
+    """A path below an inaccessible directory must not fail the budget pre-check."""
+    from unittest.mock import patch
+
+    from gptme.util.context import include_paths
+
+    path = tmp_path / "private" / "file.txt"
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setattr(
+        "gptme.util.context._find_potential_paths", lambda _: [str(path)]
+    )
+    with patch("pathlib.Path.is_file", side_effect=PermissionError):
+        msg = include_paths(Message("user", f"look at {path}"), workspace=tmp_path)
+    assert msg.content == f"look at {path}"
+    assert not msg.files
+
+
 def test_parse_prompt_files_unreadable_file(tmp_path, monkeypatch):
     from gptme.util.context import _parse_prompt_files
 

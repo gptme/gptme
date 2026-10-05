@@ -598,16 +598,18 @@ def include_paths(
                 # Budget exhausted: skip entirely (text and binary alike)
                 skipped_paths.append(word)
                 continue
-            if (
-                # Fast stat-based pre-check: skip reading if even the truncated content
-                # (capped at CONTENT_SIZE_WARN_THRESHOLD by _check_content_size) would
-                # exceed the remaining budget.  Path.stat() is a single syscall — far
-                # cheaper than reading the file only to discard the content.
-                (f := Path(word).expanduser()).is_file()
-                and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
-                + total_content_size
-                > INCLUDE_PATHS_MAX_CONTENT
-            ):
+            try:
+                f = Path(word).expanduser()
+                over_budget = (
+                    f.is_file()
+                    and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
+                    + total_content_size
+                    > INCLUDE_PATHS_MAX_CONTENT
+                )
+            except PermissionError:
+                logger.warning("Skipping unreadable file: %s", word)
+                continue
+            if over_budget:
                 mime, _ = mimetypes.guess_type(str(f))
                 if not mime or mime.startswith("text/"):
                     skipped_paths.append(word)
