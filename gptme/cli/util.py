@@ -1595,7 +1595,9 @@ def models_list(
 ):
     """List available models."""
 
-    if provider:
+    def validate_provider() -> None:
+        if not provider:
+            return
         from ..llm.models.listing import get_known_providers  # fmt: skip
 
         known = sorted(str(p) for p in get_known_providers())
@@ -1618,6 +1620,9 @@ def models_list(
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 from ..llm import list_available_providers  # fmt: skip
 
+                # Config loading in provider discovery can warn; keep it inside the
+                # JSON protection so the payload stays parseable.
+                validate_provider()
                 configured = (
                     {
                         configured_provider
@@ -1640,6 +1645,7 @@ def models_list(
         click.echo(json.dumps([model_to_dict(model) for model in models], indent=2))
         return
 
+    validate_provider()
     list_models(
         provider_filter=provider,
         show_pricing=pricing,

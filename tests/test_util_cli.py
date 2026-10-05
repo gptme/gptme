@@ -2019,3 +2019,29 @@ def test_models_list_unknown_provider_errors():
         assert result.exit_code == 2, result.output
         assert "unknown provider 'antropic'" in result.output
         assert "anthropic" in result.output
+
+
+def test_models_list_json_provider_validation_is_log_silent(mocker):
+    """Provider validation loads config; its warnings must not reach --json output."""
+    import logging as _logging
+
+    observed: dict[str, int | None] = {"disabled": None}
+
+    def noisy_known_providers():
+        observed["disabled"] = _logging.root.manager.disable
+        return ["openai"]
+
+    mocker.patch(
+        "gptme.llm.models.listing.get_known_providers",
+        side_effect=noisy_known_providers,
+    )
+    mocker.patch("gptme.cli.util.get_model_list", return_value=[])
+
+    result = CliRunner().invoke(
+        main, ["models", "list", "--json", "--provider", "openai"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == []
+    assert observed["disabled"] == _logging.CRITICAL
+    assert _logging.root.manager.disable == _logging.NOTSET
