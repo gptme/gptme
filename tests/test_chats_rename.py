@@ -168,3 +168,25 @@ def test_cli_rename_not_found():
 
     assert result.exit_code == 1
     assert "not found" in result.output
+
+
+# --- CLI input normalization ---
+
+
+def test_chats_rename_cli_rejects_blank_name():
+    """A blank or whitespace-only name would make the chat unidentifiable."""
+    with patch("gptme.logmanager.rename_conversation") as rename:
+        for blank in ("", "   ", "\n\t"):
+            result = CliRunner().invoke(chats_rename, ["some-conv", blank])
+            assert result.exit_code == 2
+            assert "must not be blank" in result.output
+        rename.assert_not_called()
+
+
+def test_chats_rename_cli_collapses_whitespace_to_single_line():
+    """Newlines/runs of whitespace are collapsed so list output stays one line."""
+    with patch("gptme.logmanager.rename_conversation", return_value=True) as rename:
+        result = CliRunner().invoke(chats_rename, ["some-conv", "  line1\nline2   x "])
+    assert result.exit_code == 0
+    rename.assert_called_once_with("some-conv", "line1 line2 x")
+    assert "Renamed 'some-conv' to 'line1 line2 x'" in result.output
