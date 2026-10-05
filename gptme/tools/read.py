@@ -8,6 +8,7 @@ Multiple paths can be passed in the code block (one per line) to read several
 files in a single tool call, reducing roundtrips when exploring a codebase.
 """
 
+import codecs
 import os
 from collections.abc import Generator
 from pathlib import Path
@@ -104,6 +105,7 @@ _MAX_DIR_ENTRIES = 100
 # Files above this size are never loaded whole: a whole-file read needs an
 # explicit line range, which is streamed and capped at the same size.
 _MAX_READ_BYTES = 1024 * 1024
+_READ_CHUNK_BYTES = 64 * 1024
 _READ_ROOT_ENV = "GPTME_READ_ROOT"
 
 
@@ -158,59 +160,87 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
     )
 
 
-def _has_surrogate(s: str) -> bool:
-    return any("\udc80" <= c <= "\udcff" for c in s)
-
-
-def _replace_surrogates(s: str) -> str:
-    """Replace surrogate-escaped bytes (invalid UTF-8 markers) with U+FFFD."""
-    return "".join("�" if "\udc80" <= c <= "\udcff" else c for c in s)
-
-
 def _read_line_range(
     path: Path, start_idx: int, end_line: int | None
 ) -> tuple[list[str], int, bool, bool, bool]:
-    """Stream lines ``start_idx:end_line`` without loading the whole file.
+    """Stream lines ``start_idx:end_line`` with bounded input and output.
 
-    Line boundaries match ``str.splitlines()`` on the full content. Stops
-    reading after ``end_line`` when set (total_exact=False in that case so the
-    caller omits the "of N" suffix). The size cap is measured in UTF-8 bytes,
-    matching the large-file threshold; it applies to every line including the
-    first so a single oversized line is always rejected. Invalid bytes outside
-    the selected range are decoded via surrogateescape (not raising, not
-    replacing). Invalid bytes *inside* the selected range are replaced with
-    U+FFFD for display and the ``has_invalid_utf8`` flag is set so the caller
-    can warn the agent that the displayed content differs from the file.
+    Line boundaries match ``str.splitlines()`` on the full content. Reading
+    stops as soon as ``end_line`` or the output byte cap is reached, so neither
+    a huge physical line nor the unselected remainder is buffered. Invalid
+    UTF-8 bytes inside selected lines are shown as U+FFFD and reported.
     Returns (selected, total, truncated, total_exact, has_invalid_utf8).
     """
     selected: list[str] = []
     selected_bytes = 0
-    truncated = False
     total = 0
-    early_exit = False
     has_invalid_utf8 = False
-    with path.open(encoding="utf-8", newline="", errors="surrogateescape") as f:
-        for raw in f:
-            for line in raw.splitlines():
-                in_range = total >= start_idx and (end_line is None or total < end_line)
-                if in_range and not truncated:
-                    line_bytes = len(line.encode("utf-8", errors="surrogateescape"))
-                    separator_bytes = 1 if selected else 0
-                    if selected_bytes + separator_bytes + line_bytes > _MAX_READ_BYTES:
-                        truncated = True
-                    else:
-                        if _has_surrogate(line):
-                            has_invalid_utf8 = True
-                            line = _replace_surrogates(line)
-                        selected.append(line)
-                        selected_bytes += separator_bytes + line_bytes
-                total += 1
-                if end_line is not None and total >= end_line:
-                    early_exit = True
-                    break
-            if early_exit:
-                break
-    return selected, total, truncated, not early_exit, has_invalid_utf8
+    pending: list[str] = []
+    pending_bytes = 0
+    skip_lf = False
+    separators = "\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"
+
+    def consume() -> tuple[bool, bool]:
+        """Consume one logical line; return (stop, truncated)."""
+        nonlocal selected_bytes, total, has_invalid_utf8, pending_bytes
+        if total >= start_idx:
+            separator_bytes = 1 if selected else 0
+            if selected_bytes + separator_bytes + pending_bytes > _MAX_READ_BYTES:
+                return True, True
+            line = "".join(pending)
+            if any("\udc80" <= char <= "\udcff" for char in line):
+                has_invalid_utf8 = True
+                line = "".join(
+                    "�" if "\udc80" <= char <= "\udcff" else char for char in line
+                )
+            selected.append(line)
+            selected_bytes += separator_bytes + pending_bytes
+        total += 1
+        pending.clear()
+        pending_bytes = 0
+        return end_line is not None and total >= end_line, False
+
+    def process(text: str) -> tuple[bool, bool]:
+        """Process decoded text; return (stop, truncated)."""
+        nonlocal pending_bytes, skip_lf
+        for char in text:
+            if skip_lf:
+                skip_lf = False
+                if char == "\n":
+                    continue
+            if char in separators:
+                stop, truncated = consume()
+                if stop:
+                    return stop, truncated
+                skip_lf = char == "\r"
+                continue
+            if total >= start_idx:
+                char_bytes = len(char.encode("utf-8", errors="surrogateescape"))
+                separator_bytes = 1 if selected else 0
+                if (
+                    selected_bytes + separator_bytes + pending_bytes + char_bytes
+                    > _MAX_READ_BYTES
+                ):
+                    return True, True
+                pending.append(char)
+                pending_bytes += char_bytes
+        return False, False
+
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="surrogateescape")
+    with path.open("rb") as f:
+        while chunk := f.read(_READ_CHUNK_BYTES):
+            stop, truncated = process(decoder.decode(chunk))
+            if stop:
+                return selected, total, truncated, False, has_invalid_utf8
+        stop, truncated = process(decoder.decode(b"", final=True))
+        if stop:
+            return selected, total, truncated, False, has_invalid_utf8
+
+    if pending:
+        stop, truncated = consume()
+        if stop:
+            return selected, total, truncated, False, has_invalid_utf8
+    return selected, total, False, True, has_invalid_utf8
 
 
 def _current_logdir() -> Path | None:

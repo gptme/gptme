@@ -1,5 +1,6 @@
 """Tests for the read tool."""
 
+import io
 import os
 import stat
 import sys
@@ -660,7 +661,7 @@ def test_read_large_file_warns_on_invalid_utf8_in_selected_range(tmp_path: Path)
 
 def test_read_large_file_stream_matches_whole_file_line_boundaries(tmp_path: Path):
     """Streamed ranges split lines exactly like str.splitlines() on the content."""
-    text = "a\r\nb\rc\x0cd\u2028e\n\nf"
+    text = "a\r\nb\rc\x0bd\x0ce\x1cf\x1dg\x1eh\x85i\u2028j\u2029\nk"
     path = tmp_path / "mixed.txt"
     path.write_bytes(text.encode())
 
@@ -672,3 +673,62 @@ def test_read_large_file_stream_matches_whole_file_line_boundaries(tmp_path: Pat
     assert not truncated
     assert total_exact
     assert not has_invalid_utf8
+
+
+class _BoundedReader(io.BytesIO):
+    """Reject unbounded reads and expose how far the scanner consumed."""
+
+    def __init__(self, content: bytes, max_read: int):
+        super().__init__(content)
+        self.max_read = max_read
+
+    def read(self, size: int | None = -1) -> bytes:
+        assert size is not None and 0 < size <= self.max_read
+        return super().read(size)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+
+def test_read_large_file_stops_before_rest_of_long_physical_line():
+    """A logical separator ends the range without buffering its huge tail."""
+    reader = _BoundedReader("ok\u2028".encode() + b"x" * 10_000, max_read=4)
+
+    with (
+        patch("gptme.tools.read._READ_CHUNK_BYTES", 4),
+        patch.object(Path, "open", return_value=reader),
+    ):
+        selected, total, truncated, total_exact, invalid = _read_line_range(
+            Path("unused"), 0, 1
+        )
+
+    assert selected == ["ok"]
+    assert total == 1
+    assert not truncated
+    assert not total_exact
+    assert not invalid
+    assert reader.tell() <= 8
+
+
+def test_read_large_file_stops_scanning_as_soon_as_output_is_full():
+    """A broad range does not scan to EOF after hitting the output cap."""
+    reader = _BoundedReader(b"abcd\nefgh\n" + b"tail\n" * 10_000, max_read=4)
+
+    with (
+        patch("gptme.tools.read._MAX_READ_BYTES", 5),
+        patch("gptme.tools.read._READ_CHUNK_BYTES", 4),
+        patch.object(Path, "open", return_value=reader),
+    ):
+        selected, total, truncated, total_exact, invalid = _read_line_range(
+            Path("unused"), 0, 1_000_000
+        )
+
+    assert selected == ["abcd"]
+    assert total == 1
+    assert truncated
+    assert not total_exact
+    assert not invalid
+    assert reader.tell() <= 12
