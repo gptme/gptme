@@ -3662,6 +3662,28 @@ def test_find_previous_checkpoint_index():
     assert _find_previous_checkpoint_index(msgs[3:]) is None
     # An intro that is not followed by an assistant message is not a checkpoint.
     assert _find_previous_checkpoint_index([msgs[1], msgs[3]]) is None
+    # A system/tool result merely beginning with the prose prefix is not one.
+    lookalike = Message(
+        "system", "Previous conversation resumed from cache, but loading failed"
+    )
+    assert _find_previous_checkpoint_index([lookalike, msgs[2]]) is None
+
+
+def test_compaction_artifact_detection_rejects_prefix_lookalikes():
+    from gptme.tools.autocompact.resume import _is_compaction_artifact
+
+    assert _is_compaction_artifact(
+        Message("system", "Previous conversation resumed from RESUME.md:")
+    )
+    assert _is_compaction_artifact(
+        Message("system", "Context file `notes.md`:\n````\nbody\n````")
+    )
+    assert not _is_compaction_artifact(
+        Message("system", "Context file `notes.md` could not be loaded")
+    )
+    assert not _is_compaction_artifact(
+        Message("system", "Previous conversation resumed from cache, but failed")
+    )
 
 
 def test_resume_via_llm_recompaction_asks_to_carry_checkpoint_forward(

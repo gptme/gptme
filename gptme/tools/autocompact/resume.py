@@ -28,7 +28,14 @@ _DEFAULT_KEEP_RECENT_TOKENS = 20_000
 # Intro line of a compacted view. It precedes the checkpoint message, so a
 # later re-compaction can recognise the earlier checkpoint in the log.
 _CHECKPOINT_INTRO_PREFIX = "Previous conversation resumed from"
+_CHECKPOINT_INTRO_RE = re.compile(
+    rf"^{re.escape(_CHECKPOINT_INTRO_PREFIX)} .+:$", re.DOTALL
+)
 _CONTEXT_FILE_PREFIX = "Context file `"
+_CONTEXT_FILE_RE = re.compile(
+    rf"^{re.escape(_CONTEXT_FILE_PREFIX)}[^`\n]+`:\n````[^\n]*\n.*\n````$",
+    re.DOTALL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -298,9 +305,10 @@ def _clip_messages_to_budget(
 
 
 def _is_compaction_artifact(msg: Message) -> bool:
-    """True for the system messages a compaction adds around its checkpoint."""
-    return msg.role == "system" and msg.content.startswith(
-        (_CHECKPOINT_INTRO_PREFIX, _CONTEXT_FILE_PREFIX)
+    """True for exact system-message shapes emitted around a checkpoint."""
+    return msg.role == "system" and (
+        _CHECKPOINT_INTRO_RE.fullmatch(msg.content) is not None
+        or _CONTEXT_FILE_RE.fullmatch(msg.content) is not None
     )
 
 
@@ -308,8 +316,8 @@ def _find_previous_checkpoint_index(msgs: list[Message]) -> int | None:
     """Index of the most recent checkpoint left by an earlier compaction, if any."""
     for i in range(len(msgs) - 2, -1, -1):
         if (
-            msgs[i].role == "system"
-            and msgs[i].content.startswith(_CHECKPOINT_INTRO_PREFIX)
+            _is_compaction_artifact(msgs[i])
+            and _CHECKPOINT_INTRO_RE.fullmatch(msgs[i].content) is not None
             and msgs[i + 1].role == "assistant"
         ):
             return i + 1
