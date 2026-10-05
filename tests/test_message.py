@@ -152,7 +152,9 @@ def test_format_oneline_unbreakable_long_word_still_truncated(monkeypatch):
 
     from gptme.message import Message, format_msgs
 
-    monkeypatch.setattr("shutil.get_terminal_size", lambda: terminal_size((40, 24)))
+    monkeypatch.setattr(
+        "shutil.get_terminal_size", lambda *args, **kwargs: terminal_size((40, 24))
+    )
     out = format_msgs([Message("user", "x" * 500)], oneline=True)[0]
     assert out == f"User: {'x' * 36}..."
 
