@@ -75,6 +75,11 @@ def _read_text_safe(path: Path) -> str | None:
         return None
 
 
+def _is_non_regular(path: Path) -> bool:
+    """True if path exists but is not a regular file (FIFO, device, directory)."""
+    return path.exists() and not path.is_file()
+
+
 def _get_preview_lang(path: Path) -> str | None:
     """Use diff highlighting only when the existing file can be previewed as text."""
     if not path.exists():
@@ -142,6 +147,12 @@ def execute_save_impl(
                 f"Path traversal detected: {path_display} resolves to {path} "
                 f"which is outside current directory {cwd}"
             ) from err
+
+    # Re-check at use time: the target may have been swapped for a FIFO while
+    # the confirmation prompt was pending.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot save to {path_display}: not a regular file")
+        return
 
     # Trigger pre-save hooks (file.save.pre)
     if pre_save_msgs := trigger_hook(
@@ -241,6 +252,12 @@ def execute_append_impl(
                 f"which is outside current directory {cwd}"
             ) from err
 
+    # Re-check at use time: the target may have been swapped for a FIFO while
+    # the confirmation prompt was pending.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot append to {path_display}: not a regular file")
+        return
+
     # Check if folder exists first
     if not path.parent.exists():
         if not confirm(f"Folder {path_display.parent} doesn't exist, create it?"):
@@ -315,7 +332,7 @@ def _validate_and_execute(
 
     # Opening a FIFO or device blocks (the preview reads it before the user is
     # even asked), so refuse anything that exists but is not a regular file.
-    if path.exists() and not path.is_file():
+    if _is_non_regular(path):
         yield Message("system", f"Cannot {operation} to {path}: not a regular file")
         return
 
