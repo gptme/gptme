@@ -462,6 +462,24 @@ def test_search_codex_session_non_utf8(tmp_path):
     assert len(_search_codex_session(f, "CORS")) == 1
 
 
+def test_search_codex_session_skips_deeply_nested_line(tmp_path):
+    """A deeply nested record does not hide valid matches in the same session."""
+    f = tmp_path / "sess-1.jsonl"
+    f.write_text(
+        _codex_message("user", "CORS before malformed record")
+        + "\n"
+        + "[" * 10_000
+        + "0"
+        + "]" * 10_000
+        + "\n"
+        + _codex_message("assistant", "CORS after malformed record")
+    )
+
+    results = _search_codex_session(f, "CORS")
+
+    assert [result["role"] for result in results] == ["user", "assistant"]
+
+
 def test_search_external_chats_skips_malformed_sessions(tmp_path, capsys):
     """One malformed session file must not abort the search of the others."""
     cursor_dir = tmp_path / "cursor"

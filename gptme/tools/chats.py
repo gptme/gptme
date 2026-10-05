@@ -269,7 +269,7 @@ def _search_codex_session(path: Path, query: str) -> list[dict]:
                 continue
             try:
                 record = json_mod.loads(line)
-            except json_mod.JSONDecodeError:
+            except (json_mod.JSONDecodeError, RecursionError):
                 continue
             if not isinstance(record, dict) or record.get("type") != "response_item":
                 continue
