@@ -324,3 +324,19 @@ def test_impl_rechecks_target_after_confirmation(tmp_path: Path, execute_impl):
     messages = list(execute_impl("hello\n", fifo))
     assert len(messages) == 1
     assert "not a regular file" in messages[0].content
+
+
+@pytest.mark.timeout(10)
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs not supported on Windows")
+def test_append_rechecks_target_after_create_confirmation(tmp_path: Path, monkeypatch):
+    """A FIFO created during append's second confirmation is refused."""
+    target = tmp_path / "pipe"
+
+    def create_fifo(_prompt: str) -> bool:
+        os.mkfifo(target)
+        return True
+
+    monkeypatch.setattr(save_tool, "confirm", create_fifo)
+    messages = list(execute_append_impl("hello\n", target))
+    assert len(messages) == 1
+    assert "not a regular file" in messages[0].content

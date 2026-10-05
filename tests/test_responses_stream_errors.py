@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
+from gptme.llm import is_context_length_error, mark_llm_reply_origin
 from gptme.llm.llm_openai import _handle_openai_transient_error
 from gptme.llm.openai_responses import (
     ResponsesStreamError,
@@ -58,6 +59,14 @@ def test_failure_without_details_still_raises(event_type: str) -> None:
 def test_successful_stream_is_unchanged(terminal: str) -> None:
     events = [{"type": "response.output_text.delta", "delta": "ok"}, {"type": terminal}]
     assert "".join(_stream_responses_events(events)) == "ok"
+
+
+def test_context_length_code_triggers_recovery_without_message_phrase() -> None:
+    error = ResponsesStreamError(
+        "response.failed", "context_length_exceeded", "Request failed"
+    )
+    mark_llm_reply_origin(error)
+    assert is_context_length_error(error)
 
 
 def test_permanent_responses_failure_is_not_retried() -> None:

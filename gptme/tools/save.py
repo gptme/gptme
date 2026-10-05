@@ -275,7 +275,13 @@ def execute_append_impl(
                 "Append aborted: user refused to create the missing destination file.",
             )
             return
-        path.touch()
+        # The target can appear while this second confirmation is pending.
+        if _is_non_regular(path):
+            yield Message(
+                "system", f"Cannot append to {path_display}: not a regular file"
+            )
+            return
+        path.touch(exist_ok=True)
 
     # Ensure content ends with newline
     if not content.endswith("\n"):
