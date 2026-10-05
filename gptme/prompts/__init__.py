@@ -314,11 +314,7 @@ def _build_prompt_sections(
     )
 
     if include_user_context and prompt != "none":
-        for name, content in sorted(get_config().user.prompt.fragments.items()):
-            if content.strip():
-                core_sections.append(
-                    (f"prompt_fragment:{name}", [Message("system", content)])
-                )
+        core_sections.extend(_prompt_fragment_sections())
 
     dynamic_sections: list[tuple[str, list[Message]]] = []
     if prompt == "full" and not (is_selective and not include_tools):
@@ -435,6 +431,15 @@ def _build_prompt_sections(
         dynamic_sections.append(("prompt_chat_history", chat_history_msgs))
 
     return core_sections, cacheable_sections, dynamic_sections
+
+
+def _prompt_fragment_sections() -> list[tuple[str, list[Message]]]:
+    """Return non-empty configured prompt fragments as named sections."""
+    return [
+        (f"prompt_fragment:{name}", [Message("system", content)])
+        for name, content in sorted(get_config().user.prompt.fragments.items())
+        if content.strip()
+    ]
 
 
 def _section_stat(
