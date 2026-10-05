@@ -486,9 +486,16 @@ def main(
         description = description or f"{name} — a gptme-powered project"
 
     # Check if target exists
-    if target.exists() and not target.is_dir():
-        raise click.ClickException(f"Target {target} exists and is not a directory.")
-    if target.exists() and any(target.iterdir()):
+    try:
+        target_exists = target.exists()
+        if target_exists and not target.is_dir():
+            raise click.ClickException(
+                f"Target {target} exists and is not a directory."
+            )
+        target_is_nonempty = target_exists and any(target.iterdir())
+    except OSError as e:
+        raise click.ClickException(f"Cannot inspect {target}: {e.strerror or e}") from e
+    if target_is_nonempty:
         if not force:
             raise click.ClickException(
                 f"Target directory {target} already exists and is not empty. "

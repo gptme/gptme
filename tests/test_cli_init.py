@@ -1,6 +1,7 @@
 """Tests for `gptme-init` target validation."""
 
 import os
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -36,6 +37,22 @@ def test_init_parent_is_a_file(tmp_path):
     parent.write_text("x")
     result = CliRunner().invoke(main, [str(parent / "sub")])
     _assert_clean_error(result, "Cannot create")
+
+
+@pytest.mark.parametrize("operation", ["exists", "iterdir"])
+def test_init_unreadable_target(tmp_path, monkeypatch, operation):
+    target = tmp_path / "unreadable"
+    target.mkdir()
+    original = getattr(Path, operation)
+
+    def deny_target_access(path):
+        if path == target:
+            raise PermissionError("not readable")
+        return original(path)
+
+    monkeypatch.setattr(Path, operation, deny_target_access)
+    result = CliRunner().invoke(main, [str(target)])
+    _assert_clean_error(result, "Cannot inspect")
 
 
 @pytest.mark.skipif(
