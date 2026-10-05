@@ -229,6 +229,39 @@ class _GetTokenizer:
 get_tokenizer = _GetTokenizer()
 
 
+def has_known_tokenizer(model: str) -> bool:
+    """Return True if tiktoken has a native encoding for this model.
+
+    Returns False for models that fall back to cl100k_base (e.g. Claude,
+    Gemini, or any unrecognized name), so callers can warn the user that
+    the count is an estimate.  This check is instant — it never loads BPE
+    data or touches the network.
+    """
+    try:
+        import tiktoken  # fmt: skip
+    except ImportError:
+        return False
+
+    if "gpt-4o" in model:
+        return True
+
+    _provider_prefixes = ["openai/", "anthropic/", "google/", "azure/", "vertex/"]
+    bare_model = model
+    for prefix in _provider_prefixes:
+        if model.startswith(prefix):
+            bare_model = model[len(prefix) :]
+            break
+
+    try:
+        if tiktoken.model.MODEL_TO_ENCODING.get(bare_model) is not None:
+            return True
+        return any(
+            bare_model.startswith(p) for p in tiktoken.model.MODEL_PREFIX_TO_ENCODING
+        )
+    except AttributeError:
+        return False
+
+
 def _hash_content(content: str) -> str:
     """Create a hash of the content"""
     return hashlib.sha256(content.encode()).hexdigest()

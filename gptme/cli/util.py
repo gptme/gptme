@@ -428,7 +428,14 @@ def tokens():
 )
 def tokens_count(text: str | None, model: str, file: str | None):
     """Count tokens in text or file."""
-    from ..util.tokens import len_tokens  # fmt: skip
+    from ..util.tokens import has_known_tokenizer, len_tokens  # fmt: skip
+
+    # Warn if both --file and a text argument are provided; --file takes precedence.
+    if file and text:
+        print(
+            "Warning: Both --file and text argument provided; text argument ignored.",
+            file=sys.stderr,
+        )
 
     # Get text from file if specified (or stdin via "-")
     if file:
@@ -446,6 +453,14 @@ def tokens_count(text: str | None, model: str, file: str | None):
             "or '-' to read from stdin."
         )
         sys.exit(1)
+
+    # Warn when tiktoken has no native encoding for this model; the count will
+    # use cl100k_base as a fallback and is an estimate, not an exact value.
+    if not has_known_tokenizer(model):
+        print(
+            f"Warning: No native tokenizer for '{model}'; count uses cl100k_base and is an estimate.",
+            file=sys.stderr,
+        )
 
     # Count tokens via gptme's shared tokenizer helper. It handles gptme's
     # canonical "provider/model" names (e.g. "openai/gpt-4o" -> o200k_base),

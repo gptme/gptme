@@ -101,6 +101,34 @@ def test_tokens_count(tmp_path):
     assert result.exit_code == 1
     assert "No text provided" in result.output
 
+    # Unknown model → warning emitted (count still succeeds).
+    # Models tiktoken has no native encoding for (e.g. Claude, Gemini, or any
+    # unrecognized name) use cl100k_base as a fallback.  The CLI must surface
+    # this to the user so they know the count is an estimate.
+    result = runner.invoke(
+        main, ["tokens", "count", "--model", "claude-3-5-sonnet", "hello"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    assert "No native tokenizer" in result.output
+    assert "estimate" in result.output
+
+    # Known model → no warning emitted.
+    result = runner.invoke(main, ["tokens", "count", "--model", "gpt-4o", "hello"])
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    assert "No native tokenizer" not in result.output
+
+    # Both --file and text argument provided → file takes precedence + warning.
+    tmp_file2 = Path(tmp_path) / "file2.txt"
+    tmp_file2.write_text("from file")
+    result = runner.invoke(
+        main, ["tokens", "count", "-f", str(tmp_file2), "text arg ignored"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    assert "text argument ignored" in result.output
+
 
 def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""
