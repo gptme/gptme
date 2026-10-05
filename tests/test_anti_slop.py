@@ -272,6 +272,15 @@ def test_cli_check_skips_short_text():
     assert "SKIP" in result.output
 
 
+def test_cli_check_formats_fractional_em_dash_count():
+    text = " ".join(["word"] * 99) + " — sentence"
+    runner = CliRunner()
+    result = runner.invoke(anti_slop, ["check", "--text", text, "--mode", "relaxed"])
+    assert result.exit_code == 0
+    assert "hits: 0.2" in result.output
+    assert "em-dash abuse                x0.2" in result.output
+
+
 def test_cli_check_fails_on_slop():
     runner = CliRunner()
     result = runner.invoke(anti_slop, ["check", "--text", _SLOP_20W])

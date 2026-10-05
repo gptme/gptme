@@ -212,7 +212,7 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
     # yields tolerated=0.36; round() → 0, so even one em dash counted.  With
     # direct float subtraction, 1 − 0.36 = 0.64 hits, keeping the score below
     # the warn threshold for a single dash in a short paragraph.
-    em_excess = max(0.0, em_dash_count - tolerated)
+    em_excess = round(max(0.0, em_dash_count - tolerated), 2)
     if em_excess > 0:
         weighted_total += em_excess
         hits.append(
