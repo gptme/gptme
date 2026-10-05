@@ -432,3 +432,49 @@ def test_cli_chats_search_all_agents_no_external(tmp_path, monkeypatch, capsys):
     # The gptme search part may print "No results found" — that's fine.
     # We only care that the command doesn't crash.
     assert result.exit_code == 0 or "No results" in (result.output or "")
+
+
+def test_search_codex_session_skips_non_object_lines(tmp_path):
+    """Valid JSON that is not an object (list, string, null) is skipped per line."""
+    f = tmp_path / "sess-1.jsonl"
+    f.write_text('[1]\n"str"\nnull\n' + _codex_message("user", "CORS fix needed"))
+    assert len(_search_codex_session(f, "CORS")) == 1
+
+
+def test_search_codex_session_non_utf8(tmp_path):
+    """A non-UTF-8 byte does not abort the read; the rest stays searchable."""
+    f = tmp_path / "sess-1.jsonl"
+    f.write_bytes(b"caf\xe9\n" + _codex_message("user", "CORS fix needed").encode())
+    assert len(_search_codex_session(f, "CORS")) == 1
+
+
+def test_search_external_chats_skips_malformed_sessions(tmp_path, capsys):
+    """One malformed session file must not abort the search of the others."""
+    cursor_dir = tmp_path / "cursor"
+    for name, body in [
+        ("a-list", "[1, 2]"),
+        ("b-null-messages", '{"messages": null}'),
+        ("c-non-dict-message", '{"messages": ["x"]}'),
+    ]:
+        (cursor_dir / name).mkdir(parents=True)
+        (cursor_dir / name / "conversation.json").write_text(body)
+    (cursor_dir / "d-good").mkdir()
+    (cursor_dir / "d-good" / "conversation.json").write_text(
+        json.dumps(
+            {
+                "title": "My CORS session",
+                "messages": [{"role": "user", "content": "CORS error help"}],
+            }
+        )
+    )
+    codex_day = tmp_path / "codex" / "2026" / "10" / "05"
+    codex_day.mkdir(parents=True)
+    (codex_day / "rollout-a.jsonl").write_bytes(b"\xff\xfe[1]\n")
+    (codex_day / "rollout-b.jsonl").write_text(_codex_message("user", "CORS in codex"))
+
+    search_external_chats(
+        "CORS", max_results=10, cursor_dir=cursor_dir, codex_dir=tmp_path / "codex"
+    )
+    out = capsys.readouterr().out
+    assert "My CORS session" in out
+    assert "[Codex]" in out
