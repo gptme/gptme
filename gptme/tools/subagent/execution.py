@@ -350,7 +350,7 @@ def _create_subagent_thread(
     prompt: str,
     logdir: Path,
     model: str | None,
-    context_mode: Literal["full", "selective"],
+    context_mode: Literal["full", "selective", "fork"],
     context_include: list[str] | None,
     workspace: Path,
     target: str = "parent",
@@ -360,6 +360,8 @@ def _create_subagent_thread(
     redact_secrets: bool = True,
     context_window: int | None = None,
     parent_messages: list[Message] | None = None,
+    fork_messages: list[Message] | None = None,
+    reasoning_effort: str | None = None,
     prompt_queue_closed: threading.Event | None = None,
     *,
     resume: bool = False,
@@ -376,6 +378,12 @@ def _create_subagent_thread(
         target: Who will review the results ("parent" or "planner")
         profile_name: Optional agent profile to apply (system prompt + hard tool enforcement)
         agent_id: Identifier stored in thread-local so the progress tool can self-identify
+        fork_messages: Full copy of the parent's conversation log, used when
+            context_mode="fork". Falls back to normal "full" context building
+            when None (e.g. planner mode, or no active LogManager at spawn time).
+        reasoning_effort: Per-call reasoning effort override, scoped to this
+            subagent's own thread via a thread-local config context. Never
+            touches the parent's or any sibling's effort level.
         context_window: Limit workspace context messages. None = no limit; 0 = minimal
             context (just agent identity + tools, no workspace files); N > 0 = at most
             N workspace context messages included.
@@ -476,11 +484,14 @@ def _create_subagent_thread(
     # conversations already contain their startup context.
     if resume:
         initial_msgs = []
-    elif context_window == 0:
+    elif context_window == 0 and context_mode != "fork":
         # Minimal context: just agent identity and tools, no workspace files.
         # This is the context isolation mode requested by the --isolate flag.
         # Note: if context_mode="selective" is also set, context_window=0 takes
         # precedence and the context_include list is ignored — agent+tools only.
+        # Note: context_mode="fork" is excluded from this branch — fork requires
+        # the parent history, so context_window=0 is ignored and the fork branch
+        # below handles it (with a warning).
         from ...prompts import prompt_gptme, prompt_tools
 
         if (
@@ -507,6 +518,33 @@ def _create_subagent_thread(
                 examples=include_examples,
             )
         )
+    elif context_mode == "fork":
+        # Independent copy of the parent's full log (identity, tools, every
+        # turn so far). The copy is a plain list of the same Message objects —
+        # mutating it (e.g. appending the child's own turns below) never
+        # touches the parent's log, since LogManager holds its own list.
+        if context_window == 0:
+            logger.warning(
+                "context_mode='fork' and context_window=0 are incompatible; "
+                "fork requires parent history — ignoring context_window=0"
+            )
+        if fork_messages is not None:
+            initial_msgs = list(fork_messages)
+        else:
+            # No parent history available (planner mode doesn't forward it;
+            # or no active LogManager at spawn time) — fall back to a normal
+            # fresh "full" context rather than spawning with zero identity.
+            logger.warning(
+                "context_mode='fork' but no parent messages were provided; "
+                "falling back to a fresh 'full' context"
+            )
+            include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
+            initial_msgs = get_prompt(
+                available_tools,
+                interactive=False,
+                workspace=workspace,
+                include_examples=include_examples,
+            )
     elif context_mode == "selective":
         # Selective context — build from specified components.
         # context_window > 0 is not applied in selective mode; the caller
@@ -628,6 +666,31 @@ def _create_subagent_thread(
     # parent's cwd is restored when the subagent ran elsewhere (e.g.
     # isolation="worktree" or an explicit workdir).
     _enter_subagent_cwd(workspace)
+
+    # Scope the reasoning-effort override to this subagent's own thread.
+    # We do NOT mutate the Config that get_config() returns: we replace it with
+    # a *copy* carrying the override and rebind _config_var via set_config().
+    # That makes the isolation explicit and independent of any prior side
+    # effect — even on Python 3.13 free-threaded builds (PEP 703), where the
+    # thread *copies* the parent's context at creation time (see the
+    # clear_tools() note above) and get_config() would otherwise return the
+    # parent's Config object.  The parent's Config is never mutated.
+    if reasoning_effort:
+        from dataclasses import replace  # fmt: skip
+
+        from ...config.core import get_config, set_config  # fmt: skip
+
+        current = get_config()
+        set_config(
+            replace(
+                current,
+                env_overrides={
+                    **current.env_overrides,
+                    "THINKING_EFFORT": reasoning_effort,
+                },
+            )
+        )
+
     try:
         chat(
             prompt_msgs,
@@ -672,11 +735,12 @@ def _run_subagent_subprocess(
     logdir: Path,
     model: str | None,
     workspace: Path,
-    context_mode: Literal["full", "selective"] | None = None,
+    context_mode: Literal["full", "selective", "fork"] | None = None,
     context_include: list[str] | None = None,
     output_schema: str | None = None,
     output_schema_dict: dict | None = None,
     profile: str | None = None,
+    reasoning_effort: str | None = None,
     *,
     resume: bool = False,
 ) -> subprocess.Popen:
@@ -702,6 +766,10 @@ def _run_subagent_subprocess(
             Injected into the prompt via ``_get_complete_instruction`` rather than
             the CLI flag, because the CLI only accepts ``module:ClassName`` format.
         profile: Agent profile name to apply via --agent-profile flag
+        reasoning_effort: Per-call reasoning effort override, forwarded to the
+            child process as the ``GPTME_THINKING_EFFORT`` environment variable.
+            Scoped to this subprocess's own environment copy — never touches
+            the parent process's or any sibling's environment.
         resume: Continue the conversation already stored in ``logdir``.
 
     Returns:
@@ -817,6 +885,8 @@ def _run_subagent_subprocess(
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
     env["GPTME_SHELL_PGID_FILE"] = str(logdir / _SHELL_PGIDS_FILENAME)
+    if reasoning_effort:
+        env["GPTME_THINKING_EFFORT"] = reasoning_effort
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
     try:
@@ -1225,6 +1295,8 @@ def _monitor_subprocess(
     progress_thread.join(timeout=2.0)
 
     input_tokens: int | None = None
+    tool_uses: int | None = None
+    duration_s: float | None = None
     output_tokens: int | None = None
     result: str | dict[str, object] | None
 
@@ -1233,6 +1305,9 @@ def _monitor_subprocess(
         status: Status = "failure"
         result = f"Process killed after {subagent.timeout}s timeout"
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
+        # A timeout is a terminal result: report wall-clock seconds since spawn
+        # so usage reporting is not silently incomplete on this path.
+        duration_s = time.time() - subagent.started_at
     elif subagent.process.returncode == 0:
         status = "success"
         # Get result from conversation log (primary source for subprocess mode)
@@ -1243,12 +1318,15 @@ def _monitor_subprocess(
             result = log_status.result
             input_tokens = log_status.input_tokens
             output_tokens = log_status.output_tokens
+            tool_uses = log_status.tool_uses
+            duration_s = log_status.duration_s
         except Exception:
             result = "Task completed (check log for details)"
     else:
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
+        duration_s = time.time() - subagent.started_at
 
     # Clean up worktree isolation; capture preserved branch so it can be
     # included in the result that callers receive via subagent_wait() / subagent_parallel().
@@ -1268,6 +1346,8 @@ def _monitor_subprocess(
         result,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        tool_uses=tool_uses,
+        duration_s=duration_s,
     )
     if not set_subagent_result_if_absent(subagent.agent_id, final_result):
         # Timeout/cancel won the cache race. Patch the stored result with
@@ -1300,7 +1380,7 @@ def _run_planner(
     prompt: str,
     subtasks: "list[SubtaskDef]",
     execution_mode: Literal["parallel", "sequential"] = "parallel",
-    context_mode: Literal["full", "selective"] = "full",
+    context_mode: Literal["full", "selective", "fork"] = "full",
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,
@@ -1309,6 +1389,7 @@ def _run_planner(
     workdir: Path | None = None,
     parent_logdir: Path | None = None,
     parent_branch: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -1485,6 +1566,7 @@ def _run_planner(
                             context_mode=context_mode,
                             context_include=context_include,
                             profile=_profile,
+                            reasoning_effort=reasoning_effort,
                         )
                     except Exception as e:
                         logger.error(
@@ -1577,6 +1659,7 @@ def _run_planner(
                         agent_id=executor_agent_id,
                         redact_secrets=redact_secrets,
                         context_window=context_window,
+                        reasoning_effort=reasoning_effort,
                     )
                 finally:
                     release_thread()

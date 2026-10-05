@@ -691,6 +691,20 @@ class TestResolveThinkingBudget:
             for rec in caplog.records
         )
 
+    def test_reads_config_override_without_os_environ(self):
+        """Resolution goes through get_config().get_env(), not os.environ
+        directly — this is what lets subagent(reasoning_effort=...) scope an
+        override to its own thread's Config without touching the process-wide
+        environment (see subagent/execution.py's thread-local config set)."""
+        from gptme.config.core import get_config
+
+        assert "GPTME_THINKING_EFFORT" not in os.environ
+        try:
+            get_config().user.env["THINKING_EFFORT"] = "xhigh"
+            assert _resolve_thinking_budget() == 24000
+        finally:
+            get_config().user.env.pop("THINKING_EFFORT", None)
+
 
 class TestResolveEffortLevel:
     """_resolve_effort_level returns the raw level string or None."""
@@ -720,6 +734,16 @@ class TestResolveEffortLevel:
         os.environ["GPTME_THINKING_EFFORT"] = "extreme"
         with pytest.raises(ValueError, match="Invalid GPTME_THINKING_EFFORT"):
             _resolve_effort_level()
+
+    def test_reads_config_override_without_os_environ(self):
+        from gptme.config.core import get_config
+
+        assert "GPTME_THINKING_EFFORT" not in os.environ
+        try:
+            get_config().user.env["THINKING_EFFORT"] = "medium"
+            assert _resolve_effort_level() == "medium"
+        finally:
+            get_config().user.env.pop("THINKING_EFFORT", None)
 
 
 class TestOutputConfigKwargs:
