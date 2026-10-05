@@ -191,9 +191,14 @@ def _read_text_capped(f: Path) -> str:
     """
     with f.open() as fh:
         head = fh.read(CONTENT_SIZE_WARN_THRESHOLD + 1)
+        # fstat the open handle: the path may be rotated/deleted after the read
+        size = os.fstat(fh.fileno()).st_size
     if len(head) <= CONTENT_SIZE_WARN_THRESHOLD:
         return head
-    size = f.stat().st_size
+    if "\x00" in head:
+        # The prefix decodes, but a NUL byte means binary; whole-file reads
+        # would usually have hit invalid UTF-8 further in.
+        raise UnicodeDecodeError("utf-8", b"", 0, 1, "NUL byte in truncated prefix")
     logger.warning(
         f"Content from {f} is very large ({size:,} bytes), "
         f"truncating to {CONTENT_SIZE_WARN_THRESHOLD:,} chars"
@@ -203,6 +208,21 @@ def _read_text_capped(f: Path) -> str:
         f"(file is {size:,} bytes)]"
     )
     return head[: CONTENT_SIZE_WARN_THRESHOLD - len(note)] + note
+
+
+def _read_stored_content_capped(
+    logdir: Path, file_hash: str, suffix: str
+) -> str | None:
+    """Like ``read_stored_content``, but reads at most the content cap."""
+    from .file_storage import get_stored_path
+
+    stored_path = get_stored_path(logdir, file_hash, suffix)
+    if stored_path is None:
+        return None
+    try:
+        return _read_text_capped(stored_path)
+    except (UnicodeDecodeError, OSError):
+        return None
 
 
 def use_fresh_context() -> bool:
@@ -305,7 +325,6 @@ def embed_attached_file_content(
     Falls back to the original file path if stored content is not available.
     """
     from ..logmanager import LogManager
-    from .file_storage import read_stored_content
 
     # Keep original paths for hash lookup, transform for display
     # Skip URIs - they cannot be read as local files
@@ -327,7 +346,9 @@ def embed_attached_file_content(
             # Use original path for hash lookup (matches how files were stored)
             file_hash = msg.file_hashes.get(str(orig_f))
             if file_hash:
-                stored_content = read_stored_content(logdir, file_hash, f.suffix)
+                stored_content = _read_stored_content_capped(
+                    logdir, file_hash, f.suffix
+                )
 
         if stored_content is not None:
             # Use stored content (preserves original version)

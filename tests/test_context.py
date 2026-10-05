@@ -370,6 +370,68 @@ def test_resource_to_codeblock_file_at_cap_not_truncated(tmp_path):
     assert "truncated" not in result.lower()
 
 
+def test_stored_attachment_content_is_capped(tmp_path, monkeypatch):
+    """Content-addressed copies of attachments are capped too (not read whole)."""
+    import pathlib
+    from types import SimpleNamespace
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import embed_attached_file_content
+    from gptme.util.file_storage import store_file
+
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    big = tmp_path / "big.log"
+    big.write_text("D" * (CONTENT_SIZE_WARN_THRESHOLD * 20))
+    file_hash, _ = store_file(logdir, big)
+
+    monkeypatch.setattr(
+        "gptme.logmanager.LogManager.get_current_log",
+        staticmethod(lambda: SimpleNamespace(logdir=logdir)),
+    )
+
+    def no_read_text(self, *args, **kwargs):
+        raise AssertionError("read_text() loads the whole file before truncating")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", no_read_text)
+
+    msg = embed_attached_file_content(
+        Message("user", "see file", files=[big], file_hashes={str(big): file_hash})
+    )
+    assert "truncated" in msg.content.lower()
+    assert msg.content.count("D") <= CONTENT_SIZE_WARN_THRESHOLD
+
+
+def test_read_text_capped_treats_nul_prefix_as_binary(tmp_path):
+    """A truncated prefix containing NUL is binary, not text."""
+    import pytest
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "blob.bin"
+    f.write_bytes(b"\x00" + b"E" * (CONTENT_SIZE_WARN_THRESHOLD * 2))
+    with pytest.raises(UnicodeDecodeError):
+        _read_text_capped(f)
+
+
+def test_read_text_capped_survives_path_removed_after_read(tmp_path, monkeypatch):
+    """The size comes from the open handle, so rotation after read can't raise."""
+    import pathlib
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "rotated.log"
+    f.write_text("F" * (CONTENT_SIZE_WARN_THRESHOLD * 2))
+
+    def no_stat(self, *args, **kwargs):
+        raise FileNotFoundError(str(self))
+
+    monkeypatch.setattr(pathlib.Path, "stat", no_stat)
+    assert "truncated" in _read_text_capped(f).lower()
+
+
 def test_binary_file_metadata(tmp_path):
     """Test that binary files return metadata instead of None."""
     from gptme.util.context import _binary_file_metadata, _human_readable_size
