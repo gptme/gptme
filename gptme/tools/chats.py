@@ -306,7 +306,7 @@ def _search_session_safely(
     """
     try:
         return search_fn(path, query)
-    except (AttributeError, TypeError, ValueError) as e:
+    except (AttributeError, TypeError, ValueError, RecursionError) as e:
         logger.debug("Skipping malformed external session %s: %s", path, e)
         return []
 

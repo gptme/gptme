@@ -473,7 +473,12 @@ def test_search_external_chats_skips_malformed_sessions(tmp_path, capsys):
         (cursor_dir / name).mkdir(parents=True)
         (cursor_dir / name / "conversation.json").write_text(body)
     (cursor_dir / "d-good").mkdir()
-    (cursor_dir / "d-good" / "conversation.json").write_text(
+    (cursor_dir / "d-recursive").mkdir()
+    (cursor_dir / "d-recursive" / "conversation.json").write_text(
+        "[" * 10_000 + "0" + "]" * 10_000
+    )
+    (cursor_dir / "e-good").mkdir()
+    (cursor_dir / "e-good" / "conversation.json").write_text(
         json.dumps(
             {
                 "title": "My CORS session",
@@ -484,7 +489,8 @@ def test_search_external_chats_skips_malformed_sessions(tmp_path, capsys):
     codex_day = tmp_path / "codex" / "2026" / "10" / "05"
     codex_day.mkdir(parents=True)
     (codex_day / "rollout-a.jsonl").write_bytes(b"\xff\xfe[1]\n")
-    (codex_day / "rollout-b.jsonl").write_text(_codex_message("user", "CORS in codex"))
+    (codex_day / "rollout-b.jsonl").write_text("[" * 10_000 + "0" + "]" * 10_000 + "\n")
+    (codex_day / "rollout-c.jsonl").write_text(_codex_message("user", "CORS in codex"))
 
     search_external_chats(
         "CORS", max_results=10, cursor_dir=cursor_dir, codex_dir=tmp_path / "codex"
