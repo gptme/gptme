@@ -890,6 +890,7 @@ def _handle_openai_transient_error(
         # Explicit failures keep their provider code so permanent errors do not
         # inherit the blanket retry policy for malformed/disconnected streams.
         should_retry = e.code in {
+            "rate_limit_exceeded",
             "server_is_overloaded",
             "service_unavailable_error",
         }

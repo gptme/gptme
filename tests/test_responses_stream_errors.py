@@ -69,10 +69,14 @@ def test_permanent_responses_failure_is_not_retried() -> None:
     assert exc_info.value is error
 
 
-def test_transient_responses_failure_is_retried(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "code",
+    ["rate_limit_exceeded", "server_is_overloaded", "service_unavailable_error"],
+)
+def test_transient_responses_failure_is_retried(monkeypatch, code: str) -> None:
     wait = Mock(return_value=False)
     monkeypatch.setattr("gptme.llm.llm_openai.backoff_wait", wait)
-    error = ResponsesStreamError("response.failed", "server_is_overloaded", "Try later")
+    error = ResponsesStreamError("response.failed", code, "Try later")
     _handle_openai_transient_error(error, 0, 3, 0)
     wait.assert_called_once()
 
