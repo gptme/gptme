@@ -81,6 +81,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "grok-subscription",
         "moonshot",
         "requesty",
+        "atlascloud",
         "openrouter",
         "nvidia",
         "azure",
@@ -870,6 +871,40 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.6,
             "supports_vision": True,
             "preferred_edit_format": "whole",
+        },
+    },
+    # Atlas Cloud — OpenAI-compatible LLM gateway, vendor/model naming.
+    # Model keys use the full vendor/model path (everything after "atlascloud/").
+    # Context, output limits and prices read from the gateway's public catalog
+    # (GET https://api.atlascloud.ai/v1/models) on 2026-10-05.
+    "atlascloud": {
+        "deepseek-ai/DeepSeek-V3.1-Terminus": {
+            "context": 131_072,
+            "max_output": 65_536,
+            "price_input": 0.3,
+            "price_output": 0.95,
+            "supports_vision": False,
+        },
+        "Qwen/Qwen3-235B-A22B-Instruct-2507": {
+            "context": 131_072,
+            "max_output": 131_072,
+            "price_input": 0.2,
+            "price_output": 0.88,
+            "supports_vision": False,
+        },
+        "zai-org/glm-4.7": {
+            "context": 202_752,
+            "max_output": 202_752,
+            "price_input": 0.52,
+            "price_output": 1.85,
+            "supports_vision": False,
+        },
+        "moonshotai/kimi-k2.6": {
+            "context": 262_144,
+            "max_output": 262_144,
+            "price_input": 0.95,
+            "price_output": 4.0,
+            "supports_vision": True,
         },
     },
     # gptme managed service — proxies to multiple providers

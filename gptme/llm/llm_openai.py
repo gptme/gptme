@@ -628,6 +628,16 @@ def init(provider: Provider, config: Config):
             base_url=proxy_url or "https://router.requesty.ai/v1",
             timeout=timeout,
         )
+    elif provider == "atlascloud":
+        api_key = proxy_key or _get_provider_api_key(
+            config, provider, "ATLASCLOUD_API_KEY"
+        )
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url=proxy_url or "https://api.atlascloud.ai/v1",
+            timeout=timeout,
+        )
     elif provider == "gptme":
         from .llm_gptme import get_api_key, get_base_url
 
