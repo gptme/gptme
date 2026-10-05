@@ -167,7 +167,7 @@ class GPTMe(Agent):
         # workspace reads or provider-specific behavior.
         user_files = [self.workspace_dir / name for name in files] if files else []
         try:
-            gptme_chat(  # type: ignore[operator]
+            gptme_chat(
                 [Message("user", prompt, files=cast("list[FilePath]", user_files))],
                 prompt_sys_msgs,
                 logdir=self.log_dir,
