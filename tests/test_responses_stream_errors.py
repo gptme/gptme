@@ -66,6 +66,10 @@ def test_context_length_code_triggers_recovery_without_message_phrase() -> None:
         "response.failed", "context_length_exceeded", "Request failed"
     )
     mark_llm_reply_origin(error)
+    assert error.body == {
+        "code": "context_length_exceeded",
+        "message": "Request failed",
+    }
     assert is_context_length_error(error)
 
 
