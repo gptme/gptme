@@ -31,6 +31,19 @@ input prefix and model: edits, compaction views, and model changes invalidate
 it. Conversations without a valid usage anchor fall back to tokenizer estimates
 until a new response arrives. UI-only status messages do not count as growth.
 
+At 90% of the budget, the normal conversation receives a one-shot reminder
+per active view to save durable state at a safe sub-task boundary: objective,
+decisions, work state, next move, and files to reload. Project
+``context.compact_instructions`` are included. The reminder is provider-visible,
+so the normal CLI/server tool loop can act on it; it does not run a separate
+summary request, switch views, or promise that notes have been saved. Pending
+tool calls defer the reminder until their results arrive. The marker persists
+across reloads, and a new compaction view can receive a fresh reminder.
+
+This warning is the first part of model-participating compaction. Automatic
+compaction at the budget still uses the trim/summary pipeline below; a full
+tool-executing checkpoint turn is not yet implemented.
+
 Configuring the Context Budget
 ===============================
 
