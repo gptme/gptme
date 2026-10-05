@@ -147,6 +147,20 @@ def test_search_cursor_session_invalid_json(tmp_path):
     assert _search_cursor_session(f, "anything") == []
 
 
+def test_search_cursor_session_non_utf8(tmp_path):
+    """A non-UTF-8 byte in conversation.json does not abort the read; matching messages are returned."""
+    d = tmp_path / "abc-123"
+    d.mkdir()
+    f = d / "conversation.json"
+    # Latin-1 byte \xe9 ("é") is invalid UTF-8.  With errors="replace" it becomes
+    # U+FFFD, keeping the JSON structure intact so the matching message is found.
+    raw = b'{"title": "Debug caf\xe9", "messages": [{"role": "user", "content": "CORS error help"}]}'
+    f.write_bytes(raw)
+    results = _search_cursor_session(f, "CORS")
+    assert len(results) == 1
+    assert results[0]["role"] == "user"
+
+
 # ---------------------------------------------------------------------------
 # Cursor — search (alternate workspace-storage format)
 # ---------------------------------------------------------------------------
