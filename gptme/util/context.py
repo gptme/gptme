@@ -181,6 +181,30 @@ def _check_content_size(content: str, source: str) -> str:
     return content
 
 
+def _read_text_capped(f: Path) -> str:
+    """Read a text file, reading at most ``CONTENT_SIZE_WARN_THRESHOLD`` characters.
+
+    ``Path.read_text()`` loads the whole file before ``_check_content_size``
+    truncates it, so a multi-GB log named in a prompt costs GBs of memory to
+    produce ~100KB of context. Read one char past the cap instead, to tell
+    "exactly at the cap" from "truncated".
+    """
+    with f.open() as fh:
+        head = fh.read(CONTENT_SIZE_WARN_THRESHOLD + 1)
+    if len(head) <= CONTENT_SIZE_WARN_THRESHOLD:
+        return head
+    size = f.stat().st_size
+    logger.warning(
+        f"Content from {f} is very large ({size:,} bytes), "
+        f"truncating to {CONTENT_SIZE_WARN_THRESHOLD:,} chars"
+    )
+    note = (
+        f"\n\n[Content truncated to {CONTENT_SIZE_WARN_THRESHOLD:,} characters "
+        f"(file is {size:,} bytes)]"
+    )
+    return head[: CONTENT_SIZE_WARN_THRESHOLD - len(note)] + note
+
+
 def use_fresh_context() -> bool:
     """Check if fresh context mode is enabled.
 
@@ -1003,8 +1027,7 @@ def _resource_to_codeblock(
         # check if prompt is a path, if so, replace it with the contents of that file
         f = Path(prompt).expanduser()
         if f.exists() and f.is_file():
-            file_content = f.read_text()
-            file_content = _check_content_size(file_content, str(f))
+            file_content = _check_content_size(_read_text_capped(f), str(f))
             return md_codeblock(prompt, file_content)
         if f.exists() and f.is_dir():
             if _is_too_broad_directory(f):

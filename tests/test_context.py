@@ -320,6 +320,42 @@ def test_check_content_size():
     assert "truncated" in result.lower()
 
 
+def test_resource_to_codeblock_does_not_slurp_huge_file(tmp_path, monkeypatch):
+    """A file far above the size cap is read in bounded form, not via read_text()."""
+    import pathlib
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _resource_to_codeblock
+
+    big = tmp_path / "big.log"
+    big.write_text("A" * (CONTENT_SIZE_WARN_THRESHOLD * 20))
+
+    def no_read_text(self, *args, **kwargs):
+        raise AssertionError("read_text() loads the whole file before truncating")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", no_read_text)
+
+    result = _resource_to_codeblock(str(big))
+    assert result is not None
+    assert "truncated" in result.lower()
+    assert f"{big.stat().st_size:,} bytes" in result
+    assert result.count("A") <= CONTENT_SIZE_WARN_THRESHOLD
+
+
+def test_resource_to_codeblock_file_at_cap_not_truncated(tmp_path):
+    """A file exactly at the cap is included whole, with no truncation note."""
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _resource_to_codeblock
+
+    f = tmp_path / "exact.txt"
+    f.write_text("B" * CONTENT_SIZE_WARN_THRESHOLD)
+
+    result = _resource_to_codeblock(str(f))
+    assert result is not None
+    assert result.count("B") == CONTENT_SIZE_WARN_THRESHOLD
+    assert "truncated" not in result.lower()
+
+
 def test_binary_file_metadata(tmp_path):
     """Test that binary files return metadata instead of None."""
     from gptme.util.context import _binary_file_metadata, _human_readable_size
