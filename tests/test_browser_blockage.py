@@ -196,32 +196,26 @@ def test_login_wall_snapshot_reflects_form(blockage_server):
 
 
 @pytest.mark.slow
-def test_consent_overlay_does_not_expose_hidden_article(blockage_server):
-    """Content behind a full-screen consent overlay should not be reported as
-    the page content — the article body is visibility:hidden under the overlay.
-
-    Baseline (2026-10-05): current read_url returns the hidden article text
-    alongside the overlay, so only that known gap is marked xfail.
-    """
+def test_consent_overlay_surfaces_overlay(blockage_server):
+    """A full-screen consent overlay should be visible to the caller."""
     result = read_url(f"{blockage_server}/consent-overlay")
     assert result, "read_url returned empty string"
-    # The overlay text (privacy/cookies) should be present
     assert any(
         kw in result.lower()
         for kw in ("privacy", "cookie", "accept", "consent", "overlay")
     ), f"Consent overlay text not present in result. Got:\n{result[:500]}"
-    hidden_article_exposed = any(
-        hidden_text in result
-        for hidden_text in (
-            "Secret Article Title",
-            "This is the actual article body text you wanted to read.",
-        )
-    )
-    if hidden_article_exposed:
-        pytest.xfail(
-            "Known gap: read_url extracts visibility:hidden content behind "
-            "a consent overlay"
-        )
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    reason="read_url extracts visibility:hidden content behind a consent overlay",
+    strict=True,
+)
+def test_consent_overlay_does_not_expose_hidden_article(blockage_server):
+    """Hidden article text should not be returned through a consent overlay."""
+    result = read_url(f"{blockage_server}/consent-overlay")
+    assert "Secret Article Title" not in result
+    assert "This is the actual article body text you wanted to read." not in result
 
 
 # ---------------------------------------------------------------------------
