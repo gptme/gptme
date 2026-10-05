@@ -86,6 +86,9 @@ from ..util.uri import URI, FilePath, is_uri, parse_file_reference
 from .api_v2_agents import agents_api
 from .api_v2_common import (
     _abs_to_rel_workspace,
+    _default_conversation_tools,
+    _resolve_requested_tools,
+    _tools_unset,
     _validate_branch,
     _validate_conversation_id,
     msg2dict,
@@ -1795,7 +1798,26 @@ def api_conversation_put(conversation_id: str):
             409,
         )
 
+    normalized_tools, forbidden = _resolve_requested_tools(request_config.tools)
+    if forbidden:
+        shutil.rmtree(logdir, ignore_errors=True)
+        return (
+            flask.jsonify(
+                {
+                    "error": "Tools not permitted by the server --tools allowlist: "
+                    + ", ".join(forbidden)
+                }
+            ),
+            403,
+        )
+    request_config.tools = normalized_tools
+
     chat_config = ChatConfig.load_or_create(logdir, request_config)
+
+    # Default tools before building the prompt so it only advertises tools the
+    # conversation will actually have.
+    if _tools_unset(chat_config.tools):
+        chat_config.tools = _default_conversation_tools()
 
     msgs = list(
         get_prompt(
@@ -1841,10 +1863,6 @@ def api_conversation_put(conversation_id: str):
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
-
-    # Set tool allowlist to available tools if not provided
-    if not chat_config.tools:
-        chat_config.tools = [t.name for t in get_toolchain(None) if not t.is_mcp]
 
     if not chat_config.mcp:
         # load from user or project config
@@ -2938,6 +2956,23 @@ def api_conversation_config_patch(conversation_id: str):
                     "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
                 }
             ), 400
+
+    normalized_tools, forbidden = _resolve_requested_tools(tool_allowlist)
+    if forbidden:
+        return (
+            flask.jsonify(
+                {
+                    "error": "Tools not permitted by the server --tools allowlist: "
+                    + ", ".join(forbidden)
+                }
+            ),
+            403,
+        )
+    if isinstance(chat_patch, dict) and "tools" in chat_patch:
+        # Save the resolved concrete names, not the client's patterns, so the
+        # stored selection cannot widen when a new matching tool appears later.
+        tool_allowlist = normalized_tools
+        chat_patch["tools"] = normalized_tools
 
     logdir = get_logs_dir() / conversation_id
 

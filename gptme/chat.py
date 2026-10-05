@@ -25,7 +25,7 @@ from .init import init
 from .llm import (
     did_llm_reply_emit_visible_output,
     is_context_length_error,
-    is_provider_error,
+    is_llm_reply_error,
     reply,
 )
 from .llm.models import get_default_model, get_model
@@ -57,7 +57,6 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
-from .util.prompt import add_history, get_input
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
 
@@ -488,14 +487,12 @@ def _run_chat_loop(
             prompt_queue.clear()
             continue
         except Exception as e:
-            # A failing provider call (rate limit, upstream outage, network
-            # error) must not kill an interactive session: report it and hand
-            # control back to the user, who can retry or switch model.
-            # Only errors tagged at the provider call inside `reply()` qualify
-            # — tool/hook httpx or SDK failures must not be swallowed.
-            # Non-interactive runs still fail loudly so the exit code carries
-            # the error class. See https://github.com/gptme/gptme/issues/3668
-            if not interactive or not is_provider_error(e):
+            # A failed LLM reply (provider outage or detected degeneration) must
+            # not kill an interactive session: report it and hand control back
+            # to the user, who can retry or switch model.  Only errors tagged at
+            # the provider call inside `reply()` qualify — tool/hook SDK errors
+            # must not be swallowed.  Non-interactive runs still fail loudly.
+            if not interactive or not is_llm_reply_error(e):
                 raise
             logger.error("%s %s", LLM_REQUEST_FAILED_PREFIX, e)
             if not is_output_json() and not is_output_quiet():
@@ -1039,6 +1036,8 @@ def step(
 
 
 def prompt_user(value=None) -> str:  # pragma: no cover
+    from .util.prompt import add_history
+
     print_bell()
     flush_stdin()
     response = ""
@@ -1066,5 +1065,7 @@ def prompt_input(prompt: str, value=None) -> str:  # pragma: no cover
     if value:
         console.print(prompt + value)
         return value
+
+    from .util.prompt import get_input
 
     return get_input(prompt)

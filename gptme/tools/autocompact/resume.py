@@ -15,10 +15,15 @@ from ... import llm
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
 from ...message import Message, len_tokens
+from ...tools import ToolUse
 from ...util.context import md_codeblock
+from ...util.context_budget import get_context_budget
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager
+
+# Default keep_recent window — last N tokens of history kept verbatim after checkpoint
+_DEFAULT_KEEP_RECENT_TOKENS = 20_000
 
 logger = logging.getLogger(__name__)
 
@@ -389,13 +394,128 @@ def _bound_summarize_input(
     return head + kept
 
 
+def _get_recent_tail(
+    msgs: list[Message],
+    keep_tokens: int,
+    *,
+    model: str | None = None,
+) -> list[Message]:
+    """Return the last messages that fit within keep_tokens, preserving tool-call pairs."""
+    if keep_tokens <= 0 or not msgs:
+        return []
+    tail: list[Message] = []
+    total = 0
+    model_str: str = model or "gpt-4"
+    for msg in reversed(msgs):
+        t = len_tokens([msg], model=model_str)
+        if total + t > keep_tokens:
+            break
+        tail.insert(0, msg)
+        total += t
+    # Drop dangling tool-result at head (no matching tool-call).
+    # Tool results can have role="tool" OR a non-tool role with call_id set
+    # (e.g. system/user role in some provider formats).
+    while tail and (tail[0].role == "tool" or tail[0].call_id):
+        tail = tail[1:]
+
+    # Drop an assistant tool-call whose result never follows it: either the
+    # conversation ends mid-turn, or the user interrupted before the result
+    # (the call is followed directly by a user message). An unmatched tool
+    # call in the compacted view breaks strict providers.
+    def _unmatched_call(i: int) -> bool:
+        if tail[i].role != "assistant" or not any(
+            tooluse.is_runnable
+            for tooluse in ToolUse.iter_from_content(tail[i].content)
+        ):
+            return False
+        return i == len(tail) - 1 or tail[i + 1].role == "user"
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(tail) - 1, -1, -1):
+            if _unmatched_call(i):
+                tail = tail[:i] + tail[i + 1 :]
+                changed = True
+                break
+    return tail
+
+
+_TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"
+
+
+def _fit_prefix(text: str, max_tokens: int, model_str: str) -> str:
+    """Longest fitting prefix, cut at a line boundary when possible."""
+    # Estimate then adjust (linear per-char is too slow for large checkpoints).
+    ratio = max_tokens / max(1, len_tokens(text, model=model_str))
+    candidate = text[: int(len(text) * ratio)]
+    while candidate and len_tokens(candidate, model=model_str) > max_tokens:
+        candidate = candidate[: int(len(candidate) * 0.9)]
+    # Avoid cutting mid-line when possible
+    last_nl = candidate.rfind("\n")
+    if last_nl > 0:
+        candidate = candidate[:last_nl]
+    return candidate
+
+
+def _fit_suffix(text: str, max_tokens: int, model_str: str) -> str:
+    """Longest fitting suffix, cut at a line boundary when possible."""
+    ratio = max_tokens / max(1, len_tokens(text, model=model_str))
+    cut = len(text) - int(len(text) * ratio)
+    candidate = text[cut:]
+    while candidate and len_tokens(candidate, model=model_str) > max_tokens:
+        candidate = candidate[max(1, int(len(candidate) * 0.1)) :]
+    first_nl = candidate.find("\n")
+    if 0 <= first_nl < len(candidate) - 1:
+        candidate = candidate[first_nl + 1 :]
+    return candidate
+
+
+def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None) -> str:
+    """Truncate text to approximately max_tokens, keeping head and tail.
+
+    The tail (up to ~30% of the budget) is preserved so trailing checkpoint
+    sections such as "Open Items" and "Context Files" survive truncation
+    instead of being cut off when the beginning alone is kept.
+    """
+    if max_tokens <= 0:
+        return ""
+    model_str = model or "gpt-4"
+    total = len_tokens(text, model=model_str)
+    if total <= max_tokens:
+        return text
+
+    tail_budget = int(max_tokens * 0.3)
+    # Only bother preserving a tail when the middle is meaningfully large;
+    # a barely-over budget is fine with a plain prefix cut.
+    if tail_budget <= 0 or total < max_tokens + 2 * tail_budget:
+        return _fit_prefix(text, max_tokens, model_str)
+
+    tail = _fit_suffix(text, tail_budget, model_str)
+    tail_tokens = len_tokens(tail, model=model_str) if tail else 0
+    head_budget = (
+        max_tokens - tail_tokens - len_tokens(_TRUNCATION_MARK, model=model_str)
+    )
+    if head_budget <= 0:
+        return tail
+    head = _fit_prefix(text, head_budget, model_str)
+    return head + _TRUNCATION_MARK + tail
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
     use_view_branch: bool = False,
     llm_unlocked: AbstractContextManager[object] | None = None,
-) -> Generator[Message, None, None]:
+    compact_instructions: str | None = None,
+    keep_recent_tokens: int = _DEFAULT_KEEP_RECENT_TOKENS,
+    keep_head: int = 0,
+) -> Generator[Message, None, bool]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
+
+    Returns True iff the compacted view/log was applied. Early exits (too few
+    messages, no model, stale discard) return False so callers can skip
+    cooldown and side effects that assume a successful compaction.
 
     Args:
         manager: LogManager that owns the conversation.
@@ -403,6 +523,13 @@ def _resume_via_llm(
         use_view_branch: If True, create a view branch (for auto-triggered resume)
             and mark status messages as hidden. If False, replace the log directly
             (for user-invoked /compact resume).
+        compact_instructions: Additional instructions to append to the checkpoint prompt
+            (from project config or /compact <instructions>).
+        keep_recent_tokens: Tokens of recent history to keep verbatim after the
+            checkpoint (Phase 2 keep_recent window). Default 20k.
+        keep_head: Number of leading messages to preserve verbatim in the new
+            view, mirroring the trim path's positional protection. The leading
+            system block is always kept; this only extends past it.
     """
 
     # Prepare messages for summarization
@@ -415,7 +542,7 @@ def _resume_via_llm(
             hide=use_view_branch,
             ui_only=True,
         )
-        return
+        return False
 
     # Generate conversation summary using LLM
     yield Message(
@@ -425,27 +552,32 @@ def _resume_via_llm(
         ui_only=True,
     )
 
-    resume_prompt = """Please create a comprehensive resume of this conversation that includes:
+    resume_prompt = """Context budget has been reached — produce a structured checkpoint before history is compacted.
 
-1. **Conversation Summary**: Key topics, decisions made, and progress achieved
-2. **Technical Context**: Important code changes, configurations, or technical details
-3. **Current State**: What was accomplished and what remains to be done
-4. **Context Files**: List the specific files that should be included in future context
+Write a concise checkpoint with these sections:
 
-For the Context Files section, use this format:
+## Objective
+One sentence: what is this conversation trying to accomplish?
+
+## Key Decisions
+Bullet list of important decisions or constraints already established.
+
+## Current State
+What has been completed; what is in progress; what blockers exist.
+
+## Open Items
+Numbered list of remaining work, in priority order.
+
 ## Context Files
+Files that must be reloaded to continue effectively. Format:
+- `path/to/file.py` — reason this file is needed
+- `docs/spec.md` — contains the specification being implemented
 
-List each file on its own line with a bullet point and backticks:
-- `path/to/file.py` - Brief rationale for including this file
-- `docs/spec.md` - Contains the specification being implemented
-
-Include files such as:
-- Specs, PRDs, or design documents being referenced
-- Source files being actively modified
-- Configuration files relevant to the work
-- Task or plan files tracking progress
-
-Format the response as a structured document that could serve as a RESUME.md file."""
+Focus on files that are actively referenced or modified. Omit files that are
+only mentioned in passing.
+"""
+    if compact_instructions:
+        resume_prompt += f"\n\nAdditional instructions:\n{compact_instructions}"
 
     # Create a temporary message for the LLM prompt
     resume_request = Message("user", resume_prompt)
@@ -459,7 +591,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
             hide=use_view_branch,
             ui_only=True,
         )
-        return
+        return False
     n_head = 0
     for msg in prepared_msgs:
         if msg.role != "system":
@@ -525,7 +657,7 @@ Format the response as a structured document that could serve as a RESUME.md fil
                 hide=use_view_branch,
                 ui_only=True,
             )
-            return
+            return False
     resume_content = resume_response.content
 
     # Save RESUME.md to logdir (not workspace) for reference/debugging
@@ -555,6 +687,12 @@ Format the response as a structured document that could serve as a RESUME.md fil
             # Stop when we hit the first non-system message
             break
 
+    # Phase 2 (1.5b): preserve the configured keep_head prefix verbatim in the
+    # new view, mirroring the trim path's positional protection. The leading
+    # system block is always kept, so this only extends past it.
+    head_end = max(len(original_system_msgs), min(keep_head, len(msgs)))
+    preserved_head = msgs[:head_end]
+
     # Create file context messages for each loaded file
     file_context_msgs = []
     for file_path, file_content in loaded_files:
@@ -574,7 +712,88 @@ Format the response as a structured document that could serve as a RESUME.md fil
     )
     resume_msg = Message("assistant", resume_content)
 
-    new_log = original_system_msgs + file_context_msgs + [resume_intro_msg, resume_msg]
+    # Phase 2: keep_recent — include the last N tokens of actual conversation
+    # verbatim after the checkpoint so the model has immediate context.
+    # One model lookup for both the tail tokenization and the budget guard so
+    # they always use the same tokenizer and context window.
+    # The leading system messages are re-added verbatim in fixed_parts, so the
+    # tail is derived from the conversation after them to avoid duplication.
+    model_meta = get_default_model()
+    tail_source = msgs[head_end:]
+    recent_tail = _get_recent_tail(
+        tail_source,
+        keep_recent_tokens,
+        model=model_meta.model if model_meta else None,
+    )
+
+    # Budget guard: if fixed parts + recent_tail exceeds the model's context
+    # budget, re-derive the tail within the remaining room so the compacted
+    # view actually fits.
+    fixed_parts = preserved_head + file_context_msgs + [resume_intro_msg, resume_msg]
+    if model_meta and isinstance(model_meta.context, int) and model_meta.context > 0:
+        budget = get_context_budget(
+            model_meta.context, max_output=model_meta.max_output or 8192
+        )
+        model_str = model_meta.model
+
+        # keep_head is positional, not budget-aware; if the extended prefix
+        # alone would exceed the budget, fall back to the essential system
+        # block so the view is never over budget by construction.
+        if len_tokens(preserved_head, model=model_str) > budget:
+            preserved_head = original_system_msgs
+
+        # If the fixed content alone exceeds the budget, shrink it: drop
+        # loaded context files (least essential) newest-last first. The
+        # system messages and the checkpoint are kept.
+        fixed_tokens = len_tokens(fixed_parts, model=model_str)
+        if fixed_tokens > budget:
+            essential = preserved_head + [resume_intro_msg, resume_msg]
+            essential_tokens = len_tokens(essential, model=model_str)
+            # Drop file context messages (least essential) until the whole
+            # fixed set fits within the budget.
+            while file_context_msgs and (
+                essential_tokens
+                + sum(len_tokens([m], model=model_str) for m in file_context_msgs)
+                > budget
+            ):
+                file_context_msgs.pop()
+            if essential_tokens > budget:
+                # Even system messages + checkpoint alone are too large:
+                # truncate the checkpoint content to fit, keeping a notice.
+                TRUNCATION_NOTICE = "\n\n[checkpoint truncated to fit context budget]"
+                overhead = len_tokens(
+                    preserved_head + [resume_intro_msg], model=model_str
+                ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
+                room = max(0, budget - overhead)
+                resume_content_trunc = _truncate_to_tokens(
+                    resume_content, room, model=model_str
+                )
+                resume_msg = Message(
+                    "assistant",
+                    resume_content_trunc + TRUNCATION_NOTICE,
+                )
+                logger.warning(
+                    "Checkpoint + system messages exceed context budget "
+                    f"({essential_tokens} > {budget}); checkpoint truncated."
+                )
+            else:
+                dropped_count = len(loaded_files) - len(file_context_msgs)
+                logger.warning(
+                    "Context files exceed remaining budget; dropped "
+                    f"{dropped_count} of the loaded context files to fit."
+                )
+            fixed_parts = (
+                preserved_head + file_context_msgs + [resume_intro_msg, resume_msg]
+            )
+            fixed_tokens = len_tokens(fixed_parts, model=model_str)
+
+        available = budget - fixed_tokens
+        if recent_tail and available < len_tokens(recent_tail, model=model_str):
+            recent_tail = _get_recent_tail(
+                tail_source, max(0, available), model=model_str
+            )
+
+    new_log = fixed_parts + recent_tail
 
     if use_view_branch:
         view_name = manager.get_next_view_name()
@@ -615,3 +834,4 @@ Format the response as a structured document that could serve as a RESUME.md fil
         hide=use_view_branch,
         ui_only=True,
     )
+    return True

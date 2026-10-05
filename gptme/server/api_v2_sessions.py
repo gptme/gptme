@@ -437,6 +437,20 @@ def api_conversation_step(conversation_id: str):
             400,
         )
 
+    # ACP runs the agent in a subprocess that doesn't see the server's --tools
+    # allowlist, so it can't be offered on a restricted server.
+    if flask.current_app.config.get("SERVER_TOOL_ALLOWLIST") is not None:
+        if req_json.get("use_acp") is True:
+            return (
+                flask.jsonify(
+                    {
+                        "error": "use_acp is not available with a server --tools allowlist"
+                    }
+                ),
+                403,
+            )
+        use_acp = False
+
     # Validate auto_confirm type explicitly (bool OR int).
     # Reject strings/floats/etc. to avoid accidental truthy coercion.
     auto_confirm = req_json.get("auto_confirm", False)
@@ -711,7 +725,7 @@ def api_conversation_tool_confirm(conversation_id: str):
             return (
                 flask.jsonify(
                     {
-                        "error": f"Tool not found in any session for conversation: {tool_id}"
+                        "error": f"Tool {tool_id} not found in any session for conversation {conversation_id}"
                     }
                 ),
                 404,

@@ -10,6 +10,7 @@ subagent() function in api.py.
 import logging
 import os
 import random
+import signal
 import string
 import subprocess
 import sys
@@ -37,7 +38,7 @@ from .._allowlist import (
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
-from ..base import ToolSpec
+from ..base import ToolFormat, ToolSpec
 from .concurrency import get_slot_sem
 from .hooks import notify_completion, notify_progress
 from .persistence import persist_subagent_meta
@@ -54,7 +55,40 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _declared_child_tool_format(model: str | None) -> ToolFormat | None:
+    """Return the dialect the child's model metadata *declares*, if any.
+
+    Distinguishing "metadata declares a format" from "we defaulted to
+    markdown" matters for subprocess children: forcing ``--tool-format
+    markdown`` on a custom provider whose metadata carries no format would
+    clobber a workspace ``TOOL_FORMAT`` setting (the CLI flag wins over env).
+    """
+    from ...llm.models import get_default_model, get_model
+
+    meta = get_model(model) if model else get_default_model()
+    return meta.default_tool_format if meta else None
+
+
+def _child_tool_format(model: str | None) -> ToolFormat:
+    """Resolve the child's dialect without inheriting the parent's tool format."""
+    return _declared_child_tool_format(model) or "markdown"
+
+
+def _effective_child_tool_format(model: str | None) -> ToolFormat | None:
+    """Dialect the parent can *assert* for the subprocess child, if any.
+
+    Only a declared model metadata format is knowable here: it is the value the
+    parent passes explicitly as ``--tool-format``. When the child model declares
+    none, the child CLI resolves the dialect itself (env, workspace config,
+    saved conversation), so the parent must not guess — returning ``None`` keeps
+    dialect-specific examples out of the prompt instead of risking a mismatch.
+    """
+    return _declared_child_tool_format(model)
+
+
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
+_SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
 _SUBPROCESS_STDERR_TAIL_BYTES = 16 * 1024
 _SUBPROCESS_STDERR_TAIL_LINES = 20
@@ -415,6 +449,7 @@ def _create_subagent_thread(
     # Initialize model and tools for this thread
     if model:
         set_default_model(model)
+    tool_format = _child_tool_format(model)
 
     # Apply profile tool restrictions if specified
     tool_allowlist = None
@@ -478,7 +513,9 @@ def _create_subagent_thread(
             prompt_gptme(False, None, agent_name=None, tools=available_tools)
         ) + list(
             prompt_tools(
-                tools=available_tools, tool_format="markdown", examples=include_examples
+                tools=available_tools,
+                tool_format=tool_format,
+                examples=include_examples,
             )
         )
     elif context_mode == "fork":
@@ -530,7 +567,7 @@ def _create_subagent_thread(
                 list(
                     prompt_tools(
                         tools=available_tools,
-                        tool_format="markdown",
+                        tool_format=tool_format,
                         examples=include_examples,
                     )
                 )
@@ -540,6 +577,7 @@ def _create_subagent_thread(
         include_examples = not bool(os.environ.get("GPTME_NO_EXAMPLES"))
         initial_msgs = get_prompt(
             available_tools,
+            tool_format=tool_format,
             interactive=False,
             workspace=workspace,
             include_examples=include_examples,
@@ -554,7 +592,14 @@ def _create_subagent_thread(
         # SYSTEM_PROMPT_CACHE_BOUNDARY, chat_history, or context_cmd output
         # may add more — the measurement below handles all cases correctly.
         if context_window is not None and context_window > 0:
-            n_base = len(get_prompt(available_tools, interactive=False, workspace=None))
+            n_base = len(
+                get_prompt(
+                    available_tools,
+                    tool_format=tool_format,
+                    interactive=False,
+                    workspace=None,
+                )
+            )
             initial_msgs = initial_msgs[: n_base + context_window]
 
     # Apply secret redaction to workspace context messages if requested.
@@ -601,7 +646,9 @@ def _create_subagent_thread(
         # Subagent._read_log() instead.
         complete_instruction = Message(
             "system",
-            _get_complete_instruction(target, output_schema=output_schema),
+            _get_complete_instruction(
+                target, output_schema=output_schema, tool_format=tool_format
+            ),
         )
         initial_msgs.append(complete_instruction)
 
@@ -655,7 +702,7 @@ def _create_subagent_thread(
             no_confirm=True,
             interactive=False,
             show_hidden=False,
-            tool_format="markdown",
+            tool_format=tool_format,
             output_format="quiet",
         )
     finally:
@@ -744,6 +791,12 @@ def _run_subagent_subprocess(
 
     if model:
         cmd.extend(["--model", model])
+        # Only override when the child model actually declares a dialect; that
+        # prevents parent/workspace settings from winning over the child model,
+        # while a custom provider without metadata still resolves TOOL_FORMAT
+        # through the CLI instead of being forced to markdown.
+        if declared_format := _declared_child_tool_format(model):
+            cmd.extend(["--tool-format", declared_format])
 
     if profile:
         cmd.extend(["--agent-profile", profile])
@@ -814,7 +867,7 @@ def _run_subagent_subprocess(
     if not resume:
         complete_section = (
             "\n\n[Completion Instructions]\n"
-            f"{_get_complete_instruction('orchestrator', supports_progress=True, output_schema=output_schema_dict)}\n"
+            f"{_get_complete_instruction('orchestrator', supports_progress=True, output_schema=output_schema_dict, tool_format=_effective_child_tool_format(model))}\n"
         )
         prompt = prompt + complete_section
 
@@ -831,6 +884,7 @@ def _run_subagent_subprocess(
     env = os.environ.copy()
     env["GPTME_SUBAGENT_AGENT_ID"] = logdir.name.removeprefix("subagent-")
     env["GPTME_PROGRESS_FILE"] = str(progress_file)
+    env["GPTME_SHELL_PGID_FILE"] = str(logdir / _SHELL_PGIDS_FILENAME)
     if reasoning_effort:
         env["GPTME_THINKING_EFFORT"] = reasoning_effort
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
@@ -1029,14 +1083,171 @@ def _stderr_failure_tail(stderr_path: Path | None) -> str:
     return "\nChild stderr tail:\n" + "\n".join(tail)
 
 
-def _terminate_subprocess(process: subprocess.Popen) -> None:
-    """Give CLI cleanup a grace period before forcing termination, then reap."""
+def _proc_start_ticks(pid: int) -> int | None:
+    """Return a process's start time (clock ticks since boot), or None.
+
+    Field 22 of ``/proc/<pid>/stat``. ``None`` when procfs is unavailable
+    (macOS) or the process is already gone.
+    """
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    try:
+        # comm (field 2) may contain spaces/parens, so split after the last ')'.
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def _process_start_marker(pid: int) -> str | None:
+    """A stable identity string for a live process, or None.
+
+    Prefers the procfs start time (clock ticks); falls back to ``ps`` so the
+    same identity can be checked on platforms without procfs (macOS). Two
+    reads of the same live process compare equal, while a recycled pid yields
+    a different value. ``None`` when the process is gone or cannot be read.
+    """
+    ticks = _proc_start_ticks(pid)
+    if ticks is not None:
+        return str(ticks)
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    marker = result.stdout.strip()
+    return marker or None
+
+
+def _killable_group(pgid: int) -> bool:
+    """True if ``pgid`` is a live group we may safely SIGKILL.
+
+    A recorded shell's pgid equals its own session id while its leader is
+    alive. Once the leader exits, the pid lookup fails but the group can still
+    hold processes the shell started, so fall back to probing the group
+    itself. A reused pid shows up as a session that no longer matches, and is
+    skipped rather than signalled.
+    """
+    try:
+        return os.getsid(pgid) == pgid
+    except ProcessLookupError:
+        pass
+    try:
+        os.killpg(pgid, 0)  # signal 0 probes existence without sending
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
+def _group_started_after(pgid: int, after_ticks: int | None) -> bool:
+    """True if every live member of ``pgid`` verifiably started after ``after_ticks``.
+
+    A group the child's shell created can only contain processes started after
+    the CLI itself, so this rejects a stale entry that now names an unrelated
+    group which predates the subagent. When procfs (or the CLI's start time) is
+    unavailable, membership cannot be verified, so this fails closed: the entry
+    is left alone rather than risking a signal to an unrelated group that
+    reused a dead shell's pid. A live macOS shell is instead matched exactly by
+    ``_process_start_marker``; only a leaderless group reaches this path there.
+    """
+    if after_ticks is None:
+        return False
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            rest = Path(f"/proc/{entry}/stat").read_text().rsplit(")", 1)[1].split()
+            member_pgrp = int(rest[2])  # field 5
+            member_start = int(rest[19])  # field 22
+        except (OSError, IndexError, ValueError):
+            continue
+        if member_pgrp == pgid and member_start < after_ticks:
+            return False
+    return True
+
+
+def _kill_recorded_shell_groups(
+    pgid_file: Path, after_ticks: int | None = None
+) -> None:
+    """SIGKILL the persistent-shell process groups a child CLI recorded.
+
+    Each persistent shell is its own session leader, so its pgid equals its
+    sid. Groups that are no longer recognisable, that predate the subagent, or
+    that are the killing process's own group/session, are skipped. When the
+    entry carries a start marker and the pid is still live, both must match —
+    a recycled pid is rejected exactly, on Linux and macOS alike.
+    """
+    if sys.platform == "win32":
+        return
+    try:
+        lines = pgid_file.read_text().splitlines()
+    except OSError:
+        return
+    own_pgid = os.getpgid(0)
+    own_sid = os.getsid(0)
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # The start marker may contain spaces (ps lstart on macOS), so only the
+        # pid is split off; the rest of the line is the marker.
+        pid_field, _, marker = line.partition(" ")
+        try:
+            pgid = int(pid_field)
+        except ValueError:
+            continue
+        if pgid <= 1 or pgid in (own_pgid, own_sid):
+            continue
+        recorded_start = marker.strip() or None
+        live_start = _process_start_marker(pgid) if recorded_start is not None else None
+        if recorded_start is not None and live_start is not None:
+            # A recycled pid always has a different start marker, so equality
+            # proves this is still the shell that recorded the entry.
+            if live_start != recorded_start:
+                continue
+        elif not _group_started_after(pgid, after_ticks):
+            # Entry without a start marker (older child), or the leader already
+            # exited: reject groups that predate the subagent.
+            continue
+        if not _killable_group(pgid):
+            continue
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            continue
+
+
+def _terminate_subprocess(
+    process: subprocess.Popen, shell_pgid_file: Path | None = None
+) -> None:
+    """Give CLI cleanup a grace period before forcing termination, then reap.
+
+    Persistent shells run in their own sessions, so they survive both a
+    SIGTERM-ignoring CLI and one that exits while leaving them behind; the
+    groups it recorded are therefore killed once the CLI is down either way.
+    """
+    pid = getattr(process, "pid", None)
+    cli_start = _proc_start_ticks(pid) if isinstance(pid, int) else None
     process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
+    if shell_pgid_file is not None:
+        _kill_recorded_shell_groups(shell_pgid_file, after_ticks=cli_start)
 
 
 def _monitor_subprocess(
@@ -1077,7 +1288,7 @@ def _monitor_subprocess(
             f"Subagent {subagent.agent_id} timed out after {subagent.timeout}s, terminating"
         )
         _timed_out = True
-        _terminate_subprocess(subagent.process)
+        _terminate_subprocess(subagent.process, subagent.logdir / _SHELL_PGIDS_FILENAME)
 
     # Stop the progress-poll thread and let it do a final drain.
     progress_stop.set()

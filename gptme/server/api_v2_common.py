@@ -36,6 +36,98 @@ def _validate_conversation_id(
     return None
 
 
+def _is_tool_file_entry(item: str) -> bool:
+    """Mirror init_tools(): allowlist items that are file paths, not tool names."""
+    return item.endswith(".py") or "/" in item or "\\" in item
+
+
+def _server_tool_allowlist() -> list[str] | None:
+    """The server's ``--tools`` allowlist, or None when unrestricted."""
+    return flask.current_app.config.get("SERVER_TOOL_ALLOWLIST")
+
+
+def _tools_unset(tools: list[str] | None) -> bool:
+    """Whether a conversation's tools still need a default.
+
+    On a restricted server only ``None`` means "omitted", so an explicit ``[]``
+    stays "no tools"; unrestricted servers keep treating ``[]`` as omitted.
+    """
+    if _server_tool_allowlist() is None:
+        return not tools
+    return tools is None
+
+
+def _default_conversation_tools() -> list[str]:
+    """Tool names a new conversation gets when the client doesn't pick any.
+
+    Honors the server's ``--tools`` allowlist (``SERVER_TOOL_ALLOWLIST``);
+    without one, every available non-MCP tool. File-path entries from the
+    allowlist are kept verbatim (get_toolchain() skips them).
+    """
+    from ..tools import get_toolchain
+
+    allowlist = _server_tool_allowlist()
+    names = [t.name for t in get_toolchain(allowlist, strict=False) if not t.is_mcp]
+    if allowlist:
+        names += [a for a in allowlist if _is_tool_file_entry(a) and a not in names]
+    return names
+
+
+def _is_tool_pattern(entry: str) -> bool:
+    """Whether an entry is a preset, glob, or hint pattern rather than a plain name."""
+    from ..tools._allowlist import TOOL_PRESETS, is_hint_pattern
+
+    return (
+        entry in TOOL_PRESETS
+        or is_hint_pattern(entry)
+        or any(c in entry for c in "*?[")
+    )
+
+
+def _resolve_requested_tools(
+    requested: list[str] | None,
+) -> tuple[list[str] | None, list[str]]:
+    """Resolve a requested tool selection against the server's ``--tools`` allowlist.
+
+    Returns ``(normalized, forbidden)``:
+
+    * ``normalized`` — the concrete tool list to save. Presets, globs, and hint
+      patterns (``read-only``, ``read*``, ``hint:read-only``) are resolved to the
+      tool names they currently match, so a saved selection can never widen later
+      when a new matching tool becomes available. File-path entries and plain
+      names that appear in the allowlist are kept verbatim. Entry order is
+      preserved; duplicates are dropped.
+    * ``forbidden`` — entries that grant a tool outside the allowlist, or that
+      resolve to no tool at all (unknown/unavailable names, non-allowlisted file
+      paths). Callers reject the request when this is non-empty.
+
+    An unrestricted server (no allowlist) returns ``requested`` unchanged.
+    """
+    from ..tools import get_toolchain
+
+    allowlist = _server_tool_allowlist()
+    if allowlist is None or not requested:
+        return requested, []
+
+    allowed = {t.name for t in get_toolchain(allowlist, strict=False)}
+    allowed.update(allowlist)
+
+    normalized: list[str] = []
+    forbidden: list[str] = []
+    for entry in requested:
+        if not _is_tool_pattern(entry) and entry in allowed:
+            resolved = [entry]
+        else:
+            resolved = [t.name for t in get_toolchain([entry], strict=False)]
+        if not resolved or not set(resolved) <= allowed:
+            forbidden.append(entry)
+            continue
+        for name in resolved:
+            if name not in normalized:
+                normalized.append(name)
+    return normalized, forbidden
+
+
 def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
     """Validate branch name to prevent path traversal attacks and OS errors.
 

@@ -181,8 +181,165 @@ def test_skills_show_not_found(tmp_path, mocker):
 
     runner = CliRunner()
     result = runner.invoke(main, ["skills", "show", "nope"])
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "not found" in result.output
+    assert "skills search" in result.output
+
+
+def test_skills_show_exact_beats_substring(tmp_path, mocker):
+    """An exact name wins over an earlier substring hit."""
+    _create_skill(tmp_path, "git-advanced", "Advanced git")
+    _create_skill(tmp_path, "git", "Plain git")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "git"])
+    assert result.exit_code == 0
+    assert "Plain git" in result.output
+    assert "Advanced git" not in result.output
+
+
+def test_skills_show_exact_lesson_stem(tmp_path, mocker):
+    """An exact lesson filename wins over a skill whose name merely contains it."""
+    _create_skill(tmp_path, "shell-safety-extended", "Extended")
+    _create_lesson(tmp_path, "shell-safety")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills", tmp_path / "lessons"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "shell-safety"])
+    assert result.exit_code == 0
+    assert "# Shell Safety" in result.output
+    assert "Extended" not in result.output
+
+
+def test_skills_show_unique_substring(tmp_path, mocker):
+    """A unique substring still resolves."""
+    _create_skill(tmp_path, "python-repl", "Python REPL skill")
+    _create_skill(tmp_path, "other-skill", "Other")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "repl"])
+    assert result.exit_code == 0
+    assert "Python REPL skill" in result.output
+
+
+def test_skills_show_ambiguous_substring(tmp_path, mocker):
+    """Several substring matches are listed instead of picking the first."""
+    _create_skill(tmp_path, "git-advanced", "Advanced git")
+    _create_skill(tmp_path, "git-basics", "Basic git")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "git"])
+    assert result.exit_code == 1
+    assert "Multiple" in result.output
+    assert "git-advanced" in result.output
+    assert "git-basics" in result.output
+    assert "Skill content" not in result.output
+
+
+def test_skills_show_ambiguous_exact_stem(tmp_path, mocker):
+    """Two items sharing an exact stem are reported, not resolved arbitrarily."""
+    _create_lesson(tmp_path, "shared-name", category="tools")
+    _create_lesson(tmp_path, "shared-name", category="workflow")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "lessons"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "shared-name"])
+    assert result.exit_code == 1
+    assert "Multiple" in result.output
+    assert "Test rule" not in result.output
+
+
+def test_skills_show_not_found_quotes_hint(tmp_path, mocker):
+    """The search hint is copy-pasteable for multi-word names."""
+    _create_skill(tmp_path, "other-skill", "Other")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "my missing skill"])
+    assert result.exit_code == 1
+    assert 'skills search "my missing skill"' in result.output
+
+
+def test_skills_show_not_found_hint_portable(tmp_path, mocker):
+    """The hint quotes so it pastes correctly into cmd.exe and POSIX shells."""
+    _create_skill(tmp_path, "other-skill", "Other")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    # bare token stays unquoted
+    result = runner.invoke(main, ["skills", "show", "missing"])
+    assert result.exit_code == 1
+    assert "Try: gptme-util skills search missing\n" in result.output
+    # double quotes group multi-word names in both cmd.exe and POSIX shells
+    result = runner.invoke(main, ["skills", "show", "my missing skill"])
+    assert 'Try: gptme-util skills search "my missing skill"\n' in result.output
+
+
+def test_skills_show_not_found_hint_no_shell_metacharacters(tmp_path, mocker):
+    """Names with shell syntax are never echoed into the pasteable hint."""
+    _create_skill(tmp_path, "other-skill", "Other")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "skills"],
+    )
+
+    runner = CliRunner()
+    for name in [
+        "x $(touch pwned)",
+        "x `id`",
+        "$HOME",
+        'a "b"',
+        "x %PATH% & calc",
+        "--help",
+        "-n 5",
+    ]:
+        result = runner.invoke(main, ["skills", "show", "--", name])
+        assert result.exit_code == 1
+        assert "Try: gptme-util skills search <query>\n" in result.output
+
+
+def test_skills_show_empty_index(tmp_path, mocker):
+    """No indexed items is a failure, not a silent success."""
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "nonexistent"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "show", "anything"])
+    assert result.exit_code == 1
 
 
 def test_skills_search(tmp_path, mocker):

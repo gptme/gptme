@@ -561,6 +561,65 @@ class PromotedJobProcess:
             self._done.set()
 
 
+def _proc_start_ticks(pid: int) -> int | None:
+    """Field 22 of ``/proc/<pid>/stat``, or None without procfs."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _process_start_marker(pid: int) -> str | None:
+    """A stable identity string for this live shell, or None.
+
+    Prefers the procfs start time; falls back to ``ps`` so the parent can
+    still verify the shell on platforms without procfs (macOS). Two reads of
+    the same live process compare equal, while a recycled pid does not.
+    """
+    ticks = _proc_start_ticks(pid)
+    if ticks is not None:
+        return str(ticks)
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    marker = result.stdout.strip()
+    return marker or None
+
+
+def _record_shell_pgid(pid: int) -> None:
+    """Append this shell's process group to ``$GPTME_SHELL_PGID_FILE``.
+
+    A subprocess subagent's parent sets the variable so that, when it has to
+    SIGKILL a CLI that ignored SIGTERM, it can also kill the persistent shells
+    and whatever they detached. Each shell runs in its own session
+    (``start_new_session``), so its pid is its pgid, and killing the CLI's own
+    group would miss it. A start marker is recorded alongside so the parent
+    can tell the shell apart from an unrelated process that later reused its
+    pid — via procfs on Linux, or ``ps`` start time without procfs (macOS).
+    The bare pid is written only if no marker can be obtained.
+    """
+    path = os.environ.get("GPTME_SHELL_PGID_FILE")
+    if not path or _is_windows:
+        return
+    start = _process_start_marker(pid)
+    entry = f"{pid} {start}\n" if start is not None else f"{pid}\n"
+    try:
+        with open(path, "a") as f:
+            f.write(entry)
+    except OSError:
+        logger.debug("could not record shell pgid in %s", path, exc_info=True)
+
+
 class ShellSession:
     process: subprocess.Popen
     stdout_fd: int
@@ -673,6 +732,7 @@ class ShellSession:
             env=sandbox_env,  # None → inherit; dict → sanitized env
             **popen_kwargs,
         )
+        _record_shell_pgid(self.process.pid)
         assert self.process.stdout is not None
         assert self.process.stderr is not None
         self.stdout_fd = self.process.stdout.fileno()

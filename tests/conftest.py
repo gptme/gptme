@@ -1,5 +1,6 @@
 """Test configuration and shared fixtures."""
 
+import copy
 import http.server
 import json
 import logging
@@ -755,6 +756,49 @@ def server_thread(monkeypatch):
     time.sleep(0.5)
 
     return port  # Return the port to the test
+
+
+class _SnapshotHandler(logging.Handler):
+    """Store a shallow copy of each record as it was at emit time."""
+
+    def __init__(self, level: int) -> None:
+        super().__init__(level)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(copy.copy(record))
+
+
+@pytest.fixture
+def server_error_records() -> Iterator[list[logging.LogRecord]]:
+    """ERROR+ records logged under ``gptme.server``, snapshotted before root handlers run.
+
+    ``caplog`` hangs off the root logger, so its records are the same objects
+    every other root handler sees -- and some handlers mutate records in place
+    (``multiprocessing_logging``'s wrapper clears ``exc_info`` after caching
+    ``exc_text``). A handler on ``gptme.server`` itself runs before any root
+    handler, and copying the record there makes ``exc_info`` assertions
+    independent of whatever global logging state earlier tests left behind.
+    """
+    logger = logging.getLogger("gptme.server")
+    handler = _SnapshotHandler(logging.ERROR)
+    saved_level, saved_disabled, saved_propagate = (
+        logger.level,
+        logger.disabled,
+        logger.propagate,
+    )
+    if logger.getEffectiveLevel() > logging.ERROR:
+        logger.setLevel(logging.ERROR)
+    logger.disabled = False
+    logger.propagate = True
+    logger.addHandler(handler)
+    try:
+        yield handler.records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(saved_level)
+        logger.disabled = saved_disabled
+        logger.propagate = saved_propagate
 
 
 @pytest.fixture

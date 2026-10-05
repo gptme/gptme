@@ -5,6 +5,25 @@ import { componentTagger } from 'lovable-tagger';
 
 const isExtensionBuild = process.env.VITE_EXTENSION_BUILD === '1';
 
+// Package -> vendor chunk, applied to the package's files under node_modules.
+const VENDOR_CHUNK_BY_PACKAGE: Record<string, string> = {
+  react: 'vendor-react',
+  'react-dom': 'vendor-react',
+  'react-router': 'vendor-react',
+  'react-router-dom': 'vendor-react',
+  '@tanstack/react-query': 'vendor-query',
+  '@legendapp/state': 'vendor-legend',
+  '@radix-ui/react-accordion': 'vendor-radix',
+  '@radix-ui/react-dialog': 'vendor-radix',
+  '@radix-ui/react-dropdown-menu': 'vendor-radix',
+  '@radix-ui/react-popover': 'vendor-radix',
+  '@radix-ui/react-select': 'vendor-radix',
+  '@radix-ui/react-tabs': 'vendor-radix',
+  '@radix-ui/react-tooltip': 'vendor-radix',
+  'lucide-react': 'vendor-icons',
+  recharts: 'vendor-recharts',
+};
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   //base: '/gptme-webui/',  // Add base URL for GitHub Pages (when served under user/org, not as its own subdomain)
@@ -31,21 +50,10 @@ export default defineConfig(({ mode }) => ({
             panel: fileURLToPath(new URL('./panel.html', import.meta.url)),
           },
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-query': ['@tanstack/react-query'],
-          'vendor-legend': ['@legendapp/state', '@legendapp/state/react'],
-          'vendor-radix': [
-            '@radix-ui/react-accordion',
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-dropdown-menu',
-            '@radix-ui/react-popover',
-            '@radix-ui/react-select',
-            '@radix-ui/react-tabs',
-            '@radix-ui/react-tooltip',
-          ],
-          'vendor-icons': ['lucide-react'],
-          'vendor-recharts': ['recharts'],
+        // Vite 8 (rolldown) only accepts manualChunks as a function.
+        manualChunks(id: string) {
+          const match = id.match(/node_modules\/((?:@[^/]+\/)?[^/]+)\//);
+          return match ? VENDOR_CHUNK_BY_PACKAGE[match[1]] : undefined;
         },
       },
     },

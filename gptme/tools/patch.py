@@ -20,6 +20,7 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    file_newline,
     get_path,
 )
 
@@ -362,9 +363,16 @@ def execute_patch_impl(
                 "Note: The patch was big and larger than the file. In the future, try writing smaller patches or use the save tool instead."
             )
 
-        # Write the patched content
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(patched_content)
+        # Write the patched content, keeping the file's line endings
+        newline = file_newline(path)  # before open() truncates the file
+        with open(path, "w", encoding="utf-8", newline=newline) as f:
+            # Normalize \r\n → \n unconditionally: files are read in universal-newline
+            # mode so the content model is always LF-only. Python's newline= then
+            # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
+            # for LF). Skipping this on LF files would let model-emitted \r\n create
+            # mixed line endings.
+            text = patched_content.replace("\r\n", "\n")
+            f.write(text)
 
         # Return success message with any warnings
         warnings_str = "\n".join(warnings)

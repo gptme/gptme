@@ -1242,7 +1242,7 @@ def _timeout_subagent(
         return  # Another result was set concurrently (subagent finished at the same time)
 
     if sa.execution_mode == "subprocess" and sa.process:
-        _exec._terminate_subprocess(sa.process)
+        _exec._terminate_subprocess(sa.process, sa.logdir / _exec._SHELL_PGIDS_FILENAME)
         logger.info(
             f"Subagent '{agent_id}' subprocess killed after {max_time}s (max_time)."
         )
@@ -1303,7 +1303,7 @@ def subagent_cancel(agent_id: str) -> str:
             logger.warning(
                 "Failed to write cancel control op for '%s': %s", agent_id, e
             )
-        _exec._terminate_subprocess(sa.process)
+        _exec._terminate_subprocess(sa.process, sa.logdir / _exec._SHELL_PGIDS_FILENAME)
         logger.info(f"Subagent '{agent_id}' subprocess terminated.")
         return f"Subagent '{agent_id}' cancelled."
     if sa.execution_mode == "thread":

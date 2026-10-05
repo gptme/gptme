@@ -645,17 +645,24 @@ export const ChatInput: FC<Props> = ({
   //   ChatConfig = successfully fetched
   const conversation$ = conversationId ? conversations$.get(conversationId) : null;
   const chatConfig = conversation$?.chatConfig?.get();
-  const conversationModel = chatConfig?.chat?.model;
+  const pendingModel = conversation$?.pendingModel?.get();
+  // Use the pending model only while chatConfig is unresolved (undefined =
+  // in-flight, null = fetch failed). Once a config resolves it wins even when it
+  // carries no model, so a stale pendingModel can never resurface after the pill
+  // has switched to the conversation's real configuration.
+  const conversationModel = chatConfig ? chatConfig.chat?.model : pendingModel;
   // Show the loading skeleton when:
   //   (a) chatConfig is actively being fetched for an editable conversation — the
   //       three-value sentinel tracks this: undefined = in-flight, null = failed.
+  //       Skipped when the model the user just sent with is known (pendingModel),
+  //       so a freshly created conversation shows its real model immediately.
   //   (b) No model source has resolved yet and the /api/v2/models fetch is still
   //       in-flight — prevents briefly rendering the wrong hardcoded fallback string
   //       ('anthropic/claude-sonnet-4-6') on every fresh ChatInput mount while the
   //       models endpoint responds.  Once isModelsLoading clears (success or failure),
   //       we show whatever model resolved (real or fallback).
   const isChatConfigLoading =
-    (!!conversationId && !isReadOnly && chatConfig === undefined) ||
+    (!!conversationId && !isReadOnly && chatConfig === undefined && !pendingModel) ||
     (isModelsLoading && !conversationModel && !defaultModel && !apiDefaultModel);
 
   // Initialize message from localStorage for persistence across page reloads

@@ -4,6 +4,7 @@ import logging
 from collections.abc import Generator
 from time import monotonic
 
+from ...config import get_project_config
 from ...llm.models import get_default_model
 from ...logmanager import Log
 from ...message import Message, len_tokens
@@ -26,18 +27,31 @@ _VALID_MODES = {"trim", "summarize"} | set(_DEPRECATED_MODES)
 
 
 def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
-    """Command handler for /compact - compact the conversation using rule-based trimming or LLM-powered summarization."""
+    """Command handler for /compact - compact the conversation using rule-based trimming or LLM-powered summarization.
+
+    Usage:
+        /compact [trim|summarize] [instructions...]
+
+    The optional instructions are appended to the checkpoint prompt when using
+    the summarize method (or the default). This is the per-invocation equivalent
+    of the [context] compact_instructions project config key.
+    """
 
     ctx.manager.undo(1, quiet=True)
 
     # Parse arguments
-    method = ctx.args[0] if ctx.args else "trim"
+    # Usage: /compact [mode] [instructions...]
+    #   mode: trim | summarize (or deprecated aliases auto / resume)
+    #   instructions: optional text appended to the summarize checkpoint prompt
+    args = ctx.args or []
+    method = args[0] if args else "trim"
+    extra_instructions = " ".join(args[1:]) if len(args) > 1 else None
 
-    if method not in _VALID_MODES:
+    if method not in _VALID_MODES | set(_DEPRECATED_MODES):
         yield Message(
             "system",
             "Invalid compact method. Use 'trim' for rule-based compaction or 'summarize' for LLM-powered summarization.\n"
-            "Usage: /compact [trim|summarize]",
+            "Usage: /compact [trim|summarize] [instructions...]",
         )
         return
 
@@ -58,7 +72,9 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
     if method == "trim":
         yield from _compact_trim(ctx, msgs)
     elif method == "summarize":
-        yield from _compact_summarize(ctx, msgs)
+        yield from _compact_summarize(
+            ctx, msgs, compact_instructions=extra_instructions
+        )
 
 
 def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
@@ -124,14 +140,50 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
 _compact_auto = _compact_trim
 
 
-def _compact_summarize(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
+def _compact_summarize(
+    ctx,
+    msgs: list[Message],
+    compact_instructions: str | None = None,
+) -> Generator[Message, None, None]:
     """LLM-powered summarization: creates RESUME.md, extracts key files, and starts a new conversation with the context."""
+
+    # Read project-level compact settings so manual /compact honors gptme.toml config.
+    proj_keep_recent = 20_000
+    proj_instructions: str | None = None
+    try:
+        proj_cfg = get_project_config(ctx.manager.workspace)
+        if proj_cfg and proj_cfg.context:
+            if proj_cfg.context.keep_recent_tokens is not None:
+                proj_keep_recent = proj_cfg.context.keep_recent_tokens
+            proj_instructions = proj_cfg.context.compact_instructions
+    except FileNotFoundError:
+        pass  # no project config; fall back to defaults
+    except Exception as e:
+        # A malformed gptme.toml (e.g. invalid keep_recent_tokens) must be
+        # visible to the user, not silently replaced by defaults.
+        logger.warning("Failed to read project compaction config: %s", e)
+
+    # Inline instructions (from /compact summarize <text>) append to project instructions.
+    merged_instructions: str | None
+    if compact_instructions and proj_instructions:
+        merged_instructions = f"{proj_instructions}\n{compact_instructions}"
+    else:
+        merged_instructions = compact_instructions or proj_instructions
 
     started = monotonic()
     m = get_default_model()
     original_tokens = len_tokens(msgs, m.model) if m else 0
     try:
-        yield from _resume_via_llm(ctx.manager, msgs, use_view_branch=False)
+        applied = yield from _resume_via_llm(
+            ctx.manager,
+            msgs,
+            use_view_branch=False,
+            compact_instructions=merged_instructions,
+            keep_recent_tokens=proj_keep_recent,
+            keep_head=_get_keep_head(),
+        )
+        if not applied:
+            return
         compacted_messages = ctx.manager.log.messages
         if not isinstance(compacted_messages, list):
             return

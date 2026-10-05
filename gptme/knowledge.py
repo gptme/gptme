@@ -6,9 +6,10 @@ Entries are stored as JSONL at ``~/.local/share/gptme/knowledge/entries.jsonl``
 so gptme-rag's ``KnowledgeEntrySource`` can index the same JSONL.
 
 Retrieval without gptme-rag uses keyword search over problem + resolution
-text. Matching entries are injected at session start (see
-``gptme.hooks.knowledge_inject``) when the initial prompt has enough
-signal to search.
+text. Legacy session injection is opt-in via
+an explicit ``knowledge_inject`` hook allowlist entry
+(see ``gptme.hooks.knowledge_inject``).
+Use the shared Markdown memory toolkit for new memories.
 
 Entry types
 -----------

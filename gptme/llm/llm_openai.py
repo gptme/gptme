@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Iterator
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
@@ -13,9 +13,23 @@ import requests
 
 from ..config import Config, get_config
 from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
-from ..message import Message, MessageMetadata, UsageData, msgs2dicts
+from ..message import (
+    DegenerationData,
+    Message,
+    MessageMetadata,
+    UsageData,
+    msgs2dicts,
+)
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools.base import truncate_tool_description
+from ._degeneration import (
+    _DEGEN_WITHHOLD_MAX,
+    _ENV_DEGEN_RETRY,
+    DegenerationDetected,
+    _degeneration_retry_enabled,
+    _degeneration_threshold,
+    _RepetitionDetector,
+)
 from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
 from .models import (
     OPENAI_COMPAT_PROVIDERS,
@@ -1424,6 +1438,7 @@ def extra_body(
     model_meta: ModelMeta,
     max_tokens: int | None = None,
     relaxed_privacy: bool = False,
+    provider_ignore: list[str] | None = None,
 ) -> dict[str, Any]:
     """Return extra body for the OpenAI API based on the model.
 
@@ -1535,6 +1550,10 @@ def extra_body(
                         ", ".join(sorted(_VALID_QUANTIZATIONS)),
                     )
                 provider_prefs["quantizations"] = parsed
+
+        # Degeneration guard: exclude a previously-degenerate subprovider.
+        if provider_ignore:
+            provider_prefs["ignore"] = [p.lower() for p in provider_ignore]
 
         body["provider"] = provider_prefs
     return body
@@ -1731,9 +1750,6 @@ def stream(
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
-    in_reasoning_block = False
-    stop_reason = None
-
     # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
     optional_kwargs: dict[str, Any] = {}
     if not is_reasoner:
@@ -1751,7 +1767,24 @@ def stream(
         optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
     reasoning_effort = _resolve_reasoning_effort(provider, model_meta)
 
-    def _stream_create(relaxed_privacy: bool = False) -> Any:
+    # Degeneration guard: detect repetition mid-stream and (when retry is
+    # enabled) retry once on a different OpenRouter subprovider.  Only active
+    # for OpenRouter backends; the guard is a no-op when the threshold env-var
+    # is set to 0/false/off.
+    degen_threshold = _degeneration_threshold()
+    _degen_enabled = degen_threshold is not None and _uses_openrouter_backend(
+        provider, model_meta
+    )
+    # Retrying mid-stream is only safe when nothing has been emitted to the
+    # caller yet; opt in with GPTME_DEGENERATION_RETRY=1.
+    _degen_retry_enabled = _degen_enabled and _degeneration_retry_enabled()
+    _degen_data: DegenerationData | None = None
+    _ignored_providers: list[str] = []
+
+    def _stream_create(
+        relaxed_privacy: bool = False,
+        provider_ignore: list[str] | None = None,
+    ) -> Any:
         return client.chat.completions.create(
             model=api_model.split("@")[0],
             messages=cast(list, messages_dicts),
@@ -1762,166 +1795,307 @@ def stream(
                 model_meta,
                 max_tokens=max_tokens,
                 relaxed_privacy=relaxed_privacy,
+                provider_ignore=provider_ignore,
             ),
             stream_options={"include_usage": True},
             **optional_kwargs,
         )
 
-    try:
-        _stream_obj = _stream_create()
-    except Exception as _e:
-        if _uses_openrouter_backend(
-            provider, model_meta
-        ) and _is_openrouter_no_endpoints_error(_e):
-            _dc_configured = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
-            logger.warning(
-                "OpenRouter: no endpoints matched the strict constraints "
-                "(require_parameters=True + data_collection=%s) for %s — "
-                "retrying with only the capability guard dropped (data_collection "
-                "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
-                "or use model@provider to pin a no-training host.",
-                _dc_configured,
-                model_meta.model,
-            )
-            _stream_obj = _stream_create(relaxed_privacy=True)
-        else:
-            raise
-    # Capture which subprovider OpenRouter actually used before consuming the
-    # stream. The x-openrouter-provider header is available on the initial
-    # HTTP response (before the stream body starts).
-    _or_resolved: str | None = None
-    # Set when the header is missing (e.g. behind an OpenAI-compatible proxy):
-    # fall back to the ``provider`` field OpenRouter puts in each chunk body.
-    _or_provider_from_body = False
-    if _uses_openrouter_backend(provider, model_meta):
-        try:
-            _or_stream_provider = _stream_obj.response.headers.get(
-                "x-openrouter-provider"
-            )
-        except AttributeError:
-            _or_stream_provider = None
-        _or_provider_from_body = not _or_stream_provider
-        if _or_stream_provider:
-            _or_resolved = _make_resolved_model(model, _or_stream_provider)
-            captured_metadata = _record_usage(
-                None,
-                model,
-                resolved_model=_or_resolved,
-                reasoning_effort=reasoning_effort,
-            )
-
     # Model id as the provider reports it on each chunk (last non-empty wins).
+    # served_model is declared outside the retry loop so the final value survives.
     served_model: str | None = None
-    last_usage = None
-    stream_failed = False
 
-    try:
-        for chunk_raw in _guarded_stream_iter(
-            _stream_obj, model=model, provider=provider
-        ):
-            from openai.types.chat import ChatCompletionChunk  # fmt: skip
-            from openai.types.chat.chat_completion_chunk import (  # fmt: skip
-                ChoiceDeltaToolCall,
-                ChoiceDeltaToolCallFunction,
-            )
+    for _degen_attempt in range(2):
+        _is_degen_retry = _degen_attempt > 0
+        in_reasoning_block = False
+        stop_reason = None
+        _degen_detected = False
+        last_usage = None
+        stream_failed = False
 
-            if _or_provider_from_body and (
-                _body_provider := _openrouter_provider_from(chunk_raw)
+        try:
+            _stream_obj = _stream_create(provider_ignore=_ignored_providers)
+        except Exception as _e:
+            if _uses_openrouter_backend(
+                provider, model_meta
+            ) and _is_openrouter_no_endpoints_error(_e):
+                _dc_configured = get_config().get_env(
+                    "OPENROUTER_DATA_COLLECTION", "deny"
+                )
+                logger.warning(
+                    "OpenRouter: no endpoints matched the strict constraints "
+                    "(require_parameters=True + data_collection=%s) for %s — "
+                    "retrying with only the capability guard dropped (data_collection "
+                    "stays at its configured default). Set OPENROUTER_PROVIDER_ORDER "
+                    "or use model@provider to pin a no-training host.",
+                    _dc_configured,
+                    model_meta.model,
+                )
+                _stream_obj = _stream_create(
+                    relaxed_privacy=True, provider_ignore=_ignored_providers
+                )
+            else:
+                raise
+
+        # Capture which subprovider OpenRouter actually used before consuming the
+        # stream. The x-openrouter-provider header is available on the initial
+        # HTTP response (before the stream body starts).
+        _or_resolved: str | None = None
+        # Set when the header is missing (e.g. behind an OpenAI-compatible proxy):
+        # fall back to the ``provider`` field OpenRouter puts in each chunk body.
+        _or_provider_from_body = False
+        if _uses_openrouter_backend(provider, model_meta):
+            try:
+                _or_stream_provider = _stream_obj.response.headers.get(
+                    "x-openrouter-provider"
+                )
+            except AttributeError:
+                _or_stream_provider = None
+            _or_provider_from_body = not _or_stream_provider
+            if _or_stream_provider:
+                _or_resolved = _make_resolved_model(model, _or_stream_provider)
+                captured_metadata = _record_usage(
+                    None,
+                    model,
+                    resolved_model=_or_resolved,
+                    reasoning_effort=reasoning_effort,
+                )
+
+        # Detect on both attempts.  A retry may not recurse into another retry,
+        # but it still must be aborted if it degenerates too.
+        # _degen_enabled guarantees degen_threshold is not None; assert to narrow.
+        detector: _RepetitionDetector | None = None
+        if _degen_enabled:
+            assert degen_threshold is not None
+            detector = _RepetitionDetector(threshold=degen_threshold)
+
+        # Text withheld while a clean retry is still possible.  Only used when
+        # the retry path is enabled; otherwise text streams through unchanged.
+        _degen_pending: list[str] = []
+        _degen_emitted = False
+
+        def _emit(
+            text: str,
+            *,
+            _detector: _RepetitionDetector | None = detector,
+            _pending: list[str] = _degen_pending,
+            _retry_enabled: bool = _degen_retry_enabled,
+            _is_retry: bool = _is_degen_retry,
+        ) -> Iterator[str]:
+            """Yield streamed text, withholding the prefix while a retry is live.
+
+            A same-turn retry must not append to text the caller has already
+            accumulated, so nothing is emitted until the guard has had its
+            earliest chance to trip.  Once that window passes (or on the retry
+            attempt itself), text streams through immediately.
+            """
+            nonlocal _degen_emitted
+            if not text:
+                return
+            if not _retry_enabled or _is_retry or _degen_emitted:
+                _degen_emitted = True
+                yield text
+                return
+            _pending.append(text)
+            # Stream once the guard has had its earliest chance to trip, or
+            # once the withheld prefix hits the cap (so a response that never
+            # accumulates non-code text cannot stall output indefinitely).
+            if (
+                _detector is not None
+                and _detector.checks_performed >= _detector.trip_count
+            ) or sum(len(p) for p in _pending) >= _DEGEN_WITHHOLD_MAX:
+                _degen_emitted = True
+                yield from _pending
+                _pending.clear()
+
+        try:
+            for chunk_raw in _guarded_stream_iter(
+                _stream_obj, model=model, provider=provider
             ):
-                _or_provider_from_body = False
-                _or_resolved = _make_resolved_model(model, _body_provider)
-                if _or_resolved:
-                    if captured_metadata is None:
-                        captured_metadata = _record_usage(
-                            None,
-                            model,
-                            resolved_model=_or_resolved,
-                            reasoning_effort=reasoning_effort,
-                        )
-                    else:
-                        captured_metadata["resolved_model"] = _or_resolved
+                from openai.types.chat import ChatCompletionChunk  # fmt: skip
+                from openai.types.chat.chat_completion_chunk import (  # fmt: skip
+                    ChoiceDeltaToolCall,
+                    ChoiceDeltaToolCallFunction,
+                )
 
-            # Cast the chunk to the correct type
-            chunk = cast(ChatCompletionChunk, chunk_raw)
+                if _or_provider_from_body and (
+                    _body_provider := _openrouter_provider_from(chunk_raw)
+                ):
+                    _or_provider_from_body = False
+                    _or_resolved = _make_resolved_model(model, _body_provider)
+                    if _or_resolved:
+                        if captured_metadata is None:
+                            captured_metadata = _record_usage(
+                                None,
+                                model,
+                                resolved_model=_or_resolved,
+                                reasoning_effort=reasoning_effort,
+                            )
+                        else:
+                            captured_metadata["resolved_model"] = _or_resolved
 
-            if chunk_served := served_model_from(chunk):
-                served_model = chunk_served
+                # Cast the chunk to the correct type
+                chunk = cast(ChatCompletionChunk, chunk_raw)
 
-            # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
-            # endpoint) attach it to every chunk. Keep the latest and record once
-            # after the stream, so one response is one request/turn.
-            if hasattr(chunk, "usage") and chunk.usage:
-                last_usage = chunk.usage
+                if chunk_served := served_model_from(chunk):
+                    served_model = chunk_served
 
-            if not chunk.choices:
-                continue
+                # Usage is cumulative and some providers (e.g. Gemini's OpenAI-compat
+                # endpoint) attach it to every chunk. Keep the latest and record once
+                # after the stream, so one response is one request/turn.
+                if hasattr(chunk, "usage") and chunk.usage:
+                    last_usage = chunk.usage
 
-            choice = chunk.choices[0]
-            stop_reason = choice.finish_reason
-            delta = choice.delta
+                if not chunk.choices:
+                    continue
 
-            # Handle reasoning content
-            # OpenRouter API uses delta.reasoning
-            # DeepSeek API uses delta.reasoning_content
-            if reasoning_content := (
-                getattr(delta, "reasoning_content", None)
-                or getattr(delta, "reasoning", None)
-            ):
-                if not in_reasoning_block:
-                    yield "<think>\n"
-                    in_reasoning_block = True
-                yield reasoning_content
-            elif in_reasoning_block:
-                yield "\n</think>\n\n"
-                in_reasoning_block = False
-                if delta.content is not None:
-                    yield delta.content
-            elif delta.content is not None:
-                yield delta.content
+                choice = chunk.choices[0]
+                stop_reason = choice.finish_reason
+                delta = choice.delta
 
-            # Handle tool calls
-            if delta.tool_calls:
-                for tool_call in delta.tool_calls:
-                    if (
-                        isinstance(tool_call, ChoiceDeltaToolCall)
-                        and tool_call.function
-                    ):
-                        func = tool_call.function
-                        if isinstance(func, ChoiceDeltaToolCallFunction):
-                            if func.name:
-                                yield f"\n@{func.name}({tool_call.id}): "
-                            if func.arguments:
-                                yield func.arguments
+                # Handle reasoning content
+                # OpenRouter API uses delta.reasoning
+                # DeepSeek API uses delta.reasoning_content
+                # Feed the detector before emitting so a tripping chunk is not
+                # handed to the caller.
+                if reasoning_content := (
+                    getattr(delta, "reasoning_content", None)
+                    or getattr(delta, "reasoning", None)
+                ):
+                    if detector and detector.feed(reasoning_content):
+                        _degen_detected = True
+                        break
+                    if not in_reasoning_block:
+                        yield from _emit("<think>\n")
+                        in_reasoning_block = True
+                    yield from _emit(reasoning_content)
+                elif in_reasoning_block:
+                    yield from _emit("\n</think>\n\n")
+                    in_reasoning_block = False
+                    if delta.content is not None:
+                        if detector and detector.feed(delta.content):
+                            _degen_detected = True
+                            break
+                        yield from _emit(delta.content)
+                elif delta.content is not None:
+                    if detector and detector.feed(delta.content):
+                        _degen_detected = True
+                        break
+                    yield from _emit(delta.content)
 
-            # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
-            # if delta.type == "response.reasoning_summary.delta":
-            #     if not in_reasoning_block:
-            #         yield "<think>\n"
-            #         in_reasoning_block = True
-            #     yield delta.text
-    except Exception:
-        # A provider/transport error mid-stream. GeneratorExit (consumer closed
-        # early) is a BaseException and deliberately not caught here.
-        stream_failed = True
-        raise
-    finally:
-        # Record usage even if the consumer closes this generator early
-        # (interrupt/break): some providers attach cumulative usage to every
-        # chunk, so the latest value still describes the partial response.
-        if last_usage is not None:
-            captured_metadata = _record_usage(
-                last_usage,
-                model,
-                resolved_model=_or_resolved,
-                reasoning_effort=reasoning_effort,
-                served_model=served_model,
-                success=not stream_failed,
+                # Handle tool calls
+                if delta.tool_calls:
+                    for tool_call in delta.tool_calls:
+                        if (
+                            isinstance(tool_call, ChoiceDeltaToolCall)
+                            and tool_call.function
+                        ):
+                            func = tool_call.function
+                            if isinstance(func, ChoiceDeltaToolCallFunction):
+                                if func.name:
+                                    yield from _emit(
+                                        f"\n@{func.name}({tool_call.id}): "
+                                    )
+                                if func.arguments:
+                                    yield from _emit(func.arguments)
+
+                # TODO: figure out how to get reasoning summary from OpenAI using Chat Completions API
+                # if delta.type == "response.reasoning_summary.delta":
+                #     if not in_reasoning_block:
+                #         yield "<think>\n"
+                #         in_reasoning_block = True
+                #     yield delta.text
+
+        except Exception:
+            # A provider/transport error mid-stream. GeneratorExit (consumer closed
+            # early) is a BaseException and deliberately not caught here.
+            stream_failed = True
+            raise
+        finally:
+            # Record usage even if the consumer closes this generator early
+            # (interrupt/break): some providers attach cumulative usage to every
+            # chunk, so the latest value still describes the partial response.
+            if last_usage is not None:
+                captured_metadata = _record_usage(
+                    last_usage,
+                    model,
+                    resolved_model=_or_resolved,
+                    reasoning_effort=reasoning_effort,
+                    served_model=served_model,
+                    success=not stream_failed,
+                )
+
+        if in_reasoning_block:
+            yield from _emit("\n</think>\n")
+
+        logger.debug(f"Stop reason: {stop_reason}")
+
+        if not _degen_detected:
+            # Flush anything withheld (short streams may never disarm).
+            if _degen_pending:
+                _degen_emitted = True
+                yield from _degen_pending
+                _degen_pending.clear()
+            break  # Normal completion — no retry needed.
+
+        # Degeneration detected.  Close the abandoned stream before deciding
+        # whether to retry.
+        try:
+            _stream_obj.close()
+        except Exception:
+            logger.debug("Error closing degenerate stream", exc_info=True)
+
+        assert detector is not None
+        _raw_or_provider = (
+            _or_resolved.split("@", 1)[1]
+            if _or_resolved and "@" in _or_resolved
+            else None
+        )
+        # A retry is only safe on the first attempt, when nothing has been
+        # emitted to the caller yet and a different subprovider is known.  A
+        # degenerate retry is aborted rather than silently accepted or retried
+        # recursively.
+        can_retry = (
+            not _is_degen_retry
+            and _degen_retry_enabled
+            and not _degen_emitted
+            and bool(_raw_or_provider)
+        )
+        # Preserve the first attempt's event across a retry.  If the retry also
+        # degenerates, overwrite it with the terminal failure (retried=False).
+        if _degen_data is None or _is_degen_retry:
+            _degen_data = DegenerationData(
+                provider=_raw_or_provider or "unknown",
+                score=detector.score,
+                retried=can_retry,
             )
-
-    if in_reasoning_block:
-        yield "\n</think>\n"
-
-    logger.debug(f"Stop reason: {stop_reason}")
+        if can_retry:
+            assert _raw_or_provider is not None
+            logger.warning(
+                "Degeneration detected mid-stream (score=%.2f, provider=%r); "
+                "retrying on a different OpenRouter subprovider.",
+                detector.score,
+                _raw_or_provider,
+            )
+            _ignored_providers = [_raw_or_provider]
+            # Discard the withheld degenerate prefix so the retry starts clean.
+            _degen_pending.clear()
+            # Reset per-attempt state so the retry starts clean.
+            captured_metadata = None
+            served_model = None
+        else:
+            logger.warning(
+                "Degeneration detected mid-stream (score=%.2f, provider=%r); "
+                "failing response. Set %s=1 to allow a clean retry.",
+                detector.score,
+                _raw_or_provider,
+                _ENV_DEGEN_RETRY,
+            )
+            # A partial answer is not a successful assistant response: callers
+            # must not persist it or execute a truncated tool call.  If output
+            # was already streamed, the raised exception is tagged by the caller
+            # so higher-level retry logic cannot append another response.
+            raise DegenerationDetected(_raw_or_provider, detector.score)
 
     if captured_metadata is None and (
         reasoning_effort is not None or served_model is not None
@@ -1937,6 +2111,14 @@ def stream(
         # Covers the OpenRouter header-only metadata built before the stream
         # and a usage chunk that arrived before the last model-bearing chunk.
         captured_metadata["served_model"] = served_model
+
+    # Attach degeneration info when the guard tripped (``retried`` says whether
+    # the response was replaced or truncated).
+    if _degen_data is not None:
+        if captured_metadata is None:
+            captured_metadata = {"model": model}
+        captured_metadata["degeneration"] = _degen_data
+
     # Return the captured metadata (accessible via StopIteration.value)
     return captured_metadata
 
@@ -2612,6 +2794,8 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
     pricing = model_data.get("pricing", {})
     price_input = float(pricing.get("prompt", 0)) * 1_000_000
     price_output = float(pricing.get("completion", 0)) * 1_000_000
+    cache_read = pricing.get("input_cache_read")
+    price_cache_read = float(cache_read) * 1_000_000 if cache_read is not None else None
     # Check for vision support: look for "image" in input modalities
     # OpenRouter uses modalities like "text+image->text" (not "vision")
     architecture = model_data.get("architecture", {})
@@ -2642,6 +2826,7 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         supports_reasoning=reasoning and include_reasoning,
         price_input=price_input,
         price_output=price_output,
+        price_cache_read=price_cache_read,
         default_tool_format="tool",  # openai-compat route dialect
     )
 

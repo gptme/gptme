@@ -620,9 +620,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
               conversationName={conversationId}
               open={deleteDialogOpen}
               onOpenChange={setDeleteDialogOpen}
-              onDelete={() => {
-                window.location.href = '/';
-              }}
+              onDelete={() => setDeleteDialogOpen(false)}
             />
           </form>
         </Form>

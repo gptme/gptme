@@ -25,7 +25,8 @@ import { formatUnknownError, messageFromApiErrorBody } from '@/utils/errors';
 import { isLocalApiBaseUrl } from '@/utils/openConversationPath';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
-import { isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
+import { isCloudApiBaseUrl, isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
+import { getActiveServer } from '@/stores/servers';
 import {
   bumpProviderStatusVersion,
   setupWizard$,
@@ -144,6 +145,11 @@ export function SetupWizard() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
+  // Base URL at the moment the user started cloud sign-in. Used to tell a
+  // connection made *by* the sign-in apart from one that already existed (or a
+  // sidecar that came up late): only a base URL that changed after sign-in
+  // started can mean the cloud connection completed.
+  const cloudLoginStartBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
   const {
     isLoading: isLoadingTauriStatus,
@@ -360,12 +366,39 @@ export function SetupWizard() {
     )
       return;
 
+    // On the cloud step a connection that already *is* the managed cloud server
+    // may advance directly. Any other connection must have come from a sign-in
+    // this session started: a pre-existing connection (the Tauri sidecar, or a
+    // LAN/remote server) and a late-connecting local server must not be treated
+    // as sign-in finishing. A non-loopback URL pins the sidecar case on any
+    // port; differing from the URL at sign-in start covers a pre-existing
+    // non-loopback connection; a null start URL (no sign-in) fails closed.
+    if (step === 'cloud' && !isCloudApiBaseUrl(connectionConfig.baseUrl)) {
+      const baseUrl = connectionConfig.baseUrl;
+      const signInStartBaseUrl = cloudLoginStartBaseUrlRef.current;
+      if (
+        !cloudLoginStarted ||
+        signInStartBaseUrl === null ||
+        isLocalApiBaseUrl(baseUrl) ||
+        baseUrl === signInStartBaseUrl
+      )
+        return;
+    }
+
     if (lastAutoAdvanceBaseUrlRef.current === connectionConfig.baseUrl) return;
     lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
 
     setCloudLoginStarted(false);
+    cloudLoginStartBaseUrlRef.current = null;
     void checkProviderAndAdvance();
-  }, [checkProviderAndAdvance, connectionConfig.baseUrl, isConnected, isOpen, step]);
+  }, [
+    checkProviderAndAdvance,
+    cloudLoginStarted,
+    connectionConfig.baseUrl,
+    isConnected,
+    isOpen,
+    step,
+  ]);
 
   useEffect(() => {
     if (!externalOpen || demoMode) {
@@ -385,7 +418,10 @@ export function SetupWizard() {
   }, [demoMode, externalOpen, externalStep]);
 
   useEffect(() => {
-    if (!cloudLoginStarted || step !== 'cloud' || isConnected) {
+    // isConnected is intentionally not a gate: the user may still be connected
+    // to the local server when the cloud auth code arrives (the desktop sidecar
+    // case) and the code must still be exchanged.
+    if (!cloudLoginStarted || step !== 'cloud') {
       return;
     }
 
@@ -418,7 +454,11 @@ export function SetupWizard() {
           if (cancelled) {
             return;
           }
-          await connect(config);
+          // The exchange registered and selected the cloud server, but
+          // connect() would otherwise target the previous render's server (the
+          // local one) and apply the cloud URL to it. Pass the freshly selected
+          // server id so the probe and the registry update hit the cloud server.
+          await connect(config, getActiveServer()?.id);
         } catch (error) {
           if (cancelled) {
             return;
@@ -436,7 +476,7 @@ export function SetupWizard() {
       cancelled = true;
       window.removeEventListener('message', handleCloudAuthMessage);
     };
-  }, [cloudLoginStarted, connect, isConnected, step]);
+  }, [cloudLoginStarted, connect, step]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
@@ -698,6 +738,7 @@ export function SetupWizard() {
     // will handle the callback and connect automatically.
     setConnectError(null);
     setCloudLoginStarted(true);
+    cloudLoginStartBaseUrlRef.current = connectionConfig.baseUrl;
 
     // In Tauri, hand the URL to the OS browser via the opener plugin instead of
     // window.open(). On Android, wry's WebView has no multiple-window support,

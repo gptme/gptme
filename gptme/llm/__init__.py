@@ -324,6 +324,15 @@ def did_llm_reply_emit_visible_output(exc: BaseException) -> bool:
     return bool(getattr(exc, _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR, False))
 
 
+def is_llm_reply_error(e: BaseException) -> bool:
+    """Whether an exception deliberately represents a failed LLM reply."""
+    if not getattr(e, _LLM_REPLY_ORIGIN_ATTR, False):
+        return False
+    from .llm_openai import DegenerationDetected  # fmt: skip
+
+    return is_provider_error(e) or isinstance(e, DegenerationDetected)
+
+
 def is_provider_error(e: BaseException) -> bool:
     """Whether an exception is a recoverable LLM provider/transport failure.
 

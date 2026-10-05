@@ -13,6 +13,8 @@ import { useApi } from '@/contexts/ApiContext';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { useQueryClient } from '@tanstack/react-query';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
+import { useNavigate } from 'react-router-dom';
+import { appRoute } from '@/utils/routes';
 
 interface Props {
   conversationName: string;
@@ -32,6 +34,7 @@ export function DeleteConversationConfirmationDialog({
 }: Props) {
   const { api, connectionConfig } = useApi();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [isDeleting, setIsDeleting] = useState(false);
   const [isError, setIsError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -53,6 +56,7 @@ export function DeleteConversationConfirmationDialog({
       setIsDeleting(false);
       return;
     }
+    const deletingSelectedConversation = selectedConversation$.peek() === conversationName;
     conversations$.delete(conversationName);
     queryClient.invalidateQueries({
       queryKey: conversationsQueryKey(connectionConfig.baseUrl),
@@ -60,10 +64,15 @@ export function DeleteConversationConfirmationDialog({
     // Clear selection after delete. (Previously reset to a demo conversation,
     // which surfaced demo content to real users — and used the demo's name
     // rather than its id, so it never actually selected anything.)
-    selectedConversation$.set('');
+    if (deletingSelectedConversation) {
+      selectedConversation$.set('');
+    }
 
     // Reset state
     await onDelete();
+    if (deletingSelectedConversation) {
+      navigate(appRoute('/chat'), { replace: true });
+    }
     setIsDeleting(false);
     onOpenChange(false);
   };

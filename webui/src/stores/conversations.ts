@@ -76,6 +76,10 @@ export interface ConversationState {
   // Stream setting captured when creating a placeholder conversation.
   // The initial step starts before chatConfig is always loaded into the store.
   initialStepStream?: boolean;
+  // Model the user sent with when creating a placeholder conversation. Shown by
+  // the model selector until the real chatConfig arrives, so the pill does not
+  // flash a skeleton right after send. chatConfig takes precedence once loaded.
+  pendingModel?: string;
   // Currently displayed branch name
   currentBranch: string;
   // Incremented whenever the displayed log is replaced wholesale without a
@@ -283,7 +287,7 @@ export function setToolComplete(
 export function initConversation(
   id: string,
   data?: ConversationResponse,
-  options?: { needsInitialStep?: boolean; initialStepStream?: boolean }
+  options?: { needsInitialStep?: boolean; initialStepStream?: boolean; pendingModel?: string }
 ) {
   const initial: ConversationState = {
     data: data || {
@@ -310,6 +314,7 @@ export function initConversation(
     chatConfig: undefined,
     needsInitialStep: options?.needsInitialStep ?? false,
     initialStepStream: options?.initialStepStream,
+    pendingModel: options?.pendingModel,
     currentBranch: 'main',
     logRevision: 0,
     logOffset: 0,
