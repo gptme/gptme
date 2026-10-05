@@ -212,19 +212,22 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
     # yields tolerated=0.36; round() → 0, so even one em dash counted.  With
     # direct float subtraction, 1 − 0.36 = 0.64 hits, keeping the score below
     # the warn threshold for a single dash in a short paragraph.
-    em_excess = round(max(0.0, em_dash_count - tolerated), 2)
+    # Keep em_excess as an exact float for scoring — rounding before adding to
+    # weighted_total can flip gate decisions (e.g. 0.727 rounds to 0.73, shifting
+    # a 91-word strict-mode text from 7.99 to 8.02 and triggering a spurious WARN).
+    em_excess = max(0.0, em_dash_count - tolerated)
     if em_excess > 0:
         weighted_total += em_excess
         hits.append(
             {
                 "category": "em_dash",
                 "label": "em-dash abuse",
-                "count": em_excess,
+                "count": round(em_excess, 2),  # display only; scoring uses exact float
                 "weight": 1,
             }
         )
-        by_category["em_dash"] = em_excess
-        total_hits += em_excess
+        by_category["em_dash"] = round(em_excess, 2)
+        total_hits += round(em_excess, 2)
 
     staccato = _count_staccato_runs(text)
     if staccato:

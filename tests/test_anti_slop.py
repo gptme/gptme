@@ -85,6 +85,19 @@ def test_gate_relaxed_single_em_dash_short_paragraph():
     )
 
 
+def test_gate_strict_rounding_does_not_flip_gate():
+    # Regression: rounding em_excess to 2 dp before scoring changed gate decisions.
+    # 91 words, 1 em dash, strict mode (em_tol=3/1k, warn=8):
+    #   exact excess = 1 - 0.273 = 0.727; score = 0.727 × (1000/91) ≈ 7.99 → PASS
+    #   rounded excess = 0.73;            score = 0.73  × (1000/91) ≈ 8.02 → WARN (wrong)
+    text = " ".join(["word"] * 90) + " — sentence"
+    r = evaluate_gate(text, mode="strict")
+    assert r["status"] == "pass", (
+        f"Expected pass for 1 em dash in 91 words (strict), got {r['status']!r} "
+        f"(score={r['smell_report']['weighted_score']})"
+    )
+
+
 def test_gate_relaxed_fractional_excess_is_reported():
     # Regression: a fractional em_excess (0 < excess < 0.5) must remain visible
     # in the report instead of producing either "em-dash abuse x0" or an
