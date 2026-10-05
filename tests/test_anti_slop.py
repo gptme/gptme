@@ -68,6 +68,23 @@ def test_detect_em_dash_tolerance():
     assert relaxed_em <= strict_em
 
 
+def test_gate_relaxed_single_em_dash_short_paragraph():
+    # Regression: round(tolerated) → 0 for short texts made even 1 em dash
+    # count as excess in relaxed mode, WARNing when it should PASS.
+    # 45-word paragraph with exactly one em dash — relaxed mode should pass.
+    text = (
+        "The compiler generates IR from the AST in a single forward pass. "
+        "Each node is visited exactly once — the visitor accumulates register "
+        "assignments and emits instructions as it goes. Jumps and branch targets "
+        "are patched in a second fixup pass after all instructions are emitted."
+    )
+    r = evaluate_gate(text, mode="relaxed")
+    assert r["status"] == "pass", (
+        f"Expected pass for 1 em dash in ~45 words (relaxed), got {r['status']!r} "
+        f"(score={r['smell_report']['weighted_score']})"
+    )
+
+
 def test_detect_returns_word_count():
     report = detect_smells("one two three four five")
     assert report["word_count"] == 5

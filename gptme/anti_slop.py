@@ -207,9 +207,15 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
         word_count, 1
     )  # avoid ZeroDivisionError; gate handles short text
     tolerated = word_count * em_dash_tolerance / 1000.0
-    em_excess = max(0, em_dash_count - round(tolerated))
-    if em_excess:
-        weighted_total += em_excess
+    # Use fractional comparison so short texts are not over-penalised when the
+    # tolerance rounds to zero.  E.g. relaxed mode (8/1k) on a 45-word paragraph
+    # yields tolerated=0.36; round() → 0, so even one em dash counted.  With
+    # direct float subtraction, 1 − 0.36 = 0.64 hits, keeping the score below
+    # the warn threshold for a single dash in a short paragraph.
+    em_excess_f = max(0.0, em_dash_count - tolerated)
+    em_excess = round(em_excess_f)  # integer for display / hit counts
+    if em_excess_f > 0:
+        weighted_total += em_excess_f  # precise float for scoring
         hits.append(
             {
                 "category": "em_dash",
