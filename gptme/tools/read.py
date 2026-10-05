@@ -40,7 +40,10 @@ those shortcuts when the file itself is the source of truth.
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with '#' are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
-Files over 1 MiB must be read with a line range.
+For files over 1 MiB, always supply start_line and end_line to read a section at a
+time; the response shows the range and total line count so you can paginate with
+successive ranged reads. hashline_edit is not available for large-file ranged reads;
+use the save or patch tool to edit large files.
 """.strip()
 
 instructions_format = {
@@ -157,29 +160,38 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
 
 def _read_line_range(
     path: Path, start_idx: int, end_line: int | None
-) -> tuple[list[str], int, bool]:
+) -> tuple[list[str], int, bool, bool]:
     """Stream lines ``start_idx:end_line`` without loading the whole file.
 
-    Line boundaries match ``str.splitlines()`` on the full content. Collection
-    stops once the selected text exceeds ``_MAX_READ_BYTES``; counting continues
-    so the total line count stays exact. Returns (selected, total, truncated).
+    Line boundaries match ``str.splitlines()`` on the full content. Stops
+    reading after ``end_line`` when set (total_exact=False in that case so the
+    caller omits the "of N" suffix). The size cap is measured in UTF-8 bytes,
+    matching the large-file threshold; it applies to every line including the
+    first so a single oversized line is always rejected. Invalid bytes outside
+    the selected range are replaced rather than raising. Returns
+    (selected, total, truncated, total_exact).
     """
     selected: list[str] = []
-    selected_chars = 0
+    selected_bytes = 0
     truncated = False
     total = 0
-    with path.open(encoding="utf-8", newline="") as f:
+    early_exit = False
+    with path.open(encoding="utf-8", newline="", errors="replace") as f:
         for raw in f:
             for line in raw.splitlines():
                 in_range = total >= start_idx and (end_line is None or total < end_line)
                 if in_range and not truncated:
-                    if selected_chars + len(line) > _MAX_READ_BYTES and selected:
+                    line_bytes = len(line.encode("utf-8"))
+                    if selected_bytes + line_bytes > _MAX_READ_BYTES:
                         truncated = True
                     else:
                         selected.append(line)
-                        selected_chars += len(line) + 1
+                        selected_bytes += line_bytes + 1
                 total += 1
-    return selected, total, truncated
+            if end_line is not None and total >= end_line:
+                early_exit = True
+                break
+    return selected, total, truncated, not early_exit
 
 
 def _current_logdir() -> Path | None:
@@ -253,9 +265,10 @@ def _read_one(
     start_idx = max(0, start_line - 1)
     content: str | None = None
     range_truncated = False
+    total_exact = True
     try:
         if is_large:
-            selected, total_lines, range_truncated = _read_line_range(
+            selected, total_lines, range_truncated, total_exact = _read_line_range(
                 path, start_idx, end_line
             )
         else:
@@ -333,7 +346,9 @@ def _read_one(
     range_info = ""
     if start_line > 1 or end_line is not None:
         shown = f"{start_idx + 1}-{end_idx}"
-        range_info = f" (lines {shown} of {total_lines})"
+        range_info = (
+            f" (lines {shown} of {total_lines})" if total_exact else f" (lines {shown})"
+        )
 
     # Only store a snapshot and show [path#tag] when hashline_edit is active.
     # notify_file_read returns the tag when hashline_edit is loaded, else None,
@@ -352,7 +367,7 @@ def _read_one(
         body = pruned_message_prefix + "\n\n" + body
     if range_truncated:
         body += (
-            f"\n\nRange truncated at {_MAX_READ_BYTES} characters; "
+            f"\n\nRange truncated at {_MAX_READ_BYTES} bytes; "
             f"continue with start_line={end_idx + 1}."
         )
 

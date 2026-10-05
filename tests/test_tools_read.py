@@ -574,7 +574,7 @@ def test_read_large_file_range_streams_without_loading_whole(tmp_path: Path):
         )
 
     content = messages[0].content
-    assert "(lines 5-6 of 100)" in content
+    assert "(lines 5-6)" in content
     assert "row 5" in content and "row 6" in content
     assert "row 7" not in content
     # A partial read must not become a hashline snapshot of the file.
@@ -592,7 +592,7 @@ def test_read_large_file_range_truncated_at_cap(tmp_path: Path):
         )
 
     content = messages[0].content
-    assert "(lines 1-2 of 100)" in content
+    assert "(lines 1-2)" in content
     assert "continue with start_line=3" in content
 
 
@@ -602,7 +602,8 @@ def test_read_large_file_stream_matches_whole_file_line_boundaries(tmp_path: Pat
     path = tmp_path / "mixed.txt"
     path.write_bytes(text.encode())
 
-    selected, total, truncated = _read_line_range(path, 0, None)
+    selected, total, truncated, total_exact = _read_line_range(path, 0, None)
     assert selected == text.splitlines()
     assert total == len(text.splitlines())
     assert not truncated
+    assert total_exact
