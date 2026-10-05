@@ -24,6 +24,9 @@ TIMEOUT = 20  # seconds - accounts for retry attempts with browser restarts
 # Set GPTME_BROWSER_ENGINE=firefox to use Firefox instead of Chromium.
 # Set GPTME_BROWSER_ENGINE to a filesystem path or executable name to use a
 # custom browser binary (e.g. a fingerprint-patched Firefox build).
+# Set GPTME_BROWSER_EXECUTABLE_PATH to specify a custom executable path
+# independently of engine selection (e.g. for Chromium with a custom binary).
+# Explicit constructor paths override this setting and legacy engine paths.
 BrowserEngine = Literal["chromium", "firefox"]
 _VALID_ENGINES: tuple[BrowserEngine, ...] = ("chromium", "firefox")
 
@@ -219,16 +222,22 @@ class BrowserThread:
     ) -> None:
         self.cdp_url = cdp_url or get_config().get_env("BROWSER_CDP_URL")
 
-        # Resolve engine and executable_path: explicit args > env var > default "chromium"
+        # Resolve engine: explicit arg > env var > default "chromium".
+        legacy_executable = None
         if engine is None:
             raw = (get_config().get_env("BROWSER_ENGINE") or "").strip()
             if raw:
-                parsed_engine, parsed_executable = _parse_engine_env(raw)
-                engine = parsed_engine
-                if executable_path is None:
-                    executable_path = parsed_executable
+                engine, legacy_executable = _parse_engine_env(raw)
             else:
                 engine = "chromium"
+
+        # Explicit path > independent setting > legacy engine-path setting.
+        # An explicit engine does not inherit a legacy engine-path choice.
+        if executable_path is None:
+            executable_path = (
+                get_config().get_env("BROWSER_EXECUTABLE_PATH") or ""
+            ).strip() or legacy_executable
+
         self.engine: BrowserEngine = engine
         self.executable_path: str | None = executable_path
         self.queue: Queue[tuple[Command | Action, object]] = Queue()
@@ -286,7 +295,7 @@ class BrowserThread:
                 browser = None  # Ensure browser is None after failed launch
                 error: Exception
 
-                if "Executable doesn't exist" in str(e):
+                if "executable doesn't exist" in str(e).lower():
                     if self.executable_path:
                         error = RuntimeError(
                             f"Custom browser executable not found: {self.executable_path}. "
