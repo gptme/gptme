@@ -30,7 +30,7 @@ def test_malformed_settings_is_clean_error(tmp_path: Path, body: bytes, cmd: str
     settings.write_bytes(body)
     result = CliRunner().invoke(hooks, [cmd, "--workspace", str(tmp_path)])
     assert result.exit_code == 1
-    assert not isinstance(result.exception, (AttributeError, UnicodeDecodeError))
+    assert isinstance(result.exception, SystemExit)
     assert settings.read_bytes() == body  # never rewritten
 
 
