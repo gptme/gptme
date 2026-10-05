@@ -8,6 +8,13 @@ from click.testing import CliRunner
 from gptme.cli.cmd_init import main
 
 
+@pytest.fixture(autouse=True)
+def _isolate_gptme_env(monkeypatch):
+    """`gptme-init` maps GPTME_* env vars onto its options (auto_envvar_prefix)."""
+    for key in [k for k in os.environ if k.startswith("GPTME_")]:
+        monkeypatch.delenv(key)
+
+
 def _assert_clean_error(result, expected: str) -> None:
     assert result.exit_code == 1, result.output
     assert "Traceback" not in result.output
