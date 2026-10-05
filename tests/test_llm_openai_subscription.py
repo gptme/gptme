@@ -959,22 +959,25 @@ def test_stream_interrupt_during_request_aborts_retry(monkeypatch):
 def test_transform_clamps_instructions_to_codex_char_cap(caplog):
     """Regression: session 411c POSTed 1,053,460 chars and Codex 400'd the cap."""
     cap = llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
-    head = "HEAD-MARKER " * 10
-    tail = "TAIL-MARKER " * 10
-    over = head + "x" * (cap + 4884) + tail
+    head = "HEAD-MARKER"
+    large_context = "x" * (cap + 4884)
+    workspace = "WORKSPACE-MARKER"
+    lesson = "LESSON-MARKER"
+    over = f"{head}\n\n{large_context}\n\n{workspace}\n\n{lesson}"
     with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai_subscription"):
         body = llm_openai_subscription._transform_to_codex_request(
             [], "gpt-5.6-sol", instructions=over
         )
     assert len(body["instructions"]) == cap
-    # Both ends survive: earlier system prompt/identity and later guidance.
-    assert body["instructions"].startswith(head)
-    assert body["instructions"].endswith(tail)
-    assert (
-        llm_openai_subscription.CODEX_INSTRUCTIONS_TRUNCATION_MARKER
-        in (body["instructions"])
-    )
-    assert "truncating middle to the Responses API cap" in caplog.text
+    # Remove only the overflow from the largest context message. The smaller
+    # system prompt and workspace/lesson instructions survive byte-for-byte.
+    assert body["instructions"].split("\n\n") == [
+        head,
+        large_context[: -(len(over) - cap)],
+        workspace,
+        lesson,
+    ]
+    assert "removed" in caplog.text
 
 
 def test_transform_keeps_instructions_under_codex_char_cap():
@@ -1009,4 +1012,4 @@ def test_stream_clamps_joined_system_instructions_to_codex_char_cap():
     request_json = mock_post.call_args.kwargs["json"]
     assert len(request_json["instructions"]) == cap
     assert request_json["instructions"].startswith(first)
-    assert mock_post.call_args.kwargs["json"]["instructions"][-1] == "B"
+    assert request_json["instructions"].split("\n\n")[1] == second[:-overflow]
