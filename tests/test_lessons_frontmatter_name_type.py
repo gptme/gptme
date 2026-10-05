@@ -25,6 +25,13 @@ def test_cursor_mdc_non_string_name_is_coerced(tmp_path: Path, raw: str, expecte
     assert parse_lesson(f).metadata.name == expected
 
 
+@pytest.mark.parametrize("raw", ["[a, b]", "{x: 1}"])
+def test_collection_name_is_ignored(tmp_path: Path, raw: str):
+    f = tmp_path / "SKILL.md"
+    f.write_text(f"---\nname: {raw}\ndescription: d\n---\nbody\n")
+    assert parse_lesson(f).metadata.name is None
+
+
 def test_index_survives_non_string_skill_name(tmp_path: Path):
     skill = tmp_path / "skills" / "s"
     skill.mkdir(parents=True)

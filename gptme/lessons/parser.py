@@ -183,13 +183,14 @@ def _glob_to_keywords(glob_pattern: str) -> list[str]:
 
 
 def _frontmatter_name(frontmatter: dict) -> str | None:
-    """Return the frontmatter ``name`` as a string.
+    """Return a scalar frontmatter ``name`` as a string.
 
     YAML parses ``name: 2024`` or ``name: true`` as int/bool; downstream
-    code (skill indexing) assumes a string.
+    code (skill indexing) assumes a string. Collection values are malformed
+    names, so leave them unset rather than exposing their Python repr.
     """
     name = frontmatter.get("name")
-    return None if name is None else str(name)
+    return None if name is None or isinstance(name, (list, dict)) else str(name)
 
 
 def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
