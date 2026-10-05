@@ -1,11 +1,16 @@
 """Explicit Responses SSE failures must not become successful completions."""
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import httpx
 import pytest
 
-from gptme.llm.openai_responses import _stream_responses_events
+from gptme.llm.llm_openai import _handle_openai_transient_error
+from gptme.llm.openai_responses import (
+    ResponsesStreamError,
+    _stream_responses_events,
+)
 
 
 @pytest.mark.parametrize(
@@ -36,9 +41,11 @@ def test_explicit_failure_raises(event, partial: bool) -> None:
         [{"type": "response.output_text.delta", "delta": "partial"}] if partial else []
     ) + [event]
     with pytest.raises(
-        httpx.RemoteProtocolError, match="server_is_overloaded.*Try later"
-    ):
+        ResponsesStreamError, match="server_is_overloaded.*Try later"
+    ) as exc_info:
         list(_stream_responses_events(events))
+    assert isinstance(exc_info.value, httpx.RemoteProtocolError)
+    assert exc_info.value.code == "server_is_overloaded"
 
 
 @pytest.mark.parametrize("event_type", ["error", "response.failed"])
@@ -53,8 +60,28 @@ def test_successful_stream_is_unchanged(terminal: str) -> None:
     assert "".join(_stream_responses_events(events)) == "ok"
 
 
+def test_permanent_responses_failure_is_not_retried() -> None:
+    error = ResponsesStreamError(
+        "response.failed", "insufficient_quota", "Top up your account"
+    )
+    with pytest.raises(ResponsesStreamError) as exc_info:
+        _handle_openai_transient_error(error, 0, 3, 0)
+    assert exc_info.value is error
+
+
+def test_transient_responses_failure_is_retried(monkeypatch) -> None:
+    wait = Mock(return_value=False)
+    monkeypatch.setattr("gptme.llm.llm_openai.backoff_wait", wait)
+    error = ResponsesStreamError("response.failed", "server_is_overloaded", "Try later")
+    _handle_openai_transient_error(error, 0, 3, 0)
+    wait.assert_called_once()
+
+
+@pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("partial", [False, True])
-def test_subscription_cli_failure_is_nonzero_and_closes_stream(partial: bool) -> None:
+def test_subscription_cli_failure_is_nonzero_and_closes_stream(
+    partial: bool, stream: bool
+) -> None:
     import json
     import logging
     from unittest.mock import patch
@@ -103,14 +130,15 @@ def test_subscription_cli_failure_is_nonzero_and_closes_stream(partial: bool) ->
                 llm_openai_subscription.requests, "post", return_value=response
             ) as post,
         ):
-            result = CliRunner().invoke(
-                llm_generate, ["--model", "openai-subscription/gpt-5.6-sol", "hello"]
-            )
+            args = ["--model", "openai-subscription/gpt-5.6-sol"]
+            if stream:
+                args.append("--stream")
+            result = CliRunner().invoke(llm_generate, [*args, "hello"])
     finally:
         logging.getLogger().setLevel(level)
     assert result.exit_code == 1
     assert "server_is_overloaded" in result.output
     assert "private instructions" not in result.output
-    assert "partial" not in result.output
+    assert ("partial" in result.output) is (stream and partial)
     assert response.closed
     assert post.call_count == 1

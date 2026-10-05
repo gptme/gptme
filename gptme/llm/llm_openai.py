@@ -43,6 +43,7 @@ from .openai_responses import (
     ContentPart,
     MessageContent,
     MessageDict,
+    ResponsesStreamError,
     ToolCall,
     ToolCallFunction,
     _content_to_responses_input,  # noqa: F401
@@ -885,7 +886,14 @@ def _handle_openai_transient_error(
     # Check if this is a transient error we should retry
     should_retry = False
 
-    if isinstance(e, RateLimitError):
+    if isinstance(e, ResponsesStreamError):
+        # Explicit failures keep their provider code so permanent errors do not
+        # inherit the blanket retry policy for malformed/disconnected streams.
+        should_retry = e.code in {
+            "server_is_overloaded",
+            "service_unavailable_error",
+        }
+    elif isinstance(e, RateLimitError):
         # 429 rate limit - should back off and retry
         should_retry = True
     elif isinstance(e, APIConnectionError):

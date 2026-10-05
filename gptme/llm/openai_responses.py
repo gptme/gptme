@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import httpx
 from typing_extensions import NotRequired
 
 from ..tools.base import truncate_tool_description
@@ -19,6 +20,16 @@ if TYPE_CHECKING:
     from ..tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+
+class ResponsesStreamError(httpx.RemoteProtocolError):
+    """Explicit failure reported inside an HTTP-200 Responses stream."""
+
+    def __init__(self, event_type: str, code: str, message: str):
+        self.event_type = event_type
+        self.code = code
+        self.message = message
+        super().__init__(f"Responses stream {event_type}: {code}: {message}")
 
 
 class ContentPart(TypedDict):
@@ -394,8 +405,6 @@ def _stream_responses_events(
         event_type = _obj_get(event, "type", "")
 
         if event_type in ("error", "response.failed"):
-            import httpx
-
             # HTTP 200 only establishes the stream, not successful generation.
             # Raise a provider error without dumping the response (instructions,
             # input and output may contain private context).
@@ -405,9 +414,7 @@ def _stream_responses_events(
                 error = _obj_get(event, "error", None) or event
             code = _obj_get(error, "code", None) or "unknown_error"
             message = _obj_get(error, "message", None) or "Generation failed"
-            raise httpx.RemoteProtocolError(
-                f"Responses stream {event_type}: {code}: {message}"
-            )
+            raise ResponsesStreamError(event_type, code, message)
 
         elif event_type in (
             "response.reasoning_text.delta",
