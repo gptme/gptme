@@ -16,10 +16,14 @@ from gptme.tools._browser_thread import BrowserThread
 @pytest.fixture
 def mock_playwright(monkeypatch):
     """Mock Playwright with clean environment."""
-    # Isolate from developer environment
+    # Isolate from developer environment. get_env() reads both the prefixed
+    # (GPTME_) and unprefixed forms, so clear both for each variable.
     monkeypatch.delenv("GPTME_BROWSER_ENGINE", raising=False)
+    monkeypatch.delenv("BROWSER_ENGINE", raising=False)
     monkeypatch.delenv("GPTME_BROWSER_EXECUTABLE_PATH", raising=False)
+    monkeypatch.delenv("BROWSER_EXECUTABLE_PATH", raising=False)
     monkeypatch.delenv("GPTME_BROWSER_CDP_URL", raising=False)
+    monkeypatch.delenv("BROWSER_CDP_URL", raising=False)
 
     with patch("gptme.tools._browser_thread.sync_playwright") as mock_sync_pw:
         mock_pw = MagicMock()
