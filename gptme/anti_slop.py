@@ -216,6 +216,7 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
     em_excess = round(em_excess_f)  # integer for display / hit counts
     if em_excess_f > 0:
         weighted_total += em_excess_f  # precise float for scoring
+    if em_excess > 0:
         hits.append(
             {
                 "category": "em_dash",

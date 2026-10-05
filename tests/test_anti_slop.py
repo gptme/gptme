@@ -85,6 +85,19 @@ def test_gate_relaxed_single_em_dash_short_paragraph():
     )
 
 
+def test_gate_relaxed_fractional_excess_no_zero_count_hit():
+    # Regression: fractional em_excess (0 < em_excess_f < 0.5) must NOT emit a
+    # hit with count=0 ("em-dash abuse x0"), which would be misleading.
+    # ~100-word text, 1 em dash, relaxed mode (8/1k) → tolerated ≈ 0.8,
+    # em_excess_f ≈ 0.2, round → 0.  No hit should appear in the report.
+    text = " ".join(["word"] * 99) + " — sentence"
+    r = detect_smells(text, em_dash_tolerance=8.0)
+    em_hits = [h for h in r.get("hits", []) if h.get("category") == "em_dash"]
+    assert not em_hits, (
+        f"Expected no em-dash hit for fractional excess <0.5, got {em_hits}"
+    )
+
+
 def test_detect_returns_word_count():
     report = detect_smells("one two three four five")
     assert report["word_count"] == 5
