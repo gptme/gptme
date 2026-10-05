@@ -114,7 +114,13 @@ def test_get_prompt_stats_breaks_out_sections(monkeypatch):
     assert stats.cacheable_tokens >= stats.dynamic_tokens
 
 
-def test_get_prompt_stats_short_without_tools_keeps_minimal_core():
+def test_get_prompt_stats_short_without_tools_keeps_minimal_core(monkeypatch):
+    monkeypatch.setattr(
+        "gptme.prompts.get_config",
+        lambda: SimpleNamespace(
+            user=SimpleNamespace(prompt=SimpleNamespace(fragments={}))
+        ),
+    )
     stats = get_prompt_stats(
         [],
         prompt="short",
@@ -123,10 +129,7 @@ def test_get_prompt_stats_short_without_tools_keeps_minimal_core():
         include_user_context=False,
     )
 
-    assert [section.name for section in stats.sections] == [
-        "prompt_gptme",
-        "prompt_fragment:deployment",
-    ]
+    assert [section.name for section in stats.sections] == ["prompt_gptme"]
 
 
 def test_get_prompt_stats_includes_workspace_and_dynamic_context(tmp_path):
