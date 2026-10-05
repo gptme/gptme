@@ -373,6 +373,7 @@ def _bound_summarize_input(
     """
     head = msgs[:keep_head]
     body_start = keep_head
+    pin_at: int | None = None
     if pinned is not None and context_window:
         # Match by content: prepare_messages copies and merges messages.
         pin_at = next(
