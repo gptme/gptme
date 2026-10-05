@@ -342,6 +342,20 @@ def test_resource_to_codeblock_does_not_slurp_huge_file(tmp_path, monkeypatch):
     assert result.count("A") <= CONTENT_SIZE_WARN_THRESHOLD
 
 
+def test_attached_text_file_embedding_is_capped(tmp_path):
+    """Attached text files (msg.files) are truncated like path-in-prompt files."""
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.message import Message
+    from gptme.util.context import embed_attached_file_content
+
+    big = tmp_path / "big.log"
+    big.write_text("C" * (CONTENT_SIZE_WARN_THRESHOLD * 20))
+
+    msg = embed_attached_file_content(Message("user", "see file", files=[big]))
+    assert "truncated" in msg.content.lower()
+    assert msg.content.count("C") <= CONTENT_SIZE_WARN_THRESHOLD
+
+
 def test_resource_to_codeblock_file_at_cap_not_truncated(tmp_path):
     """A file exactly at the cap is included whole, with no truncation note."""
     from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD

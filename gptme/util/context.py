@@ -279,7 +279,9 @@ def textfile_as_codeblock(path: Path) -> str | None:
     try:
         if path.exists() and path.is_file():
             try:
-                return md_codeblock(path, path.read_text())
+                return md_codeblock(
+                    path, _check_content_size(_read_text_capped(path), str(path))
+                )
             except UnicodeDecodeError:
                 return None
     except OSError:
