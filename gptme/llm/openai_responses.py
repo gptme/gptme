@@ -223,21 +223,36 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
     A result belongs to the nearest preceding unpaired call with its ID, so a
     reused ID can neither hide a later orphaned call nor steal an earlier
     call's result.
+
+    Also drops orphaned tool results (outputs with no preceding call), which
+    happen when the call line was skipped/dropped (e.g. due to a corrupt timestamp
+    in the conversation log) but the result line survived.
     """
     pending: dict[str, list[int]] = {}
+    seen_calls: set[str] = set()
     for idx, item in enumerate(items):
         if item.get("type") == "function_call":
             pending.setdefault(item["call_id"], []).append(idx)
+            seen_calls.add(item["call_id"])
         elif item.get("type") == "function_call_output":
             calls = pending.get(item["call_id"])
             if calls:
                 calls.pop()
-    orphans = {idx for calls in pending.values() for idx in calls}
+    orphaned_calls = {idx for calls in pending.values() for idx in calls}
 
     paired_items: list[dict[str, Any]] = []
     for idx, item in enumerate(items):
+        if (
+            item.get("type") == "function_call_output"
+            and item["call_id"] not in seen_calls
+        ):
+            logger.warning(
+                "Dropping orphaned tool result for call_id %s (no preceding call)",
+                item["call_id"],
+            )
+            continue
         paired_items.append(item)
-        if idx in orphans:
+        if idx in orphaned_calls:
             logger.warning("No tool result recorded for call_id %s", item["call_id"])
             paired_items.append(
                 {

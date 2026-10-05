@@ -130,3 +130,42 @@ def test_markdown_execution_can_miss_a_call_that_responses_replay_recognizes() -
     assert items[1]["type"] == "function_call_output"
     assert items[1]["call_id"] == "call_missing"
     assert items[2]["role"] == "user"
+
+
+def test_orphaned_tool_result_without_preceding_call_is_dropped() -> None:
+    """A function_call_output with no preceding function_call is silently dropped.
+
+    This happens when the assistant message containing the tool call was skipped
+    (e.g. due to a corrupt timestamp in the log, as in gptme#4182), but the
+    tool result message survived. Passing the orphaned result to the Responses
+    API would cause a 400 error.
+    """
+    # call_orphan has a result but no preceding call in the conversation
+    _, items = _messages_to_responses_input(
+        [
+            Message("user", "Do something."),
+            Message("system", "orphaned result", call_id="call_orphan"),
+            Message("user", "Continue."),
+        ]
+    )
+    types = [i.get("type", i.get("role")) for i in items]
+    # The orphaned tool result must not appear in the output
+    assert "function_call_output" not in types
+    assert all(i.get("call_id") != "call_orphan" for i in items)
+
+
+def test_orphaned_result_dropped_while_valid_pairs_kept() -> None:
+    """Dropping an orphaned result must not disturb valid call/result pairs."""
+    _, items = _messages_to_responses_input(
+        [
+            Message("user", "Two calls, one orphan."),
+            Message("assistant", '@shell(call_good): {"command": "echo ok"}'),
+            Message("system", "ok", call_id="call_good"),
+            Message("system", "orphaned", call_id="call_orphan"),
+            Message("user", "Done."),
+        ]
+    )
+    typed = [i for i in items if i.get("type", "message") != "message"]
+    assert [i["type"] for i in typed] == ["function_call", "function_call_output"]
+    assert typed[0]["call_id"] == "call_good"
+    assert typed[1]["output"] == "ok"
