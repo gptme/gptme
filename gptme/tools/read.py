@@ -160,6 +160,15 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
     )
 
 
+def _read_text_bounded(path: Path) -> str | None:
+    """Return UTF-8 text up to the read limit, or ``None`` if it exceeds it."""
+    with path.open("rb") as f:
+        data = f.read(_MAX_READ_BYTES + 1)
+    if len(data) > _MAX_READ_BYTES:
+        return None
+    return data.decode("utf-8")
+
+
 def _read_line_range(
     path: Path, start_idx: int, end_line: int | None
 ) -> tuple[list[str], int, bool, bool, bool]:
@@ -167,12 +176,13 @@ def _read_line_range(
 
     Line boundaries match ``str.splitlines()`` on the full content. Reading
     stops as soon as ``end_line`` or the output byte cap is reached, so neither
-    a huge physical line nor the unselected remainder is buffered. Invalid
-    UTF-8 bytes inside selected lines are shown as U+FFFD and reported.
+    a huge physical line nor the unselected remainder is buffered. The byte cap
+    includes rendered line-number prefixes and separators. Invalid UTF-8 bytes
+    inside selected lines are shown as U+FFFD and reported.
     Returns (selected, total, truncated, total_exact, has_invalid_utf8).
     """
     selected: list[str] = []
-    selected_bytes = 0
+    selected_content_bytes = 0
     total = 0
     has_invalid_utf8 = False
     pending: list[str] = []
@@ -181,13 +191,23 @@ def _read_line_range(
     skip_lf = False
     separators = "\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"
 
+    def rendered_size(content_bytes: int, count: int, last_line_no: int) -> int:
+        """Bytes used by numbered lines, including tabs and joining newlines."""
+        if count == 0:
+            return 0
+        width = len(str(last_line_no))
+        return content_bytes + count * (width + 1) + (count - 1)
+
     def consume() -> tuple[bool, bool]:
         """Consume one logical line; return (stop, truncated)."""
-        nonlocal selected_bytes, total, has_invalid_utf8, pending_bytes
+        nonlocal selected_content_bytes, total, has_invalid_utf8, pending_bytes
         nonlocal line_has_content
         if total >= start_idx:
-            separator_bytes = 1 if selected else 0
-            if selected_bytes + separator_bytes + pending_bytes > _MAX_READ_BYTES:
+            count = len(selected) + 1
+            if (
+                rendered_size(selected_content_bytes + pending_bytes, count, total + 1)
+                > _MAX_READ_BYTES
+            ):
                 return True, True
             line = "".join(pending)
             if any("\udc80" <= char <= "\udcff" for char in line):
@@ -196,7 +216,7 @@ def _read_line_range(
                     "�" if "\udc80" <= char <= "\udcff" else char for char in line
                 )
             selected.append(line)
-            selected_bytes += separator_bytes + pending_bytes
+            selected_content_bytes += pending_bytes
         total += 1
         pending.clear()
         pending_bytes = 0
@@ -222,9 +242,13 @@ def _read_line_range(
                 char_bytes = (
                     3 if "\udc80" <= char <= "\udcff" else len(char.encode("utf-8"))
                 )
-                separator_bytes = 1 if selected else 0
+                count = len(selected) + 1
                 if (
-                    selected_bytes + separator_bytes + pending_bytes + char_bytes
+                    rendered_size(
+                        selected_content_bytes + pending_bytes + char_bytes,
+                        count,
+                        total + 1,
+                    )
                     > _MAX_READ_BYTES
                 ):
                     return True, True
@@ -307,23 +331,22 @@ def _read_one(
         yield Message("system", f"Not a file: {path}")
         return
 
-    size = path.stat().st_size
-    is_large = size > _MAX_READ_BYTES
-    if is_large and start_line == 1 and end_line is None:
-        yield Message(
-            "system",
-            f"File too large to read whole: {path} ({size} bytes, limit "
-            f"{_MAX_READ_BYTES}). Pass start_line/end_line to read a range.",
-        )
-        return
-
     start_idx = max(0, start_line - 1)
     content: str | None = None
     range_truncated = False
     total_exact = True
     has_invalid_utf8 = False
     try:
-        if is_large:
+        content = _read_text_bounded(path)
+        if content is None:
+            if start_line == 1 and end_line is None:
+                size = path.stat().st_size
+                yield Message(
+                    "system",
+                    f"File too large to read whole: {path} ({size} bytes, limit "
+                    f"{_MAX_READ_BYTES}). Pass start_line/end_line to read a range.",
+                )
+                return
             selected, total_lines, range_truncated, total_exact, has_invalid_utf8 = (
                 _read_line_range(path, start_idx, end_line)
             )
@@ -331,13 +354,12 @@ def _read_one(
                 yield Message(
                     "system",
                     f"The first line in the requested range exceeds the "
-                    f"{_MAX_READ_BYTES} byte read limit (the file may be "
-                    f"minified or binary). Use a text editor or binary tool "
-                    f"to inspect it.",
+                    f"{_MAX_READ_BYTES} byte read limit including line numbers "
+                    f"(the file may be minified or binary). Use a text editor "
+                    f"or binary tool to inspect it.",
                 )
                 return
         else:
-            content = path.read_text(encoding="utf-8")
             lines = content.splitlines()
             total_lines = len(lines)
     except UnicodeDecodeError:

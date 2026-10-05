@@ -567,7 +567,6 @@ def test_read_large_file_range_streams_without_loading_whole(tmp_path: Path):
 
     with (
         patch("gptme.tools.read._MAX_READ_BYTES", 20),
-        patch.object(Path, "read_text", side_effect=AssertionError("loaded whole")),
         patch("gptme.tools.notify_file_read") as notify,
     ):
         messages = list(
@@ -579,6 +578,35 @@ def test_read_large_file_range_streams_without_loading_whole(tmp_path: Path):
     assert "row 5" in content and "row 6" in content
     assert "row 7" not in content
     # A partial snapshot cannot satisfy hashline_edit's full-file stale check.
+    notify.assert_not_called()
+
+
+def test_read_small_file_that_grows_during_read_uses_streaming(tmp_path: Path):
+    """A file crossing the size limit after inspection is never read unbounded."""
+    path = tmp_path / "growing.log"
+    path.write_text("small\n")
+    original_open = Path.open
+    grew = False
+
+    def growing_open(self: Path, *args, **kwargs):
+        nonlocal grew
+        if self == path and not grew:
+            grew = True
+            with original_open(path, "w", encoding="utf-8") as f:
+                f.write("row 1\nrow 2\n" + "x" * 100)
+        return original_open(self, *args, **kwargs)
+
+    with (
+        patch("gptme.tools.read._MAX_READ_BYTES", 20),
+        patch.object(Path, "open", growing_open),
+        patch("gptme.tools.notify_file_read") as notify,
+    ):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "1"})
+        )
+
+    assert "row 1" in messages[0].content
+    assert "row 2" not in messages[0].content
     notify.assert_not_called()
 
 
@@ -603,7 +631,7 @@ def test_read_large_file_range_truncated_at_cap(tmp_path: Path):
     path = tmp_path / "big.log"
     path.write_text("abcd\n" * 100)
 
-    with patch("gptme.tools.read._MAX_READ_BYTES", 12):
+    with patch("gptme.tools.read._MAX_READ_BYTES", 15):
         messages = list(
             execute_read(None, [str(path)], {"start_line": "1", "end_line": "100"})
         )
@@ -618,14 +646,30 @@ def test_read_large_file_range_cap_matches_rendered_utf8_bytes(tmp_path: Path):
     path = tmp_path / "big.log"
     path.write_text("é\né\né\n", encoding="utf-8")
 
-    with patch("gptme.tools.read._MAX_READ_BYTES", 5):
+    with patch("gptme.tools.read._MAX_READ_BYTES", 8):
         messages = list(
             execute_read(None, [str(path)], {"start_line": "1", "end_line": "3"})
         )
 
     content = messages[0].content
-    assert "(lines 1-2)" in content
-    assert "continue with start_line=3" in content
+    assert "(lines 1-1)" in content
+    assert "continue with start_line=2" in content
+
+
+def test_read_large_file_range_cap_includes_numbering_overhead(tmp_path: Path):
+    """Many empty lines cannot expand past the cap when line numbers are added."""
+    path = tmp_path / "empty-lines.log"
+    path.write_bytes(b"\n" * 100)
+
+    with patch("gptme.tools.read._MAX_READ_BYTES", 20):
+        messages = list(
+            execute_read(None, [str(path)], {"start_line": "1", "end_line": "100"})
+        )
+
+    content = messages[0].content
+    assert "continue with start_line=8" in content
+    assert "\n 8\t" not in content
+    assert len(content) < 500
 
 
 def test_read_large_file_oversized_first_line_is_refused(tmp_path: Path):
@@ -663,7 +707,7 @@ def test_read_large_file_warns_on_invalid_utf8_in_selected_range(tmp_path: Path)
     path = tmp_path / "invalid.log"
     path.write_bytes(b"ok\ninvalid:\xff\nafter\n")
 
-    with patch("gptme.tools.read._MAX_READ_BYTES", 11):
+    with patch("gptme.tools.read._MAX_READ_BYTES", 13):
         messages = list(
             execute_read(None, [str(path)], {"start_line": "2", "end_line": "2"})
         )
@@ -749,7 +793,7 @@ def test_read_large_file_stops_scanning_as_soon_as_output_is_full():
     reader = _BoundedReader(b"abcd\nefgh\n" + b"tail\n" * 10_000, max_read=4)
 
     with (
-        patch("gptme.tools.read._MAX_READ_BYTES", 5),
+        patch("gptme.tools.read._MAX_READ_BYTES", 6),
         patch("gptme.tools.read._READ_CHUNK_BYTES", 4),
         patch.object(Path, "open", return_value=reader),
     ):
