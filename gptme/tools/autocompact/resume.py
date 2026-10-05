@@ -660,6 +660,18 @@ only mentioned in passing.
             return False
     resume_content = resume_response.content
 
+    # An empty checkpoint would replace the whole history with nothing. Report
+    # it as not applied so the hook latches to the trim path.
+    if not resume_content or not resume_content.strip():
+        logger.warning("Summarizer returned an empty checkpoint; keeping history")
+        yield Message(
+            "system",
+            "Skipped auto-summarize: the model returned an empty checkpoint.",
+            hide=use_view_branch,
+            ui_only=True,
+        )
+        return False
+
     # Save RESUME.md to logdir (not workspace) for reference/debugging
     resume_path: Path | None = None
     if manager.logdir:
