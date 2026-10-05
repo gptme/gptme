@@ -3153,6 +3153,44 @@ def test_resume_via_llm_appends_compact_instructions(tmp_path, monkeypatch):
     assert "Focus on test X." in captured_prompt[0]
 
 
+@pytest.mark.parametrize("content", ["", "   \n\t  "])
+@pytest.mark.parametrize("use_view_branch", [True, False])
+def test_resume_via_llm_rejects_empty_checkpoint(
+    tmp_path, monkeypatch, content, use_view_branch
+):
+    """An empty checkpoint must not replace history; the caller falls back to trim."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task 1"),
+        Message("assistant", "done 1"),
+        Message("user", "task 2"),
+        Message("assistant", "done 2"),
+    ]
+    logdir = tmp_path / "conversation"
+    manager = LogManager(list(messages), logdir=logdir)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda *a, **k: Message("assistant", content),
+    )
+
+    gen = _resume_via_llm(manager, messages, use_view_branch=use_view_branch)
+    out: list[Message] = []
+    try:
+        while True:
+            out.append(next(gen))
+    except StopIteration as stop:
+        applied = stop.value
+
+    assert applied is False
+    assert [m.content for m in manager.log.messages] == [m.content for m in messages]
+    assert manager.current_view is None
+    assert not (logdir / "RESUME.md").exists()
+    assert any("empty checkpoint" in m.content for m in out)
+
+
 def test_resume_via_llm_keep_recent_appends_tail(tmp_path, monkeypatch):
     """keep_recent_tokens > 0 preserves a tail of recent history after checkpoint."""
     from gptme.logmanager import LogManager
