@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# ACP Health Monitor
+# Session Health Monitor
 # ---------------------------------------------------------------------------
 
 _health_monitor_thread: threading.Thread | None = None
@@ -65,11 +65,12 @@ _HEALTH_CHECK_INTERVAL = 30
 _SESSION_MAX_AGE_MINUTES = 60
 
 
-def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
-    """Start a background thread that periodically checks ACP subprocess health.
+def start_session_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
+    """Start a background thread that periodically checks session health.
 
-    The monitor:
-    - Cleans up sessions idle longer than ``_SESSION_MAX_AGE_MINUTES``
+    Started unconditionally at app creation so every server deployment gets
+    session hygiene, not only those that ever used ACP. The monitor:
+    - Cleans up client-less sessions idle longer than ``_SESSION_MAX_AGE_MINUTES``
     - Detects dead ACP subprocesses and removes their sessions
     - Logs subprocess lifecycle events for observability
     """
@@ -80,30 +81,30 @@ def start_acp_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None:
             try:
                 _run_health_check()
             except Exception:
-                logger.exception("Error in ACP health monitor")
+                logger.exception("Error in session health monitor")
 
     with _health_monitor_lock:
         if _health_monitor_thread is not None:
             logger.debug(
-                "ACP health monitor already running (interval arg %ds ignored)",
+                "Session health monitor already running (interval arg %ds ignored)",
                 interval,
             )
             return  # Already running
 
         _health_monitor_stop.clear()
         _health_monitor_thread = threading.Thread(
-            target=_monitor, daemon=True, name="acp-health-monitor"
+            target=_monitor, daemon=True, name="session-health-monitor"
         )
         _health_monitor_thread.start()
         # Register atexit handler only once — stop/start cycles re-enter this function
         # but must not accumulate duplicate registrations.
         if not _health_monitor_atexit_registered:
-            atexit.register(stop_acp_health_monitor)
+            atexit.register(stop_session_health_monitor)
             _health_monitor_atexit_registered = True
-    logger.info("ACP health monitor started (interval=%ds)", interval)
+    logger.info("Session health monitor started (interval=%ds)", interval)
 
 
-def stop_acp_health_monitor() -> None:
+def stop_session_health_monitor() -> None:
     """Stop the health monitor and clean up all remaining ACP sessions."""
     global _health_monitor_thread
     with _health_monitor_lock:
@@ -123,10 +124,9 @@ def stop_acp_health_monitor() -> None:
 
 def _run_health_check() -> None:
     """Single health check iteration."""
-    # 1. Clean inactive sessions (was never called before this change).
-    # Note: this intentionally applies to all sessions (not just ACP ones) —
-    # the health monitor acts as server-wide session hygiene in ACP deployments.
-    # Non-ACP sessions idle for more than _SESSION_MAX_AGE_MINUTES are also evicted.
+    # 1. Clean inactive, client-less sessions. Applies to all sessions, not just
+    # ACP ones — the monitor is server-wide session hygiene, started for every
+    # deployment at app creation.
     SessionManager.clean_inactive_sessions(max_age_minutes=_SESSION_MAX_AGE_MINUTES)
 
     # 2. Check ACP subprocess health
