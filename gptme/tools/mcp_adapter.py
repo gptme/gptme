@@ -41,6 +41,8 @@ _registry_instance: MCPRegistry | None = None
 
 # Cache of dynamically loaded servers
 _dynamic_servers: dict[str, MCPClient] = {}
+# Maps server name → list of ToolSpec names registered for that server
+_dynamic_server_specs: dict[str, list[str]] = {}
 
 
 def _get_registry() -> MCPRegistry:
@@ -587,23 +589,30 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         client = MCPClient(config=config)
         tools, session = client.connect(name)
 
-        # Store in dynamic servers
-        _dynamic_servers[name] = client
-
-        # Build ToolSpecs and append to the available-tools cache so the new
-        # server is immediately visible without a full cache rebuild (which would
-        # create a duplicate connection for every other server).
+        # Build ToolSpecs first; only register the server after success so that
+        # a spec-build failure doesn't leave a half-initialised entry in
+        # _dynamic_servers (P1c).
         new_specs = _build_tool_specs_for_server(
             server_config, tools.tools, config, client_registry=None
         )
+
+        # Register after successful spec-building
+        _dynamic_servers[name] = client
+        _dynamic_server_specs[name] = [s.name for s in new_specs]
+
         from . import (
             _get_available_tools_cache,
+            _get_loaded_tools,
             _set_available_tools_cache,
         )
 
+        # Update both the available-tools listing cache (P1a — was the only
+        # update before) AND the loaded-tools ContextVar that get_tools() /
+        # tool execution actually reads from.
         cached = _get_available_tools_cache()
         if cached is not None:
             _set_available_tools_cache(cached + new_specs)
+        _get_loaded_tools().extend(new_specs)
 
         tool_names = [tool.name for tool in tools.tools]
         return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
@@ -632,23 +641,27 @@ def unload_mcp_server(name: str) -> str:
 
     # Remove from dynamic servers and close the connection
     client = _dynamic_servers.pop(name)
+    spec_names = set(_dynamic_server_specs.pop(name, []))
     try:
         client.close()
     except Exception:
         logger.debug("Failed to close MCP client for '%s'", name, exc_info=True)
 
-    # Remove this server's ToolSpecs from the available-tools cache
+    # Remove this server's ToolSpecs from both caches, keyed by the exact spec
+    # names recorded at load time (P1b — prefix matching could wrongly drop
+    # tools from a server whose name starts with `name + "."`).
     from . import (
         _get_available_tools_cache,
+        _get_loaded_tools,
         _set_available_tools_cache,
     )
 
-    cached = _get_available_tools_cache()
-    if cached is not None:
-        prefix = f"{name}."
-        _set_available_tools_cache(
-            [t for t in cached if not (t.is_mcp and t.name.startswith(prefix))]
-        )
+    if spec_names:
+        cached = _get_available_tools_cache()
+        if cached is not None:
+            _set_available_tools_cache([t for t in cached if t.name not in spec_names])
+        loaded = _get_loaded_tools()
+        loaded[:] = [t for t in loaded if t.name not in spec_names]
 
     # Disable in config (but don't remove — preserves the server for future load)
     config = get_config()
