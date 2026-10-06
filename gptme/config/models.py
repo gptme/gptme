@@ -36,6 +36,15 @@ def _pop_object_section(config_data: dict, key: str) -> dict:
     return value
 
 
+def _require_str_list(key: str, value):
+    """Require a config value to be a list of strings (None passes through)."""
+    if value is not None and (
+        not isinstance(value, list) or not all(isinstance(v, str) for v in value)
+    ):
+        raise ValueError(f"{key} must be a list of strings")
+    return value
+
+
 def _build_section(section_name: str, section_cls, section_data: dict):
     """Construct a config dataclass and normalize constructor errors."""
     try:
@@ -397,14 +406,16 @@ class ProjectConfig:
                 valid = ", ".join(sorted(VALID_PROJECT_SYSTEM_PROMPTS))
                 raise ValueError(f"prompt.system must be one of: {valid}")
             base_prompt = prompt_data.pop("base_prompt", None)
-            files = prompt_data.pop("files", None)
-            exclude = prompt_data.pop("exclude", [])
+            files = _require_str_list("prompt.files", prompt_data.pop("files", None))
+            exclude = _require_str_list(
+                "prompt.exclude", prompt_data.pop("exclude", [])
+            )
             context_cmd = prompt_data.pop("context_cmd", None)
         else:
             # Old format: flat structure, prompt_data contains the prompt string
             prompt = prompt_data
             base_prompt = config_data.pop("base_prompt", None)
-            files = config_data.pop("files", None)
+            files = _require_str_list("files", config_data.pop("files", None))
             exclude = []
             context_cmd = config_data.pop("context_cmd", None)
 
@@ -437,7 +448,9 @@ class ProjectConfig:
         )
 
         lessons_data = _pop_object_section(config_data, "lessons")
-        lessons = LessonsConfig(dirs=lessons_data.get("dirs", []))
+        lessons = LessonsConfig(
+            dirs=_require_str_list("lessons.dirs", lessons_data.get("dirs", []))
+        )
 
         # Handle unified context config (replaces GPTME_FRESH + context_selector)
         # Support both old and new config formats for backward compatibility
@@ -458,8 +471,10 @@ class ProjectConfig:
 
         plugins_data = _pop_object_section(config_data, "plugins")
         plugins = PluginsConfig(
-            paths=plugins_data.get("paths", []),
-            enabled=plugins_data.get("enabled", []),
+            paths=_require_str_list("plugins.paths", plugins_data.get("paths", [])),
+            enabled=_require_str_list(
+                "plugins.enabled", plugins_data.get("enabled", [])
+            ),
         )
         env = _pop_object_section(config_data, "env")
         mcp: MCPConfig | None = None
