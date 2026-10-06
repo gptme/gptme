@@ -52,11 +52,12 @@ def _ring_terminal_bell() -> None:
 def _play(path: Path, volume: float = DEFAULT_VOLUME) -> bool:
     """Play a sound file to completion (the process exits right after)."""
     from ..util._sound_cmd import play_with_system_command_blocking
-    from ..util.sound import is_audio_available, play_sound_file, set_volume
+    from ..util._sound_sounddevice import is_sounddevice_available
+    from ..util.sound import play_sound_file, set_volume
 
     if play_with_system_command_blocking(path, volume):
         return True
-    if is_audio_available():
+    if is_sounddevice_available():
         set_volume(volume)
         play_sound_file(path, block=True)
         return True
