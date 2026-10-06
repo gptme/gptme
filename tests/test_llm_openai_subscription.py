@@ -1,4 +1,5 @@
 import json
+import logging
 import socket
 import threading
 import time
@@ -953,3 +954,81 @@ def test_stream_interrupt_during_request_aborts_retry(monkeypatch):
             )
         )
     assert calls == 1, "the interrupted call must not send another request"
+
+
+def test_transform_clamps_instructions_to_codex_char_cap(caplog):
+    """Regression: session 411c POSTed 1,053,460 chars and Codex 400'd the cap."""
+    cap = llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
+    head = "HEAD-MARKER"
+    large_context = "x" * (cap + 4884)
+    workspace = "WORKSPACE-MARKER"
+    lesson = "LESSON-MARKER"
+    over = f"{head}\n\n{large_context}\n\n{workspace}\n\n{lesson}"
+    with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai_subscription"):
+        body = llm_openai_subscription._transform_to_codex_request(
+            [], "gpt-5.6-sol", instructions=over
+        )
+    assert len(body["instructions"]) == cap
+    # Remove only the overflow from the largest context message. The smaller
+    # system prompt and workspace/lesson instructions survive byte-for-byte.
+    assert body["instructions"].split("\n\n") == [
+        head,
+        large_context[: -(len(over) - cap)],
+        workspace,
+        lesson,
+    ]
+    assert "removed" in caplog.text
+
+
+def test_transform_keeps_instructions_under_codex_char_cap():
+    text = "You are concise."
+    body = llm_openai_subscription._transform_to_codex_request(
+        [], "gpt-5.6-sol", instructions=text
+    )
+    assert body["instructions"] == text
+
+
+def test_transform_marks_fallback_truncation_boundary(monkeypatch):
+    """Fallback truncation must not concatenate unrelated text fragments."""
+    monkeypatch.setattr(llm_openai_subscription, "CODEX_INSTRUCTIONS_MAX_CHARS", 24)
+    text = "AAAAAA\n\nBBBBBB\n\nCCCCCC\n\nDDDDDD"
+    marker = "<cut>"
+    monkeypatch.setattr(
+        llm_openai_subscription, "CODEX_INSTRUCTIONS_TRUNCATION_MARKER", marker
+    )
+
+    body = llm_openai_subscription._transform_to_codex_request(
+        [], "gpt-5.6-sol", instructions=text
+    )
+
+    assert len(body["instructions"]) == 24
+    assert marker in body["instructions"]
+    assert body["instructions"].startswith(text[:9])
+    assert body["instructions"].endswith(text[-10:])
+
+
+def test_stream_clamps_joined_system_instructions_to_codex_char_cap():
+    """Autocompact can leave joined system/context files a few KB over the cap."""
+    cap = llm_openai_subscription.CODEX_INSTRUCTIONS_MAX_CHARS
+    overflow = 4884
+    first = "A" * 100
+    second = "B" * (cap + overflow - len(first) - 2)
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+    messages = [
+        Message(role="system", content=first),
+        Message(role="system", content=second),
+        Message(role="user", content="hello"),
+    ]
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+        ) as mock_post,
+    ):
+        list(llm_openai_subscription.stream(messages, "gpt-5.6-sol"))
+
+    request_json = mock_post.call_args.kwargs["json"]
+    assert len(request_json["instructions"]) == cap
+    assert request_json["instructions"].startswith(first)
+    assert request_json["instructions"].split("\n\n")[1] == second[:-overflow]

@@ -75,6 +75,12 @@ OAUTH_SCOPES = "openid profile email offline_access"
 CHATGPT_BASE_URL = "https://chatgpt.com"
 CODEX_ENDPOINT = f"{CHATGPT_BASE_URL}/backend-api/codex/responses"
 
+# Codex Responses API rejects `instructions` above this many characters
+# (`invalid_request_error` / `string_above_max_length`). Autocompact sizes
+# remaining system/context messages against a *token* budget and can still
+# join a few KB over this *character* cap (session 411c: 1,053,460 > 1,048,576).
+CODEX_INSTRUCTIONS_MAX_CHARS = 1_048_576
+
 
 def _get_token_storage_path() -> Path:
     """Get path to store OAuth tokens."""
@@ -512,6 +518,46 @@ def _codex_model_and_effort(
     return base_model, reasoning_level
 
 
+CODEX_INSTRUCTIONS_TRUNCATION_MARKER = (
+    "\n\n[... middle of instructions truncated to fit the Codex character cap ...]\n\n"
+)
+
+
+def _clamp_codex_instructions(instructions: str | None) -> str:
+    """Keep Codex `instructions` within the Responses API character cap.
+
+    System messages are joined with blank lines before reaching this boundary.
+    When possible, remove only the overflow from the end of the largest message;
+    this preserves every smaller instruction and avoids sacrificing roughly half
+    the prompt for a small overflow. If no single message can absorb the excess,
+    fall back to retaining both ends of the joined text.
+    """
+    text = instructions or "You are a helpful assistant."
+    limit = CODEX_INSTRUCTIONS_MAX_CHARS
+    if len(text) <= limit:
+        return text
+
+    overflow = len(text) - limit
+    parts = text.split("\n\n")
+    largest_index = max(range(len(parts)), key=lambda index: len(parts[index]))
+    if len(parts[largest_index]) > overflow:
+        parts[largest_index] = parts[largest_index][:-overflow]
+        clamped = "\n\n".join(parts)
+    else:
+        marker = CODEX_INSTRUCTIONS_TRUNCATION_MARKER
+        head_len = (limit - len(marker)) // 2
+        tail_len = limit - len(marker) - head_len
+        clamped = text[:head_len] + marker + text[-tail_len:]
+
+    logger.warning(
+        "Codex instructions exceeded %d chars (%d); removed %d chars to fit the Responses API cap",
+        limit,
+        len(text),
+        overflow,
+    )
+    return clamped
+
+
 def _transform_to_codex_request(
     input_items: list[dict[str, Any]],
     model: str,
@@ -526,7 +572,7 @@ def _transform_to_codex_request(
 
     body: dict[str, Any] = {
         "model": base_model,
-        "instructions": instructions or "You are a helpful assistant.",
+        "instructions": _clamp_codex_instructions(instructions),
         "input": input_items,
         "stream": stream,
         "store": False,
