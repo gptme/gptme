@@ -1155,7 +1155,11 @@ def test_chat_uses_explicit_timeout():
         Message(role="system", content="sys"),
         Message(role="user", content="hello"),
     ]
-    with patch.object(llm_anthropic, "_anthropic", mock_client):
+    with (
+        patch.object(llm_anthropic, "_anthropic", mock_client),
+        patch("gptme.config.get_config") as mock_get_config,
+    ):
+        mock_get_config.return_value.get_env.return_value = None
         llm_anthropic.chat(msgs, model="claude-sonnet-4-6", tools=None)
 
     call_kwargs = mock_client.messages.create.call_args[1]
@@ -1166,3 +1170,40 @@ def test_chat_uses_explicit_timeout():
     assert timeout == 600.0, (
         f"chat() passed timeout={timeout!r}; expected 600.0 (SDK default, explicit to bypass streaming check)"
     )
+
+
+def test_chat_uses_configured_timeout():
+    """chat() passes an explicitly configured API timeout through."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.llm.llm_anthropic as llm_anthropic
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = []
+    mock_response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    mock_response.model = "claude-sonnet-4-6"
+    mock_client.messages.create.return_value = mock_response
+
+    with (
+        patch.object(llm_anthropic, "_anthropic", mock_client),
+        patch("gptme.config.get_config") as mock_get_config,
+    ):
+        mock_get_config.return_value.get_env.side_effect = lambda key, *args: (
+            "300" if key == "LLM_API_TIMEOUT" else None
+        )
+        llm_anthropic.chat(
+            [
+                Message(role="system", content="sys"),
+                Message(role="user", content="hello"),
+            ],
+            model="claude-sonnet-4-6",
+            tools=None,
+        )
+
+    assert mock_client.messages.create.call_args.kwargs["timeout"] == 300.0

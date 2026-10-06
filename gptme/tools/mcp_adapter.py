@@ -114,34 +114,30 @@ def _extract_content_text(
     return str(item)
 
 
-def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
-    """Restart an MCP client by reconnecting to the server"""
+def _restart_mcp_client(
+    server_name: str,
+    config: Config,
+    clients: dict[str, MCPClient] | None = None,
+) -> MCPClient:
+    """Restart an MCP client by reconnecting to the server."""
     from ..mcp.client import MCPClient
 
     logger.info(f"Restarting MCP client for server: {server_name}")
+    client_registry = _mcp_clients if clients is None else clients
+    old_client = client_registry.get(server_name)
 
-    # Get existing client if any
-    old_client = _mcp_clients.get(server_name)
-
-    # Close old client if it exists
     if old_client is not None:
         try:
-            # Clean up the old client
-            if old_client.stack:
-                old_client.loop.run_until_complete(
-                    old_client.stack.__aexit__(None, None, None)
-                )
-            old_client.loop.close()
+            # Use the client's public cleanup path so session, transport, and
+            # loop lifecycle stay centralized in MCPClient.
+            old_client.close()
             logger.debug(f"Closed old MCP client for {server_name}")
         except Exception as e:
             logger.warning(f"Error closing old MCP client for {server_name}: {e}")
 
-    # Create new client and reconnect
     new_client = MCPClient(config=config)
-    tools, session = new_client.connect(server_name)
-
-    # Store the new client
-    _mcp_clients[server_name] = new_client
+    new_client.connect(server_name)
+    client_registry[server_name] = new_client
 
     logger.info(f"Successfully restarted MCP client for {server_name}")
     return new_client
@@ -179,17 +175,7 @@ def _call_mcp_tool_with_retry(
 
             if _is_connection_error(e) and attempt < max_retries:
                 logger.info(f"MCP connection failed for {server_name}, restarting...")
-                if clients is None:
-                    _restart_mcp_client(server_name, config)
-                else:
-                    client = clients.pop(server_name, None)
-                    if client is not None:
-                        client.close()
-                    from ..mcp.client import MCPClient as MCPClientRuntime
-
-                    replacement = MCPClientRuntime(config=config)
-                    replacement.connect(server_name)
-                    clients[server_name] = replacement
+                _restart_mcp_client(server_name, config, clients)
                 continue
             break
 
@@ -595,8 +581,10 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # a spec-build failure doesn't leave a half-initialised entry in
         # _dynamic_servers (P1c).
         try:
+            # Execute functions retain this registry, so connection recovery
+            # replaces the dynamic entry that unload_mcp_server() owns.
             new_specs = _build_tool_specs_for_server(
-                server_config, tools.tools, config, client_registry=None
+                server_config, tools.tools, config, client_registry=_dynamic_servers
             )
         except Exception:
             # connect() succeeded, so this client owns live resources even

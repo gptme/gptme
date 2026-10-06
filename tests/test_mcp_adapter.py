@@ -443,30 +443,46 @@ def test_session_client_retry_stays_in_session_registry(mock_config):
 
 def test_restart_mcp_client_survives_cleanup_failure_and_reconnects(mock_config):
     """Test restart tolerates cleanup failures from the old client."""
-
-    close_calls: list[str] = []
-
-    class BrokenLoop:
-        def close(self) -> None:
-            close_calls.append("close")
-            raise RuntimeError("cleanup boom")
-
-    class OldClient:
-        stack = None
-        loop = BrokenLoop()
-
+    old_client = MagicMock()
+    old_client.close.side_effect = RuntimeError("cleanup boom")
     new_client = MagicMock()
     new_client.connect.return_value = (MagicMock(), MagicMock())
 
-    _mcp_clients["test-server"] = OldClient()  # type: ignore[assignment]
+    _mcp_clients["test-server"] = old_client
 
     with patch("gptme.mcp.client.MCPClient", return_value=new_client):
         restarted = _restart_mcp_client("test-server", mock_config)
 
-    assert close_calls == ["close"]
+    old_client.close.assert_called_once_with()
     assert restarted is new_client
     assert _mcp_clients["test-server"] is new_client
     new_client.connect.assert_called_once_with("test-server")
+
+
+def test_dynamic_client_retry_stays_owned_by_dynamic_registry(mock_config):
+    """A restarted dynamic client must remain unloadable."""
+    from gptme.mcp.client import MCPClient
+    from gptme.tools.mcp_adapter import _call_mcp_tool_with_retry
+
+    old_client = MagicMock(spec=MCPClient)
+    old_client.call_tool.side_effect = RuntimeError("connection closed")
+    replacement = MagicMock(spec=MCPClient)
+    replacement.call_tool.return_value = "recovered"
+    _dynamic_servers["test-server"] = old_client
+
+    with patch("gptme.mcp.client.MCPClient", return_value=replacement):
+        result = _call_mcp_tool_with_retry(
+            "test-server",
+            "test_tool",
+            {},
+            mock_config,
+            clients=_dynamic_servers,
+        )
+
+    assert result == "recovered"
+    old_client.close.assert_called_once_with()
+    assert _dynamic_servers == {"test-server": replacement}
+    assert "test-server" not in _mcp_clients
 
 
 def test_list_loaded_servers_empty():
