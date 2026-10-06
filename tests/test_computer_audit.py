@@ -384,6 +384,47 @@ def test_type_action_without_text_param():
     assert records[0]["text_len"] is None
 
 
+def _records(code: str) -> list[dict]:
+    return _extract_computer_calls([_msg("assistant", _ipython_block(code))])
+
+
+def test_keyword_action_is_audited():
+    """computer(action=...) is valid Python and must not vanish from the audit."""
+    records = _records(
+        "computer(action='left_click', coordinate=(10, 20))\n"
+        "computer(action='type', text='hunter2')\n"
+        "act_and_observe(action='key', text='Return')"
+    )
+    assert [(r["action"], r.get("coordinate"), r.get("text_len")) for r in records] == [
+        ("left_click", [10, 20], None),
+        ("type", None, 7),
+        ("key", None, 6),
+    ]
+    assert records[2]["source"] == "act_and_observe"
+
+
+def test_positional_text_and_coordinate_lengths():
+    records = _records(
+        "computer('type', 'hunter2')\ncomputer('left_click', None, [3, 4])"
+    )
+    assert records[0]["text_len"] == 7
+    assert records[1]["coordinate"] == [3, 4]
+
+
+def test_text_length_with_opposite_quote():
+    records = _records("""computer('type', text="it's a secret")""")
+    assert records[0]["text_len"] == len("it's a secret")
+
+
+def test_commented_out_call_not_counted():
+    assert _records("# computer('left_click', coordinate=(1, 2))\nprint(1)") == []
+
+
+def test_unparseable_code_falls_back_to_regex():
+    records = _records("computer('left_click', coordinate=(1, 2))\n!ls")
+    assert [(r["action"], r["coordinate"]) for r in records] == [("left_click", [1, 2])]
+
+
 # ---------------------------------------------------------------------------
 # CLI: additional paths
 # ---------------------------------------------------------------------------

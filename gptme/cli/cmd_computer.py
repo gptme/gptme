@@ -92,6 +92,97 @@ def _slice_call(code: str, start: int) -> str:
     return code[start:]
 
 
+_DESKTOP_ACTION_FNS = ("computer", "act_and_observe")
+
+
+def _desktop_call_record(
+    fn: str, action: str, ts: str | None, coordinate: Any, text: Any
+) -> dict:
+    record: dict = {"timestamp": ts, "action": action}
+    if fn == "act_and_observe":
+        record["source"] = "act_and_observe"
+    record["risk_level"] = action_risk_level(action)
+    if (
+        isinstance(coordinate, (_ast.Tuple, _ast.List))
+        and len(coordinate.elts) == 2
+        and all(
+            isinstance(e, _ast.Constant) and type(e.value) is int
+            for e in coordinate.elts
+        )
+    ):
+        record["coordinate"] = [e.value for e in coordinate.elts]  # type: ignore[attr-defined]
+    if action in _SENSITIVE_ACTIONS:
+        record["text_len"] = (
+            len(text.value)
+            if isinstance(text, _ast.Constant) and isinstance(text.value, str)
+            else None
+        )
+    return record
+
+
+def _desktop_action_records(code: str, ts: str | None) -> list[tuple[int, dict]]:
+    """Audit records for ``computer()`` / ``act_and_observe()`` calls in ``code``.
+
+    Parses the code so every valid call form is seen (``action=`` keyword,
+    positional ``text``, list coordinates) and calls in comments or strings are
+    not. Code that does not parse falls back to a positional-string regex scan.
+    """
+    try:
+        tree = _ast.parse(code)
+    except (SyntaxError, ValueError):
+        return _desktop_action_records_regex(code, ts)
+
+    line_starts = [0]
+    for line in code.splitlines(keepends=True):
+        line_starts.append(line_starts[-1] + len(line))
+
+    records: list[tuple[int, dict]] = []
+    for node in _ast.walk(tree):
+        if not (
+            isinstance(node, _ast.Call)
+            and isinstance(node.func, _ast.Name)
+            and node.func.id in _DESKTOP_ACTION_FNS
+        ):
+            continue
+        # Bind arguments in signature order: (action, text, coordinate, ...)
+        params: dict[str, Any] = dict(zip(("action", "text", "coordinate"), node.args))
+        params.update({kw.arg: kw.value for kw in node.keywords if kw.arg})
+        action = params.get("action")
+        if not (isinstance(action, _ast.Constant) and isinstance(action.value, str)):
+            continue
+        offset = line_starts[node.lineno - 1] + node.col_offset
+        records.append(
+            (
+                offset,
+                _desktop_call_record(
+                    node.func.id,
+                    action.value,
+                    ts,
+                    params.get("coordinate"),
+                    params.get("text"),
+                ),
+            )
+        )
+    return records
+
+
+def _desktop_action_records_regex(code: str, ts: str | None) -> list[tuple[int, dict]]:
+    """Fallback for code that does not parse: positional-string action only."""
+    records: list[tuple[int, dict]] = []
+    for fn in _DESKTOP_ACTION_FNS:
+        for m in re.finditer(rf"""\b{fn}\s*\(\s*['"]([^'"]+)['"]""", code):
+            call_source = _slice_call(code, m.start())
+            coord_m = re.search(r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", call_source)
+            text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", call_source)
+            record = _desktop_call_record(fn, m.group(1), ts, None, None)
+            if coord_m:
+                record["coordinate"] = [int(coord_m.group(1)), int(coord_m.group(2))]
+            if "text_len" in record:
+                record["text_len"] = len(text_m.group(1)) if text_m else None
+            records.append((m.start(), record))
+    return records
+
+
 def _extract_computer_calls(messages) -> list[dict]:
     """Extract computer-use actions from a message list.
 
@@ -130,59 +221,11 @@ def _extract_computer_calls(messages) -> list[dict]:
 
             # All calls tracked with their byte-offset so desktop and browser
             # calls within the same block are emitted in source order.
-            all_positioned: list[tuple[int, dict]] = []
-
-            # --- computer("action", ...) ---
-            for m in re.finditer(r"""computer\s*\(\s*['"]([^'"]+)['"]""", code):
-                action = m.group(1)
-                call_source = _slice_call(code, m.start())
-                record: dict = {
-                    "timestamp": ts,
-                    "action": action,
-                    "risk_level": action_risk_level(action),
-                }
-                coord_m = re.search(
-                    r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", call_source
-                )
-                if coord_m:
-                    record["coordinate"] = [
-                        int(coord_m.group(1)),
-                        int(coord_m.group(2)),
-                    ]
-                if action in _SENSITIVE_ACTIONS:
-                    text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", call_source)
-                    record["text_len"] = len(text_m.group(1)) if text_m else None
-                all_positioned.append((m.start(), record))
-
-            # --- act_and_observe("action", ...) ---
+            # --- computer(...) / act_and_observe(...) ---
             # The computer-use profile's system prompt recommends act_and_observe() as
             # the primary "act then look" primitive. Without this branch those calls
             # would vanish from the audit trail even though they trigger real actions.
-            for m in re.finditer(r"""act_and_observe\s*\(\s*['"]([^'"]+)['"]""", code):
-                aao_action = m.group(1)
-                aao_call_source = _slice_call(code, m.start())
-                aao_record: dict = {
-                    "timestamp": ts,
-                    "action": aao_action,
-                    "source": "act_and_observe",
-                    "risk_level": action_risk_level(aao_action),
-                }
-                aao_coord_m = re.search(
-                    r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", aao_call_source
-                )
-                if aao_coord_m:
-                    aao_record["coordinate"] = [
-                        int(aao_coord_m.group(1)),
-                        int(aao_coord_m.group(2)),
-                    ]
-                if aao_action in _SENSITIVE_ACTIONS:
-                    aao_text_m = re.search(
-                        r"""text\s*=\s*['"]([^'"]*)['"]""", aao_call_source
-                    )
-                    aao_record["text_len"] = (
-                        len(aao_text_m.group(1)) if aao_text_m else None
-                    )
-                all_positioned.append((m.start(), aao_record))
+            all_positioned: list[tuple[int, dict]] = _desktop_action_records(code, ts)
 
             # --- observe_desktop() ---
             all_positioned.extend(
