@@ -530,7 +530,12 @@ def test_load_unload_mcp_server_registers_toolspecs():
     from unittest.mock import MagicMock, patch
 
     from gptme.config import MCPConfig, MCPServerConfig
-    from gptme.tools import _get_available_tools_cache, _set_available_tools_cache
+    from gptme.tools import (
+        _get_available_tools_cache,
+        _get_loaded_tools,
+        _set_available_tools_cache,
+        set_tools,
+    )
     from gptme.tools.base import ToolSpec
     from gptme.tools.mcp_adapter import (
         _dynamic_servers,
@@ -550,9 +555,11 @@ def test_load_unload_mcp_server_registers_toolspecs():
     )
     test_config = replace(base_config, user=test_user)
 
-    # Seed the available-tools cache with a non-MCP dummy so it is warm
+    # Seed both tool lists with a non-MCP dummy. Dynamic load/unload must update
+    # the listing cache and the executable toolset together.
     dummy = ToolSpec(name="shell", desc="shell", is_mcp=False)
     _set_available_tools_cache([dummy])
+    set_tools([dummy])
     _dynamic_servers.pop(server_name, None)
 
     mock_tools_result = _make_mock_list_tools_result(["run", "list"])
@@ -562,6 +569,7 @@ def test_load_unload_mcp_server_registers_toolspecs():
     try:
         with (
             patch("gptme.tools.mcp_adapter.get_config", return_value=test_config),
+            patch("gptme.tools.mcp_adapter.set_config"),
             patch("gptme.mcp.client.MCPClient", return_value=mock_client),
         ):
             msg = load_mcp_server(server_name)
@@ -575,12 +583,19 @@ def test_load_unload_mcp_server_registers_toolspecs():
         mcp_names = {t.name for t in cached if t.is_mcp}
         assert "testserver.run" in mcp_names
         assert "testserver.list" in mcp_names
-        # Non-MCP dummy is still there
+        # Non-MCP dummy is still there, and the dynamic tools are executable.
         assert any(t.name == "shell" for t in cached)
+        loaded_names = {t.name for t in _get_loaded_tools()}
+        assert {"testserver.run", "testserver.list"} <= loaded_names
 
-        # Unload — ToolSpecs should be removed from cache
-        with patch("gptme.tools.mcp_adapter.get_config", return_value=test_config):
+        # Unload — ToolSpecs should be removed from both lists
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=test_config),
+            patch("gptme.tools.mcp_adapter.set_config") as mock_set_config,
+        ):
             msg = unload_mcp_server(server_name)
+
+        mock_set_config.assert_called_once_with(test_config)
 
         assert "Successfully unloaded" in msg, msg
         assert server_name not in _dynamic_servers
@@ -590,10 +605,171 @@ def test_load_unload_mcp_server_registers_toolspecs():
         mcp_names_after = {t.name for t in cached if t.is_mcp}
         assert "testserver.run" not in mcp_names_after
         assert "testserver.list" not in mcp_names_after
-        # Non-MCP dummy survives
+        # Non-MCP dummy survives and the dynamic tools are no longer executable.
         assert any(t.name == "shell" for t in cached)
+        loaded_names_after = {t.name for t in _get_loaded_tools()}
+        assert "testserver.run" not in loaded_names_after
+        assert "testserver.list" not in loaded_names_after
+        assert "shell" in loaded_names_after
 
     finally:
         # Cleanup global state
         _set_available_tools_cache(None)
+        set_tools([])
+        _dynamic_servers.pop(server_name, None)
+
+
+def test_load_mcp_server_respects_session_allowlist():
+    """Dynamic discovery must not widen a restricted executable toolset."""
+    from dataclasses import replace
+    from unittest.mock import MagicMock, patch
+
+    from gptme.config import MCPConfig, MCPServerConfig
+    from gptme.tools import (
+        _get_available_tools_cache,
+        _get_loaded_tools,
+        _set_available_tools_cache,
+        set_session_allowlist,
+        set_tools,
+    )
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.mcp_adapter import (
+        _dynamic_servers,
+        load_mcp_server,
+        unload_mcp_server,
+    )
+
+    server_name = "restricted"
+    server_cfg = MCPServerConfig(name=server_name, command="echo", enabled=True)
+
+    from gptme.config import get_config
+
+    base_config = get_config()
+    test_user = replace(
+        base_config.user, mcp=MCPConfig(enabled=True, servers=[server_cfg])
+    )
+    test_config = replace(base_config, user=test_user)
+    shell = ToolSpec(name="shell", desc="shell")
+    set_tools([shell])
+    set_session_allowlist(["shell"])
+    _set_available_tools_cache([shell])
+    mock_client = MagicMock()
+    mock_client.connect.return_value = (
+        _make_mock_list_tools_result(["run"]),
+        MagicMock(),
+    )
+
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=test_config),
+            patch("gptme.tools.mcp_adapter.set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_client),
+        ):
+            msg = load_mcp_server(server_name)
+
+        assert "Successfully loaded" in msg
+        assert "restricted.run" in {
+            spec.name for spec in _get_available_tools_cache() or []
+        }
+        assert "restricted.run" not in {spec.name for spec in _get_loaded_tools()}
+
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=test_config),
+            patch("gptme.tools.mcp_adapter.set_config"),
+        ):
+            unload_mcp_server(server_name)
+    finally:
+        set_session_allowlist(None)
+        set_tools([])
+        _set_available_tools_cache(None)
+        _dynamic_servers.pop(server_name, None)
+
+
+def test_load_mcp_server_does_not_duplicate_configured_server():
+    """Loading an already connected configured server must not duplicate its tools."""
+    from dataclasses import replace
+    from unittest.mock import MagicMock, patch
+
+    from gptme.config import MCPConfig, MCPServerConfig
+    from gptme.tools import _loaded_tools_var, _set_available_tools_cache
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.mcp_adapter import _mcp_clients, load_mcp_server
+
+    server_name = "configured"
+    server_cfg = MCPServerConfig(name=server_name, command="echo", enabled=True)
+
+    from gptme.config import get_config
+
+    base_config = get_config()
+    test_user = replace(
+        base_config.user, mcp=MCPConfig(enabled=True, servers=[server_cfg])
+    )
+    test_config = replace(base_config, user=test_user)
+    existing_spec = ToolSpec(name="configured.run", desc="run", is_mcp=True)
+    existing_client = MagicMock()
+    new_client = MagicMock()
+    new_client.connect.return_value = (
+        _make_mock_list_tools_result(["run"]),
+        MagicMock(),
+    )
+
+    _mcp_clients[server_name] = existing_client
+    _loaded_tools_var.set([existing_spec])
+    _set_available_tools_cache([existing_spec])
+
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=test_config),
+            patch("gptme.mcp.client.MCPClient", return_value=new_client),
+        ):
+            msg = load_mcp_server(server_name)
+
+        assert "already loaded" in msg
+        new_client.connect.assert_not_called()
+        assert _loaded_tools_var.get() == [existing_spec]
+    finally:
+        _mcp_clients.pop(server_name, None)
+        _loaded_tools_var.set([])
+        _set_available_tools_cache(None)
+
+
+def test_load_mcp_server_closes_client_when_spec_build_fails():
+    """A connected client must not leak when ToolSpec construction fails."""
+    from dataclasses import replace
+    from unittest.mock import MagicMock, patch
+
+    from gptme.config import MCPConfig, MCPServerConfig
+    from gptme.tools.mcp_adapter import _dynamic_servers, load_mcp_server
+
+    server_name = "broken"
+    server_cfg = MCPServerConfig(name=server_name, command="echo", enabled=True)
+
+    from gptme.config import get_config
+
+    base_config = get_config()
+    test_user = replace(
+        base_config.user, mcp=MCPConfig(enabled=True, servers=[server_cfg])
+    )
+    test_config = replace(base_config, user=test_user)
+    malformed_tool = _make_mock_mcp_tool("run")
+    malformed_tool.inputSchema = {
+        "type": "object",
+        "properties": {"flag": True},
+    }
+    tools_result = MagicMock()
+    tools_result.tools = [malformed_tool]
+    mock_client = MagicMock()
+    mock_client.connect.return_value = (tools_result, MagicMock())
+
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=test_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_client),
+        ):
+            msg = load_mcp_server(server_name)
+
+        assert "Failed to load" in msg
+        assert server_name not in _dynamic_servers
+        mock_client.close.assert_called_once_with()
+    finally:
         _dynamic_servers.pop(server_name, None)

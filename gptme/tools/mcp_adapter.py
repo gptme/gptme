@@ -542,8 +542,10 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     """
     config = get_config()
 
-    # Check if server already loaded
-    if name in _dynamic_servers:
+    # Configured servers are registered in _mcp_clients during startup; dynamic
+    # loads use _dynamic_servers. Reconnecting either kind would duplicate its
+    # ToolSpecs in the active toolset.
+    if name in _mcp_clients or name in _dynamic_servers:
         return f"Server '{name}' is already loaded."
 
     # Check if server is in config
@@ -592,9 +594,22 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # Build ToolSpecs first; only register the server after success so that
         # a spec-build failure doesn't leave a half-initialised entry in
         # _dynamic_servers (P1c).
-        new_specs = _build_tool_specs_for_server(
-            server_config, tools.tools, config, client_registry=None
-        )
+        try:
+            new_specs = _build_tool_specs_for_server(
+                server_config, tools.tools, config, client_registry=None
+            )
+        except Exception:
+            # connect() succeeded, so this client owns live resources even
+            # though it was never published in _dynamic_servers.
+            try:
+                client.close()
+            except Exception:
+                logger.debug(
+                    "Failed to close MCP client for '%s' after spec-build failure",
+                    name,
+                    exc_info=True,
+                )
+            raise
 
         # Register after successful spec-building
         _dynamic_servers[name] = client
@@ -604,15 +619,32 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             _get_available_tools_cache,
             _get_loaded_tools,
             _set_available_tools_cache,
+            get_session_allowlist,
         )
+        from ._allowlist import tool_matches_allowlist
 
-        # Update both the available-tools listing cache (P1a — was the only
-        # update before) AND the loaded-tools ContextVar that get_tools() /
-        # tool execution actually reads from.
+        # Discovery always exposes the new specs, while execution remains inside
+        # the operator's session allowlist. An unrestricted session loads all.
         cached = _get_available_tools_cache()
         if cached is not None:
-            _set_available_tools_cache(cached + new_specs)
-        _get_loaded_tools().extend(new_specs)
+            known_available = {spec.name for spec in cached}
+            _set_available_tools_cache(
+                [
+                    *cached,
+                    *(spec for spec in new_specs if spec.name not in known_available),
+                ]
+            )
+
+        allowlist = get_session_allowlist()
+        permitted_specs = [
+            spec
+            for spec in new_specs
+            if allowlist is None
+            or tool_matches_allowlist(spec.name, allowlist, spec.hints)
+        ]
+        loaded = _get_loaded_tools()
+        known_loaded = {spec.name for spec in loaded}
+        loaded.extend(spec for spec in permitted_specs if spec.name not in known_loaded)
 
         tool_names = [tool.name for tool in tools.tools]
         return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
