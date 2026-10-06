@@ -432,6 +432,16 @@ def test_read_text_capped_treats_nul_prefix_as_binary(tmp_path):
         _read_text_capped(f)
 
 
+def test_read_text_capped_json_file_is_not_binary(tmp_path):
+    """JSON files (application/json MIME) should be read as text, not rejected."""
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "data.json"
+    f.write_text('{"key": "value"}')
+    result = _read_text_capped(f)
+    assert "value" in result
+
+
 def test_read_text_capped_survives_path_removed_after_read(tmp_path, monkeypatch):
     """The size comes from the open handle, so rotation after read can't raise."""
     import pathlib

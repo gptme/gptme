@@ -190,7 +190,12 @@ def _read_text_capped(f: Path) -> str:
     "exactly at the cap" from "truncated".
     """
     mime, _ = mimetypes.guess_type(str(f))
-    if mime and not mime.startswith("text/"):
+    # Block known binary MIME categories; allow text/*, application/json, etc.
+    _BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "font/")
+    if mime and (
+        any(mime.startswith(p) for p in _BINARY_MIME_PREFIXES)
+        or mime == "application/octet-stream"
+    ):
         raise UnicodeDecodeError("utf-8", b"", 0, 1, f"binary MIME type: {mime}")
 
     with f.open() as fh:
