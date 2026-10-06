@@ -653,7 +653,8 @@ def format_msgs(
             if highlight:
                 content = escape_markup(content)
             output += textwrap.shorten(content, width=max_len, placeholder="...")
-            if len(output) < 20:
+            if len(output) < 20 and len(content) > max_len:
+                # shorten() collapsed to (almost) nothing, e.g. one very long word
                 output = content[:max_len] + "..."
         else:
             multiline = len(stripped_content.split("\n")) > 1

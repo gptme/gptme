@@ -311,9 +311,9 @@ def test_chats_read_start_and_context_options(tmp_path, monkeypatch, mocker):
 
     assert result.exit_code == 0, result.output
     assert f"Reading conversation: {conv_id} ({conv_id})" in result.output
-    assert "1. User: first line..." in result.output
-    assert "2. Assistant: second line..." in result.output
-    assert "3. User: third line..." not in result.output
+    assert "1. User: first line" in result.output
+    assert "2. Assistant: second line" in result.output
+    assert "3. User: third line" not in result.output
 
 
 def test_context_index_and_retrieve(tmp_path):
