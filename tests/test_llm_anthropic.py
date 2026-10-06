@@ -1129,14 +1129,13 @@ class TestReasoningEffortStamp:
         assert "reasoning_effort" not in stamped
 
 
-def test_chat_uses_not_given_timeout():
-    """chat() must not hardcode a timeout — it should pass NOT_GIVEN so the
-    client-level timeout (set from LLM_API_TIMEOUT or the SDK default of 600s)
-    takes effect instead of a 60s cap that breaks long Opus/thinking responses.
+def test_chat_uses_explicit_timeout():
+    """chat() must pass an explicit timeout (not NOT_GIVEN) to bypass the SDK's
+    streaming-required check for large max_tokens responses (which fires when
+    timeout is NOT_GIVEN and max_tokens > ~21k, breaking Claude 5 models).
+    Defaults to 600s (SDK default) when LLM_API_TIMEOUT is not set.
     """
     from unittest.mock import MagicMock, patch
-
-    from anthropic import NOT_GIVEN
 
     import gptme.llm.llm_anthropic as llm_anthropic
 
@@ -1160,6 +1159,10 @@ def test_chat_uses_not_given_timeout():
         llm_anthropic.chat(msgs, model="claude-sonnet-4-6", tools=None)
 
     call_kwargs = mock_client.messages.create.call_args[1]
-    assert call_kwargs.get("timeout") is NOT_GIVEN, (
-        f"chat() passed timeout={call_kwargs.get('timeout')!r}; expected NOT_GIVEN"
+    timeout = call_kwargs.get("timeout")
+    assert isinstance(timeout, float), (
+        f"chat() passed timeout={timeout!r}; expected a float to bypass the SDK streaming check"
+    )
+    assert timeout == 600.0, (
+        f"chat() passed timeout={timeout!r}; expected 600.0 (SDK default, explicit to bypass streaming check)"
     )

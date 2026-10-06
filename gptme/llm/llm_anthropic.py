@@ -820,6 +820,24 @@ def _make_schema_tool(
     )
 
 
+def _chat_timeout() -> float:
+    """Return the timeout for non-streaming Anthropic calls.
+
+    Passing NOT_GIVEN triggers the SDK's streaming-required check when
+    max_tokens > ~21k (expected_time > 10 min), which rejects Claude 5 calls.
+    Passing an explicit float bypasses that check while still allowing long
+    responses. Respects LLM_API_TIMEOUT; falls back to the SDK default (600s).
+    """
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
+    try:
+        return float(timeout_str) if timeout_str else 600.0
+    except ValueError:
+        return 600.0
+
+
 @retry_on_overloaded()
 def chat(
     messages: list[Message],
@@ -894,11 +912,11 @@ def chat(
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
         **output_config_kwargs,
         **_fast_mode_kwargs(),
-        # Use NOT_GIVEN to inherit the client-level timeout (set from
-        # LLM_API_TIMEOUT or the SDK default of 600s).  The old hardcoded 60s
-        # cap caused APITimeoutError on long Opus/thinking responses and for
-        # subagent calls that use stream=False.
-        timeout=NOT_GIVEN,
+        # Pass an explicit timeout to avoid the Anthropic SDK's streaming-required
+        # check for large max_tokens responses (it fires when timeout is NOT_GIVEN
+        # and max_tokens > ~21k, raising ValueError for Claude 5 models).
+        # Use LLM_API_TIMEOUT if configured, otherwise the SDK default (600s).
+        timeout=_chat_timeout(),
     )
     content = response.content
     metadata = _stamp_served_model(
