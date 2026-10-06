@@ -475,3 +475,125 @@ def test_mcp_client_close_interrupts_stalled_call():
     assert client.loop.is_closed()
     assert call_error
     assert any("closed" in str(exc).lower() for exc in call_error)
+
+
+def _make_mock_mcp_tool(name: str, description: str = "A test tool"):
+    """Create a minimal mock of an mcp_types.Tool for testing."""
+    from unittest.mock import MagicMock
+
+    tool = MagicMock()
+    tool.name = name
+    tool.description = description
+    tool.inputSchema = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "The query to run"},
+        },
+        "required": ["query"],
+    }
+    tool.annotations = None
+    return tool
+
+
+def _make_mock_list_tools_result(tool_names: list[str]):
+    """Create a mock ListToolsResult-like object."""
+    from unittest.mock import MagicMock
+
+    result = MagicMock()
+    result.tools = [_make_mock_mcp_tool(n) for n in tool_names]
+    return result
+
+
+def test_build_tool_specs_for_server():
+    """_build_tool_specs_for_server builds ToolSpecs without creating a connection."""
+    from gptme.config import MCPServerConfig
+    from gptme.tools.mcp_adapter import _build_tool_specs_for_server
+
+    server_config = MCPServerConfig(name="myserver", command="echo", enabled=True)
+    mock_tools = [_make_mock_mcp_tool("search"), _make_mock_mcp_tool("read")]
+
+    from gptme.config import get_config
+
+    specs = _build_tool_specs_for_server(server_config, mock_tools, get_config())
+
+    assert len(specs) == 2
+    assert specs[0].name == "myserver.search"
+    assert specs[1].name == "myserver.read"
+    assert all(s.is_mcp for s in specs)
+    # Each spec has the 'query' parameter extracted from inputSchema
+    assert any(p.name == "query" for p in specs[0].parameters)
+
+
+def test_load_unload_mcp_server_registers_toolspecs():
+    """load_mcp_server adds ToolSpecs to the cache; unload_mcp_server removes them."""
+    from dataclasses import replace
+    from unittest.mock import MagicMock, patch
+
+    from gptme.config import MCPConfig, MCPServerConfig
+    from gptme.tools import _get_available_tools_cache, _set_available_tools_cache
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.mcp_adapter import (
+        _dynamic_servers,
+        load_mcp_server,
+        unload_mcp_server,
+    )
+
+    server_name = "testserver"
+    server_cfg = MCPServerConfig(name=server_name, command="echo", enabled=True)
+
+    # Build a minimal Config that has the server already in its mcp.servers list
+    from gptme.config import get_config
+
+    base_config = get_config()
+    test_user = replace(
+        base_config.user, mcp=MCPConfig(enabled=True, servers=[server_cfg])
+    )
+    test_config = replace(base_config, user=test_user)
+
+    # Seed the available-tools cache with a non-MCP dummy so it is warm
+    dummy = ToolSpec(name="shell", desc="shell", is_mcp=False)
+    _set_available_tools_cache([dummy])
+    _dynamic_servers.pop(server_name, None)
+
+    mock_tools_result = _make_mock_list_tools_result(["run", "list"])
+    mock_client = MagicMock()
+    mock_client.connect.return_value = (mock_tools_result, MagicMock())
+
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=test_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_client),
+        ):
+            msg = load_mcp_server(server_name)
+
+        assert "Successfully loaded" in msg, msg
+        assert server_name in _dynamic_servers
+
+        # Cache should now include the new server's ToolSpecs
+        cached = _get_available_tools_cache()
+        assert cached is not None
+        mcp_names = {t.name for t in cached if t.is_mcp}
+        assert "testserver.run" in mcp_names
+        assert "testserver.list" in mcp_names
+        # Non-MCP dummy is still there
+        assert any(t.name == "shell" for t in cached)
+
+        # Unload — ToolSpecs should be removed from cache
+        with patch("gptme.tools.mcp_adapter.get_config", return_value=test_config):
+            msg = unload_mcp_server(server_name)
+
+        assert "Successfully unloaded" in msg, msg
+        assert server_name not in _dynamic_servers
+
+        cached = _get_available_tools_cache()
+        assert cached is not None
+        mcp_names_after = {t.name for t in cached if t.is_mcp}
+        assert "testserver.run" not in mcp_names_after
+        assert "testserver.list" not in mcp_names_after
+        # Non-MCP dummy survives
+        assert any(t.name == "shell" for t in cached)
+
+    finally:
+        # Cleanup global state
+        _set_available_tools_cache(None)
+        _dynamic_servers.pop(server_name, None)
