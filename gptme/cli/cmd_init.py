@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 import click
+import tomlkit
 
 from ..util.git_cmd import GIT_CMD
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 GPTME_TOML_TEMPLATE = """\
 [agent]
-name = "{name}"
+name = {name}
 
 [prompt]
 files = [
@@ -175,6 +176,11 @@ def _confirm(message: str, default: bool = True) -> bool:
     return Confirm.ask(message, default=default)
 
 
+def _toml_string(value: str) -> str:
+    """Render ``value`` as a quoted, correctly escaped TOML string."""
+    return tomlkit.string(value).as_string()
+
+
 def _create_file(path: Path, content: str, *, target: Path) -> None:
     """Create a file with given content."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,7 +245,9 @@ def _scaffold_project(
 
     # Project files
     _create_file(
-        target / "gptme.toml", GPTME_TOML_TEMPLATE.format(name=name), target=target
+        target / "gptme.toml",
+        GPTME_TOML_TEMPLATE.format(name=_toml_string(name)),
+        target=target,
     )
     _create_file(
         target / "AGENTS.md",
@@ -359,7 +367,7 @@ def _scaffold_from_template(
         content = toml_path.read_text()
         content = re.sub(
             r'^(name\s*=\s*)"[^"]*"',
-            rf'\1"{name}"',
+            lambda m: m.group(1) + _toml_string(name),
             content,
             count=1,
             flags=re.MULTILINE,
