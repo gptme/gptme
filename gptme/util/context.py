@@ -194,7 +194,7 @@ def _read_text_capped(f: Path) -> str:
     _BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "font/")
     if mime and (
         any(mime.startswith(p) for p in _BINARY_MIME_PREFIXES)
-        or mime == "application/octet-stream"
+        or mime in ("application/octet-stream", "application/pdf")
     ):
         raise UnicodeDecodeError("utf-8", b"", 0, 1, f"binary MIME type: {mime}")
 
