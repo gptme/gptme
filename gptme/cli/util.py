@@ -11,6 +11,7 @@ Command groups are split into separate modules for maintainability:
 - cmd_batch.py: Batch runner for stdin prompts as fresh non-interactive sessions
 - cmd_skills.py: Skills and lessons (list, show, search, install, validate, etc.)
 - cmd_snapshot.py: Workspace snapshot management (list snapshots outside a session)
+- cmd_sound.py: Play notification sounds (e.g. the ding from Claude Code hooks)
 
 Inline command groups (smaller, live in this file):
 - context: RAG index/retrieve plus workspace/git/journal context generation
@@ -68,6 +69,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "skills": (".cmd_skills", "skills"),
     "slop": (".cmd_slop", "slop"),
     "snapshot": (".cmd_snapshot", "snapshot"),
+    "sound": (".cmd_sound", "sound"),
     "stats": (".cmd_stats", "stats"),
     "status": (".cmd_status", "status"),
     "dataset": (".cmd_dataset", "dataset"),
