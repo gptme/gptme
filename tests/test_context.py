@@ -386,6 +386,32 @@ def test_resource_to_codeblock_skips_unreadable_fallback_word(tmp_path, monkeypa
     warning.assert_called_once_with("Skipping unreadable file: %s", inaccessible)
 
 
+def test_resource_to_codeblock_keeps_readable_fallback_word(tmp_path, monkeypatch):
+    """An unreadable path must not hide another readable path in the prompt."""
+    from unittest.mock import patch
+
+    from gptme.util.context import _resource_to_codeblock
+
+    inaccessible = "/private/file.txt"
+    readable = tmp_path / "readable.txt"
+    readable.write_text("readable content")
+    prompt = f"{inaccessible} {readable}"
+
+    original_exists = Path.exists
+
+    def exists(path: Path) -> bool:
+        if str(path) in (prompt, inaccessible):
+            raise PermissionError
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    with patch("gptme.util.context.logger.warning"):
+        result = _resource_to_codeblock(prompt)
+
+    assert result is not None
+    assert "readable content" in result
+
+
 def test_dir_to_listing(tmp_path):
     """Test that _dir_to_listing generates file listings for directories."""
     from gptme.util.context import _dir_to_listing

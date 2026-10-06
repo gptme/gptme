@@ -1015,7 +1015,11 @@ def _resource_to_codeblock(
             return _dir_to_listing(f, prompt)
     except PermissionError:
         logger.warning("Skipping unreadable file: %s", prompt)
-        return None
+        # A single path would be rediscovered by the fallback scan and recurse
+        # forever. For prose containing multiple words, keep scanning so one
+        # unreadable path does not hide another readable resource.
+        if len(prompt.split()) == 1:
+            return None
     except OSError as oserr:
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:
