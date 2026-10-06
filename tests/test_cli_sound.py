@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -58,3 +58,32 @@ def test_play_fails_without_any_player(tmp_path):
         ),
     ):
         assert not _play(tmp_path / "x.wav")
+
+
+def test_afplay_full_volume_has_no_volume_arg(tmp_path):
+    from gptme.util import _sound_cmd
+
+    wav = tmp_path / "x.wav"
+    with (
+        patch.object(
+            _sound_cmd.shutil, "which", side_effect=lambda c: c == "afplay" or None
+        ),
+        patch.object(_sound_cmd.subprocess, "run") as run,
+    ):
+        run.return_value.returncode = 0
+        assert _sound_cmd.play_with_system_command_blocking(wav, 1.0)
+    assert run.call_args.args[0] == ["afplay", str(wav)]
+
+
+def test_falls_through_to_next_player_on_failure(tmp_path):
+    from gptme.util import _sound_cmd
+
+    wav = tmp_path / "x.wav"
+    with (
+        patch.object(_sound_cmd.shutil, "which", return_value="/usr/bin/x"),
+        patch.object(_sound_cmd.subprocess, "run") as run,
+    ):
+        failed, ok = MagicMock(returncode=1, stderr=b""), MagicMock(returncode=0)
+        run.side_effect = [failed, ok]
+        assert _sound_cmd.play_with_system_command_blocking(wav, 1.0)
+    assert [c.args[0][0] for c in run.call_args_list] == ["afplay", "paplay"]
