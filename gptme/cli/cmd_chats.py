@@ -251,6 +251,12 @@ def chats_rename(id: str, name: str):
     """
     from ..logmanager import rename_conversation  # fmt: skip
 
+    # Display names are single-line: a newline would break `chats list`
+    # output, and a blank name would make the chat unidentifiable.
+    name = " ".join(name.split())
+    if not name:
+        raise click.UsageError("NAME must not be blank.")
+
     if not _is_valid_id(id) or not rename_conversation(id, name):
         print(f"Chat '{id}' not found")
         sys.exit(1)
