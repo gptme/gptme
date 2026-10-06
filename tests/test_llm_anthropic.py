@@ -1258,3 +1258,130 @@ def test_chat_large_max_tokens_bypasses_sdk_streaming_check():
             msgs, model="claude-sonnet-4-6", tools=None, max_tokens=64_000
         )
     assert "ok" in content
+
+
+def test_chat_uses_subagent_deadline_timeout():
+    """When a thread-mode subagent sets a deadline via set_subagent_request_timeout(),
+    chat() must pass that value (or min with LLM_API_TIMEOUT) as the request timeout
+    rather than NOT_GIVEN, so slow LLM calls respect the subagent's remaining budget.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import gptme.llm.llm_anthropic as llm_anthropic
+    from gptme.llm.llm_anthropic import set_subagent_request_timeout
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = []
+    mock_response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    mock_response.model = "claude-sonnet-4-6"
+    mock_client.messages.create.return_value = mock_response
+
+    msgs = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hello"),
+    ]
+
+    # Simulate a subagent with 30s remaining budget.
+    set_subagent_request_timeout(30.0)
+    try:
+        with patch.object(llm_anthropic, "_anthropic", mock_client):
+            llm_anthropic.chat(msgs, model="claude-sonnet-4-6", tools=None)
+    finally:
+        set_subagent_request_timeout(None)  # always clean up
+
+    call_kwargs = mock_client.messages.create.call_args[1]
+    actual_timeout = call_kwargs.get("timeout")
+    assert isinstance(actual_timeout, float), (
+        f"Expected a float timeout when subagent deadline is set, got {actual_timeout!r}"
+    )
+    assert actual_timeout == pytest.approx(30.0), (
+        f"Expected timeout≈30.0, got {actual_timeout}"
+    )
+
+
+def test_chat_subagent_deadline_capped_by_llm_api_timeout(monkeypatch):
+    """When LLM_API_TIMEOUT < subagent's remaining budget, use LLM_API_TIMEOUT."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.llm.llm_anthropic as llm_anthropic
+    from gptme.llm.llm_anthropic import set_subagent_request_timeout
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = []
+    mock_response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    mock_response.model = "claude-sonnet-4-6"
+    mock_client.messages.create.return_value = mock_response
+
+    # Simulate LLM_API_TIMEOUT=60 while subagent has 300s remaining.
+    monkeypatch.setenv("LLM_API_TIMEOUT", "60")
+
+    msgs = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hello"),
+    ]
+
+    set_subagent_request_timeout(300.0)
+    try:
+        with patch.object(llm_anthropic, "_anthropic", mock_client):
+            llm_anthropic.chat(msgs, model="claude-sonnet-4-6", tools=None)
+    finally:
+        set_subagent_request_timeout(None)
+
+    call_kwargs = mock_client.messages.create.call_args[1]
+    actual_timeout = call_kwargs.get("timeout")
+    assert isinstance(actual_timeout, float), (
+        f"Expected a float timeout when subagent deadline is set, got {actual_timeout!r}"
+    )
+    assert actual_timeout == pytest.approx(60.0), (
+        f"Expected timeout capped at LLM_API_TIMEOUT=60.0, got {actual_timeout}"
+    )
+
+
+def test_chat_subagent_deadline_cleared_between_calls():
+    """set_subagent_request_timeout(None) restores NOT_GIVEN for subsequent calls."""
+    from unittest.mock import MagicMock, patch
+
+    from anthropic import NOT_GIVEN
+
+    import gptme.llm.llm_anthropic as llm_anthropic
+    from gptme.llm.llm_anthropic import set_subagent_request_timeout
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = []
+    mock_response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    mock_response.model = "claude-sonnet-4-6"
+    mock_client.messages.create.return_value = mock_response
+
+    msgs = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hello"),
+    ]
+
+    # Set, call, clear, call again — the second call must use NOT_GIVEN.
+    set_subagent_request_timeout(30.0)
+    set_subagent_request_timeout(None)
+    with patch.object(llm_anthropic, "_anthropic", mock_client):
+        llm_anthropic.chat(msgs, model="claude-sonnet-4-6", tools=None)
+
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert call_kwargs.get("timeout") is NOT_GIVEN, (
+        f"After clearing deadline, expected NOT_GIVEN, got {call_kwargs.get('timeout')!r}"
+    )

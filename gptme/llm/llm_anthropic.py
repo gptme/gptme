@@ -82,10 +82,29 @@ except ImportError:
 else:
     _HAS_OUTPUT_CONFIG = hasattr(_anthropic_types, "OutputConfigParam")
 
+import threading
+
 logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
+
+# Thread-local storage for per-call LLM request timeout.
+# Thread-mode subagents (stream=False) set this to their remaining max_time so
+# the underlying messages.create() call is bounded by the subagent deadline
+# rather than the client-level default (600s), keeping worker-slot latency
+# proportional to the deadline.
+_subagent_timeout = threading.local()
+
+
+def set_subagent_request_timeout(timeout_s: float | None) -> None:
+    """Set a per-request LLM timeout for the current thread.
+
+    Called by thread-mode subagents before invoking chat().  Pass None to clear.
+    The value is used once per chat() call and should be reset in a finally block
+    by the caller to avoid leaking into subsequent calls on the same thread.
+    """
+    _subagent_timeout.value = timeout_s
 
 
 def _inject_schema_instruction(messages, schema_name):
@@ -906,6 +925,22 @@ def chat(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
+
+    # Compute effective per-call timeout.
+    # Thread-mode subagents set _subagent_timeout.value to their remaining
+    # max_time so long-running requests don't hold the worker slot past the
+    # deadline.  We cap by LLM_API_TIMEOUT (or the SDK's 600s default) so we
+    # never *extend* a user-configured shorter bound.
+    _deadline_timeout = getattr(_subagent_timeout, "value", None)
+    if _deadline_timeout is not None:
+        from ..config import get_config  # fmt: skip
+
+        _cfg_timeout_str = get_config().get_env("LLM_API_TIMEOUT")
+        _client_timeout = float(_cfg_timeout_str) if _cfg_timeout_str else 600.0
+        _call_timeout: float = min(_deadline_timeout, _client_timeout)
+    else:
+        _call_timeout = NOT_GIVEN  # type: ignore[assignment]
+
     response = client.messages.create(  # type: ignore[call-overload]
         model=api_model,
         messages=messages_dicts,
@@ -917,15 +952,9 @@ def chat(
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
         **output_config_kwargs,
         **_fast_mode_kwargs(),
-        # Pass an explicit timeout. With NOT_GIVEN and the SDK default client
-        # timeout, anthropic>=0.5x runs _calculate_nonstreaming_timeout(), which
-        # raises "Streaming is required for operations that may take longer
-        # than 10 minutes" whenever max_tokens > ~21k — i.e. for every model
-        # whose max_output is 64k+ when chat() is called non-streaming (subagent
-        # thread mode, evals). An explicit float bypasses that check; the value
-        # is LLM_API_TIMEOUT when configured, else the SDK default of 600s. The
-        # old hardcoded 60s cap is still avoided (long thinking responses).
-        timeout=_chat_timeout(),
+        # Apply the subagent budget when present; ordinary calls still need
+        # an explicit timeout to bypass the SDK's streaming-required check.
+        timeout=_call_timeout,
     )
     content = response.content
     metadata = _stamp_served_model(
