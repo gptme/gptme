@@ -348,6 +348,9 @@ def execute_patch_impl(
             ) from err
 
     try:
+        if path.exists() and not path.is_file():
+            raise ValueError(f"Cannot patch non-regular file `{path}`")
+
         with open(path, encoding="utf-8") as f:
             original_content = f.read()
 
@@ -365,6 +368,9 @@ def execute_patch_impl(
 
         # Write the patched content, keeping the file's line endings
         newline = file_newline(path)  # before open() truncates the file
+        # Re-check before the write: the read above is fast but not atomic with this write.
+        if path.exists() and not path.is_file():
+            raise ValueError(f"Cannot patch non-regular file `{path}`")
         with open(path, "w", encoding="utf-8", newline=newline) as f:
             # Normalize \r\n → \n unconditionally: files are read in universal-newline
             # mode so the content model is always LF-only. Python's newline= then

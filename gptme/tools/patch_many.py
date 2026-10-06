@@ -214,6 +214,12 @@ def execute_patch_many_impl(
                     f"Atomic patch aborted: file not found `{path}`. No files were written.",
                 )
                 return
+            if not path.is_file():
+                yield Message(
+                    "system",
+                    f"Atomic patch aborted: cannot patch non-regular file `{path}`. No files were written.",
+                )
+                return
 
             try:
                 original = path.read_text(encoding="utf-8")

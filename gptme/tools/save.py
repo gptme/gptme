@@ -75,6 +75,11 @@ def _read_text_safe(path: Path) -> str | None:
         return None
 
 
+def _is_non_regular(path: Path) -> bool:
+    """True if path exists but is not a regular file (FIFO, device, directory)."""
+    return path.exists() and not path.is_file()
+
+
 def _get_preview_lang(path: Path) -> str | None:
     """Use diff highlighting only when the existing file can be previewed as text."""
     if not path.exists():
@@ -143,6 +148,12 @@ def execute_save_impl(
                 f"which is outside current directory {cwd}"
             ) from err
 
+    # Re-check at use time: the target may have been swapped for a FIFO while
+    # the confirmation prompt was pending.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot save to {path_display}: not a regular file")
+        return
+
     # Trigger pre-save hooks (file.save.pre)
     if pre_save_msgs := trigger_hook(
         HookType.FILE_SAVE_PRE,
@@ -172,6 +183,13 @@ def execute_save_impl(
             return
         path.parent.mkdir(parents=True)
         missing_parent_created = True
+
+    # Final guard: re-check immediately before open to close the TOCTOU window.
+    # The earlier check at the top of this block runs before hooks and confirms,
+    # leaving a gap where a FIFO could be swapped in.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot save to {path_display}: not a regular file")
+        return
 
     # Save the file
     with open(path, "w", encoding="utf-8", newline="") as f:
@@ -241,6 +259,12 @@ def execute_append_impl(
                 f"which is outside current directory {cwd}"
             ) from err
 
+    # Re-check at use time: the target may have been swapped for a FIFO while
+    # the confirmation prompt was pending.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot append to {path_display}: not a regular file")
+        return
+
     # Check if folder exists first
     if not path.parent.exists():
         if not confirm(f"Folder {path_display.parent} doesn't exist, create it?"):
@@ -258,7 +282,13 @@ def execute_append_impl(
                 "Append aborted: user refused to create the missing destination file.",
             )
             return
-        path.touch()
+        # The target can appear while this second confirmation is pending.
+        if _is_non_regular(path):
+            yield Message(
+                "system", f"Cannot append to {path_display}: not a regular file"
+            )
+            return
+        path.touch(exist_ok=True)
 
     # Ensure content ends with newline
     if not content.endswith("\n"):
@@ -311,6 +341,12 @@ def _validate_and_execute(
     path = get_path(code, args, kwargs)
     if not path:
         yield Message("system", "No path provided")
+        return
+
+    # Opening a FIFO or device blocks (the preview reads it before the user is
+    # even asked), so refuse anything that exists but is not a regular file.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot {operation} to {path}: not a regular file")
         return
 
     preview_lang = _get_preview_lang(path)
