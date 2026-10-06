@@ -349,32 +349,6 @@ def test_audit_log_cli_no_logs_dir(tmp_path, monkeypatch):
     assert "No conversations found." in result.output
 
 
-# ---------------------------------------------------------------------------
-# _slice_call edge cases (lines 27, 29, 43)
-# ---------------------------------------------------------------------------
-
-from gptme.cli.cmd_computer import _slice_call
-
-
-def test_slice_call_handles_escaped_quote():
-    """Backslash-escaped quote inside string is not treated as end-of-string (lines 27–29)."""
-    code = "computer('type', text='pass\\'word')"
-    result = _slice_call(code, 0)
-    assert result == code
-
-
-def test_slice_call_unclosed_paren_returns_remainder():
-    """When no closing ')' is found the fallback returns the rest of the string (line 43)."""
-    code = "computer('screenshot'"  # no closing paren
-    result = _slice_call(code, 0)
-    assert result == code
-
-
-# ---------------------------------------------------------------------------
-# _extract_computer_calls edge cases (lines 59, 84)
-# ---------------------------------------------------------------------------
-
-
 def test_type_action_without_text_param():
     """type() called without a text= argument sets text_len to None (line 84)."""
     msgs = [_msg("assistant", _ipython_block("computer('type')"))]
@@ -420,9 +394,48 @@ def test_commented_out_call_not_counted():
     assert _records("# computer('left_click', coordinate=(1, 2))\nprint(1)") == []
 
 
-def test_unparseable_code_falls_back_to_regex():
-    records = _records("computer('left_click', coordinate=(1, 2))\n!ls")
+def test_ipython_magic_lines_do_not_hide_calls():
+    records = _records("!ls\ncomputer('left_click', coordinate=(1, 2))\n%time pass")
     assert [(r["action"], r["coordinate"]) for r in records] == [("left_click", [1, 2])]
+
+
+def test_unparseable_code_is_skipped():
+    assert _records("computer('left_click'") == []
+
+
+def test_browser_keyword_calls_are_audited():
+    records = _records(
+        "open_page(url='https://example.com')\n"
+        "click_element(selector='#go')\n"
+        "fill_element(selector='#pw', value='hunter2')\n"
+        "press_key(key='Enter')\n"
+        "scroll_page(direction='up')\n"
+        "select_option(selector='#s', value='a')"
+    )
+    assert [r["action"] for r in records] == [
+        "open_page",
+        "click_element",
+        "fill_element",
+        "press_key",
+        "scroll_page",
+        "select_option",
+    ]
+    assert records[0]["url"] == "https://example.com"
+    assert records[2]["value_len"] == 7
+    assert "value" not in records[2]
+    assert records[3]["key"] == "Enter"
+
+
+def test_browser_call_with_computed_argument_still_audited():
+    records = _records("u = 'https://a.b'\nopen_page(u)\nfill_element('#pw', pw)")
+    assert [(r["action"], r.get("url"), r.get("value_len")) for r in records] == [
+        ("open_page", None, None),
+        ("fill_element", None, None),
+    ]
+
+
+def test_browser_call_in_comment_or_string_not_counted():
+    assert _records("# click_element('#go')\nprint(\"click_element('#x')\")") == []
 
 
 # ---------------------------------------------------------------------------
