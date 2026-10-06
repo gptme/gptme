@@ -236,12 +236,25 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
             calls = pending.get(item["call_id"])
             if calls:
                 calls.pop()
-    orphans = {idx for calls in pending.values() for idx in calls}
+    orphan_calls = {idx for calls in pending.values() for idx in calls}
+    # call IDs that appeared in at least one function_call item
+    seen_call_ids = set(pending.keys())
 
     paired_items: list[dict[str, Any]] = []
     for idx, item in enumerate(items):
+        if (
+            item.get("type") == "function_call_output"
+            and item["call_id"] not in seen_call_ids
+        ):
+            # Drop orphaned results — the call line was never recorded (e.g. corrupt log).
+            # Sending an unmatched result to the Responses API causes a 400 error.
+            logger.warning(
+                "Dropping orphaned tool result for call_id %s (no preceding call recorded)",
+                item["call_id"],
+            )
+            continue
         paired_items.append(item)
-        if idx in orphans:
+        if idx in orphan_calls:
             logger.warning("No tool result recorded for call_id %s", item["call_id"])
             paired_items.append(
                 {
