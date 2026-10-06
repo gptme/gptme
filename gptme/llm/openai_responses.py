@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Responses API rejects `instructions` longer than 1,048,576 characters.
+_RESPONSES_INSTRUCTIONS_MAX_CHARS = 1_048_576
+
 
 class ResponsesStreamError(httpx.RemoteProtocolError):
     """Explicit failure reported inside an HTTP-200 Responses stream."""
@@ -310,6 +313,12 @@ def _messages_dicts_to_responses_input(
         )
 
     instructions = "\n\n".join(instructions_parts).strip() or None
+    if instructions and len(instructions) > _RESPONSES_INSTRUCTIONS_MAX_CHARS:
+        logger.warning(
+            "Truncating instructions to %d chars (Responses API cap)",
+            _RESPONSES_INSTRUCTIONS_MAX_CHARS,
+        )
+        instructions = instructions[:_RESPONSES_INSTRUCTIONS_MAX_CHARS]
     return instructions, _pair_missing_tool_results(items)
 
 
@@ -368,6 +377,12 @@ def _messages_to_responses_input(
         )
 
     instructions = "\n\n".join(instructions_parts).strip() or None
+    if instructions and len(instructions) > _RESPONSES_INSTRUCTIONS_MAX_CHARS:
+        logger.warning(
+            "Truncating instructions to %d chars (Responses API cap)",
+            _RESPONSES_INSTRUCTIONS_MAX_CHARS,
+        )
+        instructions = instructions[:_RESPONSES_INSTRUCTIONS_MAX_CHARS]
     return instructions, _pair_missing_tool_results(items)
 
 
