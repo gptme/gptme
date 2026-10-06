@@ -15,7 +15,10 @@ import pytest
 from gptme.llm import llm_anthropic, llm_openai, llm_openai_subscription
 from gptme.llm.llm_openai import _record_usage
 from gptme.llm.models import get_model
-from gptme.llm.openai_responses import _stream_responses_events, served_model_from
+from gptme.llm.openai_responses import (
+    _stream_responses_events,
+    served_model_from,
+)
 from gptme.message import Message
 
 

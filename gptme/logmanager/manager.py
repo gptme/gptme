@@ -1256,41 +1256,55 @@ def check_for_modifications(log: Log) -> bool:
 
 
 def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
-    from ..util.uri import parse_file_reference
-
     # Pre-compute file mtime as fallback for messages without timestamps
     _file_mtime = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc)
 
-    with open(path, encoding="utf-8") as file:
+    # errors="replace": a log truncated mid-character or otherwise corrupted must
+    # not make the conversation (and every listing that reads it) unreadable.
+    with open(path, encoding="utf-8", errors="replace") as file:
         for line in file:
             line = line.strip()
             if not line:
                 continue
             try:
-                json_data = json.loads(line)
+                message = _message_from_json_line(line, path, _file_mtime)
             except json.JSONDecodeError:
                 logger.warning(f"Skipping malformed JSON line in {path}")
                 continue
-            files = [parse_file_reference(f) for f in json_data.pop("files", [])]
-            file_hashes = json_data.pop("file_hashes", {})
-            if "timestamp" in json_data:
-                json_data["timestamp"] = isoparse(json_data["timestamp"])
-            else:
-                # Old messages lack timestamps; use file mtime instead of
-                # datetime.now() (the Message default) to avoid making old
-                # conversations appear as created "today".
-                json_data["timestamp"] = _file_mtime
-            # Migrate flat metadata format to nested usage format
-            if json_data.get("metadata"):
-                json_data["metadata"] = _migrate_metadata(json_data["metadata"])
-            # Drop unknown keys so logs written by a newer gptme version (with
-            # message fields this version doesn't know about) stay readable
-            # instead of crashing the whole read with a TypeError.
-            unknown = set(json_data) - _MESSAGE_FIELD_NAMES
-            if unknown:
-                logger.warning(
-                    f"Ignoring unknown message field(s) {sorted(unknown)} in {path}"
-                )
-                for key in unknown:
-                    del json_data[key]
-            yield Message(**json_data, files=files, file_hashes=file_hashes)
+            except (ValueError, TypeError, AttributeError, KeyError) as e:
+                logger.warning(f"Skipping invalid message line in {path}: {e}")
+                continue
+            yield message
+
+
+def _message_from_json_line(line: str, path: PathLike, file_mtime: datetime) -> Message:
+    from ..util.uri import parse_file_reference
+
+    json_data = json.loads(line)
+    if not isinstance(json_data, dict):
+        raise ValueError("expected a JSON object")
+    if not isinstance(json_data.get("role"), str) or not isinstance(
+        json_data.get("content"), str
+    ):
+        raise ValueError("'role' and 'content' must be strings")
+    files = [parse_file_reference(f) for f in json_data.pop("files", [])]
+    file_hashes = json_data.pop("file_hashes", {})
+    if "timestamp" in json_data:
+        json_data["timestamp"] = isoparse(json_data["timestamp"])
+    else:
+        # Old messages lack timestamps; use file mtime instead of
+        # datetime.now() (the Message default) to avoid making old
+        # conversations appear as created "today".
+        json_data["timestamp"] = file_mtime
+    # Migrate flat metadata format to nested usage format
+    if json_data.get("metadata"):
+        json_data["metadata"] = _migrate_metadata(json_data["metadata"])
+    # Drop unknown keys so logs written by a newer gptme version (with
+    # message fields this version doesn't know about) stay readable
+    # instead of crashing the whole read with a TypeError.
+    unknown = set(json_data) - _MESSAGE_FIELD_NAMES
+    if unknown:
+        logger.warning(f"Ignoring unknown message field(s) {sorted(unknown)} in {path}")
+        for key in unknown:
+            del json_data[key]
+    return Message(**json_data, files=files, file_hashes=file_hashes)
