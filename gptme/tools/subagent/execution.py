@@ -693,15 +693,12 @@ def _create_subagent_thread(
             )
         )
 
-    # Cap the per-request LLM timeout by the remaining subagent deadline so
-    # a non-streaming LLM call (stream=False) does not hold the worker slot
-    # past the subagent's max_time budget.  The thread-local is cleared in the
-    # finally block below, so it never leaks to subsequent calls on this thread.
+    # Store an absolute deadline so every Anthropic request and retry can
+    # recompute its shrinking budget. Clear it below to avoid thread-local leaks.
     if max_time is not None and started_at is not None:
-        from ...llm.llm_anthropic import set_subagent_request_timeout  # fmt: skip
+        from ...llm.llm_anthropic import set_subagent_request_deadline  # fmt: skip
 
-        _remaining = max(1.0, max_time - (time.time() - started_at))
-        set_subagent_request_timeout(_remaining)
+        set_subagent_request_deadline(started_at + max_time)
 
     try:
         chat(
@@ -718,12 +715,11 @@ def _create_subagent_thread(
             output_format="quiet",
         )
     finally:
-        # Clear the per-request deadline so it does not leak to any subsequent
-        # call on this thread (e.g. steer continuation).
+        # Clear the deadline so it does not leak to a later call on this thread.
         if max_time is not None and started_at is not None:
-            from ...llm.llm_anthropic import set_subagent_request_timeout  # fmt: skip
+            from ...llm.llm_anthropic import set_subagent_request_deadline  # fmt: skip
 
-            set_subagent_request_timeout(None)
+            set_subagent_request_deadline(None)
         # Signal immediately when chat() returns — before any caller cleanup.
         # This closes the window between "chat() last drain" and the caller
         # acquiring _subagents_lock to find `sa`. Any concurrent subagent_steer()

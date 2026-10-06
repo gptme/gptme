@@ -1,5 +1,7 @@
 import logging
 import os
+import threading
+import time
 from collections.abc import Generator, Iterable
 from functools import wraps
 from typing import (
@@ -11,7 +13,7 @@ from typing import (
     cast,
 )
 
-from httpx import NetworkError, RemoteProtocolError, TimeoutException
+from httpx import NetworkError, RemoteProtocolError, Timeout, TimeoutException
 from pydantic import BaseModel  # fmt: skip
 
 from ..constants import TEMPERATURE, TOP_P
@@ -82,29 +84,30 @@ except ImportError:
 else:
     _HAS_OUTPUT_CONFIG = hasattr(_anthropic_types, "OutputConfigParam")
 
-import threading
-
 logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
 
-# Thread-local storage for per-call LLM request timeout.
-# Thread-mode subagents (stream=False) set this to their remaining max_time so
-# the underlying messages.create() call is bounded by the subagent deadline
-# rather than the client-level default (600s), keeping worker-slot latency
-# proportional to the deadline.
-_subagent_timeout = threading.local()
+# Thread-local absolute deadline for thread-mode subagent requests. The absolute
+# value lets each request and retry recompute its shrinking remaining budget.
+_subagent_deadline = threading.local()
 
 
-def set_subagent_request_timeout(timeout_s: float | None) -> None:
-    """Set a per-request LLM timeout for the current thread.
+def set_subagent_request_deadline(deadline: float | None) -> None:
+    """Set an absolute wall-clock deadline for the current thread."""
+    _subagent_deadline.value = deadline
 
-    Called by thread-mode subagents before invoking chat().  Pass None to clear.
-    The value is used once per chat() call and should be reset in a finally block
-    by the caller to avoid leaking into subsequent calls on the same thread.
-    """
-    _subagent_timeout.value = timeout_s
+
+def _remaining_subagent_timeout() -> float | None:
+    """Return the current deadline budget, raising once it has expired."""
+    deadline = getattr(_subagent_deadline, "value", None)
+    if deadline is None:
+        return None
+    remaining = deadline - time.time()
+    if remaining <= 0:
+        raise TimeoutError("Subagent deadline expired before LLM request")
+    return remaining
 
 
 def _inject_schema_instruction(messages, schema_name):
@@ -626,6 +629,10 @@ def retry_on_overloaded(
             generation = current_generation()
             attempts = max_retries if max_retries is not None else get_max_retries()
             for attempt in range(attempts):
+                # Do not start or retry a request after a thread-mode subagent's
+                # deadline. The wrapped function performs the same check when it
+                # computes the per-request timeout.
+                _remaining_subagent_timeout()
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
@@ -926,18 +933,20 @@ def chat(
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
 
-    # Compute effective per-call timeout.
-    # Thread-mode subagents set _subagent_timeout.value to their remaining
-    # max_time so long-running requests don't hold the worker slot past the
-    # deadline.  We cap by LLM_API_TIMEOUT (or the SDK's 600s default) so we
-    # never *extend* a user-configured shorter bound.
-    _deadline_timeout = getattr(_subagent_timeout, "value", None)
+    # Recompute the remaining absolute deadline for every request and retry.
+    # Cap against the selected client's actual timeout rather than current
+    # thread config: subagents can change workspace config while reusing a
+    # client created by the parent.
+    _deadline_timeout = _remaining_subagent_timeout()
     if _deadline_timeout is not None:
-        from ..config import get_config  # fmt: skip
-
-        _cfg_timeout_str = get_config().get_env("LLM_API_TIMEOUT")
-        _client_timeout = float(_cfg_timeout_str) if _cfg_timeout_str else 600.0
-        _call_timeout: float = min(_deadline_timeout, _client_timeout)
+        _client_timeout = client.timeout
+        if isinstance(_client_timeout, Timeout):
+            _client_timeout = _client_timeout.read
+        _call_timeout: float = (
+            min(_deadline_timeout, _client_timeout)
+            if _client_timeout is not None
+            else _deadline_timeout
+        )
     else:
         _call_timeout = NOT_GIVEN  # type: ignore[assignment]
 

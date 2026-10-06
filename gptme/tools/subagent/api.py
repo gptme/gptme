@@ -1545,6 +1545,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
 
     prompt_queue_closed = threading.Event()
     start_gate = threading.Event()
+    continuation_started_at = time.time()
 
     def run_continuation() -> None:
         bind_thread_generation()
@@ -1574,7 +1575,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                         reasoning_effort=sa.reasoning_effort,
                         prompt_queue_closed=prompt_queue_closed,
                         max_time=sa.max_time,
-                        started_at=sa.started_at,
+                        started_at=continuation_started_at,
                         resume=True,
                     )
                 elif sa.execution_mode == "subprocess":
@@ -1692,6 +1693,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
         redact_secrets=sa.redact_secrets,
         context_window=sa.context_window,
         max_time=sa.max_time,
+        started_at=continuation_started_at,
         context_turns=sa.context_turns,
         reasoning_effort=sa.reasoning_effort,
         fork_message_count=sa.fork_message_count,
