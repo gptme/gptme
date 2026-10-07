@@ -248,6 +248,19 @@ class TestModelsInfo:
         assert result.returncode == 0, result.stderr
         assert "Provider: anthropic" in result.stdout
 
+    def test_custom_provider_model_exits_0(self):
+        """A configured custom provider resolves to provider='unknown' internally
+        but is valid — must exit 0 and print model data, not exit 1."""
+        from gptme.llm import CustomProvider
+
+        with patch(
+            "gptme.llm.get_provider_from_model",
+            return_value=CustomProvider("my-custom"),
+        ):
+            result = self._run_models_info("my-custom/my-model")
+        assert result.returncode == 0, result.stderr
+        assert "Unrecognized provider" not in result.stderr
+
 
 class TestModelsRecommended:
     """Tests for 'models recommended' (rendered into docs/evals.rst at build time)."""
