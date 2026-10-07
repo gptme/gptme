@@ -171,8 +171,9 @@ class _DynamicHelpCommand(click.Command):
         if first_positional is not None:
             from .util import UTIL_SUBCOMMANDS
 
-            if first_positional in UTIL_SUBCOMMANDS or shutil.which(
-                f"gptme-{first_positional}"
+            if first_positional in UTIL_SUBCOMMANDS or (
+                first_positional != "search"
+                and shutil.which(f"gptme-{first_positional}")
             ):
                 # Otherwise eager or recognized top-level options such as --help,
                 # --name or --model are consumed before main() can forward them
