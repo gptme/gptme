@@ -212,6 +212,7 @@ def test_dynamic_spec_failure_preserves_borrowed_client(
             assert [s.name for s in specs] == ["later.test_tool"]
             earlier.close.assert_not_called()
     assert _dynamic_servers["test-server"] is mock_mcp_client
+    assert isinstance(mock_mcp_client, MagicMock)
     mock_mcp_client.close.assert_not_called()
 
 
