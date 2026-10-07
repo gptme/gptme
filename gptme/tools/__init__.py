@@ -857,6 +857,32 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
     return available_tools
 
 
+def extend_tools_cache(new_specs: list[ToolSpec]) -> None:
+    """Extend the cached available-tools list with newly-loaded ToolSpecs.
+
+    Called by mcp_adapter.load_mcp_server() so dynamically-loaded server tools
+    are immediately invocable without discarding and rebuilding the whole cache.
+    Does nothing when the cache is cold (None) — the next get_available_tools()
+    call will pick up the new server via create_mcp_tools() instead.
+    """
+    cached = _get_available_tools_cache()
+    if cached is not None:
+        _set_available_tools_cache([*cached, *new_specs])
+
+
+def remove_from_tools_cache(server_name: str) -> None:
+    """Remove a server's ToolSpecs from the cache when it is unloaded.
+
+    Called by mcp_adapter.unload_mcp_server(). Filters out all specs whose
+    names start with ``server_name.`` so the cache stays coherent without a
+    full rebuild.
+    """
+    cached = _get_available_tools_cache()
+    if cached is not None:
+        prefix = f"{server_name}."
+        _set_available_tools_cache([s for s in cached if not s.name.startswith(prefix)])
+
+
 def clear_tools():
     """Clear all context-local tool state.
 

@@ -196,6 +196,80 @@ def _call_mcp_tool_with_retry(
     raise last_error
 
 
+def _build_tool_specs_for_server(
+    server_config: MCPServerConfig,
+    tools,  # mcp_types.ListToolsResult
+    config: Config,
+    client_registry: dict[str, MCPClient],
+) -> list[ToolSpec]:
+    """Build ToolSpecs for a connected MCP server's tools.
+
+    Extracted from create_mcp_tools() so load_mcp_server() can register specs
+    without re-connecting (which would double-connect and waste a connection).
+    """
+    specs: list[ToolSpec] = []
+    for mcp_tool in tools.tools:
+        parameters = []
+        input_schema = mcp_tool.inputSchema
+        if isinstance(input_schema, dict) and "properties" in input_schema:
+            required_params = input_schema.get("required", [])
+            for param_name, param_schema in input_schema["properties"].items():
+                parameters.append(
+                    Parameter(
+                        name=param_name,
+                        description=param_schema.get("description", ""),
+                        type=param_schema.get("type", "string"),
+                        required=param_name in required_params,
+                    )
+                )
+
+        example = {
+            param.name: f"<{param.type}>" for param in parameters if param.required
+        }
+        example_str = json.dumps(example, indent=2)
+
+        name = f"{server_config.name}.{mcp_tool.name}"
+
+        def make_examples(tool_name: str, example_content: str) -> Callable[[str], str]:
+            return lambda tool_format: ToolUse(
+                tool_name, [], example_content
+            ).to_output(cast(ToolFormat, tool_format))
+
+        hints: frozenset[str] = frozenset()
+        if mcp_tool.annotations:
+            ann = mcp_tool.annotations
+            hint_set: set[str] = set()
+            if ann.readOnlyHint:
+                hint_set.add("read-only")
+            if ann.destructiveHint is not False and not ann.readOnlyHint:
+                hint_set.add("destructive")
+            if ann.idempotentHint:
+                hint_set.add("idempotent")
+            if ann.openWorldHint is False:
+                hint_set.add("closed-world")
+            hints = frozenset(hint_set)
+
+        specs.append(
+            ToolSpec(
+                name=name,
+                desc=f"[{server_config.name}] {mcp_tool.description}",
+                parameters=parameters,
+                execute=create_mcp_execute_function(
+                    mcp_tool.name,
+                    server_config.name,
+                    config,
+                    clients=client_registry,
+                ),
+                available=True,
+                examples=make_examples(name, example_str),
+                block_types=[name],
+                is_mcp=True,
+                hints=hints,
+            )
+        )
+    return specs
+
+
 # Function to create MCP tools
 def create_mcp_tools(
     config: Config,
@@ -247,74 +321,11 @@ def create_mcp_tools(
             client_registry[server_config.name] = client
             owned_this_call.append(server_config.name)
 
-            # Create tool specs for each tool
-            for mcp_tool in tools.tools:
-                # Extract parameters
-                parameters = []
-                # Check if the tool has inputSchema with properties
-                input_schema = mcp_tool.inputSchema
-                if isinstance(input_schema, dict) and "properties" in input_schema:
-                    required_params = input_schema.get("required", [])
-                    for param_name, param_schema in input_schema["properties"].items():
-                        parameters.append(
-                            Parameter(
-                                name=param_name,
-                                description=param_schema.get("description", ""),
-                                type=param_schema.get("type", "string"),
-                                required=param_name in required_params,
-                            )
-                        )
-
-                # Add example usage in the correct format
-                example = {
-                    param.name: f"<{param.type}>"
-                    for param in parameters
-                    if param.required
-                }
-                example_str = json.dumps(example, indent=2)
-
-                name = f"{server_config.name}.{mcp_tool.name}"
-
-                def make_examples(
-                    tool_name: str, example_content: str
-                ) -> Callable[[str], str]:
-                    return lambda tool_format: ToolUse(
-                        tool_name, [], example_content
-                    ).to_output(cast(ToolFormat, tool_format))
-
-                # Extract MCP ToolAnnotations into hint tags
-                hints: frozenset[str] = frozenset()
-                if mcp_tool.annotations:
-                    ann = mcp_tool.annotations
-                    hint_set: set[str] = set()
-                    if ann.readOnlyHint:
-                        hint_set.add("read-only")
-                    if ann.destructiveHint is not False and not ann.readOnlyHint:
-                        hint_set.add("destructive")
-                    if ann.idempotentHint:
-                        hint_set.add("idempotent")
-                    if ann.openWorldHint is False:
-                        hint_set.add("closed-world")
-                    hints = frozenset(hint_set)
-
-                tool_spec = ToolSpec(
-                    name=name,
-                    desc=f"[{server_config.name}] {mcp_tool.description}",
-                    parameters=parameters,
-                    execute=create_mcp_execute_function(
-                        mcp_tool.name,
-                        server_config.name,
-                        client_config,
-                        clients=client_registry,
-                    ),
-                    available=True,
-                    examples=make_examples(name, example_str),
-                    block_types=[name],
-                    is_mcp=True,
-                    hints=hints,
+            tool_specs.extend(
+                _build_tool_specs_for_server(
+                    server_config, tools, client_config, client_registry
                 )
-
-                tool_specs.append(tool_spec)
+            )
 
         except (Exception, asyncio.CancelledError) as e:
             if client is not None:
@@ -575,6 +586,16 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # Store in dynamic servers
         _dynamic_servers[name] = client
 
+        # Build ToolSpecs and register them in the available-tools cache so the
+        # new tools are immediately invocable without a full cache rebuild.
+        new_specs = _build_tool_specs_for_server(
+            server_config, tools, config, _dynamic_servers
+        )
+        if new_specs:
+            from gptme.tools import extend_tools_cache  # lazy import avoids circular
+
+            extend_tools_cache(new_specs)
+
         tool_names = [tool.name for tool in tools.tools]
         return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
 
@@ -602,6 +623,11 @@ def unload_mcp_server(name: str) -> str:
 
     # Remove from dynamic servers
     del _dynamic_servers[name]
+
+    # Remove this server's ToolSpecs from the available-tools cache
+    from gptme.tools import remove_from_tools_cache  # lazy import avoids circular
+
+    remove_from_tools_cache(name)
 
     # Optionally disable in config (but don't remove)
     config = get_config()

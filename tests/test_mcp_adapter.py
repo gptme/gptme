@@ -369,6 +369,42 @@ def test_get_mcp_server_info_not_found():
         assert "not found" in result
 
 
+def test_load_mcp_server_registers_toolspecs(mock_config, mock_mcp_client):
+    """load_mcp_server must register ToolSpecs in the available-tools cache.
+
+    Regression for gptme/gptme#4069: /mcp load reported success but the server's
+    tools were never invocable because load_mcp_server() never built ToolSpecs.
+    """
+    from gptme.tools import _get_available_tools_cache, _set_available_tools_cache
+
+    # Prime a warm (but empty) cache to simulate an already-running session.
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            load_mcp_server("test-server")
+
+        cached = _get_available_tools_cache()
+        assert cached is not None, "cache should still be warm after load"
+        names = [t.name for t in cached]
+        assert "test-server.test_tool" in names, (
+            f"expected test-server.test_tool in cache after load, got {names}"
+        )
+
+        # Unload must remove the specs from the cache.
+        unload_mcp_server("test-server")
+        cached_after = _get_available_tools_cache()
+        assert cached_after is not None
+        names_after = [t.name for t in cached_after]
+        assert "test-server.test_tool" not in names_after, (
+            "test-server.test_tool should be removed from cache after unload"
+        )
+    finally:
+        _set_available_tools_cache(None)  # restore cold cache for other tests
+
+
 def test_load_mcp_server_already_loaded():
     """Test load_mcp_server when server is already loaded."""
     # Add server to dynamic servers cache
