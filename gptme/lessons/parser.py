@@ -182,6 +182,17 @@ def _glob_to_keywords(glob_pattern: str) -> list[str]:
     return list(dict.fromkeys(keywords))  # Remove duplicates while preserving order
 
 
+def _frontmatter_name(frontmatter: dict) -> str | None:
+    """Return a scalar frontmatter ``name`` as a string.
+
+    YAML parses ``name: 2024`` or ``name: true`` as int/bool; downstream
+    code (skill indexing) assumes a string. Collection values are malformed
+    names, so leave them unset rather than exposing their Python repr.
+    """
+    name = frontmatter.get("name")
+    return None if name is None or isinstance(name, (list, dict)) else str(name)
+
+
 def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
     """Translate Cursor .mdc frontmatter to gptme LessonMetadata.
 
@@ -192,7 +203,7 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
         Translated LessonMetadata
     """
     # Start with basic fields
-    name = frontmatter.get("name")
+    name = _frontmatter_name(frontmatter)
     description = frontmatter.get("description")
 
     # Translate globs to keywords
@@ -346,7 +357,7 @@ def parse_lesson(path: Path) -> Lesson:
                     else:
                         # Standard gptme lesson or Anthropic skill format
                         # Extract Anthropic skill format fields
-                        name = frontmatter.get("name")
+                        name = _frontmatter_name(frontmatter)
                         description = frontmatter.get("description")
                         lesson_id = frontmatter.get("id")
 
