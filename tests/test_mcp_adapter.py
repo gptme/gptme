@@ -882,3 +882,28 @@ def test_boolean_schema_execution_errors_are_messages(
     assert "flag: No description (Optional)" in messages[0].content
     if content == '{"flag":':
         assert "valid JSON object" in messages[0].content
+
+
+def test_cold_discovery_reuses_dynamic_connection(mock_config, mock_mcp_client):
+    from gptme import tools as tools_mod
+
+    tools_mod.clear_tools()
+    mock_mcp_client.tools = mock_mcp_client.connect.return_value[0]
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch(
+                "gptme.mcp.client.MCPClient", return_value=mock_mcp_client
+            ) as factory,
+        ):
+            assert "Successfully loaded" in load_mcp_server("test-server")
+            specs = create_mcp_tools(mock_config)
+            assert [spec.name for spec in specs] == ["test-server.test_tool"]
+            assert factory.call_count == 1
+            assert "test-server" not in _mcp_clients
+            assert "Successfully unloaded" in unload_mcp_server("test-server")
+            assert "Successfully loaded" in load_mcp_server("test-server")
+            assert factory.call_count == 2
+            unload_mcp_server("test-server")
+    finally:
+        tools_mod.clear_tools()
