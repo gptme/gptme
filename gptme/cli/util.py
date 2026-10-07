@@ -434,12 +434,12 @@ def tokens_count(text: str | None, model: str, file: str | None):
     try:
         if file:
             if file == "-":
-                text = sys.stdin.read()
+                text = sys.stdin.buffer.read().decode("utf-8")
             else:
-                with open(file) as f:
+                with open(file, encoding="utf-8") as f:
                     text = f.read()
         elif text == "-":
-            text = sys.stdin.read()
+            text = sys.stdin.buffer.read().decode("utf-8")
     except UnicodeDecodeError as e:
         source = "stdin" if file in (None, "-") else file
         raise click.ClickException(
